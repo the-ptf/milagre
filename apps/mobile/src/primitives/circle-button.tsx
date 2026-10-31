@@ -4,7 +4,19 @@ import { Icon, type IconData } from "../icons";
 import { tap } from "./tap";
 
 /** The round bordered buttons inside sheets (close, back, done). */
-export function CircleButton({ label, icon, onPress, filled = false }: { label: string; icon: IconData; onPress?: () => void; filled?: boolean }) {
+export function CircleButton({
+  label,
+  icon,
+  iconSize = 20,
+  onPress,
+  filled = false,
+}: {
+  label: string;
+  icon: IconData;
+  iconSize?: number;
+  onPress?: () => void;
+  filled?: boolean;
+}) {
   const { colors } = useTheme();
   const body = (
     <View
@@ -19,7 +31,7 @@ export function CircleButton({ label, icon, onPress, filled = false }: { label: 
         borderColor: colors.lineStrong,
       }}
     >
-      <Icon icon={icon} size={20} tone={filled ? "onAccent" : "ink"} />
+      <Icon icon={icon} size={iconSize} tone={filled ? "onAccent" : "ink"} />
     </View>
   );
   if (!onPress) return body;

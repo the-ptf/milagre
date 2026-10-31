@@ -25,21 +25,85 @@ function isPageUrl(url) {
 // refused: a page in the panel is a page the agent is building, not an app the user installed.
 const ALLOWED_PERMISSIONS = new Set(["clipboard-sanitized-write", "fullscreen", "pointerLock"]);
 
+// A two-finger swipe sideways goes back or forward, as in Chrome and Safari. Chromium does that by overscroll, which a
+// <webview> doesn't get, so each page runs this in a world of its own the page can't see: a sideways trackpad scroll
+// that nothing on the page takes, far enough, is a swipe.
+const SWIPE_DISTANCE = 120;
+// Wheel events further apart than this start a new gesture; momentum keeps them closer.
+const SWIPE_GAP_MS = 250;
+const SWIPE_WORLD = 1201;
+
+/**
+ * Decides, one wheel event at a time, when a gesture is a swipe back or forward. Sent into the page as source.
+ * @param {number} distance
+ * @param {number} gap
+ */
+function swipeTracker(distance, gap) {
+  let gesture = { dx: 0, dy: 0, at: -Infinity, over: false };
+  /** @param {{ dx: number; dy: number; time: number; pageScrolls: boolean }} wheel */
+  return ({ dx, dy, time, pageScrolls }) => {
+    if (time - gesture.at > gap) gesture = { dx: 0, dy: 0, at: time, over: false };
+    gesture.at = time;
+    if (gesture.over) return null;
+    // Something on the page scrolls sideways: the whole gesture is its, as in Chrome.
+    if (pageScrolls) {
+      gesture.over = true;
+      return null;
+    }
+    gesture.dx += dx;
+    gesture.dy += dy;
+    if (Math.abs(gesture.dx) < distance || Math.abs(gesture.dx) < 2 * Math.abs(gesture.dy)) return null;
+    gesture.over = true;
+    return gesture.dx < 0 ? "back" : "forward";
+  };
+}
+
+// ponytail: scrollLeft as in left-to-right pages; an RTL page's scroller may swallow or pass a swipe wrongly.
+const SWIPE_SCRIPT = `(() => {
+  const step = (${swipeTracker})(${SWIPE_DISTANCE}, ${SWIPE_GAP_MS});
+  const scrolls = (node, dx) => {
+    for (let el = node instanceof Element ? node : null; el; el = el.parentElement) {
+      const root = el === document.scrollingElement;
+      if (!root && !/auto|scroll|overlay/.test(getComputedStyle(el).overflowX)) continue;
+      if (el.scrollWidth <= el.clientWidth) continue;
+      if (dx < 0 ? el.scrollLeft > 0 : el.scrollLeft + el.clientWidth < el.scrollWidth - 1) return true;
+    }
+    return false;
+  };
+  addEventListener("wheel", (event) => {
+    if (event.ctrlKey || event.defaultPrevented || event.deltaMode !== 0) return;
+    const pageScrolls = Math.abs(event.deltaX) > Math.abs(event.deltaY) && scrolls(event.target, event.deltaX);
+    const go = step({ dx: event.deltaX, dy: event.deltaY, time: event.timeStamp, pageScrolls });
+    if (go === "back") history.back();
+    else if (go === "forward") history.forward();
+  }, { passive: true });
+})()`;
+
+/** What a page's session may grant: the same few permissions for the shared session and each remote Chat's. */
+function hardenBrowserSession(session) {
+  session.setPermissionRequestHandler((_contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
+  session.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+}
+
 /**
  * Locks down the window's <webview> guests and wires each page to the window's renderer: a new window becomes a tab
  * ("browser-panel:open-tab"), and the app's shortcuts, ⌘L and ⌘R pressed in a page reach the renderer as if pressed
  * there ("app:shortcut", "browser-panel:key").
+ * A page of a Chat on another computer attaches in that Chat's own session, once `remoteReady` says its proxy is set
+ * (browser-remote-sessions.cjs); every other page in the shared one.
  * @param {Electron.WebContents} host The main window's webContents.
- * @param {{ session: Electron.Session; openExternal: (url: string) => void; platform?: NodeJS.Platform }} options
+ * @param {{ session: Electron.Session; openExternal: (url: string) => void; platform?: NodeJS.Platform; remoteReady?: (partition: string | undefined) => boolean }} options
  */
-function hardenBrowserGuests(host, { session, openExternal, platform = process.platform }) {
-  session.setPermissionRequestHandler((_contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
-  session.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+function hardenBrowserGuests(host, { session, openExternal, platform = process.platform, remoteReady = () => false }) {
+  hardenBrowserSession(session);
   host.on("will-attach-webview", (event, webPreferences, params) => {
-    if (params.partition !== BROWSER_PARTITION || !isPageUrl(params.src)) {
+    const partition = params.partition === BROWSER_PARTITION || remoteReady(params.partition) ? params.partition : null;
+    if (!partition || !isPageUrl(params.src)) {
       event.preventDefault();
       return;
     }
+    // The renderer's webpreferences attribute lands here too: the session is set again, so it can't name another.
+    webPreferences.partition = partition;
     delete webPreferences.preload;
     webPreferences.nodeIntegration = false;
     webPreferences.nodeIntegrationInSubFrames = false;
@@ -79,6 +143,7 @@ function guardGuest(host, guest, { openExternal, platform }) {
   guest.on("will-frame-navigate", (event) => {
     if (!event.isMainFrame && /^(file|chrome|devtools|milagre[\w-]*):/i.test(event.url)) event.preventDefault();
   });
+  guest.on("dom-ready", () => void guest.executeJavaScriptInIsolatedWorld(SWIPE_WORLD, [{ code: SWIPE_SCRIPT }]).catch(() => {}));
   guest.on("before-input-event", (event, input) => {
     // The keys the window catches from every frame (keybindings.json's forwarded commands), sent on as the window's own.
     if (isAppShortcut(input, platform)) {
@@ -118,4 +183,4 @@ async function captureBrowserPage(host, contentsId, rect) {
   return (image.getSize().width > 800 ? image.resize({ width: 800 }) : image).toDataURL();
 }
 
-module.exports = { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, isPageUrl };
+module.exports = { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession, isPageUrl, swipeTracker };

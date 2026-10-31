@@ -90,6 +90,7 @@ function packagedRaster(executable) {
 async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, onboarding, recoverOwnership }) {
   console.log(`CHECK: ${expectTheme ? "installed" : "source"} desktop${expectStartupError ? " ownership recovery" : onboarding ? " onboarding" : ""}`);
   const env = { ...process.env };
+  env.MILAGRE_CHATS_HOME = path.join(profile, "chats-home");
   delete env.ELECTRON_RUN_AS_NODE;
   // Onboarding reads agent history from these: a fake Claude Code history names one folder without Git.
   if (onboarding) Object.assign(env, { CLAUDE_CONFIG_DIR: onboarding.claudeHome, CODEX_HOME: onboarding.codexHome, MILAGRE_ONBOARDING_TEMP_FOLDERS: "1" });
@@ -145,7 +146,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       assert.equal(await evaluate("window.milagre.getCurrentProject()"), null);
       assert.equal(await evaluate('!!document.querySelector("[data-startup-error]")'), false);
       assert.ok(await evaluate('document.body.textContent.includes("Choose your agent")'));
-      await waitFor(() => evaluate('document.querySelectorAll("[data-onboarding-agents] [data-agent]:not([data-state=checking])").length === 3'), "agent rows");
+      await waitFor(() => evaluate('document.querySelectorAll("[data-onboarding-agents] [data-agent]:not([data-state=checking])").length === 4'), "agent rows");
       await shot("onboarding-agent.png");
       await evaluate('[...document.querySelectorAll("[data-onboarding] footer button")].at(-1).click()');
       await waitFor(() => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "2"'), "project step");
@@ -154,6 +155,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         "agent history folder",
       );
       assert.equal(await evaluate("document.querySelectorAll('[data-onboarding-tile]').length"), 3);
+      assert.ok(await evaluate("!!document.querySelector('[data-onboarding-skip]')"), "the project step can be skipped");
       await shot("onboarding-project.png");
       await click(`[data-folder=${JSON.stringify(path.basename(onboarding.plainFolder))}] button`);
       await waitFor(() => evaluate("!!document.querySelector('[data-no-git]')"), "No Git explanation");
@@ -211,12 +213,12 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     const pages = async () => fetch(`http://127.0.0.1:${debuggerPort}/json/list`).then((response) => response.json());
     assert.equal((await pages()).filter((page) => page.url.includes("floating-inbox=")).length, 0);
     await evaluate("window.milagre.openInboxSettings()");
-    await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "Floating inbox Experimental switch");
+    await waitFor(() => evaluate(`!!document.querySelector('[role="checkbox"][aria-label="Floating inbox"]')`), "Floating inbox Experimental switch");
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       const shot = await connection.call("Page.captureScreenshot");
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "floating-inbox-settings.png"), Buffer.from(shot.data, "base64"));
     }
-    await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+    await evaluate(`document.querySelector('[role="checkbox"][aria-label="Floating inbox"]').click()`);
     const dockPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=dock")), "native floating bar");
     const dock = await connect(dockPage.webSocketDebuggerUrl);
     try {
@@ -300,9 +302,9 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
         await waitFor(() => evaluate(`!!document.querySelector('[data-prompt-editor]')`), "inbox opens Chat in the main window");
         await evaluate("window.milagre.openInboxSettings()");
-        await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "return to Experimental settings");
+        await waitFor(() => evaluate(`!!document.querySelector('[role="checkbox"][aria-label="Floating inbox"]')`), "return to Experimental settings");
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), true);
-        await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+        await evaluate(`document.querySelector('[role="checkbox"][aria-label="Floating inbox"]').click()`);
         await waitFor(async () => !(await pages()).some((page) => page.url.includes("floating-inbox=")), "disabled experiment destroys both native windows");
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), false);
       } finally {
@@ -326,9 +328,15 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       assert.ok(Array.isArray(computers.computers), "CLI can read the same saved computers as the native UI");
       assert.deepEqual(await evaluate("window.milagre.computers.list()"), computers, "Desktop and CLI share the daemon-owned computer list");
       console.log("PASS: native commands execute through the owning desktop handlers");
+      // A window at most 1024 px wide (the CI runners' screens) collapses the sidebar. Its rail shows a Chat's initials
+      // with one scope but Project avatars with several (the Chats home the source pass makes, a Link), and then no
+      // Chat title is on the page. Expanded (once its button shows), the Chat's row shows its title.
       await shared.call("chat:patch", [project, 2, { title: "Updated from another device" }]);
       await waitFor(
-        () => evaluate('document.body?.textContent.includes("Updated from another device") && !document.body?.textContent.includes("Saved chat")'),
+        () =>
+          evaluate(
+            `(document.querySelector('[aria-label="Expand sidebar"]')?.click(), document.body?.textContent.includes("Updated from another device") && !document.body?.textContent.includes("Saved chat"))`,
+          ),
         "shared client update in desktop",
       );
       if (process.env.MILAGRE_SCREENSHOT_DIR) {
@@ -337,6 +345,48 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "shared-desktop.png"), Buffer.from(shot.data, "base64"));
       }
       await shared.call("chat:patch", [project, 2, { title: "Saved chat" }]);
+      // Packaged apps intentionally ignore the fixture Chats home override.
+      if (!expectTheme) {
+        // Starting a draft in another Project must not disable an existing Chat's actions.
+        const home = await shared.call("chats:ensure");
+        const homeChat = Object.values(home.state.sessions)[0];
+        await shared.call("chat:patch", [home.path, homeChat.id, { title: "Personal menu regression" }]);
+        await shared.call("chat:git-note", [home.path + "#" + homeChat.id, "A saved conversation for scoped menu checks."]);
+        await evaluate("window.milagre.openInboxChat(" + JSON.stringify(home.path + "#" + homeChat.id) + ")");
+        await waitFor(() => evaluate('document.body.textContent.includes("A saved conversation for scoped menu checks.")'), "personal Chat opens");
+        await evaluate(`document.querySelector('[aria-label="New chat"]').click()`);
+        await waitFor(() => evaluate('!!document.querySelector("[data-new-chat-heading]")'), "new Chat draft opens in the real Project");
+        // A window at most 1024 px wide (the CI macOS runner's screen) collapses the sidebar, whose rail shows only the
+        // open Project's Chats. Expanded, the personal Chat has its own row.
+        await evaluate(`document.querySelector('[aria-label="Expand sidebar"]')?.click()`);
+        // The open Project has Chats with the same numbers, so the row is the one with this id and this title.
+        const personalRow =
+          "[...document.querySelectorAll('[data-chat-id=\"" + homeChat.id + '"]\')].find((row) => row.textContent.includes("Personal menu regression"))';
+        await waitFor(() => evaluate("!!(" + personalRow + ")"), "personal Chat stays in the sidebar");
+        await evaluate("(" + personalRow + ').dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 180, clientY: 260 }))');
+        await waitFor(() => evaluate('!!document.querySelector("[data-chat-menu]")'), "personal Chat menu from the new draft");
+        const menu = await evaluate(
+          '[...document.querySelectorAll("[data-chat-menu] [role=menuitem]")].map(row => ({ label: row.textContent, disabled: row.disabled }))',
+        );
+        for (const label of ["Rename chat", "Reload chat", "Mark as unread", "Pin", "Delete"])
+          assert.equal(menu.find((row) => row.label === label)?.disabled, false, label + " remains available outside the open Project");
+        assert.ok(!menu.some((row) => /Archive/.test(row.label)), "the menu offers Delete");
+        await evaluate('[...document.querySelectorAll("[data-chat-menu] [role=menuitem]")].find(row => row.textContent === "Mark as unread").click()');
+        await waitFor(
+          async () => (await shared.call("project:read", [home.path])).state.sessions[homeChat.id]?.unread === true,
+          "unread targets the personal Chat",
+        );
+        assert.notEqual((await shared.call("project:read", [project])).state.sessions[2]?.unread, true, "the draft Project's Chat stays read");
+        await evaluate("(" + personalRow + ').dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 180, clientY: 260 }))');
+        await waitFor(() => evaluate('!!document.querySelector("[data-chat-menu]")'), "reopen personal Chat actions");
+        await evaluate('[...document.querySelectorAll("[data-chat-menu] [role=menuitem]")].find(row => row.textContent === "Delete").click()');
+        await waitFor(
+          async () => (await shared.call("project:read", [home.path])).state.sessions[homeChat.id] === undefined,
+          "Delete removes the personal conversation",
+        );
+        await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
+        console.log("PASS: new Chat drafts keep other Chats and their actions available; Delete removes the saved conversation");
+      }
     } finally {
       shared.close();
     }
@@ -356,8 +406,13 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     assert.equal(JSON.parse(durable["milagre-settings"]).theme, "dark");
     assert.equal(JSON.parse(durable["milagre.composer-preferences"])["fixture-chat"].fastMode, true);
     console.log("PASS: theme and composer preferences survive loss of Chromium origin storage");
+    // The reloads mount a fresh sidebar, collapsed again on a narrow screen (see "shared client update in desktop"); it
+    // is expanded once its button shows.
     await waitFor(
-      () => evaluate('document.body?.textContent.includes("Saved chat") && !document.querySelector(".startup-splash-screen")'),
+      () =>
+        evaluate(
+          `(document.querySelector('[aria-label="Expand sidebar"]')?.click(), document.body?.textContent.includes("Saved chat") && !document.querySelector(".startup-splash-screen"))`,
+        ),
       "saved Chat visible after reload",
     );
     if (process.env.MILAGRE_SCREENSHOT_DIR) {

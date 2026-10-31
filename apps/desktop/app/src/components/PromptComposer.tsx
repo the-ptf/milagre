@@ -1,3 +1,4 @@
+import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -6,6 +7,8 @@ import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  CleanIcon,
+  Cancel01Icon,
   ArrowDown01Icon,
   ArrowUp01Icon,
   Attachment01Icon,
@@ -36,12 +39,23 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
+import { compactButtonState } from "@milagre/shared/chat-display";
 import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
 import { useChatMentions } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
-import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
+import {
+  NOTICE_SECONDS,
+  provisionalRange,
+  revertTake,
+  startTake,
+  writeTake,
+  type DictationTake,
+  type Selection as TextRange,
+} from "@milagre/shared/voice-dictation";
 import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
+import { DownloadRing, DroppingArrow } from "./DownloadRing";
+import Tooltip from "./primitives/Tooltip";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -87,6 +101,10 @@ interface PromptComposerProps {
   suggestion?: string;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
+  compactionFeedback?: { percent: number; freed: string } | null;
+  compacting?: boolean;
+  compactQueued?: boolean;
+  onCancelCompact?: () => void;
   /** The models each agent offers, or the maintained list until it reports them. */
   models: ModelOption[];
   /** How each agent's CLI stands; a problem is flagged on its tab and in a notice above the models. */
@@ -122,7 +140,7 @@ const NO_HISTORY: string[] = [];
 
 const DICTATION_LABELS = {
   idle: "Dictate",
-  preparing: "Starting dictation",
+  preparing: "Cancel dictation",
   recording: "Stop dictation",
   transcribing: "Transcribing",
 } as const;
@@ -165,6 +183,10 @@ export function PromptComposer({
   running = false,
   suggestion,
   onCompact,
+  compactionFeedback,
+  compacting = false,
+  compactQueued = false,
+  onCancelCompact,
   models,
   cliStatus,
   onModelPickerOpen,
@@ -194,16 +216,21 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance } = useSettings();
+  const { ultracodeFatality, appearance, dictationAction, showContextSize, compactButtonDisplay } = useSettings();
+  const { settings: contextSettings } = useContextSettings();
+  const quiet = contextSettings.autoCompact && Boolean(onCompact);
+  const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
+  const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
+  const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
   const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
   // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
-  const orchestrating = ultracode || effort === "ultra";
-  // With Ultracode on, the composer itself turns purple.
+  // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
   const ultracodeOn = capability.ultracode && ultracode;
-  const effortLabel = ultracode ? "Ultra" : effortName;
+  const orchestrating = ultracodeOn || effort === "ultra";
+  const effortLabel = ultracodeOn ? "Ultra" : effortName;
   const canUseFastMode = capability.fastMode;
   const [provider, setProvider] = useState<ModelProvider>(selectedModel.provider);
   // The provider tab follows the selected model, which follows the open chat.
@@ -350,7 +377,7 @@ export function PromptComposer({
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
-  const canStop = running && Boolean(onStop);
+  const canStop = !offlineName && running && Boolean(onStop);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
   const visibleSuggestion =
     suggestion &&
@@ -400,7 +427,7 @@ export function PromptComposer({
     });
     overflowRef.current = next.overflow;
     if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize]);
+  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize, showContextSize, compactButton.visible]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
@@ -474,15 +501,65 @@ export function PromptComposer({
 
   const draftLatest = useRef(draft);
   draftLatest.current = draft;
-
-  // The words land where the caret was when the mic was clicked, in the draft as it is when they arrive.
-  const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
-    const edit = insertDictation(draftLatest.current, anchor.selection, text);
-    if (!edit) return;
-    setCaret(edit.caret);
-    onDraftChange(edit.value);
-    inputRef.current?.setSelection(edit.caret);
+  const dictatedSend = useRef<{ value: string; scope: string } | null>(null);
+  // Wait for the parent's updated draft and attachments before using its ordinary send action.
+  useEffect(() => {
+    const pending = dictatedSend.current;
+    if (!pending) return;
+    dictatedSend.current = null;
+    if (pending.scope !== imageDraft.scope || pending.value !== draft || dictationAction !== "send") return;
+    if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
   });
+
+  // The take's words live in the field itself, rewritten in place as the recognizer revises them.
+  const take = useRef<DictationTake | null>(null);
+  const [provisional, setProvisional] = useState<TextRange | null>(null);
+  const write = (text: string, settled: number) => {
+    const current = take.current;
+    if (!current) return null;
+    const written = writeTake(current, draftLatest.current, text, settled);
+    if (!written) return null;
+    take.current = written.take;
+    setProvisional(provisionalRange(written.take));
+    setCaret(written.caret);
+    onDraftChange(written.value);
+    inputRef.current?.setSelection(written.caret);
+    return written;
+  };
+  const writeLatest = useRef(write);
+  writeLatest.current = write;
+
+  const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
+    // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
+    take.current ??= startTake(draftLatest.current, anchor.selection);
+    const written = writeLatest.current(text, text.length);
+    take.current = null;
+    setProvisional(null);
+    if (written && dictationAction === "send") dictatedSend.current = { value: written.value, scope: imageDraft.scope };
+  });
+  const partialText = dictation.partial.text;
+  const partialSettled = dictation.partial.settled;
+  useEffect(() => {
+    if (take.current && partialText) writeLatest.current(partialText, partialSettled);
+  }, [partialText, partialSettled]);
+  const discardDictation = () => {
+    const current = take.current;
+    dictation.cancel();
+    take.current = null;
+    setProvisional(null);
+    if (!current) return;
+    const back = revertTake(current, draftLatest.current);
+    setCaret(back.selection.start);
+    onDraftChange(back.value);
+    inputRef.current?.setSelection(back.selection.start, back.selection.end);
+  };
+  const dictating = dictation.phase !== "idle";
+  // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
+  const discardLatest = useRef(discardDictation);
+  discardLatest.current = discardDictation;
+  useEffect(() => {
+    if (!dictating && take.current) discardLatest.current();
+  }, [dictating]);
   const { error: dictationError, dismiss: dismissDictationError } = dictation;
   useEffect(() => {
     // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
@@ -638,7 +715,7 @@ export function PromptComposer({
   }
 
   return (
-    <div data-promptbar className="w-full" onKeyDown={handleEscape}>
+    <div data-promptbar className="@container w-full" onKeyDown={handleEscape}>
       <div ref={popoverRootRef} className="relative">
         {menu && (
           <div
@@ -845,17 +922,20 @@ export function PromptComposer({
               {imageDraft.error}
             </div>
           )}
-          {dictation.download && (
-            <div role="status" className="px-2 text-xs text-ink-3">
-              Downloading the speech model, once: {Math.round((dictation.download.received / dictation.download.total) * 100)}% of{" "}
-              {Math.round(dictation.download.total / 1e6)} MB
-            </div>
-          )}
+          {/* Preparing and finishing share one slot above the words, so neither moves them. The model download is the
+              ring on the mic, and an error a bubble over it: both belong to the button that tries again. */}
+          {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
+            <p role="status" data-dictation-status className="px-2 py-1 text-12 text-ink-2">
+              {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
+            </p>
+          ) : null}
 
           <div
-            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
+            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} ${compactButton.visible ? "@max-[520px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : ""}`}
           >
-            <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
+            <div
+              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-span-full @max-[520px]:col-start-1 @max-[520px]:row-start-1" : ""}`}
+            >
               <PromptEditor
                 ref={inputRef}
                 resetKey={imageDraft.scope}
@@ -868,6 +948,7 @@ export function PromptComposer({
                   const promise = imageDraft.onPaste(event);
                   if (event.defaultPrevented) insertImages(promise, selection);
                 }}
+                provisional={provisional}
                 onSelect={setCaret}
                 onChange={(value, position) => {
                   setCaret(position);
@@ -876,17 +957,18 @@ export function PromptComposer({
                   setPlusOpen(false);
                 }}
                 onKeyDown={handleKeyDown}
-                disabled={Boolean(offlineName)}
+                disabled={false}
                 maxHeight={100}
                 suggestion={visibleSuggestion}
                 placeholder={
-                  (running
-                    ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
-                      providerCapabilities(provider).steer
-                      ? "Steer the agent…"
-                      : "Queue a message for the next turn…"
-                    : (placeholder ?? "Prompt or mention a file or Chat with @")) +
-                  (offlineName ? offlinePlaceholder(offlineName) : reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                  offlineName
+                    ? offlinePlaceholder(offlineName)
+                    : (running
+                        ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
+                          providerCapabilities(provider).steer
+                          ? "Steer the agent…"
+                          : "Queue a message for the next turn…"
+                        : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
@@ -901,11 +983,13 @@ export function PromptComposer({
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
             >
               <Icon icon={Add01Icon} size={16} />
             </button>
-            <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
+            <div
+              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} ${compactButton.visible ? "@max-[520px]:contents" : ""}`}
+            >
               <button
                 type="button"
                 aria-expanded={modelOpen}
@@ -916,14 +1000,17 @@ export function PromptComposer({
                   setPermissionOpen(false);
                   setModelOpen((current) => !current);
                 }}
-                className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+                className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${compactButton.visible ? "@max-[520px]:col-start-2 @max-[520px]:row-start-2" : ""}`}
               >
                 <ProviderLogo provider={selectedModel.provider} size={13} />
-                <span data-model-name className="max-w-28 truncate">
+                <span data-model-name className={`max-w-28 truncate ${compactButton.visible ? "@max-[520px]:max-w-20" : ""}`}>
                   {selectedModel.name}
                 </span>
                 {effortLabel && (
-                  <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
+                  <span
+                    data-effort-label
+                    className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""} ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}
+                  >
                     <span className="text-ink-3">·</span>
                     <span className="hidden min-[900px]:inline">{effortLabel}</span>
                     <span className="min-[900px]:hidden">
@@ -951,69 +1038,136 @@ export function PromptComposer({
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
             >
               <Icon icon={SecurityCheckIcon} size={14} />
-              <span className="hidden min-[900px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>
+              <span className={`hidden min-[900px]:inline ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}>{PERMISSION_MODE_LABEL[permissionMode]}</span>
             </button>
-            <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
-              {contextUsage && contextUsage.size > 0 && (
-                <ContextRing
-                  {...contextUsage}
-                  onCompact={onCompact}
-                  compactBlocked={running ? "Wait for the agent to finish." : sendBlocked ? "Not available right now." : null}
-                />
+            <div
+              className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""}`}
+            >
+              {!quiet && compactionFeedback ? (
+                <span role="status" className="flex h-7 items-center gap-1 rounded-control bg-green/10 px-2 text-12 text-green-ink">
+                  ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
+                </span>
+              ) : (
+                !quiet &&
+                (compactButton.visible || compactQueued || compacting || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                  <div
+                    data-context-capsule
+                    className={`flex shrink-0 items-center overflow-hidden rounded-control ${compactButton.warning ? "bg-orange/15 text-orange-ink" : "text-ink-2"}`}
+                  >
+                    {(compactButton.visible || compactQueued || compacting) && (
+                      <button
+                        type="button"
+                        data-compact-context
+                        aria-label={compactQueued ? "Cancel queued compaction" : "Compact context"}
+                        disabled={Boolean(compactBlocked)}
+                        title={compactLabel}
+                        onClick={compactQueued ? onCancelCompact : onCompact}
+                        className="flex h-7 items-center gap-1 px-2 text-12 font-medium disabled:opacity-40"
+                      >
+                        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} size={14} />
+                        <span className="@max-[700px]:hidden">{compactLabel}</span>
+                      </button>
+                    )}
+                    {contextUsage && contextUsage.size > 0 && (
+                      <ContextRing
+                        {...contextUsage}
+                        onCompact={onCompact}
+                        compactBlocked={compactBlocked}
+                        compactLabel={running ? "Compact after turn" : "Compact now"}
+                        settings={contextSettings}
+                        showSize={showContextSize}
+                      />
+                    )}
+                  </div>
+                )
               )}
               <span className="relative flex shrink-0">
                 {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                <button
-                  ref={(node) => {
-                    dictation.meter.current = node;
-                  }}
-                  type="button"
-                  aria-label={DICTATION_LABELS[dictation.phase]}
-                  title={DICTATION_LABELS[dictation.phase]}
-                  aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                  disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                  onClick={() => {
-                    if (dictation.phase === "recording") return void dictation.stop();
-                    void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
-                  }}
-                  className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default ${dictation.phase === "recording" ? "text-surface" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
-                >
-                  {(dictation.phase === "preparing" || dictation.phase === "transcribing") && (
-                    // An arc turning around the mic while dictation starts or the take is transcribed.
-                    <span aria-hidden className="pointer-events-none absolute -inset-0.5 rounded-full border-2 border-line">
-                      <span className="absolute -inset-0.5 rounded-full border-2 border-transparent border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
-                    </span>
-                  )}
-                  {dictation.phase === "recording" && (
-                    <>
-                      {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
-                      <span
-                        aria-hidden
-                        className="absolute inset-0 rounded-full bg-red/30 motion-safe:transition-transform motion-safe:duration-75"
-                        style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
-                      />
-                      <span aria-hidden className="absolute inset-0.5 rounded-full bg-red" />
-                    </>
-                  )}
-                  <span className="relative">
+                {dictation.download ? (
+                  // The model downloads before the take records: an arrow dropping through a ring that fills with it.
+                  <Tooltip
+                    label={`Downloading speech model · ${Math.round((dictation.download.received / dictation.download.total) * 100)}% of ${Math.round(dictation.download.total / 1e6)} MB`}
+                    align="end"
+                  >
+                    <button
+                      type="button"
+                      data-dictation-download
+                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
+                      onClick={discardDictation}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink"
+                    >
+                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
+                        <DroppingArrow size={14} well={20} />
+                      </DownloadRing>
+                    </button>
+                  </Tooltip>
+                ) : dictating ? (
+                  // The mic grew into the capsule, in its own place: discard the take, or stop it. Nothing else moved.
+                  <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
+                    <button
+                      type="button"
+                      aria-label="Discard dictation"
+                      title="Discard dictation"
+                      onClick={discardDictation}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+                    >
+                      <Icon icon={Cancel01Icon} size={14} />
+                    </button>
                     {dictation.phase === "recording" ? (
-                      <span aria-hidden="true" className="block size-2.5 rounded-[2px] bg-current" />
+                      <button
+                        ref={(node) => {
+                          dictation.meter.current = node;
+                        }}
+                        type="button"
+                        aria-label="Stop dictation"
+                        title="Stop dictation"
+                        onClick={() => void dictation.stop()}
+                        className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
+                      >
+                        {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
+                        <span
+                          aria-hidden
+                          // 20px at rest and 27.6px at full voice, so it never bleeds past the 28px capsule.
+                          className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
+                          style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
+                        />
+                        <span aria-hidden className="relative block size-2.5 rounded-[2px] bg-red" />
+                      </button>
                     ) : (
-                      <Icon icon={Mic01Icon} size={16} />
+                      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
+                        <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+                      </span>
                     )}
                   </span>
-                </button>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label={DICTATION_LABELS.idle}
+                    title={DICTATION_LABELS.idle}
+                    onClick={() => {
+                      const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
+                      take.current = startTake(draftLatest.current, selection);
+                      setProvisional(null);
+                      void dictation.start({ selection });
+                    }}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+                  >
+                    <Icon icon={Mic01Icon} size={16} />
+                  </button>
+                )}
               </span>
               <button
                 type="button"
-                aria-label={canStop ? "Stop agent" : "Send"}
-                disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
+                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : "Send"}
+                disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
-                style={{ background: canStop || (canSend && !sendBlocked) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)" }}
+                style={{
+                  background: canStop || (canSend && !sendBlocked && !dictating) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)",
+                }}
               >
                 {canStop ? <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
               </button>

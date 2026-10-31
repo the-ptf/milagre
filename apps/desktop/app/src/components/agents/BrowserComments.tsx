@@ -9,6 +9,9 @@ import { isTurnEnd } from "@milagre/shared/agent-runs";
 import Tooltip from "../primitives/Tooltip";
 import { isRemoteKey, onAnyAgentEvent, useBridge, useScope } from "../../lib/computer-bridge";
 import { mediaUrl } from "../../lib/media";
+import { useRemoteMedia } from "../../lib/remote-media";
+import { ipcErrorMessage } from "@milagre/shared/result";
+import type { StreamedPoint } from "./BrowserViewer";
 import type { BrowserTab } from "../../lib/browser-panel";
 import { browserOverlay, cancelPagePick, capturePageElement, pickOnPage, setPagePins } from "../../lib/browser-webviews";
 import {
@@ -17,6 +20,7 @@ import {
   pagePins,
   removePendingComments,
   setCommenting,
+  setPageDraft,
   setSentComments,
   usePageComments,
   useSentComment,
@@ -24,6 +28,9 @@ import {
 } from "../../lib/page-comments";
 
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘↵" : "Ctrl+↵";
+
+/** The most comments one message carries (what the host takes at once); more wait for the next Send. */
+const SEND_AT_ONCE = 50;
 
 /** Sends the Chat's page comments as one message with their screenshots; true once it went. */
 export type SendPageComments = (text: string, images: ImageAttachment[]) => Promise<boolean>;
@@ -37,7 +44,7 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
   const [failed, setFailed] = useState(false);
   const send = async () => {
     if (!onSend || !api || sending) return;
-    const batch = pageComments(chatKey).pending;
+    const batch = pageComments(chatKey).pending.slice(0, SEND_AT_ONCE);
     if (!batch.length) return;
     setSending(true);
     setFailed(false);
@@ -58,6 +65,7 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
     }
   };
   const label = commenting ? "Stop commenting" : "Comment on the page";
+  const count = Math.min(pending.length, SEND_AT_ONCE);
   return (
     <>
       {pending.length > 0 && (
@@ -67,9 +75,12 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
               ? "Open this Chat to send"
               : failed
                 ? "Didn't send. Try again"
-                : `Send ${pending.length === 1 ? "this comment" : `these ${pending.length} comments`} to the agent`
+                : pending.length > count
+                  ? `Send the first ${count} of ${pending.length} comments to the agent. Send again for the rest.`
+                  : `Send ${count === 1 ? "your comment" : `${count} comments`} to the agent`
           }
           side="bottom"
+          align="end"
         >
           <button
             type="button"
@@ -79,11 +90,11 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
             className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control pr-1.5 pl-2.5 text-12 font-medium disabled:opacity-50 ${failed ? "bg-red text-white" : "bg-ink text-surface"}`}
           >
             {failed ? "Retry" : "Send"}
-            <span className="rounded-full bg-surface/20 px-1.5 text-11 tabular-nums">{pending.length}</span>
+            <span className="rounded-full bg-surface/20 px-1.5 text-11 tabular-nums">{pending.length > count ? `${count} of ${pending.length}` : count}</span>
           </button>
         </Tooltip>
       )}
-      <Tooltip label={label} side="bottom">
+      <Tooltip label={label} side="bottom" align="end">
         <button
           type="button"
           aria-label={label}
@@ -136,11 +147,19 @@ export function useSentPageComments(chatKey: string) {
 /** The comments on the page on screen: its pins, and in comment mode the picker and the box a comment is written in. */
 export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: BrowserTab; live: boolean }) {
   const comments = usePageComments(chatKey);
-  const [draft, setDraft] = useState<{ element: PageElement; shot: string | null } | null>(null);
+  // A comment being written belongs to the page it was picked on: it shows again when that tab and address do.
+  const kept = comments.drafts[tab.id];
+  const draft = kept && kept.url === tab.url ? kept : null;
   // Pins follow the Chat's comments and the page's address.
   useEffect(() => {
-    if (live) setPagePins(tab.id, pagePins(comments, tab.url));
-  }, [comments, tab.id, tab.url, live]);
+    if (live)
+      setPagePins(tab.id, [
+        ...pagePins(comments, tab.url),
+        ...(draft
+          ? [{ n: comments.pending.length + 1, selector: draft.element.selector, point: draft.element.point, text: draft.text, state: "pending" as const }]
+          : []),
+      ]);
+  }, [comments, draft, tab.id, tab.url, live]);
   // Comment mode: pick an element, write its comment, pick the next, until Escape or the toggle ends it.
   const picking = comments.commenting && live && !draft;
   useEffect(() => {
@@ -153,35 +172,51 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
         return;
       }
       const shot = await capturePageElement(tab.id, element.box);
-      if (!cancelled) setDraft({ element, shot });
+      if (!cancelled) setPageDraft(chatKey, tab.id, { url: tab.url, element, shot, text: "" });
     });
     return () => {
       cancelled = true;
       cancelPagePick(tab.id);
     };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- tab.url is read when a pick lands, not a reason to pick again
   }, [picking, tab.id, chatKey]);
-  // Leaving comment mode, or the page, drops a comment that wasn't added.
+  // The tab went to another address: what was picked on the old one is gone.
   useEffect(() => {
-    if (!comments.commenting || !live) setDraft(null);
-  }, [comments.commenting, live, tab.id]);
-  const overlay = draft && live ? browserOverlay(tab.id) : null;
-  if (!overlay || !draft) return null;
+    if (kept && !draft) setPageDraft(chatKey, tab.id, null);
+  }, [kept, draft, chatKey, tab.id]);
+  const overlay = live ? browserOverlay(tab.id) : null;
+  if (!overlay) return null;
+  // Comment mode says what to do, at the bottom of the page, until an element is picked.
+  if (!draft)
+    return picking
+      ? createPortal(
+          <div
+            data-slot="browser-comment-hint"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink/90 px-3 py-1.5 text-12 whitespace-nowrap text-surface shadow-md"
+          >
+            Click anywhere to place a comment pin · Esc to stop
+          </div>,
+          overlay,
+        )
+      : null;
   return createPortal(
     <CommentBox
       key={draft.element.selector + draft.element.box.y}
       element={draft.element}
-      onCancel={() => setDraft(null)}
+      text={draft.text}
+      onText={(text) => setPageDraft(chatKey, tab.id, { ...draft, text })}
+      onCancel={() => setPageDraft(chatKey, tab.id, null)}
       onAdd={(text) => {
         const comment: PendingPageComment = {
           id: crypto.randomUUID().replace(/-/g, "").slice(0, 8),
-          url: tab.url,
+          url: draft.url,
           title: tab.title,
           element: draft.element,
           text,
           shot: draft.shot,
         };
         addPendingComment(chatKey, comment);
-        setDraft(null);
+        setPageDraft(chatKey, tab.id, null);
       }}
     />,
     overlay,
@@ -190,24 +225,142 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
 
 const BOX_WIDTH = 300;
 
-/** The box a comment is written in, beside the element it is on: below it when there is room, above otherwise. */
-function CommentBox({ element, onAdd, onCancel }: { element: PageElement; onAdd: (text: string) => void; onCancel: () => void }) {
+/**
+ * Comment mode on a streamed Browser panel page (another computer's): the hint until a point is picked, then the box its
+ * comment is written in. Send has that computer read the element at the point, screenshot it and send the comment to the
+ * Chat's agent, as the phone does; the page's own comments and pins stay on that computer.
+ */
+export function StreamedPageComment({
+  chatId,
+  targetId,
+  picked,
+  onCancel,
+  onSent,
+}: {
+  chatId: string;
+  targetId: string;
+  picked: StreamedPoint | null;
+  onCancel: () => void;
+  onSent: () => void;
+}) {
+  const bridge = useBridge();
   const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
   const field = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => field.current?.focus(), []);
-  const { box, viewport } = element;
-  const below = box.y + box.height + 8 + 120 <= viewport.height;
-  const left = Math.max(8, Math.min(box.x + Math.min(box.width, 24), viewport.width - BOX_WIDTH - 8));
-  const top = below ? box.y + box.height + 8 : Math.max(8, box.y - 8 - 120);
-  const add = () => {
-    if (text.trim()) onAdd(text.trim());
+  useEffect(() => {
+    if (picked) field.current?.focus();
+  }, [picked]);
+  if (!picked)
+    return (
+      <div
+        data-slot="browser-comment-hint"
+        className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink/90 px-3 py-1.5 text-12 whitespace-nowrap text-surface shadow-md"
+      >
+        Click anywhere to place a comment pin · Esc to stop
+      </div>
+    );
+  const send = async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    const api = bridge?.pageComments;
+    if (typeof api?.sendFromPage !== "function") {
+      setError("This computer's Milagre is too old to take comments from here. Update it, then try again.");
+      return;
+    }
+    setSending(true);
+    setError("");
+    try {
+      await api.sendFromPage({ chatId, targetId, x: picked.x, y: picked.y, text: body });
+      onSent();
+    } catch (failure) {
+      setError(ipcErrorMessage(failure) || "The comment didn't send.");
+    } finally {
+      setSending(false);
+    }
   };
-  const where = [element.components?.at(-1) ? `<${element.components.at(-1)}>` : element.tag, element.source].filter(Boolean).join(" · ");
+  const below = picked.top + 8 + 140 <= picked.viewport.height;
+  const left = Math.max(8, Math.min(picked.left + 24, picked.viewport.width - BOX_WIDTH - 8));
+  const top = below ? picked.top + 8 : Math.max(8, picked.top - 8 - 140);
   return (
     <div
       data-slot="browser-comment-box"
       role="dialog"
-      aria-label="Comment on this element"
+      aria-label="Comment at this pin"
+      style={{ left, top, width: Math.min(BOX_WIDTH, picked.viewport.width - 16), borderRadius: below ? "3px 10px 10px 10px" : "10px 10px 10px 3px" }}
+      className="absolute flex flex-col gap-2 border border-line-strong bg-surface p-3 text-ink shadow-raised"
+    >
+      <textarea
+        ref={field}
+        value={text}
+        rows={2}
+        placeholder="What should change here?"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            void send();
+          }
+        }}
+        className="min-h-[38px] w-full resize-none bg-transparent text-13 leading-[1.45] outline-none placeholder:text-ink-3"
+      />
+      {error && (
+        <p role="alert" className="text-12 text-red-ink">
+          {error}
+        </p>
+      )}
+      <div className="flex items-center justify-end gap-2">
+        <button type="button" disabled={sending} onClick={onCancel} className="rounded-control px-2 py-1 text-12 text-ink-2 hover:bg-hover">
+          Cancel
+        </button>
+        <button
+          type="button"
+          data-slot="browser-comment-send"
+          disabled={!text.trim() || sending}
+          onClick={() => void send()}
+          className="flex items-center gap-1.5 rounded-control bg-accent px-2.5 py-1 text-12 font-medium text-white disabled:opacity-50"
+        >
+          {sending ? "Sending" : "Send"} <span className="text-11 text-white/75">{SEND_KEYS}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The box a comment is written in, beside the element it is on: below it when there is room, above otherwise. */
+function CommentBox({
+  element,
+  text,
+  onText,
+  onAdd,
+  onCancel,
+}: {
+  element: PageElement;
+  text: string;
+  onText: (text: string) => void;
+  onAdd: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => field.current?.focus(), []);
+  const { box, viewport } = element;
+  const x = box.x + (element.point?.x ?? 0.5) * box.width;
+  const y = box.y + (element.point?.y ?? 0.5) * box.height;
+  const below = y + 8 + 120 <= viewport.height;
+  const left = Math.max(8, Math.min(x + 24, viewport.width - BOX_WIDTH - 8));
+  const top = below ? y + 8 : Math.max(8, y - 8 - 120);
+  const add = () => {
+    if (text.trim()) onAdd(text.trim());
+  };
+  const where = [element.label || element.tag, element.source].filter(Boolean).join(" · ");
+  return (
+    <div
+      data-slot="browser-comment-box"
+      role="dialog"
+      aria-label="Comment at this pin"
       style={{ left, top, width: BOX_WIDTH, borderRadius: below ? "3px 10px 10px 10px" : "10px 10px 10px 3px" }}
       className="pointer-events-auto absolute flex flex-col gap-2 border border-line-strong bg-surface p-3 text-ink shadow-raised"
     >
@@ -216,7 +369,7 @@ function CommentBox({ element, onAdd, onCancel }: { element: PageElement; onAdd:
         value={text}
         rows={2}
         placeholder="What should change here?"
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => onText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -279,13 +432,16 @@ export function PageCommentsCard({ comments, images }: { comments: ParsedPageCom
 
 function PageCommentRow({ comment, image }: { comment: ParsedPageComment; image?: ImageAttachment }) {
   const saved = useSentComment(comment.id);
-  const remote = isRemoteKey(useScope());
-  const src = image?.dataUrl ?? (image?.path && !remote ? mediaUrl(image.path) : undefined);
+  const scope = useScope();
+  const remote = isRemoteKey(scope);
+  // Another computer's screenshot is read from it, as reply images are.
+  const { sources } = useRemoteMedia(remote && !image?.dataUrl && image?.path ? scope : null, image?.path ? [image.path] : []);
+  const src = image?.dataUrl ?? (image?.path ? (remote ? sources[image.path] : mediaUrl(image.path)) : undefined);
   return (
     <div data-slot="page-comment" data-resolved={saved?.resolved ? "" : undefined} className="flex gap-3 border-b border-line px-3 py-2.5 last:border-b-0">
       <div className="relative h-10 w-14 shrink-0">
         <div className="h-full w-full overflow-hidden rounded-chip border border-line-strong bg-white">
-          {src ? <img src={src} alt="" className="h-full w-full object-cover object-left-top" /> : null}
+          {src ? <img src={src} alt="" className="h-full w-full object-contain" /> : null}
         </div>
         <span
           className={`absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full text-10 font-semibold text-white ring-[1.5px] ring-surface ${saved?.resolved ? "bg-green" : "bg-accent"}`}
@@ -294,9 +450,11 @@ function PageCommentRow({ comment, image }: { comment: ParsedPageComment; image?
         </span>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="whitespace-pre-wrap break-words">{comment.text}</div>
+        <div className="line-clamp-6 whitespace-pre-wrap break-words" title={comment.text.length > 300 ? comment.text : undefined}>
+          {comment.text}
+        </div>
         <div className={`mt-0.5 truncate text-12 ${saved?.resolved ? "text-green" : "text-ink-3"}`} title={saved?.resolved?.note}>
-          {saved?.resolved ? `Resolved · ${saved.resolved.note}` : `Open · ${comment.label}`}
+          {saved?.resolved ? `Resolved · ${saved.resolved.note}` : `${comment.label} · not resolved yet`}
         </div>
       </div>
     </div>

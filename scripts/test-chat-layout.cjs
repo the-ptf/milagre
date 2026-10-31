@@ -297,7 +297,12 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length === 15');
     // Return to a parked Chat before its message page arrives, then fill it in place.
     await evaluate("window.setLoading(true); window.switchChat(900, 0)");
-    await waitFor('document.querySelector("[role=status]")?.textContent.includes("Loading Chat")');
+    await waitFor('document.querySelector(".chat-loading[role=status]")');
+    if (process.env.MILAGRE_SCREENSHOT_DIR) {
+      // Past the mark's delayed fade-in and the legs' intro.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "chat-loading.png"), (await window.webContents.capturePage()).toPNG());
+    }
     await evaluate("window.failLoad()");
     await waitFor('document.querySelector("[role=alert]")?.textContent.includes("Read interrupted")');
     if (process.env.MILAGRE_SCREENSHOT_DIR)
@@ -616,7 +621,7 @@ async function browserChecks() {
         await waitFor(`document.querySelectorAll('[data-slot="message"]').length === ${count}`);
         const height = await evaluate(`document.querySelector('[aria-label="Conversation"]').getBoundingClientRect().height`);
         assert.ok(height > 100, "Restoring a workspace must attach its visible transcript");
-      } else await waitFor('document.querySelector("[role=status]")?.textContent.includes("Loading Chat")');
+      } else await waitFor('document.querySelector(".chat-loading[role=status]")');
     }
     console.log("PASS: short and long Chats survive hidden workspace updates and restoration");
     app.exit(0);

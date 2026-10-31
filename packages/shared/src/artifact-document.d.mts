@@ -1,5 +1,6 @@
 export const ARTIFACT_CSP: string;
-export function artifactDocument(html: string, options?: { page?: boolean; diagrams?: string }): string;
+export function artifactCsp(assets?: string): string;
+export function artifactDocument(html: string, options?: { page?: boolean; diagrams?: string; assets?: string }): string;
 export function hasDiagrams(html: string): boolean;
 export const ARTIFACT_PAGE: "milagre:artifact-page";
 export const ARTIFACT_PAGE_SCRIPT: string;
@@ -7,6 +8,6 @@ export const ARTIFACT_SHELL_SCRIPT: string;
 export const ARTIFACT_ESCAPE: "milagre:artifact-escape";
 export const ARTIFACT_SEND: "milagre:artifact-send";
 export const ARTIFACT_ESCAPE_SCRIPT: string;
-export function artifactShell(html: string, options?: { diagrams?: string }): string;
+export function artifactShell(html: string, options?: { diagrams?: string; assets?: string }): string;
 export const DESIGNS_CANVAS_SCRIPT: string;
 export function designsCanvasShell(background?: string): string;

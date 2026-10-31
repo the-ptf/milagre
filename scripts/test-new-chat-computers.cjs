@@ -1,13 +1,15 @@
 // Run with npm test -- --only new-chat-computers. A new Chat's Project on several computers, in Electron against a
-// stand-in for the bridges: the heading's picker lists one row per Git origin ("3 computers"), the composer row gains a
-// computer chip whose picker moves the new Chat to another computer's copy (an offline one is disabled), and picking
-// the Project again opens on the computer last chosen for it. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
+// stand-in for the bridges: the heading's picker lists one row per Git origin ("3 computers") and every Project a computer
+// knows (project:known), not only its recent ones; the composer row has a computer chip for every Project whose picker
+// moves the new Chat to another computer's copy (an offline one is disabled), and picking the Project again opens on the
+// computer last chosen for it. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { ThisComputer } = require("@milagre/shared/host-computer");
 
 const fixture = `
 import React, { useState } from "react";
@@ -18,12 +20,18 @@ import { useProjectGroups } from "/src/lib/project-copies";
 import { updateSettings } from "/src/lib/settings";
 import "/src/styles.css";
 const ORIGIN = "github.com/the-ptf/milagre-ade";
-const remote = (id, projects) => ({ listRecentProjects: async () => projects.map((project) => ({ ...project, path: id + "|" + project.path })), listNamedLinks: async () => [], getProjectImage: async () => null });
+const qualify = (id, projects) => projects.map((project) => ({ ...project, path: id + "|" + project.path }));
+// \`known\`: what project:known answers, every Project the computer knows; without it the computer predates the command.
+const remote = (id, recent, known) => ({
+  listRecentProjects: async () => qualify(id, recent),
+  ...(known ? { listKnownProjects: async () => qualify(id, known) } : {}),
+  listNamedLinks: async () => [],
+  getProjectImage: async () => null,
+});
+const MILAGRE_ON_ARKETA = { path: "/Users/a/work/milagre-ade", name: "milagre-ade", openedAt: "", origin: ORIGIN };
 const bridges = {
-  "c-arketa": remote("c-arketa", [
-    { path: "/Users/a/work/milagre-ade", name: "milagre-ade", openedAt: "", origin: ORIGIN },
-    { path: "/Users/a/work/billing", name: "billing", openedAt: "", origin: "github.com/arketa/billing" },
-  ]),
+  // billing is no longer among arketa's recent Projects: only project:known offers it.
+  "c-arketa": remote("c-arketa", [MILAGRE_ON_ARKETA], [MILAGRE_ON_ARKETA, { path: "/Users/a/work/billing", name: "billing", openedAt: "", origin: "github.com/arketa/billing" }]),
   "c-studio": remote("c-studio", [{ path: "/Users/s/milagre-ade", name: "milagre-ade", openedAt: "", origin: ORIGIN }]),
 };
 const computer = (id, name, state) => ({ id, name, hostId: id.padEnd(22, "x"), relayHost: "relay.milagre.cloud", state, route: state === "online" ? "lan" : null, lastSeen: Date.now(), addedAt: 1, message: null, lan: false, lanRoutes: [] });
@@ -121,7 +129,7 @@ async function browserChecks() {
     assert.deepEqual(
       await evaluate(`[...document.querySelectorAll("[data-new-chat-pickers] [data-picker-row]")].map((row) => [row.textContent, row.disabled])`),
       [
-        ["victor-mbp · This Mac~/Code/milagre-ade", false],
+        [`victor-mbp · ${ThisComputer}~/Code/milagre-ade`, false],
         ["arketa~/work/milagre-ade", false],
         ["studio~/milagre-adeOffline", true],
       ],
@@ -138,21 +146,22 @@ async function browserChecks() {
     await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
     await pickRow("[data-new-chat-heading]", "website");
     await waitFor(`window.moves.at(-1) === "/Users/v/Code/website"`);
-    await waitFor(`document.querySelectorAll("[data-new-chat-pickers] button[aria-expanded]").length === 2`);
-    assert.equal(await heading(), "victor-mbp /website");
+    await waitFor(`document.querySelector("[data-new-chat-pickers] button[aria-expanded]").textContent === "victor-mbp"`);
+    assert.deepEqual(await chip(), ["victor-mbp", "New worktree", "main"]);
+    assert.equal(await heading(), "website");
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
     await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
     await pickRow("[data-new-chat-heading]", "milagre-ade");
     await waitFor(`window.moves.at(-1) === "c-arketa|/Users/a/work/milagre-ade"`);
-    // A Project on one other computer keeps its name in the heading and has no chip.
+    // A Project on one other computer names it in the chip, never the heading.
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
     await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
     await pickRow("[data-new-chat-heading]", "billing");
     await waitFor(`window.moves.at(-1) === "c-arketa|/Users/a/work/billing"`);
-    await waitFor(`document.querySelectorAll("[data-new-chat-pickers] button[aria-expanded]").length === 2`);
-    assert.equal(await heading(), "arketa /billing");
+    await waitFor(`document.querySelector("[data-new-chat-pickers] button[aria-expanded]").textContent === "arketa"`);
+    assert.equal(await heading(), "billing");
     assert.deepEqual(errors, []);
-    console.log("PASS: picking the Project again opens on the computer last chosen, and a one-computer Project has no chip");
+    console.log("PASS: picking the Project again opens on the computer last chosen, and a one-computer Project has a chip too");
     app.exit(0);
   } catch (error) {
     console.error(error);

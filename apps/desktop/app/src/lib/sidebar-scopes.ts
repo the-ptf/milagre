@@ -5,6 +5,7 @@ import { clock, triggerText } from "@milagre/shared/routines";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { seedHeldState, stateEvents } from "./state-events.ts";
+import { warmRecentChats } from "./chat-messages.ts";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
@@ -103,6 +104,7 @@ export function scopeChats(
     );
   return orderChats(listed, order).map(({ session, sessionMessages }) => {
     const worktree = "worktree_id" in session && "worktrees" in state ? state.worktrees[session.worktree_id] : undefined;
+    const path = gitless ? undefined : (worktree?.path ?? ("workspacePath" in session ? session.workspacePath : undefined));
     const chatKey = `${key}#${session.id}`;
     // A Chat with no run here can still have background agents at work (chat-activity.mjs); its last outcome decides first.
     const { activity, background } = chatActivity(session, undefined, chatSummary(session, sessionMessages).lastOutcome);
@@ -112,6 +114,8 @@ export function scopeChats(
       label: chatTitle(session, sessionMessages),
       pinned: Boolean(session.pinned),
       pinOrder: session.pin_order,
+      ...(session.done_at ? { doneAt: session.done_at } : {}),
+      ...("parent" in session && session.parent !== undefined ? { parent: String(session.parent) } : {}),
       unread: Boolean(session.unread),
       mark: chatMark({
         asking: asking.has(chatKey),
@@ -124,7 +128,8 @@ export function scopeChats(
       ...("worktrees" in session ? { worktreeCount: session.worktrees.length } : {}),
       details: {
         // A Chats home's Worktree folder is internal: its rows name no folder (the hover card's line, Finder, the editor).
-        ...rememberedFor(key, String(session.id), gitless ? undefined : worktree?.path),
+        ...rememberedFor(key, String(session.id), path),
+        path,
         ...(worktree && !gitless ? { branch: worktree.name, path: worktree.path, diff: worktree.diff } : {}),
         failed: chatSummary(session, sessionMessages).lastOutcome === "failed",
         lastAt: chatSummary(session, sessionMessages).lastAt,
@@ -266,6 +271,8 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
       // kept, the open one's too, so it is current when a switch puts it back among the others.
       if (!state?.sessions) return;
       scopeStateCache[key] = state;
+      // Another computer's Project: its most recent Chats are copied to this Mac (chat-messages.ts).
+      if (!isLinkScopeKey(key)) warmRecentChats(key, state as CoordinatorState);
       setStates((previous) => ({ ...previous, [key]: state }));
       setFailed((previous) => {
         if (!previous.has(key)) return previous;

@@ -9,6 +9,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { StepOutput } from "/src/components/agents/StepOutput";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 const at = new Date(); at.setHours(8, 0, 0, 0);
@@ -47,9 +48,17 @@ const user = (id, body) => ({ id, session_id: 1, role: "user", context: null, bo
 const reply = (id, body) => ({ id, session_id: 1, role: "assistant", context: null, body,
   steps: [{ id: "s" + id, kind: "edit", title: "src/auth/login.ts", status: "done" }] });
 function Fixture() {
+  const [copyOutput, setCopyOutput] = useState(null);
+  window.setCopyOutput = setCopyOutput;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [notes, setNotes] = useState([]);
+  const [extra, setExtra] = useState([]);
+  const [stream, setStream] = useState("");
+  const [prompt13, setPrompt13] = useState(redirect.prompt);
+  window.setPrompt13 = setPrompt13;
+  window.setExtra = setExtra;
+  window.setStream = setStream;
   window.setSending = setSending;
   window.setDraft = setDraft;
   window.addUndoLine = () => setNotes([{ id: 15, session_id: 1, role: "assistant", body: "Undid 2 files",
@@ -58,14 +67,16 @@ function Fixture() {
   const messages = [
     user(11, settings.prompt),
     reply(12, "Added the /account page with profile and password sections, and linked it from the user menu. Typecheck and tests pass."),
-    user(13, redirect.prompt),
+    user(13, prompt13),
     reply(14, "Login now redirects to /account. The target lives in src/auth/redirect.ts, and the login test covers both the account page and the old dashboard link."),
     ...notes,
+    ...extra,
   ];
+  if (copyOutput !== null) return <div id="copy-output"><StepOutput step={{ id: "long-output", kind: "shell", status: "done", title: "Output", detail: copyOutput }} /></div>;
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages} agentChatId="/Projects/storefront#1" messageScope="/Projects/storefront"
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/Projects/storefront" draft={draft} onDraftChange={setDraft} onSend={() => { window.sent = draft; }} isSending={sending} sendBlocked={false}
+      projectPath="/Projects/storefront" draft={draft} onDraftChange={setDraft} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={false}
       onOpenDiff={(file, root) => window.calls.diffs.push([file, root])}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
@@ -78,7 +89,7 @@ if (new URLSearchParams(location.search).get("theme") === "dark") document.docum
 createRoot(document.getElementById("root")).render(<Fixture />);
 `;
 async function browserChecks() {
-  const { app, BrowserWindow } = require("electron");
+  const { app, BrowserWindow, clipboard, ClipboardItem } = require("electron");
   const profile = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "checkpoint-electron-"));
   app.setPath("userData", profile);
   await app.whenReady();
@@ -123,8 +134,19 @@ async function browserChecks() {
     await devtools.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
     return style;
   };
+  // Materialize every format before the tests replace the system clipboard. An empty clipboard (CI's Linux) reads as an
+  // item with no types, which ClipboardItem refuses.
+  const previousClipboard = await Promise.all(
+    (await clipboard.read())
+      .filter((item) => item.types.length)
+      .map(async (item) => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async (type) => [type, await item.getType(type)]))))),
+  );
+  let exitCode = 0;
   try {
     await window.loadURL(process.argv[2]);
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+    await wait("document.hasFocus()");
     // Each task that changed files gets an undo button under the message that started it.
     await wait('!!document.querySelector("[data-undo-message=\\"13\\"]") && !!document.querySelector("[data-undo-message=\\"11\\"]")');
     await evaluate(`
@@ -139,6 +161,192 @@ async function browserChecks() {
     await evaluate(
       'document.querySelector("[data-undo-message=\\"13\\"]").closest("span").dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }))',
     );
+
+    // Copy uses raw message text, the final Markdown answer, and the entire recommendation.
+    const raw = "  Reuse @mentions as typed.\n\n- **Keep Markdown**  ";
+    const answer = "1. **Keep this list**\n2. [Keep the link](https://example.com)\n\n```ts\nconst answer = 42;\n```";
+    const { pageCommentsMessage } = await import("../packages/shared/src/page-comments.mjs");
+    const pageFeedback = pageCommentsMessage(
+      [
+        {
+          id: "aabbccdd",
+          url: "https://example.com",
+          title: "Example",
+          text: "Move this button",
+          element: { label: "Submit", selector: "button", box: { x: 0, y: 0, width: 80, height: 30 }, viewport: { width: 1000, height: 720 } },
+        },
+      ],
+      { screenshots: false },
+    );
+    const recommendation = "Some context.\n\nWhich should I do first?\n1. Alpha (recommended)\n2. Beta";
+    await evaluate(
+      `window.setExtra(${JSON.stringify([
+        { id: 21, session_id: 1, role: "user", body: raw },
+        {
+          id: 22,
+          session_id: 1,
+          role: "assistant",
+          body: "Tool commentary.\n" + answer,
+          steps: [{ id: "copy-tool", kind: "command", title: "DO NOT COPY TOOL", status: "done", offset: "Tool commentary.\n".length }],
+        },
+        { id: 23, session_id: 1, role: "assistant", body: recommendation },
+        { id: 24, session_id: 1, role: "user", body: "Linked raw text", context: { kind: "delegation", from: "other#1", fromLabel: "Other Chat" } },
+        {
+          id: 25,
+          session_id: 1,
+          role: "user",
+          body: "[Image #1]",
+          images: [{ id: "pixel", name: "pixel.svg", dataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E" }],
+        },
+        { id: 26, session_id: 1, role: "user", body: "An internal answer", answered: [{ question: "Which?", answers: ["Alpha"] }] },
+        { id: 27, session_id: 1, role: "assistant", body: "", steps: [{ id: "only-tool", kind: "command", title: "No answer", status: "done" }] },
+        {
+          id: 28,
+          session_id: 1,
+          role: "user",
+          body: "Internal PR action",
+          context: { kind: "pr-action", action: "checks-failed", pr: 42, url: "https://github.com/example/project/pull/42" },
+        },
+        {
+          id: 29,
+          session_id: 1,
+          role: "user",
+          body: "Internal Linear context",
+          context: { kind: "linear-issue", key: "TEST-1", title: "An issue", url: "", state: { name: "Todo", type: "unstarted", color: "#95a2b3" } },
+        },
+        { id: 33, session_id: 1, role: "user", body: pageFeedback },
+        { id: 30, session_id: 1, role: "user", body: 'I chose the design "Home" (home, version 1). Continue from this one.' },
+        {
+          id: 31,
+          session_id: 1,
+          role: "user",
+          body: "Advisor text",
+          context: { kind: "advisor-result", provider: "codex", title: "Review", outcome: "completed" },
+        },
+        {
+          id: 32,
+          session_id: 1,
+          role: "assistant",
+          body: "Linked assistant answer",
+          context: { kind: "delegation-report", from: "other#1", fromLabel: "Other Chat", status: "done" },
+        },
+      ])})`,
+    );
+    const button = (id, label = "Copy message") => `document.querySelector('#message-${id} [aria-label="${label}"]')`;
+    await wait(`${button(21)} && ${button(22)} && ${button(23)} && ${button(24)}`);
+    for (const id of [25, 26, 27, 28, 29, 30, 31, 33]) assert.equal(await evaluate(`${button(id)} === null`), true, `no Copy on special/empty message ${id}`);
+    assert.equal(
+      await evaluate(`document.querySelectorAll('#message-32 [aria-label="Copy message"]').length`),
+      1,
+      "linked assistant gets only the reply footer",
+    );
+    const metrics = () =>
+      evaluate(`(() => {
+      const viewport = document.querySelector('[aria-label=Conversation]');
+      return { height: viewport.scrollHeight, scroll: viewport.scrollTop,
+        rows: [...viewport.querySelectorAll('article')].map(node => ({ id: node.id, height: node.getBoundingClientRect().height })) };
+    })()`);
+    // Finish finite entry/layout animations before comparing hover geometry.
+    await evaluate(
+      `Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))`,
+    );
+    const before = await metrics();
+    const debuggerApi = window.webContents.debugger;
+    if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
+    await debuggerApi.sendCommand("DOM.enable");
+    await debuggerApi.sendCommand("CSS.enable");
+    const { root } = await debuggerApi.sendCommand("DOM.getDocument");
+    const { nodeId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: "#message-22" });
+    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["hover"] });
+    await wait(`getComputedStyle(${button(22)}.parentElement.parentElement).opacity === '1'`);
+    assert.deepEqual(await metrics(), before, "hover preserves transcript height and scroll position");
+    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+    // Trusted pointer clicks also prove containment does not clip the side controls.
+    const pointerClick = async (selector) => {
+      await evaluate(`${selector}.scrollIntoView({ block: 'center' })`);
+      await wait(`document.querySelector('[data-measuring]') === null`);
+      await evaluate(
+        `Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))`,
+      );
+      const point = await evaluate(`(() => { const r = ${selector}.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+      assert.equal(
+        await evaluate(`(() => { const p = ${JSON.stringify(point)}; return ${selector}.contains(document.elementFromPoint(p.x, p.y)); })()`),
+        true,
+        "Copy is painted and hit-testable",
+      );
+      window.webContents.sendInputEvent({ type: "mouseMove", ...point });
+      await wait(`getComputedStyle(${selector}.parentElement.parentElement).opacity === '1'`);
+      window.webContents.sendInputEvent({ type: "mouseDown", ...point, button: "left", clickCount: 1 });
+      window.webContents.sendInputEvent({ type: "mouseUp", ...point, button: "left", clickCount: 1 });
+    };
+    for (const [id, text] of [
+      [21, raw],
+      [22, answer],
+      [23, recommendation],
+      [24, "Linked raw text"],
+    ]) {
+      await pointerClick(button(id));
+      await wait(`${button(id, "Copied")} !== null`);
+      assert.equal(await clipboard.readText(), text, `raw clipboard text for message ${id}`);
+    }
+    await wait(`${button(21)} !== null`);
+    await evaluate(`${button(21)}.focus()`);
+    await wait(`getComputedStyle(${button(21)}.parentElement.parentElement).opacity === '1'`);
+    assert.equal(await evaluate(`${button(21)} === document.activeElement`), true, "keyboard focus reveals Copy");
+    await evaluate(`document.activeElement.blur(); document.body.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))`);
+    // Pending writes do not claim success before the clipboard accepts the text.
+    await evaluate(`window.realClipboardWrite = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = () => new Promise(resolve => { window.resolveWrite = resolve; });
+      ${button(21)}.click()`);
+    await wait('typeof window.resolveWrite === "function"');
+    assert.equal(await evaluate(`${button(21, "Copied")} === null`), true);
+    await evaluate("window.resolveWrite()");
+    await wait(`${button(21, "Copied")} !== null`);
+    await wait(`${button(21)} !== null`);
+    await evaluate("void (navigator.clipboard.writeText = window.realClipboardWrite)");
+    // Rejected writes do not claim success, and the button remains usable for a later retry.
+    await evaluate(`window.realClipboardWrite = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = () => Promise.reject(new Error('Denied'));
+      ${button(21)}.click()`);
+    await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    assert.equal(await evaluate(`${button(21, "Copied")} === null`), true);
+    await evaluate(`navigator.clipboard.writeText = window.realClipboardWrite; ${button(21)}.click()`);
+    await wait(`${button(21, "Copied")} !== null`);
+    assert.equal(await clipboard.readText(), raw);
+    // Code blocks share the success timer and still copy only their code.
+    await evaluate(`document.querySelector('#message-22 [aria-label="Copy code"]').click()`);
+    await wait(`document.querySelector('#message-22 .markdown-code [aria-label="Copied"]') !== null`);
+    assert.equal(await clipboard.readText(), "const answer = 42;");
+    await evaluate(`window.setStream('A reply still streaming'); window.setSending(true)`);
+    await wait(`document.querySelector('[data-streaming] [data-message-copy-footer]') !== null`);
+    assert.equal(await evaluate(`document.querySelector('[data-streaming] [aria-label="Copy message"]') === null`), true);
+    await evaluate(`window.setStream(''); window.setSending(false); window.setExtra([]); window.setPrompt13('Long wrapping user prompt '.repeat(30))`);
+    window.setSize(560, 720);
+    await wait(`document.querySelector('#message-13')?.textContent.includes('Long wrapping')`);
+    await pointerClick(button(13));
+    await wait(`${button(13, "Copied")} !== null`);
+    assert.equal(await clipboard.readText(), "Long wrapping user prompt ".repeat(30));
+    assert.equal(
+      await evaluate(`(() => {
+      const undo = document.querySelector('[data-undo-message="13"]'); const r = undo.getBoundingClientRect();
+      return undo.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    })()`),
+      true,
+      "Undo remains hit-testable beside Copy at narrow width",
+    );
+    window.setSize(1000, 720);
+    await evaluate(`window.setPrompt13("After login, send people to the account page instead of the dashboard.")`);
+
+    // A clipped tool-output preview must copy all retained lines, not only its visible 40.
+    const longOutput = Array.from({ length: 65 }, (_, i) => "Output line " + (i + 1)).join("\n");
+    await evaluate(`window.setCopyOutput(${JSON.stringify(longOutput)})`);
+    await wait('document.querySelector("#copy-output")?.textContent.includes("last 40 of 65 lines")');
+    assert.equal(await evaluate('document.querySelector("#copy-output pre").textContent.includes("Output line 1\\n")'), false);
+    await evaluate(`document.querySelector('#copy-output [aria-label="Copy code"]').click()`);
+    await wait(`document.querySelector('#copy-output [aria-label="Copied"]') !== null`);
+    assert.equal(await clipboard.readText(), longOutput, "clipped output copies all retained lines");
+    await evaluate("window.setCopyOutput(null)");
+    await wait(`document.querySelector('#message-21') === null`);
 
     // Esc Esc in the empty, idle composer lists the tasks, newest first, and outlines the one highlighted.
     await escape();
@@ -228,13 +436,16 @@ async function browserChecks() {
     assert.equal(await evaluate('!!document.querySelector("[data-undo-panel]")'), false);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: undo button and Esc Esc hint, Esc Esc list, keyboard choice, preview in the composer, conflict choice, stale refusal, restore line Redo, /undo, blocked while running",
+      "PASS: raw user/reply/recommendation/linked Copy, success/failure/retry, keyboard visibility, stable hover geometry, code Copy, streaming exclusion; undo button and Esc Esc hint, Esc Esc list, keyboard choice, preview in the composer, conflict choice, stale refusal, restore line Redo, /undo, blocked while running",
     );
-    window.destroy();
-    app.exit(0);
   } catch (error) {
     console.error(error);
-    app.exit(1);
+    exitCode = 1;
+  } finally {
+    if (previousClipboard.length) await clipboard.write(previousClipboard);
+    else clipboard.clear();
+    window.destroy();
+    app.exit(exitCode);
   }
 }
 async function main() {

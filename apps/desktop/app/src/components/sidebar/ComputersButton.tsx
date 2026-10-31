@@ -10,6 +10,7 @@ import { useSettings } from "../../lib/settings";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { DOT_COLOR, computerTone, routeLine, settingsTooltip, useComputers, useHiddenComputers, type ComputerTone } from "../../lib/computers";
 import { setComputerHidden } from "../../lib/hidden-projects";
+import { ThisComputer } from "../../lib/shortcut-hints";
 
 const icon = (data: typeof LaptopIcon, size: number) => <HugeiconsIcon icon={data} size={size} strokeWidth={1.8} color="currentColor" />;
 
@@ -180,7 +181,7 @@ export function ComputersButton({
                 <HostRow
                   id="this-mac"
                   name={thisMac}
-                  line="This Mac"
+                  line={ThisComputer}
                   tone="online"
                   shown={!hidden.has(LOCAL_COMPUTER)}
                   onShow={(shown) => setComputerHidden(LOCAL_COMPUTER, !shown)}

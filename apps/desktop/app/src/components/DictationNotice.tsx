@@ -17,7 +17,7 @@ export function DictationNotice({ error, onOpenSettings }: { error: DictationErr
   return (
     <div
       role="alert"
-      className="pointer-events-none absolute right-0 bottom-full z-[60] mb-2 flex w-max max-w-[320px] items-center gap-1.5 rounded-[8px] bg-ink px-2 py-1.5 text-[12px] leading-snug font-medium text-surface shadow-overlay"
+      className="pointer-events-none absolute right-0 bottom-full z-[60] mb-2 flex w-max max-w-[320px] items-center gap-1.5 rounded-control bg-ink px-2 py-1.5 text-12 font-medium text-surface shadow-overlay"
       style={{ animation: "fade-in 120ms ease-out both" }}
     >
       <HugeiconsIcon icon={ICONS[error.kind]} size={14} strokeWidth={1.8} aria-hidden className="shrink-0 opacity-70" />

@@ -36,6 +36,8 @@ export interface AgentRun {
   answered: Record<string, SentAnswer>;
   /** A steering message split the reply, so a turn that ends with nothing more to show saves nothing more. */
   split?: boolean;
+  /** A steering message came in and the agent hasn't written text then gone back to its tools since. */
+  steered?: boolean;
   /** The agent waits on its subagents, so the indicator says so instead of "Working". */
   waitingForSubagents?: boolean;
   /** How full the agent's context window is; saved on the chat when the turn ends. */

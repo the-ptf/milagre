@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
+  artifactTab,
+  onArtifactTab,
   ARTIFACT_CSP,
   ARTIFACT_PAGE,
   ARTIFACT_PAGE_SCRIPT,
@@ -367,4 +369,35 @@ test("designGroups lays designs out one row per group, in the order each group f
     ],
   );
   assert.deepEqual(designGroups([]), []);
+});
+
+test("a comment on a tab names the tab, reads back with it, and pins sit on their own tab", () => {
+  const comment = {
+    design: { id: "report", version: 1, title: "Report", format: "html" as const },
+    x: 0.1,
+    y: 0.2,
+    tab: { id: "data", title: "Raw data" },
+    near: "Totals",
+    id: "1234abcd",
+    text: "Add units",
+  };
+  const message = designFeedbackMessage({ comments: [comment] });
+  assert.match(message, /On the artifact "Report" \(report\), 10% across and 20% down, on the tab data \("Raw data"\), near "Totals": Add units/);
+  assert.deepEqual(parseDesignFeedback(message)?.comments, [comment]);
+
+  const page = {
+    title: "Report",
+    html: "<p>A</p>",
+    tabs: [
+      { id: "overview", title: "Overview", html: "<p>A</p>" },
+      { id: "data", title: "Raw data", html: "<p>B</p>" },
+    ],
+  };
+  assert.equal(artifactTab(page, "data").html, "<p>B</p>");
+  assert.equal(artifactTab(page, "gone").id, "overview");
+  assert.deepEqual(artifactTab({ title: "One", html: "<p>One</p>" }), { id: "", title: "One", html: "<p>One</p>" });
+  assert.equal(onArtifactTab(comment, page, page.tabs[1]!), true);
+  assert.equal(onArtifactTab(comment, page, page.tabs[0]!), false);
+  assert.equal(onArtifactTab({}, page, page.tabs[0]!), true, "a pin from before tabs sits on the first");
+  assert.equal(onArtifactTab({}, { title: "One", html: "" }, artifactTab({ title: "One", html: "" })), true);
 });

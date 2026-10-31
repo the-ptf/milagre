@@ -14,6 +14,13 @@ export function capabilityFor(model: ModelOption, capabilities: ModelCapabilitie
     const family = antigravityFamilies(ANTIGRAVITY_AGENT_OPTIONS).find((item) => item.id === model.id);
     return { efforts: family?.efforts ?? [], ...(family?.defaultEffort ? { defaultEffort: family.defaultEffort } : {}), ultracode: false, fastMode: false };
   }
+  // Kiro reports each model's efforts with its list; the catalog's entries carry the ones kiro-cli 2.34.2 reported.
+  if (model.provider === "kiro") {
+    const known = kiroModels(KIRO_AGENT_OPTIONS).find((item) => item.id === model.id);
+    return known
+      ? { efforts: known.efforts, ...(known.defaultEffort ? { defaultEffort: known.defaultEffort } : {}), ultracode: false, fastMode: false }
+      : { efforts: [], ultracode: false, fastMode: false };
+  }
   const fastMode = CLAUDE_FAST_MODELS.has(model.id);
   if (model.id.includes("haiku")) return { efforts: [], ultracode: false, fastMode };
   const modern = /claude-(opus|sonnet|fable)-5/.test(model.id);
@@ -55,6 +62,7 @@ export {
 } from "./antigravity-models.mjs";
 export type { AgentModelOption, AntigravityFamily } from "./antigravity-models.mjs";
 import { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } from "./antigravity-models.mjs";
+import { KIRO_AGENT_OPTIONS, kiroModels } from "./kiro-models.mjs";
 
 function antigravityCatalog(): ModelOption[] {
   return antigravityFamilies(ANTIGRAVITY_AGENT_OPTIONS).map((family) => {
@@ -70,7 +78,7 @@ function antigravityCatalog(): ModelOption[] {
 }
 
 /**
- * The maintained list: what codex-cli 0.160.0, Claude Code 2.1.288 and Antigravity 1.3.0 report, recommended model first.
+ * The maintained list: what codex-cli 0.160.0, Claude Code 2.1.288, Antigravity 1.3.0 and kiro-cli 2.34.2 report, recommended model first.
  * The picker shows it until the agents report their own lists (agent:models), and for an agent whose
  * CLI is missing, too old or couldn't be asked.
  */
@@ -95,4 +103,12 @@ export const MODEL_CATALOG: [ModelOption, ...ModelOption[]] = [
   { id: "claude-opus-4-6", name: "Opus 4.6", provider: "claude", description: "Best for everyday, complex tasks" },
   { id: "claude-sonnet-4-6", name: "Sonnet 4.6", provider: "claude", description: "Efficient for routine tasks" },
   ...antigravityCatalog(),
+  ...kiroModels(KIRO_AGENT_OPTIONS).map(({ id, name, description, recommended, credits }): ModelOption => ({
+    id,
+    name,
+    provider: "kiro",
+    description,
+    ...(recommended ? { recommended } : {}),
+    ...(credits ? { credits } : {}),
+  })),
 ];

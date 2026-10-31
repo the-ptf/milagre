@@ -36,3 +36,40 @@ test("an Artifact preview carries the page helper, and Pele when it has a Mermai
   assert.match(drawn, /var pele=/);
   assert.ok(drawn.indexOf("var pele=") < drawn.indexOf("milagre:artifact-page"), "Pele loads before the helper mounts it");
 });
+test("an Artifact preview's files load from its own address, read in chunks from the Chat's computer, by byte range", async () => {
+  const bytes = Buffer.from("0123456789".repeat(40_000));
+  const hash = require("node:crypto").createHash("sha256").update(bytes).digest("hex");
+  const reads = [];
+  const previews = createArtifactPreviews({
+    readAsset: async (chatId, name, offset, length) => {
+      reads.push({ chatId, name, offset, length });
+      const end = Math.min(offset + Math.min(length, 256 * 1024), bytes.length);
+      return { base64: bytes.subarray(offset, end).toString("base64"), hash };
+    },
+  });
+  const asset = { name: "clip.mp4", hash, size: bytes.length, type: "video/mp4" };
+  const url = previews.register(1, '<video src="assets/clip.mp4"></video><img src="assets/other.png">', { chatId: "/p#1", assets: [asset] });
+  const page = previews.handle(new Request(url));
+  assert.match(page.headers.get("Content-Security-Policy"), /media-src [^;]*milagre-artifact:/);
+  const html = await page.text();
+  assert.match(html, new RegExp(`<video src="${url}/assets/clip.mp4">`));
+  assert.match(html, /<img src="assets\/other\.png">/, "a name the page has no file for stays as written");
+
+  const whole = previews.handle(new Request(`${url}/assets/clip.mp4`));
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get("Content-Type"), "video/mp4");
+  assert.equal(whole.headers.get("Content-Security-Policy"), "default-src 'none'; sandbox");
+  assert.deepEqual(Buffer.from(await whole.arrayBuffer()), bytes);
+  assert.deepEqual(
+    reads.map((read) => read.offset),
+    [0, 256 * 1024],
+  );
+  const part = previews.handle(new Request(`${url}/assets/clip.mp4`, { headers: { Range: "bytes=10-19" } }));
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get("Content-Range"), `bytes 10-19/${bytes.length}`);
+  assert.equal(await part.text(), "0123456789");
+  assert.equal(previews.handle(new Request(`${url}/assets/other.png`)).status, 404);
+  assert.equal(previews.handle(new Request(`${url}/assets/clip.mp4`, { headers: { Range: `bytes=${bytes.length}-` } })).status, 416);
+  previews.clear(1);
+  assert.equal(previews.handle(new Request(`${url}/assets/clip.mp4`)).status, 404, "a released preview's files go with it");
+});

@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, CommandLineIcon, FolderGitIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { mcpChipLine, mcpSummary, mcpTransportLine, type McpChip, type McpRow } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
-import { Switch } from "./primitives/Switch";
+import { SettingCheckbox } from "./primitives/Checkbox";
 
 const keyOf = (chip: Pick<McpChip, "provider" | "accountId">) => `${chip.provider}:${chip.accountId}`;
 const outlineButton =
@@ -54,7 +54,7 @@ export function McpSignInRow({
         <span className="truncate text-[12px] text-ink-3">{signingIn ? "Finish in your browser, then come back." : mcpTransportLine(row)}</span>
       </div>
       {remote ? (
-        <span className="text-[12px] text-ink-3">On the Mac</span>
+        <span className="text-[12px] text-ink-3">On the computer</span>
       ) : signingIn ? (
         <button type="button" data-mcp-cancel={row.name} className={outlineButton} onClick={onCancel}>
           Cancel
@@ -74,7 +74,7 @@ function AccountLines({ row, onSwitch }: { row: McpRow; onSwitch: (chip: McpChip
       <span className="w-64 shrink-0 truncate text-[13px] text-ink">{accountName(chip)}</span>
       <span className={`min-w-0 flex-1 truncate text-[12px] ${chip.state === "failed" ? "text-red-ink" : "text-ink-3"}`}>{mcpChipLine(chip)}</span>
       <span data-mcp-switch={`${keyOf(chip)}:${row.name}`} className="flex">
-        <Switch
+        <SettingCheckbox
           label={`${row.name} for ${accountName(chip)}`}
           checked={chip.state !== "disabled"}
           disabled={chip.disabledBy === "provider"}
@@ -198,7 +198,7 @@ export function McpOutsideRow({
           {line}
         </span>
         <span data-mcp-switch={`${keyOf(only)}:${row.name}`} className="flex">
-          <Switch
+          <SettingCheckbox
             label={`${row.name} for ${accountName(only)}`}
             checked={only.state !== "disabled"}
             disabled={only.disabledBy === "provider"}

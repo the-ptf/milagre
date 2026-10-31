@@ -27,7 +27,7 @@ import { modelsFor } from "../turn-options";
 import { routineIcon } from "../routine-rows";
 import { RunList } from "../run-list";
 import { Icon, type IconData } from "../icons";
-import { ErrorNotice, HeaderButton, PageScroll, RowSwitch, Segmented, useStyles } from "../ui";
+import { ErrorNotice, HeaderButton, PageScroll, RowCheckbox, Segmented, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 type Targets = { projects: { path: string; chats: { chatId: string; title: string }[] }[] };
@@ -221,7 +221,7 @@ export default function RoutineScreen() {
           <View style={{ flex: 1, flexDirection: "row" }}>
             <StatusPill on={routine.enabled} />
           </View>
-          <RowSwitch label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
+          <RowCheckbox label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
         </View>
         {/* The chips scroll sideways when they don't fit, edge to edge. */}
         <ScrollView

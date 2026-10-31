@@ -1,9 +1,10 @@
 const fs = require("node:fs/promises");
 const { b64url, boxKeyPair, fromB64url } = require("@milagre/shared/relay-crypto");
 const { writePrivate } = require("./relay-identity.cjs");
+const { ThisComputer } = require("@milagre/shared/host-computer");
 
-const NO_KEYCHAIN = "This Mac can't keep keys in its keychain, so it can't pair with computers.";
-const UNREADABLE = "This Mac's keys for its computers can't be read. Remove them and pair again.";
+const NO_KEYCHAIN = `${ThisComputer} can't keep keys in its keychain, so it can't pair with computers.`;
+const UNREADABLE = `${ThisComputer}'s keys for its computers can't be read. Remove them and pair again.`;
 
 /** A keychain failure, tagged so the peer channel's caller can report it as a `keys` error. */
 const keysError = (message) => Object.assign(new Error(message), { code: "keys" });

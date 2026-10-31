@@ -31,6 +31,7 @@ import '/src/styles.css';
 ${data}
 updateSettings({ chatList: 'grouped' });
 window.milagre = new Proxy({
+  readContextSettings: async () => ({ buttonThreshold: 70, autoThreshold: 85, autoCompact: false }),
   simulators: { list: async ({ chatId }) => ({ chatId, supported: false, devices: [], attached: [], available: [] }) },
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
@@ -113,6 +114,9 @@ const stubs = {
   "./theme":
     "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
   "./primitives/tap": "export const tap = () => {};",
+  // The toast pill draws the phone's icons and theme, native-only: here it is its text and Undo.
+  "./primitives/toast":
+    'export const ToastPill = ({ text, onUndo }) => <div role="status">{text}{onUndo ? <button aria-label="Undo" onClick={onUndo} /> : null}</div>;',
   "@sbaiahmed1/react-native-blur": "export const LiquidGlassView = ({ children }) => <div>{children}</div>;",
   "expo-router": "import { useEffect } from 'react'; export const useFocusEffect = effect => useEffect(effect, [effect]);",
   "expo-linking": "export const openURL = async () => {};",
@@ -131,6 +135,10 @@ const stubs = {
   "./project-icon": "export const ProjectIcon = () => null; export const ChatsHomeIcon = () => null; export const ProjectIcons = () => null;",
   "./project-search": "export const ProjectSearch = () => null;",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
+  // The swipe row is Reanimated and the gesture handler, native-only: a row here renders without it.
+  "./chat-swipe-row":
+    "export const ChatSwipeRow = ({ children }) => children; export const hideRevealed = () => {}; export const ClosesLeftContext = { Provider: ({ children }) => children };",
+  "./offline-tray": "export const WaitingLabel = () => null;",
   "./split-context": "export const useSplit = () => ({ widthClass: 'compact' }); export const useSplitLayout = () => ({ widthClass: 'compact' });",
   "./confirm-store": "export const confirm = async () => true; export const confirmSheet = () => {};",
   "./attention": "export const AttentionDot = () => null; export const useAttention = () => [];",

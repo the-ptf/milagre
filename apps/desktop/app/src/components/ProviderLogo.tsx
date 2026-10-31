@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, LINEAR_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
+import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO, LINEAR_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
 import type { ModelProvider } from "../model";
 import { useSettings } from "../lib/settings";
 
@@ -16,6 +16,7 @@ export function ProviderLogo({ provider, size = 15 }: { provider: ModelProvider;
       ) : (
         <>
           {provider === "claude" && <path d={CLAUDE_LOGO.d} fill={CLAUDE_LOGO.fill} />}
+          {provider === "kiro" && <path d={KIRO_LOGO.d} fill={KIRO_LOGO.fill} fillRule="evenodd" clipRule="evenodd" />}
           {provider === "codex" && (
             <>
               <defs>

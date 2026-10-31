@@ -116,7 +116,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelectorAll('#milagre-theme').length`), 1, "one theme stylesheet is reused");
     await screenshot("gray-light");
     // Custom theme editor in Appearance
-    const custom = `document.querySelector('[role="switch"][aria-label="Custom theme"]')`;
+    const custom = `document.querySelector('[role="checkbox"][aria-label="Custom theme"]')`;
     await waitFor(`!!${custom}`);
     await evaluate(`${custom}.click()`);
     await waitFor(`!!document.querySelector('input[aria-label="Accent hex"]')`);

@@ -151,6 +151,9 @@ test("evaluate returns JSON, wait sees text, press sends named keys and refuses 
     ["keyUp", "Enter", 13],
   ]);
   assert.equal((await f.run("browser_press", { key: "Hyper" })).isError, true);
+  // ⌘ and Ctrl shortcuts would reach Milagre's window as the user's own keys.
+  for (const modifier of ["Meta", "Control"]) assert.equal((await f.run("browser_press", { key: "w", modifiers: [modifier] })).isError, true, modifier);
+  assert.equal(f.session.sent.filter(([method]) => method === "Input.dispatchKeyEvent").length, 2);
   // Another Chat's page is out of reach.
   assert.equal((await f.run("browser_snapshot", { page: "other:page" })).isError, true);
 });

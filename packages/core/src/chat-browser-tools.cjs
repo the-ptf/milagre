@@ -265,13 +265,15 @@ function browserPageToolDefinitions(chatId, browsers, panel) {
     },
     {
       name: "browser_press",
-      description: `Press a key on the page: ${Object.keys(KEYS).join(", ")}, or a single character, optionally with modifiers.`,
+      description: `Press a key on the page: ${Object.keys(KEYS).join(", ")}, or a single character, optionally with Shift or Alt. Command and Control shortcuts aren't sent: use browser_fill to replace a field's text.`,
+      // A key pressed on a Browser panel page reaches Milagre's window like the user's own, so ⌘ and Ctrl combinations
+      // (the app's shortcuts: close the panel, switch Chats) are never pressed for the agent.
       input: {
         page,
         key: z.string().min(1).max(20),
         modifiers: z
-          .array(z.enum(["Alt", "Control", "Meta", "Shift"]))
-          .max(4)
+          .array(z.enum(["Alt", "Shift"]))
+          .max(2)
           .optional(),
       },
       readOnly: false,
@@ -279,7 +281,7 @@ function browserPageToolDefinitions(chatId, browsers, panel) {
         const { target, session } = await on(input);
         const named = KEYS[input.key];
         if (!named && input.key.length !== 1) throw new Error(`Unknown key ${input.key}. Use one of ${Object.keys(KEYS).join(", ")} or one character.`);
-        const bits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
+        const bits = { Alt: 1, Shift: 8 };
         const modifiers = (input.modifiers ?? []).reduce((sum, name) => sum | bits[name], 0);
         const key = named?.key ?? input.key;
         const event = named
@@ -390,7 +392,8 @@ function browserPageToolDefinitions(chatId, browsers, panel) {
     },
     {
       name: "browser_evaluate",
-      description: "Run a JavaScript expression in the page and return its JSON-serializable result (promises are awaited).",
+      description:
+        "Run JavaScript on the page in the Browser panel to read or check something there, and get the result back. A promise is waited for; the result comes back as JSON.",
       input: { page, expression: z.string().min(1).max(20000) },
       readOnly: false,
       run: async (input) => {

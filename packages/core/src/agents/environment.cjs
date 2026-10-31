@@ -128,7 +128,8 @@ function installDirs(
 ) {
   if (platform === "win32")
     return [
-      path.join(home, ".local/bin"),
+      path.join(home, ".local/bin"), // Claude Code's native installer
+      path.join(env.LOCALAPPDATA || path.join(home, "AppData/Local"), "Programs/OpenAI/Codex/bin"), // Codex's installer
       path.join(env.APPDATA || path.join(home, "AppData/Roaming"), "npm"),
       path.join(env.LOCALAPPDATA || path.join(home, "AppData/Local"), "Microsoft/WinGet/Links"),
       env.VOLTA_HOME && path.join(env.VOLTA_HOME, "bin"),

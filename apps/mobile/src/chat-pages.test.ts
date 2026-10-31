@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatMessage } from "@milagre/shared/model";
-import { mergeTail, refreshChatPage, savedChange } from "./chat-pages.ts";
+import { mergeTail, peekChatPage, refreshChatPage, savedChange, setChatPageDisk, warmChatPages, type PageDisk } from "./chat-pages.ts";
 
 const message = (id: number, body = `m${id}`) => ({ id, session_id: 1, body, role: "user", context: null }) as ChatMessage;
 const page = (ids: number[], hasMore = false, total = ids.length) => ({ messages: ids.map((id) => message(id)), hasMore, total });
@@ -52,4 +52,58 @@ test("a read of the streaming turns alone never reads the Chat's messages again;
   await render(saved);
   assert.deepEqual(reads, [20, 2], "a new Project state reads the last turns once");
   assert.equal(savedChange(saved.project.state), saved.project.state, "a Project state passed as is counts as itself");
+});
+
+/** A disk that holds pages in memory, for these tests. */
+function memoryDisk(kept: Record<string, ReturnType<typeof page>> = {}) {
+  const writes: string[] = [];
+  const disk: PageDisk = {
+    read: async (key) => kept[key] ?? null,
+    write: async (key, value) => {
+      writes.push(key);
+      kept[key] = value;
+    },
+  };
+  return { disk, kept, writes };
+}
+
+test("a Chat opened before paints from its copy on the phone while its computer answers", async () => {
+  const { disk } = memoryDisk({ "test://copy|/p#1": page([1, 2]) });
+  setChatPageDisk(disk);
+  let answer!: (value: ReturnType<typeof page>) => void;
+  const client = { url: "test://copy", chatMessages: () => new Promise<ReturnType<typeof page>>((resolve) => (answer = resolve)) };
+  const reading = refreshChatPage("test://copy|/p#1", client, "/p", 1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(ids(peekChatPage("test://copy|/p#1")!), [1, 2], "the copy shows at once");
+  assert.equal(peekChatPage("test://copy|/p#1")?.loading, true);
+  answer(page([1, 2, 3]));
+  await reading;
+  assert.deepEqual(ids(peekChatPage("test://copy|/p#1")!), [1, 2, 3], "the computer's answer replaces it");
+  setChatPageDisk(null);
+});
+
+test("a computer's five most recent Chats are copied to the phone, skipping current copies and shown Chats", async () => {
+  const { disk, writes } = memoryDisk({ "test://warm|/p#2": page([20]) });
+  setChatPageDisk(disk);
+  const reads: number[] = [];
+  const client = {
+    url: "test://warm",
+    chatMessages: async (_path: string, chatId: number) => {
+      reads.push(chatId);
+      return page([chatId * 10]);
+    },
+  };
+  // Chat 1 is on screen.
+  await refreshChatPage("test://warm|/p#1", client, "/p", 1);
+  reads.length = 0;
+  const chats = [1, 2, 3, 4, 5, 6, 7].map((chatId) => ({ projectPath: "/p", chatId, lastAt: 100 - chatId, lastId: chatId * 10 }));
+  let limited = 0;
+  await warmChatPages(client, chats, (work) => (limited++, work()));
+  // The five most recent: 1 (shown), 2 (its copy ends on its last message), then 3, 4, 5.
+  assert.deepEqual(reads, [3, 4, 5]);
+  assert.equal(limited, 3, "every read goes through the computer's request limit");
+  assert.deepEqual(writes, ["test://warm|/p#3", "test://warm|/p#4", "test://warm|/p#5"]);
+  await warmChatPages(client, chats);
+  assert.deepEqual(reads, [3, 4, 5], "each Chat is copied once");
+  setChatPageDisk(null);
 });

@@ -2,7 +2,7 @@ import type { GateMeta } from "./bots.mjs";
 import type { ProjectKind } from "./chats-home.mjs";
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
-export type ModelProvider = "codex" | "claude" | "antigravity";
+export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro";
 export type PermissionMode = "ask" | "auto" | "full" | "bot";
 /** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
@@ -28,6 +28,8 @@ export interface ModelOption {
   provider: ModelProvider;
   description: string;
   recommended?: boolean;
+  /** Kiro only: the model's credit multiplier, relative to Auto (2 means a turn costs twice what Auto would). */
+  credits?: number;
 }
 
 /** A model as its agent's CLI reports it (agent:models), with what it accepts. */
@@ -36,6 +38,8 @@ export interface ReportedModel extends ModelCapability {
   name: string;
   description: string;
   recommended: boolean;
+  /** Kiro only: the model's credit multiplier, relative to Auto. */
+  credits?: number;
 }
 
 /** Each agent's reported models; null when its CLI is missing, too old, or couldn't be asked. */
@@ -69,7 +73,10 @@ export interface PullRequest {
   number: number;
   title: string;
   url: string;
-  state: "OPEN" | "MERGED";
+  /** CLOSED: closed without merging. Hosts before it came with OPEN and MERGED only. */
+  state: "OPEN" | "MERGED" | "CLOSED";
+  /** An open draft; absent from hosts that predate it. */
+  isDraft?: boolean;
   readyToMerge: boolean;
   hasConflicts: boolean;
   conflictStatusKnown?: boolean;
@@ -79,6 +86,14 @@ export interface PullRequest {
   changesRequested?: boolean;
   /** CI on the open PR: still running, or failed. Unset once every check passed or when it has none. */
   checks?: "running" | "failed";
+}
+
+/** A Project's PRs as the host's poll last found them: each Worktree's branch PR, and each Chat-named PR by folder and ref. */
+export interface PullRequestSnapshot {
+  worktrees: Record<string, PullRequest | null>;
+  chats: Record<string, Record<string, PullRequest | null>>;
+  /** Some were never read yet; they come with the next `pull-requests:changed`. */
+  pending: boolean;
 }
 
 export interface Worktree {
@@ -162,6 +177,8 @@ export interface AgentSession {
   pinned?: boolean;
   /** Where a pinned chat sits among the pinned ones, lowest first. Kept when unpinned; only read while pinned. */
   pin_order?: number;
+  /** When the user marked the chat Done (host clock, ms): it sits in the Done list until the host archives it (done.mjs). */
+  done_at?: number;
   /** Legacy (before in-place handoff): the chat this one was handed over to, on the other provider. Read, never written. */
   handedOverTo?: number;
   /** Legacy (before in-place handoff): the chat this one was handed over from. Read, never written. */
@@ -185,6 +202,11 @@ export interface AgentSession {
   routine?: { routineId: string; runId: string; hidden?: boolean };
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
+  /**
+   * The Chat (session id, same Project) whose Delegation first reached this one: it shows as that Chat's subchat, nested
+   * under it in the Chat lists and opened beside it (subchats.ts). Set once by the host; absent on a top-level Chat.
+   */
+  parent?: number;
   /**
    * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
    * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
@@ -311,6 +333,8 @@ export interface ChatMessage {
   outcome?: "completed" | "failed" | "cancelled";
   /** The tool calls the agent made in this reply, and its thinking, in the order they started. */
   steps?: ChatStep[];
+  /** Kiro only: what the turn cost, in credits, as the agent reported it. */
+  credits?: number;
   /** The host's sidecar with the long details of these steps (each marked `hasDetail`); read with the chat:message command. */
   detailFile?: string;
   operationId?: string;
@@ -341,6 +365,9 @@ export type HandoffContext = {
  * around it; `size` is the window.
  */
 export type CompactionContext = {
+  automatic?: boolean;
+  quiet?: boolean;
+  threshold?: number;
   kind: "compaction";
   status: "preparing" | "done" | "failed";
   before?: number;
@@ -642,6 +669,7 @@ export interface ArtifactRef {
 
 /** One tool call in an agent's reply (a `setup` step is the worktree's setup command, which Milagre ran, not the agent) (a command, an edit, a read, a search or another tool), or a stretch of its thinking. */
 export interface ChatStep {
+  /** Identifies one step across start, output and completion. A viewed snapshot needs a distinct ID from its source Read step. */
   id: string;
   kind: StepKind;
   /** Host time when this step first started. Older hosts omit it; clients show no duration for the running step. */
@@ -668,8 +696,12 @@ export interface ChatStep {
    * fetch until the turn ends.
    */
   hasDetail?: boolean;
-  /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, the generated image. */
+  /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, its generated image or snapshot. */
   file?: string;
+  /** An image snapshot of a file the agent viewed, rather than an image it generated. */
+  imageOrigin?: "viewed";
+  /** Provenance of a viewed snapshot only; never grants access to this file. */
+  sourceFile?: string;
   /** Muted text after the title, e.g. "3s" or "exited with code 1 after 4s". */
   note?: string;
   /** How long the step took, measured by the host or reported by the provider. */
@@ -754,6 +786,8 @@ export interface AgentQuestion {
 /** Questions a turn waits on, asked together. */
 export interface QuestionRequest {
   requestId: string;
+  /** Host-owned request: values go to a private file, never a provider question response. */
+  secretRequest?: { description: string; expiresAt?: number };
   questions: AgentQuestion[];
 }
 
@@ -886,7 +920,7 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool" | "agent" | "startedAt"> }
+  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "imageOrigin" | "sourceFile" | "tool" | "agent" | "startedAt"> }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to
@@ -913,7 +947,7 @@ export type AgentEvent =
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }
   | ({ type: "question-request" } & QuestionRequest)
   | { type: "question-resolved"; requestId: string; outcome: QuestionOutcome }
-  | { type: "turn-completed"; quiet?: boolean }
+  | { type: "turn-completed"; quiet?: boolean; credits?: number }
   | { type: "turn-cancelled"; quit?: boolean }
   /** `notice`: a message Milagre wrote (it names the CLI and the fix), shown as it is; otherwise it is the agent's own error. */
   | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };
@@ -966,7 +1000,12 @@ export interface ChatSendRequest {
   linearIssue?: { key: string; workspace?: string; note?: string };
   /** Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent. */
   compact?: boolean;
+  /** Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs). */
+  sentFrom?: SentFrom;
 }
+
+/** The device a message came from: a phone, an iPad, or another computer's Milagre. */
+export type SentFrom = "phone" | "tablet" | "computer";
 
 /** A code editor found on this Mac. */
 export interface EditorInfo {
@@ -1065,6 +1104,8 @@ export interface UsageWindow {
   shortLabel: string;
   usedPercent: number;
   resetsAt: string | null;
+  /** The amounts behind the percent, when the provider gives them: "453 of 10,000 credits". */
+  detail?: string;
 }
 
 export interface ProviderUsage {

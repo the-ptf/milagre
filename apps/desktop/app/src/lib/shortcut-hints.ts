@@ -2,6 +2,13 @@ import { useSyncExternalStore } from "react";
 
 export const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 export const shortcutModifier = isMac ? "⌘" : "Ctrl+";
+export const isWindows = typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);
+/** How copy names the computer this window runs on, so a Windows or Linux user never reads "Mac". */
+export const thisComputer = isMac ? "this Mac" : "this computer";
+export const ThisComputer = isMac ? "This Mac" : "This computer";
+export const computerNoun = isMac ? "Mac" : "computer";
+/** The app that shows a folder: Finder, File Explorer, or the file manager of a Linux desktop. */
+export const fileManager = isMac ? "Finder" : isWindows ? "File Explorer" : "file manager";
 let visible = false;
 const listeners = new Set<() => void>();
 

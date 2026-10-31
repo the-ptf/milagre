@@ -43,7 +43,7 @@ For the first upgrade from an embedded-runtime desktop, close that older app bef
 
 The host writes `daemon.log` in its profile. `daemon:status` reports its PID and profile path. A separate Node installation is only needed for the source CLI below; packaged desktop starts the bundled daemon using its own executable.
 
-Use Node 24+ and install from the repository root with `npm ci`. Start the daemon in a terminal with an explicit, separate profile:
+Use Node 26 LTS for development; Node 24 remains supported for headless use and is tested in CI. Install from the repository root with `npm ci`. Start the daemon in a terminal with an explicit, separate profile:
 
 ```sh
 npm run daemon -- serve --data-dir /absolute/path/to/daemon-profile

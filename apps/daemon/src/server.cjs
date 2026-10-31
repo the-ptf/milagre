@@ -44,8 +44,14 @@ const DEVICE_METHODS = Object.freeze([
 ]);
 // A paired desktop's own channel (peer-channel.cjs): rpc / evt / part messages over the relay or the LAN.
 const DESKTOP_PEER = "desktop-peer-v1";
+// A paired desktop may open TCP streams from this computer on its channel (peer-streams.cjs).
+const PEER_TCP = "peer-tcp-v1";
+// A paired desktop may register its Browser pages for this host's Chats, reached back over its channel (#832).
+const PEER_PANEL_PAGES = "peer-panel-pages-v1";
 // Asked by a paired desktop, which has no phone:* methods: where it can reach this Mac (relay identity, LAN routes).
 const PEER_METHODS = Object.freeze(["peer:routes"]);
+// The desktop app's update, checked and installed from the phone or a paired desktop (host-updates.cjs).
+const { APP_UPDATE_METHODS, createHostUpdates } = require("./host-updates.cjs");
 // The remote folder picker and a remote chat's images (spec "Remote-only helpers"); paired desktops may call both.
 const REMOTE_FILES = "remote-files-v1";
 const FILE_METHODS = Object.freeze(["fs:list-dirs", "media:read"]);
@@ -369,6 +375,7 @@ async function startDaemon({
   const inlineLimit = Math.floor(maxFrameBytes / 4);
   const clients = new Map();
   const desktopCommands = require("./desktop-commands.cjs").createDesktopCommands();
+  const hostUpdates = createHostUpdates(desktopCommands);
   const views = new Map();
   let eventSeq = 0;
   // Connections that take state patches, and per scope the last state sent and its number. The numbers start again with
@@ -603,7 +610,7 @@ async function startDaemon({
    * the socket has none. The carrier hands the result each parsed request (`receive`), a framing error (`invalid`) and,
    * once, its own close (`close`).
    */
-  function acceptConnection({ send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null }) {
+  function acceptConnection({ send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null, openStream = null }) {
     if (mustAuthenticate && !authenticationToken) throw new Error("requireAuthentication needs a daemon that has an authentication token");
     let authenticated = !mustAuthenticate;
     let challenge;
@@ -621,7 +628,9 @@ async function startDaemon({
     const resultPages = createResultPages(maxFrameBytes, { ttlMs: pagesTtlMs, budgetChars: pagesBudgetChars });
     const view = { focused: false, projectPath: null, chatId: null };
     // Never accept an actor supplied in RPC arguments. Each authenticated connection owns its viewer capabilities.
-    const context = Object.freeze({ clientId: randomUUID() });
+    // A paired desktop's channel can also carry streams back to that desktop (peer-streams.cjs): its Browser pages reach
+    // this host's browser service through them.
+    const context = Object.freeze({ clientId: randomUUID(), ...(openStream ? { openStream } : {}) });
     // This connection in clients, views and patchClients.
     const key = Symbol("connection");
     const connection = { send, policy };
@@ -742,6 +751,7 @@ async function startDaemon({
               SUBAGENT_TAILS,
               ARCHIVED_SUMMARIES,
               DESKTOP_PEER,
+              ...(policy === peerPolicy ? [PEER_TCP, PEER_PANEL_PAGES] : []),
               REMOTE_FILES,
             ],
             methods: [
@@ -770,6 +780,7 @@ async function startDaemon({
               ...STATE_METHODS,
               ...PEER_METHODS,
               ...FILE_METHODS,
+              ...APP_UPDATE_METHODS,
             ].filter((method) => !policy?.denies(method)),
           };
         else if (request.method.startsWith("computers:")) {
@@ -828,6 +839,7 @@ async function startDaemon({
         else if (request.method === "devices:allow") result = phone.allowDevice(request.args[0]);
         else if (request.method === "devices:deny") result = phone.denyDevice(request.args[0]);
         else if (request.method === "peer:routes") result = phone.peerRoutes();
+        else if (APP_UPDATE_METHODS.includes(request.method)) result = await hostUpdates.invoke(request.method);
         else if (request.method === "live-activity:state") result = liveActivity.state(request.args[0]);
         else if (request.method === "live-activity:open") result = liveActivity.open(request.args[0]);
         else if (request.method === "live-activity:answer") result = await liveActivity.choose(request.args[0]);

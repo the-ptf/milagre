@@ -32,15 +32,18 @@ async function firstCommit(folder) {
   return result.ok;
 }
 
-function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plain = plainFolder } = {}) {
+const NO_GIT = "Git isn't installed on this computer. Install it from https://git-scm.com, then try again.";
+
+function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plain = plainFolder, writer = git } = {}) {
   return {
     root,
-    /** A new, empty folder under ~/Code with Git set up. */
+    /** A new, empty folder under ~/Code with Git set up. Without Git on this computer it stays a plain folder. */
     async create(name) {
       const folder = await freeFolder(path.join(root, folderName(name)));
       await fs.mkdir(folder, { recursive: true });
-      await git.checked(folder, ["init"]);
-      await firstCommit(folder);
+      const init = await writer.run(folder, ["init"]);
+      if (init.ok) await firstCommit(folder);
+      else if (!init.missing) throw new Error(`Git couldn't set up ${folder}: ${init.message}`);
       return { path: folder };
     },
     /** A clone of `url` into ~/Code/<repository name>. */
@@ -49,7 +52,8 @@ function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plai
       if (!/^(https:\/\/|ssh:\/\/|git@)[^\s]+$/.test(source)) throw new Error("Paste an https:// or git@ address of a repository.");
       const folder = await freeFolder(path.join(root, folderName(path.basename(source.replace(/\/+$/, "")).replace(/\.git$/, ""))));
       await fs.mkdir(root, { recursive: true });
-      const result = await git.run(root, ["clone", "--", source, folder], { profile: "NETWORK" });
+      const result = await writer.run(root, ["clone", "--", source, folder], { profile: "NETWORK" });
+      if (result.missing) throw new Error(NO_GIT);
       if (!result.ok) {
         await fs.rm(folder, { recursive: true, force: true }).catch(() => {});
         throw new Error(`Git couldn't clone it: ${result.stderr.trim().split("\n").pop() || "check the address and your access."}`);
@@ -60,7 +64,9 @@ function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plai
     async initGit(folder) {
       if (!(await plain(folder))) throw new Error("That folder already has Git, or isn't a folder.");
       if (path.resolve(folder) === os.homedir()) throw new Error("Choose a project folder, not your home folder.");
-      await git.checked(folder, ["init"]);
+      const init = await writer.run(folder, ["init"]);
+      if (init.missing) throw new Error(NO_GIT);
+      if (!init.ok) throw new Error(`Git couldn't set up ${folder}: ${init.message}`);
       return { path: folder, committed: await firstCommit(folder) };
     },
   };

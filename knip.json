@@ -33,7 +33,8 @@
     "packages/core": {
       "entry": ["src/*.cjs", "src/agents/*.cjs"],
       "project": ["src/**"],
-      "ignore": ["src/simulators.d.cts", "src/browsers.d.cts"]
+      "ignore": ["src/simulators.d.cts", "src/browsers.d.cts"],
+      "ignoreDependencies": ["agent-device"]
     },
     "packages/shared": {
       "entry": ["src/*.ts", "src/*.mjs"],

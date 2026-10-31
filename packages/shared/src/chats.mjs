@@ -1,5 +1,5 @@
 // How a chat is named, shared by the sidebar and the main process's notifications. Types: chats.d.mts.
-export { pullRequestRefs, pullRequestRefsCache, chatPullRequests, createdPullRequestUrl } from "./chat-pull-requests.mjs";
+export { pullRequestRefs, pullRequestRefsCache, chatPullRequests, createdPullRequestUrl, associatedPullRequest } from "./chat-pull-requests.mjs";
 import { chatSummary, summarizeChat } from "./chat-summary.mjs";
 import { promptTitle } from "./prompt-parts.mjs";
 

@@ -96,7 +96,7 @@ async function startHarness(settings) {
     readUsage: async () => ({ providers: [] }),
     expandSkills: false,
     agentCli: Object.assign(async (provider) => ({ command: provider === "codex" ? settings.command : null, env: process.env }), { invalidate() {} }),
-    agentModels: async () => ({ codex: [{ id: settings.model, name: settings.model, efforts: [] }], claude: null, antigravity: null }),
+    agentModels: async () => ({ codex: [{ id: settings.model, name: settings.model, efforts: [] }], claude: null, antigravity: null, kiro: null }),
     readPullRequest: async () => null,
     readPullRequests: async () => [],
     observeAgentEvent(chatId, event) {

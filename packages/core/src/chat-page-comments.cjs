@@ -92,6 +92,15 @@ function createChatPageComments({ directory, validateChat }) {
         await write(target, all);
         return comment;
       }),
+    /** Forgets comments recorded for a message that then didn't go. */
+    forget: (request) =>
+      serial(async () => {
+        const target = await chat(request?.chatId);
+        const ids = new Set(Array.isArray(request?.ids) ? request.ids : []);
+        const all = await read(target);
+        const kept = all.filter((comment) => !ids.has(comment.id));
+        if (kept.length !== all.length) await write(target, kept);
+      }),
     /** Forgets the comments of a Chat that is gone. */
     removeChat: (chatId) =>
       serial(async () => {
@@ -135,8 +144,8 @@ function pageCommentToolDefinitions(chatId, pageComments) {
 async function commentAtPoint(page, x, y) {
   const { pageDescribeAtScript } = await import("@milagre/shared/page-picker");
   const found = await page.send("Runtime.evaluate", { expression: pageDescribeAtScript(x, y), returnByValue: true });
-  const element = found.result?.value;
-  if (!element || typeof element.selector !== "string" || !element.box) throw new Error("There is nothing to comment on there. Tap an element of the page.");
+  const element = pageElement(found.result?.value);
+  if (!element) throw new Error("Could not place a comment pin. Reload the page and try again.");
   let shot = null;
   await page.send("Runtime.evaluate", { expression: "window.__milagrePins?.hide(true)" }).catch(() => {});
   try {
@@ -159,6 +168,53 @@ async function commentAtPoint(page, x, y) {
     await page.send("Runtime.evaluate", { expression: "window.__milagrePins?.hide(false)" }).catch(() => {});
   }
   return { element, shot };
+}
+
+/**
+ * What the page said about an element, kept to the shape PageElement describes. The page is any web page and its
+ * scripts can replace what the describe script returns, so nothing of it is trusted: strings are clipped, numbers must
+ * be numbers, and anything else is dropped. null when it names no element.
+ */
+function pageElement(value) {
+  if (!value || typeof value !== "object") return null;
+  const text = (item, max) => (typeof item === "string" ? item.slice(0, max) : undefined);
+  const number = (item) => (typeof item === "number" && Number.isFinite(item) ? Math.round(item) : 0);
+  const fraction = (item) => (typeof item === "number" && item >= 0 && item <= 1 ? item : 0.5);
+  const selector = text(value.selector, 500)?.replace(/\s+/g, " ").trim();
+  const tag = text(value.tag, 40)?.replace(/[^a-z0-9-]/gi, "") || "element";
+  if (!selector || !value.box || typeof value.box !== "object") return null;
+  const box = { x: number(value.box.x), y: number(value.box.y), width: Math.max(0, number(value.box.width)), height: Math.max(0, number(value.box.height)) };
+  const viewport = { width: Math.max(1, number(value.viewport?.width)), height: Math.max(1, number(value.viewport?.height)) };
+  const styles = Object.fromEntries(
+    Object.entries(value.styles && typeof value.styles === "object" ? value.styles : {})
+      .filter(([name, style]) => /^[a-z-]{1,40}$/.test(name) && typeof style === "string")
+      .slice(0, 24)
+      .map(([name, style]) => [name, style.slice(0, 200)]),
+  );
+  const components = Array.isArray(value.components)
+    ? value.components
+        .filter((name) => typeof name === "string")
+        .slice(0, 4)
+        .map((name) => name.slice(0, 80))
+    : [];
+  const optional = {
+    role: text(value.role, 40),
+    name: text(value.name, 80),
+    text: text(value.text, 200),
+    html: text(value.html, 1600),
+    source: text(value.source, 300),
+  };
+  return {
+    selector,
+    tag,
+    label: text(value.label, 200)?.replace(/\s+/g, " ").trim() || tag,
+    ...Object.fromEntries(Object.entries(optional).filter(([, item]) => item)),
+    styles,
+    box,
+    viewport,
+    ...(components.length ? { components } : {}),
+    point: { x: fraction(value.point?.x), y: fraction(value.point?.y) },
+  };
 }
 
 module.exports = { commentAtPoint, createChatPageComments, pageCommentToolDefinitions };

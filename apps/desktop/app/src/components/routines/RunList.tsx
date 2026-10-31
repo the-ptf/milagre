@@ -15,6 +15,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
 import { clock, daySummary, foldText, foldTimes, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
+import { ThisComputer } from "../../lib/shortcut-hints";
 
 type HugeIconData = typeof CheckmarkCircle02Icon;
 
@@ -47,7 +48,7 @@ function foldedLine(run: RoutineRun): { icon: HugeIconData; text: string } {
   if (run.rejected) return { icon: UnavailableIcon, text: firstLine(run.error) ?? "Refused" };
   if (run.status === "quiet") return { icon: Moon02Icon, text: run.summary?.trim() || "Quiet" };
   if (run.status === "skipped-busy") return { icon: NextIcon, text: "Its Chat was busy" };
-  return { icon: Clock01Icon, text: "This Mac missed its time" };
+  return { icon: Clock01Icon, text: `${ThisComputer} missed its time` };
 }
 
 const Icon = ({ icon, spin = false, className }: { icon: HugeIconData; spin?: boolean; className: string }) => (

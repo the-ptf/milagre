@@ -64,10 +64,15 @@ function save() {
   }, 300);
 }
 
+// Chats whose tabs changed since the app started: the remembered rest wait for their panel before loading a page.
+const changed = new Set<string>();
+export const changedThisLaunch = (chatKey: string) => changed.has(chatKey);
+
 function update(chatKey: string, change: (chat: ChatBrowser) => ChatBrowser) {
   const before = chats.get(chatKey) ?? EMPTY;
   const after = change(before);
   if (after === before) return;
+  changed.add(chatKey);
   // The most recently changed Chat goes last, so the remembered ones are the newest.
   const next = new Map(chats);
   next.delete(chatKey);
@@ -99,6 +104,11 @@ export function setBrowserOpen(chatKey: string, open: boolean) {
     }
     return { ...chat, open };
   });
+}
+
+/** Shows the panel without adding a blank tab, for a Chat whose only pages are streamed ones (BrowserViewer.tsx). */
+export function showBrowserPanel(chatKey: string) {
+  update(chatKey, (chat) => (chat.open ? chat : { ...chat, open: true }));
 }
 
 const newTab = (url: string): BrowserTab => ({

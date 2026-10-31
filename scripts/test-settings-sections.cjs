@@ -16,16 +16,27 @@ import { useApplyTheme } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
 import '/src/styles.css';
 window.enabledCalls = [];
+window.computersEnabled = false;
 // Chimes record what would play instead of making noise.
 window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
 window.botsSaves = [];
+window.deviceNotes = { enabled: false };
+window.deviceNotesSaves = [];
 // Babysit PRs as the host keeps it: saves merge shallowly, like babysit-settings.cjs.
 window.babysit = { enabled: false, intervalMinutes: 1, wake: ["comments", "checks", "conflicts"], level: 3, resolveThreads: true, stopWhenGreen: true, stopAfterDays: { on: true, days: 7 }, stopAfterFailures: { on: false, times: 3 }, ownRule: false, ownRuleText: "", instructions: "" };
 window.babysitSaves = [];
 window.milagre = {
+  readDeviceNotesEnabled: async () => window.deviceNotes,
+  saveDeviceNotesEnabled: async (enabled) => {
+    window.deviceNotesSaves.push(enabled);
+    if (window.holdDeviceNotesSave) await new Promise(resolve => { window.finishDeviceNotesSave = resolve; });
+    if (window.failDeviceNotesSave) { window.failDeviceNotesSave = false; throw new Error("Device notes save failed"); }
+    return (window.deviceNotes = { enabled });
+  },
+  onDeviceNotesEnabledChanged: (listener) => { window.deviceNotesListener = listener; return () => { window.deviceNotesListener = null; }; },
   readBabysitSettings: async () => window.babysit,
   saveBabysitSettings: async (patch) => {
     // The test sets failBabysitSave to make the next save fail, as when the daemon is down.
@@ -35,6 +46,7 @@ window.milagre = {
   listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   onPhoneStatus: () => () => {},
+  readComputerResources: async () => ({ memory: { total: 16 * 1024 ** 3, available: 8 * 1024 ** 3, milagre: 1024 ** 3 }, disk: null }),
   listDevices: async () => [],
   acknowledgeDevices: async () => {},
   listRecentProjects: async () => [],
@@ -56,7 +68,10 @@ window.milagre = {
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
     pageShares: async () => { throw new Error("No Chat exists"); },
   },
-  computers: { setEnabled: async (on) => void window.enabledCalls.push(on) },
+  computers: {
+    list: async () => ({ thisMac: "test-computer", computers: [], enabled: window.computersEnabled }),
+    setEnabled: async (on) => { window.enabledCalls.push(on); window.computersEnabled = on; },
+  },
 };
 function Fixture() {
   const [section, setSection] = useState('appearance');
@@ -103,7 +118,7 @@ async function browserChecks() {
     await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}).click()`);
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === ${JSON.stringify(label)}`);
   };
-  const switches = () => evaluate(`[...document.querySelectorAll('main [role="switch"]')].map((s) => s.getAttribute("aria-label"))`);
+  const switches = () => evaluate(`[...document.querySelectorAll('main [data-setting-checkbox]')].map((s) => s.getAttribute("aria-label"))`);
   try {
     await window.loadURL(process.argv[2]);
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
@@ -256,14 +271,43 @@ async function browserChecks() {
     await pick("Expanded");
     await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
     await openSection("Experimental");
-    await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Bots"]')`);
+    await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Bots"]')`);
     // Routines have no switch: every computer runs them.
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Bots", "Delegate to other computers", "Floating inbox", "Ultracode Fatality"],
-      "Experimental lists only Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
+      ["Bots", "Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
+      "Experimental retains Device notes alongside the other settings",
     );
+    const deviceNotes = `document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`;
+    assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "false", "device notes default off");
+    assert.ok(
+      await evaluate(
+        `document.querySelector('[data-slot="device-notes-setting"]').textContent.includes("Adds about 100 tokens to every message you send from another device.")`,
+      ),
+    );
+    await evaluate(`window.holdDeviceNotesSave = true; ${deviceNotes}.click()`);
+    await waitFor(`${deviceNotes}.disabled && typeof window.finishDeviceNotesSave === "function"`);
+    assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "false", "pending save retains the confirmed value, like mobile");
+    await evaluate(`${deviceNotes}.click()`);
+    assert.deepEqual(await evaluate(`window.deviceNotesSaves`), [true], "pending saves cannot be repeated");
+    await evaluate(`window.holdDeviceNotesSave = false; window.finishDeviceNotesSave()`);
+    await waitFor(`${deviceNotes}.getAttribute("aria-checked") === "true" && !${deviceNotes}.disabled`);
+    await evaluate(`window.failDeviceNotesSave = true; ${deviceNotes}.click()`);
+    await waitFor(`document.querySelector('[data-slot="device-notes-setting"] [role="alert"]')?.textContent === "Device notes save failed"`);
+    assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "true", "failed save retains the daemon's value");
+    await evaluate(`${deviceNotes}.click()`);
+    await waitFor(`${deviceNotes}.getAttribute("aria-checked") === "false" && !${deviceNotes}.disabled`);
+    await evaluate(`window.deviceNotesListener({ enabled: true })`);
+    await waitFor(`${deviceNotes}.getAttribute("aria-checked") === "true"`);
+    await openSection("Appearance");
+    await evaluate(`window.deviceNotesRead = window.milagre.readDeviceNotesEnabled; delete window.milagre.readDeviceNotesEnabled`);
+    await openSection("Experimental");
+    assert.equal(await evaluate(`!!${deviceNotes}`), false, "a bridge without device notes hides the setting");
+    await openSection("Appearance");
+    await evaluate(`window.milagre.readDeviceNotesEnabled = window.deviceNotesRead; void 0`);
+    await openSection("Experimental");
+    await waitFor(`${deviceNotes}?.getAttribute("aria-checked") === "false"`);
     assert.equal(
       await evaluate(
         `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear|Published pages/i.test(document.querySelector("main").textContent) || /Other computers|Designs/.test(document.querySelector("main").textContent)`,
@@ -280,7 +324,7 @@ async function browserChecks() {
       true,
     );
     await evaluate(`${babysitRow}.click()`);
-    await waitFor(`!!document.querySelector("main [data-babysit-prs-page] [role=switch]")`);
+    await waitFor(`!!document.querySelector("main [data-babysit-prs-page] [role=checkbox]")`);
     assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Experimental's");
     assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "ExperimentalBabysit PRs");
     assert.deepEqual(await switches(), ["Babysit new PRs", "Resolve threads it answered"]);
@@ -310,8 +354,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('main [data-babysit-level="3"]').textContent.includes("Default")`), true);
     assert.equal(await evaluate(`document.querySelector('main [role="radio"][aria-checked="true"]').value`), "3");
     // Switches, chips, levels and stop rules save at once; a number rule sends its whole object.
-    await evaluate(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').click()`);
-    await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "true"`);
+    await evaluate(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').click()`);
+    await waitFor(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "true"`);
     await evaluate(`[...document.querySelectorAll('main [aria-pressed]')].find((b) => b.textContent === "Branch behind base").click()`);
     await evaluate(`document.querySelector('main [data-babysit-level="4"]').click()`);
     await waitFor(`document.querySelector('main [role="radio"][aria-checked="true"]')?.value === "4"`);
@@ -343,7 +387,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.babysitSaves[6]"), { ownRuleText: "The PR gets the do-not-merge label" });
     await screenshot("babysit-prs");
     // A save the host refuses goes back and says why; typed text stays and shows Not saved.
-    const resolveSwitch = `document.querySelector('main [role="switch"][aria-label="Resolve threads it answered"]')`;
+    const resolveSwitch = `document.querySelector('main [role="checkbox"][aria-label="Resolve threads it answered"]')`;
     const pageText = `document.querySelector("main [data-babysit-prs-page]").textContent`;
     await evaluate(`window.failBabysitSave = true; ${resolveSwitch}.click()`);
     await waitFor(`${pageText}.includes("Daemon is not running")`);
@@ -362,7 +406,7 @@ async function browserChecks() {
     await typeInto('main textarea[aria-label="Your instructions"]', "Half typed");
     const savesBeforeReset = await evaluate("window.babysitSaves.length");
     await evaluate(`document.querySelector("main [data-babysit-reset]").click()`);
-    await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "false"`);
+    await waitFor(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "false"`);
     await waitFor(`document.querySelector('main textarea[aria-label="Your instructions"]').value === ""`);
     await delay(700);
     assert.equal(await evaluate(`document.querySelector('main textarea[aria-label="Your instructions"]').value`), "", "the reset text stays");
@@ -382,13 +426,13 @@ async function browserChecks() {
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Bots", "Delegate to other computers", "Floating inbox", "Ultracode Fatality"],
+      ["Bots", "Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
       "Back returns to Experimental",
     );
     // Designs are always on now: Settings › Milagre has no switch, only Published pages, above the Milagre MCP.
     await openSection("Milagre");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
-    assert.equal(await evaluate(`!!document.querySelector('main [role="switch"][aria-label="Designs"]')`), false, "Designs can't be turned off");
+    assert.equal(await evaluate(`!!document.querySelector('main [role="checkbox"][aria-label="Designs"]')`), false, "Designs can't be turned off");
     await screenshot("milagre");
     assert.equal(
       await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent).join("|")`).then((t) =>
@@ -411,7 +455,7 @@ async function browserChecks() {
     await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
     await waitFor(`!${shareDialog}`);
     await openSection("Experimental");
-    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=switch][aria-label=Bots]")';
+    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=checkbox][aria-label=Bots]")';
     await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
     assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
     assert.equal(
@@ -434,17 +478,17 @@ async function browserChecks() {
       );
     }
     await openSection("Devices");
-    const other = `document.querySelector('main [role="switch"][aria-label="Drive other computers"]')`;
+    const other = `document.querySelector('main [role="checkbox"][aria-label="Drive other computers"]')`;
     await waitFor(`!!${other}`);
     assert.equal(await evaluate(`${other}.getAttribute("aria-checked")`), "false", "Drive other computers is off by default");
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false]'`);
+    assert.deepEqual(await evaluate("window.enabledCalls"), [], "opening Settings preserves the host's saved choice");
     await screenshot("devices-other-computers");
     await evaluate(`${other}.click()`);
     await waitFor(`${other}.getAttribute("aria-checked") === "true"`);
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true]'`);
+    await waitFor(`JSON.stringify(window.enabledCalls) === '[true]'`);
     await screenshot("other-computers-on");
     await evaluate(`${other}.click()`);
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true,false]'`);
+    await waitFor(`JSON.stringify(window.enabledCalls) === '[true,false]'`);
     await openSection("Notifications");
     assert.deepEqual(
       await switches(),

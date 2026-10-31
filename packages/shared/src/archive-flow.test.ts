@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
-import { archiveChat, archiveLinkChat } from "./archive.mjs";
+import { archiveChat, archiveLinkChat, deleteUndoWindow, undoDelete } from "./archive.mjs";
 import type { ArchiveDeps } from "./archive.mjs";
 import type { ArchivePlan } from "./archive.mjs";
 
@@ -44,6 +44,7 @@ function harness(overrides: Partial<ArchiveDeps> = {}, state = baseState()) {
       return undefined;
     },
     hide: () => calls.push("hide"),
+    destroy: () => calls.push("destroy"),
     restore: () => calls.push("restore"),
     remove: async (worktree, options) => {
       calls.push("remove");
@@ -83,18 +84,29 @@ test("the safe remove asks for no force", async () => {
   assert.equal((h.removals[0] as { force: boolean }).force, false);
 });
 
-test("hide only hides the chat", async () => {
+test("conversation deletion keeps the Worktree", async () => {
   const h = harness();
   assert.equal(await archiveChat(h.deps, 2, "hide", plan), "hidden");
-  assert.deepEqual(h.calls, ["stop", "hide"]);
+  assert.deepEqual(h.calls, ["stop", "hide", "destroy"]);
 });
 
-test("a worktree another chat started using since the menu was checked is only hidden from", async () => {
+test("a failed conversation deletion restores the Chat and reports the error", async () => {
+  const h = harness({
+    destroy: async () => {
+      throw new Error("disk full");
+    },
+  });
+  await assert.rejects(archiveChat(h.deps, 2, "hide", plan), /disk full/);
+  assert.deepEqual(h.calls, ["stop", "hide", "restore"]);
+  assert.deepEqual(h.removals, []);
+});
+
+test("a Worktree another Chat started using is kept while the conversation is deleted", async () => {
   const state = baseState();
   state.sessions["3"] = session(3, 2);
   const h = harness({}, state);
   assert.equal(await archiveChat(h.deps, 2, "delete", plan), "hidden");
-  assert.deepEqual(h.calls, ["stop", "hide"]);
+  assert.deepEqual(h.calls, ["stop", "hide", "destroy"]);
 });
 
 test("no status from the menu, or no base, means nothing is removed", async () => {
@@ -153,7 +165,7 @@ test("a removal that succeeds keeps the chat archived", async () => {
   assert.deepEqual(h.notices, []);
 });
 
-test("the hide-only cases stay archived: not Milagre's, shared, or no status", async () => {
+test("conversation deletion preserves shared and unchecked Worktrees", async () => {
   const shared = baseState();
   shared.sessions["3"] = session(3, 2);
   for (const [h, mode, p] of [
@@ -163,7 +175,7 @@ test("the hide-only cases stay archived: not Milagre's, shared, or no status", a
     [harness(), "remove", null],
   ] as const) {
     assert.equal(await archiveChat(h.deps, 2, mode, p as ArchivePlan | null), "hidden");
-    assert.deepEqual(h.calls, ["stop", "hide"]);
+    assert.deepEqual(h.calls, ["stop", "hide", "destroy"]);
     assert.deepEqual(h.removals, []);
     assert.deepEqual(h.notices, []);
   }
@@ -226,4 +238,25 @@ test("an idle shared Chat archives without a stop", async () => {
 
 test("a shared Chat that can't be hidden reports it", async () => {
   await assert.rejects(archiveLinkChat({ running: false, stop: async () => {}, hide: () => Promise.reject(new Error("Host offline")) }), /Host offline/);
+});
+
+test("an Undo in the window brings the Chat back and removes nothing", async () => {
+  const h = harness({ undoWindow: async () => true });
+  assert.equal(await archiveChat(h.deps, 2, "remove", { ...plan, status: { ...status, removable: true } }), "undone");
+  assert.deepEqual(h.calls, ["stop", "hide", "restore"]);
+});
+
+test("once the window passes without an Undo, the deletion goes on", async () => {
+  const h = harness({ undoWindow: async () => false });
+  assert.equal(await archiveChat(h.deps, 1, "hide", null), "hidden");
+  assert.deepEqual(h.calls, ["stop", "hide", "destroy"]);
+});
+
+test("undoDelete calls off only a deletion still waiting", async () => {
+  const waiting = deleteUndoWindow("/work/shop#2", 10_000);
+  assert.equal(undoDelete("/work/shop#2"), true);
+  assert.equal(await waiting, true);
+  assert.equal(undoDelete("/work/shop#2"), false);
+  assert.equal(await deleteUndoWindow("/work/shop#3", 5), false);
+  assert.equal(undoDelete("/work/shop#3"), false);
 });

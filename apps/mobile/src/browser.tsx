@@ -1,28 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, AppState, Linking, Pressable, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, CommentAdd01Icon, Link01Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, CommentAdd01Icon, Link01Icon, LinkSquare02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
+import { openablePageUrl } from "@milagre/shared/loopback-url";
 import type { BrowserFrame, BrowserList, BrowserTarget } from "@milagre/shared/browser";
 import { createBrowserBridge, createBrowserReceiverHtml } from "@milagre/shared/browser-receiver";
 import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
-import { StatusPill } from "./status-pill";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
 import { radius, type } from "./design-tokens";
+import type { ChatTab } from "./panel-tabs";
+import { useReachableHost } from "./routes-native";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
-function useBrowsers(client: Client | null, chatId: string | undefined) {
+function useBrowsers(client: Client | null, chatId: string | undefined, visible = true) {
   const [list, setList] = useState<BrowserList | null>(null);
   const refresh = useRef<() => Promise<void>>(async () => {});
   const listed = useRef("");
   useFocusEffect(
     useCallback(() => {
-      if (!client || !chatId) return;
+      if (!client || !chatId || !visible) return;
       let disposed = false,
         busy = false;
       // Keep the last list while returning to the same Chat, so the pill does not blink.
@@ -54,38 +56,84 @@ function useBrowsers(client: Client | null, chatId: string | undefined) {
         clearInterval(timer);
         subscription.remove();
       };
-    }, [client, chatId]),
+    }, [client, chatId, visible]),
   );
   return { list, setList, refresh: () => refresh.current() };
 }
 
-/** Hidden until this Chat has a page. */
-export function BrowserChip({ chatId }: { chatId?: string }) {
+/** The header offers Browser only while this Chat owns a page. */
+export function useBrowserShortcut({ chatId, openInPanel }: { chatId?: string; openInPanel?: ((tab: ChatTab) => void) | null }) {
   const { client } = useSession();
   const { list } = useBrowsers(client, chatId);
   if (!client || !chatId || !list?.supported || !list.targets.length) return null;
   const count = list.targets.length;
-  return (
-    <StatusPill
-      label="Browser"
-      count={count}
-      icon={BrowserIcon}
-      accessibilityLabel={`Browser, ${count} ${count === 1 ? "page" : "pages"} in this Chat`}
-      onPress={() => router.push({ pathname: "/browser-sheet", params: { hostId: client.url, chatId } })}
-    />
-  );
+  return {
+    accessibilityLabel: `Browser, ${count} ${count === 1 ? "page" : "pages"} in this Chat`,
+    onPress: () =>
+      openInPanel
+        ? openInPanel({ kind: "browser", target: { hostId: client.url, chatId } })
+        : router.push({ pathname: "/browser-sheet", params: { hostId: client.url, chatId } }),
+  };
 }
 
-export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: string }) {
+const goBack = () => router.back();
+
+export function BrowserSheet({
+  hostId,
+  chatId,
+  url,
+  requestId,
+  onClose = goBack,
+  visible = true,
+}: {
+  hostId?: string;
+  chatId?: string;
+  url?: string;
+  requestId?: number;
+  onClose?: () => void;
+  visible?: boolean;
+}) {
   const { colors } = useTheme();
   const styles = useStyles();
   const { client } = useSession();
   const insets = useSafeAreaInsets();
   const source = client && (!hostId || hostId === client.url) ? client : null;
-  const { list, setList, refresh } = useBrowsers(source, chatId);
+  const { list, setList, refresh } = useBrowsers(source, chatId, visible);
   const [chosen, setChosen] = useState<BrowserTarget | null>(null);
-  const [choosing, setChoosing] = useState(false);
   const [page, setPage] = useState<{ title: string; url: string } | null>(null);
+  const [openAttempt, setOpenAttempt] = useState(0);
+  const [opened, setOpened] = useState<{ source: Client; chatId: string; url: string; attempt: number; requestId?: number; error: string } | null>(null);
+  const openFinished =
+    opened?.source === source && opened?.chatId === chatId && opened?.url === url && opened?.attempt === openAttempt && opened?.requestId === requestId;
+  const opening = !!url && !openFinished;
+  const openError = openFinished ? opened.error : "";
+  useEffect(() => {
+    if (!source || !chatId || !url) return;
+    let disposed = false;
+    void source.call<BrowserTarget>("browser:open-page", [{ chatId, url }]).then(
+      (target) => {
+        if (disposed) return;
+        setChosen(target);
+        setPage(null);
+        setOpened({ source, chatId, url, attempt: openAttempt, requestId, error: "" });
+      },
+      (error) => {
+        if (disposed) return;
+        setOpened({
+          source,
+          chatId,
+          url,
+          attempt: openAttempt,
+          requestId,
+          error: error instanceof Error ? error.message : "Could not open the page. Open Milagre on your computer and retry.",
+        });
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [source, chatId, url, openAttempt, requestId]);
+  const [choosing, setChoosing] = useState(false);
   const [attaching, setAttaching] = useState<string | null>(null);
   const selected = chosen ?? (!choosing && list?.targets.length === 1 ? list.targets[0] : null);
   const canChoose = (list?.targets.length ?? 0) > 1 || (list?.others.length ?? 0) > 0;
@@ -141,9 +189,17 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
       setAttaching(null);
     }
   };
-  const shown = selected ? (page ?? { title: selected.title, url: selected.url }) : null;
+  const shown = opening || openError ? { title: "Browser", url: url ?? "" } : selected ? (page ?? { title: selected.title, url: selected.url }) : null;
+  // The page in the phone's browser: the computer's localhost is reached at its address on this network, as reply links are.
+  const reachableHost = useReachableHost(source?.url);
+  const openExternally = () => {
+    if (!shown) return;
+    const { href, reason } = openablePageUrl(shown.url, { remote: true, host: reachableHost });
+    if (href) void Linking.openURL(href).catch(() => Alert.alert("Could not open this page", `Visit ${href} in your browser.`));
+    else Alert.alert("This page can't open here", reason);
+  };
   return (
-    <View style={{ flex: 1, backgroundColor: colors.page, paddingBottom: insets.bottom }}>
+    <View style={{ flex: 1, backgroundColor: onClose === goBack ? colors.page : colors.surface, paddingBottom: insets.bottom }}>
       {/* Keep the header as one native view: form-sheet scroll sizing cannot account for a flattened header. */}
       <View
         collapsable={false}
@@ -154,6 +210,8 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
             label="Back to pages"
             icon={ArrowLeft01Icon}
             onPress={() => {
+              setCommenting(false);
+              setPicked(null);
               setChoosing(true);
               setChosen(null);
               setPage(null);
@@ -163,6 +221,8 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
         ) : (
           <View style={{ width: 40 }} />
         )}
+        {/* Balances the Open button beside Close, so the title stays centred. */}
+        {selected && <View style={{ width: 40 }} />}
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
             {shown?.title || "Browser"}
@@ -171,11 +231,21 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
             {shown?.url || "This Chat"}
           </Text>
         </View>
-        <CircleButton label="Close browser" icon={Cancel01Icon} onPress={() => router.back()} />
+        {selected && <CircleButton label="Open in your browser" icon={LinkSquare02Icon} onPress={openExternally} />}
+        <CircleButton label="Close browser" icon={Cancel01Icon} onPress={onClose} />
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
-        {!source || !chatId ? (
+        {!visible ? null : !source || !chatId ? (
           <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this computer to open its browsers.</Text>
+        ) : opening ? (
+          <Text style={[styles.muted, { padding: 20 }]}>Opening page in this Chat...</Text>
+        ) : openError ? (
+          <View style={{ padding: 20, gap: 16 }}>
+            <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
+              {openError}
+            </Text>
+            <PillButton title="Retry" onPress={() => setOpenAttempt((value) => value + 1)} />
+          </View>
         ) : paused ? (
           <View style={{ padding: 20, gap: 16 }}>
             <Text style={styles.muted}>Viewer paused while the app was hidden.</Text>
@@ -194,12 +264,21 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
               client={source}
               chatId={chatId}
               targetId={selected.id}
-              onPage={setPage}
+              onPage={(next) => {
+                if (page && page.url !== next.url) {
+                  setCommenting(false);
+                  setPicked(null);
+                }
+                setPage(next);
+              }}
               commenting={selected.source === "panel" && commenting}
+              picked={picked}
+              onClose={onClose}
               onPick={setPicked}
             />
             {selected.source === "panel" && (
               <PageComment
+                key={selected.id}
                 client={source}
                 chatId={chatId}
                 targetId={selected.id}
@@ -374,7 +453,7 @@ function PageComment({
       }}
     >
       {!picked ? (
-        <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>Tap the element you want to comment on.</Text>
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>Tap anywhere on the page to place a comment pin.</Text>
       ) : (
         <TextInput
           autoFocus
@@ -412,24 +491,30 @@ function BrowserWebView({
   chatId,
   targetId,
   onPage,
+  onClose = goBack,
   commenting = false,
   onPick,
+  picked = null,
 }: {
   client: Client;
   chatId: string;
   targetId: string;
   onPage(page: { title: string; url: string }): void;
+  onClose?: () => void;
   /** While set, a tap picks a point on the page (onPick, as fractions of it) instead of clicking it. */
   commenting?: boolean;
   onPick?(point: { x: number; y: number }): void;
+  picked?: { x: number; y: number } | null;
 }) {
   // Read by the bridge, which lives as long as the viewer: kept current without reconnecting it.
   const commentingRef = useRef(commenting);
   const onPickRef = useRef(onPick);
+  const pickedRef = useRef(picked);
   useEffect(() => {
     commentingRef.current = commenting;
     onPickRef.current = onPick;
-  }, [commenting, onPick]);
+    pickedRef.current = picked;
+  }, [commenting, onPick, picked]);
   const { colors, scheme } = useTheme();
   const styles = useStyles();
   const theme = useMemo(() => {
@@ -446,6 +531,10 @@ function BrowserWebView({
     latestTheme.current = theme;
     syncTheme();
   }, [theme, syncTheme]);
+  const syncPin = useCallback(() => {
+    view.current?.injectJavaScript(`window.browserCommentPoint?.(${JSON.stringify(pickedRef.current)});true;`);
+  }, []);
+  useEffect(syncPin, [picked, syncPin]);
   const [uri, setUri] = useState<string | null>(null),
     [error, setError] = useState(""),
     [revision, setRevision] = useState(0);
@@ -475,6 +564,8 @@ function BrowserWebView({
         // In comment mode a tap names a point instead of clicking: the receiver's mouse press and release stay here.
         // A swipe still scrolls the page (wheel input).
         const event = method === "input" ? (args as { event?: { kind?: string; phase?: string; x?: number; y?: number } }).event : undefined;
+        // Keep the chosen point stable while its comment is being written.
+        if (commentingRef.current && pickedRef.current && event?.kind === "wheel") return Promise.resolve({ accepted: true });
         if (commentingRef.current && event?.kind === "mouse") {
           if (event.phase === "up" && typeof event.x === "number" && typeof event.y === "number") onPickRef.current?.({ x: event.x, y: event.y });
           return Promise.resolve({ accepted: true });
@@ -551,14 +642,17 @@ function BrowserWebView({
           const message = JSON.parse(event.nativeEvent.data);
           if (message.channel !== "milagre-browser") return;
           if (message.event === "close") {
-            router.back();
+            onClose();
             return;
           }
           if (message.event === "page") {
             onPage({ title: String(message.title ?? ""), url: String(message.url ?? "") });
             return;
           }
-          if (message.method === "open") syncTheme();
+          if (message.method === "open") {
+            syncTheme();
+            syncPin();
+          }
           void bridge.current?.receive(message);
         } catch {
           /* Only typed browser RPC messages enter the host. */

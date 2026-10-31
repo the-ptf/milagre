@@ -10,7 +10,7 @@ import { privatePairingLink } from "@milagre/shared/pairing-link";
 import { Row, Group } from "../settings-list";
 import { useSession } from "../session";
 import { Icon } from "../icons";
-import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, RowSwitch, useStyles } from "../ui";
+import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, RowCheckbox, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 /** One sheet, two steps: scan (with paste as a shortcut), or type the address and token. */
@@ -166,7 +166,7 @@ export default function AddComputer() {
                   chevron={false}
                   disabled={busy}
                   onPress={() => setPrivateOnly(!privateOnly)}
-                  trailing={<RowSwitch label="LAN or Tailscale only" selected={privateOnly} disabled={busy} onPress={() => setPrivateOnly(!privateOnly)} />}
+                  trailing={<RowCheckbox label="LAN or Tailscale only" selected={privateOnly} disabled={busy} onPress={() => setPrivateOnly(!privateOnly)} />}
                 />,
               ]}
             </Group>

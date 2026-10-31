@@ -1,6 +1,14 @@
 import * as SecureStore from "expo-secure-store";
-import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
-import { dictationLanguage } from "@milagre/shared/dictation";
+import {
+  parseChatList,
+  parseCompactButtonDisplay,
+  parseToolCallDisplay,
+  type ChatList,
+  type CompactButtonDisplay,
+  type ToolCallDisplay,
+} from "@milagre/shared/chat-display";
+import { dictationLanguage, whisperModelFor } from "@milagre/shared/dictation";
+import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
@@ -140,6 +148,36 @@ export async function saveChatList(mode: ChatList) {
   }
 }
 const expandReasoningKey = "milagre.expand-reasoning.v1";
+const showContextSizeKey = "milagre.show-context-size.v1";
+const compactButtonDisplayKey = "milagre.compact-button-display.v1";
+export async function readShowContextSize(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(showContextSizeKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveShowContextSize(on: boolean) {
+  try {
+    await SecureStore.setItemAsync(showContextSizeKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
+export async function readCompactButtonDisplay(): Promise<CompactButtonDisplay> {
+  try {
+    return parseCompactButtonDisplay(await SecureStore.getItemAsync(compactButtonDisplayKey));
+  } catch {
+    return "threshold";
+  }
+}
+export async function saveCompactButtonDisplay(value: CompactButtonDisplay) {
+  try {
+    await SecureStore.setItemAsync(compactButtonDisplayKey, value);
+  } catch {
+    /* best effort */
+  }
+}
 /** Settings › Chat › Always expand reasoning; off unless turned on. */
 export async function readExpandReasoning(): Promise<boolean> {
   try {
@@ -173,7 +211,22 @@ export async function savePanelWidth(width: number) {
   }
 }
 const dictationLanguageKey = "milagre.dictation-language.v1";
-/** Settings › Chat › Dictation: a language code, or "auto" (the phone's language on iPhone, detected each take on Android). */
+const dictationActionKey = "milagre.dictation-action.v1";
+export async function readDictationAction(): Promise<DictationActionPreference> {
+  try {
+    return parseDictationAction(await SecureStore.getItemAsync(dictationActionKey));
+  } catch {
+    return "paste";
+  }
+}
+export async function saveDictationAction(action: DictationActionPreference) {
+  try {
+    await SecureStore.setItemAsync(dictationActionKey, action);
+  } catch {
+    /* best effort */
+  }
+}
+/** Settings › Chat › Dictation: a language code, or "auto" for experimental local language detection. */
 export async function readDictationLanguage(): Promise<string> {
   try {
     return dictationLanguage(await SecureStore.getItemAsync(dictationLanguageKey));
@@ -184,6 +237,21 @@ export async function readDictationLanguage(): Promise<string> {
 export async function saveDictationLanguage(language: string) {
   try {
     await SecureStore.setItemAsync(dictationLanguageKey, language);
+  } catch {
+    /* best effort */
+  }
+}
+const dictationModelKey = "milagre.dictation-model.v1";
+export async function readDictationModel(): Promise<string> {
+  try {
+    return whisperModelFor("phone", await SecureStore.getItemAsync(dictationModelKey)).id;
+  } catch {
+    return whisperModelFor("phone", undefined).id;
+  }
+}
+export async function saveDictationModel(id: string) {
+  try {
+    await SecureStore.setItemAsync(dictationModelKey, id);
   } catch {
     /* best effort */
   }
@@ -226,4 +294,19 @@ export async function savePermission(mode: string) {
   } catch {
     /* best effort */
   }
+}
+
+const internalBrowserKey = "milagre.internal-browser.v1";
+/** Device-local link preference, matching desktop's default. */
+export async function readInternalBrowser(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(internalBrowserKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveInternalBrowser(on: boolean) {
+  await SecureStore.setItemAsync(internalBrowserKey, on ? "on" : "off", {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
 }

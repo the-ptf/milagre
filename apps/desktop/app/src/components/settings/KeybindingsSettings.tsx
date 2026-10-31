@@ -23,11 +23,11 @@ import {
 import { bridgeFor } from "../../lib/computer-bridge";
 import { useComputers } from "../../lib/computers";
 import { useKeybindings } from "../../lib/keybindings";
-import { isMac } from "../../lib/shortcut-hints";
+import { isMac, ThisComputer } from "../../lib/shortcut-hints";
 import { Select } from "../primitives/Select";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import Tooltip from "../primitives/Tooltip";
-import { Switch } from "../primitives/Switch";
+import { SettingCheckbox } from "../primitives/Checkbox";
 import { Group, Row } from "./SettingsGroup";
 
 // Settings › Keybindings, as T3 Code has it: the rules of a computer's keybindings.json, edited on one computer or on all
@@ -203,8 +203,8 @@ export function KeybindingsSettings() {
   const shown = KEYBINDING_COMMANDS.filter(matches);
 
   const scopeOptions = [
-    { value: ALL, label: "All computers", description: online.length ? `This Mac and ${online.length} more` : "This Mac" },
-    { value: LOCAL_COMPUTER, label: thisMac, description: "This Mac" },
+    { value: ALL, label: "All computers", description: online.length ? `${ThisComputer} and ${online.length} more` : ThisComputer },
+    { value: LOCAL_COMPUTER, label: thisMac, description: ThisComputer },
     ...computers.map((computer) => ({
       value: computer.id,
       label: computer.name,
@@ -326,7 +326,7 @@ export function KeybindingsSettings() {
 
       <Group title="Advanced">
         <Row label="Conditions" description="Adds When to each keybinding, to run a key only in some places (for example not in a Terminal).">
-          <Switch label="Conditions" checked={advanced} onChange={setAdvanced} />
+          <SettingCheckbox label="Conditions" checked={advanced} onChange={setAdvanced} />
         </Row>
       </Group>
 

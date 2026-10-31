@@ -37,7 +37,8 @@ test("every client toggle installs its native config, preserves unrelated settin
     const record = f.store.list().find((c) => c.id === result.connection.id);
     assert.equal(record.clientId, client.id);
     assert.deepEqual(record.grants, config.grants);
-    const token = text.match(/[A-Za-z0-9_-]{43}/)?.[0];
+    // Read the credential field: a long checkout path can also contain 43 token-shaped characters.
+    const token = entryToken(readConfig(clientCatalog({ home: f.home, env: {}, platform: "darwin" }).find((c) => c.id === client.id)).entry);
     assert.equal(f.store.authenticate(token).id, record.id);
     const definition = clientCatalog({ home: f.home, env: {}, platform: "darwin" }).find((c) => c.id === client.id);
     const { entry } = readConfig(definition);

@@ -26,13 +26,17 @@ const { acquireOwnership } = require("./ownership.cjs");
 const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
+const { ensureProjectIgnore } = require("./project-ignore.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
+const { dbFile: chatDbFile, readChatRows } = require("./chat-db.cjs");
 const { decodeImages } = require("./image-input.cjs");
 const { KeepAwake } = require("./keep-awake.cjs");
 const { ClaudeSession } = require("./agents/claude-provider.cjs");
 const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider.cjs");
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp, sweepTempDirs } = require("./agents/antigravity-acp.cjs");
+const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { createKiroUsage } = require("./kiro-usage.cjs");
 const { createCliCache } = require("./agents/cli.cjs");
 const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
 const { runCliUpdate } = require("./agents/cli-update.cjs");
@@ -63,8 +67,11 @@ const { WorktreeSetups, resolveSetupCommand } = require("./worktree-setup.cjs");
 const { SetupReview } = require("./setup-review.cjs");
 const { readDiffStat } = require("./diffstat.cjs");
 const { registerCheckpoints } = require("./checkpoint-runtime.cjs");
+const { createSentFromNotes } = require("./sent-from.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
 const { createPullRequestReader, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
+const { background: inBackgroundLane } = require("./process-lanes.cjs");
+const { createPullRequestWatch } = require("./pull-request-watch.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents } = require("./project-state.cjs");
 const { migrateWorktreeChats } = require("./worktree-chats.cjs");
 const { createLinear } = require("./linear/index.cjs");
@@ -73,8 +80,8 @@ const { createLinearTools, linearToolDefinitions } = require("./linear/tools.cjs
 const { isIssueKey } = require("./linear/links.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { DiffRefresher } = require("./diff-refresh.cjs");
-const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
-const { archiveFinishedSubagents, archiveSubagent, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
+const { chatKey, isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { resolveProjectImage } = require("./project-image.cjs");
 const { createProjectFinder } = require("./project-finder.cjs");
@@ -82,16 +89,23 @@ const { saveProjectState, readProjectState, compactProjectState, stateFile } = r
 const { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget } = require("./recent-projects.cjs");
 const { agentFolders } = require("./agent-folders.cjs");
 const { createOnboardingProjects } = require("./onboarding-projects.cjs");
-const { activeWorktrees, inspectProject, mainCheckoutWorktrees, resolveProject } = require("./project-identity.cjs");
+const { activeWorktrees, inspectProject, mainCheckoutWorktrees, outsideGit, resolveProject } = require("./project-identity.cjs");
 const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
+const { createTokenUsage } = require("./token-usage.cjs");
+const { createTokenUsageScan } = require("./token-usage-scan.cjs");
+const { createTokenPricing } = require("./token-usage-pricing.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createComputerResources } = require("./computer-resources.cjs");
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
+const { createDoneSettings } = require("./done-settings.cjs");
+const { createDoneSweep } = require("./done-sweep.cjs");
+const { doneDue } = require("@milagre/shared/done");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
@@ -105,6 +119,7 @@ const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
 const { createChatsHome } = require("./chats-home.cjs");
+const { isFolderChatsHome, createFolderChat } = require("./chats-home-folders.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
 
@@ -168,7 +183,7 @@ function createRuntime(options) {
     try {
       common = await git.commonDir(real);
     } catch (error) {
-      if (error.code !== 128 || !/not a git repository/i.test(error.stderr ?? "")) throw error;
+      if (!(error.code === 128 && /not a git repository/i.test(error.stderr ?? "")) && !(error.missing && (await outsideGit(real)))) throw error;
     }
     // Another open of this path may have finished while git was running.
     if (projectOwners.has(real)) {
@@ -177,12 +192,18 @@ function createRuntime(options) {
     }
     let repositoryOwner;
     if (common && !repositoryOwners.has(common)) repositoryOwner = acquireOwnership(path.join(common, "milagre-runtime.lock"));
+    let owner;
     try {
-      const owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      if (common) ensureProjectIgnore(real);
       projectOwners.set(real, { openedAs: projectPath, owner });
       if (repositoryOwner) repositoryOwners.set(common, repositoryOwner);
     } catch (error) {
-      repositoryOwner?.release();
+      try {
+        owner?.release();
+      } finally {
+        repositoryOwner?.release();
+      }
       throw error;
     }
   }
@@ -195,10 +216,48 @@ function createRuntime(options) {
     if (!scope || !Number.isSafeInteger(id) || id < 1 || !scopeStates.has(scope) || !(await scopeStates.get(scope)).sessions[id])
       throw new Error(`Open an existing Chat before ${action}.`);
   };
+  // Experimental: agents operate desktop apps through agent-desktop, asking once per app per Chat.
+  const { createComputerUseSettings, createComputerUse, agentDesktopBinary, runCli } = require("./computer-use.cjs");
+  const computerUseSettings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json"), emit });
+  // The Chat's live screen: the window its agent last used, captured while it works.
+  let desktopCli;
+  const computerUseScreen = require("./computer-use-screen.cjs").createScreenFeed({
+    exec: (args, runOptions) => runCli({ ...(desktopCli ??= agentDesktopBinary()), home: path.join(dataDir, "agent-desktop") }, args, runOptions),
+    dir: path.join(dataDir, "computer-use", "frames"),
+  });
+  const computerUse =
+    options.computerUse ??
+    createComputerUse({
+      dataDir,
+      settings: computerUseSettings,
+      approve: (chatId, request) => agents.askApproval(chatId, request),
+      // The desktop app on this computer draws the agent cursor (apps/desktop/electron/agent-cursor.cjs).
+      emit,
+      onAction: ({ chatId, app, data }) => {
+        void existingChat("capturing its screen")(chatId)
+          .then(() => computerUseScreen.touch({ chatId, app, windowId: data?.window?.id, title: data?.window?.title }))
+          .catch(() => {});
+      },
+    });
+  // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
+  const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
+  const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
+  const simlock =
+    options.simlock ??
+    createSimlockHost({
+      settings: simlockSettings,
+      directory: path.join(dataDir, "simlock"),
+      log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
+    });
   const simulators = createChatSimulators({
-    simulators: options.simulators ?? require("./simulators.cjs").createSimulators(),
+    simulators:
+      options.simulators ??
+      require("./simulators.cjs").createSimulators({
+        adapter: require("./simlock-channel.cjs").withSimlock(require("./simulators-helper.cjs").createSimulatorAdapter(), simlock),
+      }),
     file: path.join(dataDir, "simulator-attachments.json"),
     validateChat: existingChat("attaching a simulator"),
+    ended: (device) => simlock.isDevice(device.id),
   });
   const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
   const artifacts = createChatArtifacts({
@@ -225,6 +284,7 @@ function createRuntime(options) {
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
   commands.handle("artifact:get", (_context, request) => artifacts.get(request));
+  commands.handle("artifact:asset", (_context, request) => artifacts.asset(request));
   commands.handle("artifact:list", (_context, request) => artifacts.list(request));
   commands.handle("artifact:apply", (_context, request) => artifacts.apply(request));
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
@@ -245,7 +305,7 @@ function createRuntime(options) {
     const text = typeof request?.text === "string" ? request.text.trim().slice(0, 4000) : "";
     const point = [request?.x, request?.y];
     if (!chatId || !text) throw new Error("Write the comment first.");
-    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap an element of the page.");
+    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap the page to place a comment pin.");
     const scope = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
@@ -255,24 +315,34 @@ function createRuntime(options) {
     const { element, shot } = await commentAtPoint(page, point[0], point[1]);
     const id = pageCommentId();
     const comment = { id, url: target.url, title: target.title, element, text };
-    const settings = chats.turnSettings(chatId) ?? {};
-    await chats.send({
-      ...settings,
-      provider: session.provider ?? settings.provider ?? "claude",
-      model: chats.runs[chatId]?.model || require("@milagre/shared/agent-runs").lastUserModel(await scopeStates.get(scope), sessionId) || settings.model,
-      permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
-      projectPath: scope,
-      sessionId,
-      body: pageCommentsMessage([comment], { screenshots: !!shot }),
-      images: shot ? [{ id: `page-comment-${id}`, name: `page-comment-${id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
-      files: [],
-    });
+    // Recorded first: a comment the store refuses is never sent, and the agent can resolve every one it reads.
     await pageComments.add({ chatId, comments: [comment] });
+    const settings = chats.turnSettings(chatId) ?? {};
+    // The phone user's own message, so a bot's Chat or a Run Chat treats it like one typed in the composer.
+    try {
+      await sendAsUser({
+        ...settings,
+        provider: session.provider ?? settings.provider ?? "claude",
+        model: chats.runs[chatId]?.model || require("@milagre/shared/agent-runs").lastUserModel(await scopeStates.get(scope), sessionId) || settings.model,
+        permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
+        projectPath: scope,
+        sessionId,
+        body: pageCommentsMessage([comment], { screenshots: !!shot }),
+        images: shot ? [{ id: `page-comment-${id}`, name: `page-comment-${id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
+        files: [],
+      });
+    } catch (error) {
+      await pageComments.forget({ chatId, ids: [id] }).catch(() => {});
+      throw error;
+    }
     return { id };
   });
   for (const method of ["list", "attach", "detach"])
-    commands.handle(`simulator:${method}`, (context, request) => {
+    commands.handle(`simulator:${method}`, async (context, request) => {
       if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");
+      // Detaching a Chat's own Simlock lease returns it, so a phone or older desktop doesn't keep it until its maximum age.
+      const lease = method === "detach" ? simlock.get(request?.deviceId) : null;
+      if (lease && lease.chatId === request?.chatId) await simlock.release(lease.deviceId).catch(() => {});
       return simulators[method](request);
     });
   for (const method of ["open", "offer", "frame", "status", "control", "input", "repair", "close"]) {
@@ -281,6 +351,53 @@ function createRuntime(options) {
       return simulators[method === "close" ? "closeViewer" : method](request, context.clientId);
     });
   }
+  /** Leases a Simlock device for a Chat and attaches it there; installs are accepted from the Chat's folder. */
+  async function leaseSimlock(request) {
+    const chatId = request?.chatId;
+    await existingChat("leasing a Simlock device")(chatId);
+    // Installs come from the Chat's own Worktree (a shared Chat's workspace), the folder its agent works in.
+    const roots = await chatWorktrees(chatId);
+    const session = (await scopeStates.get(projectOfKey(chatId))).sessions[sessionIdFromKey(chatId)];
+    const installDirectory = isLinkScopeKey(projectOfKey(chatId)) ? (session?.workspacePath ?? roots[0]?.path) : roots[0]?.path;
+    if (!installDirectory) throw new Error("This Chat has no Worktree yet. Send it a message first, then lease a device.");
+    const leased = await simlock.lease({ platform: request?.platform, model: request?.model || undefined, chatId, installDirectory });
+    try {
+      await simulators.attach({ chatId, deviceId: leased.deviceId });
+    } catch (error) {
+      await simlock.release(leased.deviceId).catch(() => {});
+      throw error;
+    }
+    return leased;
+  }
+  async function releaseSimlock(request) {
+    const lease = simlock.get(request?.deviceId);
+    const released = await simlock.release(request?.deviceId);
+    if (lease?.chatId) await simulators.detach({ chatId: lease.chatId, deviceId: lease.deviceId }).catch(() => {});
+    return released;
+  }
+  commands.handle("computer-use:settings:read", () => computerUseSettings.read());
+  commands.handle("computer-use:settings:save", (_context, patch) => computerUseSettings.save(patch));
+  commands.handle("computer-use:status", () => computerUse.status());
+  commands.handle("computer-use:guide", () => computerUse.guide());
+  commands.handle("computer-use:frame", async (_context, request) => {
+    await existingChat("viewing its screen")(request?.chatId);
+    const frame = await computerUseScreen.next({ chatId: request.chatId, after: Number(request.after) || 0 });
+    // The Chat may have been deleted while this viewer was waiting for a frame.
+    await existingChat("viewing its screen")(request.chatId);
+    return frame;
+  });
+  commands.handle("simlock:settings:read", () => simlockSettings.read());
+  commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
+  commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));
+  commands.handle("simlock:models", async () => ({ models: await simlock.models(), leases: simlock.leases() }));
+  commands.handle("simlock:lease", (context, request) => {
+    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
+    return leaseSimlock(request);
+  });
+  commands.handle("simlock:release", (context, request) => {
+    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
+    return releaseSimlock(request);
+  });
   // `agents` is created below; ownership roots are read only once the service polls.
   function agentProcesses() {
     const roots = agents.processes();
@@ -293,10 +410,24 @@ function createRuntime(options) {
   commands.handle("browser:list", (_context, request) => browsers.list(request));
   commands.handle("browser:attach", (_context, request) => browsers.attach(request));
   commands.handle("browser:detach", (_context, request) => browsers.detach(request));
-  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint.
-  commands.handle("browser:panel-pages", (context, request) => {
+  commands.handle("browser:open-page", (context, request) => {
+    if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
+    return require("./browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
+  });
+  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint. A paired
+  // desktop's pages for this host's Chats (#832) come `via: "peer"`: the endpoint is on that desktop's loopback, reached
+  // through a forwarder here that carries each connection back over its channel.
+  const panelForwarders = require("./panel-forwarders.cjs").createPanelForwarders();
+  commands.handle("browser:panel-pages", async (context, request) => {
     if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
-    return browsers.setPanelPages(request, context.clientId);
+    if (request?.via !== "peer") return browsers.setPanelPages(request, context.clientId);
+    if (typeof context.openStream !== "function") throw new Error("Only a paired desktop's channel carries its Browser pages.");
+    if (!Array.isArray(request.pages) || !request.pages.length) {
+      await panelForwarders.close(context.clientId);
+      return browsers.setPanelPages({ pages: [] }, context.clientId);
+    }
+    const port = await panelForwarders.forward(context.clientId, context.openStream, request.port);
+    return browsers.setPanelPages({ port, prefix: request.prefix, pages: request.pages }, context.clientId);
   });
   for (const method of ["open", "frame", "status", "control", "input", "close"]) {
     commands.handle(`browser:${method}`, (context, request) => {
@@ -349,6 +480,8 @@ function createRuntime(options) {
       (error) => console.warn("Milagre couldn't read your login shell's environment:", error.message),
     );
   const usageStore = createUsageStore({ file: path.join(dataDir, "usage-cache.json") });
+  // Kiro's month of credits, read from kiro-cli at most every few minutes and shared by every Account selection.
+  const kiroUsage = createKiroUsage({ cli: () => baseCli("kiro") });
   // A host may bring its own usage, models and CLI status (the review demo, which runs no real agent).
   const accountUsage = new Map();
   // Tests replace single readers. Claude's and Codex's are called with no arguments; Antigravity's gets the Account's environment.
@@ -366,7 +499,8 @@ function createRuntime(options) {
           : createUsageStore({ file: path.join(dataDir, `usage-${key}.json`) });
       accountUsage.set(key, {
         key,
-        accountIds: { claude, codex, antigravity },
+        // Kiro has only the account kiro-cli is signed in to, so it never splits the cache.
+        accountIds: { claude, codex, antigravity, kiro: "default" },
         store,
         read: createUsageReader({
           ready: () => environmentReady,
@@ -379,6 +513,7 @@ function createRuntime(options) {
             }),
           readCodex: readers.codex ?? (() => readCodexUsage({ env: accounts.environment("codex", codex) })),
           readAntigravity: () => (readers.antigravity ?? readAntigravityUsage)({ env: accounts.environment("antigravity", antigravity) }),
+          readKiro: readers.kiro ?? kiroUsage,
         }),
       });
     }
@@ -538,7 +673,8 @@ function createRuntime(options) {
     await scopeStates.flush(projectPath);
   }
 
-  const diffs = new DiffRefresher({ states, readDiffStat, update: updateProject });
+  // Hover-card stats nobody is waiting on: their git reads give way to interactive ones (process-lanes.cjs).
+  const diffs = new DiffRefresher({ states, readDiffStat: (...args) => inBackgroundLane(() => readDiffStat(...args)), update: updateProject });
 
   // Reading a project matches its worktrees with the ones git lists now. A project read before keeps the
   // state this run has built, so a chat's turn that's still running isn't lost.
@@ -567,7 +703,11 @@ function createRuntime(options) {
     let state = await updateProject(
       projectPath,
       async (current) => {
-        if (!git && Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath))
+        if (
+          !git &&
+          !(chatsHome.isHome(projectPath) && (await isFolderChatsHome(projectPath))) &&
+          Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath)
+        )
           throw new Error(`${projectName(projectPath)} is no longer a Git repository, so its Worktree Chats can't open. Restore its .git folder.`);
         const next = reconcileState(current, projectName(projectPath), discovered, owned);
         return migrateImages(projectPath, markDisconnectedSubagents(next, new Set(Object.keys(next.sessions).map(Number).filter(live))));
@@ -815,6 +955,7 @@ function createRuntime(options) {
     // Read again, the project drops the worktree git no longer lists, with its chats.
     if (states.has(projectPath)) await readProject(projectPath);
     if (result.removed) {
+      for (const id of goneChats) computerUseScreen.forget(id);
       await Promise.all(goneChats.map((id) => artifacts.removeChat(id).catch(() => {})));
       await Promise.all(goneChats.map((id) => pageComments.removeChat(id).catch(() => {})));
       for (const id of goneChats) chats.forget(id);
@@ -929,6 +1070,14 @@ function createRuntime(options) {
     await ownProject(projectPath);
     await environmentReady;
     // A Chat started from a Linear issue reads the issue again, never the renderer's copy. A missing issue creates nothing.
+    if (chatsHome.isHome(projectPath) && (await isFolderChatsHome(projectPath))) {
+      if (issueKey) throw new Error("A Chat without a Project cannot be linked to a Linear issue.");
+      event?.localMcp?.assertActive();
+      const folder = await createFolderChat(projectPath);
+      const project = await readProject(projectPath);
+      const worktree = Object.values(project.state.worktrees).find((item) => item.path === folder);
+      return { project, worktreeId: worktree.id };
+    }
     const issue = typeof issueKey === "string" ? await readLinearIssue(issueKey, issueWorkspace) : null;
     const suffix = newSuffix();
     const branch = issue ? await issueBranch({ projectPath, issue, suffix }) : undefined;
@@ -1059,15 +1208,59 @@ function createRuntime(options) {
       worktreeIds.filter((id) => Number.isInteger(id)),
     );
   });
-  const readPullRequest = options.readPullRequest ?? createPullRequestReader();
   const readPullRequestStateOf = options.readPullRequestState ?? readPullRequestState;
+  // Branch and Chat PRs are polled here for every client (pull-request-watch.cjs, spec 2026-10-30-daemon-pr-polling):
+  // a read answers from the last poll, and `pull-requests:changed` tells clients when a Project's PRs changed. A
+  // harness that injects its own readers gets them called directly instead.
+  const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
+  const readPullRequest = options.readPullRequest ?? createPullRequestReader();
+  const pullRequestWatch = injectedPullRequests
+    ? null
+    : createPullRequestWatch({
+        onChange: (folders) => {
+          for (const projectPath of new Set(folders.map((folder) => states.worktreeProject(folder)).filter(Boolean)))
+            emit("pull-requests:changed", { projectPath });
+        },
+      });
   commands.handle("worktree:pull-request", async (_event, worktreePath) => {
     await environmentReady;
-    return readPullRequest(worktreePath);
+    return pullRequestWatch ? pullRequestWatch.branch(worktreePath) : readPullRequest(worktreePath);
   });
   commands.handle("worktree:pull-requests", async (_event, worktreePath, refs) => {
     await environmentReady;
-    return (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
+    return pullRequestWatch ? pullRequestWatch.refs(worktreePath, refs) : (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
+  });
+  // A Project's Worktrees with Chats, and the PRs those Chats named, as the sidebar and the phone's list show them.
+  async function pullRequestTargets(projectPath) {
+    const state = await states.get(projectPath);
+    const byPath = new Map();
+    for (const session of Object.values(state.sessions ?? {})) {
+      const worktree = !session.archived ? state.worktrees?.[session.worktree_id] : undefined;
+      if (!worktree) continue;
+      const refs = byPath.get(worktree.path) ?? new Set();
+      for (const ref of session.summary?.pullRequests ?? []) if (typeof ref === "string") refs.add(ref);
+      if (!session.summary || session.summary.count > 0 || refs.size) byPath.set(worktree.path, refs);
+    }
+    return [...byPath].map(([folder, refs]) => ({ path: folder, refs: [...refs] }));
+  }
+  /** Every PR the Project's Worktrees and Chats have, from the last poll: it never waits on GitHub. */
+  commands.handle("pull-requests:snapshot", async (_event, projectPath) => {
+    if (typeof projectPath !== "string" || !states.has(projectPath)) return { worktrees: {}, chats: {}, pending: false };
+    await environmentReady;
+    const targets = await pullRequestTargets(projectPath);
+    if (pullRequestWatch) return pullRequestWatch.snapshot(targets);
+    const worktrees = {};
+    const chats = {};
+    await Promise.all(
+      targets.map(async ({ path: folder, refs }) => {
+        worktrees[folder] = await readPullRequest(folder).catch(() => null);
+        if (refs.length) {
+          const found = await (options.readPullRequests ?? readPullRequests)(folder, refs).catch(() => []);
+          chats[folder] = Object.fromEntries(refs.map((ref, index) => [ref, found[index] ?? null]));
+        }
+      }),
+    );
+    return { worktrees, chats, pending: false };
   });
   // The Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
   // On until the renderer pushes the saved setting.
@@ -1080,12 +1273,14 @@ function createRuntime(options) {
   let routines = null;
   // Opens a Babysit Heartbeat for a PR a Chat creates; set up with the Babysit settings below.
   let babysitWatch = null;
+  let chatSecrets = null;
   function publishAgentEvent(chatId, event, state, seq) {
     // First, before anyone hears the event: a heartbeat's "(pass)" marks its turn's end quiet, so no push goes out.
     routines?.observe(chatId, event);
     babysitWatch?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
+    if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) chatSecrets?.cancel(chatId);
     options.observeAgentEvent?.(chatId, event);
     // A turn the plan's usage limit stopped marks its account, and may move the Chat to another (auto-switch).
     if (event.type === "turn-failed" && event.limit && limitSwitch)
@@ -1094,6 +1289,11 @@ function createRuntime(options) {
         .catch((error) => console.warn("Milagre couldn't switch accounts after a usage limit:", error.message));
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
+    // A turn may have opened, pushed to or merged a PR: its Worktree's PRs are read again now, not on the next tick.
+    if (pullRequestWatch && isTurnEnd(event) && !isLinkScopeKey(projectOfKey(chatId))) {
+      const folder = states.chatWorktreePath(projectOfKey(chatId), sessionIdFromKey(chatId));
+      if (folder) pullRequestWatch.poke(folder);
+    }
     if (!isLinkScopeKey(projectOfKey(chatId)))
       void track(() => linked.observe(chatId, event), background).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
     // A turn that just failed on a login problem makes a "ready" picker status out of date.
@@ -1117,7 +1317,9 @@ function createRuntime(options) {
           ? new CodexSession({ ...withMcp, clientVersion: version })
           : provider === "antigravity"
             ? new AcpSession({ ...withMcp, clientVersion: version, config: antigravityAcp })
-            : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
+            : provider === "kiro"
+              ? new AcpSession({ ...withMcp, clientVersion: version, config: kiroAcp })
+              : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
       }),
     linkedFor: (chatId) => linked.forChat(chatId),
     // Bot rules answers for a bot's thread and the Chats it opened (bots is created further down).
@@ -1161,6 +1363,16 @@ function createRuntime(options) {
   // What Milagre tells a Chat's agent with its next message and nobody typed, such as files the user undid (a
   // <milagre_note> after the message). Kept in memory: a restart before the next message drops it.
   const agentNotes = new Map();
+  // Where the user typed each message, when it isn't this computer's window (sent-from.cjs). Settings › Experimental,
+  // off unless turned on: each note costs up to DEVICE_NOTE_TOKENS (shared/device-notes.mjs) on every message sent away from this computer.
+  const deviceNotes = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "device-notes.json"), { name: "Device notes", missing: false });
+  const sentFromNotes = createSentFromNotes({ enabled: () => deviceNotes.enabled() });
+  commands.handle("device-notes:read", () => ({ enabled: deviceNotes.enabled() }));
+  commands.handle("device-notes:save", (_event, value) => {
+    const result = deviceNotes.save(value);
+    emit("device-notes:changed", result);
+    return result;
+  });
   async function startAgentTurn(request) {
     if (closing) return { turnId: null, steered: false, cancelled: true };
     const permissionMode = request.permissionMode ?? agents.permissionMode(request.chatId, "ask");
@@ -1228,6 +1440,7 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
+    contextSettings: () => contextSettings.read(),
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
@@ -1384,6 +1597,8 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  const computerResources = createComputerResources({ dataDir, worktreeRoot: worktreeRoot() });
+  commands.handle("computer:resources:read", () => computerResources.read());
   // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
   commands.handle("keybindings:read", () => keybindings.read());
@@ -1391,10 +1606,18 @@ function createRuntime(options) {
   commands.handle("keybindings:reset-command", (_event, command) => keybindings.resetCommand(command));
   commands.handle("keybindings:reset", () => keybindings.resetAll());
   // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
+  const contextSettings = require("./context-settings.cjs").createContextSettings({ file: path.join(dataDir, "context-settings.json"), emit });
+  commands.handle("context:settings:read", () => contextSettings.read());
+  commands.handle("context:settings:save", (_event, patch) => contextSettings.save(patch));
+
   const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
   commands.handle("babysit:settings:read", () => babysitSettings.read());
   commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
   babysitWatch = createBabysitWatch({ settings: babysitSettings, routines });
+  // Done: how long a Chat stays in the Done list before the sweep below archives it.
+  const doneSettings = createDoneSettings({ file: path.join(dataDir, "done.json"), emit });
+  commands.handle("done:settings:read", () => doneSettings.read());
+  commands.handle("done:settings:save", (_event, patch) => doneSettings.save(patch));
   commands.handle("app-update:activity", () =>
     hostActivity({
       busy: chats.busyChats(),
@@ -1563,6 +1786,47 @@ function createRuntime(options) {
     return usageWithAccounts(usage, cachedSnapshot(usage.store, Date.now()));
   });
 
+  // Token usage page: every Claude Code and Codex transcript on this computer (the connected CLI accounts' and each
+  // Account's folders), priced with LiteLLM's list and credited to the Projects and Chats Milagre knows.
+  async function tokenUsageRoots() {
+    const roots = [];
+    for (const provider of ["claude", "codex"]) {
+      const ids = ["default", ...((await accounts.list()).providers.find((group) => group.provider === provider)?.accounts ?? []).map((item) => item.id)];
+      for (const id of new Set(ids)) {
+        let home;
+        try {
+          const env = accounts.environment(provider, id);
+          home =
+            provider === "claude"
+              ? env.CLAUDE_CONFIG_DIR || path.join(require("node:os").homedir(), ".claude")
+              : env.CODEX_HOME || path.join(require("node:os").homedir(), ".codex");
+        } catch {
+          continue;
+        }
+        if (provider === "claude") roots.push({ provider, dir: path.join(home, "projects") });
+        else roots.push({ provider, dir: path.join(home, "sessions") }, { provider, dir: path.join(home, "archived_sessions") });
+      }
+    }
+    return roots;
+  }
+  const tokenUsage =
+    options.tokenUsage ??
+    createTokenUsage({
+      scan: createTokenUsageScan({ cacheFile: path.join(dataDir, "token-usage-cache.json"), roots: tokenUsageRoots }),
+      pricing: createTokenPricing({ file: path.join(dataDir, "model-prices.json"), onChange: () => emit("token-usage:changed", {}) }),
+      projects: async () =>
+        Promise.all(
+          (await projectRegistry().list()).map(async (project) => ({
+            path: project.path,
+            name: chatsHome.isHome(project.path) ? CHATS_ACCOUNT_LABEL : project.name || path.basename(project.path),
+            state: await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null),
+          })),
+        ),
+      worktreeRoot: worktreeRoot(),
+      emit,
+    });
+  commands.handle("token-usage:read", (_event, request) => tokenUsage.read(request));
+
   // The "Commit and open PR" dialog: Milagre runs git and gh itself, in the chat's folder, once the login
   // environment is in (gh from a Finder launch). Its one-shot text call starts the CLI agentCli found.
   registerGitHandlers(commands, {
@@ -1570,6 +1834,8 @@ function createRuntime(options) {
     ready: () => environmentReady,
     clientVersion: version,
     knownFolders: () => scopeStates.worktreePaths(),
+    // A PR write (merge, ready, a review, a new PR) shows on the next read, not the next tick.
+    pullRequestChanged: (folder) => pullRequestWatch?.poke(folder),
   });
 
   const checkpoints = registerCheckpoints(commands, {
@@ -1581,7 +1847,9 @@ function createRuntime(options) {
     tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
-  commands.handle("chat:send", async (_event, request) => {
+  commands.handle("chat:send", (_event, request) => sendAsUser(request));
+  /** A message the user sends to a Chat: from a composer (desktop or phone), a pill, or a comment on a page. */
+  async function sendAsUser(request) {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
     // A bot's thread always runs in Bot rules on the bot's agent and model, whatever the composer sent. The user's
     // message in a Chat a bot opened makes it theirs: it runs in the mode they sent and the bot stops steering it. Bot
@@ -1597,7 +1865,7 @@ function createRuntime(options) {
     }
     // Only Milagre marks a message as coming from another Chat. A PR-blocker pill and a Chat started from a Linear issue
     // are the contexts a renderer can ask for, and Milagre checks them and writes their message and prompt itself.
-    const { prAction, linearIssue, compact, ...rest } = request;
+    const { prAction, linearIssue, compact, sentFrom, ...rest } = request;
     const action = prAction === undefined ? null : pullRequestActionContext(prAction);
     if (prAction !== undefined && !action) throw new Error("That pull request action isn't valid.");
     if (compact && rest.sessionId == null) throw new Error("Open a chat before compacting it.");
@@ -1608,14 +1876,20 @@ function createRuntime(options) {
         : linearIssue !== undefined
           ? await linearIssueMessage(rest, linearIssue)
           : { ...rest, context: undefined };
-    const { sessionId } = await chats.send(message);
+    // A compact is a command to the agent's CLI, not a message: it says nothing of where the user is.
+    const { sessionId } = await chats.send(
+      compact ? message : sentFromNotes.message({ ...message, sentFrom }, rest.sessionId == null ? null : chatKey(rest.projectPath, rest.sessionId)),
+    );
+    if (!compact) sentFromNotes.sent(chatKey(rest.projectPath, sessionId), sentFrom);
     // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
     // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
     // directly and never keep one.
-    if (rest.sessionId != null)
+    if (rest.sessionId != null) {
       await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
+      await reopenDoneChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't reopen a Done Chat:", error.message));
+    }
     return { sessionId };
-  });
+  }
   // The issue is read again here, so the card and prompt are Linear's copy. If Linear can't answer now, the Chat still
   // starts, with the text the renderer sent as a plain message.
   async function linearIssueMessage(rest, request) {
@@ -1655,6 +1929,9 @@ function createRuntime(options) {
   async function stopChatWork(chatId) {
     terminals.closeChat(chatId);
     routines.chatArchived(chatId);
+    // A turn still running stops as Stop stops it, so the questions and approvals it waits on end with it instead of
+    // asking from an archived Chat. The clients stop it first, but only when their copy of the runs shows it.
+    if (chats.runs[chatId]) return stopChat(chatId);
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
   }
@@ -1688,10 +1965,46 @@ function createRuntime(options) {
     if (!keepable((await scopeStates.get(projectPath)).sessions[sessionId])) return;
     await editProject(projectPath, (state) => withRunChatsHidden(state, { [sessionId]: false }, (routine) => routine.hidden !== false), { chats: [] });
   }
-  async function patchChat(projectPath, sessionId, patch) {
+  // `done` marks a Chat Done with this host's clock, so the countdown and the sweep agree whichever client asked; a phone's
+  // clock may be off. Reopening it, or bringing it back from the archive, takes it out of the Done list.
+  function sessionPatch(patch) {
+    if (!patch || typeof patch !== "object") return {};
+    const { done, done_at: _clientClock, ...rest } = patch;
+    if (done === true) return { ...rest, done_at: Date.now() };
+    if (done === false || rest.archived === false) return { ...rest, done_at: undefined };
+    return rest;
+  }
+  async function patchChat(projectPath, sessionId, raw) {
     if (!scopeStates.has(projectPath)) return;
-    if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
+    const patch = sessionPatch(raw);
+    if (patch.archived) return archiveChat(projectPath, sessionId, patch);
+    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
+  // Writing to a Done Chat takes it back to the list: the work it was Done with goes on. Only a Done one is written.
+  async function reopenDoneChat(projectPath, sessionId) {
+    if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.done_at) return;
+    await editProject(projectPath, (state) => patchSession(state, sessionId, { done_at: undefined }), { chats: [] });
+  }
+  // The sweep's archive of one Done Chat: read again and archived only while it is still due, then its worktree goes the
+  // way the archive menu's does (archive.mjs archiveMode): only one Milagre made, no other Chat uses and git says holds
+  // nothing unsaved, never forced. Anything else keeps its worktree, as an archive with unsaved work does.
+  async function archiveDoneChat(scope, sessionId, retentionHours) {
+    if (!scopeStates.has(scope)) return false;
+    const session = (await scopeStates.get(scope)).sessions[sessionId];
+    if (!doneDue(session, retentionHours)) return false;
+    await archiveChat(scope, sessionId, { archived: true, unread: false });
+    if (isLinkScopeKey(scope) || !states.has(scope)) return true;
+    const state = await states.get(scope);
+    const worktree = state.worktrees[session.worktree_id];
+    if (!worktree?.base || worktree.path === scope) return true;
+    if (Object.values(state.sessions).some((other) => other.worktree_id === worktree.id && !other.archived && other.id !== session.id)) return true;
+    await environmentReady;
+    const status = await worktreeStatus(worktree.path, worktree.base).catch(() => null);
+    if (!status?.removable) return true;
+    await handlers
+      .get("worktree:remove")({}, worktree.path, { projectPath: scope, chatId: `${scope}#${sessionId}`, seen: status })
+      .catch((error) => console.warn("Milagre kept a Done Chat's worktree:", error.message));
+    return true;
   }
   // Pinning, naming or restoring a Chat from the archive is the user taking a Run Chat over (a restored one would be
   // hidden, out of every list, and archived again by the next sweep). An agent's chat_update calls patchChat itself and
@@ -1700,6 +2013,17 @@ function createRuntime(options) {
     await patchChat(projectPath, sessionId, patch);
     if (patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
       await keepRunChat(projectPath, sessionId);
+  });
+  commands.handle("chat:delete", async (_event, projectPath, sessionId) => {
+    if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
+    const chatId = `${projectPath}#${sessionId}`;
+    await existingChat("deleting it")(chatId);
+    await stopChatWork(chatId);
+    await worktreeSetups.cancel(chatId);
+    await agents.closeChat(chatId);
+    await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
+    computerUseScreen.forget(chatId);
+    await artifacts.removeChat(chatId).catch(() => {});
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
@@ -1759,6 +2083,8 @@ function createRuntime(options) {
   commands.handle("agent:cli-status", async (_event, scope) => agentCliStatus(await validateAccountScope(scope, true)));
   commands.handle("agent:update-cli", async (_event, provider, targetVersion) => {
     if (!PROVIDERS.includes(provider)) throw new Error("Unknown provider.");
+    // Optional array arguments arrive as null after the daemon's JSON transport.
+    targetVersion ??= undefined;
     if (targetVersion !== undefined && !releaseVersion(targetVersion)) throw new Error("Invalid provider version.");
     if (cliUpdates.has(provider)) return cliUpdates.get(provider);
     const pending = (async () => {
@@ -1840,6 +2166,7 @@ function createRuntime(options) {
   });
 
   async function stopChat(chatId) {
+    chatSecrets?.cancel(chatId);
     // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
     await linked.stop({ chatKey: chatId });
     await advisorDelivery.stop(chatId);
@@ -1861,6 +2188,8 @@ function createRuntime(options) {
   // The message is queued before the answers go out, so the agent's next reply lands below it, but the agent doesn't wait
   // for it: the Project's queue holds every Chat's changes, and a busy one kept the card up for seconds.
   commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary } = {}) => {
+    // Route even stale secret ids here: a late/replayed value must never reach chat persistence.
+    if (require("./chat-secrets.cjs").isSecretRequest(requestId)) return chatSecrets.answer(chatId, requestId, answers);
     const recorded =
       answers && typeof summary === "string" && summary && typeof chatId === "string" && scopeStates.has(projectOfKey(chatId))
         ? chats.recordAnswers(chatId, summary, { requestId, answers }).catch((error) => {
@@ -1970,6 +2299,11 @@ function createRuntime(options) {
     read: (chatId) => chats.plan(chatId),
     update: (chatId, change) => chats.updatePlan(chatId, change),
   });
+  chatSecrets = require("./chat-secrets.cjs").createChatSecrets({
+    directory: path.join(dataDir, "chat-secrets"),
+    send: (chatId, event) => chats.receive(chatId, event),
+    active: (chatId) => Boolean(chats.runs[chatId]) && !closing,
+  });
   // Delegations to another paired computer's Projects (Settings > Experimental, spec 2026-10-23). The daemon supplies its
   // computers (`remoteComputers`): list() -> [{ id, name, online }], invoke(id, method, args), thisMac(), and
   // onEvent(listener) / onOnline(listener) / onRemoved(listener) for their events, their coming back and their removal.
@@ -2032,7 +2366,18 @@ function createRuntime(options) {
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
+      ...chatSecrets.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
+      ...(simlockSettings.read().enabled
+        ? require("./chat-simulators.cjs").simlockToolDefinitions(chatId, {
+            models: () => simlock.models(),
+            lease: (request) => leaseSimlock({ ...request, chatId }),
+            release: (request) => releaseSimlock(request),
+            get: (deviceId) => simlock.get(deviceId),
+          })
+        : []),
+      // Experimental: desktop apps on this computer, through agent-desktop.
+      ...(computerUseSettings.read().enabled ? computerUse.definitions(chatId) : []),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...pageCommentToolDefinitions(chatId, pageComments),
       // Driving the Chat's browser pages; browser_open asks the desktop to open a Browser panel tab (browser-panel:open).
@@ -2043,7 +2388,14 @@ function createRuntime(options) {
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
       ...localMcp.agentTools(chatId).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name)),
-      ...htmlArtifactToolDefinitions(chatId, artifacts),
+      // Files an Artifact page shows come from the Chat's own Worktrees, as a chat_start attachment does.
+      ...htmlArtifactToolDefinitions(chatId, artifacts, undefined, {
+        roots: () =>
+          chatWorktrees(chatId).then(
+            (worktrees) => worktrees.map((worktree) => worktree.path),
+            () => [],
+          ),
+      }),
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
@@ -2246,6 +2598,7 @@ function createRuntime(options) {
     store: linkStore,
     workspaces: linkWorkspaces,
     chats,
+    sentFromNotes,
     broadcast: broadcastProjectState,
     titles: chatTitles,
   });
@@ -2314,7 +2667,9 @@ function createRuntime(options) {
 
   commands.handle("project:current", async () => {
     const target = await launchProject(recentProjects(), cwd);
-    return target ? openProject(target) : null;
+    if (target) return openProject(target);
+    // Onboarding skipped to a Chat without a Project: that Chat opens again, instead of onboarding.
+    return (await chatsHome.exists()) ? openProject(chatsHome.path, { remember: false, register: false }) : null;
   });
 
   // Chats a quit stopped continue on launch in every recent project, not only the one on screen.
@@ -2506,6 +2861,14 @@ function createRuntime(options) {
       }),
     );
   commands.handle("project:recent", async () => withOrigins(withoutHomes(await withHidden(await recentProjects().list()))));
+  // Every Project this Mac knows (the registry, folders that went away dropped), newest opened first: a new-chat picker
+  // offers them all, where the sidebar keeps to the recent ones. Hidden ones too: hiding is the sidebar's, not where a Chat starts.
+  commands.handle("project:known", async () => {
+    const known = withoutHomes(await projectRegistry().list())
+      .map((project) => ({ path: project.path, name: project.name || path.basename(project.path), openedAt: project.openedAt ?? "" }))
+      .toSorted((a, b) => String(b.openedAt).localeCompare(String(a.openedAt)));
+    return withOrigins(known);
+  });
   // Onboarding offers the folders Claude Code and Codex worked in on this Mac.
   commands.handle("onboarding:agent-folders", async () => withoutHomes(await (options.agentFolders ?? agentFolders)()));
   // A first Project made from onboarding opens at once: a new folder, a clone, or Git set up in a folder without it.
@@ -2566,8 +2929,20 @@ function createRuntime(options) {
     const read = { withState: options?.withState === true };
     return options?.marks === true ? scopeStates.messageMarks(scope, read) : scopeStates.allMessages(scope, read);
   });
-  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too.
+  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too. A Chat of a
+  // Project this host knows but hasn't opened (another computer's window or the phone opening it, a background copy) is
+  // read from its chats.db as it is: opening the Project would hold the read behind Git and resume its stopped turns, and
+  // nothing of an unopened Project is held in memory to miss.
   commands.handle("chat:messages", async (_event, scope, chatId, options) => {
+    if (typeof scope === "string" && !isLinkScopeKey(scope) && !states.has(scope) && Number.isSafeInteger(chatId) && existsSync(chatDbFile(scope))) {
+      const known = chatsHome.isHome(scope) ? await chatsHome.exists() : (await recentProjects().list()).some((item) => item.path === scope);
+      if (known && !states.has(scope))
+        return chatPage(
+          readChatRows(scope, [chatId]).map((row) => row.message),
+          chatId,
+          options ?? {},
+        );
+    }
     checkReadable(scope);
     return chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, options ?? {});
   });
@@ -2807,9 +3182,20 @@ function createRuntime(options) {
   const uploadSweepTimer = setInterval(sweepUploads, 24 * 60 * 60 * 1000);
   uploadSweepTimer.unref();
   void sweepUploads();
+  // Done Chats past their retention are archived once a minute, in every open Project and Link (bots' homes have none).
+  const doneSweep = createDoneSweep({
+    settings: doneSettings,
+    scopes: () => scopeStates.projects().filter((key) => !bots.isHome(key)),
+    heldState,
+    archive: (scope, sessionId, retentionHours) => track(() => archiveDoneChat(scope, sessionId, retentionHours), background),
+    isClosing: () => closing,
+  });
+  doneSweep.start();
 
   function close() {
     clearInterval(uploadSweepTimer);
+    chatSecrets?.close();
+    void doneSweep.stop();
     closing = true;
     // A comment already on its way goes back to its queue before the rest closes.
     const routinesStopped = routines.stop();
@@ -2822,7 +3208,7 @@ function createRuntime(options) {
       await advisorMcp.close();
       await advisorStore.close();
       // Ending the Terminals first also answers their pending reads, which the wait for accepted commands includes.
-      await Promise.all([simulators.close(), browsers.close(), artifacts.close(), pageComments.close(), terminals.dispose()]);
+      await Promise.all([simulators.close(), browsers.close(), panelForwarders.closeAll(), artifacts.close(), pageComments.close(), terminals.dispose()]);
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
       await Promise.allSettled(active);
@@ -2830,8 +3216,10 @@ function createRuntime(options) {
       accounts.close();
       keybindings.close();
       keepAwake.quit();
+      computerResources.close();
       ports.close();
       diffs.close();
+      pullRequestWatch?.close();
       if (!states.closed) {
         await chats.suspendRunning();
         // A failed early save must not leave provider processes running. The
@@ -2868,7 +3256,10 @@ function createRuntime(options) {
         return commands.invoke(method, args, context);
       });
     },
-    disconnect: (clientId) => Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId)]).then(() => undefined),
+    disconnect: (clientId) =>
+      Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId), panelForwarders.close(clientId)]).then(() => undefined),
+    /** Runs the Done sweep now instead of at its next minute (tests); resolves with the Chats it archived. */
+    sweepDone: () => doneSweep.sweep(),
     /** A bot's thread, or a Chat a bot opened and still runs: its completion tells no one but the bot. */
     isQuietChat: (chatId) => isQuietChat(bots.snapshot(), chatId),
     openProject: (projectPath, options) => accept(() => openProject(projectPath, options)),

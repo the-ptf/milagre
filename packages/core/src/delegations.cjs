@@ -8,6 +8,7 @@ const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { neutralizeTags, truncateText } = require("@milagre/shared/untrusted-text");
 const { clip } = require("./linked-summary.cjs");
 const { callerMode, raisesMode } = require("./agents/permissions.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 // Delegations and Negotiations (ADR-0002). A Delegation is a message from a Chat to another Chat, across a
 // Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
@@ -111,6 +112,7 @@ class Delegations {
    *     Worktree; link_ids are every Link that reaches it, link_id the one it routes along, and both empty (null, [])
    *     for a Worktree of the Chat's own Project, which needs no Link
    *   chat(chatKey) -> { label, worktreePath, archived } | null; openChat(projectPath, worktreePath) -> a new Chat's key
+   *   adoptSubchat(toChat, fromChat) -> nests a Chat of the requester's own Project under it (ChatHost.adoptSubchat)
    *   status(chatKey) -> "idle" | "working" | "waiting"
    *   pendingResults(chatKey) -> whether advisor results still need a turn, including saved queued results
    *   deliver(chatKey, { body, prompt, context }) -> { started }, once the message is saved; `started` resolves with
@@ -251,6 +253,8 @@ class Delegations {
     if (decision === "cancelled") throw new Error("The approval card closed before the user answered, so nothing was sent.");
     const toChat = chat === "new" ? await this.ports.openChat(target.projectPath, worktree) : chat;
     if (toChat === fromChat) throw new Error('A Chat can\'t delegate to itself. Pick another Chat, or "new".');
+    // Inside one Project the receiving Chat becomes the requester's subchat; across a Link it stays a Chat of its own.
+    if (!target.link_id) await this.ports.adoptSubchat?.(toChat, fromChat).catch((error) => console.warn("Milagre couldn't nest a subchat:", error.message));
     const record = negotiation
       ? {
           id: this.id(),
@@ -442,7 +446,7 @@ class Delegations {
     for (const delegation of open) {
       delegation.status = "cancelled";
       delete delegation.unconfirmed;
-      delegation.report = `${delegation.remote.computerName} was removed from this Mac's computers, so this Delegation was cancelled here and its report can't come back. It may still be running there: "${clip(delegation.message, 120)}"`;
+      delegation.report = `${delegation.remote.computerName} was removed from ${thisComputer}'s computers, so this Delegation was cancelled here and its report can't come back. It may still be running there: "${clip(delegation.message, 120)}"`;
     }
     await this.persist();
     const results = await Promise.allSettled(

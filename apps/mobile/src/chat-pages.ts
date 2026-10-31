@@ -39,10 +39,42 @@ async function readPage(client: PageClient, projectPath: string, chatId: number,
   }
 }
 
+/** Where each Chat's last page is kept between launches (chat-page-disk.ts); none in tests unless one sets it. */
+export type PageDisk = { read(key: string): Promise<ChatPage | null>; write(key: string, page: ChatPage): Promise<void> };
+let disk: PageDisk | null = null;
+export function setChatPageDisk(next: PageDisk | null) {
+  disk = next;
+}
+// Held back per Chat: a streaming turn reads its tail again many times a minute.
+const SAVE_DELAY_MS = 2000;
+const saves = new Map<string, ReturnType<typeof setTimeout>>();
+function save(key: string, page: ChatPage) {
+  if (!disk) return;
+  clearTimeout(saves.get(key));
+  saves.set(
+    key,
+    setTimeout(() => {
+      saves.delete(key);
+      void disk?.write(key, { messages: page.messages, hasMore: page.hasMore, total: page.total });
+    }, SAVE_DELAY_MS),
+  );
+}
+
 function set(key: string, next: ChatWindow) {
   windows.set(key, next);
   // A copy: a listener can resubscribe while it is told, and a live Set would then be walked forever.
   for (const listener of Array.from(listeners.get(key) ?? [])) listener();
+  if (!next.loading && !next.error) save(key, next);
+}
+
+/** A Chat not held yet paints from its copy on the phone while the computer's own answer is on its way. */
+function recall(key: string) {
+  void disk
+    ?.read(key)
+    .then((kept) => {
+      if (kept?.messages.length && !windows.has(key)) set(key, { ...kept, loading: true });
+    })
+    .catch(() => {});
 }
 
 /**
@@ -88,6 +120,7 @@ function run(key: string, work: () => Promise<void>): Promise<void> {
 async function load(key: string, client: PageClient, projectPath: string, chatId: number) {
   const current = windows.get(key);
   if (current) set(key, { ...current, loading: true, error: undefined });
+  else recall(key);
   try {
     // The client bounds the read itself (30 s, with retries while the Mac is busy); a shorter cap here would lose its answer.
     const page = await readPage(client, projectPath, chatId, TURNS);
@@ -131,6 +164,41 @@ export function prefetchChatPage(client: PageClient, projectPath: string, chatId
   const key = `${client.url}|${projectPath}#${chatId}`;
   if (busy.has(key) || (windows.has(key) && !windows.get(key)?.error)) return;
   void run(key, () => load(key, client, projectPath, chatId));
+}
+
+/** Chat `key`'s window as held now, without reading it. Exported for its tests. */
+export const peekChatPage = (key: string): ChatWindow | undefined => windows.get(key);
+
+// Each computer's most recent Chats are copied to the phone in the background (the all-computers store reads its Chat
+// lists, then calls warmChatPages), so even the first open of one paints from its copy.
+const WARM_PER_COMPUTER = 5;
+// Chats copied, or found current, since the app started.
+const warmed = new Set<string>();
+export type WarmChat = { projectPath: string; chatId: number; lastAt: number; lastId: number };
+
+/**
+ * Copies `client`'s WARM_PER_COMPUTER most recent `chats` to the phone, one at a time, each read through `limit` (the
+ * computer's request limit). A Chat held already, or whose copy ends on its last message, is left alone.
+ */
+export async function warmChatPages(client: PageClient, chats: WarmChat[], limit: <T>(work: () => Promise<T>) => Promise<T> = (work) => work()) {
+  if (!disk) return;
+  const recent = [...chats].sort((a, b) => b.lastAt - a.lastAt).slice(0, WARM_PER_COMPUTER);
+  for (const { projectPath, chatId, lastId } of recent) {
+    const key = `${client.url}|${projectPath}#${chatId}`;
+    if (warmed.has(key) || windows.has(key) || busy.has(key)) continue;
+    warmed.add(key);
+    try {
+      const kept = await disk.read(key);
+      if (kept?.messages.at(-1)?.id === lastId) continue;
+      const page = await limit(() => client.chatMessages(projectPath, chatId, { turns: TURNS }));
+      // Opened meanwhile: its window saves the copy itself.
+      if (!windows.has(key)) await disk.write(key, page);
+    } catch {
+      // The computer went away or got busy: the Chat reads on open as before. A later list may try it again.
+      warmed.delete(key);
+      return;
+    }
+  }
 }
 
 /**
@@ -187,9 +255,16 @@ export function useChatPage(
     earlierLoads.set(key, request);
     return request;
   }, [key, client, projectPath, chatId]);
+  // Followed at its bottom, the window drops what it read beyond its last turns; scrolling up reads them again.
+  const trim = useCallback(() => {
+    if (!key || busy.has(key) || earlierLoads.has(key)) return;
+    const next = windows.trim(key);
+    if (next) for (const listener of Array.from(listeners.get(key) ?? [])) listener();
+  }, [key]);
   return {
     ...page,
     loadEarlier,
+    trim,
     retry: useCallback(() => (key ? run(key, () => load(key, client!, projectPath!, chatId!)) : Promise.resolve()), [key, client, projectPath, chatId]),
   };
 }

@@ -6,16 +6,22 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-window.milagre = Object.freeze({ listEditors: async () => [] });
+window.milagre = Object.freeze({ listEditors: async () => [], on: () => window.milagre });
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { ChatRow } from "/src/components/sidebar/ChatRow";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
+import { associatedPullRequest } from "@milagre/shared/chats";
+import { updateSettings } from "/src/lib/settings";
 import "/src/styles.css";
 const noop = () => {};
 window.stopped = [];
+window.prLinks = [];
+window.updateSettings = updateSettings;
 function Fixture() {
+  const [remote, setRemote] = useState(false);
+  window.setRemote = setRemote;
   const [ports, setPorts] = useState([
     { port: 5173, pid: 4211, command: "node", address: "127.0.0.1" },
     { port: 8081, pid: 4380, command: "node", address: "*" },
@@ -32,7 +38,7 @@ function Fixture() {
   const [model] = useState(MODEL_CATALOG[0]);
   const messages = [
     { id: 1, session_id: 1, context: null, role: "user", body: "Start the web app and Metro so I can try the new screen." },
-    { id: 2, session_id: 1, context: null, role: "assistant", body: "Vite is on 5173, Metro on 8081 and the local database on 54321." },
+    { id: 2, session_id: 1, context: null, role: "assistant", body: "Vite is on 5173, Metro on 8081 and the local database on 54321. [Site](https://example.org/app) [PR](https://github.com/team/second/pull/12/files#diff-123) [Other PR](https://github.com/team/third/pull/12)" },
   ];
   const plan = { source: "milagre", tasks: [{ id: "0", title: "Start the dev servers", status: "completed" }, { id: "1", title: "Open the new screen", status: "in_progress" }], phases: [], updatedAt: 0 };
   return <div style={{ display: "flex", height: "100%" }}>
@@ -42,6 +48,12 @@ function Fixture() {
     </aside>
     <div style={{ flex: 1, minWidth: 0, padding: 12 }}>
       <ChatComposer messages={messages}
+        agentChatId={remote ? "milagre-link:studio|11111111-1111-1111-1111-111111111111#1" : "/fixture#1"}
+        onOpenPullRequestLink={(url) => {
+          const pr = associatedPullRequest(url, [{ url: "https://github.com/team/first/pull/12", cwd: "/first" }, { url: "https://github.com/team/second/pull/12", cwd: "/second" }]);
+          if (pr) window.prLinks.push(pr.cwd);
+          return !!pr;
+        }}
         imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
         projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false} plan={plan} ports={ports} onStopPort={stopPort} subagents={[]}
         models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
@@ -217,7 +229,7 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-slot=browser-address]")?.value === "http://localhost:5173"');
     assert.deepEqual(opened, [], "A port row opens in the Browser panel, not outside");
     await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state !== "open"');
-    await evaluate("document.querySelector(\"[aria-label='Hide browser']\").click()");
+    await evaluate("document.querySelector(\"[aria-label='Hide Browser panel']\").click()");
     await waitFor('!document.querySelector("[data-slot=browser-dock]")');
     await evaluate(`document.querySelector("${pill}").click()`);
     await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');
@@ -301,9 +313,41 @@ async function browserChecks() {
     await evaluate(`${firstRow}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }))`);
     await waitFor('!!document.querySelector("[data-chat-hover-card]")');
     assert.equal(await evaluate('!!document.querySelector("[data-chat-card-ports]")'), false);
-    console.log(
-      "PASS: Ports pill beside the to-do list, rows and links, Stop and Stop all, Stop before the host's list, light and dark, Escape, opens in the browser, hover card ports, hidden when empty",
-    );
+    await evaluate(`${firstRow}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse", relatedTarget: document.body }))`);
+
+    // A remote Link Chat still has a Browser panel on the viewing Mac.
+    await evaluate("window.setRemote(true)");
+    await delay(100);
+    const clickReplyLink = (href, modifiers = {}) =>
+      evaluate(
+        `document.querySelector('[data-slot=message-content] a[href="${href}"]').dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...${JSON.stringify(modifiers)} }))`,
+      );
+    const site = "https://example.org/app";
+    await clickReplyLink(site);
+    await waitFor(`document.querySelector("[data-slot=browser-address]")?.value === "${site}"`);
+    const beforePr = opened.length;
+    const pr = "https://github.com/team/second/pull/12/files#diff-123";
+    await clickReplyLink(pr);
+    assert.deepEqual(await evaluate("window.prLinks"), ["/second"], "An associated PR keeps the right Project even when its number is shared");
+    assert.equal(opened.length, beforePr, "The associated PR does not leave the app");
+    assert.equal(await evaluate('document.querySelector("[data-slot=browser-address]").value'), site, "The PR does not open a browser page");
+    await evaluate('window.updateSettings({ openLinksIn: "external" })');
+    await clickReplyLink(pr);
+    assert.deepEqual(await evaluate("window.prLinks"), ["/second", "/second"], "Associated PRs still use Git with the external browser preference");
+    await clickReplyLink(site);
+    await delay(100);
+    assert.equal(opened.at(-1), site, "The external browser preference applies to remote Chats");
+    await evaluate('window.updateSettings({ openLinksIn: "milagre" })');
+    await clickReplyLink(pr, { metaKey: true });
+    await delay(100);
+    assert.equal(opened.at(-1), pr, "Command-click keeps the normal alternate link behavior");
+    await evaluate('window.updateSettings({ openLinksIn: "external" })');
+    const unrelated = "https://github.com/team/third/pull/12";
+    await clickReplyLink(unrelated);
+    await delay(100);
+    assert.equal(opened.at(-1), unrelated, "An unrelated PR stays external");
+    await evaluate('window.updateSettings({ openLinksIn: "milagre" })');
+    console.log("PASS: Ports pill, Stop, themes, hover cards, remote Link Chat browser links, browser preference and associated PR routing");
     app.exit(0);
   } catch (error) {
     console.error(error);

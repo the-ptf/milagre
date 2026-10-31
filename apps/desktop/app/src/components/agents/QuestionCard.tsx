@@ -20,13 +20,20 @@ import {
 } from "../../lib/question-answers";
 import type { QuestionDrafts } from "../../lib/question-answers";
 import { SPRING_PRESS, SPRING_SWAP } from "../../lib/ease";
+import { SecretCard } from "./SecretCard";
 import { ScrollArea } from "../primitives/ScrollArea";
 
 /**
  * The open chat's oldest question: the agent's options as rows, an answer of the user's own, and Dismiss.
  * Several questions show one at a time, under a tab each.
  */
-export function QuestionCard({
+export function QuestionCard(props: Parameters<typeof OrdinaryQuestionCard>[0]) {
+  if (props.request.secretRequest)
+    return <SecretCard key={props.request.requestId} request={props.request} busy={props.answering !== null} onAnswer={props.onAnswer} />;
+  return <OrdinaryQuestionCard {...props} />;
+}
+
+function OrdinaryQuestionCard({
   request,
   waiting,
   answering,

@@ -775,3 +775,211 @@ test("page snapshots capture every design beyond the former 20-design cap", asyn
   assert.equal(new Set(snapshot.designs.map((design) => design.title)).size, 21);
   assert.ok(snapshot.designs.some((design) => design.title === "Design 21"));
 });
+
+test("a page split into tabs keeps each tab, changes one tab at a time and is published with its tab bar", async (t) => {
+  const { api, directory } = await fixture(t);
+  const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api).map((tool) => [tool.name, tool]));
+  const tabs = [
+    { id: "overview", title: "Overview", html: "<p>Overview</p>" },
+    { id: "data", title: "Data", html: "<p>Data</p>" },
+  ];
+  const first = JSON.parse(await tools.artifact_show.run({ title: "Report", tabs }));
+  const page = await api.get({ chatId: CHAT, id: first.id });
+  assert.deepEqual(page.tabs, tabs);
+  assert.equal(page.html, "<p>Overview</p>", "viewers from before tabs see the first tab");
+  // A tab without html keeps what it has; the agent reads one tab at a time.
+  await tools.artifact_show.run({
+    title: "Report",
+    tabs: [
+      { id: "overview", title: "Summary" },
+      { ...tabs[1], html: "<p>More data</p>" },
+    ],
+  });
+  const one = JSON.parse(await tools.artifact_read.run({ id: first.id, tab: "data" }));
+  assert.deepEqual(one.tabs, [
+    { id: "overview", title: "Summary" },
+    { id: "data", title: "Data" },
+  ]);
+  assert.deepEqual(one.tab, { id: "data", title: "Data", html: "<p>More data</p>" });
+  assert.equal(one.html, undefined);
+  assert.equal(JSON.parse(await tools.artifact_read.run({ id: first.id })).tabs[0].html, "<p>Overview</p>");
+  await assert.rejects(tools.artifact_read.run({ id: first.id, tab: "gone" }), /no tab gone/);
+  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id);
+  assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v2.html", "v2.tabs.json"], "only the current page is kept");
+
+  const [shared] = (await api.pageSnapshot({ chatId: CHAT, title: "Report", kind: "artifacts" })).artifacts;
+  assert.match(shared.html, /role="tablist"/);
+  assert.match(shared.html, />Summary<\/button><button type="button" role="tab">Data</);
+  assert.ok(shared.html.includes("\\u003cp>More data\\u003c/p>"), "tab pages can't close the script that carries them");
+
+  // New tabs need their HTML; ids are unique; the page is html or tabs.
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", tabs: [{ id: "new", title: "New" }] }), /needs its HTML/);
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", tabs: [tabs[0], tabs[0]] }), /Two tabs/);
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", html: "<p>x</p>", tabs }), /not both/);
+  await assert.rejects(
+    api.show({
+      chatId: CHAT,
+      title: "Report",
+      tabs: [
+        { ...tabs[0], html: "a".repeat(600_000) },
+        { ...tabs[1], html: "a".repeat(600_000) },
+      ],
+    }),
+    /together/,
+  );
+
+  // A comment names its tab; html again drops the tabs.
+  const [comment] = await api.addComments({
+    chatId: CHAT,
+    comments: [{ design: page, x: 0.1, y: 0.2, tab: { id: "data", title: 'The "data"' }, text: "More" }],
+  });
+  assert.deepEqual(comment.tab, { id: "data", title: 'The "data"' });
+  const [bad] = await api.addComments({ chatId: CHAT, comments: [{ design: page, tab: { id: "../x", title: "X" }, text: "Dropped" }] });
+  assert.equal(bad.tab, undefined);
+  await api.show({ chatId: CHAT, title: "Report", html: "<p>One page</p>" });
+  assert.equal((await api.get({ chatId: CHAT, id: first.id })).tabs, undefined);
+  assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v3.html"]);
+});
+
+test("a page shows files the agent attaches from the Chat's Worktree, keeps them while its HTML uses them, and reads them in chunks", async (t) => {
+  const { api, directory } = await fixture(t);
+  const worktree = await fs.mkdtemp(path.join(os.tmpdir(), "artifact-worktree-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "artifact-outside-"));
+  t.after(() => Promise.all([fs.rm(worktree, { recursive: true, force: true }), fs.rm(outside, { recursive: true, force: true })]));
+  const video = Buffer.alloc(600 * 1024, 7);
+  await fs.writeFile(path.join(worktree, "demo.mp4"), video);
+  await fs.writeFile(path.join(worktree, "chart.png"), "png");
+  await fs.writeFile(path.join(outside, "secret.txt"), "secret");
+  await fs.symlink(path.join(outside, "secret.txt"), path.join(worktree, "link.txt"));
+  const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api, undefined, { roots: async () => [worktree] }).map((tool) => [tool.name, tool]));
+  const show = (args) => tools.artifact_show.run({ title: "Demo", ...args }).then(JSON.parse);
+
+  const first = await show({
+    html: '<video src="assets/demo.mp4"></video><img src="./assets/chart.png">',
+    assets: [
+      { name: "demo.mp4", path: path.join(worktree, "demo.mp4") },
+      { name: "chart.png", path: path.join(worktree, "chart.png") },
+    ],
+  });
+  const page = await api.get({ chatId: CHAT, id: first.id });
+  const hash = require("node:crypto").createHash("sha256").update(video).digest("hex");
+  assert.deepEqual(page.assets, [
+    { name: "demo.mp4", hash, size: video.length, type: "video/mp4" },
+    { name: "chart.png", hash: require("node:crypto").createHash("sha256").update("png").digest("hex"), size: 3, type: "image/png" },
+  ]);
+  assert.equal(JSON.parse(await tools.artifact_read.run({ id: first.id })).assets.length, 2);
+
+  // Read back in chunks, the way the phone and the desktop's preview do.
+  const chunk = await api.asset({ chatId: CHAT, name: "demo.mp4", offset: 0 });
+  assert.equal(chunk.size, video.length);
+  assert.equal(Buffer.from(chunk.base64, "base64").length, 256 * 1024);
+  const tail = await api.asset({ chatId: CHAT, name: "demo.mp4", offset: 512 * 1024, length: 10 });
+  assert.equal(Buffer.from(tail.base64, "base64").length, 10);
+  await assert.rejects(api.asset({ chatId: CHAT, name: "demo.mp4", offset: video.length + 1 }), /offset/);
+  await assert.rejects(api.asset({ chatId: CHAT, name: "missing.png" }), /no longer on the page/);
+  const shared = (await api.pageSnapshot({ chatId: CHAT, title: "Demo", kind: "artifacts" })).artifacts[0];
+  assert.deepEqual(shared.assets, page.assets);
+  assert.equal(
+    await api.assetPath({ chatId: CHAT, hash }),
+    path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets", hash),
+  );
+
+  // Only regular files inside the Worktree, named without folders, used by the HTML.
+  await assert.rejects(
+    show({ html: '<img src="assets/s.txt">', assets: [{ name: "s.txt", path: path.join(outside, "secret.txt") }] }),
+    /isn't a file in this Chat's Worktree/,
+  );
+  await assert.rejects(
+    show({ html: '<img src="assets/l.txt">', assets: [{ name: "l.txt", path: path.join(worktree, "link.txt") }] }),
+    /isn't a file in this Chat's Worktree/,
+  );
+  await assert.rejects(
+    api.show(
+      { chatId: CHAT, title: "Demo", html: '<img src="assets/a/b.png">', assets: [{ name: "a/b.png", path: path.join(worktree, "chart.png") }] },
+      { roots: [worktree] },
+    ),
+    /no folders/,
+  );
+  await assert.rejects(
+    show({ html: "<p>No media</p>", assets: [{ name: "chart.png", path: path.join(worktree, "chart.png") }] }),
+    /doesn't use assets\/chart\.png/,
+  );
+  await assert.rejects(
+    api.show({ chatId: CHAT, title: "Demo", html: '<img src="assets/chart.png">', assets: [{ name: "chart.png", path: path.join(worktree, "chart.png") }] }),
+    /isn't a file in this Chat's Worktree/,
+    "without roots, nothing can be attached",
+  );
+
+  // A page that stops mentioning a file drops it, and its bytes go once no version needs them.
+  await show({ html: '<img src="assets/chart.png">' });
+  const kept = await api.get({ chatId: CHAT, id: first.id });
+  assert.deepEqual(
+    kept.assets.map((asset) => asset.name),
+    ["chart.png"],
+  );
+  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets");
+  assert.deepEqual(await fs.readdir(folder), [kept.assets[0].hash]);
+  assert.deepEqual(await fs.readdir(path.join(directory, ".incoming")), [], "nothing is left on its way in");
+  await show({ html: "<p>Text only</p>" });
+  assert.equal((await api.get({ chatId: CHAT, id: first.id })).assets, undefined);
+  assert.deepEqual(await fs.readdir(folder), []);
+});
+
+test("opt-in design transport strips generated fonts, preserves exact HTML, and honors held keys", async (t) => {
+  const { api } = await fixture(t);
+  for (const [id, fontFamily] of [
+    ["inter", "Inter"],
+    ["catalog", "EB Garamond"],
+  ]) {
+    const document = designDocument();
+    document.nodes[1].fontFamily = fontFamily;
+    await api.showDesign({ chatId: CHAT, id, title: fontFamily, document });
+    const request = { chatId: CHAT, id };
+    const full = await api.get(request);
+    const split = await api.get({ ...request, fonts: { have: [] } });
+    assert.match(split.fontKey, /^[a-f0-9]{64}$/);
+    assert.match(split.fontCss, new RegExp(`font-family:"${fontFamily}"`));
+    assert.ok(split.html.length < full.html.length);
+    assert.equal(split.html.replace("</head>", `<style>${split.fontCss}</style></head>`), full.html);
+    const { artifactDocument } = require("@milagre/shared/artifact-document");
+    assert.equal(artifactDocument(split.html).replace("</head>", `<style>${split.fontCss}</style></head>`), artifactDocument(full.html));
+    const held = await api.get({ ...request, fonts: { have: [split.fontKey] } });
+    assert.equal(held.html, split.html);
+    assert.equal(held.fontKey, split.fontKey);
+    assert.equal(held.fontCss, undefined);
+    assert.deepEqual(await api.get(request), full, "disk and default callers stay unchanged");
+    for (const fonts of [null, {}, { have: null }, { have: "key" }]) {
+      assert.deepEqual(await api.get({ ...request, fonts }), full, "malformed inventories stay self-contained");
+    }
+  }
+});
+
+test("fontless designs, non-generated heads and HTML artifacts stay self-contained", async (t) => {
+  const { api, directory } = await fixture(t);
+  const document = designDocument();
+  document.nodes = document.nodes.slice(0, 1);
+  await api.showDesign({ chatId: CHAT, id: "fontless", title: "Fontless", document });
+  const request = { chatId: CHAT, id: "fontless" };
+  assert.deepEqual(await api.get({ ...request, fonts: { have: [] } }), await api.get(request));
+  const file = path.join(await chatFolder(directory), "fontless", "v1.html");
+  for (const html of [
+    "<html><head><style>@font-face{custom:yes}</style></head><body></body></html>",
+    '<!doctype html><html><head><style>base</style><style>@font-face{custom:yes}</style></head><body><main id="design-root">',
+    '<!doctype html><html><head></head><body><style>@font-face{font-family:"Inter"}</style></body></html>',
+  ]) {
+    await fs.writeFile(file, html);
+    const read = await api.get({ ...request, fonts: { have: [] } });
+    assert.equal(read.html, html);
+    assert.equal(read.fontKey, undefined);
+  }
+  const { designHtml } = require("@milagre/shared/design");
+  const html = designHtml(designDocument());
+  await fs.writeFile(
+    path.join(await chatFolder(directory), "legacy.json"),
+    JSON.stringify({ id: "legacy", versions: [{ version: 1, title: "Legacy", html, createdAt: 1 }] }),
+  );
+  const read = await api.get({ chatId: CHAT, id: "legacy", fonts: { have: [] } });
+  assert.equal(read.format, "html");
+  assert.equal(read.html, html);
+  assert.equal(read.fontKey, undefined);
+});

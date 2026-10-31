@@ -52,6 +52,7 @@ window.preparePageRefresh = () => {
   }));
 };
 window.calls = { created: 0, sent: [] };
+window.pendingSends = [];
 window.milagre = new Proxy({
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
@@ -92,16 +93,18 @@ window.milagre = new Proxy({
   },
   sendMessage: request => {
     window.calls.sent.push(request);
+    const controls = {};
+    window.pendingSends.push(controls);
     return new Promise((resolve, reject) => {
-      window.failSend = (message = "Disk full") => reject(new Error(message));
-      window.saveSend = () => {
+      controls.fail = window.failSend = (message = "Disk full") => reject(new Error(message));
+      controls.save = window.saveSend = () => {
         const sessionId = request.sessionId ?? state.next_id++;
         state.sessions[sessionId] ??= { id: sessionId, worktree_id: request.worktreeId, agent_name: "Local chat", status: "Created" };
         state.sessions[sessionId].provider = request.provider;
         state.messages.push({ id: state.next_id++, session_id: sessionId, body: request.body, images: request.images, files: request.files, clientMessageId: request.clientMessageId, context: null, role: "user", model: request.model });
         const publish = () => listeners.forEach(listener => listener({ chatId: "/fixture#" + sessionId, event: { type: "message-sent", model: request.model }, state: lean ? leanState() : structuredClone(state) }));
         if (window.holdState) { window.holdState = false; window.releaseState = publish; } else publish();
-        window.ackSend = () => resolve({ sessionId });
+        controls.ack = window.ackSend = () => resolve({ sessionId });
       };
     });
   },
@@ -125,21 +128,32 @@ if (new URLSearchParams(location.search).has("link")) {
   const { LinkWorkspace } = await import("/src/components/LinkWorkspace");
   const { createScopeDrafts } = await import("/src/lib/link-scope");
   const linkState = { next_id: 1, sessions: {}, messages: [], preparations: {} };
+  const concurrentLinks = new URLSearchParams(location.search).has("concurrent");
+  if (concurrentLinks) {
+    for (const id of [1, 2]) linkState.sessions[id] = { id, title: "Shared Chat " + id, worktrees: [], provider: "claude" };
+  }
   const opened = { link: { id: "11111111-1111-4111-8111-111111111111", name: "Shared work", projectIds: [], createdAt: "" }, state: linkState, projects: [] };
   const noop = () => {};
   const model = { id: "claude-opus-5-5", name: "Opus", provider: "claude" };
   window.milagre.sendLinkMessage = async request => {
     window.calls.sent.push(request);
+    if (concurrentLinks) return new Promise((resolve, reject) => window.pendingSends.push({
+      ack: () => resolve({ sessionId: request.sessionId }), fail: () => reject(new Error("Shared send failed")),
+    }));
     if (window.calls.sent.length === 1) throw new Error("Milagre host is disconnected. Your command was not sent.");
     return { sessionId: 1 };
   };
-  createRoot(document.getElementById("root")).render(<LinkWorkspace
-    opened={opened} state={linkState} agents={{ runs: {} }} drafts={createScopeDrafts()}
-    preferences={{ models: [model], selectedModel: model, onModelChange: noop, cliStatus: {}, onModelPickerOpen: noop, onUpdateCli: noop,
+  const root = createRoot(document.getElementById("root"));
+  const drafts = createScopeDrafts();
+  const renderLink = (selected = undefined) => root.render(<LinkWorkspace initialSessionId={selected}
+    opened={opened} state={linkState} agents={{ runs: {} }} drafts={drafts}
+    preferences={{ models: [model], selectedModel: model, modelForChat: () => model, showModel: noop, onModelChange: noop, cliStatus: {}, onModelPickerOpen: noop, onUpdateCli: noop,
       capability: { efforts: ["high"], ultracode: false, fastMode: false } }}
     hostConnection={{ connected: true }} saveScopes={[]} ports={{}} linkedWork={{ delegations: [], negotiations: [], receiveOnly: [] }}
     onSwitchProject={noop} onSwitchLink={noop} onLinkProject={noop} onEditLink={noop} onOpenProject={noop}
     onSettings={noop} onOpenAccounts={noop} onCanvasChat={noop}
   />);
+  window.pickLinkChat = renderLink;
+  renderLink(concurrentLinks ? 1 : undefined);
 } else createRoot(document.getElementById("root")).render(<App />);
 `;

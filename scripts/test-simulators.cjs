@@ -158,6 +158,7 @@ async function browserChecks() {
   window.webContents.on("did-fail-load", (_e, code, message) => console.error("Page load failed", code, message));
   window.webContents.on("render-process-gone", (_e, details) => console.error("Renderer gone", details));
   const evaluate = (source) => window.webContents.executeJavaScript(source);
+  const { evaluatePanel, waitForPanel } = require("./panel-menu-test.cjs").panelMenuHelpers(evaluate);
   const waitFor = async (source) => {
     for (let i = 0; i < 200; i++) {
       if (await evaluate(source)) return;
@@ -165,7 +166,8 @@ async function browserChecks() {
     }
     throw Error("Timed out: " + source);
   };
-  const click = (selector) => evaluate("document.querySelector(" + JSON.stringify(selector) + ").click()");
+  const click = (selector) =>
+    (selector.includes("data-panel-toggle") ? evaluatePanel : evaluate)("document.querySelector(" + JSON.stringify(selector) + ").click()");
   const screenshot = async (name) => {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
     fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
@@ -193,13 +195,13 @@ async function browserChecks() {
     await click("[data-slot=simulator-track] button");
     await evaluate('window.attachedIds=[]; document.dispatchEvent(new Event("visibilitychange"))');
     await waitFor('!document.querySelector("[data-slot=simulator-track]") && !document.querySelector("[data-slot=simulator-popover]")');
-    assert.equal(await evaluate('!!document.querySelector("[data-panel-toggle=simulator]")'), false, "no corner button without an attached simulator");
+    assert.equal(await evaluatePanel('!!document.querySelector("[data-panel-toggle=simulator]")'), false, "no corner button without an attached simulator");
     await screenshot("no-attachments");
     await evaluate('window.attachedIds=[0,1]; document.dispatchEvent(new Event("visibilitychange"))');
     await waitFor('!!document.querySelector("[data-slot=simulator-track]")');
     assert.equal(await evaluate('!!document.querySelector("[data-slot=simulator-popover]")'), false, "reattaching must not reopen the viewer");
     // The corner button shows while a simulator is attached, and opens the same list as the pill.
-    await waitFor('!!document.querySelector("[data-panel-toggle=simulator]")');
+    await waitForPanel('!!document.querySelector("[data-panel-toggle=simulator]")');
     await click("[data-panel-toggle=simulator]");
     await waitFor('document.querySelectorAll("[data-simulator-device]").length===2');
     await click("[data-panel-toggle=simulator]");

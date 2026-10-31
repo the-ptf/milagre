@@ -4,16 +4,21 @@ import type { PullRequestActionContext } from "@milagre/shared/model";
 import { BLOCKERS } from "@milagre/shared/pr-blockers";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
+import { useContext } from "react";
+import { ChatLinkContext } from "./chat-link-context";
 
 /** A PR-blocker pill the user tapped, shown as what it asked for instead of the skill prompt the agent read. Tapping opens the PR. */
 export function PullRequestActionCard({ action }: { action: PullRequestActionContext }) {
   const { colors } = useTheme();
+  const openChatLink = useContext(ChatLinkContext);
   const blocker = BLOCKERS[action.action];
   return (
     <Pressable
       accessibilityRole="link"
       accessibilityLabel={`${blocker.action}, pull request #${action.pr}`}
-      onPress={() => void Linking.openURL(action.url).catch(() => {})}
+      onPress={() => {
+        if (!openChatLink?.(action.url)) void Linking.openURL(action.url).catch(() => {});
+      }}
       style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
     >
       <View

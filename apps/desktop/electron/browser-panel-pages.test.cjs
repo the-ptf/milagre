@@ -28,6 +28,9 @@ function fakeGuest(id, host, { title = "Checkout", url = "http://localhost:5173/
     getType: () => "webview",
     getTitle: () => guest.title,
     getURL: () => guest.url,
+    reloads: [],
+    reload: () => guest.reloads.push("reload"),
+    reloadIgnoringCache: () => guest.reloads.push("ignoring cache"),
   });
   return guest;
 }
@@ -85,6 +88,13 @@ test("the window's own webviews are sent to the host with their Chats; a page th
   f.pages.setPages(f.host, []);
   await f.settle();
   assert.deepEqual(f.published.at(-1), { pages: [] });
+  // A page the renderer stops listing keeps no listener of ours, however often it is listed again.
+  for (let i = 0; i < 3; i++) f.pages.setPages(f.host, [{ contentsId: 7, chatKey: "/p#1" }]);
+  f.pages.setPages(f.host, []);
+  f.pages.setPages(f.host, [{ contentsId: 7, chatKey: "/p#1" }]);
+  assert.equal(f.guests.get(7).listenerCount("did-navigate"), 1);
+  f.pages.setPages(f.host, []);
+  assert.equal(f.guests.get(7).listenerCount("did-navigate") + f.guests.get(7).listenerCount("destroyed"), 0);
 });
 
 test("a DevTools connection to a page attaches its debugger for as long as it is open", async (t) => {
@@ -108,6 +118,30 @@ test("a DevTools connection to a page attaches its debugger for as long as it is
   const event = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
   debug.emit("message", {}, "Page.screencastFrame", { data: "jpeg" });
   assert.deepEqual(await event, { method: "Page.screencastFrame", params: { data: "jpeg" } });
+  // A viewer's size goes to the window, which sizes the parked page; emulation would leave frames cut at the guest.
+  const sized = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
+  ws.send(JSON.stringify({ id: 2, method: "Emulation.setDeviceMetricsOverride", params: { width: 640, height: 480, deviceScaleFactor: 0, mobile: false } }));
+  assert.deepEqual(await sized, { id: 2, result: {} });
+  assert.deepEqual(f.sent.at(-1), ["browser-panel:viewed", { from: 7, viewed: true, viewport: { width: 640, height: 480 } }]);
+  const cleared = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
+  ws.send(JSON.stringify({ id: 3, method: "Emulation.clearDeviceMetricsOverride", params: {} }));
+  await cleared;
+  assert.deepEqual(f.sent.at(-1), ["browser-panel:viewed", { from: 7, viewed: true, viewport: null }]);
+  // Page.reload through the guest's debugger would reload Milagre's window: the guest reloads itself.
+  for (const [id, params] of [
+    [4, {}],
+    [5, { ignoreCache: true }],
+  ]) {
+    const reloaded = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
+    ws.send(JSON.stringify({ id, method: "Page.reload", params }));
+    assert.deepEqual(await reloaded, { id, result: {} });
+  }
+  assert.deepEqual(f.guests.get(7).reloads, ["reload", "ignoring cache"]);
+  assert.deepEqual(
+    debug.commands.map(([method]) => method),
+    ["Page.startScreencast"],
+    "no emulation or reload reaches the guest's debugger",
+  );
   ws.close();
   for (let i = 0; i < 50 && debug.attached; i++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(debug.attached, false, "the debugger is let go once nothing views the page");

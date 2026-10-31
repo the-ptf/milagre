@@ -8,7 +8,7 @@ import { phoneName } from "../../phone-name-native";
 import { statusLine, isDesktopComputer } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Icon } from "../../icons";
-import { ErrorNotice, HeaderButton, PageScroll, RowSwitch, useStyles } from "../../ui";
+import { ErrorNotice, HeaderButton, PageScroll, RowCheckbox, useStyles } from "../../ui";
 import { useTheme } from "../../theme";
 
 const add = () => router.push("/add-computer");
@@ -62,7 +62,7 @@ export default function ComputersScreen() {
                         {statusLine(host, state)}
                       </Text>
                     </View>
-                    <RowSwitch
+                    <RowCheckbox
                       label={`Show ${host.name} Chats`}
                       selected={shown}
                       onPress={() =>

@@ -97,12 +97,42 @@ test("a tap on the phone names the element at that point, with its screenshot ta
     },
   };
   const result = await commentAtPoint(page, 0.2, 0.15);
-  assert.deepEqual(result, { element, shot: "iVBOR" });
+  assert.deepEqual(result, { element: { ...element, styles: {}, point: { x: 0.5, y: 0.5 } }, shot: "iVBOR" });
   assert.match(sent[0][1], /^\(\(\) => \{/);
   assert.deepEqual(sent[1], ["Runtime.evaluate", "window.__milagrePins?.hide(true)"]);
   // The crop keeps a margin and never starts off the page.
   assert.deepEqual(sent[2][1].clip, { x: 0, y: 88, width: 144, height: 64, scale: 1 });
   assert.deepEqual(sent[3], ["Runtime.evaluate", "window.__milagrePins?.hide(false)"]);
   const empty = { send: async () => ({ result: { value: null } }) };
-  await assert.rejects(commentAtPoint(empty, 0.5, 0.5), /nothing to comment on there/);
+  await assert.rejects(commentAtPoint(empty, 0.5, 0.5), /Could not place a comment pin/);
+});
+
+test("what the page says about the tapped element is kept to its shape: a page's scripts can answer anything", async () => {
+  const hostile = {
+    selector: "button\n.pay",
+    tag: "<img onerror=x>",
+    label: { toString: () => "boom" },
+    html: ["not", "text"],
+    styles: { color: "red", "bad name": "x", width: 5 },
+    box: { x: "5", y: Number.NaN, width: 1e3, height: -4 },
+    viewport: null,
+    components: ["Pay", 7],
+    point: { x: 3, y: 0.25 },
+  };
+  const page = { send: async (method) => (method === "Runtime.evaluate" ? { result: { value: hostile } } : {}) };
+  const { element } = await commentAtPoint(page, 0.5, 0.5);
+  assert.deepEqual(element, {
+    selector: "button .pay",
+    tag: "imgonerrorx",
+    label: "imgonerrorx",
+    styles: { color: "red" },
+    box: { x: 0, y: 0, width: 1000, height: 0 },
+    viewport: { width: 1, height: 1 },
+    components: ["Pay"],
+    point: { x: 0.5, y: 0.25 },
+  });
+  // The message built from it reads back as a card.
+  const { pageCommentsMessage, parsePageComments } = await import("@milagre/shared/page-comments");
+  const body = pageCommentsMessage([{ id: "a1b2c3d4", url: "http://localhost:5173/", title: "Home", text: "Odd", element }]);
+  assert.equal(parsePageComments(body)?.[0].label, "imgonerrorx");
 });

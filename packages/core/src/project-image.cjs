@@ -3,8 +3,9 @@ const { createGit } = require("./git/client.cjs");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const { scheduled } = require("./process-lanes.cjs");
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = scheduled(promisify(execFile));
 const client = createGit().read;
 const MAX_BYTES = 5 * 1024 * 1024;
 const MIME_TYPES = {

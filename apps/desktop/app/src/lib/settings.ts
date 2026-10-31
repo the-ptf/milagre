@@ -6,14 +6,22 @@ import { DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, resolveThemeSetting
 import type { CustomTheme, ThemeChoice } from "@milagre/shared/themes";
 import type { ChatOrder } from "./chat-list";
 import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
-import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import {
+  parseChatList,
+  parseCompactButtonDisplay,
+  parseToolCallDisplay,
+  type ChatList,
+  type CompactButtonDisplay,
+  type ToolCallDisplay,
+} from "@milagre/shared/chat-display";
 import { DEFAULT_NOTIFICATION_CHIME, parseNotificationChime, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { applyPalette } from "./theme-sheet.ts";
 import { applyAppearance } from "./appearance.ts";
 import { DEFAULT_APPEARANCE, parseAppearance, type Appearance } from "@milagre/shared/appearance";
 
 import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
-import { dictationLanguage } from "@milagre/shared/dictation";
+import { dictationLanguage, whisperModelFor } from "@milagre/shared/dictation";
+import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 
 export type ThemePreference = "system" | "light" | "dark";
 /** Whether plan usage reads as the share used or the share left. */
@@ -64,6 +72,8 @@ export interface AppSettings {
   toolCallDisplay: ToolCallDisplay;
   /** Settings › Chat: thinking rows start open. */
   expandReasoning: boolean;
+  showContextSize: boolean;
+  compactButtonDisplay: CompactButtonDisplay;
   /** Settings › Devices: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
   otherComputers: boolean;
   /** Experimental: turning Ultracode on plays the Mortal Kombat Fatality overlay and the announcer's voice. */
@@ -77,6 +87,9 @@ export interface AppSettings {
   appearance: Appearance;
   /** Settings › Chat: the language dictation listens for, a Whisper code, or "auto" to detect it each take. */
   dictationLanguage: string;
+  /** Settings › Chat: the Whisper model dictation uses on this computer, an id from WHISPER_MODELS.desktop. */
+  dictationModel: string;
+  dictationAction: DictationActionPreference;
 }
 
 const STORAGE_KEY = "milagre-settings";
@@ -110,6 +123,8 @@ const DEFAULTS: AppSettings = {
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
   toolCallDisplay: "compact",
   expandReasoning: false,
+  showContextSize: true,
+  compactButtonDisplay: "threshold",
   otherComputers: false,
   ultracodeFatality: false,
   notificationChime: DEFAULT_NOTIFICATION_CHIME,
@@ -117,6 +132,8 @@ const DEFAULTS: AppSettings = {
   routineNudges: true,
   appearance: DEFAULT_APPEARANCE,
   dictationLanguage: "auto",
+  dictationModel: whisperModelFor("desktop", undefined).id,
+  dictationAction: "paste",
 };
 
 function load(): AppSettings {
@@ -154,6 +171,8 @@ function load(): AppSettings {
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
+      showContextSize: typeof saved.showContextSize === "boolean" ? saved.showContextSize : DEFAULTS.showContextSize,
+      compactButtonDisplay: parseCompactButtonDisplay(saved.compactButtonDisplay),
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,
       ultracodeFatality: typeof saved.ultracodeFatality === "boolean" ? saved.ultracodeFatality : DEFAULTS.ultracodeFatality,
       notificationChime: parseNotificationChime(saved.notificationChime),
@@ -167,6 +186,8 @@ function load(): AppSettings {
       routineNudges: typeof saved.routineNudges === "boolean" ? saved.routineNudges : DEFAULTS.routineNudges,
       appearance: parseAppearance(saved.appearance),
       dictationLanguage: dictationLanguage(saved.dictationLanguage),
+      dictationModel: whisperModelFor("desktop", saved.dictationModel).id,
+      dictationAction: parseDictationAction(saved.dictationAction),
     };
   } catch {
     return DEFAULTS;

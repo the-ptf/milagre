@@ -23,6 +23,8 @@ const { summarizeStep } = require("@milagre/shared/tool-activity");
 const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
 const { PERMISSION_MODES } = require("./permissions.cjs");
+const { compactionMessage } = require("@milagre/shared/compaction");
+const { CONTEXT_DEFAULTS, shouldAutoCompact } = require("@milagre/shared/context-settings");
 const { routineRunOf } = require("@milagre/shared/routines");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
@@ -71,8 +73,7 @@ function revertSwitch(session, from, to) {
 }
 
 // Only a provider with native /compact takes it, and only between turns: steered into a running turn it would be read as text.
-function compactionProvider(session, run) {
-  if (run) throw new Error("Wait for the agent to finish before compacting.");
+function compactionProvider(session) {
   const provider = session.provider ?? "claude";
   if (!providerCapabilities(provider).compact) throw new Error("Only Claude chats can be compacted from here.");
   return provider;
@@ -156,6 +157,7 @@ class ChatHost {
     readSubagents = async () => [],
     handoverTools,
     beforeSend = async () => {},
+    contextSettings = () => CONTEXT_DEFAULTS,
     beforeTask = async () => {},
     onUnblocked = () => {},
     onQueuedStart = () => {},
@@ -173,6 +175,7 @@ class ChatHost {
       readSubagents,
       handoverTools,
       beforeSend,
+      contextSettings,
       beforeTask,
       onUnblocked,
       onQueuedStart,
@@ -255,6 +258,36 @@ class ChatHost {
       { chats: [] },
     );
     if (changed) this.broadcast(projectPath, state);
+  }
+
+  /**
+   * Makes `childKey` a subchat of `parentKey`: a Delegation inside one Project went from the parent to it (ADR-0002).
+   * Saved as `parent` on the child once, the first time: a Chat that already has a parent keeps it. Never across
+   * Projects, never on itself, and never when the parent already descends from the child, so the chain can't loop.
+   * Resolves true when it saved.
+   */
+  async adoptSubchat(childKey, parentKey) {
+    const projectPath = projectOfKey(childKey);
+    if (projectPath !== projectOfKey(parentKey) || childKey === parentKey) return false;
+    const childId = sessionIdFromKey(childKey);
+    const parentId = sessionIdFromKey(parentKey);
+    let adopted = false;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const child = latest.sessions[childId];
+        if (!child || child.parent !== undefined || !latest.sessions[parentId]) return latest;
+        for (let id = parentId, seen = new Set(); id !== undefined && !seen.has(id); id = latest.sessions[id]?.parent) {
+          if (id === childId) return latest;
+          seen.add(id);
+        }
+        adopted = true;
+        return { ...latest, sessions: { ...latest.sessions, [childId]: { ...child, parent: parentId } } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+    return adopted;
   }
 
   /**
@@ -442,12 +475,46 @@ class ChatHost {
   async afterTurn(chatId, event) {
     if (this.quitting || event.quit) return void this.sendNext.delete(chatId);
     const projectPath = projectOfKey(chatId);
-    const session = (await this.states.get(projectPath)).sessions[sessionIdFromKey(chatId)];
+    const state = await this.states.get(projectPath);
+    const session = state.sessions[sessionIdFromKey(chatId)];
     // Another turn took the chat meanwhile: the queue moves on when that one ends, Send now's pick still first.
     if (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId)) return;
     const next = this.sendNext.get(chatId);
     this.sendNext.delete(chatId);
     const queued = session?.queued ?? [];
+    if (
+      event.type === "turn-completed" &&
+      !next &&
+      !session?.archived &&
+      session?.provider === "claude" &&
+      session.native_session_id &&
+      !session.queueHeld &&
+      !queued.some((item) => item.context?.kind === "compaction")
+    ) {
+      const last = state.messages.findLast((item) => item.session_id === session.id && item.role === "user");
+      const settings = this.contextSettings();
+      // A failed/no-op compact cannot loop on unchanged usage. Only a later user turn may trigger another attempt.
+      if (last?.context?.kind !== "compaction" && shouldAutoCompact(settings, session.contextUsage)) {
+        const message = compactionMessage(session.contextUsage);
+        const sent = await this.send({
+          ...this.turnSettings(chatId),
+          projectPath,
+          sessionId: session.id,
+          worktreeId: session.worktree_id,
+          provider: "claude",
+          model: lastUserModel(state, session.id),
+          ...message,
+          context: { ...message.context, automatic: true, quiet: true, threshold: settings.autoThreshold },
+        }).catch((error) => {
+          if (error.autoCompactDeferred) return null;
+          throw error;
+        });
+        if (sent) {
+          void sent.started.catch(() => {});
+          return;
+        }
+      }
+    }
     if (!queued.length) return;
     // A message that can't start (its save failed) stays queued, and the queue waits for Send now.
     const start = (id) =>
@@ -605,12 +672,14 @@ class ChatHost {
               event = { ...event, ...facts, endedAt, ...(durationMs === undefined ? {} : { durationMs }) };
             }
           }
+          const last = state.messages.findLast((item) => item.session_id === sessionId && item.role === "user");
+          if (isTurnEnd(event) && last?.context?.kind === "compaction" && last.context.quiet) event = { ...event, quiet: true };
           const result = applyAgentEvent(state, this.runs, projectPath, chatId, event);
           this.runs = result.runs;
           seq = ++this.seq;
           if (!result.changed) return state;
           const visible = this.isChatFocused ? this.isChatFocused(chatId) : chatId === this.openChat && this.isFocused();
-          const unread = isTurnEnd(event) && !visible && !result.state.sessions[sessionId]?.archived;
+          const unread = isTurnEnd(event) && !event.quiet && !visible && !result.state.sessions[sessionId]?.archived;
           // A turn end that marks the chat unread says so to whoever hears it next (a quiet heartbeat takes back only
           // that mark). Not enumerable, so it never goes out with the event.
           if (unread && result.state.sessions[sessionId]?.unread !== true) Object.defineProperty(event, "markedUnread", { value: true, configurable: true });
@@ -847,7 +916,32 @@ class ChatHost {
         const chatId = chatKey(projectPath, session.id);
         const withSession = started.state;
         if (compaction) {
-          provider = compactionProvider(session, this.runs[chatId]);
+          // Check again inside the serialized state update: a user send or a settings change may have won the race.
+          if (
+            request.context.automatic &&
+            (this.quitting ||
+              this.isBusy(chatId) ||
+              this.startingTurns.has(chatId) ||
+              session.archived ||
+              session.queueHeld ||
+              session.provider !== "claude" ||
+              !session.native_session_id ||
+              latest.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind === "compaction" ||
+              !shouldAutoCompact(this.contextSettings(), session.contextUsage))
+          ) {
+            throw Object.assign(new Error("Automatic compaction is no longer needed."), { autoCompactDeferred: true });
+          }
+          if (session.archived) throw new Error("Unarchive this Chat before compacting.");
+          provider = compactionProvider(session);
+          const existing = request.fromQueue === undefined && session.queued?.find((item) => item.context?.kind === "compaction");
+          const activeCompact =
+            request.fromQueue === undefined &&
+            (this.runs[chatId] || this.startingTurns.has(chatId)) &&
+            latest.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind === "compaction";
+          if (existing || activeCompact) {
+            duplicate = { session_id: session.id };
+            return latest;
+          }
           runProvider = provider;
           runModel = lastUserModel(withSession, session.id) || model;
         }
@@ -865,7 +959,10 @@ class ChatHost {
         // The provider of the turn running or about to start: a handoff still preparing starts on its target.
         const runningProvider = this.runs[chatId] ? (session.provider ?? provider) : waitFor ? waitFor.to : this.startingTurns.get(chatId);
         // canStart gates acceptance above. Once accepted, programmatic messages have the same durable queue as user sends.
-        if (runningProvider && request.fromQueue === undefined && !compaction && !providerCapabilities(runningProvider).steer) {
+        const compacting =
+          (this.runs[chatId] || this.startingTurns.has(chatId)) &&
+          latest.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind === "compaction";
+        if (runningProvider && request.fromQueue === undefined && (compaction || compacting || !providerCapabilities(runningProvider).steer)) {
           queuedEntry = {
             id: randomUUID(),
             body,
@@ -873,7 +970,7 @@ class ChatHost {
             ...(files.length ? { files } : {}),
             ...(request.context ? { context: request.context } : {}),
             model,
-            provider,
+            provider: runProvider,
             queuedAt: this.now(),
             ...(typeof request.clientMessageId === "string" ? { clientMessageId: request.clientMessageId } : {}),
             ...(request.operationId ? { operationId: request.operationId } : {}),
@@ -927,7 +1024,7 @@ class ChatHost {
         }
         // Switching providers parks the old native session and resumes the one parked for the new provider, if any.
         stagedSession = {
-          ...withoutDraft(session),
+          ...(compaction ? session : withoutDraft(session)),
           provider: runProvider,
           // The mode a person's message carries is the one its composer shows; a Routine's message isn't theirs.
           ...(PERMISSION_MODES.has(request.permissionMode) && !routineRunOf(request) ? { permissionMode: request.permissionMode } : {}),

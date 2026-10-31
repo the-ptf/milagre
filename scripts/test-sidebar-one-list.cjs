@@ -29,6 +29,7 @@ const states = {
     session(7, "Older shop chat", 180),
     session(8, "Shop chat", 5),
     session(9, "Pinned shop chat", 400, { pinned: true, pin_order: 1 }),
+    session(6, "Done shop chat", 90, { done_at: minutes(60) }),
   ]),
   "/work/api": state([session(4, "API chat", 30, { unread: true })]),
 };
@@ -45,7 +46,9 @@ window.milagre = {
   readProject: async (path) => ({ path, name: path, state: states[path] }),
   onProjectState: () => () => {},
   onLinkState: () => () => {},
-  patchChat: async () => {},
+  patchChat: async (...args) => {
+    (window.patches ??= []).push(args);
+  },
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre-settings");
@@ -180,11 +183,28 @@ async function browserChecks() {
       inbox.every((row) => !row.mono),
       "No monospace on the second line",
     );
-    // Running: a spinner where the time goes, "Running" in the accent on the second line.
+    // Running: a spinner where the time goes, and no word for it on the second line.
     assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-time] [data-mark]")?.dataset.mark`), "running");
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-ago]")`), false, "A running row shows its spinner, not its time");
-    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-status]")?.textContent`), "Running");
-    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-status]").className.includes("text-accent")`), true);
+    assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-status]")`), false, "The second line says no state");
+    // Done: out of the list, in the folded Done section at the bottom, which opens to a countdown and Reopen.
+    assert.equal(await evaluate(`!!${row(6)}`), false, "A Done Chat leaves the list");
+    assert.equal(await evaluate(`document.querySelector("[data-done-count]")?.textContent`), "1");
+    assert.equal(await evaluate(`!!document.querySelector('[data-done-row="6"]')`), false, "The Done section starts folded");
+    await evaluate(`document.querySelector("[data-done-toggle]").click()`);
+    await waitFor(`!!document.querySelector('[data-done-row="6"]')`);
+    await screenshot("one-list-done-open");
+    assert.match(await evaluate(`document.querySelector('[data-done-row="6"] [data-done-countdown]').textContent`), /^2[23]:\d\d$/);
+    await evaluate(`document.querySelector('[data-done-row="6"] [data-done-reopen]').click()`);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 6, { done: false }]);
+    // Reopen moves the row back at once, before its host answers (this stub host never does).
+    await waitFor(`!!${row(6)} && !document.querySelector('[data-done-row="6"]')`);
+    // The hover Done button marks a Chat Done at once, with an Undo toast; the row moves before its host answers.
+    assert.equal(await evaluate(`!!${row(7)}.querySelector("[data-chat-done]")`), true);
+    await evaluate(`${row(7)}.querySelector("[data-chat-done]").click()`);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
+    await waitFor(`!${row(7)} && !!document.querySelector('[data-done-row="7"]')`);
+    await waitFor(`[...document.querySelectorAll("[role=status], [data-chat-toast]")].some((node) => node.textContent.includes("Moved to Done"))`);
     // Diff stats are off by default; the branch is on but never shows here.
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
     assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");
@@ -193,18 +213,18 @@ async function browserChecks() {
     assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className.includes("text-accent")`), true);
     assert.equal(await evaluate(`!!${row(4)}.querySelector('[data-chat-time] [data-mark="unread"]')`), true, "The unread dot follows the time");
     assert.equal(await evaluate(`getComputedStyle(${row(4)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "600");
-    assert.equal(await evaluate(`getComputedStyle(${row(7)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
+    assert.equal(await evaluate(`getComputedStyle(${row(8)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
     // Pinned: a pin before the title.
     assert.equal(await evaluate(`!!document.querySelector('[data-all-pinned] [data-chat-id="9"] [data-chat-pinned]')`), true, "Pinned rows show a pin");
     // The menu opens on a right-click and from the keyboard.
     await evaluate(
-      `(() => { const r = ${row(7)}.querySelector("[data-row]").getBoundingClientRect(); ${row(7)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
+      `(() => { const r = ${row(8)}.querySelector("[data-row]").getBoundingClientRect(); ${row(8)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
     );
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
     await evaluate(`document.querySelector("[data-chat-menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-chat-menu]")`);
     await evaluate(
-      `${row(7)}.querySelector("[data-row]").focus(); ${row(7)}.querySelector("[data-row]").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }))`,
+      `${row(8)}.querySelector("[data-row]").focus(); ${row(8)}.querySelector("[data-row]").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }))`,
     );
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
     await evaluate(`document.querySelector("[data-chat-menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);

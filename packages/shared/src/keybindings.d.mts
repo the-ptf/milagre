@@ -6,6 +6,7 @@ export type KeybindingCommandId =
   | "theme.toggle"
   | "sidebar.toggle"
   | "canvas.open"
+  | "usage.open"
   | "grid.toggle"
   | "grid.focusPrevious"
   | "grid.focusNext"

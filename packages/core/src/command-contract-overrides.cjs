@@ -19,6 +19,7 @@ const scope = [p("scope")],
 module.exports = {
   "project:open": [p("folder"), p("options", object({ takeNotice: b }, []), true)],
   "chat:ports": [p("chatId")],
+  "browser:open-page": request({ chatId: s, url: s }),
   "chat:send-status": [p("projectPath"), p("clientMessageId")],
   "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n, transferId: s, offset: n, totalBytes: n }, ["projectPath"]),
   "chat:inbox": [],
@@ -32,6 +33,8 @@ module.exports = {
   "browser:panel-pages": request({ port: n, prefix: s, pages: array(object({ id: s, chatId: s, title: s, url: s })) }, ["pages"]),
   // What a restart to install an app update would stop; the desktop's updater asks (app-auto-update.cjs).
   "app-update:activity": [],
+  // Closing the Mac's Linear sign-in window cancels through main, without a renderer bridge method.
+  "linear:cancel": [],
   "link:workspace-roots": [p("requested")],
   "project:plain-root": [p("root")],
   "project:snapshot": project,
@@ -72,6 +75,10 @@ module.exports = {
   ]),
   "live-activity:forget": request({ deviceId: s }),
   "computers:vault-status": [],
+  // The loopback SOCKS5 port a remote Chat's Browser pages reach the web through (browser-proxy.cjs).
+  "computers:browser-proxy": [p("computerId")],
+  // Main's Browser pages for Chats on other computers, with its DevTools proxy (computer-service.cjs).
+  "computers:browser-pages": request({ port: n, prefix: s, pages: array(object({ id: s, chatKey: s, title: s, url: s }, ["id", "chatKey"])) }, ["pages"]),
   "computers:unlock": request({ key: s }),
   "computers:setup-key": request({ file: s }),
   "computers:import-keys": request({

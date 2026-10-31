@@ -6,7 +6,7 @@ export { PageScroll } from "./primitives/page-scroll";
 export { Button } from "./primitives/button";
 export { PillButton } from "./primitives/pill-button";
 export { Toggle } from "./primitives/toggle";
-export { RowSwitch } from "./primitives/row-switch";
+export { RowCheckbox } from "./primitives/row-checkbox";
 export { Field } from "./primitives/field";
 export { ErrorNotice } from "./primitives/error-notice";
 export { Segmented } from "./primitives/segmented";

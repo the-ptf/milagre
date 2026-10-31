@@ -120,13 +120,24 @@ test("ACP: only Milagre's own plan tools and routine_list are auto-approved; rou
 test("the Milagre tools every provider runs without its own card: reads, plan, own-canvas and self-gated tools", () => {
   const ungated = (name, readOnly = false) => isUngatedMilagreTool({ name, readOnly });
   assert.equal(ungated("linear_issue", true), true);
-  const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "conclude_negotiation"];
+  const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "browser_open", "browser_resolve_comment", "conclude_negotiation"];
   for (const name of [...PLAN_TOOL_NAMES, ...own, "project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"]) {
     assert.equal(ungated(name), true, name);
     // Codex in Ask or Auto, and Antigravity, get Milagre's answer instead of a card.
     assert.equal(isCodexPlanToolApproval(codexApproval(name)), true, name);
   }
-  for (const name of ["linear_create_issue", "linear_comment", "chat_stop", "chat_update", "worktree_create", "design_delete", "chat_start", ...ROUTINE_WRITES])
+  for (const name of [
+    "linear_create_issue",
+    "linear_comment",
+    "chat_stop",
+    "chat_update",
+    "worktree_create",
+    "design_delete",
+    "chat_start",
+    "browser_click",
+    "browser_fill",
+    ...ROUTINE_WRITES,
+  ])
     assert.equal(ungated(name), false, name);
   assert.equal(ungated("routine_list", true), true);
   assert.ok(MODE_RANK.ask < MODE_RANK.auto && MODE_RANK.auto < MODE_RANK.full);

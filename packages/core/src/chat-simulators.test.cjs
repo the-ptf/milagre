@@ -6,7 +6,7 @@ const path = require("node:path");
 const { createChatSimulators, simulatorToolDefinitions } = require("./chat-simulators.cjs");
 const A = { id: "ios-a", name: "iPhone A", platform: "ios", version: "27" };
 const B = { id: "emulator-5554", name: "Pixel", platform: "android", version: "16" };
-async function fixture(t) {
+async function fixture(t, extra = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "chat-simulators-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const closed = [],
@@ -35,6 +35,7 @@ async function fixture(t) {
     validateChat: async (id) => {
       if (!["chat-a", "chat-b"].includes(id)) throw Error("Unknown Chat");
     },
+    ...extra,
   };
   return {
     api: createChatSimulators(options),
@@ -201,4 +202,15 @@ test("a Chat with nothing attached is answered without listing devices when it a
   await api.list({ chatId: "chat-b" });
   assert.equal((await api.list({ chatId: "chat-b", attachedOnly: true })).supported, false);
   assert.equal(listed, 6);
+});
+test("a leased device that ended leaves the Chat, while a stopped local device stays", async (t) => {
+  const LEASE = { id: "simlock:l1", name: "iPhone 17 (Simlock)", platform: "ios", version: "27.0" };
+  const f = await fixture(t, { ended: (device) => device.id.startsWith("simlock:") });
+  f.running([A, LEASE]);
+  await f.api.attach({ chatId: "chat-a", deviceId: A.id });
+  await f.api.attach({ chatId: "chat-a", deviceId: LEASE.id });
+  f.running([]);
+  const list = await f.api.list({ chatId: "chat-a" });
+  assert.deepEqual(list.attached, [A]);
+  assert.deepEqual((await f.reopen().list({ chatId: "chat-a" })).attached, [A]);
 });

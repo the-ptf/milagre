@@ -120,7 +120,7 @@ export function PullDown({
     // The system draws menus below the keyboard, so a touch on the trigger lowers it first.
     return (
       <View style={style} onTouchStart={() => Keyboard.dismiss()}>
-        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.shrink}>
           {children}
         </View>
         <IOSHost style={StyleSheet.absoluteFill} testID={label} ignoreSafeArea="all">
@@ -151,12 +151,12 @@ export function PullDown({
       accessibilityLabel={label}
       onPress={onPress}
       onTouchStart={() => Keyboard.dismiss()}
-      style={fill ? { flex: 1 } : undefined}
+      style={fill ? { flex: 1 } : styles.shrink}
     >
       {children}
     </Pressable>
   ) : (
-    <View accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={fill ? { flex: 1 } : undefined}>
+    <View accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={fill ? { flex: 1 } : styles.shrink}>
       {children}
     </View>
   );
@@ -188,3 +188,6 @@ export function PullDown({
     </MenuView>
   );
 }
+
+// The trigger gives way when `style` lets the menu shrink (a chip truncating its name in a full row).
+const styles = StyleSheet.create({ shrink: { flexShrink: 1 } });

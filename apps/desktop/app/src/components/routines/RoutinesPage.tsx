@@ -14,7 +14,7 @@ import { isDimmed, useComputers } from "../../lib/computers";
 import type { ComputerView } from "../../electron.d.ts";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
-const HELP = "Routines run while the Mac they are on is awake. Closing the lid on battery pauses them.";
+const HELP = "Routines run while the computer they are on is awake. Closing the lid on battery pauses them.";
 const NOT_REMOTE = "Not available on a remote computer";
 
 /**

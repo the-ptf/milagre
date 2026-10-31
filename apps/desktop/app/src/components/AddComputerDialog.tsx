@@ -4,8 +4,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { privatePairingLink } from "@milagre/shared/pairing-link";
-import { Switch } from "./primitives/Switch";
+import { SettingCheckbox } from "./primitives/Checkbox";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
+import { thisComputer } from "../lib/shortcut-hints";
 
 const FIELD =
   "h-9 w-full rounded-[9px] bg-field px-2.5 text-[12.5px] text-ink outline-none ring-1 ring-line-strong focus-visible:ring-accent placeholder:text-ink-3";
@@ -117,9 +118,9 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
         <h2 id="add-computer-title" className="text-[16px] font-semibold">
           Add computer
         </h2>
-        <p className="mt-1 text-[13px] text-ink-2">See and drive another Mac's chats from this window.</p>
+        <p className="mt-1 text-[13px] text-ink-2">See and drive another computer's chats from this window.</p>
         <ol className="mt-4 list-decimal space-y-1 pl-[18px] text-[13px] text-ink-2">
-          <li>On the other Mac, open Milagre Settings › Devices.</li>
+          <li>On the other computer, open Milagre Settings › Devices.</li>
           <li>Click Pair a device, then Copy link.</li>
           <li>Paste it here. The link works for 10 minutes.</li>
         </ol>
@@ -149,7 +150,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
         </div>
         <div className="mt-3 flex items-center justify-between gap-3 text-[13px]">
           <span>LAN or Tailscale only</span>
-          <Switch
+          <SettingCheckbox
             label="LAN or Tailscale only"
             checked={privateOnly}
             disabled={adding}
@@ -196,7 +197,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
         {waiting && preview ? (
           <div className="mt-[18px] flex items-center justify-between gap-3">
             <p role="status" data-add-computer-waiting className="text-[13px] text-ink-2">
-              Waiting for {preview.name} to allow this Mac…
+              Waiting for {preview.name} to allow {thisComputer}…
             </p>
             <button type="button" onClick={() => void window.milagre.computers.cancelAdd()} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
               Cancel

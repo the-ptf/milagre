@@ -32,9 +32,9 @@ function WindowRow({ window, now }: { window: UsageWindow; now: number }) {
       >
         <View style={{ width: `${percent}%`, height: "100%", borderRadius: 3, backgroundColor: colors.ink }} />
       </View>
-      {reset ? (
+      {reset || window.detail ? (
         <Text selectable style={styles.caption}>
-          {reset}
+          {[window.detail, reset].filter(Boolean).join(" · ")}
         </Text>
       ) : null}
     </View>

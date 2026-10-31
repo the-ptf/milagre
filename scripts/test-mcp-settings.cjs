@@ -153,7 +153,7 @@ async function browserChecks() {
     await evaluate("window.checkDelay = 300");
     assert.equal(
       await evaluate(
-        `(() => { document.querySelector('[data-mcp-switch="claude:default:pencil"] [role="switch"]').click(); return !!document.querySelector('[data-mcp-row="pencil"]'); })()`,
+        `(() => { document.querySelector('[data-mcp-switch="claude:default:pencil"] [role="checkbox"]').click(); return !!document.querySelector('[data-mcp-row="pencil"]'); })()`,
       ),
       true,
     );
@@ -202,8 +202,8 @@ async function browserChecks() {
     await openRow("supabase");
     // Off in Codex's own config: the line says so and Milagre's switch can't turn it on.
     assert.ok(await evaluate(`document.querySelector('[data-mcp-row="supabase"]').textContent.includes('Off in Codex’s config')`));
-    assert.equal(await evaluate(`document.querySelector('[data-mcp-switch="codex:default:supabase"] [role="switch"]').disabled`), true);
-    assert.equal(await evaluate(`document.querySelector('[data-mcp-switch="claude:default:supabase"] [role="switch"]').disabled`), false);
+    assert.equal(await evaluate(`document.querySelector('[data-mcp-switch="codex:default:supabase"] [role="checkbox"]').disabled`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-mcp-switch="claude:default:supabase"] [role="checkbox"]').disabled`), false);
     await shot("mcp-provider-off");
     await click('[data-mcp-row="supabase"] [data-mcp-edit]');
     await waitFor(`!!document.querySelector('[data-mcp-sheet]')`);

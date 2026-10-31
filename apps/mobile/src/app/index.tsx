@@ -1,3 +1,4 @@
+import { useOutbox } from "../outbox";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, RefreshControl, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
@@ -25,6 +26,9 @@ export default function ComputersScreen() {
   const push = usePush();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<Record<string, Reachability>>({});
+  // Messages waiting on this phone for a computer: its row says so, since its Chats can't open until it is back.
+  const outboxItems = useOutbox().items;
+  const waitingFor = (hostId: string) => outboxItems.filter((item) => item.computerId === hostId && item.status !== "sent").length;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -154,7 +158,7 @@ export default function ComputersScreen() {
                       : host.relay
                         ? host.relay.url.replace(/^wss:\/\//, "")
                         : host.address.replace(/^https?:\/\//, "")
-                  }`}
+                  }${waitingFor(host.id) ? ` · ${waitingFor(host.id)} waiting` : ""}`}
                   disabled={!!busy}
                   onPress={() => void open(host)}
                   leading={

@@ -10,14 +10,14 @@ const { startMobileBridge } = require("./mobile-bridge.cjs");
 
 const TARGET = "0b5c2e5e-1111-4222-8333-944444444444:" + "A".repeat(32);
 
-async function fixture(t) {
+async function fixture(t, source = "agent") {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-browser-rpc-"));
   const calls = [],
     disconnected = [];
   const browsers = {
     async list(request) {
       calls.push(["list", request]);
-      return { supported: true, targets: [{ id: TARGET, title: "Login", url: "https://example.com/", browser: "Chrome 141", source: "agent" }], others: [] };
+      return { supported: true, targets: [{ id: TARGET, title: "Login", url: "https://example.com/", browser: "Chrome 141", source }], others: [] };
     },
     async attach(request) {
       calls.push(["attach", request]);
@@ -93,7 +93,18 @@ test("a paired phone reaches browser commands; unauthenticated and confined clie
   assert.equal((await (await paired("browser:frame", [{ viewerId: "private-viewer", after: 0 }])).json()).result.data, "jpeg");
   assert.equal((await paired("browser:list", [{ chatId: "chat" }], false)).status, 401);
   const confined = await f.bridge(true);
-  for (const method of ["list", "attach", "open", "frame", "status", "control", "input", "close"]) {
+  for (const method of ["list", "attach", "open", "open-page", "frame", "status", "control", "input", "close"]) {
     assert.equal((await confined(`browser:${method}`, [{ chatId: "chat", viewerId: "private-viewer" }])).status, 403, method);
   }
+});
+
+test("a paired phone opens a web link in its Chat's desktop panel", async (t) => {
+  const f = await fixture(t, "panel");
+  const paired = await f.bridge();
+  const response = await paired("browser:open-page", [{ chatId: "chat", url: "https://example.com" }]);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).result.id, TARGET);
+  assert.equal((await paired("browser:open-page", [{ chatId: "chat", url: "https://example.com" }], false)).status, 401);
+  const invalid = await paired("browser:open-page", [{ chatId: "chat", url: "file:///tmp/private" }]);
+  assert.notEqual(invalid.status, 200);
 });

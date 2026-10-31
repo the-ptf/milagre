@@ -1,6 +1,7 @@
 import type { ChatStep, PullRequest } from "./model.ts";
 
 export type PullRequestRef = string;
+export function associatedPullRequest<T extends { url: string }>(url: string, choices: readonly T[]): T | undefined;
 type Messages = Array<{ steps?: ChatStep[] }>;
 export function pullRequestRefs(messages: Messages): PullRequestRef[];
 export function createdPullRequestUrl(detail: string): string | null;

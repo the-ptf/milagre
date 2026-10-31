@@ -1,13 +1,15 @@
 const { execFile } = require("node:child_process");
 const { createGit } = require("./git/client.cjs");
 const { createGitDiff } = require("./git-diff.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
+const { scheduled } = require("./process-lanes.cjs");
 
 // The PR a Chat's branch opened, read and reviewed through gh: one GraphQL query for everything the PR panel
 // shows, and GraphQL mutations (or `gh pr merge` / `gh pr ready`) for every write. Draft comments live in the
 // viewer's pending review on GitHub, so the Mac and the phone see the same drafts.
 
-const GH_LOGIN = "Sign in to GitHub on this Mac with `gh auth login`, then try again.";
-const GH_MISSING = "Install the GitHub CLI (`brew install gh`) on this Mac to review PRs here.";
+const GH_LOGIN = `Sign in to GitHub on ${thisComputer} with \`gh auth login\`, then try again.`;
+const GH_MISSING = `Install the GitHub CLI (\`${process.platform === "win32" ? "winget install GitHub.cli" : "brew install gh"}\`) on ${thisComputer} to review PRs here.`;
 const OID = /^[0-9a-f]{40}$/;
 const MAX_BODY = 65_000;
 const FILE_PAGES = 30;
@@ -255,7 +257,7 @@ function range(base, head) {
  * promisified execFile does. Every method returns a result object and never throws.
  */
 function createPullRequestReview({
-  exec = defaultExec,
+  exec = scheduled(defaultExec),
   env = process.env,
   diff = createGitDiff({ env }),
   git = createGit({ env }),
@@ -505,4 +507,4 @@ function createPullRequestReview({
   };
 }
 
-module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, toDetail, GH_LOGIN, GH_MISSING };
+module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, GH_LOGIN, GH_MISSING };

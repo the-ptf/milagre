@@ -81,6 +81,15 @@ test("patchSession pins with an order, unpins, and ignores an order that isn't a
   assert.deepEqual(patchSession(pinned, 1, { pinned: false, pin_order: undefined }).sessions[1], session);
 });
 
+test("patchSession stores a Done time, clears it, and ignores one that isn't a number", () => {
+  const done = patchSession(chatState(), 1, { done_at: 1234 });
+  assert.deepEqual(done.sessions[1], { ...session, done_at: 1234 });
+  assert.equal(patchSession(done, 1, { done_at: "soon" as never }), done);
+  assert.deepEqual(patchSession(done, 1, { done_at: undefined }).sessions[1], session);
+  // `done` is the client's ask: only the host turns it into a time.
+  assert.equal(patchSession(chatState(), 1, { done: true }).sessions[1], session);
+});
+
 test("withDiffStats stores new stats and skips missing or unchanged ones", () => {
   const initial = chatState();
   assert.equal(withDiffStats(initial, { 2: { added: 3, removed: 1 }, 1: null, 9: { added: 1, removed: 1 } }), initial);

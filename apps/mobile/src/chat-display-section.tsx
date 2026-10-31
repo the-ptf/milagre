@@ -1,20 +1,25 @@
-import { Platform, Text, View } from "react-native";
-import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
+import { ContextSettingsSection } from "./context-settings-section";
+import { Text, View } from "react-native";
+import { router } from "expo-router";
+import { DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
+import { DICTATION_ACTION_OPTIONS } from "@milagre/shared/voice-dictation";
 import { CHAT_LIST_TITLE, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
-import { useChatList, useDictationLanguage, useExpandReasoning, useToolCallDisplay } from "./chat-display-setting";
+import { useChatList, useDictationLanguage, useDictationAction, useDictationModel, useExpandReasoning, useToolCallDisplay } from "./chat-display-setting";
 import { saveChatRowShow, useChatRowShow } from "./chat-row-store";
 import {
   ByProjectPreview,
   ChoiceCards,
   CompactToolsPreview,
+  DictationPreview,
   ExpandedReasoningPreview,
   FoldedReasoningPreview,
   FullToolsPreview,
   OneListPreview,
   SampleChatRow,
 } from "./chat-display-choices";
-import { Toggle, useStyles } from "./ui";
+import { ListRow, Toggle, useStyles } from "./ui";
+import { radius } from "./design-tokens";
 
 // What a Chat row can show under its title; the computer is always on the phone's rows.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
@@ -26,9 +31,12 @@ export function ChatDisplaySection() {
   const [toolCallDisplay, setToolCallDisplay] = useToolCallDisplay();
   const [chatList, setChatList] = useChatList();
   const rowShow = useChatRowShow();
-  const [dictation, setDictation] = useDictationLanguage();
+  const [dictation] = useDictationLanguage();
+  const speechModel = whisperModelFor("phone", useDictationModel()[0]);
+  const [dictationAction, setDictationAction] = useDictationAction();
   return (
     <View style={{ gap: 10 }}>
+      <ContextSettingsSection />
       <Text style={styles.section}>{CHAT_LIST_TITLE}</Text>
       <ChoiceCards<ChatList>
         label={CHAT_LIST_TITLE}
@@ -72,17 +80,34 @@ export function ChatDisplaySection() {
           { value: "full", title: "Full detail", description: "Each call on its own row.", preview: <FullToolsPreview /> },
         ]}
       />
-      <Text style={[styles.section, { marginTop: 14 }]}>Dictation language</Text>
-      <View style={[styles.card, { gap: 4 }]}>
-        {DICTATION_LANGUAGES.map((language) => (
-          <Toggle
-            key={language.code}
-            // iPhone dictation can't detect the language: "auto" is the phone's own.
-            title={language.code === "auto" && Platform.OS === "ios" ? "Phone language" : language.name}
-            selected={dictation === language.code}
-            onPress={() => setDictation(language.code)}
-          />
-        ))}
+      <Text style={[styles.section, { marginTop: 16 }]}>Dictation</Text>
+      <Text style={[styles.text, { fontWeight: "600" }]}>When dictation finishes</Text>
+      <ChoiceCards
+        compact
+        label="When dictation finishes"
+        value={dictationAction}
+        onChange={setDictationAction}
+        options={DICTATION_ACTION_OPTIONS.map((option) => ({
+          value: option.value,
+          title: option.label,
+          description: option.description,
+          preview: <DictationPreview sent={option.value === "send"} />,
+        }))}
+      />
+      <View style={[styles.card, { paddingVertical: 0, marginTop: 8, borderRadius: radius.card }]}>
+        <ListRow
+          inlineSubtitle
+          title="Dictation language"
+          subtitle={DICTATION_LANGUAGES.find((item) => item.code === dictation)?.name}
+          onPress={() => router.push("/dictation-language")}
+        />
+        <View style={styles.separator} />
+        <ListRow
+          inlineSubtitle
+          title="Speech model"
+          subtitle={`${speechModel.name} · ${Math.round(speechModel.size / 1e6)} MB`}
+          onPress={() => router.push("/dictation-model")}
+        />
       </View>
     </View>
   );

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "files": [
+    "src/after-paint.ts",
     "src/chat-window-cache.ts",
     "src/display-clock.ts",
     "src/chat-history.ts",
@@ -18,6 +19,7 @@
     "src/model-copy.ts",
     "src/provider-logos.ts",
     "src/reply-parts.ts",
+    "src/desktop-steps.ts",
     "src/streaming-markdown.ts",
     "src/streaming-blocks.ts",
     "src/markdown-fence.ts",
@@ -27,14 +29,18 @@
     "src/diff-tree.ts",
     "src/diff-layout.ts",
     "src/usage.ts",
+    "src/token-usage.ts",
     "src/main-sync.ts",
     "src/auto-update.ts",
+    "src/app-update.ts",
+    "src/computer-resources.ts",
     "src/mcp.ts",
     "src/local-mcp.ts",
     "src/use-local-mcp.ts",
     "src/use-provider-updates.ts",
     "src/linear.ts",
     "src/chat-row.ts",
+    "src/subchats.ts",
     "src/chat-display.ts",
     "src/canvas.ts",
     "src/simulator.ts",
@@ -53,10 +59,14 @@
     "src/advisor-result.ts",
     "src/themes/*.ts",
     "src/themes/palettes/*.ts",
-    "src/genui-renderer.tsx"
+    "src/genui-renderer.tsx",
+    "src/use-compaction-feedback.ts",
+    "src/outbox-delivery.ts"
   ],
   "type": "module",
   "exports": {
+    "./after-paint": "./src/after-paint.ts",
+    "./computer-use": "./src/computer-use.ts",
     "./tool-activity": {
       "types": "./src/tool-activity.d.mts",
       "default": "./src/tool-activity.mjs"
@@ -115,6 +125,7 @@
     "./checkpoints": "./src/checkpoints.ts",
     "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
+    "./token-usage": "./src/token-usage.ts",
     "./subagent-glance": {
       "types": "./src/subagent-glance.d.mts",
       "default": "./src/subagent-glance.mjs"
@@ -177,6 +188,14 @@
       "types": "./src/babysit.d.mts",
       "default": "./src/babysit.mjs"
     },
+    "./done": {
+      "types": "./src/done.d.mts",
+      "default": "./src/done.mjs"
+    },
+    "./device-notes": {
+      "types": "./src/device-notes.d.mts",
+      "default": "./src/device-notes.mjs"
+    },
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"
@@ -220,6 +239,14 @@
     "./antigravity-models": {
       "types": "./src/antigravity-models.d.mts",
       "default": "./src/antigravity-models.mjs"
+    },
+    "./kiro-models": {
+      "types": "./src/kiro-models.d.mts",
+      "default": "./src/kiro-models.mjs"
+    },
+    "./host-computer": {
+      "types": "./src/host-computer.d.mts",
+      "default": "./src/host-computer.mjs"
     },
     "./providers": {
       "types": "./src/providers.d.mts",
@@ -285,6 +312,7 @@
       "default": "./src/reconcile.mjs"
     },
     "./reply-parts": "./src/reply-parts.ts",
+    "./desktop-steps": "./src/desktop-steps.ts",
     "./streaming-markdown": "./src/streaming-markdown.ts",
     "./streaming-blocks": "./src/streaming-blocks.ts",
     "./markdown-fence": "./src/markdown-fence.ts",
@@ -296,6 +324,8 @@
     "./usage": "./src/usage.ts",
     "./main-sync": "./src/main-sync.ts",
     "./auto-update": "./src/auto-update.ts",
+    "./app-update": "./src/app-update.ts",
+    "./computer-resources": "./src/computer-resources.ts",
     "./mcp": "./src/mcp.ts",
     "./local-mcp": "./src/local-mcp.ts",
     "./use-provider-updates": "./src/use-provider-updates.ts",
@@ -304,6 +334,10 @@
     "./skill-catalog": "./src/skill-catalog.ts",
     "./simulator": "./src/simulator.ts",
     "./artifact": "./src/artifact.ts",
+    "./artifact-assets": {
+      "types": "./src/artifact-assets.d.mts",
+      "default": "./src/artifact-assets.mjs"
+    },
     "./artifact-document": {
       "types": "./src/artifact-document.d.mts",
       "default": "./src/artifact-document.mjs"
@@ -360,6 +394,7 @@
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
+    "./subchats": "./src/subchats.ts",
     "./chats-home": {
       "types": "./src/chats-home.d.mts",
       "default": "./src/chats-home.mjs"
@@ -407,6 +442,20 @@
     "./page-picker": {
       "types": "./src/page-picker.d.mts",
       "default": "./src/page-picker.mjs"
+    },
+    "./context-settings": {
+      "types": "./src/context-settings.d.mts",
+      "default": "./src/context-settings.mjs"
+    },
+    "./use-compaction-feedback": "./src/use-compaction-feedback.ts",
+    "./outbox": {
+      "types": "./src/outbox.d.mts",
+      "default": "./src/outbox.mjs"
+    },
+    "./outbox-delivery": "./src/outbox-delivery.ts",
+    "./design-preview": {
+      "types": "./src/design-preview.d.mts",
+      "default": "./src/design-preview.mjs"
     }
   },
   "scripts": {

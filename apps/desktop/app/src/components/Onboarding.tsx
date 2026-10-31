@@ -18,10 +18,11 @@ import {
 import { providerName } from "@milagre/shared/providers";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { AccountsSnapshot, AgentCliStatus, AgentFolder, ModelProvider, OpenProject } from "@milagre/shared/model";
+import { isWindows, thisComputer } from "../lib/shortcut-hints";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 
-const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity"];
+const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
 
 const primary =
   "inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink px-3.5 text-[13px] font-semibold text-page transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
@@ -30,10 +31,14 @@ const secondary =
 const quiet =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[14px] font-medium text-ink-2 transition-colors hover:text-ink disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
-/** ~/Code/web for /Users/me/Code/web, so a path reads the way people say it. */
+/** ~/Code/web for /Users/me/Code/web (~\Code\web for C:\Users\me\Code\web), so a path reads the way people say it. */
 function homePath(folder: string) {
-  return folder.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~");
+  return folder.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~").replace(/^[a-z]:\\Users\\[^\\]+(?=\\|$)/i, "~");
 }
+
+// Where Start from scratch makes the folder (onboarding-projects.cjs: <home>/Code).
+const CODE_FOLDER = isWindows ? "~\\Code" : "~/Code";
+const inCode = (name: string) => `${CODE_FOLDER}${isWindows ? "\\" : "/"}${name}`;
 
 /** "today", "yesterday", "3 days ago", "last week", or the date. */
 function lastUsedLabel(iso: string, now = new Date()) {
@@ -70,19 +75,31 @@ function Header({ step, title, children }: { step: 1 | 2; title: string; childre
   );
 }
 
-type AgentRow = { provider: ModelProvider; state: "checking" | "ready" | "missing" | "signed-out" | "signing-in"; detail: string; accountId?: string };
+type AgentRow = {
+  provider: ModelProvider;
+  state: "checking" | "ready" | "missing" | "outdated" | "signed-out" | "signing-in";
+  detail: string;
+  accountId?: string;
+};
 
 function agentRows(status: AgentCliStatus | null, accounts: AccountsSnapshot | null): AgentRow[] {
   return PROVIDERS.map((provider) => {
     const cli = status?.[provider];
     const group = accounts?.providers.find((item) => item.provider === provider);
     const account = group?.accounts.find((item) => item.id === group.selectedId) ?? group?.accounts[0];
-    if (!cli) return { provider, state: "checking", detail: "Checking this Mac…" };
+    if (!cli) return { provider, state: "checking", detail: `Checking ${thisComputer}…` };
     if (cli.state === "missing" || cli.state === "broken")
-      return { provider, state: "missing", detail: cli.state === "broken" ? "Installed, but it doesn't start" : "Not found on this Mac" };
+      return { provider, state: "missing", detail: cli.state === "broken" ? "Installed, but it doesn't start" : `Not found on ${thisComputer}` };
+    if (cli.state === "outdated") return { provider, state: "outdated", detail: "Installed · needs an update" };
     if (account?.state === "signing-in") return { provider, state: "signing-in", detail: "Finish signing in in your browser", accountId: account.id };
-    if (cli.state === "logged-out" || account?.state === "signed-out")
-      return { provider, state: "signed-out", detail: "Installed · not signed in", accountId: account?.id };
+    // An account that couldn't be checked, or whose sign-in failed, is no sign-in: its message says why.
+    if (cli.state === "logged-out" || account?.state === "signed-out" || account?.state === "error")
+      return {
+        provider,
+        state: "signed-out",
+        detail: account?.state === "error" && account.message ? account.message : "Installed · not signed in",
+        accountId: account?.id,
+      };
     return { provider, state: "ready", detail: account?.plan ? `Signed in · ${account.plan} plan` : "Signed in", accountId: account?.id };
   });
 }
@@ -113,9 +130,9 @@ function AgentStep({ onNext }: { onNext: () => void }) {
     setWorking(row.provider);
     setError("");
     try {
-      if (row.state === "missing") {
+      if (row.state === "missing" || row.state === "outdated") {
         const result = await window.milagre.updateCli(row.provider);
-        if (!result.ok) setError(result.error ?? `${providerName(row.provider)} could not be installed. Try again.`);
+        if (!result.ok) setError(`${providerName(row.provider)} could not be installed: ${result.error ?? "try again."}`);
       } else if (row.accountId) {
         setAccounts(await window.milagre.accountAction(row.state === "signing-in" ? "cancel" : "login", row.provider, row.accountId));
       }
@@ -130,11 +147,12 @@ function AgentStep({ onNext }: { onNext: () => void }) {
   return (
     <>
       <Header step={1} title="Choose your agent">
-        Milagre runs the coding agents you already use, with their own sign-in. We checked this Mac for them.
+        Milagre runs the coding agents you already use, with their own sign-in. We checked {thisComputer} for them.
       </Header>
       <ul data-onboarding-agents className="overflow-hidden rounded-xl border border-line bg-surface">
         {rows.map((row) => {
           const muted = row.state === "missing";
+          const installing = working === row.provider && (row.state === "missing" || row.state === "outdated");
           return (
             <li
               key={row.provider}
@@ -147,8 +165,8 @@ function AgentStep({ onNext }: { onNext: () => void }) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className={`block text-[15px] font-semibold ${muted ? "text-ink-2" : "text-ink"}`}>{providerName(row.provider)}</span>
-                <span role="status" className={`block truncate text-[13px] ${muted ? "text-ink-3" : "text-ink-2"}`}>
-                  {working === row.provider && row.state === "missing" ? "Installing…" : row.detail}
+                <span role="status" title={row.detail} className={`block truncate text-[13px] ${muted ? "text-ink-3" : "text-ink-2"}`}>
+                  {installing ? (row.state === "outdated" ? "Updating…" : "Installing… this can take a minute") : row.detail}
                 </span>
               </span>
               {row.state === "ready" && (
@@ -157,14 +175,24 @@ function AgentStep({ onNext }: { onNext: () => void }) {
                   Ready
                 </span>
               )}
-              {(row.state === "missing" || row.state === "signed-out" || row.state === "signing-in") && (
+              {(row.state === "missing" || row.state === "outdated" || row.state === "signed-out" || row.state === "signing-in") && (
                 <button
                   type="button"
                   className={`${secondary} min-w-[84px]`}
-                  disabled={working !== null || (row.state !== "missing" && !row.accountId)}
+                  disabled={working !== null || (row.state !== "missing" && row.state !== "outdated" && !row.accountId)}
                   onClick={() => void act(row)}
                 >
-                  {row.state === "missing" ? (working === row.provider ? "Installing…" : "Install") : row.state === "signing-in" ? "Cancel" : "Sign in"}
+                  {row.state === "missing"
+                    ? installing
+                      ? "Installing…"
+                      : "Install"
+                    : row.state === "outdated"
+                      ? installing
+                        ? "Updating…"
+                        : "Update"
+                      : row.state === "signing-in"
+                        ? "Cancel"
+                        : "Sign in"}
                 </button>
               )}
             </li>
@@ -193,7 +221,7 @@ function AgentStep({ onNext }: { onNext: () => void }) {
 type Form = { kind: "clone" | "create"; value: string } | null;
 
 /** Step 2: open, clone or start a Project, or pick a folder an agent worked in (designs onboarding-project and onboarding-git). */
-function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (project: OpenProject) => void }) {
+function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpened: (project: OpenProject) => void; onSkip: () => void }) {
   const [folders, setFolders] = useState<AgentFolder[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(null);
@@ -227,9 +255,21 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
   };
   const sources = [...new Set((folders ?? []).map((folder) => providerName(folder.provider)))];
   const tiles = [
-    { id: "open", icon: FolderOpenIcon, title: "Open folder", detail: "Pick one on this Mac", onClick: () => void run(() => window.milagre.openProject()) },
+    {
+      id: "open",
+      icon: FolderOpenIcon,
+      title: "Open folder",
+      detail: `Pick one on ${thisComputer}`,
+      onClick: () => void run(() => window.milagre.openProject()),
+    },
     { id: "clone", icon: GitForkIcon, title: "Clone a repository", detail: "Paste a GitHub URL", onClick: () => setForm({ kind: "clone", value: "" }) },
-    { id: "create", icon: FolderAddIcon, title: "Start from scratch", detail: "New folder in ~/Code", onClick: () => setForm({ kind: "create", value: "" }) },
+    {
+      id: "create",
+      icon: FolderAddIcon,
+      title: "Start from scratch",
+      detail: `New folder in ${CODE_FOLDER}`,
+      onClick: () => setForm({ kind: "create", value: "" }),
+    },
   ];
   return (
     <>
@@ -271,7 +311,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             onKeyDown={(event) => event.key === "Escape" && setForm(null)}
             className="h-8 min-w-0 flex-1 rounded-lg bg-inset px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus-visible:ring-1 focus-visible:ring-line-strong"
           />
-          {form.kind === "create" && form.value.trim() && <span className="shrink-0 text-[12px] text-ink-3">~/Code/{form.value.trim()}</span>}
+          {form.kind === "create" && form.value.trim() && <span className="shrink-0 text-[12px] text-ink-3">{inCode(form.value.trim())}</span>}
           <button type="submit" className={primary} disabled={busy || !form.value.trim()}>
             {busy ? (form.kind === "clone" ? "Cloning…" : "Creating…") : form.kind === "clone" ? "Clone" : "Create"}
           </button>
@@ -360,10 +400,14 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
           </ul>
         </section>
       )}
-      <footer className="flex items-center">
+      <footer className="flex items-center justify-between">
         <button type="button" className={quiet} onClick={onBack} disabled={busy}>
           <HugeiconsIcon icon={ArrowLeft02Icon} size={16} strokeWidth={2} color="currentColor" />
           Back
+        </button>
+        <button type="button" data-onboarding-skip className={quiet} onClick={onSkip} disabled={busy}>
+          Skip, start a Chat without a project
+          <HugeiconsIcon icon={ArrowRight02Icon} size={16} strokeWidth={2} color="currentColor" />
         </button>
       </footer>
     </>
@@ -374,13 +418,13 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
  * First launch with no Project to open (designs in the Onboarding · Desktop group): the agent, then a Project. The
  * third step is the app itself, whose first Chat offers starter tasks (see FirstChatStarters).
  */
-export function Onboarding({ onOpened, splash }: { onOpened: (project: OpenProject) => void; splash?: ReactNode }) {
+export function Onboarding({ onOpened, onSkip, splash }: { onOpened: (project: OpenProject) => void; onSkip: () => void; splash?: ReactNode }) {
   const [step, setStep] = useState<1 | 2>(1);
   return (
     <main data-onboarding data-step={step} aria-labelledby="onboarding-title" className="flex h-screen flex-col text-ink">
       <ScrollArea className="flex min-h-0 flex-1 justify-center px-8 py-14">
         <div className={`my-auto grid w-full min-w-0 grid-cols-1 gap-7 ${step === 1 ? "max-w-[520px]" : "max-w-[600px]"}`}>
-          {step === 1 ? <AgentStep onNext={() => setStep(2)} /> : <ProjectStep onBack={() => setStep(1)} onOpened={onOpened} />}
+          {step === 1 ? <AgentStep onNext={() => setStep(2)} /> : <ProjectStep onBack={() => setStep(1)} onOpened={onOpened} onSkip={onSkip} />}
         </div>
       </ScrollArea>
       {splash}

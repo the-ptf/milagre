@@ -88,6 +88,8 @@ body alike; section gap 24.
 
 ## States
 
+- Switches are banned. Use checkboxes for independent on/off settings and checked lists or radio groups for mutually exclusive choices. No sliding track/thumb controls or switch accessibility roles on either platform.
+
 - Focus: one accent ring from `@layer base` in `styles.css`; components may restyle it with `focus-visible:` utilities.
   Fields show focus with `focus:border-accent` (plus a ring where the field has no border). Never a focus style under
   3:1.

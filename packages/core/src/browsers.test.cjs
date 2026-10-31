@@ -320,6 +320,26 @@ test("takeover releases held input and invalidates the old controller and genera
   assert.deepEqual(await input(f, bv), { accepted: true });
 });
 
+test("status and control advertise resize support while legacy clients keep their viewport and input", async (t) => {
+  const f = fixture(t),
+    a = await controller(f);
+  assert.equal(a.supportsViewport, true);
+  assert.equal((await f.service.status({ viewerId: a.viewerId }, a.owner)).supportsViewport, true);
+  // A pre-resize client ignores unknown status fields and sends its original input protocol.
+  assert.deepEqual(await input(f, a), { accepted: true });
+  assert.deepEqual(await input(f, a, { ...DOWN, phase: "up" }, 2), { accepted: true });
+  const b = await f.service.open({ chatId: "chat-a", targetId: target(PAGE) }, "legacy-phone");
+  const taken = await f.service.control({ viewerId: b.viewerId, takeOver: true }, "legacy-phone");
+  assert.equal(taken.supportsViewport, true);
+  assert.deepEqual(await input(f, { ...b, ...taken, owner: "legacy-phone" }, { kind: "text", text: "hello" }), { accepted: true });
+  f.channels[0].push();
+  assert.deepEqual((await f.service.frame({ viewerId: b.viewerId, after: 0 }, "legacy-phone")).viewport, { width: 800, height: 600 });
+  assert.equal(
+    f.events.some((event) => event.kind === "viewport"),
+    false,
+  );
+});
+
 test("input rejects malformed events, replays, unmatched buttons and stale viewports", async (t) => {
   const f = fixture(t),
     v = await controller(f);
@@ -332,6 +352,9 @@ test("input rejects malformed events, replays, unmatched buttons and stale viewp
     { kind: "key", phase: "down", key: "a".repeat(40), code: "KeyA", keyCode: 65 },
     { kind: "key", phase: "down", key: "a", code: "KeyA", keyCode: 65, commands: ["shutdown"] },
     { kind: "navigate", action: "close" },
+    { kind: "viewport", width: 99, height: 600 },
+    { kind: "viewport", width: 800, height: 5000 },
+    { kind: "viewport", width: 800.5, height: 600 },
     { kind: "eval", script: "1" },
   ]) {
     await assert.rejects(input(f, v, event), /input/i);
@@ -347,9 +370,11 @@ test("input rejects malformed events, replays, unmatched buttons and stale viewp
   assert.deepEqual(await input(f, v, { ...DOWN, phase: "move", button: "none" }, 4), { accepted: false }, "old viewport generation");
   assert.deepEqual(await input(f, v, { kind: "navigate", action: "back" }, 5, status.generation), { accepted: true });
   assert.deepEqual(await input(f, v, { kind: "text", text: "héllo" }, 6, status.generation), { accepted: true });
-  assert.deepEqual(f.events.slice(-2), [
+  assert.deepEqual(await input(f, v, { kind: "viewport", width: 640, height: 480, extra: true }, 7, status.generation), { accepted: true });
+  assert.deepEqual(f.events.slice(-3), [
     { kind: "navigate", action: "back" },
     { kind: "text", text: "héllo" },
+    { kind: "viewport", width: 640, height: 480 },
   ]);
 });
 
@@ -496,6 +521,11 @@ test("the agent's DevTools session acts on the Chat's newest panel page, is reus
   await assert.rejects(f.service.devtools({ chatId: "chat-b", page: first.target.id }), /not in this Chat/);
   await assert.rejects(f.service.devtools({ chatId: "chat-c" }), /no browser page/);
   await panel([{ id: "D".repeat(32), chatId: "chat-a", title: "Old", url: "http://localhost:5173/a" }]);
-  await f.service.devtools({ chatId: "chat-a" });
-  assert.equal(first.session.closed, true, "a session on a page that closed is closed");
+  assert.equal(first.session.closed, true, "a session on a page that left the panel is closed");
+  // Two tools at once share the session being made, and the refs one of them keeps.
+  const [one, two] = await Promise.all([f.service.devtools({ chatId: "chat-a" }), f.service.devtools({ chatId: "chat-a" })]);
+  assert.equal(one.session, two.session);
+  assert.equal(one.state, two.state);
+  await f.service.disconnect("desktop-1");
+  assert.equal(one.session.closed, true, "the desktop going ends the sessions on its pages");
 });

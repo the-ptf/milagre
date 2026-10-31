@@ -8,6 +8,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { boxKeyPair, b64url, hostAccept } = require("@milagre/shared/relay-crypto");
 const { createFrameReader, createFrameWriter } = require("@milagre/shared/peer-frames");
 const { createComputers } = require("./computers.cjs");
+const { thisComputer, ThisComputer } = require("@milagre/shared/host-computer");
 
 const OWN = "o".repeat(22);
 const HOST = "h".repeat(22);
@@ -48,12 +49,12 @@ test("a relay link previews as the computer it names and how it is reached, with
 
 test("a pasted link that isn't a relay link, this Mac's own, or a computer already added, is refused before any socket opens", async (t) => {
   const { computers } = await setup(t, { saved: [studio] });
-  await assert.rejects(computers.preview("hello"), { message: "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac." });
+  await assert.rejects(computers.preview("hello"), { message: "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other computer." });
   await assert.rejects(computers.preview(link({ relay: "ws://127.0.0.1:9000" })), /isn't a Milagre pairing link/);
   await assert.rejects(computers.preview(`milagre://pair?address=${encodeURIComponent("https://mac.example.com")}&token=${"a".repeat(64)}&name=x`), {
-    message: "This link reaches its Mac through a Cloudflare tunnel, which computers can't use yet.",
+    message: "This link reaches its computer through a Cloudflare tunnel, which computers can't use yet.",
   });
-  await assert.rejects(computers.preview(link({ host: OWN })), { message: "That's this Mac's own link. Copy the one on the other Mac." });
+  await assert.rejects(computers.preview(link({ host: OWN })), { message: `That's ${thisComputer}'s own link. Copy the one on the other computer.` });
   await assert.rejects(computers.preview(link({ name: "anything" })), { message: "studio is already in your computers." });
   await assert.rejects(computers.add(link()), { message: "studio is already in your computers." });
 });
@@ -68,7 +69,7 @@ test("saved computers are off until Other computers is on, and one whose keys ar
   await computers.setEnabled(true);
   for (let i = 0; i < 200 && computers.list()[0].state !== "refused"; i++) await delay(5);
   assert.deepEqual(computers.list()[0].state, "refused");
-  assert.equal(computers.list()[0].message, "This Mac lost its keys for studio. Remove it and pair again.");
+  assert.equal(computers.list()[0].message, `${ThisComputer} lost its keys for studio. Remove it and pair again.`);
   await assert.rejects(computers.invoke("c1", "daemon:status"), /studio is offline/);
   await computers.setEnabled(false);
   assert.equal(computers.list()[0].state, "off");
@@ -295,7 +296,7 @@ test("a Mac holding the first pairing for Allow is waited for, and cancelling sa
 test("a refusal while pairing is worded for pairing, with its code", async (t) => {
   for (const [hello, message, code] of [
     [{ code: "unknown-phone" }, "This link expired. Copy a new one on studio.", "unknown-phone"],
-    [{ code: "unknown-phone", reason: "denied" }, "studio didn't allow this Mac.", "denied"],
+    [{ code: "unknown-phone", reason: "denied" }, `studio didn't allow ${thisComputer}.`, "denied"],
     [{ code: "bad-hello", reason: "kind" }, "Update Milagre on studio to connect.", "kind"],
     ["full", "studio has too many devices connected. Remove one in its Settings › Devices.", "full"],
   ]) {
@@ -329,7 +330,7 @@ test("a refusal retrying can't fix stops the computer for good instead of retryi
 
 test("every refusal that retrying can't fix refuses, with its words", async (t) => {
   for (const [hello, message] of [
-    [{ code: "unknown-phone", reason: "denied" }, "studio didn't allow this Mac."],
+    [{ code: "unknown-phone", reason: "denied" }, `studio didn't allow ${thisComputer}.`],
     [{ code: "bad-token", reason: "reset" }, "studio was reset. Pair again with a new link."],
     [{ code: "bad-token" }, "studio has a new pairing link. Pair again with it."],
     [{ code: "bad-hello", reason: "kind" }, "Update Milagre on studio to connect."],
@@ -454,7 +455,7 @@ test("a keychain that can't be opened refuses the computer without retrying", as
   const { computers, state } = await paired(t, mac, { safeStorage: { ...keychain, isEncryptionAvailable: () => false } });
   await assert.rejects(computers.add(macLink(mac), { name: "studio" }), {
     code: "keys",
-    message: "This Mac can't keep keys in its keychain, so it can't pair with computers.",
+    message: `${ThisComputer} can't keep keys in its keychain, so it can't pair with computers.`,
   });
   assert.equal(mac.urls.length, 0);
   assert.equal(state(), undefined);
@@ -622,7 +623,7 @@ test("a keychain that can't be opened for a computer already here is shown and r
   await computers.setEnabled(true);
   const state = () => computers.list()[0].state;
   await until(() => state() === "reconnecting" && computers.list()[0].message !== null, "the keychain's words");
-  assert.equal(computers.list()[0].message, "This Mac can't keep keys in its keychain, so it can't pair with computers.");
+  assert.equal(computers.list()[0].message, `${ThisComputer} can't keep keys in its keychain, so it can't pair with computers.`);
   const opened = mac.urls.length;
   // The keychain comes back (a prompt allowed, the login unlocked): the next retry connects.
   available = true;

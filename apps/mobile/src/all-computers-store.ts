@@ -8,7 +8,10 @@ export type Reach = "online" | "checking" | "offline";
 /** A Project's Chats as a computer last answered: a preview, or the full snapshot of a Link. */
 export type ProjectCopy = Snapshot | ProjectPreview;
 /** What the store reads from a computer's client. */
-export type StoreClient = Pick<Client, "url" | "call" | "recentScopes" | "preview" | "open" | "chatLists"> & Partial<Pick<Client, "retire" | "chatsHome">>;
+export type StoreClient = Pick<Client, "url" | "call" | "recentScopes" | "preview" | "open" | "chatLists"> &
+  Partial<Pick<Client, "retire" | "chatsHome" | "chatMessages">>;
+/** A Chat the store lists, with what says how recent it is and which message it ends on. */
+export type RecentChat = { projectPath: string; chatId: number; lastAt: number; lastId: number };
 
 /** Everything the sidebar knows about one computer; replaced, never changed, so it can be compared by identity. */
 export type HostView = {
@@ -52,7 +55,20 @@ export type StoreDeps = {
   random: () => number;
   setTimer: (run: () => void, ms: number) => unknown;
   clearTimer: (handle: unknown) => void;
+  /** After a read, copies the computer's most recent Chats to the phone, each request through `limit` (chat-pages.ts). */
+  warm?: (client: StoreClient, chats: RecentChat[], limit: <T>(work: () => Promise<T>) => Promise<T>) => Promise<void>;
 };
+
+/** Every listed Chat that isn't archived, from each Project's copy. */
+export function recentChats(copies: ReadonlyMap<string, ProjectCopy>): RecentChat[] {
+  const chats: RecentChat[] = [];
+  for (const copy of copies.values())
+    for (const session of Object.values(copy.project.state.sessions ?? {})) {
+      const { lastAt, lastId } = session.summary ?? {};
+      if (!session.archived && session.id > 0 && lastAt && lastId) chats.push({ projectPath: copy.project.path, chatId: session.id, lastAt, lastId });
+    }
+  return chats;
+}
 
 const BATCH = 20;
 /** The Mac's answers for a Project it hasn't opened yet, and for a Link, which the batch read doesn't list. */
@@ -432,6 +448,9 @@ export function createAllComputersStore(deps: StoreDeps) {
           entry.lastSuccess = deps.now();
         }
         publish(entry);
+        // In the background, through the same limit: a sidebar read never waits on it.
+        if (deps.warm && entry.state === "online" && !idle())
+          void deps.warm(client, recentChats(entry.copies), (work) => guarded(entry, client, 1, work, skipped)).catch(() => {});
       } finally {
         entry.running = null;
         if (alive(entry, client)) {

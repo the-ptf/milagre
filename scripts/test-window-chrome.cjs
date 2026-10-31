@@ -13,7 +13,7 @@ import { SettingsNav } from "/src/components/Settings";
 import { DotBackground } from "/src/components/DotBackground";
 import { DesignPageEditor } from "/src/components/agents/DesignPageEditor";
 import { createExampleDesign, designHtml } from "@milagre/shared/design";
-import { DiffBar, ChangesToggle, AttentionButton } from "/src/components/changes/ChangesChrome";
+import { DiffBar, AttentionButton } from "/src/components/changes/ChangesChrome";
 import { PanelToggles, useSidePanel } from "/src/components/agents/PanelToggles";
 import { useWindowChrome } from "/src/lib/window-chrome";
 import "/src/styles.css";
@@ -39,19 +39,28 @@ function Fixture() {
   const chrome = useWindowChrome();
   window.readChrome = () => chrome;
   const [changes, setChanges] = useState(false);
+  window.readChangesOpen = () => changes;
   const [diff, setDiff] = useState(false);
   const [terminal, setTerminal] = useState(false);
   const [settings, setSettings] = useState(false);
   const [editor, setEditor] = useState(false);
+  const [browserAvailable, setBrowserAvailable] = useState(false);
+  const [browser, setBrowser] = useState(false);
+  const [prAvailable, setPrAvailable] = useState(false);
+  const [pr, setPr] = useState(false);
+  window.setBrowserAvailable = setBrowserAvailable;
+  window.setPrAvailable = setPrAvailable;
+  window.browserOpen = browser;
+  window.prOpen = pr;
+  useSidePanel("browser", browserAvailable ? {open: browser, promoted: browserAvailable === true, toggle: () => setBrowser(v => !v)} : null);
   window.showSettings = setSettings;
   window.showEditor = setEditor;
   window.showDiff = setDiff;
   useSidePanel("terminal", { open: terminal, toggle: () => setTerminal(v => !v) });
   return <><DotBackground><div style={{ width: "100%", height: "100vh", background: "#141820", color: "#ddd" }}>
     <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-    {!diff && !settings && <><ChangesToggle open={changes} onToggle={() => setChanges(v => !v)} />
-    <PanelToggles right={52} />
-    <AttentionButton label="Review the notification toolbar layout and accessibility needs attention" items={[{ key: "1", project: "Layout", asking: false }]} offset={2} onOpen={() => window.attentionOpened = true} /></>}
+    {!diff && !settings && <><PanelToggles right={12} changes={{open: changes, toggle: () => setChanges(v => !v)}} pullRequest={prAvailable ? {number: 90, open: pr, toggle: () => setPr(v => !v)} : undefined} />
+    <AttentionButton label="Review the notification toolbar layout and accessibility needs attention" items={[{ key: "1", project: "Layout", asking: false }]} offset={1 + Number(browserAvailable) + Number(prAvailable)} onOpen={() => window.attentionOpened = true} /></>}
     <div style={{ display: "flex", height: "100%", gap: 12 }}>
       <div data-sidebar-host className={"min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 " + (settings ? "hidden" : "flex")}>
         <SidebarNav fill workspaceName="Layout" recents={[{ id: "1", label: "Check window controls" }]} activeId="1" onOpenCanvas={() => {}} onOpenCommands={() => {}} />
@@ -105,6 +114,7 @@ async function browserChecks() {
         win.webContents.executeJavaScript(source).catch((cause) => {
           throw new Error(`Could not evaluate: ${source}`, { cause });
         });
+      const { evaluatePanel, waitForPanel } = require("./panel-menu-test.cjs").panelMenuHelpers(evaluate);
       const waitFor = async (source) => {
         for (let i = 0; i < 200; i++) {
           if (await evaluate(source)) return;
@@ -131,7 +141,7 @@ async function browserChecks() {
       };
       try {
         await win.loadURL(`${process.argv[2]}?controls=${chrome.controls}`);
-        await waitFor('!!document.querySelector("[data-panel-toggle=terminal]")');
+        await waitFor("!!document.querySelector('button[aria-label=\"Chat actions\"]')");
         await delay(400);
         const sidebar = await bounds("[data-sidebar-toggle] button");
         assert.equal(sidebar.y, 6, "the button center stays on the 22px toolbar line");
@@ -147,15 +157,46 @@ async function browserChecks() {
             true,
             "Electron supplies controls inside a window without a native title bar",
           );
-          const changes = await bounds("[data-changes-toggle]");
+          const changes = await bounds('button[aria-label="Chat actions"]');
           const safe = await evaluate("navigator.windowControlsOverlay.getTitlebarAreaRect().toJSON()");
           assert.ok(changes.right <= safe.x + safe.width, "Changes stays out of the native control area");
         }
+        // Pages and PRs arrive independently; only these two leave the overflow menu.
+        assert.equal(await evaluate('document.querySelectorAll("[data-slot=panel-toggles] button").length'), 1);
+        await evaluate("window.setBrowserAvailable(true); window.setPrAvailable(true)");
+        await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 3');
+        const browserBounds = await bounds('[data-panel-toggle="browser"]');
+        const prBounds = await bounds('[data-panel-toggle="pr"]');
+        const menuBounds = await bounds('button[aria-label="Chat actions"]');
+        assert.ok(browserBounds.right <= prBounds.left && prBounds.right <= menuBounds.left, "Browser, PR, overflow order");
+        assert.equal(await evaluate('!!document.querySelector("[data-panel-toggle=terminal]")'), false, "Terminals stays inside the closed menu");
+        await click('[data-panel-toggle="browser"]');
+        await waitFor("window.browserOpen");
+        await click('[data-panel-toggle="pr"]');
+        await waitFor("window.prOpen");
+        await capture("browser-pr-and-menu");
+        await click('button[aria-label="Chat actions"]');
+        await waitFor('document.activeElement?.getAttribute("data-panel-toggle") === "changes"');
+        win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+        await waitFor(`!document.querySelector('[role="menu"]')`);
+        assert.equal(await evaluate("document.activeElement?.getAttribute('aria-label')"), "Chat actions");
+        await evaluate("window.setBrowserAvailable(false)");
+        await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 2');
+        assert.ok(await evaluate('!!document.querySelector("[data-panel-toggle=pr]")'));
+        await evaluate("window.setPrAvailable(false)");
+        await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 1');
+        await evaluate('window.setBrowserAvailable("empty")');
+        await waitForPanel('!!document.querySelector("[data-panel-toggle=browser]")');
+        assert.equal(await evaluate('document.querySelectorAll("[data-slot=panel-toggles] button").length'), 1, "an empty browser stays in the menu");
+        await evaluate("window.setBrowserAvailable(true)");
+        await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 2');
+        await evaluate("window.setBrowserAvailable(false)");
+        await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 1');
         win.setSize(640, 650);
         await delay(200);
         const attention = await bounds("[data-attention-button]");
         assert.ok(attention.left >= (await evaluate("readChrome().controlsEnd")), "a long Chat title stays clear of the sidebar tools at narrow widths");
-        assert.ok(attention.right + 8 <= (await bounds("[data-panel-toggle=terminal]")).left, "attention reserves space for the panel icons");
+        assert.ok(attention.right + 8 <= (await bounds('button[aria-label="Chat actions"]')).left, "attention reserves space for the panel icons");
         assert.equal(
           await evaluate(
             `document.querySelector('[data-attention-button] span').scrollWidth > document.querySelector('[data-attention-button] span').clientWidth`,
@@ -171,10 +212,13 @@ async function browserChecks() {
         await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
         assert.equal((await bounds("[data-sidebar-toggle] button")).x, sidebar.x);
         await capture(integrated ? "integrated-collapsed" : "native-collapsed");
-        await click("[data-changes-toggle]");
-        await waitFor('document.querySelector("[data-changes-toggle]").getAttribute("aria-pressed") === "true"');
+        await evaluatePanel('document.querySelector("[data-panel-toggle=changes]").click()');
+        await waitFor("window.readChangesOpen()");
+        await click('button[aria-label="Chat actions"]');
+        await waitFor('!!document.querySelector("[data-panel-toggle=terminal]")');
         await click("[data-panel-toggle=terminal]");
-        await waitFor('document.querySelector("[data-panel-toggle=terminal]").getAttribute("aria-pressed") === "true"');
+        // The menu re-renders after the click, so the toggle can be gone for a moment: wait on, don't throw.
+        await waitForPanel('document.querySelector("[data-panel-toggle=terminal]")?.getAttribute("aria-checked") === "true"');
         await click("[data-attention-button]");
         await waitFor("window.attentionOpened");
         await evaluate("window.showDiff(true)");
@@ -242,11 +286,11 @@ async function browserChecks() {
         await waitFor('document.querySelector("[data-sidebar-toggle]").getBoundingClientRect().x === 12');
         // Resizing and geometry events move every subscribed control together.
         await evaluate('window.simulateGeometry("overlay", 0, innerWidth - 160)');
-        await waitFor('Math.abs(document.querySelector("[data-changes-toggle]").getBoundingClientRect().right - (innerWidth - 180)) < 1');
+        await waitFor('Math.abs(document.querySelector("[data-slot=panel-toggles]").getBoundingClientRect().right - (innerWidth - 180)) < 1');
         await evaluate(
           'navigator.windowControlsOverlay.getTitlebarAreaRect = () => new DOMRect(0, 0, innerWidth - 200, 60); navigator.windowControlsOverlay.dispatchEvent(new Event("geometrychange"))',
         );
-        await waitFor('Math.abs(document.querySelector("[data-changes-toggle]").getBoundingClientRect().right - (innerWidth - 220)) < 1');
+        await waitFor('Math.abs(document.querySelector("[data-slot=panel-toggles]").getBoundingClientRect().right - (innerWidth - 220)) < 1');
       } finally {
         win.destroy();
       }

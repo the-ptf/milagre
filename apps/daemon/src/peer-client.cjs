@@ -3,6 +3,7 @@ const { randomBytes } = require("node:crypto");
 const { phoneHello, phoneFinish, fromB64url } = require("@milagre/shared/relay-crypto");
 const { createFrameReader, createFrameWriter } = require("@milagre/shared/peer-frames");
 const { deadlineFor } = require("./client.cjs");
+const { createPeerStreams } = require("./peer-streams.cjs");
 const { VERSION, MAX_PENDING } = require("./protocol.cjs");
 
 const ACCEPT = 0x02;
@@ -21,6 +22,8 @@ const CLOSE_BY_HOST = 1000;
 const CLOSE_HOST_OFFLINE = 4404;
 const CLOSE_ROOM_FULL = 4429;
 const DESKTOP_PEER = "desktop-peer-v1";
+// A computer that takes TCP streams on the channel (peer-streams.cjs); an older one drops the channel on their messages.
+const PEER_TCP = "peer-tcp-v1";
 // Asked for in the hello: the Mac then sends a window's messages as one frame (phone-channels.cjs).
 const BATCH_CAP = "batch";
 // A paired Mac is not trusted like the local daemon: a paged reply may not announce more than MAX_PAGES pages nor run
@@ -70,7 +73,7 @@ const defaultSocket = (url) => new WebSocket(url);
  * @param {{
  *   url: string; hostId: string; hostKey: string; token: string; identity: any; name?: string;
  *   onPending?: () => void; signal?: AbortSignal; random?: (n: number) => Uint8Array; createSocket?: (url: string) => any;
- *   timeoutMs?: number; maxPagedChars?: number;
+ *   timeoutMs?: number; maxPagedChars?: number; acceptStream?: (target: string, port: number) => import("node:net").Socket;
  * }} options
  */
 async function connectPeer({
@@ -84,6 +87,7 @@ async function connectPeer({
   signal,
   random = defaultRandom,
   createSocket = defaultSocket,
+  acceptStream,
   timeoutMs = 30_000,
   maxPagedChars = MAX_PAGED_CHARS,
 }) {
@@ -108,6 +112,10 @@ async function connectPeer({
     /** @type {(beforeClose?: () => void) => void} */
     closeWhenIdle: () => {},
     keepOpen: () => {},
+    /** @type {(target: string, port: number) => Promise<import("node:stream").Duplex>} */
+    openStream: async () => {
+      throw new Error("Not connected");
+    },
   });
   const pending = new Map();
   // Calls past MAX_PENDING wait here for a free slot (the daemon drops a connection that sends more).
@@ -117,6 +125,15 @@ async function connectPeer({
   /** @type {import("@milagre/shared/relay-crypto").Channel | null} */
   let channel = null;
   let nextId = 0;
+  // TCP streams this Mac opens from the computer; open ones keep a closeWhenIdle waiting, as calls do.
+  const streams = createPeerStreams({
+    // The computer may open streams back only where `acceptStream` dials them (it throws everywhere else).
+    ...(acceptStream ? { dial: acceptStream } : {}),
+    send: (message) => {
+      if (channel && !client.closed) send(channel.seal(message));
+    },
+    onIdle: () => closeIfIdle(),
+  });
   // Whether the daemon answered anything on this channel: a close before that, by the Mac, is a Mac from before PR 1.
   let answered = false;
   /** @type {Error | null} */
@@ -127,7 +144,7 @@ async function connectPeer({
   let whenIdle = null;
   /** Runs a pending closeWhenIdle once nothing is in flight. */
   function closeIfIdle() {
-    if (!whenIdle || client.closed || pending.size > 0 || queued.length > 0 || paging > 0) return;
+    if (!whenIdle || client.closed || pending.size > 0 || queued.length > 0 || paging > 0 || streams.size > 0) return;
     const before = whenIdle;
     whenIdle = null;
     try {
@@ -161,6 +178,7 @@ async function connectPeer({
     }
     pending.clear();
     queued.length = 0;
+    streams.close();
     if (settle) {
       settle.reject(error);
       settle = null;
@@ -260,6 +278,10 @@ async function connectPeer({
         if (!Array.isArray(items)) throw new Error("Malformed batch");
         for (const item of items) {
           if (item?.t === "pong") continue;
+          if (streams.isStreamMessage(item)) {
+            streams.receive(item);
+            continue;
+          }
           const read = reader.read(item);
           if (read) frames.push(read.frame);
         }
@@ -337,6 +359,15 @@ async function connectPeer({
       else start(request);
     });
   client.close = () => end(new PeerError("lost"));
+  /** A TCP stream to `target:port` as the computer sees them (its localhost is its own), carried on this channel. */
+  client.openStream = (target, port) => {
+    if (client.closed || !channel) return Promise.reject(new Error("Daemon connection closed"));
+    if (!client.status?.capabilities?.includes(PEER_TCP))
+      return Promise.reject(
+        Object.assign(new Error("This computer's Milagre is too old to open its pages here. Update it, then try again."), { code: "outdated" }),
+      );
+    return streams.open(target, port);
+  };
   /** Closes once no call waits for its answer (`beforeClose` runs just before), or now when none does. */
   client.closeWhenIdle = (beforeClose = () => {}) => {
     whenIdle = beforeClose;

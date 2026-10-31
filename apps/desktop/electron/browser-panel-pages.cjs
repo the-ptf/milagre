@@ -1,7 +1,7 @@
 // @ts-check
 // The Browser panel's pages as the host's browser service sees them: a loopback DevTools endpoint over each page's
 // webContents.debugger (@milagre/core/cdp-proxy), and the list of pages with the Chat whose panel shows each, sent to
-// the host ("browser:panel-pages"). The Browser pill and the phone then view and control them like any other Chat
+// the host ("browser:panel-pages"). Another computer's Browser panel and the phone then view and control them like any other Chat
 // browser, and the agent's tools reach them the same way.
 const { randomBytes } = require("node:crypto");
 const { createCdpProxy } = require("@milagre/core/cdp-proxy");
@@ -14,7 +14,7 @@ const { createCdpProxy } = require("@milagre/core/cdp-proxy");
  * }} options
  */
 function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser panel (Electron ${process.versions.electron ?? ""})` }) {
-  /** @type {Map<number, { pageId: string; chatKey: string; host: Electron.WebContents; users: number; ours: boolean }>} */
+  /** @type {Map<number, { pageId: string; chatKey: string; host: Electron.WebContents; users: number; ours: boolean; off: () => void }>} */
   const pages = new Map();
   const live = () =>
     [...pages.entries()].flatMap(([contentsId, page]) => {
@@ -39,7 +39,28 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
       if (record.users === 1 && !host.isDestroyed()) host.send("browser-panel:viewed", { from: contentsId, viewed: true });
       let released = false;
       return {
-        send: (method, params, sessionId) => debug.sendCommand(method, params, sessionId),
+        send(method, params, sessionId) {
+          // A viewer's size (browsers-cdp.cjs). Emulation would lay the page out at it but leave frames the guest's
+          // size, cut where the window ends, so the parked guest takes the size itself (browser-webviews.ts).
+          if (!sessionId && (method === "Emulation.setDeviceMetricsOverride" || method === "Emulation.clearDeviceMetricsOverride")) {
+            const { width, height } = /** @type {{ width?: unknown; height?: unknown }} */ (params ?? {});
+            const viewport =
+              method === "Emulation.setDeviceMetricsOverride" && Number.isInteger(width) && Number.isInteger(height)
+                ? { width: Number(width), height: Number(height) }
+                : null;
+            if (!host.isDestroyed()) host.send("browser-panel:viewed", { from: contentsId, viewed: true, viewport });
+            return Promise.resolve({});
+          }
+          // Page.reload through a webview's debugger reloads the window that holds it, Milagre's own, so the guest
+          // reloads itself (the agent's browser_navigate reload, a viewer's Reload).
+          if (!sessionId && method === "Page.reload") {
+            if (guest.isDestroyed()) return Promise.reject(new Error("The page is gone."));
+            if (/** @type {{ ignoreCache?: unknown }} */ (params ?? {}).ignoreCache === true) guest.reloadIgnoringCache();
+            else guest.reload();
+            return Promise.resolve({});
+          }
+          return debug.sendCommand(method, params, sessionId);
+        },
         onEvent(listener) {
           /** @param {unknown} _event @param {string} method @param {unknown} params @param {string} [sessionId] */
           const handler = (_event, method, params, sessionId) => listener(method, params, sessionId);
@@ -116,6 +137,7 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
       for (const [contentsId, page] of pages)
         if (page.host === host && !wanted.has(contentsId)) {
           pages.delete(contentsId);
+          page.off();
           proxy.drop(page.pageId);
         }
       for (const [contentsId, { chatKey, guest }] of wanted) {
@@ -124,18 +146,23 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
           known.chatKey = chatKey;
           continue;
         }
-        pages.set(contentsId, { pageId: randomBytes(16).toString("hex").toUpperCase(), chatKey, host, users: 0, ours: false });
         // The host's list follows the page's title and address; a page that goes takes its DevTools connections with it.
         const changed = () => schedule();
-        guest.on("page-title-updated", changed);
-        guest.on("did-navigate", changed);
-        guest.on("did-navigate-in-page", changed);
-        guest.once("destroyed", () => {
+        const destroyed = () => {
           const page = pages.get(contentsId);
           pages.delete(contentsId);
           if (page) proxy.drop(page.pageId);
           schedule();
-        });
+        };
+        const events = /** @type {const} */ (["page-title-updated", "did-navigate", "did-navigate-in-page"]);
+        for (const event of events) guest.on(/** @type {any} */ (event), changed);
+        guest.once("destroyed", destroyed);
+        // Taken off again when the renderer stops listing the page, which may list it again later.
+        const off = () => {
+          for (const event of events) guest.removeListener(/** @type {any} */ (event), changed);
+          guest.removeListener("destroyed", destroyed);
+        };
+        pages.set(contentsId, { pageId: randomBytes(16).toString("hex").toUpperCase(), chatKey, host, users: 0, ours: false, off });
       }
       schedule();
     },

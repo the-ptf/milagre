@@ -60,6 +60,9 @@ test("the endpoint answers like a debugging browser, only on its token path and 
   assert.equal((await get(port, `/${"0".repeat(48)}/json/list`)).status, 404);
   // A name rebound to 127.0.0.1 by a web page carries its own Host.
   assert.equal((await get(port, `/${token}/json/list`, `evil.example:${port}`)).status, 403);
+  assert.equal((await get(port, `/${token}/json/list`, `localhost:${port}`)).status, 403, "a name, never: DNS rebinding");
+  // A paired computer comes through its own loopback forwarder (panel-forwarders.cjs), with that port in Host.
+  assert.equal((await get(port, `/${token}/json/list`, "127.0.0.1:61234")).status, 200);
 });
 
 test("a DevTools connection relays commands, results, errors and events, and releases the page when it closes", async (t) => {
@@ -75,10 +78,16 @@ test("a DevTools connection relays commands, results, errors and events, and rel
   ws.send(JSON.stringify({ id: 1, method: "Page.enable", params: { a: 1 } }));
   ws.send(JSON.stringify({ id: 2, method: "Boom.fail" }));
   ws.send("not json");
+  // Nothing past the page: no other targets, no attached sessions.
+  ws.send(JSON.stringify({ id: 3, method: "Target.getTargets" }));
+  ws.send(JSON.stringify({ id: 4, method: "Runtime.evaluate", params: {}, sessionId: "MAIN-WINDOW" }));
+  ws.send(JSON.stringify({ id: 5, method: "Browser.getVersion" }));
   const until = async (check) => {
     for (let i = 0; i < 100 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 10));
   };
-  await until(() => messages.length >= 2);
+  await until(() => messages.length >= 5);
+  for (const id of [3, 4, 5]) assert.equal(messages.find((message) => message.id === id)?.error?.code, -32601, `message ${id}`);
+  assert.equal(f.calls.length, 2, "refused commands never reach the page");
   assert.deepEqual(f.calls[0], { method: "Page.enable", params: { a: 1 }, sessionId: undefined });
   assert.deepEqual(
     messages.find((message) => message.id === 1),
@@ -88,8 +97,14 @@ test("a DevTools connection relays commands, results, errors and events, and rel
     messages.find((message) => message.id === 2),
     { id: 2, error: { code: -32000, message: "nope" } },
   );
+  for (const listener of f.listeners) listener("Runtime.consoleAPICalled", { args: [] }, "MAIN-WINDOW");
   for (const listener of f.listeners) listener("Page.screencastFrame", { data: "jpeg", sessionId: 3 });
   await until(() => messages.some((message) => message.method));
+  assert.deepEqual(
+    messages.filter((message) => message.method).map((message) => message.method),
+    ["Page.screencastFrame"],
+    "events of attached sessions stay in Milagre",
+  );
   assert.deepEqual(
     messages.find((message) => message.method),
     { method: "Page.screencastFrame", params: { data: "jpeg", sessionId: 3 } },

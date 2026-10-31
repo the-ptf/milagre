@@ -9,17 +9,22 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatRow } from "/src/components/sidebar/ChatRow";
 import { useWorktreePullRequests } from "/src/components/useWorktreePullRequests";
-import { chatKey } from "/src/lib/agent-runs";
 import "/src/styles.css";
 const listeners = new Set();
+const changes = new Set();
 window.pr = { number: 10213, title: "Show pull requests in the chat sidebar", url: "https://github.com/example/project/pull/10213", state: "OPEN" };
 window.picks = 0;
 window.reads = [];
 window.milagre = {
-  readPullRequest: async path => { window.reads.push(path); return window.pr; },
+  readPullRequestSnapshot: async projectPath => {
+    window.reads.push(projectPath);
+    return { worktrees: { "/fixture/worktree": window.pr }, chats: {}, pending: false };
+  },
+  onPullRequestsChanged: listener => { changes.add(listener); return () => changes.delete(listener); },
   onAgentEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); },
 };
-window.refreshPR = () => listeners.forEach(listener => listener({ chatId: chatKey("/fixture", 1), event: { type: "turn-completed" } }));
+// The host's PR poll found a change in the Project's PRs.
+window.refreshPR = () => changes.forEach(listener => listener({ projectPath: "/fixture" }));
 const state = {
   sessions: { 1: { id: 1, worktree_id: 1 }, 2: { id: 2, worktree_id: 1 } },
   worktrees: { 1: { id: 1, path: "/fixture/worktree" } },
@@ -66,7 +71,7 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-chat-pr]")');
-    assert.deepEqual(await evaluate("window.reads"), ["/fixture/worktree"], "Chats sharing a worktree use one PR lookup");
+    assert.deepEqual(await evaluate("window.reads"), ["/fixture"], "one snapshot answers every Chat of the Project");
     assert.equal(await evaluate('document.querySelector("[data-chat-pr]").textContent'), "#10213");
     assert.equal(await evaluate('document.querySelectorAll("[data-chat-pr]").length'), 1);
     assert.equal(await evaluate('!!document.querySelector("button a")'), false, "Link is not nested in a button");
@@ -213,20 +218,20 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-chat-pr]") && document.querySelector("aside").dataset.sidebarCollapsed === "false"');
     assert.equal(await evaluate('document.querySelector("[data-row]").getBoundingClientRect().height'), 32);
 
-    // A chat that made three PRs: the row has room for two, the card lists all of them.
+    // A chat that made three PRs: the row shows the first and "+2", the card lists all of them.
     const prUrl = (n) => `https://github.com/example/project/pull/${n}`;
     await evaluate(`window.setMulti([
       { number: 84, url: "${prUrl(84)}", title: "Show the to-do pill", state: "MERGED", readyToMerge: false, hasConflicts: false },
       { number: 88, url: "${prUrl(88)}", title: "Find text in the open chat", state: "OPEN", readyToMerge: false, hasConflicts: false },
       { number: 90, url: "${prUrl(90)}", title: "Run a setup command in new worktrees", state: "OPEN", readyToMerge: false, hasConflicts: true },
     ])`);
-    await waitFor('document.querySelectorAll("[data-chat-prs] [data-chat-pr]").length === 2');
+    await waitFor('document.querySelectorAll("[data-chat-prs] [data-chat-pr]").length === 1');
     assert.deepEqual(
       await evaluate('[...document.querySelectorAll("[data-chat-pr]")].map(link => link.textContent)'),
-      ["#90", "#88"],
-      "Conflicts first, then open PRs; no status words with several PRs",
+      ["#90"],
+      "Conflicts first; one chip and no status words with several PRs",
     );
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr-more]").textContent'), "+1");
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr-more]").textContent'), "+2");
     assert.ok(await evaluate('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("conflicts")'));
     assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red-ink")'), true);
     const multiGeometry = await evaluate(`(() => {
@@ -243,8 +248,8 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll("[data-chat-card-pr]").length === 3');
     assert.deepEqual(
       await evaluate('[...document.querySelectorAll("[data-chat-card-pr]")].map(link => link.textContent)'),
-      ["#84 · Show the to-do pill", "#88 · Find text in the open chat", "#90 · Run a setup command in new worktreesConflicts"],
-      "The card lists every PR in the order the chat made them",
+      ["#84 · Show the to-do pillMerged", "#88 · Find text in the open chat", "#90 · Run a setup command in new worktreesConflicts"],
+      "The card lists every PR in the order the chat made them, a merged one saying so",
     );
     // Moving onto the card keeps it open past the grace period.
     await evaluate(
@@ -270,7 +275,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-chat-hover-card]")');
     await evaluate("window.setMulti([])");
     await waitFor('!document.querySelector("[data-chat-prs]")');
-    console.log("PASS: several PRs: two chips, +N, card lists all and stays open for clicks");
+    console.log("PASS: several PRs: one chip, +N, card lists all and stays open for clicks");
     console.log(
       "PASS: PR lookup, red conflict state and recovery, out-of-date and changes-requested states, merged purple icon, external link, title alignment, collapsed sidebar, and no-PR row",
     );

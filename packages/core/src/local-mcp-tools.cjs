@@ -187,7 +187,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           {
             ...chatInput,
             prompt: z.string().trim().min(1).max(100000),
-            provider: z.enum(["claude", "codex", "antigravity"]).optional(),
+            provider: z.enum(["claude", "codex", "antigravity", "kiro"]).optional(),
             model: z.string().min(1).max(300).optional(),
             effort: z.enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).optional(),
             permissionMode: permissionMode.optional(),

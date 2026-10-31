@@ -246,7 +246,7 @@ window.milagre = {
       if (chatId !== "milagre-link:fixture#1") throw new Error("Open an existing Chat before showing a design.");
       if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
-      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
+      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, ...(window.htmlTabs ? { tabs: window.htmlTabs } : {}), html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
       const latest = window.latest;
       const shown = version ?? latest;
       return { id, version: shown, title: shown === 1 ? "Login screen" : "Login screen, warmer", versions: latest, latest, width: 1280, height: 800, format: "design", document: designs[shown], html: designHtml(designs[shown]) };
@@ -330,6 +330,7 @@ async function browserChecks() {
     window.webContents.executeJavaScript(source).catch((error) => {
       throw new Error(`${error.message}\n  in: ${source.slice(0, 300)}`);
     });
+  const { evaluatePanel, waitForPanel } = require("./panel-menu-test.cjs").panelMenuHelpers(evaluate);
   // 250 ms lets a transition end before the capture; at 900 ms the 35 screenshots cost the CI shard half a minute.
   async function screenshot(name) {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
@@ -407,7 +408,7 @@ async function browserChecks() {
     const frames = `${dock}.querySelectorAll("[data-slot=artifact-frame]")`;
     const frame = (id) => `${dock}.querySelector("[data-slot=artifact-frame][data-artifact=${id}]")`;
     await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${thumb("login")}.click()`);
-    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("iframe"))`);
+    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("[data-design-body][data-painted]"))`);
     assert.match(await evaluate(`${frame("login")}.textContent`), /Login screen, warmer.*v2 of 2/);
     // The chat's room springs open with the panel, to the panel's width and its gap.
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
@@ -656,6 +657,7 @@ async function browserChecks() {
     });
     await waitFor(`${frame("login")}.querySelector("[data-design-body]").dataset.active === "true"`);
     assert.equal(await evaluate(`!!${frame("login")}.querySelector("[data-slot=artifact-shield]")`), false, "the design has the mouse");
+    await waitFor(`(() => { const iframe = ${frame("login")}.querySelector("iframe"); return iframe && !iframe.closest("[inert]"); })()`);
     // A click in the design gives it the focus, so the window never sees the key: Escape still leaves the design.
     window.webContents.sendInputEvent({
       type: "mouseDown",
@@ -997,38 +999,22 @@ async function browserChecks() {
 
     // The corner button shows while the Chat has designs, and closes and reopens the canvas.
     const toggle = 'document.querySelector("[data-panel-toggle=designs]")';
-    assert.equal(await evaluate(`${toggle}.getAttribute("aria-pressed")`), "true");
-    assert.equal(await evaluate('!!document.querySelector("[data-panel-toggle=simulator]")'), false, "no simulator button without a simulator");
-    await evaluate(`${toggle}.click()`);
-    await waitFor(`!${dock} && ${toggle}.getAttribute("aria-pressed") === "false"`);
-    // Holding ⌘ (Control off the Mac) shows each corner button's shortcut under it, short enough not to run into its
-    // neighbour's.
-    const hintKey = process.platform === "darwin" ? "Meta" : "Control";
-    window.webContents.sendInputEvent({
-      type: "keyDown",
-      keyCode: hintKey,
-      modifiers: [process.platform === "darwin" ? "meta" : "control"],
-    });
-    await waitFor('document.querySelectorAll("body > [aria-hidden=true].fixed").length >= 2');
-    const badges = await evaluate(
-      '[...document.querySelectorAll("body > [aria-hidden=true].fixed")].map((b) => { const r = b.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, text: b.textContent }; }).sort((a, b) => a.left - b.left)',
-    );
-    for (let i = 1; i < badges.length; i++) assert.ok(badges[i - 1].right <= badges[i].left, `hints overlap: ${JSON.stringify(badges)}`);
-    assert.ok(
-      badges.every((badge) => !/⌘|Ctrl/.test(badge.text) && badge.top > 40),
-      "short hints, under the buttons",
-    );
-    await screenshot("corner-hints");
-    window.webContents.sendInputEvent({ type: "keyUp", keyCode: hintKey });
+    assert.equal(await evaluatePanel(`${toggle}.getAttribute("aria-checked")`), "true");
+    assert.equal(await evaluatePanel('!!document.querySelector("[data-panel-toggle=simulator]")'), false, "no simulator button without a simulator");
+    await evaluatePanel(`${toggle}.click()`);
+    await waitForPanel(`!${dock} && ${toggle}.getAttribute("aria-checked") === "false"`);
+    // Shortcuts remain visible beside the actions in the overflow menu.
+    assert.ok(await evaluatePanel(`${toggle}.textContent.length > "designs".length`));
+    await screenshot("panel-menu-shortcuts");
     // Closed and opened again before it finishes closing, the panel turns around and opens whole, not stuck at nothing.
-    await evaluate(`${toggle}.click()`);
+    await evaluatePanel(`${toggle}.click()`);
     await waitFor(`!!${dock} && Math.round(${dock}.getBoundingClientRect().width) === 560`);
-    await evaluate(`${toggle}.click()`);
+    await evaluatePanel(`${toggle}.click()`);
     await delay(80);
-    await evaluate(`${toggle}.click()`);
+    await evaluatePanel(`${toggle}.click()`);
     await waitFor(`!!${dock} && Math.round(${dock}.getBoundingClientRect().width) === 560`);
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
-    await evaluate(`${toggle}.click()`);
+    await evaluatePanel(`${toggle}.click()`);
     await waitFor(`!${dock}`);
 
     // ⌘⇧E does the same as the button, also while typing in the composer.
@@ -1045,7 +1031,7 @@ async function browserChecks() {
       modifiers: ["meta", "shift"],
     });
     await waitFor(`!${dock}`);
-    await evaluate(`${toggle}.click()`);
+    await evaluatePanel(`${toggle}.click()`);
     await waitFor(`!!${dock} && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
 
     // The git changes panel opens at the window's right edge: the design docks beside it instead of covering it.
@@ -1066,15 +1052,15 @@ async function browserChecks() {
 
     // Too narrow for all three side panels beside a usable chat, the third to open closes the one opened first, and
     // its button at the top lets go.
-    const pressed = (name) => evaluate(`document.querySelector("[data-panel-toggle=${name}]").getAttribute("aria-pressed")`);
+    const pressed = (name) => evaluatePanel(`document.querySelector("[data-panel-toggle=${name}]").getAttribute("aria-checked")`);
     await evaluate("window.setSimulator(true)");
-    await waitFor(`document.querySelector("[data-panel-toggle=simulator]")?.getAttribute("aria-pressed") === "true"`);
+    await waitForPanel(`document.querySelector("[data-panel-toggle=simulator]")?.getAttribute("aria-checked") === "true"`);
     assert.equal(await pressed("designs"), "true");
     await evaluate("window.setChanges(true)");
     await waitFor(`!${dock}`);
     assert.equal(await pressed("designs"), "false", "the designs, opened first, close");
     assert.equal(await pressed("simulator"), "true");
-    await evaluate(`${toggle}.click()`);
+    await evaluatePanel(`${toggle}.click()`);
     await waitFor("!window.simulatorOpen");
     assert.equal(await pressed("simulator"), "false", "then the simulator, opened before the changes panel");
     assert.equal(await pressed("designs"), "true");
@@ -1130,7 +1116,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-slot=design-feedback-text]").scrollIntoView()');
     await screenshot("historical-feedback-text");
     // A design is deleted from its frame on the canvas after a second press, and leaves the canvas and the Chat's cards.
-    await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
+    await evaluatePanel('document.querySelector("[data-panel-toggle=designs]").click()');
     await waitFor(`${frames}?.length === 2`);
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
@@ -1150,8 +1136,8 @@ async function browserChecks() {
     await waitFor(`!${dock}`);
     // The one HTML page is independent of Designs, with no version/choice/editor controls.
     await evaluate("window.designsEnabled=false; window.designsChanged({enabled:false})");
-    await waitFor('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
-    await evaluate('document.querySelector("[data-panel-toggle=artifacts]").click()');
+    await waitForPanel('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
+    await evaluatePanel('document.querySelector("[data-panel-toggle=artifacts]").click()');
     await waitFor(`${dock}?.getAttribute("aria-label") === "Artifacts" && !!document.querySelector("[data-slot=artifact-page] iframe")`);
     assert.equal(await evaluate(`${dock}.querySelectorAll('[data-slot=artifact-edit], [data-slot=artifact-frame-version], [aria-label^="Choose"]').length`), 0);
     assert.equal(await evaluate(`${dock}.querySelectorAll('iframe').length`), 1, "a single HTML page is shown");
@@ -1166,8 +1152,9 @@ async function browserChecks() {
     // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
     await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
     await waitFor(`${dock}.querySelector('button[aria-label="Stop commenting"]')?.getAttribute("aria-pressed") === "true"`);
+    // Leave room for the 264px bubble so this checks anchoring rather than its right-edge clamp.
     const heading = await evaluate(
-      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + 40) }; })()`,
+      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 20), y: Math.round(r.top + 40) }; })()`,
     );
     // The page's helper may still be starting: click until the bubble opens.
     // sendInputEvent stops at the page's frame; input through the DevTools protocol is hit-tested into it, as a real click.
@@ -1204,7 +1191,13 @@ async function browserChecks() {
     await waitFor('window.kept.at(-1).design.format === "html"');
     assert.match(await evaluate("window.kept.at(-1).anchor"), /^h1:1@/, "the host keeps where on the page it was left");
     await evaluate("window.reviseHtml()");
-    await waitFor('document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2")');
+    // A card's preview mounts only once it nears the view, and the first reply's card sits above the fold: scroll to it
+    // once the new reply has landed, or the transcript follows that reply down again.
+    await waitFor('!!document.querySelector("[data-artifact=current-artifact]")');
+    // Scroll on every check: on a slow runner the transcript can follow the new reply down again before the preview mounts.
+    await waitFor(
+      '(document.querySelector("[data-artifact=legacy]").scrollIntoView(), document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2"))',
+    );
     await waitFor(
       '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].filter(node => /Keep the original wording|Explain the next step/.test(node.textContent)).every(node => node.querySelector("iframe")?.srcdoc.includes("How this works 2"))',
     );
@@ -1222,11 +1215,29 @@ async function browserChecks() {
       "the Artifact page gets its own link, not the Designs one",
     );
     await screenshot("artifact-share");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((button) => button.textContent === "Close").click()`);
+    await evaluate(`(() => {
+      window.htmlTabs = [
+        { id: "overview", title: "Overview", html: "<h1>How this works 2</h1>" },
+        { id: "headers", title: "Headers", html: "<h1>Cache headers</h1>" },
+      ];
+      const comment = { id: "ab123456", design: { id: "current-artifact", title: "Explanation", version: 2, format: "html" }, tab: { id: "headers", title: "Headers" }, x: 0.2, y: 0.2, text: "Explain cache headers" };
+      window.kept.push(comment);
+      window.appendFeedback({ comments: [comment] });
+    })()`);
+    const tabFeedback =
+      '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].find(node => node.textContent.includes("Explain cache headers"))';
+    await waitFor(`!!${tabFeedback}`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor(`!${dock}`);
+    await evaluate(`${tabFeedback}.click()`);
+    await waitFor('document.querySelector("[data-slot=artifact-page] iframe")?.srcdoc.includes("Cache headers")');
+    assert.match(await evaluate(`${dock}.querySelector("header").textContent`), /Headers/);
     if (keepOpen) {
       await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
-      await waitFor('!!document.querySelector("[data-panel-toggle=designs]")');
-      await evaluate('document.querySelector("[data-panel-toggle=artifacts]")?.click()');
-      await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
+      await waitForPanel('!!document.querySelector("[data-panel-toggle=designs]")');
+      await evaluatePanel('document.querySelector("[data-panel-toggle=artifacts]")?.click()');
+      await evaluatePanel('document.querySelector("[data-panel-toggle=designs]").click()');
       await waitFor(`${dock}?.getAttribute("aria-label") === "Designs"`);
       await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']").click()`);
       await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);

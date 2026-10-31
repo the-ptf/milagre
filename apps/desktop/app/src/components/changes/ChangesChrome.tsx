@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useShortcutLabel } from "../../lib/keybindings";
-import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon, HierarchySquare02Icon } from "@hugeicons/core-free-icons";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Tooltip from "../primitives/Tooltip";
@@ -123,6 +123,37 @@ export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset
   );
 }
 
+/**
+ * Top right, left of the layout toggle, on a Chat with subchats (subchat-rows.ts): shows the parent and every subchat side
+ * by side, or the open Chat alone again. `offset` as AttentionButton's.
+ */
+export function SubchatsButton({ count, shown, offset, onToggle }: { count: number; shown: boolean; offset: number; onToggle: () => void }) {
+  const chrome = useWindowChrome();
+  const label = shown ? "Back to the open Chat" : `Show the ${count} subchat${count === 1 ? "" : "s"} side by side`;
+  return (
+    <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+      <Tooltip label={label} compactHint side="bottom" align="end">
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={shown}
+          data-subchats-toggle
+          onClick={onToggle}
+          className={`relative flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${shown ? "bg-hover text-ink" : "text-ink-3"}`}
+        >
+          <HugeiconsIcon icon={HierarchySquare02Icon} size={18} strokeWidth={1.8} color="currentColor" />
+          <span
+            aria-hidden
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-10 font-semibold tabular-nums text-white"
+          >
+            {count}
+          </span>
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
 export type AttentionItem = { key: string; project: string; title?: string; asking: boolean; waitingFor?: string };
 
 /**
@@ -164,7 +195,7 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
         aria-haspopup={many ? "menu" : undefined}
         aria-expanded={many ? open : undefined}
         onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-[13px] font-medium text-orange-ink transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
+        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control bg-surface/90 px-2.5 text-[13px] font-medium text-orange-ink backdrop-blur-chip transition-colors hover:bg-surface ${open ? "bg-surface" : ""}`}
       >
         <span className="min-w-0 max-w-80 truncate">{label}</span>
         <HugeiconsIcon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={15} strokeWidth={2} color="currentColor" />

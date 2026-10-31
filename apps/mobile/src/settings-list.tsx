@@ -40,6 +40,7 @@ export function Row({
   destructive = false,
   chevron = true,
   disabled = false,
+  selected,
   onPress,
 }: {
   title: string;
@@ -51,6 +52,8 @@ export function Row({
   destructive?: boolean;
   chevron?: boolean;
   disabled?: boolean;
+  /** A row of a one-choice list: VoiceOver says whether it is the chosen one. */
+  selected?: boolean;
   onPress?: () => void;
 }) {
   const { colors } = useTheme();
@@ -58,7 +61,7 @@ export function Row({
     <Pressable
       accessibilityRole={onPress ? "button" : undefined}
       accessibilityLabel={value ? `${title}. ${value}` : title}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }}
       disabled={disabled || !onPress}
       onPress={onPress}
       style={({ pressed }) => ({

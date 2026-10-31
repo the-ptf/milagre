@@ -11,6 +11,7 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const LINK = `milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=${"h".repeat(22)}&key=${"k".repeat(43)}&token=${"a".repeat(64)}&name=studio&direct=${encodeURIComponent(JSON.stringify(["ws://192.168.1.20:8798"]))}`;
 const PRIVATE_LINK = require("@milagre/shared/pairing-link").privatePairingLink(LINK);
+const { thisComputer, ThisComputer } = require("@milagre/shared/host-computer");
 const OWN = "milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=oooooooooooooooooooooo&key=k&token=t&name=desk";
 
 const fixture = `
@@ -133,7 +134,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.addCalls[0]"), [LINK, { name: "Studio Mac" }]);
     await evaluate(`window.askAllow()`);
     await waitFor(`!!document.querySelector('[data-add-computer-waiting]')`);
-    assert.equal(await text("[data-add-computer-waiting]"), "Waiting for studio to allow this Mac…");
+    assert.equal(await text("[data-add-computer-waiting]"), `Waiting for studio to allow ${thisComputer}…`);
     await screenshot("add-computer-waiting");
     await press("Cancel");
     await waitFor(`window.cancels === 1 && !document.querySelector('[data-add-computer-waiting]')`);
@@ -141,13 +142,13 @@ async function browserChecks() {
     console.log("PASS: Add waits for the other Mac's Allow, saying so, and Cancel stops it quietly");
 
     const refusals = [
-      ["denied", "studio didn't allow this Mac."],
+      ["denied", `studio didn't allow ${thisComputer}.`],
       ["unknown-phone", "This link expired. Copy a new one on studio."],
       ["kind", "Update Milagre on studio to connect."],
       ["full", "studio has too many devices connected. Remove one in its Settings › Devices."],
       ["busy", "studio is answering another computer. Try again in a minute."],
       ["offline", "studio isn't reachable. Open Milagre on it and check Settings › Devices."],
-      ["keys", "This Mac can't keep keys in its keychain, so it can't pair with computers."],
+      ["keys", `${ThisComputer} can't keep keys in its keychain, so it can't pair with computers.`],
     ];
     for (const [code, message] of refusals) {
       const before = await evaluate(`window.addCalls.length`);
@@ -184,7 +185,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-open]').click()`);
     await type("Pairing link", LINK);
     await waitFor(`!!document.querySelector('[data-add-computer-found]')`);
-    await evaluate(`document.querySelector('[role="switch"][aria-label="LAN or Tailscale only"]').click()`);
+    await evaluate(`document.querySelector('[role="checkbox"][aria-label="LAN or Tailscale only"]').click()`);
     await waitFor(`document.querySelector('[data-add-computer-found]')?.textContent.includes('192.168.1.20')`);
     await screenshot("add-computer-private");
     const privateCalls = await evaluate(`window.addCalls.length`);

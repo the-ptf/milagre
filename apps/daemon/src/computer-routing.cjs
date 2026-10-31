@@ -113,6 +113,7 @@ const EVENTS = {
   "worktree:renamed": (id, payload) => field(id, payload, "projectPath", key),
   "agent:ports": keyed,
   "main-sync:status": (id, payload) => field(id, payload, "projectPath", key),
+  "pull-requests:changed": (id, payload) => field(id, payload, "projectPath", key),
   "runtime:snapshot": (id, snapshot) =>
     isObject(snapshot)
       ? {
@@ -137,6 +138,7 @@ const RESULTS = {
   "chats:home": OPEN_PROJECT,
   "chats:ensure": OPEN_PROJECT,
   "project:recent": PROJECT_LIST,
+  "project:known": PROJECT_LIST,
   "project:forget": PROJECT_LIST,
   "project:registry": PROJECT_LIST,
   "project:position": PROJECT_LIST,

@@ -27,9 +27,9 @@ Work out what a first-time user actually touches. That decides how each persona 
 
 | Target | Each persona gets | Evidence | The user watches it in |
 |--------|-------------------|----------|------------------------|
-| Web app | Its own Chromium, own profile, `--remote-debugging-port=0` | Screenshots | Browser pill |
+| Web app | Its own Chromium, own profile, `--remote-debugging-port=0` | Screenshots | Browser panel |
 | iOS or Android app | Its own simulator or emulator with the build installed, which you prepare and attach with `simulator_attach` | Screenshots | Simulators pill |
-| Desktop app (Electron, Chromium-based) | Its own app process with its own user-data dir and `--remote-debugging-port=0` | Screenshots | Browser pill |
+| Desktop app (Electron, Chromium-based) | Its own app process with its own user-data dir and `--remote-debugging-port=0` | Screenshots | Browser panel |
 | Native desktop app | Its own app instance or account, driven with whatever UI automation is available (accessibility, computer use) | Screenshots | The persona's report |
 | CLI or TUI | Its own throwaway `HOME`, config dir and working dir; a pty or tmux for a TUI | The exact command and its output as text | The persona's report |
 | API, SDK or library | A scratch project outside the repo, built only from the public docs | The code, the request and the response or error as text | The persona's report |

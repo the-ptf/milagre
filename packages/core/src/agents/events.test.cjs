@@ -184,7 +184,10 @@ test("CLI failures name the fix", () => {
     missingCliMessage("claude"),
     "Milagre couldn't find Claude Code. Install it with `curl -fsSL https://claude.ai/install.sh | bash`, then send your message again.",
   );
-  assert.equal(missingCliMessage("codex"), "Milagre couldn't find Codex. Install it with `npm install -g @openai/codex`, then send your message again.");
+  assert.equal(
+    missingCliMessage("codex"),
+    "Milagre couldn't find Codex. Install it with `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, then send your message again.",
+  );
   assert.equal(
     cliTooOldMessage("claude", "2.1.200", "2.1.286"),
     "Milagre needs Claude Code 2.1.286 or later, and you have 2.1.200. Run `claude update` in a terminal, then send your message again.",

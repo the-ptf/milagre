@@ -1,6 +1,11 @@
+import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../lib/outbox";
+import { OfflineTray, useOfflineTray } from "./OfflineTray";
+import { useDisplayNow } from "../lib/display-clock";
+import { computerOfKey } from "@milagre/shared/chat-scopes";
+import { computerNameOf, offlineBanner, useComputers } from "../lib/computers";
 import { archiveLinkChat } from "../lib/archive-flow";
 import { shortcutCommand } from "../lib/keybindings";
-import { prepareImageUploads } from "../lib/attachment-uploads";
+import { prepareImageUploads, prepareLocalFileUploads } from "../lib/attachment-uploads";
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
@@ -26,6 +31,7 @@ import { isLean } from "../lib/state-events";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import type { AgentPorts, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
 import { chatKeyForScope, scopeKey } from "@milagre/shared/chat-scopes";
+import { associatedPullRequest } from "@milagre/shared/chats";
 import { showNotice } from "../lib/notice";
 import { chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
@@ -108,6 +114,7 @@ export function LinkWorkspace({
   onNewChat,
   archivingChats,
   onArchiving,
+  scopeChatActions,
 }: {
   opened: OpenLink;
   state: LinkState;
@@ -141,17 +148,24 @@ export function LinkWorkspace({
   archivingChats?: ReadonlySet<string>;
   /** A Chat's archive started; its row comes back if `work` fails. */
   onArchiving?: (key: string, work: Promise<unknown>) => void;
+  scopeChatActions?: ComponentProps<typeof SidebarNav>["scopeChatActions"];
 }) {
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
   const bridge = bridgeForKey(owner);
+  const computer = useComputers().computers.find((item) => item.id === computerOfKey(owner));
+  const offline = queueForComputer(owner);
+  const bannerNow = useDisplayNow(60_000, offline);
   // oxlint-disable-next-line react/use-memo -- one store per Link, made when the Link changes
   const draftStore = useMemo(createDraftStore, [owner]);
   const saved = drafts.read(scope);
   const [sessionId, setSessionId] = useState<number | null>(
     () => initialSessionId ?? (drafts.has(scope) ? saved.sessionId : (Object.values(state.sessions).findLast((session) => !session.archived)?.id ?? null)),
   );
+  const [draftId, setDraftId] = useState(0);
+  const sendKey = `${owner}#${sessionId ?? `new:${draftId}`}`;
   const session = sessionId == null ? undefined : state.sessions[sessionId];
+  const offlineTray = useOfflineTray(owner, sessionId, offline);
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
   // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
   const terminalPlaces: TerminalPlace[] | undefined = session?.worktrees.map((member) => ({
@@ -201,13 +215,17 @@ export function LinkWorkspace({
   );
   // The message just sent, shown at once while the host prepares the Chat (its Worktrees' checkpoint, the agent
   // starting), as a Project Chat's and the phone's are. `sent`: the host took it, and the agent is starting.
-  const [pendingSend, setPendingSend] = useState<(PendingChat & { sent?: boolean; provider: ModelProvider }) | null>(null);
-  const pendingHere = pendingSend !== null && pendingSend.targetSessionId === (sessionId ?? null);
+  const [pendingSends, setPendingSends] = useState<(PendingChat & { key: string; sent?: boolean; provider: ModelProvider })[]>([]);
+  const pendingSend = pendingSends.findLast((pending) => pending.key === sendKey || (sessionId !== null && pending.targetSessionId === sessionId));
+  const pendingHere = pendingSend !== undefined;
+  const preparing = Boolean(pendingSend && !pendingSend.sent);
+  const sendsInFlight = useRef(new Set<string>());
   const shownMessages = useMemo(() => (pendingHere ? withPreview(messages, pendingSend) : messages), [pendingHere, pendingSend, messages]);
   // The saved copy replaces the preview once this Chat's messages hold it.
   useEffect(() => {
     const id = pendingSend?.message.clientMessageId;
-    if (pendingSend?.sent && pendingHere && messages.some((message) => message.clientMessageId === id)) setPendingSend(null);
+    if (pendingSend?.sent && pendingHere && messages.some((message) => message.clientMessageId === id))
+      setPendingSends((current) => current.filter((pending) => pending.message.clientMessageId !== id));
   }, [pendingSend, pendingHere, messages]);
   const remoteCount = lean ? chatWindow.total - chatWindow.messages.length : 0;
   const earlierMessages = useMemo(
@@ -216,8 +234,10 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
-  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner);
-  const [preparing, setPreparing] = useState(false);
+  // As a Project Chat's: Ultracode and Fast only count for a model that has them, so a Codex pick drops a Claude Ultracode.
+  const ultracode = Boolean(preferences.capability?.ultracode) && composerPrefs.ultracode;
+  const fastMode = Boolean(preferences.capability?.fastMode) && composerPrefs.fastMode;
+  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner, queueForComputer(owner));
   const [error, setError] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
@@ -269,7 +289,6 @@ export function LinkWorkspace({
   useEffect(() => {
     if (gitChoice !== null) memberDialog.current?.showModal();
   }, [gitChoice]);
-  const pendingOperation = useRef<string | null>(null);
   const latest = useRef({ sessionId, text: "", active: true, selection: 0 });
   latest.current.sessionId = sessionId;
   useEffect(() => {
@@ -316,6 +335,7 @@ export function LinkWorkspace({
       latest.current.selection++;
       drafts.newSelection(scope);
       setSessionId(initialSessionId);
+      if (initialSessionId === null) setDraftId((id) => id + 1);
     }
   }, [initialSessionId, openNonce]);
   const { modelForChat: _modelForChat, showModel: _showModel, onModelChange: _onModelChange, ...composerModels } = preferences;
@@ -391,13 +411,12 @@ export function LinkWorkspace({
     drafts.newSelection(scope);
     setCanvasOpen(false);
     setSessionId(id);
+    if (id === null) setDraftId((id) => id + 1);
     imageDraft.clear();
     setError(null);
     setMemberId("");
     changes.closeDiff();
     setFindOpen(false);
-    pendingOperation.current = null;
-    setPendingSend(null);
   }
   useEffect(() => {
     const settings = getSettings();
@@ -417,14 +436,57 @@ export function LinkWorkspace({
   async function send(body = draftStore.get().trim(), preserve = false, attach = true) {
     const images = attach ? imageDraft.images : [];
     const files = attach ? imageDraft.files : [];
-    if (preparing || imageDraft.loading || (!body && !images.length && !files.length)) return false;
+    if (preparing || sendsInFlight.current.has(sendKey) || imageDraft.loading || (!body && !images.length && !files.length)) return false;
     const selection = latest.current.selection;
     const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files }));
-    setPreparing(true);
+    sendsInFlight.current.add(sendKey);
     setError(null);
-    pendingOperation.current = operation;
     // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (queueForComputer(owner) || hasQueuedChat(owner, sessionId)) {
+      try {
+        const id = crypto.randomUUID();
+        await outbox.enqueue({
+          id,
+          computerId: computerOfKey(owner),
+          computerName: computerNameOf(computerOfKey(owner)),
+          owner,
+          conversation: sessionId == null ? id : `chat:${sessionId}`,
+          link: { linkId: opened.link.id, operationId: operation },
+          request: {
+            projectPath: owner,
+            sessionId,
+            worktreeId: 0,
+            body,
+            images: [],
+            files: [],
+            prompt: body,
+            provider: model.provider,
+            model: model.id,
+            permissionMode: composerPrefs.permissionMode,
+            effort: preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort,
+            ultracode,
+            fastMode,
+            replies: getSettings().claudeReplies,
+            tldrEnabled: getSettings().tldrEnabled,
+          },
+          attachments: await outboxAttachments(images, files, imageDraft.localFiles),
+        });
+        if (!preserve && latest.current.active && latest.current.selection === selection) {
+          if (draftStore.get().trim() === body) draftStore.set("");
+          for (const image of images) imageDraft.remove(image.id);
+          for (const file of files) imageDraft.removeFile(file);
+        }
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setError(ipcErrorMessage(error));
+        return false;
+      } finally {
+        sendsInFlight.current.delete(sendKey);
+      }
+    }
     // A Link's state has no Worktrees (its Chats own theirs); the preview reads only its sessions and messages.
     const preview = createPendingChat({
       state: state as unknown as CoordinatorState,
@@ -437,7 +499,7 @@ export function LinkWorkspace({
       provider: model.provider,
     });
     const previewId = preview.message.clientMessageId;
-    setPendingSend({ ...preview, provider: model.provider });
+    setPendingSends((current) => [...current, { ...preview, key: sendKey, provider: model.provider }]);
     // The message shows in the Chat now, so it leaves the composer now; a failed send puts it back.
     const clears = !preserve && draftStore.get().trim() === body;
     if (clears) {
@@ -445,38 +507,40 @@ export function LinkWorkspace({
       imageDraft.clear();
     }
     try {
+      const uploadedFiles = await prepareLocalFileUploads(owner, files, images, imageDraft.localFiles);
       const request = {
         linkId: opened.link.id,
         sessionId,
         operationId: operation,
         clientMessageId: previewId,
         body,
-        prompt: attachmentPrompt(body, files),
+        prompt: attachmentPrompt(body, uploadedFiles),
         images: await prepareImageUploads(owner, images),
-        files,
+        files: uploadedFiles,
         provider: model.provider,
         model: model.id,
         permissionMode: composerPrefs.permissionMode,
         effort: preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort,
-        ultracode: composerPrefs.ultracode,
-        fastMode: composerPrefs.fastMode,
+        ultracode,
+        fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
       };
       const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
       drafts.acknowledgeSend(operation, sent.sessionId);
-      if (pendingOperation.current === operation) pendingOperation.current = null;
-      setPendingSend((pending) =>
-        pending && pending.message.clientMessageId === previewId
-          ? { ...pending, sent: true, targetSessionId: sent.sessionId, acceptedSessionId: sent.sessionId }
-          : pending,
+      setPendingSends((current) =>
+        current.map((pending) =>
+          pending.message.clientMessageId === previewId
+            ? { ...pending, sent: true, targetSessionId: sent.sessionId, acceptedSessionId: sent.sessionId }
+            : pending,
+        ),
       );
       if (latest.current.active && latest.current.selection === selection) {
         setSessionId(sent.sessionId);
       }
       return true;
     } catch (error) {
-      setPendingSend((pending) => (pending?.message.clientMessageId === previewId ? null : pending));
+      setPendingSends((current) => current.filter((pending) => pending.message.clientMessageId !== previewId));
       if (latest.current.active && latest.current.selection === selection) {
         if (clears) {
           const remapped = imageDraft.restore(images, files, draftStore.get());
@@ -486,7 +550,7 @@ export function LinkWorkspace({
       }
       return false;
     } finally {
-      if (latest.current.active) setPreparing(false);
+      sendsInFlight.current.delete(sendKey);
     }
   }
   useEffect(() => {
@@ -509,12 +573,7 @@ export function LinkWorkspace({
   }
   // The same rows the sidebar builds for this Link while a Project is open: its Chat order, pins and times, so the
   // one-list sidebar keeps every row where it was when the window switches between the Link and a Project.
-  const recents = scopeChats(owner, state, chatOrder, runMarks)
-    .filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))))
-    .map((row) => ({
-      ...row,
-      details: { ...row.details, path: state.sessions[Number(row.id)]?.workspacePath },
-    }));
+  const recents = scopeChats(owner, state, chatOrder, runMarks).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
@@ -565,6 +624,7 @@ export function LinkWorkspace({
           <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink">
             <div className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
               <SidebarNav
+                scopeChatActions={scopeChatActions}
                 fill
                 attentionPaths={attentionPaths}
                 workspaceName={opened.link.name}
@@ -634,7 +694,7 @@ export function LinkWorkspace({
                     const work = archiveLinkChat({
                       running: Boolean(agents.runs[key]),
                       stop: () => agents.interrupt(key),
-                      hide: () => bridge.patchChat(owner, chat, { archived: true }),
+                      hide: () => bridge.deleteChat(owner, chat),
                     });
                     onArchiving?.(key, work);
                     void work.catch((error) => setError(ipcErrorMessage(error)));
@@ -696,7 +756,7 @@ export function LinkWorkspace({
                         onModelChange={(model) => preferences.onModelChange(model, chatId)}
                         effort={preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort}
                         onEffortChange={composerPrefs.setEffort}
-                        ultracode={composerPrefs.ultracode}
+                        ultracode={ultracode}
                         onUltracodeChange={composerPrefs.setUltracode}
                         fastMode={composerPrefs.fastMode}
                         onFastModeChange={composerPrefs.setFastMode}
@@ -706,6 +766,16 @@ export function LinkWorkspace({
                         store={draftStore}
                         projectPath={root}
                         messageScope={owner}
+                        onOpenPullRequestLink={(url) => {
+                          const entry = associatedPullRequest(
+                            url,
+                            memberPrs.map((entry) => ({ ...entry, url: entry.pr.url })),
+                          );
+                          if (!entry) return false;
+                          pickPr(entry.member.projectId);
+                          if (!changes.open) changes.toggle();
+                          return true;
+                        }}
                         earlier={earlierMessages}
                         messages={shownMessages}
                         pendingMessageId={pendingHere ? pendingSend.message.id : undefined}
@@ -718,6 +788,18 @@ export function LinkWorkspace({
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
                         sendBlocked={preparing}
+                        offlineName={offline ? computerNameOf(computerOfKey(owner)) : null}
+                        offlineTray={
+                          offlineTray.shown ? (
+                            <OfflineTray
+                              owner={owner}
+                              sessionId={sessionId}
+                              computerName={computerNameOf(computerOfKey(owner))}
+                              offline={offline}
+                              detail={computer ? offlineBanner(computer, bannerNow) : undefined}
+                            />
+                          ) : undefined
+                        }
                         streamingText={run?.text}
                         streamingSteps={run?.steps}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend.startedAt : undefined)}

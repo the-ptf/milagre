@@ -229,9 +229,47 @@ export function shortPath(key: string): string {
 }
 
 /**
- * Every Project a new Chat can start in, one row per repository: the open Project first, then This Mac's recent
- * Projects, then other computers' by name, with the copies of one Git origin on several computers in one row. Sidebar
- * visibility does not limit where a Chat can start; a hidden computer's Projects are left out. Reads nothing while off.
+ * Every Project each computer knows (`project:known`), This Mac's under LOCAL_COMPUTER, read while `enabled` and again
+ * when a computer's state or the recent list changes. A computer that predates the command, or can't be read, has no
+ * entry: the picker falls back to its recent Projects.
+ */
+function useKnownProjects(enabled: boolean, computers: { id: string; state: string }[]): Record<string, RecentProject[]> {
+  const [known, setKnown] = useState<Record<string, RecentProject[]>>({});
+  const reads = [
+    `${LOCAL_COMPUTER} online`,
+    ...computers.filter((computer) => computer.state !== "off").map((computer) => `${computer.id} ${computer.state}`),
+  ].join("\n");
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    const read = () => {
+      for (const line of reads.split("\n")) {
+        const id = line.slice(0, line.lastIndexOf(" "));
+        void Promise.resolve()
+          .then(() => bridgeFor(id).listKnownProjects())
+          .then(
+            (list) => {
+              if (live && Array.isArray(list)) setKnown((previous) => ({ ...previous, [id]: list }));
+            },
+            () => {},
+          );
+      }
+    };
+    read();
+    window.addEventListener(RECENT_PROJECTS_CHANGED, read);
+    return () => {
+      live = false;
+      window.removeEventListener(RECENT_PROJECTS_CHANGED, read);
+    };
+  }, [enabled, reads]);
+  return known;
+}
+
+/**
+ * Every Project a new Chat can start in, one row per repository: the open Project first, then This Mac's Projects, then
+ * other computers' by name, with the copies of one Git origin on several computers in one row. Each computer offers every
+ * Project it knows, not only its recent ones (the sidebar's). Sidebar visibility does not limit where a Chat can start; a
+ * hidden computer's Projects are left out. Reads nothing while off.
  */
 export function useProjectGroups(enabled: boolean, currentKey: string, currentName: string, currentKind?: ProjectKind): ProjectGroup[] {
   const [recent, setRecent] = useState<RecentProject[]>([]);
@@ -253,6 +291,7 @@ export function useProjectGroups(enabled: boolean, currentKey: string, currentNa
   const { thisMac, computers } = useComputers();
   const hiddenComputers = useHiddenComputers();
   const remote = useComputerScopes(enabled ? computers : []);
+  const known = useKnownProjects(enabled, computers);
   if (!enabled) return [];
   const copy = (key: string, name: string, origin?: string): ProjectCopy => {
     const computerId = computerOfKey(key);
@@ -266,7 +305,19 @@ export function useProjectGroups(enabled: boolean, currentKey: string, currentNa
       online: computerId === LOCAL_COMPUTER || computer?.state === "online",
     };
   };
-  return projectGroups({ current: { key: currentKey, name: currentName, kind: currentKind }, recent, remote: remote.projects, hiddenComputers, copy });
+  // A computer that answered project:known offers all of it; one that didn't, its recent Projects.
+  const remoteProjects = computers.flatMap((computer): ComputerProject[] =>
+    known[computer.id]
+      ? known[computer.id]!.map((project) => ({ ...project, computerId: computer.id }))
+      : remote.projects.filter((project) => project.computerId === computer.id),
+  );
+  return projectGroups({
+    current: { key: currentKey, name: currentName, kind: currentKind },
+    recent: known[LOCAL_COMPUTER] ?? recent,
+    remote: remoteProjects,
+    hiddenComputers,
+    copy,
+  });
 }
 
 /**

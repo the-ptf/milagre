@@ -9,12 +9,15 @@ const { WebSocketServer } = require("ws");
 // request whose Host isn't this loopback address is refused (a web page can't rebind a name onto it).
 const PAGE_ID = /^[A-F0-9]{32}$/;
 const MAX_MESSAGE = 4 * 1024 * 1024;
+// The page's webContents.debugger can reach past the page: Target.* attaches to other targets (Milagre's own window
+// among them) and a sessionId addresses what it attached. A client gets the page's own domains only.
+const OUT_OF_PAGE = /^(Target|Browser|SystemInfo|Tethering|Storage)\./;
 
 /**
  * @param {{
  *   product: string;
  *   pages: () => { id: string; title: string; url: string }[];
- *   session: (pageId: string) => { send(method: string, params?: object, sessionId?: string): Promise<unknown>; onEvent(listener: (method: string, params: unknown, sessionId?: string) => void): () => void; release(): void } | null;
+ *   session: (pageId: string) => { send(method: string, params?: object): Promise<unknown>; onEvent(listener: (method: string, params: unknown, sessionId?: string) => void): () => void; release(): void } | null;
  * }} options
  */
 function createCdpProxy({ product, pages, session }) {
@@ -23,13 +26,16 @@ function createCdpProxy({ product, pages, session }) {
   let port = 0;
   const sockets = new Set();
   const loopbackHost = () => `127.0.0.1:${port}`;
+  // A loopback IP, never a name (DNS rebinding). Any port: a paired computer reaches this proxy through its own loopback
+  // forwarder (panel-forwarders.cjs), so its Host names that forwarder's port.
+  const fromLoopback = (host) => typeof host === "string" && /^127\.0\.0\.1:\d{1,5}$/.test(host);
   const prefix = `/${token}`;
   const json = (response, status, value) => {
     response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     response.end(JSON.stringify(value));
   };
   const server = http.createServer((request, response) => {
-    if (request.headers.host !== loopbackHost() || request.method !== "GET") return json(response, 403, { error: "forbidden" });
+    if (!fromLoopback(request.headers.host) || request.method !== "GET") return json(response, 403, { error: "forbidden" });
     const url = request.url ?? "";
     if (url === `${prefix}/json/version`)
       return json(response, 200, {
@@ -55,7 +61,7 @@ function createCdpProxy({ product, pages, session }) {
   server.on("upgrade", (request, socket, head) => {
     const pageId = new RegExp(`^${prefix}/devtools/page/([A-F0-9]{32})$`).exec(request.url ?? "")?.[1] ?? "";
     const page = pageId && pages().some((item) => item.id === pageId) ? session(pageId) : null;
-    if (request.headers.host !== loopbackHost() || request.headers.origin || !page) {
+    if (!fromLoopback(request.headers.host) || request.headers.origin || !page) {
       page?.release();
       socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
       return;
@@ -69,7 +75,9 @@ function createCdpProxy({ product, pages, session }) {
     const send = (message) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
     };
-    const off = page.onEvent((method, params, sessionId) => send({ method, params, ...(sessionId ? { sessionId } : {}) }));
+    const off = page.onEvent((method, params, sessionId) => {
+      if (!sessionId) send({ method, params });
+    });
     ws.on("message", (data) => {
       let message;
       try {
@@ -78,15 +86,12 @@ function createCdpProxy({ product, pages, session }) {
         return;
       }
       if (!Number.isSafeInteger(message?.id) || typeof message.method !== "string") return;
-      const sessionId = typeof message.sessionId === "string" ? message.sessionId : undefined;
-      page.send(message.method, message.params && typeof message.params === "object" ? message.params : {}, sessionId).then(
-        (result) => send({ id: message.id, result: result ?? {}, ...(sessionId ? { sessionId } : {}) }),
-        (error) =>
-          send({
-            id: message.id,
-            error: { code: -32000, message: error instanceof Error ? error.message : String(error) },
-            ...(sessionId ? { sessionId } : {}),
-          }),
+      const refuse = (reason) => send({ id: message.id, error: { code: -32601, message: reason } });
+      if (message.sessionId !== undefined) return refuse("Sessions are not available on a Browser panel page.");
+      if (OUT_OF_PAGE.test(message.method)) return refuse(`${message.method} is not available on a Browser panel page.`);
+      page.send(message.method, message.params && typeof message.params === "object" ? message.params : {}).then(
+        (result) => send({ id: message.id, result: result ?? {} }),
+        (error) => send({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } }),
       );
     });
     ws.on("close", () => {

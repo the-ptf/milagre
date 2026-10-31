@@ -13,10 +13,20 @@ import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
 import { ActivityBlock } from '/src/components/agents/ActivityBlock';
 import '/src/styles.css';
+let contextSettings = {buttonThreshold: 70, autoThreshold: 85, autoCompact: false};
 window.milagre = {
+  readContextSettings: async () => contextSettings,
+  saveContextSettings: async (patch) => (contextSettings = {...contextSettings, ...patch}),
   listEditors: async () => [],
   listRecentProjects: async () => [],
   listProjects: async () => [],
+  dictation: {
+    status: async () => [{ id: 'large-v3-turbo', ready: true, size: 574041195, received: null }],
+    download: async () => {},
+    cancel: async () => {},
+    remove: async () => {},
+    onModel: () => () => {},
+  },
 };
 const step = (id, title, kind = 'shell', detail) => ({ id, kind, title, status: 'done', note: '1s', detail });
 const entries = [
@@ -81,13 +91,53 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await openChat();
     assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Chat");
-    assert.equal(await evaluate(`document.querySelectorAll('[role="radiogroup"] [role="radio"]').length`), 6, "three settings, two cards each");
+    assert.equal(
+      await evaluate(`document.querySelectorAll('[role="radiogroup"]:not([aria-label="Speech model"]) [role="radio"]').length`),
+      8,
+      "four settings, two choices each",
+    );
+    // Speech model: four models named for what they're good at, the best any-language one by default.
+    assert.equal(await evaluate(`document.querySelectorAll('[role="radiogroup"][aria-label="Speech model"] [role="radio"]').length`), 4);
+    assert.equal(await evaluate(checked("Speech model")), "Best, any language");
+    await evaluate(`${card("Speech model", "Best for English")}.click()`);
+    assert.equal((await saved()).dictationModel, "medium-en", "the picked speech model is saved");
+    await waitFor(`document.querySelector('[aria-label="Dictation language"]')?.disabled === true`);
+    await evaluate(`${card("Speech model", "Best, any language")}.click()`);
+    assert.equal((await saved()).dictationModel, "large-v3-turbo");
+    await waitFor(`document.querySelector('[aria-label="Dictation language"]')?.disabled === false`);
     assert.equal(await evaluate(checked("Reasoning")), "Folded", "reasoning starts folded");
     assert.equal(await evaluate(checked("Tool calls")), "Compact", "tool calls start compact");
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), true, "Compact folds the activity into one line");
     assert.equal(await evaluate(shows("lone", "Only one way")), false, "a thinking row starts closed");
     assert.equal(await evaluate(checked("Chat list")), "One list", "the sidebar lists Chats in one list by default");
+    assert.equal(await evaluate(checked("When dictation finishes")), "Paste text", "dictation defaults to review before sending");
+    await evaluate(`${card("When dictation finishes", "Send now")}.click()`);
+    assert.equal((await saved()).dictationAction, "send", "automatic send is saved");
+    await window.loadURL(process.argv[2]);
+    await openChat();
+    assert.equal(await evaluate(checked("When dictation finishes")), "Send now", "dictation choice survives reload");
+    await evaluate(`${card("When dictation finishes", "Paste text")}.click()`);
+    assert.equal((await saved()).dictationAction, "paste");
+    await evaluate(`${card("When dictation finishes", "Paste text")}.scrollIntoView({ block: "center" })`);
     await screenshot("chat-settings-default");
+    const contextSwitch = 'document.querySelector(\'[role="checkbox"][aria-label="Show context size"]\')';
+    assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "true");
+    await evaluate(`${contextSwitch}.click()`);
+    assert.equal((await saved()).showContextSize, false, "context size visibility is saved");
+    const belowSwitch = 'document.querySelector(\'[role="checkbox"][aria-label="Show Compact below threshold"]\')';
+    assert.equal(await evaluate(`${belowSwitch}.getAttribute("aria-checked")`), "false");
+    await evaluate(`${belowSwitch}.click()`);
+    assert.equal((await saved()).compactButtonDisplay, "always", "below-threshold visibility is saved");
+    await waitFor(`document.querySelector('[aria-label="Auto compact quietly"]').disabled === false`);
+    await evaluate(`document.querySelector('[aria-label="Auto compact quietly"]').click()`);
+    await waitFor(`document.querySelector('[aria-label="Auto compact quietly"]').getAttribute("aria-checked") === "true"`);
+    await evaluate(`document.querySelector('[aria-label="Increase automatic threshold"]').click()`);
+    await waitFor(`document.querySelector('[aria-label="Auto compact threshold percentage"]').value === "86"`);
+    await screenshot("chat-settings-context");
+    await window.reload();
+    await openChat();
+    assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "false", "context visibility survives reload");
+    assert.equal(await evaluate(`${belowSwitch}.getAttribute("aria-checked")`), "true");
     // The arrow keys move the choice between a group's cards, as in any radio group.
     // A card takes the choice when focus lands on it, which needs the page focused.
     window.webContents.focus();

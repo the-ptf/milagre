@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
 const { AttentionNotifier } = require("./notifications.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 function setup({ focused = false } = {}) {
   const shown = [];
@@ -173,7 +174,7 @@ test("a computer's first pairing says another Mac can now drive this one, and it
   const { notifier, shown, opened } = setup();
   assert.equal(notifier.notifyDevicePaired("computer"), true);
   assert.equal(shown[0].options.title, "New computer paired");
-  assert.equal(shown[0].options.body, "Another Mac can now drive your agents on this Mac. If it wasn't you, remove it in Settings → Devices.");
+  assert.equal(shown[0].options.body, `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
   // One pairing notice at a time, whatever paired.
@@ -189,7 +190,7 @@ test("phones that paired while Milagre was closed are named and announced as suc
   assert.deepEqual(shown[0].options, {
     title: "New phone paired",
     subtitle: "",
-    body: "Victor's iPhone paired with this Mac while Milagre was closed. If it wasn't you, remove it in Settings → Devices.",
+    body: `Victor's iPhone paired with ${thisComputer} while Milagre was closed. If it wasn't you, remove it in Settings → Devices.`,
   });
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
@@ -198,27 +199,27 @@ test("phones that paired while Milagre was closed are named and announced as suc
   assert.deepEqual(shown[1].options, {
     title: "2 new phones paired",
     subtitle: "",
-    body: "2 phones paired with this Mac while Milagre was closed. If one wasn't you, remove it in Settings → Devices.",
+    body: `2 phones paired with ${thisComputer} while Milagre was closed. If one wasn't you, remove it in Settings → Devices.`,
   });
   // While Milagre is open: named when the phone sent a name, as before otherwise.
   notifier.notifyPhonesPaired([{ name: "Victor's iPhone" }]);
-  assert.equal(shown[2].options.body, "Victor's iPhone can now reach your agents on this Mac. If it wasn't you, remove it in Settings → Devices.");
+  assert.equal(shown[2].options.body, `Victor's iPhone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
   notifier.notifyPhonesPaired([{ name: null }]);
-  assert.equal(shown[3].options.body, "A phone can now reach your agents on this Mac. If it wasn't you, remove it in Settings → Devices.");
+  assert.equal(shown[3].options.body, `A phone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
 });
 
 test("a computer waiting for Allow is announced once while Milagre is in the background, and its click opens the window", () => {
   const { notifier, shown, opened, state } = setup();
   const studio = { key: "s".repeat(43), name: "studio", at: 1 };
   assert.equal(notifier.notifyComputerWaiting([studio]), true);
-  assert.equal(shown[0].options.title, "studio wants to drive this Mac's chats");
+  assert.equal(shown[0].options.title, `studio wants to drive ${thisComputer}'s chats`);
   assert.equal(shown[0].options.body, "Open Milagre to allow or deny it.");
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
   // The same request again (another computer joined the list) says nothing more about it.
   const lab = { key: "l".repeat(43), name: null, at: 2 };
   assert.equal(notifier.notifyComputerWaiting([studio, lab]), true);
-  assert.equal(shown[1].options.title, "A computer wants to drive this Mac's chats");
+  assert.equal(shown[1].options.title, `A computer wants to drive ${thisComputer}'s chats`);
   assert.equal(shown[0].closed, true, "one notice at a time");
   assert.equal(notifier.notifyComputerWaiting([studio, lab]), false);
   // Answered: the notice goes.

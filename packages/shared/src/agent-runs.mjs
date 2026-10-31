@@ -181,13 +181,22 @@ export function applyRunEvent(runs, chatId, event, model = "") {
       return run ? { ...runs, [chatId]: { ...run, text: run.text + event.text, ...(run.waitingForSubagents ? { waitingForSubagents: false } : {}) } } : runs;
     case "step-started": {
       if (!run) return runs;
+      const viewed = event.step.kind === "image" && event.step.imageOrigin === "viewed";
+      const existing = run.steps.findIndex((step) => step.id === event.step.id);
+      const admitted = existing !== -1 && run.steps[existing].kind === "image" && run.steps[existing].imageOrigin === "viewed";
+      // Count the reply after steering splits, not the provider turn. Replays keep their slot.
+      if (viewed && !admitted && run.steps.filter((step) => step.kind === "image" && step.imageOrigin === "viewed").length >= 16) return runs;
       const step = {
         ...event.step,
         ...(event.step.detail === undefined ? {} : { detail: capOutput(event.step.detail) }),
         status: "running",
         offset: run.text.length,
       };
-      return { ...runs, [chatId]: { ...run, steps: [...run.steps.filter((item) => item.id !== step.id), step] } };
+      const steps =
+        viewed && existing !== -1
+          ? run.steps.map((item, index) => (index === existing ? step : item))
+          : [...run.steps.filter((item) => item.id !== step.id), step];
+      return { ...runs, [chatId]: { ...run, steps } };
     }
     case "step-output": {
       const next =
@@ -309,6 +318,8 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     }
     case "message-sent": {
       const next = run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
+      // A steered run's first text is likely the answer to that message: see step-started.
+      if (run) next.runs = { ...next.runs, [chatId]: { ...next.runs[chatId], steered: true } };
       return { ...next, changed: next.changed || suggestionChanged };
     }
     case "turn-started":
@@ -316,10 +327,26 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     // A /compact the user asked for shows its progress on its divider: Claude's own compaction step stays out of the reply.
     case "step-started":
       if (event.step.id.startsWith("compact-") && pendingCompaction(state, sessionId)) return { state, runs, changed: false };
+      // Text written after a steering message, before the agent goes back to its tools, answers the user: it is saved
+      // as its own reply, so it isn't folded into the activity with the text between steps.
+      // ponytail: the first text after the steer, even when the agent wrote it before it read the message.
+      if (run?.steered && run.text.trim()) {
+        const split = splitRunForSteer(state, runs, projectPath, chatId);
+        const { steered: _answered, ...rest } = split.runs[chatId];
+        return { state: split.state, runs: applyRunEvent({ ...split.runs, [chatId]: rest }, chatId, event), changed: split.changed };
+      }
       return { state, runs: applyRunEvent(runs, chatId, event), changed: false };
     case "context-compacting":
       return pendingCompaction(state, sessionId) ? { state, runs, changed: false } : addCompaction(state, runs, projectPath, chatId, "preparing");
     case "context-compacted": {
+      // The boundary may be the last usage event of a /compact turn. Keep the gauge accurate even without a later API request.
+      const size = run?.contextUsage?.size ?? session.contextUsage?.size;
+      if (Number.isFinite(event.after) && event.after >= 0 && size > 0) {
+        const contextUsage = { used: event.after, size };
+        session = { ...session, contextUsage };
+        state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+        if (run) runs = { ...runs, [chatId]: { ...run, contextUsage } };
+      }
       const request = pendingCompaction(state, sessionId);
       if (!request) return addCompaction(state, runs, projectPath, chatId, "done", event);
       const before = request.role === "user" ? (request.context.before ?? event.before) : (event.before ?? request.context.before);
@@ -363,6 +390,8 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         role: "assistant",
         model: run.model,
         outcome: event.type === "turn-completed" ? "completed" : event.type === "turn-cancelled" ? "cancelled" : "failed",
+        // What the turn cost, when the agent reports it (Kiro's credits).
+        ...(event.type === "turn-completed" && Number.isFinite(event.credits) ? { credits: event.credits } : {}),
         // Codex sends no end for a command still running when a turn stops, so the turn's end closes it.
         ...savedSteps(run.text, run.steps, event.type === "turn-completed" ? "done" : "failed"),
       };

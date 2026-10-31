@@ -11,7 +11,7 @@ import { AnswerCard } from "/src/components/agents/AnswerCard";
 import { answeredQuestions } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
 const option = (label, description) => ({ label, description });
-const request = { requestId: "q-1", questions: [
+let request = { requestId: "q-1", questions: [
   { id: "review", header: "Review", question: "How should the review step work?", options: [option("Brief in composer", "Nothing runs until you press Send."), option("Review card", "Edit, Send and Cancel in a card.")], multiSelect: false, allowOther: true, secret: false },
   { id: "parts", header: "Parts", question: "Which parts should the brief cover?", options: [option("Goal"), option("Files"), option("Open questions")], multiSelect: true, allowOther: true, secret: false },
   { id: "placement", header: "Placement", question: "Where does the handover row go?", options: [option("Top of the picker"), option("Bottom of the picker")], multiSelect: false, allowOther: true, secret: false },
@@ -28,13 +28,23 @@ function Fixture() {
 }
 document.documentElement.classList.add("dark");
 document.body.style.cssText = "margin:0;background:#202123";
-createRoot(document.getElementById("root")).render(<Fixture />);
+const root = createRoot(document.getElementById("root"));
+root.render(<Fixture />);
+window.secret = (remaining = 300000) => {
+  request = { requestId: "milagre-secret-test", secretRequest: { description: "A test token for deployment.", expiresAt: Date.now() + remaining }, questions: [{ id: "secret", header: "Secret", question: "Service token", options: [], multiSelect: false, allowOther: true, secret: true }] };
+  root.render(<Fixture key={Math.random()} />);
+};
 `;
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   await app.whenReady();
-  const win = new BrowserWindow({ width: 660, height: 640, show: false, webPreferences: { backgroundThrottling: false } });
+  const win = new BrowserWindow({
+    width: 660,
+    height: 640,
+    show: false,
+    webPreferences: { backgroundThrottling: false },
+  });
   const evaluate = (source) => win.webContents.executeJavaScript(source);
   async function waitFor(source) {
     for (let i = 0; i < 200; i++) {
@@ -87,7 +97,11 @@ async function browserChecks() {
     await waitFor(`${JSON.stringify("Placement")} === ${activeTab}.trim()`);
     await evaluate(`${primary}.click()`);
     await waitFor("window.sent() !== undefined");
-    assert.deepEqual(await evaluate("window.sent()"), { review: ["Review card"], parts: ["Goal"], placement: ["Top of the picker"] });
+    assert.deepEqual(await evaluate("window.sent()"), {
+      review: ["Review card"],
+      parts: ["Goal"],
+      placement: ["Top of the picker"],
+    });
     // The answers show as a card: each question with what was answered.
     await waitFor('!!document.querySelector("[data-slot=answer-card]")');
     const rows = await evaluate(
@@ -100,6 +114,51 @@ async function browserChecks() {
     ]);
     assert.match(await evaluate('document.querySelector("[data-slot=answer-card]").textContent'), /Answered 3 questions/);
     await shot("4-answer-card");
+    await evaluate("window.secret()");
+    await waitFor('!!document.querySelector("input[type=password]")');
+    assert.equal(await evaluate('document.querySelector("button[type=submit]").disabled'), true);
+    await evaluate(`(() => {
+      const input = document.querySelector('input[type=password]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '  disposable-test-token  ');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await waitFor('!document.querySelector("button[type=submit]").disabled');
+    assert.match(await evaluate("document.body.textContent"), /Save securely/);
+    assert.ok(!(await evaluate("document.body.textContent")).includes("disposable-test-token"));
+    assert.match(await evaluate("document.querySelector('[role=timer]').textContent"), /[45]:\d{2} left to enter/);
+    await evaluate(`document.querySelector('[aria-label="Show secret"]').click()`);
+    assert.equal(await evaluate("document.querySelector('input').type"), "text");
+    await evaluate(`document.querySelector('[aria-label="Hide secret"]').click()`);
+    assert.equal(await evaluate("document.querySelector('input').type"), "password");
+    await shot("5-secret-masked");
+    await evaluate('document.querySelector("button[type=submit]").click()');
+    await waitFor("window.sent() !== undefined");
+    assert.deepEqual(await evaluate("window.sent()"), {
+      secret: ["  disposable-test-token  "],
+    });
+    await evaluate("window.secret()");
+    await waitFor('!!document.querySelector("input[type=password]")');
+    assert.equal(await evaluate('document.querySelector("input").value'), "");
+    await evaluate('[...document.querySelectorAll("button")].find(b => b.textContent === "Decline").click()');
+    await waitFor("window.sent() === null");
+    // The last minute reads in the attention tone.
+    await evaluate("window.secret(45000)");
+    await waitFor("document.querySelector('[role=timer]')?.className.includes('text-orange-ink')");
+    await shot("6-secret-last-minute");
+    await evaluate('[...document.querySelectorAll("button")].find(b => b.textContent === "Decline").click()');
+    await waitFor("window.sent() === null");
+    await evaluate("window.secret(1100)");
+    await waitFor('!!document.querySelector("input[type=password]")');
+    await evaluate(`(() => {
+      const input = document.querySelector('input');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'expires-unsent');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await waitFor("document.querySelector('[role=timer]').textContent.includes('Request expired')");
+    assert.equal(await evaluate("document.querySelector('input').value"), "");
+    assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
+    assert.equal(await evaluate("window.sent()"), undefined);
+    await shot("7-secret-expired");
     console.log("Question card checks passed.");
     app.exit(0);
   } catch (error) {

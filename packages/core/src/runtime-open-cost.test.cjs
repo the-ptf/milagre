@@ -170,3 +170,30 @@ test("chats:ensure makes the Chats home without taking the shown Project from th
   assert.ok(folders.has(project), "the shown Project is read");
   assert.ok(![...folders].some((folder) => folder.startsWith(chatsHome)), "the Chats home is not");
 });
+
+test("with no Project, launch opens the Chats home an onboarding skip made, and nothing before it", async (t) => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-skip-")));
+  const make = () =>
+    createRuntime({
+      dataDir: path.join(dir, "profile"),
+      cwd: "/",
+      version: "9.8.7",
+      environmentReady: Promise.resolve(),
+      registryRoots: [],
+      worktreeRoot: path.join(dir, "worktrees"),
+      chatsHome: path.join(dir, "chats"),
+    });
+  const first = make();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  assert.equal(await first.invoke("project:current"), null);
+  await first.invoke("chats:ensure");
+  await first.close();
+  const second = make();
+  try {
+    const opened = await second.invoke("project:current");
+    assert.equal(opened.path, path.join(dir, "chats"));
+    assert.equal(opened.kind, "chats");
+  } finally {
+    await second.close();
+  }
+});

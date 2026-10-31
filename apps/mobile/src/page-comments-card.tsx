@@ -70,11 +70,11 @@ export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: Pa
               <Text style={{ width: 16, color: colors.accent, fontSize: type.footnote, fontWeight: "600", textAlign: "center" }}>{comment.number}</Text>
             )}
             <View style={{ flex: 1, gap: 2 }}>
-              <Text selectable style={{ color: colors.ink, fontSize: type.subheadline }}>
+              <Text selectable numberOfLines={8} style={{ color: colors.ink, fontSize: type.subheadline }}>
                 {comment.text}
               </Text>
               <Text numberOfLines={2} style={{ color: note ? colors.green : colors.ink3, fontSize: type.caption1 }}>
-                {note ? `Resolved · ${note}` : `Open · ${comment.label}`}
+                {note ? `Resolved · ${note}` : `${comment.label} · not resolved yet`}
               </Text>
             </View>
           </View>

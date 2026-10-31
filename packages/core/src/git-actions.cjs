@@ -4,6 +4,7 @@ const { createGit } = require("./git/client.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { PATHSPEC, fileLineCount } = require("./diffstat.cjs");
+const { kindOf, lanes } = require("./process-lanes.cjs");
 
 // Commit, push and open a PR for a chat's folder, from the "Commit and open PR" dialog. Milagre runs
 // git and gh itself, never through a shell: every program gets its arguments as an array, and text
@@ -83,8 +84,12 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     GH_NO_UPDATE_NOTIFIER: "1",
   });
 
-  /** Runs a program and settles with its outcome; it never throws. */
-  function run(command, args, { cwd, input, timeout = GH_TIMEOUT } = {}) {
+  /** Runs a program and settles with its outcome; it never throws. A git or gh run waits for its slot (process-lanes.cjs). */
+  function run(command, args, options) {
+    const kind = kindOf(command);
+    return kind ? lanes.run(kind, () => spawn(command, args, options)) : spawn(command, args, options);
+  }
+  function spawn(command, args, { cwd, input, timeout = GH_TIMEOUT } = {}) {
     return new Promise((resolve) => {
       let child;
       try {
@@ -449,8 +454,6 @@ module.exports = {
   NOT_REPO,
   NOT_TOP,
   NO_ORIGIN,
-  PUSH_REJECTED_HINT,
   createGitActions,
-  isLockfile,
   looksSecret,
 };

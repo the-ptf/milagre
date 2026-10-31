@@ -152,6 +152,8 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "accounts:scope",
     "babysit:settings:read",
     "babysit:settings:save",
+    "done:settings:read",
+    "done:settings:save",
     "keybindings:read",
     "keybindings:set-command",
     "keybindings:reset-command",
@@ -160,6 +162,10 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "routines:enabled:save",
     "routines:create",
     "routines:hook",
+    // A paired computer's desktop app update, on its Computer page; this Mac's own stays update:*.
+    "app-update:state",
+    "app-update:check",
+    "app-update:install",
   ])
     assert.equal(isLocalOnly(channel), false, channel);
   assert.equal(ALIASES["project:open-at"], "project:open");
@@ -225,6 +231,10 @@ test("remote usage is readable while every account mutation remains local", () =
   for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
     assert.equal(isLocalOnly(method), true, method);
   assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
+});
+
+test("a remote Project's PR change names that computer's Project", () => {
+  assert.deepEqual(qualifyEvent(ID, "pull-requests:changed", { projectPath: "/p" }), { projectPath: `${ID}|/p` });
 });
 
 test("chats:ensure result path is rewritten for a remote computer", () => {

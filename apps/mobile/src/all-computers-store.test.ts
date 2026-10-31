@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAllComputersStore, type StoreClient } from "./all-computers-store.ts";
+import { createAllComputersStore, recentChats, type StoreDeps, type StoreClient } from "./all-computers-store.ts";
 import type { SavedHost } from "./hosts-store.ts";
 
 const token = "a".repeat(64);
@@ -50,7 +50,7 @@ function fakeClient(id: string, options: { fail?: () => boolean; batch?: boolean
   return { client: client as unknown as StoreClient, calls };
 }
 
-function setup(clients: Record<string, ReturnType<typeof fakeClient>>) {
+function setup(clients: Record<string, ReturnType<typeof fakeClient>>, extra: Partial<StoreDeps> = {}) {
   const clock = { now: 1000 };
   const timers: { run: () => void; ms: number; live: boolean }[] = [];
   const store = createAllComputersStore({
@@ -66,6 +66,7 @@ function setup(clients: Record<string, ReturnType<typeof fakeClient>>) {
     clearTimer: (handle) => {
       (handle as { live: boolean }).live = false;
     },
+    ...extra,
   });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   return { store, timers, settle, clock };
@@ -736,4 +737,33 @@ test("a failed Chats home ask neither ends the read nor counts against the compu
   await settle();
   await settle();
   assert.equal(store.viewOf("https://a")?.state, "online");
+});
+
+test("after a read, the computer's listed Chats go to the preload, through its request limit", async () => {
+  const clients = { "https://a": fakeClient("https://a") };
+  const warmed: { url: string; chats: number }[] = [];
+  const { store, settle } = setup(clients, {
+    warm: async (client, chats, limit) => {
+      warmed.push({ url: client.url, chats: chats.length });
+      assert.equal(await limit(async () => "read"), "read");
+    },
+  });
+  store.sync([host("https://a")], null);
+  const hide = store.show();
+  await settle();
+  await settle();
+  assert.deepEqual(warmed, [{ url: "https://a", chats: 0 }]);
+  hide();
+});
+
+test("the preload's Chats: every listed one with a summary, archived ones and ones without a summary left out", () => {
+  const session = (id: number, extra = {}) => ({ id, summary: { lastAt: id * 100, lastId: id * 10 }, ...extra });
+  const copies = new Map([
+    ["/a", { project: { path: "/a", state: { sessions: { 1: session(1), 2: session(2, { archived: true }), 3: { id: 3 } } } } }],
+    ["/b", { project: { path: "/b", state: { sessions: { 4: session(4) } } } }],
+  ]) as never;
+  assert.deepEqual(recentChats(copies), [
+    { projectPath: "/a", chatId: 1, lastAt: 100, lastId: 10 },
+    { projectPath: "/b", chatId: 4, lastAt: 400, lastId: 40 },
+  ]);
 });

@@ -264,6 +264,8 @@ function createUsageReader(deps = {}) {
     readClaude = readClaudeUsage,
     readCodex = readCodexUsage,
     readAntigravity = () => readAntigravityUsage({ now }),
+    // The runtime reads Kiro's credits from kiro-cli (kiro-usage.cjs); without that reader the sidebar leaves Kiro out.
+    readKiro = () => providerResult("kiro", now, "unavailable", [], "Kiro credits aren't read here."),
     now = Date.now,
     store = createUsageStore(),
     ready = () => undefined,
@@ -287,7 +289,14 @@ function createUsageReader(deps = {}) {
     inFlight ??= Promise.resolve()
       .then(ready)
       .catch(() => {})
-      .then(() => Promise.all([readProvider("claude", readClaude), readProvider("codex", readCodex), readProvider("antigravity", readAntigravity)]))
+      .then(() =>
+        Promise.all([
+          readProvider("claude", readClaude),
+          readProvider("codex", readCodex),
+          readProvider("antigravity", readAntigravity),
+          readProvider("kiro", readKiro),
+        ]),
+      )
       .then((providers) => ({ providers }))
       .finally(() => {
         inFlight = null;

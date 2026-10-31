@@ -28,3 +28,30 @@ export function Checkbox({ className = "", tone = "ink", ...props }: ComponentPr
     </CheckboxPrimitive.Root>
   );
 }
+
+/** A setting's trailing checkbox. The row supplies the visible label. */
+export function SettingCheckbox({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+  tone = "ink",
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  tone?: "ink" | "accent";
+}) {
+  return (
+    <Checkbox
+      data-setting-checkbox=""
+      aria-label={label}
+      checked={checked}
+      onCheckedChange={(value) => onChange(value === true)}
+      disabled={disabled}
+      tone={tone}
+      className="size-6"
+    />
+  );
+}

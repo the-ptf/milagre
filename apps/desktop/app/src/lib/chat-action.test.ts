@@ -13,6 +13,7 @@ test("a failed Chat action surfaces its IPC cause, while successful actions stay
 });
 test("Chat row and subagent actions all report failures", () => {
   const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
-  for (const method of ["patchChat", "archiveSubagent", "archiveFinishedSubagents"])
+  assert.match(app, /reportChatAction\(bridgeForKey\(path\)\.patchChat/);
+  for (const method of ["archiveSubagent", "archiveFinishedSubagents"])
     assert.match(app, new RegExp("reportChatAction\\(bridgeForKey\\(current\\.path\\)\\." + method));
 });

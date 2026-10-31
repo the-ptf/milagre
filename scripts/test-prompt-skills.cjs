@@ -13,8 +13,11 @@ import { ChatMentionsContext } from '/src/components/ChatMentions';
 import { PromptText } from '/src/components/PromptText';
 import { MODEL_CATALOG, capabilityFor } from '/src/model';
 import '/src/styles.css';
+import { updateSettings } from '/src/lib/settings';
+window.updateSettings = updateSettings;
 const noop = () => {};
 window.sent = [];
+window.stops = 0;
 window.milagre = { searchProjectFiles: async () => ['review.md'], listSkills: async root => ({ skills: root === '/other' ? [] : [
   { name: 'reorder', description: 'Gently put things in order', scope: 'bundled', provider: 'milagre', path: '/skills/reorder/SKILL.md' },
   { name: 'settle', description: 'Close out loose ends', scope: 'workspace', provider: 'claude', path: '/skills/settle/SKILL.md' },
@@ -36,7 +39,7 @@ function Fixture() {
   return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
     <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
-      onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={!!suggestOptions.blocked}
+      onSend={() => { window.sent.push(draft); setDraft(''); }} onStop={() => { window.stops++; }} sendBlocked={!!suggestOptions.blocked}
       suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline} reconnectingName={suggestOptions.reconnecting}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
@@ -244,8 +247,8 @@ async function browserChecks() {
       await evaluate(`window.setSuggestOptions(${JSON.stringify({ provider: "claude", text: "Add tests", ...options })})`);
       await waitFor(`!${suggestion}`);
     }
-    // A computer reconnecting (a dropped socket, a LAN/relay switch) leaves the field writable and Send open: the send
-    // waits for the computer (computers.cjs invoke). One that is offline locks the field.
+    // Reconnecting and offline computers both leave the draft writable. Offline submits through Queue message;
+    // a separate pending-send lock blocks submission without preventing edits to the next draft.
     await type("");
     await evaluate(`window.setSuggestOptions({ provider: "claude", reconnecting: "QA Mac" })`);
     await waitFor(`document.body.textContent.includes("reconnecting to QA Mac")`);
@@ -254,9 +257,46 @@ async function browserChecks() {
     assert.equal(await evaluate(`${editor}.value`), "still here", "typing works while it reconnects");
     assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled ?? null`), false, "Send stays open: the send waits for the computer");
     await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", blocked: true })`);
-    await waitFor(`!${editor}.isContentEditable`);
+    await waitFor(`!!document.querySelector('[aria-label="Queue message"]')`);
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "offline drafts stay editable even while a send is pending");
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Queue message"]').disabled`), true, "a pending send still blocks another submission");
+    await type("save this while offline");
+    assert.equal(await evaluate(`${editor}.value`), "save this while offline");
+    await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", running: true })`);
+    await waitFor(`document.querySelector('[aria-label="Queue message"]')?.disabled === false`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`),
+      false,
+      "a cached running turn does not replace Queue message with Stop",
+    );
+    const sentBeforeQueue = await evaluate(`window.sent.length`);
+    await evaluate(`document.querySelector('[aria-label="Queue message"]').click()`);
+    await waitFor(`window.sent.length === ${sentBeforeQueue + 1} && ${editor}.value === ""`);
+    assert.equal(await evaluate(`window.sent.at(-1)`), "save this while offline", "Queue message submits the offline draft");
+    assert.equal(await evaluate(`window.stops`), 0, "queuing never tries to stop the offline agent");
     await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
     await type("");
+    const beforeDictation = await evaluate("window.sent.length");
+    await evaluate(`window.deliverTranscript('review this', { selection: { start: 0, end: 0 } })`);
+    await waitFor(`${editor}.value === 'review this'`);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation, "default dictation only pastes");
+    await evaluate(`window.updateSettings({ dictationAction: 'send' })`);
+    await delay(100);
+    await evaluate(`window.deliverTranscript('please', { selection: { start: 11, end: 11 } })`);
+    await waitFor(`window.sent.length === ${beforeDictation + 1}`);
+    assert.equal(await evaluate("window.sent.at(-1)"), "review this please", "automatic send uses the completed draft");
+    await waitFor(`${editor}.value === ''`);
+    await evaluate(`window.deliverTranscript('   ', { selection: { start: 0, end: 0 } })`);
+    await delay(100);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "empty speech never sends");
+    await evaluate(`window.setSuggestOptions({ blocked: true })`);
+    await delay(100);
+    await evaluate(`window.deliverTranscript('keep this draft', { selection: { start: 0, end: 0 } })`);
+    await waitFor(`${editor}.value === 'keep this draft'`);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "blocked send preserves the transcript");
+    await evaluate(`window.setSuggestOptions({})`);
+    await delay(100);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "unblocking does not send an old transcript");
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",
@@ -281,6 +321,21 @@ async function main() {
     cacheDir: path.resolve(__dirname, "../node_modules/.vite-prompt-skills"),
     server: { host: "127.0.0.1", port: 0 },
     plugins: [
+      {
+        name: "dictation-delivery-fixture",
+        enforce: "pre",
+        resolveId(id) {
+          if (id === "./useDictation") return "\0dictation-fixture";
+        },
+        load(id) {
+          if (id !== "\0dictation-fixture") return;
+          return `import { useEffect } from 'react';
+            export function useDictation(cwd, scope, deliver) {
+              useEffect(() => { window.deliverTranscript = deliver; });
+              return { phase: 'idle', error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() {}, stop() {}, cancel() {}, dismiss() {}, openSettings() {} };
+            }`;
+        },
+      },
       {
         name: "prompt-skills-fixture",
         resolveId(id) {

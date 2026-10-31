@@ -1,12 +1,36 @@
 import type { ArtifactRef } from "./model.ts";
 import type { DesignDocument, DesignOperation } from "./design.mjs";
+import type { ArtifactAsset } from "./artifact-assets.mjs";
+export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
+
+export type { ArtifactAsset };
 
 /** A design as `artifact:list` returns it: its newest version, and the screen it is laid out on. */
 export type ArtifactSummary = ArtifactRef & { versions: number; width: number; height: number; format: "design" | "html" };
 
 /** One version of a design an agent showed, as `artifact:get` returns it. */
-export type DesignArtifact = ArtifactSummary & { format: "design"; latest: number; html: string; document: DesignDocument };
-export type HtmlArtifact = ArtifactSummary & { format: "html"; latest: number; html: string; document?: never };
+export type DesignArtifact = ArtifactSummary & {
+  format: "design";
+  latest: number;
+  html: string;
+  document: DesignDocument;
+  /** Opt-in transport: HTML omits this block; fontCss is absent when the caller already holds fontKey. */
+  fontKey?: string;
+  fontCss?: string;
+};
+/** One tab of an Artifact page: a page of its own, under a title in the page's tab bar. */
+export type ArtifactTab = { id: string; title: string; html: string };
+/** `html` is the page, or its first tab when the agent split it into `tabs`. `assets` are the files its HTML shows as `assets/<name>`. */
+export type HtmlArtifact = ArtifactSummary & {
+  format: "html";
+  latest: number;
+  html: string;
+  tabs?: ArtifactTab[];
+  assets?: ArtifactAsset[];
+  document?: never;
+};
+/** Part of a file of the Chat's Artifact page, as `artifact:asset` returns it: up to 256 KB from `offset`, in base64. */
+export type ArtifactAssetChunk = ArtifactAsset & { offset: number; base64: string };
 export type Artifact = DesignArtifact | HtmlArtifact;
 export type ArtifactPageKind = "designs" | "artifacts";
 
@@ -38,7 +62,9 @@ export interface ArtifactApi {
   /** The page is named after its Chat on the host; `title` only satisfies hosts from before that, which require one. */
   sharePage(request: { chatId: string; title?: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
   revokePageShare(request: { chatId: string; id: string; kind?: ArtifactPageKind }): Promise<void>;
-  get(request: { chatId: string; id: string; version?: number }): Promise<Artifact>;
+  get(request: { chatId: string; id: string; version?: number; fonts?: { have: string[] } }): Promise<Artifact>;
+  /** Part of a file of the Chat's Artifact page, by its name; `length` caps the bytes (256 KB at most). */
+  asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
   /** Saves an atomic batch against the version the editor loaded. A stale version leaves the design unchanged. */
   apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[] }): Promise<DesignArtifact>;
@@ -69,7 +95,28 @@ export function designGroups<T extends { group?: string }>(designs: readonly T[]
  * Artifact page the fractions are of the whole page; `anchor` is the element it was pinned on and the point in it
  * (ARTIFACT_PAGE_SCRIPT finds it again after the page reflows), and `near` the text there, for the agent to find it by.
  */
-export type DesignComment = { design: ArtifactRef; x?: number; y?: number; nodeId?: string; near?: string; anchor?: string; text: string; id?: string };
+export type DesignComment = {
+  design: ArtifactRef;
+  x?: number;
+  y?: number;
+  nodeId?: string;
+  near?: string;
+  anchor?: string;
+  /** On an Artifact page split into tabs: the tab it was pinned on. */
+  tab?: { id: string; title: string };
+  text: string;
+  id?: string;
+};
+
+/** The tab of an Artifact page to show: the one named, else its first; a page without tabs is its one tab, id "". */
+export function artifactTab(page: { title: string; html: string; tabs?: ArtifactTab[] }, id?: string | null): ArtifactTab {
+  return page.tabs?.find((tab) => tab.id === id) ?? page.tabs?.[0] ?? { id: "", title: page.title, html: page.html };
+}
+
+/** Whether a pin belongs on this tab: one pinned on another tab waits there; one from before tabs sits on the first. */
+export function onArtifactTab(pin: { tab?: { id: string } }, page: { tabs?: ArtifactTab[] }, tab: ArtifactTab): boolean {
+  return (pin.tab?.id ?? page.tabs?.[0]?.id ?? "") === tab.id;
+}
 
 /** The text near a pin as a comment carries it: one line, no double quotes (the message quotes it), at most 80 characters. */
 export function nearText(text: string | undefined | null): string {
@@ -115,9 +162,10 @@ export function designFeedbackMessage({ choice, comments }: { choice?: ArtifactR
     const lines = comments.map((comment, index) => {
       const at = comment.x === undefined || comment.y === undefined ? "" : `, ${Math.round(comment.x * 100)}% across and ${Math.round(comment.y * 100)}% down`;
       const layer = comment.nodeId ? `, layer "${comment.nodeId}"` : "";
+      const tab = comment.design.format === "html" && comment.tab ? `, on the tab ${comment.tab.id} ("${nearText(comment.tab.title)}")` : "";
       const near = comment.design.format === "html" && nearText(comment.near) ? `, near "${nearText(comment.near)}"` : "";
       // The id lets the agent resolve the comment; a message from before ids has none.
-      return `${index + 1}. ${comment.id ? `(comment ${comment.id}) ` : ""}On ${designName(comment.design)}${at}${layer}${near}: ${comment.text.trim()}`;
+      return `${index + 1}. ${comment.id ? `(comment ${comment.id}) ` : ""}On ${designName(comment.design)}${at}${layer}${tab}${near}: ${comment.text.trim()}`;
     });
     const htmlOnly = comments.every((comment) => comment.design.format === "html");
     const mixed = !htmlOnly && comments.some((comment) => comment.design.format === "html");
@@ -163,7 +211,7 @@ const FEEDBACK_ENDINGS = new Set([
 const COMMENT =
   /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the design "(.*)" \(([a-z0-9-]+), version (\d+)\)(?:, (\d+)% across and (\d+)% down)?(?:, layer "([a-zA-Z][a-zA-Z0-9_.-]{0,95})")?: (.*)$/;
 const ARTIFACT_COMMENT =
-  /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the artifact "(.*)" \(([a-z0-9-]+)\)(?:, (\d+)% across and (\d+)% down)?(?:, near "([^"]*)")?: (.*)$/;
+  /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the artifact "(.*)" \(([a-z0-9-]+)\)(?:, (\d+)% across and (\d+)% down)?(?:, on the tab ([a-z0-9-]+) \("([^"]*)"\))?(?:, near "([^"]*)")?: (.*)$/;
 
 /**
  * The feedback a message designFeedbackMessage wrote carries, read back to show it as a card instead of its text; null
@@ -185,12 +233,13 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
   for (const line of (list ?? "").split("\n")) {
     const artifact = ARTIFACT_COMMENT.exec(line);
     if (artifact) {
-      const [, , commentId, title, id, x, y, near, text] = artifact;
+      const [, , commentId, title, id, x, y, tabId, tabTitle, near, text] = artifact;
       comments.push({
         design: { id: id!, title: title!, version: 1, format: "html" },
         text: text!,
         ...(commentId ? { id: commentId } : {}),
         ...(x === undefined || y === undefined ? {} : { x: Number(x) / 100, y: Number(y) / 100 }),
+        ...(tabId ? { tab: { id: tabId, title: tabTitle! } } : {}),
         ...(near ? { near } : {}),
       });
       continue;
@@ -222,6 +271,7 @@ export {
   ARTIFACT_CSP,
   ARTIFACT_ESCAPE,
   ARTIFACT_SEND,
+  artifactCsp,
   ARTIFACT_ESCAPE_SCRIPT,
   ARTIFACT_PAGE,
   ARTIFACT_PAGE_SCRIPT,

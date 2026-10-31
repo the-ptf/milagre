@@ -26,8 +26,11 @@ export function useDockArea() {
       // measured again when the drag ends.
       const docked = document.querySelector("[data-slot=simulator-popover][data-docked]")?.getBoundingClientRect().width ?? 0;
       const browser = document.querySelector("[data-slot=browser-dock]")?.getBoundingClientRect().width ?? 0;
-      // Lined up with the sidebar's card, top and bottom.
-      const sidebar = document.querySelector("aside[aria-label='Workspace navigation']")?.getBoundingClientRect();
+      // Lined up with the sidebar's card, top and bottom. Settings hides the card without resizing <main>, so a card with
+      // no size keeps the last place it had: read as zeros, the docks would get no height and nothing would measure
+      // them again on the way back.
+      const card = document.querySelector("aside[aria-label='Workspace navigation']")?.getBoundingClientRect();
+      const sidebar = card && card.height > 0 ? card : null;
       // Its owners render only when something they lay out by moved: <main> resizes on every frame a panel beside it
       // slides or is dragged, most often without moving the area.
       setArea((current) => {
@@ -37,8 +40,8 @@ export function useDockArea() {
           width: window.innerWidth - rect.left - right,
           simulator: current && panelResizing() ? current.simulator : docked > 0.5 ? docked + 12 : 0,
           browser: current && panelResizing() ? current.browser : browser > 0.5 ? browser + 12 : 0,
-          top: sidebar?.top ?? 40,
-          bottom: sidebar ? window.innerHeight - sidebar.bottom : 12,
+          top: sidebar?.top ?? (card ? current?.top : undefined) ?? 40,
+          bottom: sidebar ? window.innerHeight - sidebar.bottom : ((card ? current?.bottom : undefined) ?? 12),
         };
         return current && (Object.keys(next) as (keyof DockArea)[]).every((key) => current[key] === next[key]) ? current : next;
       });

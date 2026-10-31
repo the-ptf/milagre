@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const MAX_ENTRIES = 500;
 const outside = () => Object.assign(new Error("Only folders in the home folder can be listed."), { code: "OUTSIDE_HOME" });
@@ -40,7 +41,8 @@ async function listDirs(request, { home, projectPaths }) {
   const lexical = typeof asked === "string" ? path.resolve(asked) : realHome;
   if (!inside(realHome, lexical) && !inside(path.resolve(home), lexical)) throw outside();
   const folder = await fs.realpath(lexical).catch((error) => {
-    if (error?.code === "EACCES" || error?.code === "EPERM") throw Object.assign(new Error("Milagre can't open that folder on this Mac."), { code: "EACCES" });
+    if (error?.code === "EACCES" || error?.code === "EPERM")
+      throw Object.assign(new Error(`Milagre can't open that folder on ${thisComputer}.`), { code: "EACCES" });
     throw Object.assign(new Error("That folder is no longer there."), { code: "ENOENT" });
   });
   if (!inside(realHome, folder)) throw outside();

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 const fixture = `
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -102,8 +103,7 @@ async function browserChecks() {
     fs.writeFileSync(path.join(dir, `${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
   try {
-    await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
+    await openRenderer(window, process.argv[2], `!!document.querySelector('[aria-label="New chat"]')`);
     await openChat("Alpha chat");
     await type("Draft for alpha");
     await promptIs("Draft for alpha");
