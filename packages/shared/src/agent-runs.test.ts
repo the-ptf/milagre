@@ -283,6 +283,93 @@ test("approval requests wait on the run, oldest first, until they're resolved", 
   assert.equal(applyAgentEvent(state, {}, PROJECT, key(1), { type: "permission-request", ...approval("c") }).runs[key(1)], undefined);
 });
 
+function viewedImage(id: string): Extract<AgentEvent, { type: "step-started" }> {
+  return {
+    type: "step-started",
+    step: { id, kind: "image", title: "Viewed an image", file: `/tmp/${id}.png`, imageOrigin: "viewed", sourceFile: "/work/original.png" },
+  };
+}
+
+test("viewed image admission keeps 16 distinct steps, replay positions and ordinary tool rows", () => {
+  let runs = startRun({}, key(1), "claude");
+  for (let i = 0; i < 20; i++) {
+    runs = applyRunEvent(runs, key(1), { type: "step-started", step: { id: `read-${i}`, kind: "read", title: "Read image" } });
+    runs = applyRunEvent(runs, key(1), { type: "step-completed", id: `read-${i}`, status: "done" });
+    runs = applyRunEvent(runs, key(1), viewedImage(`image-${i}`));
+    runs = applyRunEvent(runs, key(1), { type: "step-completed", id: `image-${i}`, status: "done" });
+    runs = applyRunEvent(runs, key(1), { type: "step-started", step: { id: `generated-${i}`, kind: "image", title: "Generated an image" } });
+  }
+  const steps = runs[key(1)].steps;
+  assert.equal(steps.filter((step) => step.imageOrigin === "viewed").length, 16);
+  assert.equal(steps.filter((step) => step.kind === "read").length, 20);
+  assert.equal(steps.filter((step) => step.kind === "image" && !step.imageOrigin).length, 20);
+  assert.equal(steps.find((step) => step.id === "image-0")?.sourceFile, "/work/original.png");
+  assert.equal(steps.find((step) => step.id === "image-0")?.status, "done");
+  for (let i = 0; i < 20; i++) {
+    runs = applyRunEvent(runs, key(1), viewedImage(`image-${i}`));
+    runs = applyRunEvent(runs, key(1), { type: "step-completed", id: `image-${i}`, status: "done" });
+  }
+  assert.deepEqual(
+    runs[key(1)].steps.map((step) => step.id),
+    steps.map((step) => step.id),
+  );
+  assert.equal(applyRunEvent(runs, key(1), viewedImage("overflow")), runs);
+  assert.equal(applyRunEvent(runs, key(1), { type: "step-completed", id: "overflow", status: "done" }), runs);
+});
+
+test("untagged step replays retain their existing move-to-end ordering", () => {
+  let runs = startRun({}, key(1), "claude");
+  const read = { id: "read", kind: "read" as const, title: "Read a file" };
+  const generated = { id: "generated", kind: "image" as const, title: "Generated an image" };
+  for (const step of [read, generated, read]) runs = applyRunEvent(runs, key(1), { type: "step-started", step });
+  assert.deepEqual(
+    runs[key(1)].steps.map((step) => step.id),
+    ["generated", "read"],
+  );
+  runs = applyRunEvent(runs, key(1), { type: "step-started", step: generated });
+  assert.deepEqual(
+    runs[key(1)].steps.map((step) => step.id),
+    ["read", "generated"],
+  );
+});
+
+test("steering saves completed viewed snapshots and gives each reply its own allowance", () => {
+  let state = base();
+  let runs = startRun({}, key(1), "claude");
+  const emit = (event: AgentEvent) => {
+    const result = applyAgentEvent(state, runs, PROJECT, key(1), event);
+    state = result.state;
+    runs = result.runs;
+  };
+  for (let reply = 0; reply < 2; reply++) {
+    for (let i = 0; i < 20; i++) {
+      const id = `image-${reply}-${i}`;
+      emit(viewedImage(id));
+      emit({ type: "step-completed", id, status: "done" });
+    }
+    if (reply === 0) emit({ type: "message-sent", model: "claude" });
+  }
+  emit({ type: "turn-completed" });
+  assert.equal(state.messages.length, 2);
+  for (const [reply, message] of state.messages.entries()) {
+    assert.equal(message.steps?.length, 16);
+    assert.equal(message.steps?.[0].id, `image-${reply}-0`);
+    assert.equal(message.steps?.[0].imageOrigin, "viewed");
+    assert.equal(message.steps?.[0].sourceFile, "/work/original.png");
+  }
+});
+
+test("viewed snapshots still running across a steer occupy slots in the new reply", () => {
+  let runs = startRun({}, key(1), "claude");
+  runs = applyRunEvent(runs, key(1), { type: "text-delta", messageId: "m", text: "Before steering" });
+  runs = applyRunEvent(runs, key(1), viewedImage("running"));
+  runs = applyRunEvent(runs, key(1), { type: "message-sent", model: "claude" });
+  for (let i = 0; i < 20; i++) runs = applyRunEvent(runs, key(1), viewedImage(`next-${i}`));
+  assert.equal(runs[key(1)].steps.length, 16);
+  assert.equal(runs[key(1)].steps[0].id, "running");
+  assert.equal(runs[key(1)].steps.at(-1)?.id, "next-14");
+});
+
 test("a steer saves the reply so far and keeps the run going", () => {
   const state = base();
   const runs = { [key(1)]: { text: "  Half an answer \n", model: "gpt-6-sol", approvals: [approval("a")], steps: [], questions: [], answered: {} } };
