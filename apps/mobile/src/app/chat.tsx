@@ -687,6 +687,17 @@ function ChatPane({
   // Long Chats mount their newest messages first; earlier ones load on request.
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
   const visible = shown.key === scrollKey ? shown.count : PAGE;
+  // A Chat followed at its bottom as new messages arrive lets go of the history it showed: its earlier messages unmount
+  // and its window keeps its last turns, so a Chat open for hours costs what a fresh one does. Scrolling up reads them again.
+  const { trim: trimHistory } = historyPage;
+  const seenCount = useRef(messages.length);
+  useEffect(() => {
+    const grew = messages.length > seenCount.current;
+    seenCount.current = messages.length;
+    if (!grew || !following.current || historyRead.current || historyAnchor.current) return;
+    if (visible > PAGE) setShown({ key: scrollKey, count: PAGE });
+    trimHistory();
+  }, [messages.length, visible, scrollKey, trimHistory]);
   // Quiet heartbeats fold into one line and their replies drop out.
   const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
   async function showEarlier() {
