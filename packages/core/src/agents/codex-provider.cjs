@@ -240,7 +240,7 @@ class CodexSession {
     }
   }
 
-  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false }) {
+  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false, canStart }) {
     const policy = this.analysisOnly
       ? advisorPolicy("codex", this.linked?.tools ?? [])
       : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard) });
@@ -256,6 +256,10 @@ class CodexSession {
       }
       const files = images.length ? await writeImages(images) : null;
       if (files) this.imageSets.push(files);
+      if (canStart && !canStart()) {
+        await this.finishTurn([]);
+        return { turnId: null, steered: false, cancelled: true };
+      }
       const { turn } = await this.rpc.request(
         "turn/start",
         {

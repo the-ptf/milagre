@@ -12312,9 +12312,16 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
   const react = hookHost();
   const focused = [];
   const saves = [];
+  const resumeSaves = [];
   let refuse = false;
   const client = {
     async call(method, args) {
+      if (method === "limits:resume-at-reset:read") return { resumeAtReset: true };
+      if (method === "limits:resume-at-reset:save") {
+        resumeSaves.push(args[0]);
+        if (refuse) throw new Error("This computer does not allow changing this setting from a phone.");
+        return { resumeAtReset: args[0] };
+      }
       if (method === "limits:auto-switch:read") return { autoSwitch: false };
       if (method === "limits:auto-switch:save") {
         saves.push(args[0]);
@@ -12353,7 +12360,22 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
   await settle();
   assert.deepEqual(saves, [true]);
   assert.equal(find(render(), (n) => n.props?.title === title).props.selected, true);
+  const resumeTitle = "Continue when the limit resets";
+  const resumeControl = () => find(render(), (n) => n.props?.title === resumeTitle);
+  assert.equal(resumeControl().props.selected, true);
+  resumeControl().props.onPress();
+  assert.equal(resumeControl().props.disabled, true, "the checkbox cannot submit twice while saving");
+  await settle();
+  assert.equal(resumeControl().props.selected, false);
+  resumeControl().props.onPress();
+  await settle();
+  assert.equal(resumeControl().props.selected, true);
+  assert.deepEqual(resumeSaves, [false, true]);
   refuse = true;
+  resumeControl().props.onPress();
+  await settle();
+  assert.equal(resumeControl().props.selected, true, "a refused save preserves the checked value");
+  assert.equal(resumeControl().props.disabled, false);
   find(render(), (n) => n.props?.title === title).props.onPress();
   await settle();
   tree = render();
@@ -12370,6 +12392,12 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
     find(older(), (n) => n.props?.title === title),
     undefined,
     "an older Mac answers null: no switch",
+  );
+  react.begin();
+  assert.equal(
+    find(older(), (n) => n.props?.title === resumeTitle),
+    undefined,
+    "an older Mac hides continuation too",
   );
 });
 
@@ -12948,6 +12976,8 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   const client = {
     async call(method, args) {
       calls.push([method, args]);
+      if (method === "limits:resume-at-reset:read") return { resumeAtReset: true };
+      if (method === "chat:limit-resume" || method === "chat:limit-resume:cancel") return true;
       if (method === "accounts:scope") return snapshot;
       if (method === "chat:limit-switch") {
         if (failSwitch) throw new Error(failSwitch);
@@ -12999,7 +13029,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   react.unmount();
   let tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   await settle();
-  assert.equal(JSON.stringify(calls[0]), JSON.stringify(["accounts:scope", ["/work/app", false]]));
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "accounts:scope")), JSON.stringify(["accounts:scope", ["/work/app", false]]));
   tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   const choices = rows(tree);
   assert.equal(choices.length, 2);
@@ -13051,6 +13081,31 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
     button.props.onPress();
     assert.equal(pushed.at(-1), "/accounts");
   }
+  react.unmount();
+  Object.assign(react, hookHost({ effects: true }));
+  const props = { limit, sessionId: 4, projectPath: "/work/app", sourceMessageId: 9, resumeAvailable: true };
+  render(props);
+  await settle();
+  let card = render(props);
+  let resume = find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at"));
+  assert.ok(resume);
+  await resume.props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "chat:limit-resume")), JSON.stringify(["chat:limit-resume", ["/work/app", 4, 9]]));
+  const pending = { at: limit.resetsAt, sourceMessageId: 9, sendId: "schedule-9" };
+  card = render({ ...props, pending });
+  assert.ok(texts(card).some((text) => text.startsWith("Continues at")));
+  await find(card, (n) => n.type === "PillButton" && n.props.title === "Cancel").props.onPress();
+  await settle();
+  assert.equal(
+    JSON.stringify(calls.find(([method]) => method === "chat:limit-resume:cancel")),
+    JSON.stringify(["chat:limit-resume:cancel", ["/work/app", 4, "schedule-9"]]),
+  );
+  card = render({ ...props, resumeBlocked: true });
+  assert.equal(
+    find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at")),
+    undefined,
+  );
 });
 
 test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {

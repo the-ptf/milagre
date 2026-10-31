@@ -1,6 +1,7 @@
 const { chatMentionsContext } = require("./chat-mentions.cjs");
 const { createAccountRouting } = require("./account-routing.cjs");
 const { createLimitSwitch } = require("./limit-switch.cjs");
+const { createLimitResume } = require("./limit-resume.cjs");
 const { createMcp } = require("./mcp/index.cjs");
 const { createMcpStore } = require("./mcp/store.cjs");
 const { openInBrowser } = require("./antigravity-account.cjs");
@@ -647,6 +648,7 @@ function createRuntime(options) {
     },
   });
   function broadcastProjectState(projectPath, state) {
+    limitResume?.trackState(projectPath, state);
     state = scopeStates.withPersistence(projectPath, state);
     if (isLinkScopeKey(projectPath)) {
       emit("link:state", { linkId: scopeFromKey(projectPath).linkId, state });
@@ -1269,12 +1271,21 @@ function createRuntime(options) {
 
   // Set up with the accounts below; agent events only arrive after start.
   let limitSwitch = null;
+  let limitResume = null;
   // Set up once the Chats are (below); agent events only arrive after start.
   let routines = null;
   // Opens a Babysit Heartbeat for a PR a Chat creates; set up with the Babysit settings below.
   let babysitWatch = null;
   let chatSecrets = null;
   function publishAgentEvent(chatId, event, state, seq) {
+    if (state) limitResume?.trackState(projectOfKey(chatId), state);
+    if (event.limitResumeAborted) {
+      void track(() => checkpoints.discard(chatId, event.messageId), background).catch((error) =>
+        console.warn("Milagre couldn't discard a cancelled continuation's checkpoint:", error.message),
+      );
+      emit("agent:event", { chatId, event, ...(state ? { state: scopeStates.withPersistence(projectOfKey(chatId), state) } : {}), ...(seq ? { seq } : {}) });
+      return;
+    }
     // First, before anyone hears the event: a heartbeat's "(pass)" marks its turn's end quiet, so no push goes out.
     routines?.observe(chatId, event);
     babysitWatch?.observe(chatId, event);
@@ -1283,10 +1294,14 @@ function createRuntime(options) {
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) chatSecrets?.cancel(chatId);
     options.observeAgentEvent?.(chatId, event);
     // A turn the plan's usage limit stopped marks its account, and may move the Chat to another (auto-switch).
-    if (event.type === "turn-failed" && event.limit && limitSwitch)
+    if (event.type === "turn-failed" && event.limit && limitSwitch) {
+      const token = chats.limitResumeToken(projectOfKey(chatId), sessionIdFromKey(chatId));
+      token.sourceMessageId = state?.sessions[sessionIdFromKey(chatId)]?.limitTurn?.sourceMessageId;
       void Promise.resolve()
-        .then(() => limitSwitch.observe(chatId, event))
-        .catch((error) => console.warn("Milagre couldn't switch accounts after a usage limit:", error.message));
+        .then(() => limitSwitch.observe(chatId, event, token))
+        .then((switched) => !switched && limitResume?.observe(chatId, event, token))
+        .catch((error) => console.warn("Milagre couldn't continue after a usage limit:", error.message));
+    }
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
     // A turn may have opened, pushed to or merged a PR: its Worktree's PRs are read again now, not on the next tick.
@@ -1374,7 +1389,11 @@ function createRuntime(options) {
     return result;
   });
   async function startAgentTurn(request) {
-    if (closing) return { turnId: null, steered: false, cancelled: true };
+    const cancelled = () =>
+      closing ||
+      (request.canStart && !request.canStart()) ||
+      (request.expectedAccountId !== undefined && accounts.selected(request.provider, projectOfKey(request.chatId)) !== request.expectedAccountId);
+    if (cancelled()) return { turnId: null, steered: false, cancelled: true };
     const permissionMode = request.permissionMode ?? agents.permissionMode(request.chatId, "ask");
     if (permissionMode !== "full") await advisors?.stopExecution(request.chatId);
     else advisors?.resumeExecution(request.chatId);
@@ -1384,17 +1403,20 @@ function createRuntime(options) {
     // expandSkills: false (the review demo) sends `/skill` as typed: the skills on this Mac are the owner's own.
     const prompt = options.expandSkills === false ? request.prompt : await expandSkillPrompt(request.cwd, request.prompt);
     const cli = agents.activeAccount(request.chatId, request.provider) ?? (await agentCli(request.provider, projectOfKey(request.chatId)));
+    if (cancelled() || (request.expectedAccountId !== undefined && cli.accountId !== request.expectedAccountId))
+      return { turnId: null, steered: false, cancelled: true };
     // A CLI that is missing, too old or doesn't start fails the turn like any other failure, with its own message.
     if (cli.problem) {
       await chats.receive(request.chatId, failedWith(cli.problem));
       return { turnId: null, steered: false };
     }
     // A new worktree's first turn waits for its setup command; one that failed tells the agent, one that was stopped stops the turn.
-    if (closing) return { turnId: null, steered: false, cancelled: true };
+    if (cancelled()) return { turnId: null, steered: false, cancelled: true };
     const setupNotes = [];
     for (const cwd of request.workspaceRoots ?? [request.cwd]) {
       const setup = await worktreeSetups.beforeTurn(request.chatId, cwd);
-      if (closing || setup.cancelled) {
+      if (cancelled() || setup.cancelled) {
+        if (request.canStart) return { turnId: null, steered: false, cancelled: true };
         await chats.receive(request.chatId, { type: "turn-cancelled" });
         return { turnId: null, steered: false, cancelled: true };
       }
@@ -1413,7 +1435,8 @@ function createRuntime(options) {
     const mentions = await chatMentionsContext(request, (key) => scopeStates.get(key)).catch(() => "");
     const text = [prompt, ...setupNotes, ...milagreNotes, context, mentions, reports?.text].filter(Boolean).join("\n\n");
     try {
-      if (closing) {
+      if (cancelled()) {
+        if (request.canStart) return { turnId: null, steered: false, cancelled: true };
         await chats.receive(request.chatId, { type: "turn-cancelled" });
         return { turnId: null, steered: false, cancelled: true };
       }
@@ -1426,6 +1449,7 @@ function createRuntime(options) {
         harness: cli.harness,
         args: cli.args,
         accountId: cli.accountId,
+        ...(request.expectedAccountId !== undefined ? { canStart: () => !cancelled() } : {}),
       });
       if (started?.turnId) await reports?.delivered();
       // A start that began no turn didn't tell the agent: the notes wait for the next one.
@@ -1440,6 +1464,7 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
+    ...(options.limitResume?.now ? { now: options.limitResume.now } : {}),
     contextSettings: () => contextSettings.read(),
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
@@ -1920,6 +1945,7 @@ function createRuntime(options) {
   // Chat's queued advisor work and their processes, and held `chat:patch` past its deadline on a busy Mac.
   async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
     if (!scopeStates.has(projectPath)) return;
+    await chats.cancelLimitResume(projectPath, sessionId);
     const chatId = `${projectPath}#${sessionId}`;
     const stopping = stopChatWork(chatId);
     stopping.catch(() => {});
@@ -2135,6 +2161,7 @@ function createRuntime(options) {
   // on the same session, which reads its MCP servers, skills and sign-in again.
   commands.handle("chat:reload", async (_event, chatId) => {
     await existingChat("reloading it")(chatId);
+    await chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
     const state = await scopeStates.get(projectOfKey(chatId));
     const sessionId = sessionIdFromKey(chatId);
     // Background work runs in the agent process Reload ends: the Chat reloads once it finishes (T3 #16000).
@@ -2167,6 +2194,8 @@ function createRuntime(options) {
 
   async function stopChat(chatId) {
     chatSecrets?.cancel(chatId);
+    const cancellingResume = chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
+    void track(() => cancellingResume, background).catch((error) => console.warn("Milagre couldn't save a cancelled continuation:", error.message));
     // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
     await linked.stop({ chatKey: chatId });
     await advisorDelivery.stop(chatId);
@@ -2747,8 +2776,28 @@ function createRuntime(options) {
     return (await resolveProject(cwd)).path;
   }
   commands.handle("accounts:scopes", () => accountScopes());
-  function assignAccount(key, provider, id) {
-    const pending = accountMutation.then(async () => accounts.assign(await validateAccountScope(key), provider, id));
+  function assignAccount(key, provider, id, { canAssign, preserveChat } = {}) {
+    // Fence pending and already accepted continuations before any awaited account preparation.
+    const invalidating = scopeStates.has(key)
+      ? scopeStates.get(key).then((state) =>
+          Promise.all(
+            Object.values(state.sessions)
+              .filter(
+                (session) =>
+                  chatKey(key, session.id) !== preserveChat && (session.limitTurn?.provider === provider || session.limitResume?.provider === provider),
+              )
+              .map((session) => chats.cancelLimitResume(key, session.id)),
+          ),
+        )
+      : Promise.resolve();
+    for (const chatId of chats.limitResumeGenerations.keys())
+      if (chatId !== preserveChat && projectOfKey(chatId) === key) chats.invalidateLimitResume(key, sessionIdFromKey(chatId));
+    const pending = accountMutation.then(async () => {
+      await invalidating;
+      const validated = await validateAccountScope(key);
+      if (canAssign && !canAssign()) return null;
+      return accounts.assign(validated, provider, id);
+    });
     accountMutation = pending.catch(() => {});
     return pending;
   }
@@ -2770,6 +2819,49 @@ function createRuntime(options) {
   });
   commands.handle("limits:auto-switch:read", () => ({ autoSwitch: limitSwitch.autoSwitch() }));
   commands.handle("limits:auto-switch:save", (_event, value) => ({ autoSwitch: limitSwitch.setAutoSwitch(value === true) }));
+  limitResume = createLimitResume({
+    ...options.limitResume,
+    chats,
+    settings: limitSwitch,
+    scopes: async () => {
+      await environmentReady;
+      const registry = await projectRegistry().snapshot();
+      return [
+        ...new Set([
+          ...registry.projects.map((project) => project.path),
+          ...(await chatsHomeEntries()).map((project) => project.path),
+          ...(registry.projectGroups ?? []).map((link) => scopeKey({ kind: "link", linkId: link.id })),
+          ...scopeStates.projects(),
+        ]),
+      ];
+    },
+    readState: (key) => (isLinkScopeKey(key) ? scopeStates.get(key) : projectStateReadOnly(key)),
+    prepareScope: async (key) => {
+      await environmentReady;
+      if (bots && !bots.takesTurns(key)) return false;
+      if (!isLinkScopeKey(key)) await ownProject(key);
+      await scopeStates.get(key);
+    },
+    accountId: async (key, provider) => {
+      await environmentReady;
+      return accounts.selected(provider, key);
+    },
+  });
+  commands.handle("limits:resume-at-reset:read", () => ({ resumeAtReset: limitSwitch.resumeAtReset() }));
+  commands.handle("limits:resume-at-reset:save", (_event, value) => ({ resumeAtReset: limitSwitch.setResumeAtReset(value === true) }));
+  function validateLimitChat(key, sessionId) {
+    if (!scopeStates.has(key) || !Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Open this Chat before changing its continuation.");
+  }
+  commands.handle("chat:limit-resume", (_event, key, sessionId, sourceMessageId) => {
+    validateLimitChat(key, sessionId);
+    if (!Number.isSafeInteger(sourceMessageId) || sourceMessageId < 1) throw new Error("Choose a usage-limited reply.");
+    return limitResume.schedule(key, sessionId, sourceMessageId);
+  });
+  commands.handle("chat:limit-resume:cancel", (_event, key, sessionId, sendId) => {
+    validateLimitChat(key, sessionId);
+    if (typeof sendId !== "string" || !sendId) throw new Error("Choose a pending continuation.");
+    return chats.cancelLimitResume(key, sessionId, sendId);
+  });
   commands.handle("project:registry", async () => withoutHomes(await projectRegistry().list()));
   commands.handle("project:position", (_event, id, position) => projectRegistry().setPosition(id, position));
   commands.handle("canvas:snapshot", async () => {
@@ -3173,6 +3265,7 @@ function createRuntime(options) {
   // `base`, the text the profile opened, is optional: without it the save goes through as before.
   commands.handle("bots:memory:save", (_event, id, text, base) => bots.saveMemory(String(id), String(text ?? ""), base == null ? undefined : String(base)));
   void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));
+  limitResume.start();
 
   const sweepUploads = () =>
     track(async () => {
@@ -3197,11 +3290,14 @@ function createRuntime(options) {
     chatSecrets?.close();
     void doneSweep.stop();
     closing = true;
+    for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");
     // A comment already on its way goes back to its queue before the rest closes.
     const routinesStopped = routines.stop();
+    const limitResumeStopped = limitResume.stop();
     linked.suspend();
     closed ??= (async () => {
       await routinesStopped;
+      await limitResumeStopped;
       await localMcp.close();
       await advisorDelivery.close();
       await advisors.close();

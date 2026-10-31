@@ -39,10 +39,18 @@ const accountSets = {
 window.switchCalls = [];
 window.accountsOpened = 0;
 window.autoSaves = [];
+window.resumeSaves = [];
+window.resumeCalls = [];
+window.failResume = false;
 window.milagre = Object.freeze({
   listEditors: async () => [],
   listAccounts: async () => ({ providers: [{ provider: "claude", selectedId: "default", accounts: [account("default")] }] }),
   accountAction: async () => ({ providers: [] }),
+  readLimitResumeAtReset: async () => {
+    if (!["settings", "resume", "reset", "queued", "unknown-reset", "remote-resume"].includes(scenario)) throw new Error("Older host");
+    return { resumeAtReset: true };
+  },
+  saveLimitResumeAtReset: async (value) => (window.resumeSaves.push(value), { resumeAtReset: value }),
   readLimitAutoSwitch: async () => ({ autoSwitch: false }),
   saveLimitAutoSwitch: async (value) => (window.autoSaves.push(value), { autoSwitch: value }),
   listRecentProjects: async () => [],
@@ -50,6 +58,13 @@ window.milagre = Object.freeze({
 });
 const bridge = {
   ...window.milagre,
+  scheduleLimitResume: async (...args) => {
+    window.resumeCalls.push(["schedule", ...args]);
+    if (window.failResume) throw new Error("Could not schedule this continuation");
+    window.setPending({ at: future, sourceMessageId: 2, sendId: "schedule-2" });
+    return true;
+  },
+  cancelLimitResume: async (...args) => { window.resumeCalls.push(["cancel", ...args]); window.setPending(undefined); return true; },
   getProjectAccounts: async (scopeKey) => ({
     scopeKey,
     providers: [{ provider: "claude", accountId: null, effectiveId: "default", defaultId: "default", accounts: accountSets[scenario] ?? accountSets.running }],
@@ -61,12 +76,18 @@ const bridge = {
     return { continued: true, label: "work@example.com" };
   },
 };
-const limited = { id: 2, session_id: 7, role: "assistant", body: "You've hit your session limit · resets 12:10pm", outcome: "failed", context: { kind: "limit", provider: "claude", accountId: "default", resetsAt: future } };
+const limited = { id: 2, session_id: 7, role: "assistant", body: "You've hit your session limit · resets 12:10pm", outcome: "failed", context: { kind: "limit", provider: "claude", accountId: "default", resetsAt: scenario === "unknown-reset" ? undefined : future } };
 function Fixture() {
+  const [pending, setPending] = useState(undefined);
+  window.setPending = setPending;
   const messages = [
     { id: 1, session_id: 7, context: null, role: "user", body: "Wire up the invoices export" },
     limited,
     ...(scenario === "older" ? [{ id: 3, session_id: 7, context: null, role: "user", body: "Try again" }] : []),
+    ...(scenario === "reset" ? [
+      { id: 3, session_id: 7, role: "user", body: "Continued after the usage limit reset", context: { kind: "limit-reset" } },
+      { id: 4, session_id: 7, role: "assistant", body: "The export is finished", outcome: "completed", context: null },
+    ] : []),
     ...(scenario === "continued"
       ? [
           { id: 3, session_id: 7, role: "user", body: "Switched to work@example.com after the usage limit", context: { kind: "account-switch", provider: "claude", label: "work@example.com" } },
@@ -75,8 +96,10 @@ function Fixture() {
       : []),
   ];
   return <div style={{ height: "100%", padding: 12 }}>
-    <BridgeContext.Provider value={bridge}><ScopeContext.Provider value="/fixture">
+    <BridgeContext.Provider value={bridge}><ScopeContext.Provider value={scenario === "remote-resume" ? "peer|/fixture" : "/fixture"}>
       <ChatComposer messages={messages}
+        limitSourceMessageId={["resume", "queued", "unknown-reset", "remote-resume"].includes(scenario) ? 2 : undefined}
+        limitPending={pending} limitResumeBlocked={scenario === "queued"}
         imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
         projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={scenario === "running"} sendBlocked={false}
         onOpenAccounts={() => { window.accountsOpened++; }}
@@ -196,7 +219,39 @@ async function browserChecks(base) {
     assert.equal(await evaluate("window.accountsOpened"), 1, "a new page, a new count");
     await screenshot("all-limited");
 
-    // Accounts > Usage limits: the Mac-owned switch reads off, saves through the bridge.
+    // Schedule and cancel use the exact source and schedule identity; a failed action stays retryable.
+    await open("resume");
+    const resume = `${card}.querySelector("[data-limit-resume-action]")`;
+    await waitFor(`!!${resume}`);
+    assert.match(await evaluate(`${resume}.textContent`), /Continue at/);
+    await evaluate("window.failResume = true");
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${card}.textContent.includes("Could not schedule this continuation")`);
+    await evaluate("window.failResume = false");
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${resume}.textContent === "Cancel"`);
+    assert.match(await evaluate(`${card}.textContent`), /Continues at/);
+    await screenshot("reset-scheduled");
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${resume}.textContent.startsWith("Continue at")`);
+    assert.deepEqual(await evaluate("window.resumeCalls"), [
+      ["schedule", "/fixture", 7, 2],
+      ["schedule", "/fixture", 7, 2],
+      ["cancel", "/fixture", 7, "schedule-2"],
+    ]);
+    await open("remote-resume");
+    await waitFor(`!!${resume}`);
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${resume}.textContent === "Cancel"`);
+    assert.deepEqual(await evaluate("window.resumeCalls[0]"), ["schedule", "peer|/fixture", 7, 2]);
+    for (const scenario of ["queued", "unknown-reset"]) {
+      await open(scenario);
+      assert.equal(await evaluate(`!!${resume}`), false);
+    }
+    await open("reset");
+    assert.equal(await evaluate('document.querySelector("[data-limit-reset-divider]").textContent'), "Continued after the usage limit reset");
+
+    // Accounts > Usage limits: the Mac-owned checkbox reads off, saves through the bridge.
     await window.loadURL(`${base}?scenario=settings`);
     const toggle =
       'document.querySelector(\'[role="checkbox"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
@@ -206,6 +261,15 @@ async function browserChecks(base) {
     await waitFor("JSON.stringify(window.autoSaves) === '[true]'");
     await waitFor(`${toggle}.getAttribute("aria-checked") === "true"`);
     await screenshot("setting-on");
+    const resumeToggle = 'document.querySelector(\'[role="checkbox"][aria-label="Continue when the limit resets"]\')';
+    await waitFor(`!!${resumeToggle}`);
+    assert.equal(await evaluate(`${resumeToggle}.getAttribute("aria-checked")`), "true");
+    await evaluate(`${resumeToggle}.click()`);
+    await waitFor("JSON.stringify(window.resumeSaves) === '[false]'");
+    await waitFor(`${resumeToggle}.getAttribute("aria-checked") === "false"`);
+    await evaluate(`${resumeToggle}.click()`);
+    await waitFor("JSON.stringify(window.resumeSaves) === '[false,true]'");
+    await waitFor(`${resumeToggle}.getAttribute("aria-checked") === "true"`);
 
     assert.deepEqual(errors, []);
     console.log(

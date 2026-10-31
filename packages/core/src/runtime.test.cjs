@@ -2039,7 +2039,9 @@ test("secret submissions bypass provider answers, summaries, persistence and rep
   const saved = JSON.parse(await result);
   assert.equal(await fs.readFile(saved.path, "utf8"), sentinel);
   assert.equal(await runtime.invoke("agent:answer-question", [args]), false);
+  const cancelled = tool.run({ title: "Another token", description: "This request will be stopped." });
   await runtime.invoke("agent:interrupt", [chatId]);
+  assert.match(await cancelled, /cancelled/);
   const snapshot = await runtime.invoke("project:snapshot", [project]);
   assert.ok(!JSON.stringify(snapshot).includes(sentinel));
   assert.ok(!JSON.stringify(events).includes(sentinel));

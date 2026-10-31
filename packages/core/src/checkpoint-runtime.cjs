@@ -80,6 +80,7 @@ function registerCheckpoints(commands, { directory, states, busy, ready, note = 
       }
     },
     finish: (chatId) => store.finish(chatId),
+    discard: (chatId, messageId) => store.discard(chatId, messageId),
   };
 }
 module.exports = { agentRestoreNote, registerCheckpoints };
