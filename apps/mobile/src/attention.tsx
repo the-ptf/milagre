@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
+import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { BlurView } from "@sbaiahmed1/react-native-blur";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
@@ -8,6 +9,7 @@ import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel } from "@milagre/shared/attention";
 import { readAttentionButton, saveAttentionButton } from "./hosts-native";
 import { useSession } from "./session";
+import { radius } from "./design-tokens";
 import { Icon } from "./icons";
 import { PullDown } from "./ui";
 import { useTheme } from "./theme";
@@ -102,7 +104,7 @@ export function AttentionDot() {
 
 /** Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first. */
 export function AttentionPill({ currentChat, visibleChat, bottom }: { currentChat?: string; visibleChat?: string; bottom?: number }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const { client, recent, cachedProject, snapshot } = useSession();
   const insets = useSafeAreaInsets();
   const [enabled] = useAttentionButton();
@@ -139,11 +141,19 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
         gap: 6,
         minHeight: 32,
         paddingHorizontal: 12,
-        borderRadius: 16,
+        borderRadius: radius.full,
         borderCurve: "continuous",
-        backgroundColor: colors.orangeTint,
+        overflow: "hidden",
       }}
     >
+      <BlurView
+        pointerEvents="none"
+        blurType={scheme === "dark" ? "systemThickMaterialDark" : "systemThickMaterialLight"}
+        blurAmount={32}
+        reducedTransparencyFallbackColor={colors.surface}
+        style={StyleSheet.absoluteFill}
+      />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.orangeTint }]} />
       <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: 13, fontWeight: "600", maxWidth: 220 }}>
         {label}
       </Text>
@@ -158,7 +168,8 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
         accessibilityRole="button"
         accessibilityLabel={`${label}. Open the Chat.`}
         onPress={() => open(first)}
-        style={({ pressed }) => [place, { opacity: pressed ? 0.6 : 1 }]}
+        hitSlop={{ top: 6, bottom: 6 }}
+        style={({ pressed }) => [place, pressed && { transform: [{ scale: 0.97 }] }]}
       >
         {pill}
       </Pressable>

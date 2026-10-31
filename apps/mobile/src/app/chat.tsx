@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -20,7 +20,7 @@ import {
   ArrowDown01Icon,
   ArrowUp01Icon,
   BubbleChatIcon,
-  BrowserIcon,
+  Globe02Icon,
   GitPullRequestIcon,
   Cancel01Icon,
   File01Icon,
@@ -113,9 +113,6 @@ import { Approval, ActivityQuestions } from "../questions";
 import { QueuedMessages } from "../queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
-// Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
-import LINEAR_MARK from "../../assets/linear-mark.png";
-import PR_TOOLBAR_ICON from "../../assets/pr-toolbar.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplit, useSplitLayout } from "../split-context";
@@ -124,7 +121,8 @@ import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
-import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
+import { HeaderAction, HeaderActionGroup } from "../primitives/header-action-group";
+import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -193,7 +191,7 @@ const NO_CHECKPOINTS: CheckpointApi = {
 // the Browser, PR and ⋯ buttons sharing a pill, and the clear space beside the title. The title is never wider than 230.
 const HEADER_EDGE = 16;
 const HEADER_BUTTON = 44;
-const HEADER_BUTTON_PITCH = 60;
+const HEADER_BUTTON_PITCH = 44;
 const HEADER_GAP = 12;
 const HEADER_TITLE_MAX = 230;
 /** The widest the header title may be on a screen `screenWidth` wide: what is left between the sidebar button and the toolbar group. */
@@ -1859,107 +1857,7 @@ function ChatPane({
       </HeaderTitleBox>
     </>
   );
-  const more = (
-    <Stack.Toolbar placement="right">
-      {browserShortcut &&
-        (Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button
-            icon="globe"
-            accessibilityLabel={browserShortcut.accessibilityLabel}
-            onPress={() => {
-              touchPane(secondary ? "beside" : "routed");
-              browserShortcut.onPress();
-            }}
-          />
-        ) : (
-          <Stack.Toolbar.View>
-            <HeaderButton
-              label={browserShortcut.accessibilityLabel}
-              icon={BrowserIcon}
-              onPress={() => {
-                touchPane(secondary ? "beside" : "routed");
-                browserShortcut.onPress();
-              }}
-            />
-          </Stack.Toolbar.View>
-        ))}
-      {pr &&
-        (Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button
-            icon={PR_TOOLBAR_ICON}
-            iconRenderingMode="template"
-            accessibilityLabel={`Pull request #${pr.number}`}
-            onPress={() => headerAction("pr")}
-          />
-        ) : (
-          <Stack.Toolbar.View>
-            <HeaderButton label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={28} onPress={() => headerAction("pr")} />
-          </Stack.Toolbar.View>
-        ))}
-      <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
-        {/* A Chat without a Project has no Git changes to review, as on desktop. */}
-        {!chatsHomeOpen && (
-          <Stack.Toolbar.MenuAction
-            icon="doc.text.magnifyingglass"
-            subtitle={diff ? `+${diff.added} −${diff.removed}` : undefined}
-            onPress={() => headerAction("changes")}
-          >
-            View changes
-          </Stack.Toolbar.MenuAction>
-        )}
-        {chat && (
-          <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={!!run} onPress={() => headerAction("undo")}>
-            Undo changes
-          </Stack.Toolbar.MenuAction>
-        )}
-        {ownRoutine && (
-          <Stack.Toolbar.MenuAction icon={ownHeartbeat ? "waveform.path.ecg" : "repeat"} onPress={() => headerAction("routine")}>
-            {ownHeartbeat ? "Heartbeat" : "Routine"}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {linearIssue && (
-          <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" onPress={() => openLinearIssue(linearIssue.url)}>
-            {issueChipLabel(linearIssue)}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {linkHint && (
-          <Stack.Toolbar.MenuAction icon="info.circle" disabled>
-            {linkHint}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {agents.length > 0 && (
-          <Stack.Toolbar.MenuAction icon="person.2" subtitle={String(agents.length)} onPress={() => headerAction("agents")}>
-            Subagents
-          </Stack.Toolbar.MenuAction>
-        )}
-        {chat && (
-          <Stack.Toolbar.Menu inline>
-            <Stack.Toolbar.MenuAction icon="pencil" onPress={() => headerAction("rename")}>
-              Rename
-            </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.MenuAction icon="arrow.clockwise" disabled={busy} onPress={() => headerAction("reload")}>
-              Reload chat
-            </Stack.Toolbar.MenuAction>
-            {canLink &&
-              (storedIssue ? (
-                <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" disabled={busy} onPress={() => void unlinkWorktreeIssue()}>
-                  Unlink issue
-                </Stack.Toolbar.MenuAction>
-              ) : (
-                <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" disabled={busy} onPress={linkIssue}>
-                  Link issue…
-                </Stack.Toolbar.MenuAction>
-              ))}
-            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "trash"} disabled={busy} onPress={() => headerAction("archive")}>
-              {chat.archived ? "Restore" : "Delete"}
-            </Stack.Toolbar.MenuAction>
-          </Stack.Toolbar.Menu>
-        )}
-      </Stack.Toolbar.Menu>
-    </Stack.Toolbar>
-  );
-  // Two Chats side by side share one native header, so each draws its own: title, the ⋯ menu (the header's, as a
-  // pull-down) and a close button. The routed one keeps the sidebar button at its left.
+  // Both header layouts use the same actions and one glass capsule.
   const paneMenu: MenuSection[] = [
     {
       items: [
@@ -1971,6 +1869,7 @@ function ChatPane({
         ...(chat ? [{ id: "undo", title: "Undo changes", systemImage: "arrow.uturn.backward", disabled: !!run }] : []),
         ...(ownRoutine ? [{ id: "routine", title: ownHeartbeat ? "Heartbeat" : "Routine", systemImage: ownHeartbeat ? "waveform.path.ecg" : "repeat" }] : []),
         ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
+        ...(linkHint ? [{ id: "link-hint", title: linkHint, systemImage: "info.circle", disabled: true }] : []),
         ...(agents.length > 0 ? [{ id: "agents", title: "Subagents", systemImage: "person.2", subtitle: String(agents.length) }] : []),
       ],
     },
@@ -2002,6 +1901,29 @@ function ChatPane({
         ]
       : []),
   ];
+  const headerActions = (
+    <HeaderActionGroup>
+      {browserShortcut && (
+        <HeaderAction
+          label={browserShortcut.accessibilityLabel}
+          icon={Globe02Icon}
+          onPress={() => {
+            touchPane(secondary ? "beside" : "routed");
+            browserShortcut.onPress();
+          }}
+        />
+      )}
+      {pr && <HeaderAction label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={24} onPress={() => headerAction("pr")} />}
+      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
+        <HeaderAction label="Chat actions" icon={MoreHorizontalIcon} />
+      </PullDown>
+    </HeaderActionGroup>
+  );
+  const more = (
+    <Stack.Toolbar placement="right">
+      <Stack.Toolbar.View hidesSharedBackground>{headerActions}</Stack.Toolbar.View>
+    </Stack.Toolbar>
+  );
   const paneHeader = paired ? (
     <View
       pointerEvents="box-none"
@@ -2021,29 +1943,7 @@ function ChatPane({
       <View pointerEvents="box-none" style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
         {startingChat ? null : header}
       </View>
-      {browserShortcut && (
-        <GlassIconButton
-          label={browserShortcut.accessibilityLabel}
-          systemImage="globe"
-          icon={BrowserIcon}
-          onPress={() => {
-            touchPane(secondary ? "beside" : "routed");
-            browserShortcut.onPress();
-          }}
-        />
-      )}
-      {pr && (
-        <GlassIconButton
-          label={`Pull request #${pr.number}`}
-          systemImage="arrow.triangle.pull"
-          icon={GitPullRequestIcon}
-          iconSize={28}
-          onPress={() => headerAction("pr")}
-        />
-      )}
-      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
-        <GlassIconButton label="Chat actions" systemImage="ellipsis" icon={MoreHorizontalIcon} onPress={() => {}} />
-      </PullDown>
+      {headerActions}
       <GlassIconButton label="Close Chat" systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
     </View>
   ) : null;
