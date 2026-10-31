@@ -1,3 +1,4 @@
+import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
 import type { DoneSettings } from "@milagre/shared/done";
@@ -92,7 +93,7 @@ import type {
 } from "./model";
 
 import type { WorktreeStatus } from "./lib/archive";
-import type { PullRequest } from "./model";
+import type { PullRequest, PullRequestSnapshot } from "./model";
 
 /**
  * What `updateRoutine` may change. `null` drops `maxRuns` or `expiresAt` (a heartbeat keeps at least one), and the provider,
@@ -274,9 +275,14 @@ export type CliProgress =
   | { provider: ModelProvider; phase: "extract" | "validate" | "done" };
 
 export type MilagreBridge = {
-  createArtifactPreview: (html: string) => Promise<string>;
+  /** `source` is the page's Chat and files, which its `assets/<name>` references load from that Chat's computer. */
+  createArtifactPreview: (html: string, source?: { chatId: string; assets: import("@milagre/shared/artifact").ArtifactAsset[] }) => Promise<string>;
   releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
+  /** Experimental: agents operate desktop apps on this computer (Settings › Experimental). */
+  computerUse: import("@milagre/shared/computer-use").ComputerUseApi;
+  /** Experimental: devices leased from a Simlock pool (Settings › Experimental). */
+  simlock: import("@milagre/shared/simulator").SimlockApi;
   browsers: BrowserApi;
   pageComments: import("@milagre/shared/page-comments").PageCommentsApi;
   terminals: TerminalApi;
@@ -422,6 +428,9 @@ export type MilagreBridge = {
   /** Opens this Mac's keybindings.json in the default editor. Only on this Mac's own bridge: a paired computer's refuses. */
   openKeybindingsFile: () => Promise<void>;
   /** Settings › Babysit PRs: the one global configuration every Chat's babysitting follows. Kept by the host, so a paired desktop or the phone edits it too. */
+  readContextSettings: () => Promise<ContextSettings>;
+  saveContextSettings: (patch: Partial<ContextSettings>) => Promise<ContextSettings>;
+  onContextSettings: (callback: (value: ContextSettings) => void) => () => void;
   readBabysitSettings: () => Promise<BabysitSettings>;
   /** Merges the patch over the stored settings and returns the normalized result. */
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
@@ -479,6 +488,13 @@ export type MilagreBridge = {
   readPullRequest: (worktreePath: string) => Promise<PullRequest | null>;
   /** PRs a chat created or merged, by URL or number, looked up from its folder; null where one can't be read. */
   readPullRequests: (worktreePath: string, refs: string[]) => Promise<Array<PullRequest | null>>;
+  /**
+   * Every PR of a Project's Worktrees (by folder) and Chats (by folder, then ref) from the host's last poll, without
+   * waiting on GitHub. `pending` when some were never read: they arrive with `onPullRequestsChanged`.
+   */
+  readPullRequestSnapshot: (projectPath: string) => Promise<PullRequestSnapshot>;
+  /** A Project's PRs changed on the host's poll; read the snapshot again. */
+  onPullRequestsChanged: (callback: (change: { projectPath: string }) => void) => () => void;
   /** Opens a project or worktree folder in the file manager; rejects for any other folder. */
   revealInFolder: (folder: string) => Promise<void>;
   /** Puts a chat image on the clipboard; `file` is its absolute path, or a pasted image's data URL. */
@@ -622,6 +638,9 @@ export type MilagreBridge = {
   readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
   saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
+  readDeviceNotesEnabled: () => Promise<{ enabled: boolean }>;
+  saveDeviceNotesEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onDeviceNotesEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
   /** An app shortcut (⌘⇧ plus a letter, or ⌘,) pressed in any frame, forwarded by the main process. */
   onAppShortcut: (callback: (shortcut: { key: string; code?: string; meta: boolean; control: boolean; alt: boolean; shift: boolean }) => void) => () => void;
@@ -756,6 +775,10 @@ export type MilagreBridge = {
   /** Whether the Mac stays awake while Milagre runs (the screen can still sleep; plugged in, also with the lid closed). */
   setKeepAwake: (enabled: boolean) => Promise<void>;
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
+  /** The Usage page: tokens and estimated cost from this computer's Claude Code and Codex transcripts. */
+  readTokenUsage: (request: import("@milagre/shared/token-usage").TokenUsageRequest) => Promise<import("@milagre/shared/token-usage").TokenUsageReport>;
+  /** A transcript scan or a price refresh changed what readTokenUsage returns. */
+  onTokenUsageChanged: (callback: () => void) => () => void;
   /** Whether a chat that waits on the user while Milagre is in the background gets a system notification. */
   setNotifyWhenWaiting: (on: boolean) => Promise<void>;
   /** The notification chime (Settings › Notifications): a chat's notification goes silent and the window plays it (onPlayChime). */
@@ -817,12 +840,20 @@ declare global {
       onKey: (callback: (request: { from: number; key: "l" | "r" | "w" }) => void) => () => void;
       /** The agent opened a page in a Chat's Browser panel (browser_open). */
       onOpenUrl?: (callback: (request: { chatKey: string; url: string }) => void) => () => void;
-      /** A page with webContents id `from` started or stopped being viewed from the phone or the pill. */
-      onViewed?: (callback: (request: { from: number; viewed: boolean }) => void) => () => void;
+      /**
+       * A page with webContents id `from` started or stopped being viewed from the phone or another computer, or its
+       * viewer's size changed: `viewport` is the size it lays out at while parked, null for its own.
+       */
+      onViewed?: (callback: (request: { from: number; viewed: boolean; viewport?: { width: number; height: number } | null }) => void) => () => void;
       /** The panel's pages in this window, each webview's webContents id and its Chat, for the host's browser service. */
       setPages: (pages: { contentsId: number; chatKey: string }[]) => Promise<void>;
       /** A PNG data URL of part of the page with webContents id `contentsId`, in its CSS pixels; null if it is gone. */
       capture: (contentsId: number, rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>;
+      /**
+       * The session a Chat on another computer opens its pages in, with that computer as its proxy: the page draws here
+       * and reaches localhost and the web from there. Rejects while the computer can't be reached.
+       */
+      remotePartition?: (chatKey: string) => Promise<string>;
     };
     milagre: MilagreBridge & {
       /** The same calls on a paired computer, carried there by main; this Mac's own actions refuse with "Not available on a remote computer". */
@@ -833,17 +864,27 @@ declare global {
       onComputerAddPending: (callback: () => void) => () => void;
       /** Every computer's runtime events. */
       onComputerEvent: (callback: (event: ComputerEvent) => void) => () => void;
-      /** Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM; the model downloads on first use. */
+      /**
+       * Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM. Each model (ids from WHISPER_MODELS.desktop)
+       * downloads once; `onModel` reports every change to one, its download progress included, to every window.
+       */
       dictation: {
-        status: () => Promise<{ ready: boolean; size: number }>;
-        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
-        onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
+        status: () => Promise<DictationModelState[]>;
+        download: (id: string) => Promise<void>;
+        cancel: (id: string) => Promise<void>;
+        remove: (id: string) => Promise<void>;
+        prepare: (id: string) => Promise<void>;
+        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string; model: string }) => Promise<{ text: string }>;
+        onModel: (callback: (state: DictationModelState) => void) => () => void;
         /** The system's microphone privacy settings, where a refused microphone is allowed again. */
         openSettings: () => Promise<void>;
       };
     };
   }
 }
+
+/** A speech model on this computer: downloaded, and how many bytes of its download in flight have arrived (null when none is). */
+export type DictationModelState = { id: string; ready: boolean; size: number; received: number | null };
 
 /** One folder of a computer's home folder, for the remote folder picker (fs:list-dirs). */
 export type DirListing = {

@@ -24,7 +24,6 @@ import {
   Delete02Icon,
   BubbleChatIcon,
   EthernetPortIcon,
-  CircleDotIcon,
   CircleIcon,
   CloudOffIcon,
   ComputerIcon,
@@ -34,7 +33,6 @@ import {
   FolderOpenIcon,
   LaptopIcon,
   GitBranchIcon,
-  GitMergeIcon,
   GitPullRequestIcon,
   Link04Icon,
   LinkSquare02Icon,
@@ -60,7 +58,7 @@ import { rowPullRequests } from "@/lib/chat-pull-requests";
 import { useEditors } from "@/lib/editors";
 import type { AgentPort, DiffStat, PullRequest } from "@/model";
 import { portComputer, portUrl, unreachablePortReason } from "@/lib/ports";
-import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr-blockers";
+import { prLook } from "@/lib/pr-look";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
 import { chatMarkTone } from "@milagre/shared/chats";
@@ -81,8 +79,6 @@ function useMinute(on: boolean) {
 }
 
 const markToneClass = { accent: "text-accent", orange: "text-orange-ink", red: "text-red-ink", ink3: "text-ink-3" } as const;
-
-const toneClass = { red: "text-red-ink", orange: "text-orange-ink" } as const;
 
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -115,6 +111,9 @@ type ChatDetails = {
 
 /** The computer a row's chat lives on, shown on its second line once there are two or more computers. `local`: this Mac. */
 export type RowComputer = { name: string; offline: boolean; local?: boolean };
+
+/** A computer's icon: a cloud when it is offline, a desktop for a Studio, mini or iMac, a laptop otherwise. */
+export const computerIcon = (computer: RowComputer) => (computer.offline ? CloudOffIcon : /studio|mini|imac/i.test(computer.name) ? ComputerIcon : LaptopIcon);
 
 export type SidebarRecent = {
   id: string;
@@ -164,6 +163,8 @@ export type ChatRowActions = {
   /** Checks the Chat's Worktree to choose its deletion cleanup mode. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
+  /** Calls off a deletion still waiting out its toast's Undo. */
+  onUndoArchive?: (id: string) => void;
   /** Links the chat's Worktree to a Linear issue by key. */
   onLinkIssue?: (id: string, key: string, workspace?: string) => void;
   /** Removes the Worktree's stored Linear issue link. */
@@ -212,8 +213,8 @@ const HOVER_CARD_DELAY = 500;
 const PREFETCH_DELAY = 90;
 /** Time to cross from the row to the card before it closes, so its PR links can be clicked. */
 const HOVER_CARD_GRACE = 250;
-/** PR chips the row has room for; the rest are a count, and the hover card lists them all. */
-const ROW_PR_LIMIT = 2;
+/** One PR chip, then the rest as a count ("+3"); the hover card lists them all. */
+const ROW_PR_LIMIT = 1;
 const HOVER_CARD_WIDTH = 256;
 const MENU_WIDTH = 240;
 
@@ -508,7 +509,7 @@ function InboxLine({
       node: (
         <span data-chat-computer className={`flex min-w-0 items-center gap-1 ${computer.offline ? "text-orange-ink" : ""}`}>
           <HugeiconsIcon
-            icon={computer.offline ? CloudOffIcon : /studio|mini|imac/i.test(computer.name) ? ComputerIcon : LaptopIcon}
+            icon={computerIcon(computer)}
             size={12}
             strokeWidth={2}
             color="currentColor"
@@ -648,7 +649,7 @@ export const ChatRow = memo(function ChatRow({
   if (rowComputer)
     facts.push(
       <span key="computer" data-chat-computer className="flex min-w-0 shrink items-center gap-1 truncate">
-        <HugeiconsIcon icon={LaptopIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+        <HugeiconsIcon icon={computerIcon(rowComputer)} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
         {rowComputer.offline ? `${rowComputer.name}, offline` : rowComputer.name}
       </span>,
     );
@@ -1079,19 +1080,6 @@ export const ChatRow = memo(function ChatRow({
   );
 });
 
-/** Merged is purple, a blocked PR takes its first blocker's tone, running CI is orange like GitHub's own dot, other open PRs are green. */
-function prTone(pr: PullRequest) {
-  return { purple: "text-purple-500", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" }[pullRequestPresentation(pr).tone];
-}
-
-function prIcon(pr: PullRequest) {
-  return { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon }[pullRequestPresentation(pr).icon];
-}
-
-const isReadyToMerge = (pr: PullRequest) => pullRequestPresentation(pr).ready;
-/** CI is still running and nothing else blocks the PR; a failure is a blocker and shows as one. */
-const isChecking = (pr: PullRequest) => pullRequestPresentation(pr).checking;
-
 /** One PR under the chat's title. Only a chat's single PR has room to spell out its blocker or "Ready". */
 function LinearIssueChip({ issue, inbox = false }: { issue: LinearIssue; inbox?: boolean }) {
   return (
@@ -1114,29 +1102,16 @@ function LinearIssueChip({ issue, inbox = false }: { issue: LinearIssue; inbox?:
 
 function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullRequest; item: SidebarRecent; labelled: boolean; inbox?: boolean }) {
   const openInPanel = useContext(PullRequestOpenContext);
-  const blocker = pullRequestBlockers(pr)[0];
-  const readyToMerge = isReadyToMerge(pr);
-  const checking = isChecking(pr);
+  const look = prLook(pr);
   return (
-    <Tooltip
-      label={
-        blocker
-          ? `${BLOCKERS[blocker].long} · Pull request #${pr.number}`
-          : readyToMerge
-            ? `Ready to merge · Pull request #${pr.number}`
-            : checking
-              ? `CI checks running · Pull request #${pr.number}`
-              : `${pr.state === "MERGED" ? "Merged" : "Open"} pull request #${pr.number}`
-      }
-      side="bottom"
-      className={inbox ? "pointer-events-auto shrink-0" : "min-w-0"}
-    >
+    <Tooltip label={look.description} side="bottom" className={inbox ? "pointer-events-auto shrink-0" : "min-w-0"}>
       <a
         href={pr.url}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : readyToMerge ? ", ready to merge" : checking ? ", CI running" : ""}`}
+        aria-label={`Open ${look.spoken}`}
         data-chat-pr
+        data-chat-pr-state={look.icon}
         className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "text-ink-2" : "text-ink-3"}`}
         onClick={(event) => {
           event.stopPropagation();
@@ -1144,16 +1119,14 @@ function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullReques
           if (!event.metaKey && openInPanel?.(item, pr)) event.preventDefault();
         }}
       >
-        <span aria-hidden className={`inline-flex group-hover/pr:hidden group-focus-visible/pr:hidden ${prTone(pr)}`}>
-          <HugeIcon icon={prIcon(pr)} size={12} />
+        <span aria-hidden className={`inline-flex group-hover/pr:hidden group-focus-visible/pr:hidden ${look.toneClass}`}>
+          <HugeIcon icon={look.glyph} size={12} />
         </span>
         <span aria-hidden className="hidden group-hover/pr:inline-flex group-focus-visible/pr:inline-flex">
           <HugeIcon icon={LinkSquare02Icon} size={12} />
         </span>
         <span className="truncate">#{pr.number}</span>
-        {labelled && blocker && <span className={`shrink-0 ${toneClass[BLOCKERS[blocker].tone]}`}>{BLOCKERS[blocker].short}</span>}
-        {labelled && readyToMerge && <span className="shrink-0 text-green-ink">Ready</span>}
-        {labelled && checking && <span className="shrink-0 text-orange-ink">CI running</span>}
+        {labelled && look.label && <span className={`shrink-0 ${look.toneClass}`}>{look.label}</span>}
       </a>
     </Tooltip>
   );
@@ -1264,7 +1237,7 @@ function ChatHoverCard({
         {details.pullRequests?.length ? (
           <ScrollArea data-chat-card-prs className="-mx-1 flex max-h-[148px] flex-col gap-0.5">
             {details.pullRequests.map((pr) => {
-              const blocker = pullRequestBlockers(pr)[0];
+              const look = prLook(pr);
               return (
                 <a
                   key={pr.url}
@@ -1275,16 +1248,14 @@ function ChatHoverCard({
                   onClick={onOpenLink}
                   className="flex min-w-0 items-center gap-2 rounded-[6px] px-1 py-0.5 text-ink-2 no-underline hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
                 >
-                  <span className={`flex size-4 shrink-0 items-center justify-center ${prTone(pr)}`}>
-                    <HugeIcon icon={prIcon(pr)} size={14} />
+                  <span className={`flex size-4 shrink-0 items-center justify-center ${look.toneClass}`}>
+                    <HugeIcon icon={look.glyph} size={14} />
                   </span>
                   <span className="min-w-0 flex-1 truncate leading-snug">
                     <span className="tabular-nums">#{pr.number}</span>
                     {pr.title ? ` · ${pr.title}` : ""}
                   </span>
-                  {blocker && <span className={`shrink-0 ${toneClass[BLOCKERS[blocker].tone]}`}>{BLOCKERS[blocker].short}</span>}
-                  {isReadyToMerge(pr) && <span className="shrink-0 text-green-ink">Ready to merge</span>}
-                  {isChecking(pr) && <span className="shrink-0 text-orange-ink">CI running</span>}
+                  {look.label && <span className={`shrink-0 ${look.toneClass}`}>{look.ready ? "Ready to merge" : look.label}</span>}
                 </a>
               );
             })}

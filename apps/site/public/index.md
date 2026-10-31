@@ -1,10 +1,10 @@
 # Milagre: your agents keep working. Answer them from anywhere.
 
-Milagre is a free, open-source (MIT) app for macOS and Linux that runs Claude Code, Codex and Antigravity coding agents on your computer, each Chat in its own Git worktree. When an agent needs an approval or an answer, it shows up on your desktop and in the Milagre app for iPhone and Android.
+Milagre is a free, open-source (MIT) app for macOS and Linux that runs Claude Code, Codex, Antigravity and Kiro coding agents on your computer, each Chat in its own Git worktree. When an agent needs an approval or an answer, it shows up on your desktop and in the Milagre app for iPhone and Android.
 
 ## Bring your own subscription
 
-Milagre uses the coding agents you already have, signed in with your own account: Claude Code (Anthropic), Codex (OpenAI) and Antigravity (Google). Milagre is free and open source; your provider's subscription or usage charges still apply. Want another agent? Milagre is open source: send a pull request at https://github.com/the-ptf/milagre-ade/pulls.
+Milagre uses the coding agents you already have, signed in with your own account: Claude Code (Anthropic), Codex (OpenAI), Antigravity (Google) and Kiro (AWS). Milagre is free and open source; your provider's subscription or usage charges still apply. Want another agent? Milagre is open source: send a pull request at https://github.com/the-ptf/milagre-ade/pulls.
 
 ## Design in the app
 
@@ -23,7 +23,7 @@ The same Chats follow you to iPhone and Android: answer a question, approve a co
 
 ## Questions
 
-**What do I need installed?** Milagre and at least one coding agent you are signed in to: Claude Code, Codex or Antigravity. Milagre uses that agent's login, so there is no Milagre account to create.
+**What do I need installed?** Milagre and at least one coding agent you are signed in to: Claude Code, Codex, Antigravity or Kiro. Milagre uses that agent's login, so there is no Milagre account to create.
 
 **How does my phone reach my computer?** Pair the phone app with your computer once. On the same network the two talk directly. Away from it they connect through Milagre's relay on Cloudflare, and Chat content and files are encrypted between your devices on the way.
 

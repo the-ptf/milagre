@@ -61,7 +61,7 @@ function milagreInstructions(tldrEnabled = true, workspaceInstructions = "", { s
     linksInstructions(sharedLink),
     "Linear: when you have the milagre linear_issue, linear_search and linear_file tools, Milagre is already signed in to the user's Linear workspaces. Read issues, comments and uploaded images with them, not with a Linear MCP, connector or the Linear CLI. If one says a workspace isn't connected, tell the user to add it in Milagre's Settings › Connections › Linear.",
     `Simulators: use milagre simulator_list, simulator_attach and simulator_detach to manage devices for this Chat. After choosing a simulator for mobile work, attach its exact deviceId so the user can view it. Before the first attach, read ${path.join(BUNDLED_SKILLS_DIRECTORY, "simulator", "SKILL.md")}. Discovery never attaches devices; detach leaves them running.`,
-    `Browsers: the Browser panel is the user's browser beside this Chat. Drive its pages with milagre browser_open, browser_snapshot, browser_click and the other browser_ tools; prefer it to a headless browser for the Chat's app. A Chromium browser this Chat's agent starts with a loopback DevTools port joins the Chat's Browser pill on desktop and phone by itself; one that leaves your process tree joins only after browser_attach with an id from browser_list. Before the first attach, read ${path.join(BUNDLED_SKILLS_DIRECTORY, "browser", "SKILL.md")}.`,
+    `Browsers: the Browser panel is the user's browser beside this Chat. Drive its pages with milagre browser_open, browser_snapshot, browser_click and the other browser_ tools; prefer it to a headless browser for the Chat's app. A Chromium browser this Chat's agent starts with a loopback DevTools port shows in the Chat's Browser panel on desktop and phone by itself; one that leaves your process tree joins only after browser_attach with an id from browser_list. Before the first attach, read ${path.join(BUNDLED_SKILLS_DIRECTORY, "browser", "SKILL.md")}.`,
     `Artifacts: when the user wants a page explaining something, a report or an interactive explainer, use milagre artifact_show with self-contained HTML. Each Chat has one live artifact page; later calls update that same page in place, with no variants or browsable version history. Read it with artifact_read, or find its id with artifact_list. Use Designs for UI screens, mockups and visual design work. Read the user's comments with artifact_comments; once you address one, resolve it with artifact_resolve_comment. Before creating an artifact, read ${path.join(BUNDLED_SKILLS_DIRECTORY, "artifacts", "SKILL.md")}.`,
     `Designs: when the user asks to see a UI, screen, mockup or visual design, create an editable document with milagre design_show. It has named layers for frames, text, shapes, icons and images, plus layout and color tokens. Each design_show and design_apply result includes the saved design rendered as an image, with layout warnings; check both before you reply. Set the document's width and height for the screen (390 by 844 for a phone). When the Chat covers several parts of the app, set group to the part each design belongs to (Onboarding, Settings); the canvas lays out one row per group. The Chat shows a card and a canvas for reviewing and choosing designs. The user can edit layers on desktop. On phone they request changes through Chat; there is no layer editor. Read the latest document with design_read before revising it, then use design_apply with its expectedVersion and a batch of operations on stable layer ids. A version conflict means the user or another edit changed it: read again before applying your intended edits. To offer variants, use a different id for each. Read the user's comments with artifact_comments; once you address one, resolve its id with artifact_resolve_comment and a short note. Before your first design in a Chat, read the bundled design skill at ${path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md")}: it has the document format and process. When the user names another design tool for the work (Pencil, Figma, Paper or any other MCP or app), use that tool and do not call design_show for it, even if the request also matches this one.`,
     `QA: when the user asks for QA or to test a feature, follow ${path.join(BUNDLED_SKILLS_DIRECTORY, "qa-fleet", "SKILL.md")}.`,
@@ -113,14 +113,15 @@ const RESUME_FAILED_MESSAGE =
   "Couldn't resume this chat's earlier agent session; it may have been deleted. Send your message again to continue in a fresh session.";
 
 // What a turn fails with when an agent's CLI can't run it. Each names the fix; the next message checks again.
-// Claude and Codex are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
-// instructions point at Settings, not at a shell command.
+// Claude, Codex and Kiro are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
+// instructions point at Settings, not at a shell command. Kiro's installer outside macOS is on kiro.dev.
 const INSTALL_COMMANDS =
   process.platform === "win32"
     ? { claude: "irm https://claude.ai/install.ps1 | iex", codex: "irm https://chatgpt.com/codex/install.ps1 | iex" }
     : { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh" };
-const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update" };
-const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login" };
+if (process.platform === "darwin") INSTALL_COMMANDS.kiro = "brew install --cask kiro-cli";
+const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update", kiro: "kiro-cli update" };
+const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login", kiro: "kiro-cli login" };
 const SETTINGS_ACCOUNTS = "Milagre Settings \u2192 Accounts";
 
 // A tracing log line: "2026-10-02T00:59:00.724526Z ERROR codex_core::tools::router: error=…". The prefix says
@@ -149,6 +150,7 @@ const withoutPeriod = (text) => text.replace(/\.$/, "");
 
 function missingCliMessage(name) {
   if (name === "antigravity") return `Milagre couldn't find ${cliName(name)}. Install it from ${SETTINGS_ACCOUNTS}, then send your message again.`;
+  if (!INSTALL_COMMANDS[name]) return `Milagre couldn't find ${cliName(name)}. Install it from kiro.dev/cli, then send your message again.`;
   return `Milagre couldn't find ${cliName(name)}. Install it with \`${INSTALL_COMMANDS[name]}\`, then send your message again.`;
 }
 

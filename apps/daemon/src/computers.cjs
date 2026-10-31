@@ -157,7 +157,7 @@ async function stop(entry) {
  *   allowLocalRelay?: boolean; createSocket?: (url: string) => any; fetch?: typeof globalThis.fetch;
  *   now?: () => number; random?: (n: number) => Uint8Array; reconnectMs?: number; switchWaitMs?: number;
  *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[]; lanWaitMs?: number;
- *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void;
+ *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void; acceptStream?: (target: string, port: number) => import("node:net").Socket;
  * }} options
  */
 function createComputers({
@@ -183,6 +183,8 @@ function createComputers({
   networkSignature = defaultNetworkSignature,
   reconnectWaitMs = RECONNECT_WAIT_MS,
   log = () => {},
+  // A computer may open streams back to this Mac only where this lets it (peer-streams.cjs): the Browser pages' proxy.
+  acceptStream,
 }) {
   const store = createComputersStore({ file: path.join(dataDir, "computers.json"), now, allowLocalRelay });
   const keys = credentials ?? createComputerKeys({ file: path.join(dataDir, "computer-keys.json"), safeStorage, random });
@@ -197,7 +199,7 @@ function createComputers({
   let adding = null;
   let checkTimer = null;
   let networkTimer = null;
-  const socketOption = createSocket ? { createSocket } : {};
+  const socketOption = { ...(createSocket ? { createSocket } : {}), ...(acceptStream ? { acceptStream } : {}) };
 
   function view(computer) {
     const entry = entries.get(computer.id);
@@ -702,6 +704,14 @@ function createComputers({
       if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
       if (!entry?.runtime || entry.state !== "online") throw new Error(`${store.get(id)?.name ?? "That computer"} is offline.`);
       return entry.runtime.invoke(method, args);
+    },
+    /** A TCP stream from computer `id` to `target:port` as it sees them, for its Chats' Browser pages (browser-proxy.cjs). */
+    async openStream(id, target, port) {
+      const entry = entries.get(id);
+      if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
+      if (!entry?.runtime || entry.state !== "online")
+        throw Object.assign(new Error(`${store.get(id)?.name ?? "That computer"} is offline.`), { code: "offline" });
+      return entry.runtime.openStream(target, port);
     },
     /** The window gained or lost focus: every connected computer's daemon is told, and a later connection is too. */
     setFocused(value) {

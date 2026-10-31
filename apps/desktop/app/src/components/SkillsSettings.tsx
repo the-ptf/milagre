@@ -34,7 +34,7 @@ const others = (count: number) => `Overrides ${count} other${count === 1 ? "" : 
  * ───────────────────────────────────────────────────────── */
 export function SkillsSettings({ projectPath }: { projectPath: string }) {
   const [revision, setRevision] = useState(0);
-  const { skills, shadowed, warnings, loading } = useSkills(projectPath, true, revision);
+  const { skills, shadowed, warnings, loading } = useSkills(projectPath, true, revision, "project");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SkillScope | "all">("all");
   const [provider, setProvider] = useState("all");

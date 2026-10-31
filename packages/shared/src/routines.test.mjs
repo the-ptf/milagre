@@ -699,3 +699,17 @@ test("routineEnd says how many Runs are left or when the Routine ends", () => {
 test("triggerText words a pull-request trigger", () => {
   assert.equal(triggerText({ kind: "pull-request", repo: "github.com/acme/app", number: 7 }), "PR #7");
 });
+
+test("quiet compactions leave no transcript or navigation entry, while failures and manual compactions remain visible", () => {
+  const messages = [
+    { id: 1, role: "user", body: "hello" },
+    ...["preparing", "done", "failed"].map((status, i) => ({ id: i + 2, role: "user", context: { kind: "compaction", quiet: true, status } })),
+    { id: 5, role: "user", context: { kind: "compaction", status: "done" } },
+  ];
+  assert.deepEqual(
+    groupQuietRuns(messages)
+      .filter((entry) => !entry.hidden)
+      .map((entry) => entry.message.id),
+    [1, 4, 5],
+  );
+});

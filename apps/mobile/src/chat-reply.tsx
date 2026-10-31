@@ -33,6 +33,7 @@ import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { ComputerUseCard } from "./computer-use-card";
 import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
@@ -173,13 +174,26 @@ function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource })
   );
 }
 /** Desktop's activity header, with the pending call ahead of other parallel work. */
-function ActivityRow({ steps, live, waitingIds, onPress }: { steps: ChatStep[]; live: boolean; waitingIds: string[]; onPress: () => void }) {
+function ActivityRow({
+  steps,
+  live,
+  waitingIds,
+  onPress,
+  credits,
+}: {
+  steps: ChatStep[];
+  live: boolean;
+  waitingIds: string[];
+  onPress: () => void;
+  /** What the turn cost (Kiro's credits), shown at the end of the summary. */
+  credits?: number;
+}) {
   const { colors } = useTheme();
   const current = live
     ? (steps.find((step) => step.status === "running" && waitingIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
     : undefined;
   const waiting = !!current && waitingIds.includes(current.id);
-  const summary = activitySummary(steps);
+  const summary = activitySummary(steps, { credits });
   const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, live, now), live);
   const runningCount = steps.filter((step) => step.status === "running").length;
   const label = current ? stepDisplayTitle(current, !waiting) : live ? "Working" : summary.text || "Activity";
@@ -471,6 +485,7 @@ export const ChatReply = memo(function ChatReply({
             live={!!run}
             waitingIds={waitingIds}
             onPress={() => openActivity()}
+            credits={message?.credits}
           />
         )
       )}
@@ -480,6 +495,7 @@ export const ChatReply = memo(function ChatReply({
           <GeneratedImage step={step} media={savedMedia} />
         </View>
       ))}
+      {reply.desktop.length > 0 && <ComputerUseCard steps={reply.desktop} chatId={chatId} />}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
       {!!reply.answer.trim() && (
         <MessageActions text={reply.answer} markdown>

@@ -8,6 +8,9 @@ const BUTTONS = new Set(["left", "middle", "right", "none"]);
 const COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "redo"]);
 const NAVIGATION = new Set(["back", "forward", "reload"]);
 const MAX_ATTACHED = 16;
+// The viewer's size the page lays out at, in CSS pixels.
+const MIN_VIEWPORT = 100;
+const MAX_VIEWPORT = 4096;
 // How old a reading of the process table may be. Every window and phone asks for each Chat on screen every 15 s, and
 // a reading starts processes (ps, lsof). A Chat that can own no page now (its agent isn't running, and no browser was
 // attached to it or started by it) only learns of other browsers from one, so it takes one this old; a Chat that can
@@ -56,6 +59,8 @@ function validEvent(event) {
       return typeof event.text === "string" && event.text.length >= 1 && event.text.length <= 1024;
     case "navigate":
       return NAVIGATION.has(event.action);
+    case "viewport":
+      return [event.width, event.height].every((side) => Number.isInteger(side) && side >= MIN_VIEWPORT && side <= MAX_VIEWPORT);
     default:
       return false;
   }
@@ -89,6 +94,8 @@ function cleanEvent(event) {
       };
     case "text":
       return { kind: "text", text: event.text };
+    case "viewport":
+      return { kind: "viewport", width: event.width, height: event.height };
     default:
       return { kind: "navigate", action: event.action };
   }
@@ -299,6 +306,7 @@ function createBrowsers(options = {}) {
       url: state.url ?? "",
       canGoBack: !!state.canGoBack,
       canGoForward: !!state.canGoForward,
+      supportsViewport: true,
     };
   }
   async function remove(v) {

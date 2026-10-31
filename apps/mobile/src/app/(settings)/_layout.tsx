@@ -35,10 +35,12 @@ export default function SettingsLayout() {
       <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
       <Stack.Screen name="chat-display" options={{ title: "Chat" }} />
       <Stack.Screen name="dictation-language" options={{ title: "Dictation language" }} />
+      <Stack.Screen name="dictation-model" options={{ title: "Speech model" }} />
       <Stack.Screen name="keybindings" options={{ title: "Keybindings" }} />
       <Stack.Screen name="archived" options={{ title: "Archived Chats" }} />
       <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
       <Stack.Screen name="usage" options={{ title: "Plan usage" }} />
+      <Stack.Screen name="token-usage" options={{ title: "Token usage" }} />
       <Stack.Screen name="skills" options={{ title: "Skills" }} />
       <Stack.Screen name="skill" options={{ title: "Skill" }} />
       <Stack.Screen name="mcp" options={{ title: "MCP" }} />
@@ -46,6 +48,8 @@ export default function SettingsLayout() {
       <Stack.Screen name="local-mcp" options={{ title: "Milagre" }} />
       <Stack.Screen name="experimental" options={{ title: "Experimental" }} />
       <Stack.Screen name="babysit-prs" options={{ title: "Babysit PRs" }} />
+      <Stack.Screen name="simlock" options={{ title: "Simlock devices" }} />
+      <Stack.Screen name="computer-use" options={{ title: "Computer use" }} />
       <Stack.Screen name="project-settings" options={{ title: "Project" }} />
       <Stack.Screen name="published-pages" />
     </Stack>

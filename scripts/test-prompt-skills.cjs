@@ -332,7 +332,7 @@ async function main() {
           return `import { useEffect } from 'react';
             export function useDictation(cwd, scope, deliver) {
               useEffect(() => { window.deliverTranscript = deliver; });
-              return { phase: 'idle', error: null, download: null, meter: { current: null }, dismiss() {} };
+              return { phase: 'idle', error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() {}, stop() {}, cancel() {}, dismiss() {}, openSettings() {} };
             }`;
         },
       },

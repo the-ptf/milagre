@@ -20,11 +20,11 @@ import { scheduleOnRN } from "react-native-worklets";
 import { ArrowShrink02Icon, ListTodoIcon } from "@hugeicons/core-free-icons";
 import { taskCounts } from "@milagre/shared/chat-plan";
 import type { ChatPlan } from "@milagre/shared/model";
-import { Icon } from "./icons";
 import { planPillLabel } from "./plan-label";
 import { morphRect, planPanelFrame } from "./plan-panel-frame";
 import { PlanPhaseGraph, PlanTree } from "./plan-view";
 import { useMotionScale, useReducedMotion } from "./motion";
+import { STATUS_PILL, StatusPill, StatusPillFace } from "./status-pill";
 import { useTheme } from "./theme";
 import { IconButton, PageScroll } from "./ui";
 
@@ -37,21 +37,25 @@ const FLING_CLOSE = 900;
 const PULL_CLOSE = 56;
 
 type Box = { x: number; y: number; width: number; height: number };
+type Span = { x: number; width: number };
 type Phase = "closed" | "open" | "closing";
 
 /**
- * The Tasks pill's state, shared by the pill in the composer row and the panel drawn over the Chat. The composer clips
- * its children, so the panel lives in an overlay at the screen's root and grows from where the pill was measured.
+ * The Tasks pill's state, shared by the pill above the composer and the panel drawn over the Chat. The composer clips
+ * its children, so the panel lives in an overlay at the screen's root and grows from where the pill was measured, to
+ * the width of the composer's column (attachRoom): beside an iPad's sidebar or docked panel, never under them.
  */
 export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   const label = planPillLabel(plan);
   const [state, setState] = useState<{ phase: Phase; chatId: string }>({ phase: "closed", chatId });
   const [pill, setPill] = useState<Box | null>(null);
+  const [room, setRoom] = useState<Span | null>(null);
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [keyboard, setKeyboard] = useState(0);
   // Each opening draws a fresh phase graph, so its Now is the moment the panel opened.
   const [opening, setOpening] = useState(0);
   const chip = useRef<ViewInstance | null>(null);
+  const column = useRef<ViewInstance | null>(null);
   const overlay = useRef<ViewInstance | null>(null);
   const refocus = useRef(false);
   // The plan goes with its Chat: when it is gone, or this is another Chat, the panel is closed at once.
@@ -61,20 +65,28 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   const attachChip = useCallback((node: ViewInstance | null) => {
     chip.current = node;
   }, []);
+  const attachRoom = useCallback((node: ViewInstance | null) => {
+    column.current = node;
+  }, []);
   const attachOverlay = useCallback((node: ViewInstance | null) => {
     overlay.current = node;
   }, []);
   const measure = useCallback((then?: () => void) => {
     chip.current?.measureInWindow((x, y, width, height) => {
       if (!width || !height) return;
-      const place = (ox: number, oy: number) => {
+      const place = (span: Span | null, ox: number, oy: number) => {
         setPill({ x, y, width, height });
+        setRoom(span);
         setOrigin({ x: ox, y: oy });
         setKeyboard(Keyboard.isVisible() ? (Keyboard.metrics()?.height ?? 0) : 0);
         then?.();
       };
-      if (overlay.current) overlay.current.measureInWindow((ox, oy) => place(ox, oy));
-      else place(0, 0);
+      const inOverlay = (span: Span | null) => {
+        if (overlay.current) overlay.current.measureInWindow((ox, oy) => place(span, ox, oy));
+        else place(span, 0, 0);
+      };
+      if (column.current) column.current.measureInWindow((cx, _cy, cwidth) => inOverlay(cwidth ? { x: cx, width: cwidth } : null));
+      else inOverlay(null);
     });
   }, []);
   const show = useCallback(
@@ -129,48 +141,38 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   }, [phase]);
   // The same object until something here changes, so the memoized pill and panel skip the Chat's other renders (typing).
   return useMemo(
-    () => ({ plan, label, phase, pill, origin, keyboard, opening, attachChip, attachOverlay, show, close, settle, relayout }),
-    [plan, label, phase, pill, origin, keyboard, opening, attachChip, attachOverlay, show, close, settle, relayout],
+    () => ({ plan, label, phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout }),
+    [plan, label, phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout],
   );
 }
 
 export type PlanPanelState = ReturnType<typeof usePlanPanel>;
 
-function PillFace({ label }: { label: string }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ minHeight: 34, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
-      <Icon icon={ListTodoIcon} tone="ink2" size={15} />
-      <Text style={{ color: colors.ink2, fontSize: 13, fontVariant: ["tabular-nums"] }}>{label}</Text>
-    </View>
-  );
-}
-
-/** Desktop's Tasks pill: done/total (or the current phase) in the composer row; a tap grows it into the panel. Hidden without a plan. */
+/**
+ * Desktop's Tasks pill: done/total (or the current phase) in the status pills above the composer; a tap grows it into
+ * the panel. Hidden without a plan.
+ */
 export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelState }) {
-  const { label, plan, phase, show, attachChip, relayout } = panel;
+  const { label, plan, phase, show, close, attachChip, relayout } = panel;
+  // The row gives way to a question card: the panel folds away with it rather than covering the question.
+  useEffect(() => close, [close]);
   if (!label || !plan) return null;
   const { done, total } = taskCounts(plan.tasks);
   // While the surface is out, it is the pill: this one keeps its place in the row, invisible.
   const away = phase !== "closed";
   return (
-    <Pressable
-      ref={attachChip}
-      collapsable={false}
-      accessibilityRole="button"
+    <StatusPill
+      chipRef={attachChip}
+      icon={ListTodoIcon}
+      {...(total ? { count: done, total } : { label })}
       accessibilityLabel={total ? `Tasks, ${done} of ${total} done` : `Phase: ${label}`}
       accessibilityHint="Opens the task list and phase graph"
-      accessibilityState={{ expanded: away }}
-      accessibilityElementsHidden={away}
-      importantForAccessibility={away ? "no-hide-descendants" : "auto"}
-      disabled={away}
+      expanded={away}
+      hidden={away}
       onPress={show}
       // A new label (1/2 to 2/2) resizes the pill; an open panel keeps growing from its new frame.
       onLayout={relayout}
-      style={({ pressed }) => ({ opacity: away ? 0 : pressed ? 0.6 : 1 })}
-    >
-      <PillFace label={label} />
-    </Pressable>
+    />
   );
 });
 
@@ -206,10 +208,10 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const pillFace = useSharedValue(1);
   const panelFace = useSharedValue(0);
   const heading = useRef<TextInstance>(null);
-  const { plan, label, phase, close, settle, opening, attachOverlay, keyboard, origin } = panel;
+  const { plan, label, phase, close, settle, opening, attachOverlay, keyboard, room, origin } = panel;
   // Before the first opening the pill is unmeasured; the panel still lays out at its real width so its height is known.
-  const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 64, width: 60, height: 34 };
-  const { from, to } = planPanelFrame({ window, insets, pill, content: header + body, keyboard, origin });
+  const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 96, width: 48, height: STATUS_PILL.height };
+  const { from, to } = planPanelFrame({ window, insets, pill, room: room ?? undefined, content: header + body, keyboard, origin });
   const surfaceStyle = useAnimatedStyle(() => {
     const rect = morphRect(from, to, progress.get());
     return { left: rect.x, top: rect.y, width: rect.width, height: rect.height, borderRadius: rect.radius, transform: [{ translateY: drag.get() }] };
@@ -287,7 +289,12 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
-      {/* The card itself: fades in as it leaves the pill, which has no fill of its own in the composer. */}
+      {/* The pill's own body, solid with its hairline, so the morph starts on the pill exactly as it stands in the row. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[{ position: "absolute", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderCurve: "continuous" }, surfaceStyle]}
+      />
+      {/* The card over it: its stronger border and shadow fade in as it leaves the pill. */}
       <Animated.View
         pointerEvents="none"
         style={[
@@ -350,7 +357,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
       </Animated.View>
       {/* The pill face stays at the pill's spot and fades as the surface grows out of it. */}
       <Animated.View {...inert} style={[{ position: "absolute", left: from.x, top: from.y, width: from.width, height: from.height }, pillStyle]}>
-        <PillFace label={label} />
+        <StatusPillFace icon={ListTodoIcon} label={label} />
       </Animated.View>
     </View>
   );

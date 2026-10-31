@@ -16,8 +16,6 @@
     "components/CommandPalette.tsx": 6,
     "components/CompactionDivider.tsx": 2,
     "components/ComputerAllowPrompt.tsx": 5,
-    "components/ContextRing.tsx": 4,
-    "components/DictationNotice.tsx": 1,
     "components/FileCode.tsx": 1,
     "components/FindBar.tsx": 2,
     "components/FloatingInbox.tsx": 27,
@@ -39,7 +37,7 @@
     "components/PersistenceNotice.tsx": 2,
     "components/ProjectAccountsSettings.tsx": 15,
     "components/ProjectAvatarStack.tsx": 1,
-    "components/PromptComposer.tsx": 16,
+    "components/PromptComposer.tsx": 15,
     "components/ProviderUpdateNotice.tsx": 5,
     "components/QueuedMessages.tsx": 3,
     "components/RemoveProjectDialog.tsx": 5,
@@ -58,7 +56,6 @@
     "components/agents/ArtifactCanvas.tsx": 4,
     "components/agents/ArtifactCard.tsx": 21,
     "components/agents/BackgroundWork.tsx": 6,
-    "components/agents/BrowserTrack.tsx": 12,
     "components/agents/CommentPin.tsx": 6,
     "components/agents/DesignEditor.tsx": 21,
     "components/agents/DesignExportDialog.tsx": 9,
@@ -133,11 +130,10 @@
     "components/sidebar/ComputersButton.tsx": 3,
     "components/sidebar/FiltersMenu.tsx": 7,
     "components/sidebar/ScopeRail.tsx": 3,
-    "components/sidebar/SidebarLinks.tsx": 18,
+    "components/sidebar/SidebarLinks.tsx": 17,
     "components/terminal/TerminalPanel.tsx": 3,
     "components/usage/SidebarUsage.tsx": 1,
-    "components/usage/UsageCard.tsx": 8,
-    "lib/toast.ts": 1
+    "components/usage/UsageCard.tsx": 8
   },
   "radius": {
     "App.tsx": 7,
@@ -152,7 +148,6 @@
     "components/CommandPalette.tsx": 2,
     "components/ComputerAllowPrompt.tsx": 1,
     "components/ContextRing.tsx": 1,
-    "components/DictationNotice.tsx": 1,
     "components/FindBar.tsx": 2,
     "components/FloatingInbox.tsx": 16,
     "components/GitActionsDialog.tsx": 1,
@@ -188,7 +183,6 @@
     "components/agents/ArtifactCanvas.tsx": 9,
     "components/agents/ArtifactCard.tsx": 11,
     "components/agents/BackgroundWork.tsx": 2,
-    "components/agents/BrowserTrack.tsx": 7,
     "components/agents/CommentPin.tsx": 2,
     "components/agents/DesignEditor.tsx": 8,
     "components/agents/DesignPageEditor.tsx": 2,
@@ -251,12 +245,11 @@
     "components/sidebar/ComputersButton.tsx": 7,
     "components/sidebar/FiltersMenu.tsx": 6,
     "components/sidebar/ScopeRail.tsx": 3,
-    "components/sidebar/SidebarLinks.tsx": 9,
+    "components/sidebar/SidebarLinks.tsx": 8,
     "components/terminal/TerminalPanel.tsx": 2,
     "components/terminal/TerminalSlide.tsx": 1,
     "components/usage/SidebarUsage.tsx": 1,
     "components/usage/UsageCard.tsx": 1,
-    "lib/phone.ts": 1,
-    "lib/toast.ts": 1
+    "lib/phone.ts": 1
   }
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isLoopbackUrl, listensBeyondLoopback, loopbackOnlyPorts, reachableUrl } from "./loopback-url.ts";
+import { isLoopbackUrl, listensBeyondLoopback, loopbackOnlyPorts, openablePageUrl, reachableUrl } from "./loopback-url.ts";
 
 test("a loopback link points at the machine's address, keeping port, path and query", () => {
   assert.equal(reachableUrl("http://localhost:5173", "100.69.206.111"), "http://100.69.206.111:5173");
@@ -46,4 +46,20 @@ test("a link to a server that listens on loopback only stays as written: its IP 
   assert.equal(reachableUrl("http://localhost:3000", "10.0.0.4", loopbackOnly), "http://10.0.0.4:3000");
   // A port nobody saw listening is the best guess: the computer's address.
   assert.equal(reachableUrl("http://localhost:8080", "10.0.0.4", loopbackOnly), "http://10.0.0.4:8080");
+});
+
+test("a streamed page opens here at an address this device reaches, or says why it can't", () => {
+  assert.deepEqual(openablePageUrl("http://127.0.0.1:8789/kikah.pdf", { remote: false }), { href: "http://127.0.0.1:8789/kikah.pdf", reason: "" });
+  assert.deepEqual(openablePageUrl("https://example.com/a", { remote: true }), { href: "https://example.com/a", reason: "" });
+  assert.deepEqual(openablePageUrl("http://127.0.0.1:8789/kikah.pdf", { remote: true, host: "192.168.2.20" }), {
+    href: "http://192.168.2.20:8789/kikah.pdf",
+    reason: "",
+  });
+  assert.match(openablePageUrl("http://localhost:3000/", { remote: true, host: null }).reason, /relay only/);
+  assert.equal(openablePageUrl("http://localhost:3000/", { remote: true, host: null }).href, null);
+  assert.deepEqual(openablePageUrl("http://localhost:3000/", { remote: true, host: "100.64.0.2", loopbackOnly: new Set([3000]) }), {
+    href: null,
+    reason: "This server listens on its computer's localhost only",
+  });
+  assert.equal(openablePageUrl("about:blank", { remote: false }).href, null);
 });

@@ -12,15 +12,13 @@ import {
   Cancel01Icon,
   File01Icon,
   FileDiffIcon,
-  GitMergeIcon,
-  GitPullRequestClosedIcon,
   GitPullRequestIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { branchName, commitInitials, comparisonOptions, commitStatsNotice } from "@milagre/shared/git-diff";
 import type { GitCommit } from "@milagre/shared/git-diff";
 import type { PullRequest } from "@milagre/shared/model";
-import { pullRequestPresentation } from "@milagre/shared/pr-blockers";
+import { prLook } from "../../lib/pr-look";
 import type { DiffFileEntry, DiffMode } from "../../electron";
 import type { ChangesMode } from "../../lib/pull-request-view";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
@@ -329,16 +327,11 @@ function CommitRow({ commit }: { commit: GitCommit }) {
 /** A PR's tab: `key` names it to the caller; `pr` colours its icon by state; `hint` says whose PR it is (a Link's Project). */
 export type PrTab = { key: string; number: number; pr?: PullRequest; hint?: string };
 
-const TONES = { purple: "text-purple-500", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" } as const;
-
-/** Merged purple, closed grey, otherwise the sidebar's tone: blocked red, checks running orange, open green. */
-function prLook(pr: PullRequest | undefined) {
-  if (!pr) return { icon: GitPullRequestIcon, tone: "text-ink-3", state: "" };
-  if (pr.state === "MERGED") return { icon: GitMergeIcon, tone: TONES.purple, state: "Merged" };
-  // ponytail: PullRequest has no CLOSED state today; a closed PR shows grey once it does.
-  if (pr.state !== "OPEN") return { icon: GitPullRequestClosedIcon, tone: "text-ink-3", state: "Closed" };
-  const look = pullRequestPresentation(pr);
-  return { icon: GitPullRequestIcon, tone: TONES[look.tone], state: look.label || "Open" };
+/** A PR tab's glyph, colour and state words; grey until its status is read. */
+function tabLook(pr: PullRequest | undefined) {
+  if (!pr) return { glyph: GitPullRequestIcon, toneClass: "text-ink-3", state: "" };
+  const look = prLook(pr);
+  return { glyph: look.glyph, toneClass: look.toneClass, state: look.label || "Open" };
 }
 
 /** Left and right arrows select the next tab, as a tab row does. */
@@ -425,7 +418,7 @@ export function ChangesTabs({
           {count > 0 && <span className="text-[11.5px] font-normal text-ink-3 tabular-nums">{count}</span>}
         </PanelTab>
         {prs.map((tab) => {
-          const look = prLook(tab.pr);
+          const look = tabLook(tab.pr);
           const title = [tab.hint, tab.pr?.title, look.state].filter(Boolean).join(" · ");
           return (
             <PanelTab
@@ -437,7 +430,7 @@ export function ChangesTabs({
               title={title || undefined}
               data-changes-tab={tab.key}
             >
-              <HugeiconsIcon icon={look.icon} size={13} strokeWidth={1.8} color="currentColor" className={`shrink-0 ${look.tone}`} />#{tab.number}
+              <HugeiconsIcon icon={look.glyph} size={13} strokeWidth={1.8} color="currentColor" className={`shrink-0 ${look.toneClass}`} />#{tab.number}
             </PanelTab>
           );
         })}

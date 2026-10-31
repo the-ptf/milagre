@@ -51,10 +51,13 @@ export function ActivityBlock({
   entries,
   streaming = false,
   waitingStepIds = NO_WAITING_STEPS,
+  credits,
 }: {
   entries: ActivityEntry[];
   streaming?: boolean;
   waitingStepIds?: string[];
+  /** What the turn cost (Kiro's credits), shown at the end of the summary. */
+  credits?: number;
 }) {
   const [open, setOpen] = useState(false);
   // Null until first opened; mounted rows and their output state survive later collapses.
@@ -88,7 +91,7 @@ export function ActivityBlock({
     ? (steps.find((step) => step.status === "running" && waitingStepIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
     : undefined;
   const waiting = current ? waitingStepIds.includes(current.id) : false;
-  const summary = activitySummary(steps);
+  const summary = activitySummary(steps, { credits });
 
   return (
     <div data-slot="activity" className="-mx-1.5 my-1 flex min-w-0 flex-col">

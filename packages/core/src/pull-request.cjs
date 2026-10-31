@@ -1,7 +1,9 @@
 const { createGit, callbackExec } = require("./git/client.cjs");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const { scheduled } = require("./process-lanes.cjs");
 
+// createGit owns Git scheduling. Keep its executor raw; schedule only gh at the call sites below.
 const execFileAsync = promisify(execFile);
 
 const FIELDS = "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup";
@@ -28,7 +30,7 @@ async function readPullRequestState(cwd, exec = execFileAsync) {
     const { stdout: branchOutput } = await git.checked(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
     const branch = branchOutput.trim();
     if (!branch) return { known: false, pr: null };
-    const { stdout } = await exec("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
+    const { stdout } = await scheduled(exec)("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
     return { known: true, pr: JSON.parse(stdout)[0] ?? null };
   } catch {
     // No PR, offline, or gh unavailable: this optional metadata never blocks a chat.
@@ -43,14 +45,18 @@ async function readPullRequest(cwd, exec = execFileAsync) {
 
 // `pr view` can infer the wrong head repository for a fork or a branch tracking main.
 async function readBranchPullRequest(cwd, branch, exec) {
-  const { stdout } = await exec("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
+  const { stdout } = await scheduled(exec)("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
   return toPullRequest(JSON.parse(stdout)[0]);
 }
 
-// One `gh pr list` per repository answers every worktree's branch, instead of one query per worktree
-// every refresh. Calls arriving together (the renderer asks for each worktree at once) share it; the
+// Two `gh pr list` per repository answer every worktree's branch, instead of one query per worktree
+// every refresh. Calls arriving together (the renderer asks for each worktree at once) share them; the
 // short TTL keeps a turn-end refresh, which exists to catch a just-created PR, from reading stale data.
+// Checks come only with the open PRs: a hundred PRs' check rollups take GitHub ~7 s, and only an open PR shows them.
 const BATCH_LIMIT = 100;
+const BATCH_FIELDS = FIELDS.split(",")
+  .filter((field) => field !== "statusCheckRollup")
+  .join(",");
 const BATCH_TTL = 2000;
 const batchOptions = (cwd) => ({ ...execOptions(cwd), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
 
@@ -63,16 +69,27 @@ function createPullRequestReader({ exec = execFileAsync, now = Date.now, ttlMs =
   function batchFor(cwd, repo) {
     const hit = batches.get(repo);
     if (hit && now() - hit.at < ttlMs) return hit.read;
-    const read = exec("gh", ["pr", "list", "--state", "all", "--limit", String(BATCH_LIMIT), "--json", `${FIELDS},headRefName`], batchOptions(cwd)).then(
-      ({ stdout }) => {
-        const list = JSON.parse(stdout);
-        if (!Array.isArray(list)) throw new Error("Unexpected gh output");
-        // Newest first, so the first PR seen for a branch is its latest, as `--head <branch> --limit 1` returns.
-        const byBranch = new Map();
-        for (const pr of list) if (typeof pr?.headRefName === "string" && !byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, pr);
-        return { byBranch, truncated: list.length >= BATCH_LIMIT };
-      },
-    );
+    const list = (state, fields) =>
+      scheduled(exec)("gh", ["pr", "list", "--state", state, "--limit", String(BATCH_LIMIT), "--json", `${fields},headRefName`], batchOptions(cwd)).then(
+        ({ stdout }) => {
+          const parsed = JSON.parse(stdout);
+          if (!Array.isArray(parsed)) throw new Error("Unexpected gh output");
+          return parsed;
+        },
+      );
+    const read = Promise.all([list("all", BATCH_FIELDS), list("open", FIELDS)]).then(([all, open]) => {
+      const checks = new Map(open.map((pr) => [pr?.number, pr?.statusCheckRollup]));
+      // Newest first, so the first PR seen for a branch is its latest, as `--head <branch> --limit 1` returns.
+      const byBranch = new Map();
+      for (const pr of all) {
+        if (typeof pr?.headRefName !== "string" || byBranch.has(pr.headRefName)) continue;
+        // An open PR the open list missed (past its limit, or opened between the two reads) has no checks here:
+        // null leaves its branch to the per-branch query.
+        if (pr.state !== "OPEN") byBranch.set(pr.headRefName, pr);
+        else byBranch.set(pr.headRefName, checks.has(pr.number) ? { ...pr, statusCheckRollup: checks.get(pr.number) } : null);
+      }
+      return { byBranch, truncated: all.length >= BATCH_LIMIT };
+    });
     batches.set(repo, { at: now(), read });
     if (batches.size > 50) batches.delete(batches.keys().next().value);
     // A failed read isn't kept: the next call retries rather than serving the failure.
@@ -92,7 +109,7 @@ function createPullRequestReader({ exec = execFileAsync, now = Date.now, ttlMs =
       if (batch) {
         const pr = batch.byBranch.get(branch);
         if (pr) return toPullRequest(pr);
-        if (!batch.truncated) return null;
+        if (!batch.truncated && !batch.byBranch.has(branch)) return null;
       }
       return await readBranchPullRequest(cwd, branch, exec);
     } catch {
@@ -108,7 +125,7 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
     refs.slice(0, MAX_REFS).map(async (ref) => {
       if (typeof ref !== "string" || !PR_REF.test(ref)) return null;
       try {
-        const { stdout } = await exec("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
+        const { stdout } = await scheduled(exec)("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
         return toPullRequest(JSON.parse(stdout));
       } catch {
         return null;
@@ -118,7 +135,7 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
 }
 
 function toPullRequest(pr) {
-  if (!pr || !["OPEN", "MERGED"].includes(pr.state) || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
+  if (!pr || !["OPEN", "MERGED", "CLOSED"].includes(pr.state) || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
   const url = new URL(pr.url);
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   // CLEAN means GitHub reports the PR mergeable with passing commit status. Unknown or blocked
@@ -135,6 +152,7 @@ function toPullRequest(pr) {
     url: url.href,
     state: pr.state,
     title: typeof pr.title === "string" ? pr.title : "",
+    isDraft: pr.state === "OPEN" && pr.isDraft === true,
     readyToMerge,
     hasConflicts,
     conflictStatusKnown,
@@ -147,6 +165,16 @@ function toPullRequest(pr) {
 // GitHub counts these check-run conclusions and commit-status states against the PR, as its merge box does.
 const FAILED_CONCLUSIONS = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
 const RUNNING_STATES = new Set(["PENDING", "EXPECTED"]);
+const ROLLUP_FAILED = new Set(["FAILURE", "ERROR"]);
+
+/** A PR node from GraphQL (the fields of `PULL_REQUEST_FIELDS`) as `toPullRequest` reads it, checks rolled up. */
+function fromGraphql(node) {
+  if (!node || typeof node !== "object") return null;
+  const rollup = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state;
+  return toPullRequest({ ...node, statusCheckRollup: typeof rollup === "string" ? rollup : null });
+}
+// What `fromGraphql` reads: the fields of `FIELDS`, with one rolled-up checks state instead of every check.
+const PULL_REQUEST_FIELDS = "number url state title isDraft reviewDecision mergeStateStatus commits(last:1){nodes{commit{statusCheckRollup{state}}}}";
 
 /**
  * "failed" when any check or commit status failed, "running" when none failed but some are still
@@ -154,6 +182,8 @@ const RUNNING_STATES = new Set(["PENDING", "EXPECTED"]);
  * since the branch needs a fix either way.
  */
 function checksState(rollup) {
+  // GraphQL's rolled-up state (`statusCheckRollup { state }`), which ranks a failure over pending checks the same way.
+  if (typeof rollup === "string") return ROLLUP_FAILED.has(rollup) ? "failed" : RUNNING_STATES.has(rollup) ? "running" : undefined;
   if (!Array.isArray(rollup)) return undefined;
   let running = false;
   for (const check of rollup) {
@@ -167,4 +197,13 @@ function checksState(rollup) {
   return running ? "running" : undefined;
 }
 
-module.exports = { readPullRequest, readPullRequestState, readPullRequests, createPullRequestReader };
+module.exports = {
+  readPullRequest,
+  readPullRequestState,
+  readPullRequests,
+  createPullRequestReader,
+  fromGraphql,
+  PULL_REQUEST_FIELDS,
+  PR_REF,
+  MAX_REFS,
+};

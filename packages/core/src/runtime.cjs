@@ -27,6 +27,7 @@ const { acquireOwnership } = require("./ownership.cjs");
 const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
+const { ensureProjectIgnore } = require("./project-ignore.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
 const { dbFile: chatDbFile, readChatRows } = require("./chat-db.cjs");
 const { decodeImages } = require("./image-input.cjs");
@@ -35,6 +36,8 @@ const { ClaudeSession } = require("./agents/claude-provider.cjs");
 const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider.cjs");
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp, sweepTempDirs } = require("./agents/antigravity-acp.cjs");
+const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { createKiroUsage } = require("./kiro-usage.cjs");
 const { createCliCache } = require("./agents/cli.cjs");
 const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
 const { runCliUpdate } = require("./agents/cli-update.cjs");
@@ -65,8 +68,11 @@ const { WorktreeSetups, resolveSetupCommand } = require("./worktree-setup.cjs");
 const { SetupReview } = require("./setup-review.cjs");
 const { readDiffStat } = require("./diffstat.cjs");
 const { registerCheckpoints } = require("./checkpoint-runtime.cjs");
+const { createSentFromNotes } = require("./sent-from.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
 const { createPullRequestReader, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
+const { background: inBackgroundLane } = require("./process-lanes.cjs");
+const { createPullRequestWatch } = require("./pull-request-watch.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents } = require("./project-state.cjs");
 const { migrateWorktreeChats } = require("./worktree-chats.cjs");
 const { createLinear } = require("./linear/index.cjs");
@@ -75,7 +81,7 @@ const { createLinearTools, linearToolDefinitions } = require("./linear/tools.cjs
 const { isIssueKey } = require("./linear/links.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { DiffRefresher } = require("./diff-refresh.cjs");
-const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { chatKey, isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { resolveProjectImage } = require("./project-image.cjs");
@@ -89,6 +95,9 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
+const { createTokenUsage } = require("./token-usage.cjs");
+const { createTokenUsageScan } = require("./token-usage-scan.cjs");
+const { createTokenPricing } = require("./token-usage-pricing.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
@@ -184,12 +193,18 @@ function createRuntime(options) {
     }
     let repositoryOwner;
     if (common && !repositoryOwners.has(common)) repositoryOwner = acquireOwnership(path.join(common, "milagre-runtime.lock"));
+    let owner;
     try {
-      const owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      if (common) ensureProjectIgnore(real);
       projectOwners.set(real, { openedAs: projectPath, owner });
       if (repositoryOwner) repositoryOwners.set(common, repositoryOwner);
     } catch (error) {
-      repositoryOwner?.release();
+      try {
+        owner?.release();
+      } finally {
+        repositoryOwner?.release();
+      }
       throw error;
     }
   }
@@ -202,10 +217,48 @@ function createRuntime(options) {
     if (!scope || !Number.isSafeInteger(id) || id < 1 || !scopeStates.has(scope) || !(await scopeStates.get(scope)).sessions[id])
       throw new Error(`Open an existing Chat before ${action}.`);
   };
+  // Experimental: agents operate desktop apps through agent-desktop, asking once per app per Chat.
+  const { createComputerUseSettings, createComputerUse, agentDesktopBinary, runCli } = require("./computer-use.cjs");
+  const computerUseSettings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json"), emit });
+  // The Chat's live screen: the window its agent last used, captured while it works.
+  let desktopCli;
+  const computerUseScreen = require("./computer-use-screen.cjs").createScreenFeed({
+    exec: (args, runOptions) => runCli({ ...(desktopCli ??= agentDesktopBinary()), home: path.join(dataDir, "agent-desktop") }, args, runOptions),
+    dir: path.join(dataDir, "computer-use", "frames"),
+  });
+  const computerUse =
+    options.computerUse ??
+    createComputerUse({
+      dataDir,
+      settings: computerUseSettings,
+      approve: (chatId, request) => agents.askApproval(chatId, request),
+      // The desktop app on this computer draws the agent cursor (apps/desktop/electron/agent-cursor.cjs).
+      emit,
+      onAction: ({ chatId, app, data }) => {
+        void existingChat("capturing its screen")(chatId)
+          .then(() => computerUseScreen.touch({ chatId, app, windowId: data?.window?.id, title: data?.window?.title }))
+          .catch(() => {});
+      },
+    });
+  // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
+  const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
+  const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
+  const simlock =
+    options.simlock ??
+    createSimlockHost({
+      settings: simlockSettings,
+      directory: path.join(dataDir, "simlock"),
+      log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
+    });
   const simulators = createChatSimulators({
-    simulators: options.simulators ?? require("./simulators.cjs").createSimulators(),
+    simulators:
+      options.simulators ??
+      require("./simulators.cjs").createSimulators({
+        adapter: require("./simlock-channel.cjs").withSimlock(require("./simulators-helper.cjs").createSimulatorAdapter(), simlock),
+      }),
     file: path.join(dataDir, "simulator-attachments.json"),
     validateChat: existingChat("attaching a simulator"),
+    ended: (device) => simlock.isDevice(device.id),
   });
   const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
   const artifacts = createChatArtifacts({
@@ -232,6 +285,7 @@ function createRuntime(options) {
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
   commands.handle("artifact:get", (_context, request) => artifacts.get(request));
+  commands.handle("artifact:asset", (_context, request) => artifacts.asset(request));
   commands.handle("artifact:list", (_context, request) => artifacts.list(request));
   commands.handle("artifact:apply", (_context, request) => artifacts.apply(request));
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
@@ -285,8 +339,11 @@ function createRuntime(options) {
     return { id };
   });
   for (const method of ["list", "attach", "detach"])
-    commands.handle(`simulator:${method}`, (context, request) => {
+    commands.handle(`simulator:${method}`, async (context, request) => {
       if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");
+      // Detaching a Chat's own Simlock lease returns it, so a phone or older desktop doesn't keep it until its maximum age.
+      const lease = method === "detach" ? simlock.get(request?.deviceId) : null;
+      if (lease && lease.chatId === request?.chatId) await simlock.release(lease.deviceId).catch(() => {});
       return simulators[method](request);
     });
   for (const method of ["open", "offer", "frame", "status", "control", "input", "repair", "close"]) {
@@ -295,6 +352,53 @@ function createRuntime(options) {
       return simulators[method === "close" ? "closeViewer" : method](request, context.clientId);
     });
   }
+  /** Leases a Simlock device for a Chat and attaches it there; installs are accepted from the Chat's folder. */
+  async function leaseSimlock(request) {
+    const chatId = request?.chatId;
+    await existingChat("leasing a Simlock device")(chatId);
+    // Installs come from the Chat's own Worktree (a shared Chat's workspace), the folder its agent works in.
+    const roots = await chatWorktrees(chatId);
+    const session = (await scopeStates.get(projectOfKey(chatId))).sessions[sessionIdFromKey(chatId)];
+    const installDirectory = isLinkScopeKey(projectOfKey(chatId)) ? (session?.workspacePath ?? roots[0]?.path) : roots[0]?.path;
+    if (!installDirectory) throw new Error("This Chat has no Worktree yet. Send it a message first, then lease a device.");
+    const leased = await simlock.lease({ platform: request?.platform, model: request?.model || undefined, chatId, installDirectory });
+    try {
+      await simulators.attach({ chatId, deviceId: leased.deviceId });
+    } catch (error) {
+      await simlock.release(leased.deviceId).catch(() => {});
+      throw error;
+    }
+    return leased;
+  }
+  async function releaseSimlock(request) {
+    const lease = simlock.get(request?.deviceId);
+    const released = await simlock.release(request?.deviceId);
+    if (lease?.chatId) await simulators.detach({ chatId: lease.chatId, deviceId: lease.deviceId }).catch(() => {});
+    return released;
+  }
+  commands.handle("computer-use:settings:read", () => computerUseSettings.read());
+  commands.handle("computer-use:settings:save", (_context, patch) => computerUseSettings.save(patch));
+  commands.handle("computer-use:status", () => computerUse.status());
+  commands.handle("computer-use:guide", () => computerUse.guide());
+  commands.handle("computer-use:frame", async (_context, request) => {
+    await existingChat("viewing its screen")(request?.chatId);
+    const frame = await computerUseScreen.next({ chatId: request.chatId, after: Number(request.after) || 0 });
+    // The Chat may have been deleted while this viewer was waiting for a frame.
+    await existingChat("viewing its screen")(request.chatId);
+    return frame;
+  });
+  commands.handle("simlock:settings:read", () => simlockSettings.read());
+  commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
+  commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));
+  commands.handle("simlock:models", async () => ({ models: await simlock.models(), leases: simlock.leases() }));
+  commands.handle("simlock:lease", (context, request) => {
+    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
+    return leaseSimlock(request);
+  });
+  commands.handle("simlock:release", (context, request) => {
+    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
+    return releaseSimlock(request);
+  });
   // `agents` is created below; ownership roots are read only once the service polls.
   function agentProcesses() {
     const roots = agents.processes();
@@ -311,10 +415,20 @@ function createRuntime(options) {
     if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
     return require("./browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
   });
-  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint.
-  commands.handle("browser:panel-pages", (context, request) => {
+  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint. A paired
+  // desktop's pages for this host's Chats (#832) come `via: "peer"`: the endpoint is on that desktop's loopback, reached
+  // through a forwarder here that carries each connection back over its channel.
+  const panelForwarders = require("./panel-forwarders.cjs").createPanelForwarders();
+  commands.handle("browser:panel-pages", async (context, request) => {
     if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
-    return browsers.setPanelPages(request, context.clientId);
+    if (request?.via !== "peer") return browsers.setPanelPages(request, context.clientId);
+    if (typeof context.openStream !== "function") throw new Error("Only a paired desktop's channel carries its Browser pages.");
+    if (!Array.isArray(request.pages) || !request.pages.length) {
+      await panelForwarders.close(context.clientId);
+      return browsers.setPanelPages({ pages: [] }, context.clientId);
+    }
+    const port = await panelForwarders.forward(context.clientId, context.openStream, request.port);
+    return browsers.setPanelPages({ port, prefix: request.prefix, pages: request.pages }, context.clientId);
   });
   for (const method of ["open", "frame", "status", "control", "input", "close"]) {
     commands.handle(`browser:${method}`, (context, request) => {
@@ -367,6 +481,8 @@ function createRuntime(options) {
       (error) => console.warn("Milagre couldn't read your login shell's environment:", error.message),
     );
   const usageStore = createUsageStore({ file: path.join(dataDir, "usage-cache.json") });
+  // Kiro's month of credits, read from kiro-cli at most every few minutes and shared by every Account selection.
+  const kiroUsage = createKiroUsage({ cli: () => baseCli("kiro") });
   // A host may bring its own usage, models and CLI status (the review demo, which runs no real agent).
   const accountUsage = new Map();
   // Tests replace single readers. Claude's and Codex's are called with no arguments; Antigravity's gets the Account's environment.
@@ -384,7 +500,8 @@ function createRuntime(options) {
           : createUsageStore({ file: path.join(dataDir, `usage-${key}.json`) });
       accountUsage.set(key, {
         key,
-        accountIds: { claude, codex, antigravity },
+        // Kiro has only the account kiro-cli is signed in to, so it never splits the cache.
+        accountIds: { claude, codex, antigravity, kiro: "default" },
         store,
         read: createUsageReader({
           ready: () => environmentReady,
@@ -397,6 +514,7 @@ function createRuntime(options) {
             }),
           readCodex: readers.codex ?? (() => readCodexUsage({ env: accounts.environment("codex", codex) })),
           readAntigravity: () => (readers.antigravity ?? readAntigravityUsage)({ env: accounts.environment("antigravity", antigravity) }),
+          readKiro: readers.kiro ?? kiroUsage,
         }),
       });
     }
@@ -557,7 +675,8 @@ function createRuntime(options) {
     await scopeStates.flush(projectPath);
   }
 
-  const diffs = new DiffRefresher({ states, readDiffStat, update: updateProject });
+  // Hover-card stats nobody is waiting on: their git reads give way to interactive ones (process-lanes.cjs).
+  const diffs = new DiffRefresher({ states, readDiffStat: (...args) => inBackgroundLane(() => readDiffStat(...args)), update: updateProject });
 
   // Reading a project matches its worktrees with the ones git lists now. A project read before keeps the
   // state this run has built, so a chat's turn that's still running isn't lost.
@@ -838,6 +957,7 @@ function createRuntime(options) {
     // Read again, the project drops the worktree git no longer lists, with its chats.
     if (states.has(projectPath)) await readProject(projectPath);
     if (result.removed) {
+      for (const id of goneChats) computerUseScreen.forget(id);
       await Promise.all(goneChats.map((id) => artifacts.removeChat(id).catch(() => {})));
       await Promise.all(goneChats.map((id) => pageComments.removeChat(id).catch(() => {})));
       for (const id of goneChats) chats.forget(id);
@@ -1090,15 +1210,59 @@ function createRuntime(options) {
       worktreeIds.filter((id) => Number.isInteger(id)),
     );
   });
-  const readPullRequest = options.readPullRequest ?? createPullRequestReader();
   const readPullRequestStateOf = options.readPullRequestState ?? readPullRequestState;
+  // Branch and Chat PRs are polled here for every client (pull-request-watch.cjs, spec 2026-10-30-daemon-pr-polling):
+  // a read answers from the last poll, and `pull-requests:changed` tells clients when a Project's PRs changed. A
+  // harness that injects its own readers gets them called directly instead.
+  const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
+  const readPullRequest = options.readPullRequest ?? createPullRequestReader();
+  const pullRequestWatch = injectedPullRequests
+    ? null
+    : createPullRequestWatch({
+        onChange: (folders) => {
+          for (const projectPath of new Set(folders.map((folder) => states.worktreeProject(folder)).filter(Boolean)))
+            emit("pull-requests:changed", { projectPath });
+        },
+      });
   commands.handle("worktree:pull-request", async (_event, worktreePath) => {
     await environmentReady;
-    return readPullRequest(worktreePath);
+    return pullRequestWatch ? pullRequestWatch.branch(worktreePath) : readPullRequest(worktreePath);
   });
   commands.handle("worktree:pull-requests", async (_event, worktreePath, refs) => {
     await environmentReady;
-    return (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
+    return pullRequestWatch ? pullRequestWatch.refs(worktreePath, refs) : (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
+  });
+  // A Project's Worktrees with Chats, and the PRs those Chats named, as the sidebar and the phone's list show them.
+  async function pullRequestTargets(projectPath) {
+    const state = await states.get(projectPath);
+    const byPath = new Map();
+    for (const session of Object.values(state.sessions ?? {})) {
+      const worktree = !session.archived ? state.worktrees?.[session.worktree_id] : undefined;
+      if (!worktree) continue;
+      const refs = byPath.get(worktree.path) ?? new Set();
+      for (const ref of session.summary?.pullRequests ?? []) if (typeof ref === "string") refs.add(ref);
+      if (!session.summary || session.summary.count > 0 || refs.size) byPath.set(worktree.path, refs);
+    }
+    return [...byPath].map(([folder, refs]) => ({ path: folder, refs: [...refs] }));
+  }
+  /** Every PR the Project's Worktrees and Chats have, from the last poll: it never waits on GitHub. */
+  commands.handle("pull-requests:snapshot", async (_event, projectPath) => {
+    if (typeof projectPath !== "string" || !states.has(projectPath)) return { worktrees: {}, chats: {}, pending: false };
+    await environmentReady;
+    const targets = await pullRequestTargets(projectPath);
+    if (pullRequestWatch) return pullRequestWatch.snapshot(targets);
+    const worktrees = {};
+    const chats = {};
+    await Promise.all(
+      targets.map(async ({ path: folder, refs }) => {
+        worktrees[folder] = await readPullRequest(folder).catch(() => null);
+        if (refs.length) {
+          const found = await (options.readPullRequests ?? readPullRequests)(folder, refs).catch(() => []);
+          chats[folder] = Object.fromEntries(refs.map((ref, index) => [ref, found[index] ?? null]));
+        }
+      }),
+    );
+    return { worktrees, chats, pending: false };
   });
   // The Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
   // On until the renderer pushes the saved setting.
@@ -1140,6 +1304,11 @@ function createRuntime(options) {
     }
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
+    // A turn may have opened, pushed to or merged a PR: its Worktree's PRs are read again now, not on the next tick.
+    if (pullRequestWatch && isTurnEnd(event) && !isLinkScopeKey(projectOfKey(chatId))) {
+      const folder = states.chatWorktreePath(projectOfKey(chatId), sessionIdFromKey(chatId));
+      if (folder) pullRequestWatch.poke(folder);
+    }
     if (!isLinkScopeKey(projectOfKey(chatId)))
       void track(() => linked.observe(chatId, event), background).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
     // A turn that just failed on a login problem makes a "ready" picker status out of date.
@@ -1163,7 +1332,9 @@ function createRuntime(options) {
           ? new CodexSession({ ...withMcp, clientVersion: version })
           : provider === "antigravity"
             ? new AcpSession({ ...withMcp, clientVersion: version, config: antigravityAcp })
-            : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
+            : provider === "kiro"
+              ? new AcpSession({ ...withMcp, clientVersion: version, config: kiroAcp })
+              : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
       }),
     linkedFor: (chatId) => linked.forChat(chatId),
     // Bot rules answers for a bot's thread and the Chats it opened (bots is created further down).
@@ -1207,6 +1378,16 @@ function createRuntime(options) {
   // What Milagre tells a Chat's agent with its next message and nobody typed, such as files the user undid (a
   // <milagre_note> after the message). Kept in memory: a restart before the next message drops it.
   const agentNotes = new Map();
+  // Where the user typed each message, when it isn't this computer's window (sent-from.cjs). Settings › Experimental,
+  // off unless turned on: each note costs up to DEVICE_NOTE_TOKENS (shared/device-notes.mjs) on every message sent away from this computer.
+  const deviceNotes = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "device-notes.json"), { name: "Device notes", missing: false });
+  const sentFromNotes = createSentFromNotes({ enabled: () => deviceNotes.enabled() });
+  commands.handle("device-notes:read", () => ({ enabled: deviceNotes.enabled() }));
+  commands.handle("device-notes:save", (_event, value) => {
+    const result = deviceNotes.save(value);
+    emit("device-notes:changed", result);
+    return result;
+  });
   async function startAgentTurn(request) {
     const cancelled = () =>
       closing ||
@@ -1284,6 +1465,7 @@ function createRuntime(options) {
 
   const chats = new ChatHost({
     ...(options.limitResume?.now ? { now: options.limitResume.now } : {}),
+    contextSettings: () => contextSettings.read(),
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
@@ -1449,6 +1631,10 @@ function createRuntime(options) {
   commands.handle("keybindings:reset-command", (_event, command) => keybindings.resetCommand(command));
   commands.handle("keybindings:reset", () => keybindings.resetAll());
   // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
+  const contextSettings = require("./context-settings.cjs").createContextSettings({ file: path.join(dataDir, "context-settings.json"), emit });
+  commands.handle("context:settings:read", () => contextSettings.read());
+  commands.handle("context:settings:save", (_event, patch) => contextSettings.save(patch));
+
   const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
   commands.handle("babysit:settings:read", () => babysitSettings.read());
   commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
@@ -1625,6 +1811,47 @@ function createRuntime(options) {
     return usageWithAccounts(usage, cachedSnapshot(usage.store, Date.now()));
   });
 
+  // Token usage page: every Claude Code and Codex transcript on this computer (the connected CLI accounts' and each
+  // Account's folders), priced with LiteLLM's list and credited to the Projects and Chats Milagre knows.
+  async function tokenUsageRoots() {
+    const roots = [];
+    for (const provider of ["claude", "codex"]) {
+      const ids = ["default", ...((await accounts.list()).providers.find((group) => group.provider === provider)?.accounts ?? []).map((item) => item.id)];
+      for (const id of new Set(ids)) {
+        let home;
+        try {
+          const env = accounts.environment(provider, id);
+          home =
+            provider === "claude"
+              ? env.CLAUDE_CONFIG_DIR || path.join(require("node:os").homedir(), ".claude")
+              : env.CODEX_HOME || path.join(require("node:os").homedir(), ".codex");
+        } catch {
+          continue;
+        }
+        if (provider === "claude") roots.push({ provider, dir: path.join(home, "projects") });
+        else roots.push({ provider, dir: path.join(home, "sessions") }, { provider, dir: path.join(home, "archived_sessions") });
+      }
+    }
+    return roots;
+  }
+  const tokenUsage =
+    options.tokenUsage ??
+    createTokenUsage({
+      scan: createTokenUsageScan({ cacheFile: path.join(dataDir, "token-usage-cache.json"), roots: tokenUsageRoots }),
+      pricing: createTokenPricing({ file: path.join(dataDir, "model-prices.json"), onChange: () => emit("token-usage:changed", {}) }),
+      projects: async () =>
+        Promise.all(
+          (await projectRegistry().list()).map(async (project) => ({
+            path: project.path,
+            name: chatsHome.isHome(project.path) ? CHATS_ACCOUNT_LABEL : project.name || path.basename(project.path),
+            state: await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null),
+          })),
+        ),
+      worktreeRoot: worktreeRoot(),
+      emit,
+    });
+  commands.handle("token-usage:read", (_event, request) => tokenUsage.read(request));
+
   // The "Commit and open PR" dialog: Milagre runs git and gh itself, in the chat's folder, once the login
   // environment is in (gh from a Finder launch). Its one-shot text call starts the CLI agentCli found.
   registerGitHandlers(commands, {
@@ -1632,6 +1859,8 @@ function createRuntime(options) {
     ready: () => environmentReady,
     clientVersion: version,
     knownFolders: () => scopeStates.worktreePaths(),
+    // A PR write (merge, ready, a review, a new PR) shows on the next read, not the next tick.
+    pullRequestChanged: (folder) => pullRequestWatch?.poke(folder),
   });
 
   const checkpoints = registerCheckpoints(commands, {
@@ -1661,7 +1890,7 @@ function createRuntime(options) {
     }
     // Only Milagre marks a message as coming from another Chat. A PR-blocker pill and a Chat started from a Linear issue
     // are the contexts a renderer can ask for, and Milagre checks them and writes their message and prompt itself.
-    const { prAction, linearIssue, compact, ...rest } = request;
+    const { prAction, linearIssue, compact, sentFrom, ...rest } = request;
     const action = prAction === undefined ? null : pullRequestActionContext(prAction);
     if (prAction !== undefined && !action) throw new Error("That pull request action isn't valid.");
     if (compact && rest.sessionId == null) throw new Error("Open a chat before compacting it.");
@@ -1672,7 +1901,11 @@ function createRuntime(options) {
         : linearIssue !== undefined
           ? await linearIssueMessage(rest, linearIssue)
           : { ...rest, context: undefined };
-    const { sessionId } = await chats.send(message);
+    // A compact is a command to the agent's CLI, not a message: it says nothing of where the user is.
+    const { sessionId } = await chats.send(
+      compact ? message : sentFromNotes.message({ ...message, sentFrom }, rest.sessionId == null ? null : chatKey(rest.projectPath, rest.sessionId)),
+    );
+    if (!compact) sentFromNotes.sent(chatKey(rest.projectPath, sessionId), sentFrom);
     // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
     // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
     // directly and never keep one.
@@ -1722,6 +1955,9 @@ function createRuntime(options) {
   async function stopChatWork(chatId) {
     terminals.closeChat(chatId);
     routines.chatArchived(chatId);
+    // A turn still running stops as Stop stops it, so the questions and approvals it waits on end with it instead of
+    // asking from an archived Chat. The clients stop it first, but only when their copy of the runs shows it.
+    if (chats.runs[chatId]) return stopChat(chatId);
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
   }
@@ -1812,6 +2048,7 @@ function createRuntime(options) {
     await worktreeSetups.cancel(chatId);
     await agents.closeChat(chatId);
     await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
+    computerUseScreen.forget(chatId);
     await artifacts.removeChat(chatId).catch(() => {});
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
@@ -2160,6 +2397,16 @@ function createRuntime(options) {
       ...planTools.definitions(chatId),
       ...chatSecrets.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
+      ...(simlockSettings.read().enabled
+        ? require("./chat-simulators.cjs").simlockToolDefinitions(chatId, {
+            models: () => simlock.models(),
+            lease: (request) => leaseSimlock({ ...request, chatId }),
+            release: (request) => releaseSimlock(request),
+            get: (deviceId) => simlock.get(deviceId),
+          })
+        : []),
+      // Experimental: desktop apps on this computer, through agent-desktop.
+      ...(computerUseSettings.read().enabled ? computerUse.definitions(chatId) : []),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...pageCommentToolDefinitions(chatId, pageComments),
       // Driving the Chat's browser pages; browser_open asks the desktop to open a Browser panel tab (browser-panel:open).
@@ -2170,7 +2417,14 @@ function createRuntime(options) {
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
       ...localMcp.agentTools(chatId).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name)),
-      ...htmlArtifactToolDefinitions(chatId, artifacts),
+      // Files an Artifact page shows come from the Chat's own Worktrees, as a chat_start attachment does.
+      ...htmlArtifactToolDefinitions(chatId, artifacts, undefined, {
+        roots: () =>
+          chatWorktrees(chatId).then(
+            (worktrees) => worktrees.map((worktree) => worktree.path),
+            () => [],
+          ),
+      }),
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
@@ -2373,6 +2627,7 @@ function createRuntime(options) {
     store: linkStore,
     workspaces: linkWorkspaces,
     chats,
+    sentFromNotes,
     broadcast: broadcastProjectState,
     titles: chatTitles,
   });
@@ -3049,7 +3304,7 @@ function createRuntime(options) {
       await advisorMcp.close();
       await advisorStore.close();
       // Ending the Terminals first also answers their pending reads, which the wait for accepted commands includes.
-      await Promise.all([simulators.close(), browsers.close(), artifacts.close(), pageComments.close(), terminals.dispose()]);
+      await Promise.all([simulators.close(), browsers.close(), panelForwarders.closeAll(), artifacts.close(), pageComments.close(), terminals.dispose()]);
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
       await Promise.allSettled(active);
@@ -3060,6 +3315,7 @@ function createRuntime(options) {
       computerResources.close();
       ports.close();
       diffs.close();
+      pullRequestWatch?.close();
       if (!states.closed) {
         await chats.suspendRunning();
         // A failed early save must not leave provider processes running. The
@@ -3096,7 +3352,8 @@ function createRuntime(options) {
         return commands.invoke(method, args, context);
       });
     },
-    disconnect: (clientId) => Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId)]).then(() => undefined),
+    disconnect: (clientId) =>
+      Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId), panelForwarders.close(clientId)]).then(() => undefined),
     /** Runs the Done sweep now instead of at its next minute (tests); resolves with the Chats it archived. */
     sweepDone: () => doneSweep.sweep(),
     /** A bot's thread, or a Chat a bot opened and still runs: its completion tells no one but the bot. */

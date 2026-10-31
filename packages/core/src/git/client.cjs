@@ -1,6 +1,7 @@
 const { execFile: execute } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { lanes: sharedLanes } = require("../process-lanes.cjs");
 
 const limit = (timeout) => Object.freeze({ timeout, maxBuffer: 16 * 1024 * 1024 });
 const LIMITS = Object.freeze({
@@ -64,10 +65,21 @@ function callbackExec(exec) {
   };
 }
 
-function createGit({ execFile = execute, env = process.env, platform = process.platform, realpath = fs.realpath, analysisOnly = false } = {}) {
-  function executeGit(cwd, args, { profile = "READ", input, config = [] } = {}) {
+function createGit({
+  execFile = execute,
+  env = process.env,
+  platform = process.platform,
+  realpath = fs.realpath,
+  analysisOnly = false,
+  lanes = sharedLanes,
+} = {}) {
+  // Each run waits for a git slot (process-lanes.cjs) and holds it until the process exits.
+  function executeGit(cwd, args, options = {}) {
+    if (!LIMITS[options.profile ?? "READ"]) throw new Error(`Unknown Git limit profile: ${options.profile}`);
+    return lanes.run("git", () => spawnGit(cwd, args, options));
+  }
+  function spawnGit(cwd, args, { profile = "READ", input, config = [] } = {}) {
     const limits = LIMITS[profile];
-    if (!limits) throw new Error(`Unknown Git limit profile: ${profile}`);
     return new Promise((resolve) => {
       try {
         // Analysis runs in the host, so provider sandboxes cannot protect it from Git's configured helpers.

@@ -6,17 +6,27 @@ import { preferenceStorage as localStorage } from "../../lib/preference-storage.
 import { useDisplayNow } from "../../lib/display-clock";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { ChatTitle } from "./ChatTitle";
-import type { SidebarRecent } from "./ChatRow";
+import { computerIcon, type RowComputer, type SidebarRecent } from "./ChatRow";
 
-/** A Done chat with what its own scope does with it: open it, or take it back to the list. */
-export type DoneEntry = { key: string; item: SidebarRecent; onPick: (item: SidebarRecent) => void; onReopen?: (id: string) => void };
+/**
+ * A Done chat with what its own scope does with it: open it, or take it back to the list. `computer`: the one it lives on,
+ * once there are two or more.
+ */
+export type DoneEntry = {
+  key: string;
+  item: SidebarRecent;
+  onPick: (item: SidebarRecent) => void;
+  onReopen?: (id: string) => void;
+  computer?: RowComputer;
+};
 
 const OPEN_KEY = "milagre.sidebarDoneOpen";
 
 /*
  * DONE
  * The sidebar's last section, under the chats and pinned to the bottom: chats marked Done, most recent first, folded
- * by default. Each shows the time left before the host archives it, and Reopen on hover. Clicking one opens it.
+ * by default. Each shows its computer (with two or more), the time left before the host archives it, and Reopen on hover.
+ * Clicking one opens it.
  */
 export function DoneSection({ entries, retentionHours, collapsed }: { entries: DoneEntry[]; retentionHours: number; collapsed: boolean }) {
   const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) === "1");
@@ -55,19 +65,31 @@ export function DoneSection({ entries, retentionHours, collapsed }: { entries: D
 }
 
 function DoneRow({ entry, countdown }: { entry: DoneEntry; countdown: string | null }) {
-  const { item, onPick, onReopen } = entry;
+  const { item, onPick, onReopen, computer } = entry;
   return (
     <li data-done-row={item.id} className="group/done relative">
       <button
         type="button"
         onClick={() => onPick(item)}
-        className="sidebar-copy flex h-[30px] w-full items-center gap-2.5 rounded-control px-2 text-left hover:bg-hover-2"
+        className={`sidebar-copy flex w-full items-center gap-2.5 rounded-control px-2 text-left hover:bg-hover-2 ${computer ? "h-[42px]" : "h-[30px]"}`}
       >
         <span className="flex shrink-0 text-ink-4">
           <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={2} color="currentColor" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] text-ink-3 group-hover/done:text-ink-2">
-          <ChatTitle label={item.label} />
+        {/* With two or more computers, the one the chat lives on goes under its title, so both stay readable. */}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-[length:calc(13px+var(--sidebar-delta))] text-ink-3 group-hover/done:text-ink-2">
+            <ChatTitle label={item.label} />
+          </span>
+          {computer && (
+            <span
+              data-done-computer
+              className={`flex min-w-0 items-center gap-1 text-[length:calc(11px+var(--sidebar-delta))] ${computer.offline ? "text-orange-ink" : "text-ink-4"}`}
+            >
+              <HugeiconsIcon icon={computerIcon(computer)} size={11} strokeWidth={2} color="currentColor" className="shrink-0" />
+              <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
+            </span>
+          )}
         </span>
         {countdown && (
           <span

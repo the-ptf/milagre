@@ -1,7 +1,7 @@
 // The coding agents' logos as static SVG files, from the same shapes the app draws (packages/shared/src/provider-logos).
 // Files rather than inline markup: the landing page's HTML stays small enough to arrive in one round trip.
 import type { APIRoute, GetStaticPaths } from "astro";
-import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO } from "../../../../../packages/shared/src/provider-logos";
+import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO } from "../../../../../packages/shared/src/provider-logos";
 
 const LOGOS: Record<string, string> = {
   claude: `<path d="${CLAUDE_LOGO.d}" fill="${CLAUDE_LOGO.fill}"/>`,
@@ -16,6 +16,7 @@ const LOGOS: Record<string, string> = {
     .join(
       "",
     )}</defs><g mask="url(#arch)">${ANTIGRAVITY_LOGO.blobs.map((blob) => `<path d="${blob.d}" fill="${blob.fill}" filter="url(#${blob.id})"/>`).join("")}</g>`,
+  kiro: `<path d="${KIRO_LOGO.d}" fill="${KIRO_LOGO.fill}" fill-rule="evenodd"/>`,
 };
 
 export const getStaticPaths: GetStaticPaths = () => Object.keys(LOGOS).map((provider) => ({ params: { provider } }));

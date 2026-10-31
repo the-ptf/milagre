@@ -22,6 +22,7 @@ const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, lo
 const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell, writesRemote } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
+const { commandRisk } = require("./command-risk.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
@@ -244,7 +245,7 @@ class AcpSession {
 
   async beginTurn({ prompt, images = [], model: wanted, effort, permissionMode, canStart }) {
     const turnId = randomUUID();
-    Object.assign(this.state, { turnId, hasText: false, textBreak: false });
+    Object.assign(this.state, { turnId, hasText: false, textBreak: false, turnCredits: undefined });
     if (permissionMode) this.permissions.setMode(permissionMode);
     try {
       this.starting ??= this.start();
@@ -263,6 +264,7 @@ class AcpSession {
           throw Object.assign(new Error(`${this.config.name} couldn't switch to ${model}: ${error.message}`), { rpcError: error.rpcError });
         }
       }
+      await this.applyEffort(model ?? this.state.model, effort);
       await this.applyMode();
     } catch (error) {
       await this.failStart(error);
@@ -320,7 +322,10 @@ class AcpSession {
 
   promptEnded(turnId, result) {
     if (this.state.turnId !== turnId || !this.turnActive) return;
-    void this.finishTurn([this.cancelRequested ? { type: "turn-cancelled" } : stopReasonEvent(result?.stopReason, this.config.name)]);
+    const end = this.cancelRequested ? { type: "turn-cancelled" } : stopReasonEvent(result?.stopReason, this.config.name);
+    // What the turn cost, when the agent said (Kiro's credits).
+    const credits = this.state.turnCredits;
+    void this.finishTurn([end.type === "turn-completed" && Number.isFinite(credits) ? { ...end, credits } : end]);
   }
 
   promptFailed(turnId, error) {
@@ -425,17 +430,32 @@ class AcpSession {
     readConfigOptions(result?.configOptions, this.state);
   }
 
+  // An agent whose effort is a session option of its own (Kiro's `effortLevel`, offered per model) gets the turn's
+  // effort when the model takes it; one that refuses keeps its own and the turn goes on.
+  async applyEffort(model, effort) {
+    const option = this.config.effortOption;
+    const value = option && this.config.resolveEffort?.({ model, effort, offered: this.state.models });
+    if (!value || value === this.state[option]) return;
+    try {
+      await this.setConfig(option, value);
+    } catch (error) {
+      if (!error.rpcError) throw error;
+    }
+  }
+
   // The agent's mode follows Milagre's permission mode. An agent without config options gets session/set_mode;
   // one that refuses both keeps its mode, and the approval cards still follow Milagre's (see PendingPermissions).
   // Full's mode never asks, so a babysit Run's turn in Full runs in Auto's: its commands ask, the level refuses what it
   // doesn't allow, and PendingPermissions allows the rest without a card.
   async applyMode() {
     const target = this.config.modes[this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode];
-    if (!target || target === this.state.mode || !this.rpc || this.closed) return;
+    // Kiro's permission mode is its `autopilot` option; its `mode` names its agents (see kiro-acp.cjs).
+    const option = this.config.modeOption ?? "mode";
+    if (!target || target === this.state[option] || !this.rpc || this.closed) return;
     try {
-      await this.setConfig("mode", target);
+      await this.setConfig(option, target);
     } catch (error) {
-      if (!error.rpcError) throw error;
+      if (!error.rpcError || option !== "mode") throw error;
       try {
         await this.rpc.request("session/set_mode", { sessionId: this.state.sessionId, modeId: target }, { timeoutMs: CONFIG_TIMEOUT_MS });
         this.state.mode = target;
@@ -523,6 +543,21 @@ class AcpSession {
     const roots = [this.cwd, ...(this.access.roots ?? [])];
     // Resolved through symlinks: the agent names files by their real path (/private/var/… on macOS).
     const inWorkspace = request.kind === "edit" && request.files.length > 0 && insideWorkspace(roots, request.files, this.cwd);
+    // Auto allows changes inside the worktree. An agent whose own mode can't say so (Kiro asks before every edit)
+    // gets that answer here, without a card.
+    if (inWorkspace && this.permissions.mode === "auto") {
+      this.reply(id, outcome(pickOption(options, "allow", once)));
+      return;
+    }
+    // Auto's risk filter (Kiro): a command that stays inside the worktree runs; a risky one gets a card that says why.
+    if (this.config.riskFilter && this.permissions.mode === "auto" && request.kind === "command") {
+      const risk = commandRisk(request.command, { cwd: request.cwd ?? this.cwd, roots });
+      if (!risk) {
+        this.reply(id, outcome(pickOption(options, "allow", once)));
+        return;
+      }
+      request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
+    }
     this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision, once))), { inWorkspace });
   }
 

@@ -1,4 +1,5 @@
 // @ts-check
+const { createAgentCursor } = require("./agent-cursor.cjs");
 const { createQuitHandler } = require("./quit.cjs");
 const { createEditorOpener } = require("./editor-open.cjs");
 const {
@@ -31,7 +32,8 @@ const { revealFolder } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
-const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests } = require("./browser-guests.cjs");
+const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession } = require("./browser-guests.cjs");
+const { createRemoteBrowserSessions } = require("./browser-remote-sessions.cjs");
 const { createBrowserPanelPages } = require("./browser-panel-pages.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
@@ -39,12 +41,15 @@ const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
 const { createComputersLane } = require("./computers-lane.cjs");
 protocol.registerSchemesAsPrivileged([
-  { scheme: "milagre-artifact", privileges: { standard: true, secure: true } },
+  // stream: an Artifact page's videos and audio play from its preview's address.
+  { scheme: "milagre-artifact", privileges: { standard: true, secure: true, stream: true } },
   { scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 async function startDesktop() {
   /** @type {Electron.BrowserWindow | null} */
   let mainWindow = null;
+  // Computer use: the agent cursor, made on first use (agent-cursor.cjs).
+  let agentCursor = null;
   let runtime;
   let computerUnlock;
   /** @type {ReturnType<typeof createComputersLane> | null} */
@@ -139,9 +144,19 @@ async function startDesktop() {
     floating.close();
     openFromNotification("notification:open-experimental");
   });
-  const previews = require("./artifact-preview.cjs").createArtifactPreviews();
+  // An Artifact page's files come from the computer its Chat is on: this Mac's host, or a paired one's.
+  const { computerOfKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
+  const previews = require("./artifact-preview.cjs").createArtifactPreviews({
+    readAsset: (chatId, name, offset, length) => {
+      const request = { chatId, name, offset, length };
+      const computer = computerOfKey(chatId);
+      if (computer === LOCAL_COMPUTER) return runtime.invoke("artifact:asset", [request]);
+      if (!computersLane) throw new Error("This computer is not reachable.");
+      return computersLane.invoke("computers:invoke", [computer, "artifact:asset", [request]]);
+    },
+  });
   const previewOwners = new Set();
-  ipcMain.handle("artifact-preview:register", (event, html) => {
+  ipcMain.handle("artifact-preview:register", (event, html, source) => {
     if (event.senderFrame !== event.sender.mainFrame) throw new Error("Only the app can create a preview.");
     const owner = event.sender.id;
     if (!previewOwners.has(owner)) {
@@ -154,7 +169,7 @@ async function startDesktop() {
         if (mainFrame) previews.clear(owner);
       });
     }
-    return previews.register(owner, html);
+    return previews.register(owner, html, source);
   });
   ipcMain.handle("artifact-preview:release", (event, url) => {
     if (event.senderFrame === event.sender.mainFrame) previews.release(event.sender.id, url);
@@ -199,9 +214,37 @@ async function startDesktop() {
   // the agent. An older host has no such command; its pages simply stay in the panel.
   const panelPages = createBrowserPanelPages({
     fromId: (id) => require("electron").webContents.fromId(id),
-    publish: (request) => (runtime ? runtime.invoke("browser:panel-pages", [request]) : Promise.reject(new Error("No host"))),
+    // This Mac's Chats' pages go to its own host; a Chat on another computer's go to that computer's host, which reaches
+    // them back through this Mac (#832).
+    publish: async (request) => {
+      if (!runtime) throw new Error("No host");
+      const remote = request.pages.filter((page) => computerOfKey(page.chatId) !== LOCAL_COMPUTER);
+      const local = request.pages.filter((page) => computerOfKey(page.chatId) === LOCAL_COMPUTER);
+      await Promise.all([
+        runtime.invoke("browser:panel-pages", [local.length ? { ...request, pages: local } : { pages: [] }]),
+        runtime
+          .invoke("computers:browser-pages", [
+            {
+              port: request.port,
+              prefix: request.prefix,
+              pages: remote.map((page) => ({ id: page.id, chatKey: page.chatId, title: page.title, url: page.url })),
+            },
+          ])
+          .catch((error) => console.warn("Browser pages for other computers:", error.message)),
+      ]);
+    },
   });
   ipcMain.handle("browser-panel:pages", (event, list) => panelPages.setPages(event.sender, list));
+  // A Chat on another computer: its pages draw here and reach the web from that computer (#832).
+  const remoteBrowserSessions = createRemoteBrowserSessions({
+    fromPartition: (partition) => electronSession.fromPartition(partition),
+    proxyPort: async (computerId) => {
+      if (!runtime) throw new Error("Milagre's host isn't connected yet.");
+      return (await runtime.invoke("computers:browser-proxy", [computerId]))?.port;
+    },
+    harden: hardenBrowserSession,
+  });
+  ipcMain.handle("browser-panel:remote-partition", (_event, chatKey) => remoteBrowserSessions.prepare(chatKey));
   // The keys caught from every frame follow this Mac's keybindings.json; an older host has none, so the defaults stay.
   const readKeybindings = () =>
     void runtime
@@ -243,14 +286,19 @@ async function startDesktop() {
       name,
     );
   // Dictation runs on this computer even when the window shows a paired one: the microphone is here.
-  // Its model download reports progress to the window that asked.
-  const dictation = createDictation({ dataDir: app.getPath("userData") });
-  ipcMain.handle("app:dictation-status", async () => ({ ready: await dictation.ready(), size: dictation.size }));
-  ipcMain.handle("app:dictation-transcribe", (event, request) =>
-    dictation.transcribe(request ?? {}, (received, total) => {
-      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
-    }),
-  );
+  // Every window hears each model's download progress, so Settings and the composer show the same ring.
+  const dictation = createDictation({
+    dataDir: app.getPath("userData"),
+    onChange: (state) => {
+      for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send("app:dictation-model", state);
+    },
+  });
+  ipcMain.handle("app:dictation-status", () => dictation.status());
+  ipcMain.handle("app:dictation-download", (_event, id) => dictation.download(id));
+  ipcMain.handle("app:dictation-cancel", (_event, id) => dictation.cancel(id));
+  ipcMain.handle("app:dictation-remove", (_event, id) => dictation.remove(id));
+  ipcMain.handle("app:dictation-prepare", (_event, id) => dictation.prepare(id));
+  ipcMain.handle("app:dictation-transcribe", (_event, request) => dictation.transcribe(request ?? {}));
   ipcMain.handle("app:dictation-open-settings", () =>
     shell.openExternal(
       process.platform === "win32" ? "ms-settings:privacy-microphone" : "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
@@ -385,6 +433,12 @@ async function startDesktop() {
         if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
         if (channel === "keybindings:changed" && payload?.rules) setForwardedRules(payload.rules);
         // The agent opened a page (browser_open): the window with the Chat's Browser panel opens it in a tab.
+        // Computer use: an agent acts on an app here; Milagre's agent cursor shows where (agent-cursor.cjs).
+        if (channel === "computer-use:cursor" && payload && typeof payload === "object") {
+          agentCursor ??= createAgentCursor({ BrowserWindow, screen });
+          if (payload.hide) agentCursor.hide();
+          else agentCursor.show({ bounds: payload.bounds ?? null, label: typeof payload.label === "string" ? payload.label : "" });
+        }
         if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
           mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
         if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);
@@ -398,6 +452,7 @@ async function startDesktop() {
             readAutoUpdate();
             readKeybindings();
             panelPages.republish();
+            void remoteBrowserSessions.refresh();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
           }
@@ -573,6 +628,7 @@ async function startDesktop() {
     hardenBrowserGuests(window.webContents, {
       session: electronSession.fromPartition(BROWSER_PARTITION),
       openExternal: (url) => shell.openExternal(url).catch(() => {}),
+      remoteReady: remoteBrowserSessions.isReady,
     });
     forwardAppShortcuts(window.webContents, process.platform, electronIpcMain, () => void confirmQuit(window));
     // A reload keeps every turn running: the main process saves them, and the renderer takes the

@@ -2,7 +2,7 @@ export type SimulatorOrientation = "portrait" | "portrait-upside-down" | "landsc
 export interface SimulatorDevice {
   id: string;
   name: string;
-  platform: "ios";
+  platform: "ios" | "android";
   version: string;
 }
 export interface SimulatorIceServer {
@@ -35,7 +35,10 @@ export type SimulatorInput =
   | { kind: "hinge"; angle: number }
   | { kind: "key"; phase: "down" | "up"; usage: number; key?: string; shifted?: boolean };
 export interface SimulatorChannel {
-  frame?(after: number, signal: AbortSignal): Promise<{ sequence: number; data: string; mimeType: "image/jpeg" | "image/png" } | null>;
+  frame?(
+    after: number,
+    signal: AbortSignal,
+  ): Promise<{ sequence: number; data: string; mimeType: "image/jpeg" | "image/png" | "video/avcc"; reset?: boolean } | null>;
   status(): Omit<SimulatorStatus, "generation" | "controlling"> & { error?: string };
   send(event: SimulatorInput): void | Promise<void>;
   close(): Promise<void>;
@@ -68,7 +71,7 @@ export interface Simulators {
   frame(
     request: { viewerId: string; after: number },
     owner: string,
-  ): Promise<{ sequence: number; data: string; mimeType: "image/jpeg" | "image/png"; status: SimulatorStatus } | null>;
+  ): Promise<{ sequence: number; data: string; mimeType: "image/jpeg" | "image/png" | "video/avcc"; reset?: boolean; status: SimulatorStatus } | null>;
   offer(request: { viewerId: string; sdp: string }, owner: string): Promise<{ type: "answer"; sdp: string }>;
   status(request: { viewerId: string }, owner: string): Promise<SimulatorStatus>;
   control(request: { viewerId: string; takeOver: boolean }, owner: string): Promise<SimulatorStatus>;

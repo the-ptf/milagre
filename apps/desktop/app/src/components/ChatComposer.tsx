@@ -1,7 +1,8 @@
+import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
+import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
 import { UpdatePillSlot } from "./UpdateNotice";
-import { BrowserTrack } from "./agents/BrowserTrack";
 import { BrowserPanel } from "./agents/BrowserPanel";
 import { isPageCommentImage, PageCommentsCard } from "./agents/BrowserComments";
 import { parsePageComments } from "@milagre/shared/page-comments";
@@ -80,6 +81,7 @@ import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
+import { ComputerUseCard } from "./agents/ComputerUseCard";
 import { HeartbeatCard } from "./routines/HeartbeatCard";
 import { NextCheck } from "./routines/NextCheck";
 import type { QueueControls } from "./QueuedMessages";
@@ -87,6 +89,7 @@ import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
 import { NewChatHeading } from "./NewChatHeading";
 import Tooltip from "./primitives/Tooltip";
+import { CopyButton } from "./primitives/CopyButton";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -113,6 +116,7 @@ import { bridgeForKey } from "../lib/computer-bridge";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
 import { headingLayer, newChatLook } from "../lib/new-chat-look";
+import { WelcomeSky } from "./WelcomeSky";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
@@ -251,29 +255,44 @@ function ReplyContent({
   streaming,
   asking = false,
   waitingStepIds,
+  credits,
+  copyable = true,
 }: {
   body: string;
+  copyable?: boolean;
   steps: ChatStep[];
   streaming: boolean;
   asking?: boolean;
   waitingStepIds: string[];
+  credits?: number;
 }) {
-  const { setup, activity, images, artifacts, heartbeats, answer } = replyActivity(body, steps);
+  const { setup, activity, images, artifacts, heartbeats, desktop, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   return (
     <>
       {setup.map((step) => (
         <StepRow key={step.id} step={step} />
       ))}
-      <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} />
+      <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />
       {images.map((step) => (
         <GeneratedImage key={step.id} step={step} />
       ))}
+      {desktop.length > 0 && <ComputerUseCard steps={desktop} />}
       <ArtifactCards steps={artifacts} />
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
       {answer.trim() && <div data-slot="message-content">{streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}</div>}
+      {/* Reserve the footer while streaming so completion and hover keep the transcript still. */}
+      {copyable && answer.trim() && (
+        <div className="h-7" data-message-copy-footer>
+          {!streaming && (
+            <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+              <CopyButton text={answer} />
+            </div>
+          )}
+        </div>
+      )}
       {thought && (
         <div data-slot="message-thought" className="text-ink-2">
           <Markdown text={thought} />
@@ -396,6 +415,7 @@ const MessageSection = memo(function MessageSection({
   const showUpdateButton = Boolean(outdatedProvider && onUpdateCli && (isCurrentlyOutdated || updatingCli === outdatedProvider));
   const limit = !isUser && !streaming ? usageLimitOf(message) : null;
   const steps = message.steps ?? [];
+  const copyUser = (bubble || (isUser && linked)) && !advisor && Boolean(message.body.trim()) && !onlyImageMentions(message.body, message.images?.length ?? 0);
   return (
     <article
       id={`message-${message.id}`}
@@ -403,32 +423,44 @@ const MessageSection = memo(function MessageSection({
       data-from={messageSender(message)}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble ? (copyUser && undoId && onUndo ? "items-end pl-18" : "items-end pl-12") : feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
       style={animate ? { animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" } : undefined}
     >
-      {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
+      {linked && (
+        <div className="flex min-w-0 max-w-full items-center gap-1.5">
+          <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />
+          {copyUser && (
+            <div className="shrink-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+              <CopyButton text={message.body} />
+            </div>
+          )}
+        </div>
+      )}
       <div
-        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "relative rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
-        {bubble && undoId && onUndo && (
-          <div className="absolute top-[3px] right-full mr-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-            <Tooltip
-              label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
-              keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
-              align="end"
-            >
-              <button
-                type="button"
-                data-undo-message={message.id}
-                aria-label="Undo this task's changes"
-                disabled={undoDisabled}
-                onClick={() => onUndo(undoId)}
-                className="flex size-7 items-center justify-center rounded-[7px] text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+        {bubble && (copyUser || (undoId && onUndo)) && (
+          <div className="absolute top-[3px] right-full mr-1.5 flex opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+            {bubble && undoId && onUndo && (
+              <Tooltip
+                label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
+                keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
+                align="end"
               >
-                <Icon icon={Undo02Icon} size={15} />
-              </button>
-            </Tooltip>
+                <button
+                  type="button"
+                  data-undo-message={message.id}
+                  aria-label="Undo this task's changes"
+                  disabled={undoDisabled}
+                  onClick={() => onUndo(undoId)}
+                  className="flex size-7 items-center justify-center rounded-[7px] text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+                >
+                  <Icon icon={Undo02Icon} size={15} />
+                </button>
+              </Tooltip>
+            )}
+            {copyUser && <CopyButton text={message.body} />}
           </div>
         )}
         <Attachments
@@ -468,7 +500,7 @@ const MessageSection = memo(function MessageSection({
         ) : recommendation ? (
           <>
             <StepDetailsMessage id={message.id}>
-              <ReplyContent body={recommendation.intro} steps={steps} streaming={false} waitingStepIds={waitingStepIds} />
+              <ReplyContent body={recommendation.intro} steps={steps} streaming={false} waitingStepIds={waitingStepIds} copyable={false} />
             </StepDetailsMessage>
             <div className={recommendation.intro ? "mt-2" : undefined}>
               <RecommendationCard
@@ -477,10 +509,15 @@ const MessageSection = memo(function MessageSection({
                 onSelect={(option) => onRecommendationSelect(option.label)}
               />
             </div>
+            <div className="h-7" data-message-copy-footer>
+              <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+                <CopyButton text={message.body} />
+              </div>
+            </div>
           </>
         ) : (
           <StepDetailsMessage id={message.id}>
-            <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} />
+            <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} credits={message.credits} />
           </StepDetailsMessage>
         )}
         {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-xs text-ink-3">Turn stopped</p>}
@@ -1474,6 +1511,10 @@ export function ChatComposer({
   });
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
+  const compactionFeedback = useCompactionFeedback(
+    messages.findLast((item) => compactionContext(item)),
+    runtimeChat,
+  );
   const history = chatHistory(messages);
   const artifactSteps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
   const { userMessages, promptHistory } = history;
@@ -1514,7 +1555,7 @@ export function ChatComposer({
             event.stopPropagation();
           }
         }}
-        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
+        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "isolate justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
             event.preventDefault();
@@ -1534,6 +1575,7 @@ export function ChatComposer({
             <ProgressiveBlurLayers />
           </div>
         )}
+        {isNewChat && <WelcomeSky />}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
@@ -1707,10 +1749,15 @@ export function ChatComposer({
               onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
             />
             <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
-            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} offScreen={offScreen} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
             {browserShown && (
-              <BrowserPanel key={`browser-panel-${browserShown}`} chatKey={browserShown} ports={ports ?? []} onSendComments={onSendPageComments} />
+              <BrowserPanel
+                key={`browser-panel-${browserShown}`}
+                chatKey={browserShown}
+                viewerChatId={agentChatId}
+                ports={ports ?? []}
+                onSendComments={onSendPageComments}
+              />
             )}
             <SubagentTrack
               key={chatId}
@@ -1763,7 +1810,9 @@ export function ChatComposer({
               />
             )}
             {offlineTray}
-            {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
+            {queue && !isNewChat && (
+              <QueuedMessages {...queue} items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))} disabled={sendBlocked} />
+            )}
             {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
             {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
             {review.view !== "closed" && !isNewChat && (
@@ -1782,6 +1831,13 @@ export function ChatComposer({
                 canUndo={Boolean(runtimeChat)}
                 onStop={onStop}
                 onCompact={onCompact}
+                compactionFeedback={compactionFeedback}
+                compacting={Boolean(compactionContext(messages.findLast((message) => compactionContext(message)))?.status === "preparing")}
+                compactQueued={Boolean(queue?.items.some((item) => Boolean(compactionContext(item))))}
+                onCancelCompact={() => {
+                  const item = queue?.items.find((item) => Boolean(compactionContext(item)));
+                  if (item) queue?.onRemove(item.id);
+                }}
                 sendBlocked={sendBlocked}
                 running={isSending}
                 suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}

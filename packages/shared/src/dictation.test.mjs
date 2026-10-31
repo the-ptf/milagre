@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appleLocale, dictationLanguage, dictationTerms, whisperPrompt } from "./dictation.mjs";
+import {
+  DICTATION_LANGUAGES,
+  WHISPER_MODELS,
+  appleLocale,
+  dictationLanguage,
+  dictationTerms,
+  whisperLanguage,
+  whisperModelFor,
+  whisperPrompt,
+} from "./dictation.mjs";
 
 test("terms lead with the app and project, keep code names and folders, and drop noise and repeats", () => {
   const terms = dictationTerms({
@@ -55,4 +64,47 @@ test("a clip is silent until some 100 ms of it is louder than a quiet room", asy
   assert.equal(silentPcm(clip), true);
   for (let i = 8000; i < 9600; i++) clip[i] = i % 2 ? 3000 : -3000; // a voice, -21 dB
   assert.equal(silentPcm(clip), false);
+});
+
+test("the initial bilingual experiment migrates to automatic detection without a duplicate choice", () => {
+  assert.equal(dictationLanguage("pt-en"), "auto");
+  assert.equal(DICTATION_LANGUAGES[0].name, "Detect automatically (experimental)");
+  assert.equal(
+    DICTATION_LANGUAGES.some((language) => language.code === "pt-en"),
+    false,
+  );
+  assert.equal(whisperLanguage("pt-en"), "auto");
+  assert.equal(whisperLanguage("pt"), "pt");
+});
+
+test("automatic detection keeps its multilingual example before long project vocabulary", () => {
+  const prompt = whisperPrompt(
+    Array.from({ length: 200 }, (_, index) => `Term${index}`),
+    "auto",
+  );
+  assert.ok(prompt.startsWith("Olá, vamos conversar and switch languages when needed."));
+  assert.ok(prompt.length <= 601);
+  assert.match(prompt, /Term\d+\.$/);
+  assert.equal(whisperPrompt(["Milagre"], "pt"), "Milagre.");
+});
+
+test("each platform offers four models, best first, and an unknown saved id falls back to the first", () => {
+  for (const platform of ["desktop", "phone"]) {
+    const models = WHISPER_MODELS[platform];
+    assert.equal(models.length, 4);
+    assert.equal(new Set(models.map((model) => model.id)).size, 4);
+    assert.equal(models.filter((model) => model.english).length, 1);
+    assert.equal(whisperModelFor(platform, "nope"), models[0]);
+    assert.equal(whisperModelFor(platform, models[2].id), models[2]);
+    for (const model of models) assert.match(model.url, new RegExp(`/${model.file.replace(".", "\\.")}$`));
+  }
+  assert.equal(whisperModelFor("desktop", undefined).id, "large-v3-turbo");
+  assert.equal(whisperModelFor("phone", undefined).id, "small");
+});
+
+test("an English-only model always listens for English", () => {
+  const english = WHISPER_MODELS.desktop.find((model) => model.english);
+  assert.equal(whisperLanguage("pt", english), "en");
+  assert.equal(whisperLanguage("auto", english), "en");
+  assert.equal(whisperLanguage("pt", WHISPER_MODELS.desktop[0]), "pt");
 });

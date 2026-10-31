@@ -3,7 +3,7 @@
 // tooltips and breakdowns everywhere.
 
 /** What a part of Milagre's share is: an agent provider, terminals, the app itself, or on disk worktrees and data. */
-export type ResourcePartKind = "claude" | "codex" | "antigravity" | "terminals" | "app" | "worktrees" | "data";
+export type ResourcePartKind = "claude" | "codex" | "antigravity" | "kiro" | "terminals" | "app" | "worktrees" | "data";
 /** `count`: agents or terminals running, or worktrees on disk; 0 where nothing is counted. */
 export type ResourcePart = { kind: ResourcePartKind; bytes: number; count: number };
 
@@ -91,7 +91,7 @@ function shares(total: number, available: number, milagre: number | null) {
   return { milagre: ours / total, other: (total - free - ours) / total, free: free / total };
 }
 
-const PART_KINDS = new Set<string>(["claude", "codex", "antigravity", "terminals", "app", "worktrees", "data"]);
+const PART_KINDS = new Set<string>(["claude", "codex", "antigravity", "kiro", "terminals", "app", "worktrees", "data"]);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 function partLabel({ kind, count }: ResourcePart): string {
@@ -102,6 +102,8 @@ function partLabel({ kind, count }: ResourcePart): string {
       return count ? `Codex · ${plural(count, "agent")}` : "Codex";
     case "antigravity":
       return count ? `Antigravity · ${plural(count, "agent")}` : "Antigravity";
+    case "kiro":
+      return count ? `Kiro · ${plural(count, "agent")}` : "Kiro";
     case "terminals":
       return count ? `Terminals · ${count}` : "Terminals";
     case "app":

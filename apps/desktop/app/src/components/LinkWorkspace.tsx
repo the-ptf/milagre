@@ -234,6 +234,9 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
+  // As a Project Chat's: Ultracode and Fast only count for a model that has them, so a Codex pick drops a Claude Ultracode.
+  const ultracode = Boolean(preferences.capability?.ultracode) && composerPrefs.ultracode;
+  const fastMode = Boolean(preferences.capability?.fastMode) && composerPrefs.fastMode;
   const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner, queueForComputer(owner));
   const [error, setError] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -463,8 +466,8 @@ export function LinkWorkspace({
             model: model.id,
             permissionMode: composerPrefs.permissionMode,
             effort: preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort,
-            ultracode: composerPrefs.ultracode,
-            fastMode: composerPrefs.fastMode,
+            ultracode,
+            fastMode,
             replies: getSettings().claudeReplies,
             tldrEnabled: getSettings().tldrEnabled,
           },
@@ -518,8 +521,8 @@ export function LinkWorkspace({
         model: model.id,
         permissionMode: composerPrefs.permissionMode,
         effort: preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort,
-        ultracode: composerPrefs.ultracode,
-        fastMode: composerPrefs.fastMode,
+        ultracode,
+        fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
       };
@@ -570,12 +573,7 @@ export function LinkWorkspace({
   }
   // The same rows the sidebar builds for this Link while a Project is open: its Chat order, pins and times, so the
   // one-list sidebar keeps every row where it was when the window switches between the Link and a Project.
-  const recents = scopeChats(owner, state, chatOrder, runMarks)
-    .filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))))
-    .map((row) => ({
-      ...row,
-      details: { ...row.details, path: state.sessions[Number(row.id)]?.workspacePath },
-    }));
+  const recents = scopeChats(owner, state, chatOrder, runMarks).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
@@ -758,7 +756,7 @@ export function LinkWorkspace({
                         onModelChange={(model) => preferences.onModelChange(model, chatId)}
                         effort={preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort}
                         onEffortChange={composerPrefs.setEffort}
-                        ultracode={composerPrefs.ultracode}
+                        ultracode={ultracode}
                         onUltracodeChange={composerPrefs.setUltracode}
                         fastMode={composerPrefs.fastMode}
                         onFastModeChange={composerPrefs.setFastMode}

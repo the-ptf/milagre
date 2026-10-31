@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState, Worktree } from "./model.ts";
-import { archiveChoices, archiveMode, archivedNotice, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
+import { archiveChoices, archiveMode, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
 import type { ArchivePlan, WorktreeStatus } from "./archive.mjs";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x", head: "abc", removable: true };
@@ -102,16 +102,4 @@ test("removeFailureNotice names git's message, says the chat stays, and has no p
     removeFailureNotice(new Error("Error invoking remote method 'worktree:remove': Error: WORKTREE_CHANGED: /tmp/wt/x changed after it was checked.")),
     "It changed after you checked, so the chat and its worktree stay.",
   );
-});
-
-test("only a Chat without a Project says Chat deleted, and only once it is gone", () => {
-  assert.equal(archivedNotice("removed", { chatsHome: true }), "Chat deleted");
-  assert.equal(archivedNotice("hidden", { chatsHome: true }), "Chat deleted");
-  // Its folder stayed and the Chat came back, with the removal's own notice.
-  assert.equal(archivedNotice("kept", { chatsHome: true }), null);
-  assert.equal(archivedNotice("cancelled", { chatsHome: true }), null);
-  assert.equal(archivedNotice("busy", { chatsHome: true }), null);
-  // Project Chats archive as before, without one.
-  assert.equal(archivedNotice("removed"), null);
-  assert.equal(archivedNotice("hidden", { chatsHome: false }), null);
 });

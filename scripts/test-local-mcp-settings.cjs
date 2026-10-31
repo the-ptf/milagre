@@ -52,6 +52,7 @@ async function browserChecks() {
     // Radix selects arrow-key destinations on focus. A hidden window changes activeElement
     // without dispatching focus events, so keyboard verification needs an actual focused window.
     win.show();
+    if (process.platform === "darwin") app.focus({ steal: true });
     win.focus();
     await waitFor(`document.hasFocus()`);
     await waitFor(`document.querySelectorAll('[data-local-mcp] [role=checkbox]').length===8`);

@@ -146,7 +146,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       assert.equal(await evaluate("window.milagre.getCurrentProject()"), null);
       assert.equal(await evaluate('!!document.querySelector("[data-startup-error]")'), false);
       assert.ok(await evaluate('document.body.textContent.includes("Choose your agent")'));
-      await waitFor(() => evaluate('document.querySelectorAll("[data-onboarding-agents] [data-agent]:not([data-state=checking])").length === 3'), "agent rows");
+      await waitFor(() => evaluate('document.querySelectorAll("[data-onboarding-agents] [data-agent]:not([data-state=checking])").length === 4'), "agent rows");
       await shot("onboarding-agent.png");
       await evaluate('[...document.querySelectorAll("[data-onboarding] footer button")].at(-1).click()');
       await waitFor(() => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "2"'), "project step");

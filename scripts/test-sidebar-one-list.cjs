@@ -197,10 +197,13 @@ async function browserChecks() {
     assert.match(await evaluate(`document.querySelector('[data-done-row="6"] [data-done-countdown]').textContent`), /^2[23]:\d\d$/);
     await evaluate(`document.querySelector('[data-done-row="6"] [data-done-reopen]').click()`);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 6, { done: false }]);
-    // The hover Done button marks a Chat Done at once, with an Undo toast.
+    // Reopen moves the row back at once, before its host answers (this stub host never does).
+    await waitFor(`!!${row(6)} && !document.querySelector('[data-done-row="6"]')`);
+    // The hover Done button marks a Chat Done at once, with an Undo toast; the row moves before its host answers.
     assert.equal(await evaluate(`!!${row(7)}.querySelector("[data-chat-done]")`), true);
     await evaluate(`${row(7)}.querySelector("[data-chat-done]").click()`);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
+    await waitFor(`!${row(7)} && !!document.querySelector('[data-done-row="7"]')`);
     await waitFor(`[...document.querySelectorAll("[role=status], [data-chat-toast]")].some((node) => node.textContent.includes("Moved to Done"))`);
     // Diff stats are off by default; the branch is on but never shows here.
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
@@ -210,18 +213,18 @@ async function browserChecks() {
     assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className.includes("text-accent")`), true);
     assert.equal(await evaluate(`!!${row(4)}.querySelector('[data-chat-time] [data-mark="unread"]')`), true, "The unread dot follows the time");
     assert.equal(await evaluate(`getComputedStyle(${row(4)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "600");
-    assert.equal(await evaluate(`getComputedStyle(${row(7)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
+    assert.equal(await evaluate(`getComputedStyle(${row(8)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
     // Pinned: a pin before the title.
     assert.equal(await evaluate(`!!document.querySelector('[data-all-pinned] [data-chat-id="9"] [data-chat-pinned]')`), true, "Pinned rows show a pin");
     // The menu opens on a right-click and from the keyboard.
     await evaluate(
-      `(() => { const r = ${row(7)}.querySelector("[data-row]").getBoundingClientRect(); ${row(7)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
+      `(() => { const r = ${row(8)}.querySelector("[data-row]").getBoundingClientRect(); ${row(8)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
     );
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
     await evaluate(`document.querySelector("[data-chat-menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-chat-menu]")`);
     await evaluate(
-      `${row(7)}.querySelector("[data-row]").focus(); ${row(7)}.querySelector("[data-row]").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }))`,
+      `${row(8)}.querySelector("[data-row]").focus(); ${row(8)}.querySelector("[data-row]").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }))`,
     );
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
     await evaluate(`document.querySelector("[data-chat-menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);

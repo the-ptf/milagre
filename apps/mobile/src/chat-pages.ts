@@ -255,9 +255,16 @@ export function useChatPage(
     earlierLoads.set(key, request);
     return request;
   }, [key, client, projectPath, chatId]);
+  // Followed at its bottom, the window drops what it read beyond its last turns; scrolling up reads them again.
+  const trim = useCallback(() => {
+    if (!key || busy.has(key) || earlierLoads.has(key)) return;
+    const next = windows.trim(key);
+    if (next) for (const listener of Array.from(listeners.get(key) ?? [])) listener();
+  }, [key]);
   return {
     ...page,
     loadEarlier,
+    trim,
     retry: useCallback(() => (key ? run(key, () => load(key, client!, projectPath!, chatId!)) : Promise.resolve()), [key, client, projectPath, chatId]),
   };
 }

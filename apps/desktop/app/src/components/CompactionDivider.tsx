@@ -10,6 +10,7 @@ import { SpinnerRing } from "./primitives/SpinnerRing";
  */
 export function CompactionDivider({ context }: { context: CompactionContext }) {
   const label = compactionLabel(context);
+  if (context.quiet && context.status !== "failed") return null;
   return (
     <div
       data-compaction-divider

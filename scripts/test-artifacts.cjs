@@ -246,7 +246,7 @@ window.milagre = {
       if (chatId !== "milagre-link:fixture#1") throw new Error("Open an existing Chat before showing a design.");
       if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
-      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
+      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, ...(window.htmlTabs ? { tabs: window.htmlTabs } : {}), html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
       const latest = window.latest;
       const shown = version ?? latest;
       return { id, version: shown, title: shown === 1 ? "Login screen" : "Login screen, warmer", versions: latest, latest, width: 1280, height: 800, format: "design", document: designs[shown], html: designHtml(designs[shown]) };
@@ -408,7 +408,7 @@ async function browserChecks() {
     const frames = `${dock}.querySelectorAll("[data-slot=artifact-frame]")`;
     const frame = (id) => `${dock}.querySelector("[data-slot=artifact-frame][data-artifact=${id}]")`;
     await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${thumb("login")}.click()`);
-    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("iframe"))`);
+    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("[data-design-body][data-painted]"))`);
     assert.match(await evaluate(`${frame("login")}.textContent`), /Login screen, warmer.*v2 of 2/);
     // The chat's room springs open with the panel, to the panel's width and its gap.
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
@@ -657,6 +657,7 @@ async function browserChecks() {
     });
     await waitFor(`${frame("login")}.querySelector("[data-design-body]").dataset.active === "true"`);
     assert.equal(await evaluate(`!!${frame("login")}.querySelector("[data-slot=artifact-shield]")`), false, "the design has the mouse");
+    await waitFor(`(() => { const iframe = ${frame("login")}.querySelector("iframe"); return iframe && !iframe.closest("[inert]"); })()`);
     // A click in the design gives it the focus, so the window never sees the key: Escape still leaves the design.
     window.webContents.sendInputEvent({
       type: "mouseDown",
@@ -1151,8 +1152,9 @@ async function browserChecks() {
     // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
     await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
     await waitFor(`${dock}.querySelector('button[aria-label="Stop commenting"]')?.getAttribute("aria-pressed") === "true"`);
+    // Leave room for the 264px bubble so this checks anchoring rather than its right-edge clamp.
     const heading = await evaluate(
-      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + 40) }; })()`,
+      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 20), y: Math.round(r.top + 40) }; })()`,
     );
     // The page's helper may still be starting: click until the bubble opens.
     // sendInputEvent stops at the page's frame; input through the DevTools protocol is hit-tested into it, as a real click.
@@ -1189,7 +1191,13 @@ async function browserChecks() {
     await waitFor('window.kept.at(-1).design.format === "html"');
     assert.match(await evaluate("window.kept.at(-1).anchor"), /^h1:1@/, "the host keeps where on the page it was left");
     await evaluate("window.reviseHtml()");
-    await waitFor('document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2")');
+    // A card's preview mounts only once it nears the view, and the first reply's card sits above the fold: scroll to it
+    // once the new reply has landed, or the transcript follows that reply down again.
+    await waitFor('!!document.querySelector("[data-artifact=current-artifact]")');
+    // Scroll on every check: on a slow runner the transcript can follow the new reply down again before the preview mounts.
+    await waitFor(
+      '(document.querySelector("[data-artifact=legacy]").scrollIntoView(), document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2"))',
+    );
     await waitFor(
       '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].filter(node => /Keep the original wording|Explain the next step/.test(node.textContent)).every(node => node.querySelector("iframe")?.srcdoc.includes("How this works 2"))',
     );
@@ -1207,6 +1215,24 @@ async function browserChecks() {
       "the Artifact page gets its own link, not the Designs one",
     );
     await screenshot("artifact-share");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((button) => button.textContent === "Close").click()`);
+    await evaluate(`(() => {
+      window.htmlTabs = [
+        { id: "overview", title: "Overview", html: "<h1>How this works 2</h1>" },
+        { id: "headers", title: "Headers", html: "<h1>Cache headers</h1>" },
+      ];
+      const comment = { id: "ab123456", design: { id: "current-artifact", title: "Explanation", version: 2, format: "html" }, tab: { id: "headers", title: "Headers" }, x: 0.2, y: 0.2, text: "Explain cache headers" };
+      window.kept.push(comment);
+      window.appendFeedback({ comments: [comment] });
+    })()`);
+    const tabFeedback =
+      '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].find(node => node.textContent.includes("Explain cache headers"))';
+    await waitFor(`!!${tabFeedback}`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor(`!${dock}`);
+    await evaluate(`${tabFeedback}.click()`);
+    await waitFor('document.querySelector("[data-slot=artifact-page] iframe")?.srcdoc.includes("Cache headers")');
+    assert.match(await evaluate(`${dock}.querySelector("header").textContent`), /Headers/);
     if (keepOpen) {
       await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
       await waitForPanel('!!document.querySelector("[data-panel-toggle=designs]")');

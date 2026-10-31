@@ -148,7 +148,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/agents/ArtifactCanvas.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
   "components/motion/MediaLightbox.tsx": ["showImageMenu"],
   "lib/state-events.ts": ["onRuntimeSnapshot", "onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
-  "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],
+  // Connection metadata and raw events originate on this Mac, including for a paired computer's readers.
+  "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent", "onComputersChanged"],
   "lib/computers.ts": ["computers"],
   "lib/computers-store.ts": ["computers", "onComputersChanged"],
   "lib/ports.ts": ["onAgentPorts", "onRuntimeSnapshot", "getAgentPorts", "onComputerEvent"],
@@ -157,11 +158,14 @@ const ALLOWED: Record<string, string[]> = {
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
   // This Mac's own switch for its Chats delegating to other computers.
   "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
+  // This Mac's own switch for telling its Chats' agents which device a message came from.
+  "lib/device-notes.ts": ["readDeviceNotesEnabled", "saveDeviceNotesEnabled", "onDeviceNotesEnabledChanged"],
   // This Mac's own Babysit PRs settings, which its daemon's poller follows.
   "lib/babysit-settings.ts": ["readBabysitSettings", "saveBabysitSettings", "onBabysitSettings"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
   // The microphone is on this computer: Whisper transcribes here whichever computer the Chat is on.
   "components/useDictation.ts": ["dictation"],
+  "components/useDictationModels.ts": ["dictation"],
   // Every computer's terminal:changed, and every host's reconnect snapshot, mark the Terminal lists the window holds.
   "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent", "onRuntimeSnapshot"],
 };

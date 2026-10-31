@@ -3,6 +3,8 @@ const os = require("node:os");
 const { CodexRpc } = require("./agents/codex-rpc.cjs");
 const { advisorCodexConfig } = require("./agents/advisor-policy.cjs");
 const { antigravityModel: acpModel } = require("./agents/antigravity-text.cjs");
+const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { KIRO_TEXT_MODEL, kiroModelId } = require("@milagre/shared/kiro-models");
 
 // The commit message, PR title and PR body the "Commit and open PR" dialog starts with: one call to a
 // small model, which returns the three as JSON. Claude chats ask Claude Haiku 4.5, Codex chats ask
@@ -260,6 +262,9 @@ const OUTPUT_SCHEMA = {
 /** One Gemini 3.8 Flash turn in a one-shot ACP session in an empty temporary folder, with every permission request turned down. */
 const antigravityModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, ...options });
 
+/** One Claude Haiku 4.5 turn on Kiro (kiro-cli over ACP), the same way: a throwaway session, every permission turned down. */
+const kiroModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, config: kiroAcp, model: kiroModelId(KIRO_TEXT_MODEL), effort: undefined, ...options });
+
 /** One GPT-6 Luna turn in a short-lived, ephemeral, read-only `codex app-server` thread. */
 function codexModel({
   getCommand,
@@ -337,8 +342,6 @@ function codexModel({
 }
 
 module.exports = {
-  CLAUDE_MODEL,
-  CODEX_MODEL,
   DIFF_LIMIT,
   GENERATION_FAILED,
   SYSTEM,
@@ -346,6 +349,7 @@ module.exports = {
   claudeModel,
   codexModel,
   antigravityModel,
+  kiroModel,
   generateGitText,
   parseGitText,
   repeatsSubject,

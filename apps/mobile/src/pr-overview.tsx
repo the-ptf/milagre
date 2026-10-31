@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
@@ -13,6 +13,8 @@ import {
   CheckmarkCircle02Icon,
   CloudUploadIcon,
   GitMergeIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestDraftIcon,
   LinkSquare02Icon,
   MoreHorizontalIcon,
   PlusSignIcon,
@@ -20,13 +22,13 @@ import {
   UserAdd01Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
-import { canMergeNow, checksProgress, mergeStatus, type MergeMethod } from "@milagre/shared/pull-request-review";
+import { canMergeNow, checksProgress, mergeStatus, type MergeMethod, type PullRequestDetail } from "@milagre/shared/pull-request-review";
 import type { Client } from "./client";
 import { Icon, type IconData, type Tone } from "./icons";
 import { PrMarkdown } from "./pr-markdown";
-import { confirm } from "./confirm-store";
 import { ErrorNotice, PageScroll, PillButton, PullDown, Segmented, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
+import { radius, type } from "./design-tokens";
 import { usePrDetail, writePr } from "./pr-store";
 import { prChoiceKey, prefillChat, type PrChoice } from "./pr-chat";
 import { isOldMacError } from "./file-mentions";
@@ -35,7 +37,7 @@ import { ProjectIcon } from "./project-icon";
 import type { PrPage } from "./pr-nav";
 import type { DiffFilesResult } from "@milagre/shared/git-diff";
 import { Avatar, CheckList, FileList, PrComments, Separator, VERDICT } from "./pr-lists";
-import { MERGE_METHODS, agoLabel, askPrefill, mergeLabel, middleTruncate, notInPrLine, repoOf } from "./pr-review";
+import { MERGE_METHODS, agoLabel, askPrefill, middleTruncate, notInPrLine, repoOf } from "./pr-review";
 
 const NO_CHOICES: PrChoice[] = [];
 
@@ -74,6 +76,13 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   const [newestFirst, setNewestFirst] = useState(true);
   const [method, setMethod] = useState<MergeMethod>("squash");
   const [busy, setBusy] = useState(false);
+  // Merge asks again on the button itself, as on desktop: the first tap turns it into "Confirm merge" for a few seconds.
+  const [confirming, setConfirming] = useState<"merge" | "admin" | null>(null);
+  useEffect(() => {
+    if (!confirming) return;
+    const timer = setTimeout(() => setConfirming(null), 4000);
+    return () => clearTimeout(timer);
+  }, [confirming]);
   // The Worktree's uncommitted files: changes the PR doesn't have yet.
   const local = useRpc<DiffFilesResult>(onChanges ? client : null, "git:diff-files", [{ cwd, mode: "uncommitted" }]);
   const [localCount, setLocalCount] = useState(0);
@@ -126,13 +135,11 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
     setBusy(false);
     setNotice(result.ok ? "" : result.message);
   }
-  async function merge(admin = false) {
-    const label = admin ? "Merge anyway" : mergeLabel(method);
-    if (await confirm(`${label}?`, `PR #${pr!.number} goes into ${pr!.baseRefName}.`, label)) await run({ method, admin });
-  }
-  async function mergeWhenReady() {
-    if (await confirm("Merge when ready?", `PR #${pr!.number} merges into ${pr!.baseRefName} once its requirements pass.`, "Merge when ready"))
-      await run({ method, auto: true });
+  function merge(admin = false) {
+    const step = admin ? "admin" : "merge";
+    if (confirming !== step) return setConfirming(step);
+    setConfirming(null);
+    void run({ method, admin });
   }
 
   // GitHub can't merge a branch that conflicts, even when asked to merge it once ready.
@@ -140,19 +147,26 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   // The one action the PR is waiting for: nothing once it is merged or closed, or while it conflicts.
   const action = !isOpen ? null : pr.isDraft ? (
     <ActionButton title="Ready for review" busy={busy} onPress={() => void run({ draft: false }, "pr:ready")} />
+  ) : confirming === "admin" ? (
+    <ActionButton title="Confirm merge anyway" icon={GitMergeIcon} danger busy={busy} onPress={() => merge(true)} />
   ) : now ? (
-    <ActionButton title="Merge" icon={GitMergeIcon} green busy={busy} onPress={() => void merge()} />
-  ) : pr.autoMerge ? (
+    // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the green button.
     <ActionButton
-      title="Merging when ready"
+      title={confirming === "merge" ? "Confirm merge" : "Merge"}
       icon={GitMergeIcon}
+      green={status.tone === "ready"}
       busy={busy}
-      onPress={() =>
-        void confirm("Turn off auto-merge?", `PR #${pr.number} stays open.`, "Turn off").then((yes) => (yes ? run({ disableAuto: true }) : undefined))
-      }
+      onPress={() => merge()}
     />
+  ) : pr.autoMerge ? (
+    <View accessible accessibilityLabel="Merges when ready" style={{ flexDirection: "row", alignItems: "center", gap: 5, height: 36, paddingHorizontal: 4 }}>
+      <Icon icon={GitMergeIcon} tone="ink2" size={15} />
+      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.footnote }}>
+        Merges when ready
+      </Text>
+    </View>
   ) : conflicts ? null : (
-    <ActionButton title="Merge when ready" icon={GitMergeIcon} busy={busy} onPress={() => void mergeWhenReady()} />
+    <ActionButton title="Merge when ready" icon={GitMergeIcon} busy={busy} onPress={() => void run({ method, auto: true })} />
   );
 
   const menu = (
@@ -207,7 +221,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
       ]}
       onSelect={(id) => {
         if (id.startsWith("method:")) setMethod(id.slice(7) as MergeMethod);
-        else if (id === "admin") void merge(true);
+        else if (id === "admin") merge(true);
         else if (id === "auto-off") void run({ disableAuto: true });
         else if (id === "draft") void run({ draft: true }, "pr:ready");
         else if (id === "review") onOpen("review");
@@ -242,7 +256,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             }}
           />
         }
-        contentContainerStyle={{ gap: 12, paddingBottom: 40 }}
+        contentContainerStyle={{ gap: 12, paddingTop: 0, paddingBottom: 40 }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
@@ -273,6 +287,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
           {pr.title}
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <StatePill pr={pr} />
           <Avatar login={pr.author} size={20} />
           <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: 14 }}>
             <Text style={{ color: colors.ink, fontWeight: "600" }}>{pr.author}</Text>
@@ -301,11 +316,11 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             <Text style={{ fontFamily: fonts.mono, color: colors.remove }}>−{pr.deletions}</Text>
           </Text>
         </View>
-        {(status.tone === "blocked" || status.tone === "draft") && (
+        {STATUS_LINE[status.tone] && (
           <View accessible accessibilityLabel={`${status.title}. ${status.detail}`} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Icon icon={AlertCircleIcon} tone={status.tone === "blocked" ? "red" : "ink3"} size={14} />
+            <Icon icon={STATUS_LINE[status.tone]!.icon} tone={STATUS_LINE[status.tone]!.tone} size={14} />
             <Text numberOfLines={2} style={{ flex: 1, color: colors.ink2, fontSize: 14 }}>
-              <Text style={{ color: status.tone === "blocked" ? colors.redInk : colors.ink, fontWeight: "600" }}>{status.title}</Text> · {status.detail}
+              <Text style={{ color: colors[STATUS_LINE[status.tone]!.title], fontWeight: "600" }}>{status.title}</Text> · {status.detail}
             </Text>
           </View>
         )}
@@ -406,6 +421,45 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
           </>
         )}
       </PageScroll>
+    </View>
+  );
+}
+
+/** The line under the branch: what stops an open PR, or how a merged or closed one ended. Desktop words it the same. */
+const STATUS_LINE: Partial<Record<ReturnType<typeof mergeStatus>["tone"], { icon: IconData; tone: Tone; title: Tone }>> = {
+  blocked: { icon: AlertCircleIcon, tone: "red", title: "redInk" },
+  draft: { icon: GitPullRequestDraftIcon, tone: "ink3", title: "ink" },
+  merged: { icon: GitMergeIcon, tone: "purpleInk", title: "purpleInk" },
+  closed: { icon: GitPullRequestClosedIcon, tone: "redInk", title: "redInk" },
+};
+
+/** Draft, Merged or Closed before the author, as GitHub and desktop show it; an open PR has none. */
+const STATE_PILL = {
+  draft: { label: "Draft", icon: GitPullRequestDraftIcon, tone: "ink2", tint: "hover" },
+  MERGED: { label: "Merged", icon: GitMergeIcon, tone: "purpleInk", tint: "purpleTint" },
+  CLOSED: { label: "Closed", icon: GitPullRequestClosedIcon, tone: "redInk", tint: "redTint" },
+} as const;
+
+function StatePill({ pr }: { pr: PullRequestDetail }) {
+  const { colors } = useTheme();
+  const pill = pr.state !== "OPEN" ? STATE_PILL[pr.state] : pr.isDraft ? STATE_PILL.draft : null;
+  if (!pill) return null;
+  return (
+    <View
+      accessible
+      accessibilityLabel={pill.label}
+      style={{
+        height: 24,
+        paddingHorizontal: 8,
+        borderRadius: radius.full,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: colors[pill.tint],
+      }}
+    >
+      <Icon icon={pill.icon} tone={pill.tone} size={12} strokeWidth={2} />
+      <Text style={{ color: colors[pill.tone], fontSize: type.caption1, fontWeight: "600" }}>{pill.label}</Text>
     </View>
   );
 }
@@ -559,22 +613,25 @@ function Section({
   );
 }
 
-/** The header's action: Merge, Merge when ready, Ready for review. */
+/** The header's action: Merge (then Confirm merge), Merge when ready, Ready for review. */
 function ActionButton({
   title,
   icon,
   onPress,
   green = false,
+  danger = false,
   busy = false,
 }: {
   title: string;
   icon?: IconData;
   onPress: () => void;
   green?: boolean;
+  /** Merging past the rules that block it. */
+  danger?: boolean;
   busy?: boolean;
 }) {
   const { colors } = useTheme();
-  const ink = green ? colors.page : colors.ink;
+  const ink = green ? colors.page : danger ? colors.redInk : colors.ink;
   return (
     <Pressable
       accessibilityRole="button"
@@ -594,7 +651,7 @@ function ActionButton({
         alignItems: "center",
         gap: 6,
         // greenInk, not green: the page-colored label needs 4.5:1 on it in light mode.
-        backgroundColor: green ? colors.greenInk : colors.surface,
+        backgroundColor: green ? colors.greenInk : danger ? colors.redTint : colors.surface,
         borderWidth: green ? 0 : StyleSheet.hairlineWidth,
         borderColor: colors.lineStrong,
         opacity: pressed ? 0.6 : 1,

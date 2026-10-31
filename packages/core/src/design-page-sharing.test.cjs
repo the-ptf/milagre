@@ -653,3 +653,25 @@ test("republishing an expired hosted page creates a new link through the host us
   }
   assert.equal(quotaStorage.get("activeBytes"), 0);
 });
+
+test("an Artifact page's files are uploaded by hash before the snapshot that names them", async (t) => {
+  const { api, artifacts, calls, request } = await fixture(t);
+  const worktree = await fs.mkdtemp(path.join(os.tmpdir(), "share-worktree-"));
+  t.after(() => fs.rm(worktree, { recursive: true, force: true }));
+  const bytes = Buffer.from("not really a video");
+  await fs.writeFile(path.join(worktree, "demo.mp4"), bytes);
+  await artifacts.show(
+    { chatId: CHAT, title: "Demo", html: '<video src="assets/demo.mp4"></video>', assets: [{ name: "demo.mp4", path: path.join(worktree, "demo.mp4") }] },
+    { roots: [worktree] },
+  );
+  await api.publish({ ...request, kind: "artifacts" });
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const [file, page] = calls;
+  assert.match(file.url, new RegExp(`/api/pages/[A-Za-z0-9_-]{43}/files/${hash}$`));
+  assert.equal(file.method, "PUT");
+  assert.equal(file.headers["content-type"], "video/mp4");
+  assert.equal(Buffer.from(await file.body.arrayBuffer()).toString(), bytes.toString());
+  const snapshot = JSON.parse(page.body);
+  assert.deepEqual(snapshot.artifacts[0].assets, [{ name: "demo.mp4", hash, size: bytes.length, type: "video/mp4" }]);
+  assert.equal(snapshot.artifacts[0].html, '<video src="assets/demo.mp4"></video>', "the service points the page at its files");
+});

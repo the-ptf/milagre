@@ -48,3 +48,34 @@ test("chat PR references resolve separately from the current branch and share qu
   await readPullRequest(client, "/w", () => true, ref);
   assert.equal(calls.length, 2, "the same merged PR is cached");
 });
+
+test("a fresh read skips the 30 s cache, but a merged PR stays cached", async () => {
+  let count = 0;
+  const client = {
+    call: async (method: string) => {
+      count++;
+      return method === "worktree:pull-request" ? { number: 1, state: "OPEN" } : [{ number: 2, state: "MERGED" }];
+    },
+  } as unknown as Client;
+  await readPullRequest(client, "/fresh", () => true);
+  await readPullRequest(client, "/fresh", () => true);
+  assert.equal(count, 1);
+  await readPullRequest(client, "/fresh", () => true, undefined, true);
+  assert.equal(count, 2);
+  await readPullRequest(client, "/fresh", () => true, "2");
+  await readPullRequest(client, "/fresh", () => true, "2", true);
+  assert.equal(count, 3, "a merged PR can't change");
+});
+
+test("a pulls signal reaches the screens listening on that client only", async () => {
+  const { onPullRequestsChanged, pullRequestsChanged } = await import("./pr-status.ts");
+  const mine = {} as Client;
+  const other = {} as Client;
+  let heard = 0;
+  const stop = onPullRequestsChanged(mine, () => heard++);
+  pullRequestsChanged(other);
+  pullRequestsChanged(mine);
+  stop();
+  pullRequestsChanged(mine);
+  assert.equal(heard, 1);
+});

@@ -104,6 +104,7 @@ export function scopeChats(
     );
   return orderChats(listed, order).map(({ session, sessionMessages }) => {
     const worktree = "worktree_id" in session && "worktrees" in state ? state.worktrees[session.worktree_id] : undefined;
+    const path = gitless ? undefined : (worktree?.path ?? ("workspacePath" in session ? session.workspacePath : undefined));
     const chatKey = `${key}#${session.id}`;
     // A Chat with no run here can still have background agents at work (chat-activity.mjs); its last outcome decides first.
     const { activity, background } = chatActivity(session, undefined, chatSummary(session, sessionMessages).lastOutcome);
@@ -126,7 +127,8 @@ export function scopeChats(
       ...("worktrees" in session ? { worktreeCount: session.worktrees.length } : {}),
       details: {
         // A Chats home's Worktree folder is internal: its rows name no folder (the hover card's line, Finder, the editor).
-        ...rememberedFor(key, String(session.id), gitless ? undefined : worktree?.path),
+        ...rememberedFor(key, String(session.id), path),
+        path,
         ...(worktree && !gitless ? { branch: worktree.name, path: worktree.path, diff: worktree.diff } : {}),
         failed: chatSummary(session, sessionMessages).lastOutcome === "failed",
         lastAt: chatSummary(session, sessionMessages).lastAt,

@@ -39,7 +39,8 @@ export type SimulatorList = {
   supported: boolean;
   error?: string;
 };
-export type SimulatorFrame = { sequence: number; data: string; mimeType: "image/jpeg" | "image/png"; status: SimulatorStatus };
+/** `video/avcc` (Simlock leases) is base64 of serve-sim envelopes; `reset` means the batch restarts from a keyframe. */
+export type SimulatorFrame = { sequence: number; data: string; mimeType: "image/jpeg" | "image/png" | "video/avcc"; reset?: boolean; status: SimulatorStatus };
 export type SimulatorOpen = {
   viewerId: string;
   device: SimulatorDevice;
@@ -62,3 +63,42 @@ export interface SimulatorApi {
 }
 export type SimulatorMethod = Exclude<keyof SimulatorApi, "list" | "attach" | "detach">;
 export type SimulatorRpcResponse = { channel: "milagre-simulator"; id: number; result?: unknown; error?: string };
+
+/** Experimental: the Simlock pool this host leases devices from. The agent token never leaves the host. */
+export type SimlockSettings = {
+  enabled: boolean;
+  /** The gateway in use: the saved one, else the one this Mac's agent-device or Simlock worker points at. */
+  gatewayUrl: string;
+  savedGatewayUrl: string;
+  hasToken: boolean;
+  tokenSource: "settings" | "env" | "worker" | null;
+  detected: { gatewayUrl: string; source: "env" | "worker" } | null;
+  maxLeases: number;
+  maxLeaseMinutes: number;
+};
+export type SimlockSettingsPatch = Partial<Pick<SimlockSettings, "enabled" | "gatewayUrl" | "maxLeases" | "maxLeaseMinutes">> & { agentToken?: string };
+export type SimlockModel = { platform: "ios" | "android"; model: string; version: string; kind: string };
+export type SimlockLease = {
+  deviceId: string;
+  leaseId: string;
+  platform: "ios" | "android";
+  name: string;
+  version: string;
+  chatId: string | null;
+  startedAt: number;
+  endsAt: number;
+};
+export interface SimlockApi {
+  readSettings(): Promise<SimlockSettings>;
+  saveSettings(patch: SimlockSettingsPatch): Promise<SimlockSettings>;
+  onSettings(callback: (value: SimlockSettings) => void): () => void;
+  /** Who the gateway says the token is; a typed URL or token is checked without saving it. */
+  identity(request: { gatewayUrl?: string; agentToken?: string }): Promise<{ name: string; role: string; gatewayUrl: string }>;
+  models(): Promise<{ models: SimlockModel[]; leases: SimlockLease[] }>;
+  /** Leases a device for the Chat and attaches it there. */
+  lease(request: { chatId: string; platform: "ios" | "android"; model?: string }): Promise<SimlockLease>;
+  /** Returns the device to the pool, wiped, and detaches it from its Chat. */
+  release(request: { deviceId: string }): Promise<{ released: string }>;
+}
+/** Simlock leases are listed with ids under this prefix. */
+export const SIMLOCK_DEVICE_PREFIX = "simlock:";

@@ -12,6 +12,7 @@ const DEFAULT_PATTERNS = [".env*"];
 const EXCLUDED_FOLDERS = [
   "node_modules",
   ".git",
+  ".milagre",
   "vendor/bundle",
   ".venv",
   "venv",

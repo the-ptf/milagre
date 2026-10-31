@@ -841,7 +841,6 @@ test("Compact now: the /compact runs on the chat's own provider, its divider rec
   session(ALPHA).emit({ type: "turn-started", turnId: "t2" });
   session(ALPHA).emit({ type: "context-compacting" });
   session(ALPHA).emit({ type: "context-compacted", trigger: "manual", before: 897_000, after: 42_000 });
-  session(ALPHA).emit({ type: "context-usage", used: 42_000, size: 1_000_000 });
   session(ALPHA).emit({ type: "turn-completed" });
   await waitUntil(() => request().context.status === "done" && !host.runs[`${ALPHA}#${sessionId}`]);
   assert.deepEqual(request().context, { kind: "compaction", status: "done", before: 897_000, after: 42_000, size: 1_000_000 });
@@ -886,25 +885,108 @@ test("automatic compaction saves a divider between the reply before and after it
   assert.deepEqual(divider().context, { kind: "compaction", status: "done", before: 190_000, after: 20_000, size: 200_000 });
 });
 
-test("Compact now is refused while a turn runs and on a Codex chat", async (t) => {
-  const { host, manager, saved, states, session } = harness();
+test("Compact after turn queues once, can be cancelled and never steers /compact into Claude", async (t) => {
+  const { host, manager, states, session } = harness();
   t.after(() => manager.closeAll());
   const { compactionMessage } = require("@milagre/shared/compaction");
   const chat = await host.send(message(ALPHA, "start"));
-  await waitUntil(() => session(ALPHA));
+  await chat.started;
+  const chatId = `${ALPHA}#${chat.sessionId}`;
   session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
-  await assert.rejects(host.send(message(ALPHA, "", { sessionId: chat.sessionId, ...compactionMessage() })), /Wait for the agent to finish/);
+  session(ALPHA).emit({ type: "session-started", nativeId: "claude-1" });
+  const compact = () => host.send(message(ALPHA, "", { sessionId: chat.sessionId, ...compactionMessage() }));
+  await Promise.all([compact(), compact()]);
+  let current = (await states.get(ALPHA)).sessions[chat.sessionId];
+  assert.equal(current.queued.length, 1);
+  assert.equal(session(ALPHA).turns.length, 1);
+  await host.removeQueued(chatId, current.queued[0].id);
+  assert.equal((await states.get(ALPHA)).sessions[chat.sessionId].queued?.length ?? 0, 0);
+  await compact();
+  session(ALPHA).emit({ type: "context-usage", used: 156000, size: 200000 });
   session(ALPHA).emit({ type: "turn-completed" });
-  await waitUntil(() => !host.runs[`${ALPHA}#${chat.sessionId}`]);
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].prompt, "/compact");
+  await compact(); // A second tap after the compact started is still the same request.
+  const state = await states.get(ALPHA);
+  assert.equal(state.messages.findLast((m) => m.context?.kind === "compaction").context.before, 156000);
+  assert.equal(state.sessions[chat.sessionId].queued?.length ?? 0, 0);
+});
+
+test("Compact now is refused on unsupported and archived chats", async (t) => {
+  const { host, manager, states, session, saved } = harness();
+  t.after(() => manager.closeAll());
+  const sessionId = await chatWithReply(host, session, saved);
+  const { compactionMessage } = require("@milagre/shared/compaction");
+  for (const [patch, error] of [
+    [{ provider: "codex" }, /Only Claude chats/],
+    [{ provider: "antigravity" }, /Only Claude chats/],
+    [{ provider: "claude", archived: true }, /Unarchive/],
+  ]) {
+    await states.update(ALPHA, (state) => ({ ...state, sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], ...patch } } }));
+    await assert.rejects(host.send(message(ALPHA, "", { sessionId, ...compactionMessage() })), error);
+  }
+});
+
+test("quiet auto compact waits for the completed turn, preserves the draft, updates usage and does not loop or notify", async (t) => {
+  const { host, manager, states, session, published } = harness({
+    focused: false,
+    hooks: { contextSettings: () => ({ buttonThreshold: 70, autoThreshold: 80, autoCompact: true }) },
+  });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "start"));
+  await chat.started;
+  const id = `${ALPHA}#${chat.sessionId}`;
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "session-started", nativeId: "claude-1" });
+  session(ALPHA).emit({ type: "context-usage", used: 160000, size: 200000 });
+  await waitUntil(() => host.runs[id]?.contextUsage?.used === 160000);
+  assert.equal(session(ALPHA).turns.length, 1);
   await states.update(ALPHA, (state) => ({
     ...state,
-    sessions: { ...state.sessions, [chat.sessionId]: { ...state.sessions[chat.sessionId], provider: "codex" } },
+    sessions: { ...state.sessions, [chat.sessionId]: { ...state.sessions[chat.sessionId], draft: "Keep my next question" } },
   }));
-  await assert.rejects(host.send(message(ALPHA, "", { sessionId: chat.sessionId, ...compactionMessage(), provider: "codex" })), /Only Claude chats/);
-  assert.equal(
-    saved.get(ALPHA).messages.some((item) => item.context?.kind === "compaction"),
-    false,
-  );
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  let state = await states.get(ALPHA);
+  assert.equal(state.sessions[chat.sessionId].draft, "Keep my next question");
+  assert.equal(state.messages.at(-1).context.quiet, true);
+  assert.equal(state.messages.at(-1).context.threshold, 80);
+  assert.equal(session(ALPHA).turns[1].prompt, "/compact");
+  await states.update(ALPHA, (s) => ({ ...s, sessions: { ...s.sessions, [chat.sessionId]: { ...s.sessions[chat.sessionId], unread: false } } }));
+  session(ALPHA).emit({ type: "turn-started", turnId: "t2" });
+  // Even a successful boundary which frees no space cannot start an endless compact loop.
+  session(ALPHA).emit({ type: "context-compacted", trigger: "manual", before: 160000, after: 160000 });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[id]);
+  await host.afterTurn(id, { type: "turn-completed" });
+  state = await states.get(ALPHA);
+  assert.equal(session(ALPHA).turns.length, 2);
+  assert.equal(state.sessions[chat.sessionId].unread, false);
+  assert.equal(published.at(-1).event.quiet, true);
+});
+
+test("auto compaction ignores disabled, below-threshold, cancelled, failed and unsupported turns", async (t) => {
+  for (const [provider, enabled, used, end] of [
+    ["claude", false, 190000, "turn-completed"],
+    ["claude", true, 169999, "turn-completed"],
+    ["claude", true, 190000, "turn-cancelled"],
+    ["claude", true, 190000, "turn-failed"],
+    ["codex", true, 190000, "turn-completed"],
+  ]) {
+    await t.test(`${provider} ${enabled} ${used} ${end}`, async (t) => {
+      const { host, manager, session } = harness({ hooks: { contextSettings: () => ({ buttonThreshold: 70, autoThreshold: 85, autoCompact: enabled }) } });
+      t.after(() => manager.closeAll());
+      const chat = await host.send(message(ALPHA, "start", { provider }));
+      await chat.started;
+      const id = `${ALPHA}#${chat.sessionId}`;
+      session(ALPHA).emit({ type: "session-started", nativeId: "native-1" });
+      session(ALPHA).emit({ type: "context-usage", used, size: 200000 });
+      session(ALPHA).emit({ type: end, message: "failed" });
+      await waitUntil(() => !host.runs[id]);
+      await host.afterTurn(id, { type: end });
+      assert.equal(session(ALPHA).turns.length, 1);
+    });
+  }
 });
 
 const dividers = (state, sessionId) =>

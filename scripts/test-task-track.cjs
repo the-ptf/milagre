@@ -9,6 +9,8 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { updateSettings } from "/src/lib/settings";
+window.updateContextSettings = updateSettings;
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 window.milagre = Object.freeze({ listEditors: async () => [] });
@@ -43,7 +45,7 @@ function Fixture() {
   const [extra, setExtra] = useState([]);
   window.setContext = setUsage;
   window.setExtraMessages = setExtra;
-  window.compacted = [];
+  window.compacted ??= [];
   const [model, setModel] = useState(MODEL_CATALOG[0]);
   const [fastMode, setFastMode] = useState(false);
   window.setMessageCount = setCount;
@@ -217,67 +219,31 @@ async function browserChecks() {
         `(() => {const r=document.querySelector("${ring}").getBoundingClientRect(), s=document.querySelector("button[aria-label=Send]").getBoundingClientRect();return r.right<=s.left && Math.abs(r.top-s.top)<1})()`,
       ),
     );
-    // A click opens the context card above the ring, right-aligned with it; Escape closes it.
+    assert.equal(await evaluate('!!document.querySelector("[data-compact-context]")'), false, "threshold action is hidden at 37%");
+    await evaluate('window.updateContextSettings({ showContextSize: false, compactButtonDisplay: "always" })');
+    await waitFor('!!document.querySelector("[data-compact-context]")');
+    assert.equal(await evaluate('document.querySelector("[data-compact-context]").disabled'), false, "manual compaction may queue during the turn");
+    assert.equal(await evaluate('document.querySelector("[data-compact-context]").title'), "Compact after turn");
+    await evaluate('window.updateContextSettings({ showContextSize: true, compactButtonDisplay: "threshold" })');
+    await waitFor('!!document.querySelector("button[aria-label^=Context]")');
     for (const theme of ["dark", "light"]) {
       await evaluate(`window.setDark(${theme === "dark"})`);
       await evaluate(`document.querySelector("${ring}").click()`);
       await waitFor('!!document.querySelector("[data-context-card]")');
-      assert.equal(await evaluate(`document.querySelector("${ring}").getAttribute("aria-expanded")`), "true");
-      // A Claude chat's card offers Compact now, held while the turn runs.
-      assert.equal(await evaluate('document.querySelector("[data-context-card]").textContent'), "Context37% used366k of 1M tokensCompact now");
-      assert.equal(await evaluate('document.querySelector("[data-compact-now]").getAttribute("aria-disabled")'), "true");
-      await evaluate('document.querySelector("[data-compact-now]").click()');
-      assert.equal(await evaluate("window.compacted.length"), 0);
-      await waitFor(
-        `(() => {const b=document.querySelector("[data-compact-now]"), p=b.parentElement.parentElement; return Math.abs(b.getBoundingClientRect().width - (p.clientWidth - 32)) < 1})()`,
-      );
-      assert.ok(
-        await evaluate(
-          `(() => {const c=document.querySelector("[data-context-card]").getBoundingClientRect(), r=document.querySelector("${ring}").getBoundingClientRect();return c.bottom<=r.top && Math.abs(c.right-r.right)<1})()`,
-        ),
-      );
-      await delay(220);
+      assert.equal(await evaluate('document.querySelector("[data-context-card]").textContent'), "366k of 1M tokens70%85%Compact after turn");
+      assert.equal(await evaluate('document.querySelector("[data-compact-now]").disabled'), false);
+      assert.ok(await evaluate('getComputedStyle(document.querySelector("[data-context-bar] > div > div")).backgroundImage.includes("linear-gradient")'));
       await screenshot(`context-card-${theme}`);
       await evaluate('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
       await waitFor('!document.querySelector("[data-context-card]")');
     }
-    // The ring turns to the accent at 75% and red at 90%; the card keeps its concise footer.
-    const stroke = () => evaluate(`document.querySelector("${ring} circle:last-child").getAttribute("stroke")`);
-    assert.equal(await stroke(), "var(--ink-2)");
-    assert.equal(await evaluate('document.querySelector("[data-context-attention]")'), null);
-    await evaluate("window.setContext({ used: 800000, size: 1000000 })");
-    await waitFor(`document.querySelector("${ring}").getAttribute("aria-label") === "Context: 80% used (800k of 1M tokens)"`);
-    assert.equal(await stroke(), "var(--accent-ink)");
-    assert.equal(await evaluate('document.querySelector("[data-context-attention]").getAttribute("data-tone")'), "warning");
-    await evaluate(`document.querySelector("${ring}").click()`);
-    await waitFor('!!document.querySelector("[data-context-card]")');
-    assert.match(
-      await evaluate('document.querySelector("[data-context-card]").textContent'),
-      /Context above 75% may reduce response quality and slow replies\.Compact now$/,
-    );
-    await delay(220);
-    await screenshot("context-card-warning");
-    await evaluate('document.querySelector("[data-compact-now]").parentElement.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }))');
-    await waitFor('document.querySelector("[role=tooltip]")?.textContent === "Wait for the agent to finish."');
-    await screenshot("context-card-blocked-tooltip");
-    await evaluate('document.querySelector("[data-compact-now]").parentElement.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }))');
-    await waitFor('!document.querySelector("[role=tooltip]")');
-    await evaluate('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
-    await waitFor('!document.querySelector("[data-context-card]")');
-    await evaluate("window.setContext({ used: 897000, size: 1000000 })");
-    await waitFor(`document.querySelector("${ring}").getAttribute("aria-label") === "Context: 90% used (897k of 1M tokens)"`);
-    assert.equal(await stroke(), "var(--red)");
-    assert.equal(await evaluate('document.querySelector("[data-context-attention]").getAttribute("data-tone")'), "critical");
-    // Once the turn ends, Compact now sends: the card closes and the chat shows the compaction as a divider.
+    await evaluate("window.setContext({ used: 780000, size: 1000000 })");
+    await waitFor('!!document.querySelector("[data-compact-context]")');
+    assert.ok(await evaluate('document.querySelector("[data-context-capsule]").classList.contains("text-orange-ink")'));
     await evaluate("window.finishChildren()");
     await evaluate(`document.querySelector("${ring}").click()`);
-    await waitFor('!!document.querySelector("[data-context-card]")');
-    await waitFor('document.querySelector("[data-compact-now]") && document.querySelector("[data-compact-now]").getAttribute("aria-disabled") === "false"');
-    assert.match(
-      await evaluate('document.querySelector("[data-context-card]").textContent'),
-      /Context above 75% may reduce response quality and slow replies\.Compact now$/,
-    );
-    await delay(220);
+    await waitFor('document.querySelector("[data-compact-now]")?.textContent === "Compact now"');
+    assert.equal(await evaluate('document.querySelector("[data-context-card]").textContent'), "780k of 1M tokens70%85%Compact now");
     await screenshot("context-card-critical");
     await evaluate('document.querySelector("[data-compact-now]").click()');
     await waitFor('!document.querySelector("[data-context-card]")');
@@ -293,7 +259,15 @@ async function browserChecks() {
     assert.equal(await evaluate('document.querySelector("[data-compaction-divider]").getAttribute("aria-label")'), "Context compacted: 897k → 42k");
     assert.equal(await evaluate('document.querySelector("[data-compaction-divider]").textContent'), "Context compacted897k → 42k");
     await evaluate("window.setContext({ used: 42000, size: 1000000 })");
-    await waitFor(`document.querySelector("${ring}").getAttribute("aria-label") === "Context: 4% used (42k of 1M tokens)"`);
+    await waitFor(`document.querySelector("${ring}")?.getAttribute("aria-label") === "Context: 4% used (42k of 1M tokens)"`);
+    await waitFor('!document.querySelector("[data-compact-context]")');
+    await evaluate('window.updateContextSettings({ showContextSize: false, compactButtonDisplay: "always" })');
+    await waitFor('!!document.querySelector("[data-compact-context]")');
+    await evaluate('document.querySelector("[data-compact-context]").click()');
+    assert.equal(await evaluate("window.compacted.length"), 2, "direct compaction works while the context size is hidden");
+    await screenshot("compact-always-context-hidden");
+    await evaluate('window.updateContextSettings({ showContextSize: true, compactButtonDisplay: "threshold" })');
+
     assert.equal(await evaluate('document.querySelector("[data-context-attention]")'), null);
     for (const theme of ["dark", "light"]) {
       await evaluate(`window.setDark(${theme === "dark"})`);
@@ -412,6 +386,15 @@ async function browserChecks() {
     devtools.detach();
     await settle();
     window.setContentSize(390, 500);
+    await evaluate("window.setContext({ used: 800000, size: 1000000 })");
+    await waitFor('!!document.querySelector("[data-compact-context]")');
+    assert.ok(
+      await evaluate(
+        '(() => { const b = document.querySelector("[data-compact-context]").getBoundingClientRect(), s = document.querySelector("button[aria-label=Send]").getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth && s.right <= innerWidth; })()',
+      ),
+      "Compact and Send stay inside a narrow Chat with context size visible",
+    );
+    await screenshot("compact-narrow");
     await delay(200);
     const narrowPill = await rect(pill);
     const narrowRow = await rowControls();
@@ -449,6 +432,20 @@ async function browserChecks() {
     await assertDotOnRow();
     await assertGraphInsideBox("narrow");
     await screenshot("task-popover-narrow");
+    window.setContentSize(1200, 600);
+    await evaluate('document.getElementById("root").style.width = "390px"');
+    await delay(200);
+    assert.ok(
+      await evaluate('document.querySelector("button[aria-label=Send]").getBoundingClientRect().right <= 390'),
+      "a narrow pane also fits inside a wide window",
+    );
+    await evaluate('window.setDraft("A multiline draft\\nkeeps the controls visible")');
+    await delay(200);
+    assert.ok(
+      await evaluate('document.querySelector("button[aria-label=Send]").getBoundingClientRect().right <= 390'),
+      "expanded narrow panes keep Send visible",
+    );
+    await evaluate('document.getElementById("root").style.width = ""; window.setDraft("")');
     window.setContentSize(800, 600);
     await evaluate("window.setPlan(p => ({...p, tasks: []}))");
     await waitFor(`document.querySelector("${pill}").textContent === "Review"`);

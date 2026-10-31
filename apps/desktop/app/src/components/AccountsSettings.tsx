@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { AccountsSnapshot, CliStatus, ModelProvider } from "@milagre/shared/model";
 import type { CliProgress } from "../electron";
 import { accountType, providerName } from "@milagre/shared/providers";
@@ -166,7 +167,7 @@ export function AccountsSettings() {
               <ProviderLogo provider={group.provider} size={20} />
               {providerName(group.provider)}
             </h2>
-            {group.installed !== false && (
+            {group.installed !== false && providerCapabilities(group.provider).addAccounts && (
               <button
                 className={button}
                 disabled={busy || signingIn}

@@ -1,8 +1,11 @@
+import { ContextSettings } from "./ContextSettings";
 import { outbox, useOutbox } from "../lib/outbox";
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useBots } from "../lib/bots-store";
 import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
+import { useDeviceNotesEnabled } from "../lib/device-notes";
+import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { showUpdateNotice } from "./UpdateNotice";
 import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccountsSettings";
@@ -73,7 +76,7 @@ import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useWindowChrome } from "../lib/window-chrome";
 import type { ClaudeReplies, OpenLinksIn, UsageDisplay } from "../lib/settings";
-import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
+import { DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
@@ -87,6 +90,8 @@ import { useDoneSettings } from "../lib/done-settings";
 import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
+import { SimlockSettings } from "./settings/SimlockSettings";
+import { ComputerUseRow, ComputerUseSettings } from "./settings/ComputerUseSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { AppearanceWindowPreview, type PreviewArea } from "./settings/AppearanceWindowPreview";
@@ -108,6 +113,7 @@ import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { ChatListChoice, DictationActionChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
+import { SpeechModelChoice } from "./settings/SpeechModelChoice";
 import { KeybindingsSettings } from "./settings/KeybindingsSettings";
 import { HostUpdateRow } from "./settings/HostUpdateRow";
 import { playNotificationChime } from "../lib/notification-chime";
@@ -602,6 +608,29 @@ function RemoteDelegationSettings() {
   );
 }
 
+function DeviceNotesSettings() {
+  const setting = useDeviceNotesEnabled();
+  if (!setting.available) return null;
+  return (
+    <div data-slot="device-notes-setting">
+      <Row label={DEVICE_NOTES_LABEL} description={DEVICE_NOTES_DESCRIPTION}>
+        <SettingCheckbox
+          label={DEVICE_NOTES_LABEL}
+          checked={setting.enabled}
+          disabled={!setting.ready || setting.saving}
+          onChange={(enabled) => void setting.save(enabled)}
+        />
+      </Row>
+      <p className="px-4 pb-3 text-12 text-orange-ink">{DEVICE_NOTES_WARNING}</p>
+      {setting.error && (
+        <p role="alert" className="px-4 pb-3 text-12 text-red-ink">
+          {setting.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BotsSettings() {
   const bots = useBots();
   return (
@@ -638,8 +667,11 @@ function DoneRetentionSetting() {
 
 function ChatSettings() {
   const settings = useSettings();
+  const speechModel = whisperModelFor("desktop", settings.dictationModel);
+  const englishOnly = speechModel.english;
   return (
     <>
+      <ContextSettings />
       <ChoiceGroup title="Chat list">
         <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
       </ChoiceGroup>
@@ -672,14 +704,22 @@ function ChatSettings() {
       <ChoiceGroup title="Dictation">
         <p className="mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
         <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
+        <p className="mt-4 px-1 text-14 font-semibold text-ink">Speech model</p>
+        <p className="mb-2 px-1 text-12 text-ink-3">Transcribes on this computer. Picking a model downloads it once.</p>
+        <SpeechModelChoice value={settings.dictationModel} onChange={(dictationModel) => updateSettings({ dictationModel })} />
         <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
           <Row
             label="Language"
-            description="The mic in the composer transcribes on this computer. Detect automatically handles accents and mixed languages; pick one if it guesses wrong."
+            description={
+              englishOnly
+                ? `${speechModel.purpose} only understands English. Pick an any-language model above to dictate in others.`
+                : "Automatic detection is experimental and supports different languages in the same recording. Pick one language if detection guesses wrong."
+            }
           >
             <Select
               label="Dictation language"
-              value={settings.dictationLanguage}
+              value={englishOnly ? "en" : settings.dictationLanguage}
+              disabled={englishOnly}
               onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
               options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
             />
@@ -717,8 +757,9 @@ function BrowserSettings() {
 function ExperimentalSettings({ title }: { title?: string }) {
   const settings = useSettings();
   // Babysit PRs opens as a page of its own inside Experimental, with its own title row and a way back.
-  const [page, setPage] = useState<"experimental" | "babysit-prs">("experimental");
+  const [page, setPage] = useState<"experimental" | "babysit-prs" | "computer-use">("experimental");
   if (page === "babysit-prs") return <BabysitPrsSettings onBack={() => setPage("experimental")} />;
+  if (page === "computer-use") return <ComputerUseSettings onBack={() => setPage("experimental")} />;
   return (
     <>
       <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
@@ -755,6 +796,9 @@ function ExperimentalSettings({ title }: { title?: string }) {
         </Row>
         <BotsSettings />
         <RemoteDelegationSettings />
+        <DeviceNotesSettings />
+        <SimlockSettings />
+        <ComputerUseRow onOpen={() => setPage("computer-use")} />
         <BabysitPrsRow onOpen={() => setPage("babysit-prs")} />
       </Group>
     </>

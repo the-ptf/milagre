@@ -9,7 +9,19 @@ Use `artifact_show` for a page explaining a topic, a report or an interactive ex
 
 Each Chat has one live HTML page. Every `artifact_show` call updates that page in place. Do not create variants or promise version history. To revise existing content, use `artifact_list` to find its id and `artifact_read` to read the current page first. Preserve content the user has not asked to change.
 
-Supply a title and one self-contained HTML document with inline styles and scripts. Use a width and height appropriate to the content (defaults 1280 by 800). Keep source below 1,000,000 characters. Embed assets and keep styles and scripts inline. Shared Artifacts block all external resources, including remote images, fonts and scripts. No secret, local file or private Chat content belongs in an artifact unless the user requested it.
+Supply a title and one self-contained HTML document with inline styles and scripts. Use a width and height appropriate to the content (defaults 1280 by 800). Keep source below 1,000,000 characters. Keep styles and scripts inline. Shared Artifacts block all external resources, including remote images, fonts and scripts: attach the files a page shows (see Photos, videos and files). No secret, local file or private Chat content belongs in an artifact unless the user requested it.
+
+## Tabs
+
+When a page covers parts the reader takes one at a time (an overview and its details, one section per component, a report and its raw data), split it into tabs: send `tabs` instead of `html`, each with an id, a short title and its own self-contained HTML document. Milagre draws the tab bar above the page, on desktop, phone and shared pages; don't draw one in the HTML. Keep one page without tabs when it reads top to bottom, and at most 20 tabs. Each tab is a page of its own: repeat the styles it needs.
+
+To change one tab, read it with `artifact_read` and its `tab` id, then send every tab in order with `html` only on the ones you changed: a tab without `html` keeps what it has. Leaving a tab out removes it. A comment on a tab names its id ("on the tab data ..."); read that tab before changing it.
+
+## Photos, videos and files
+
+To show a photo, video, recording, font or any other file, save it in the Chat's Worktree, then attach it in `artifact_show`'s `assets` with a name and its absolute path, and use it in the HTML as `assets/<name>`: `<video src="assets/demo.mp4" controls>`, `<img src="assets/chart.png">`, `url(assets/font.woff2)`. Don't base64-encode files into the HTML. Milagre copies each file when you call `artifact_show`, so you can delete it from the Worktree afterwards. It shows on desktop, on the phone and on shared pages.
+
+Names are letters, digits, dots, dashes and underscores, with no folders. A file is up to 95 MB, a page's files up to 1 GB together. Attach a file once: later calls keep it while any tab's HTML still mentions `assets/<name>`, and drop it when none does. Attaching a file under a name the page already has replaces it. `artifact_read` lists the page's files.
 
 ## Diagrams
 

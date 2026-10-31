@@ -72,9 +72,27 @@ function makeBridge(invoke, listen, send) {
       repair: (request) => invoke("simulator:repair", request),
       close: (request) => invoke("simulator:close", request),
     },
+    computerUse: {
+      readSettings: () => invoke("computer-use:settings:read"),
+      saveSettings: (patch) => invoke("computer-use:settings:save", patch),
+      onSettings: (callback) => listen("computer-use:settings", callback),
+      status: () => invoke("computer-use:status"),
+      guide: () => invoke("computer-use:guide"),
+      frame: (request) => invoke("computer-use:frame", request),
+    },
+    simlock: {
+      readSettings: () => invoke("simlock:settings:read"),
+      saveSettings: (patch) => invoke("simlock:settings:save", patch),
+      onSettings: (callback) => listen("simlock:settings", callback),
+      identity: (request) => invoke("simlock:identity", request),
+      models: () => invoke("simlock:models"),
+      lease: (request) => invoke("simlock:lease", request),
+      release: (request) => invoke("simlock:release", request),
+    },
     pageComments: {
       add: (request) => invoke("browser-comments:add", request),
       list: (request) => invoke("browser-comments:list", request),
+      sendFromPage: (request) => invoke("browser-comments:send-from-page", request),
     },
     browsers: {
       list: (request) => invoke("browser:list", request),
@@ -118,7 +136,7 @@ function makeBridge(invoke, listen, send) {
     readBotBrief: (id) => invoke("bots:brief:read", id),
     readBotMemory: (id) => invoke("bots:memory:read", id),
     saveBotMemory: (id, text, base) => (base === undefined ? invoke("bots:memory:save", id, text) : invoke("bots:memory:save", id, text, base)),
-    createArtifactPreview: (html) => invoke("artifact-preview:register", html),
+    createArtifactPreview: (html, source) => invoke("artifact-preview:register", html, source),
     releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
     artifacts: {
       sharingStatus: (request) => invoke("artifact:sharing-status", request),
@@ -128,6 +146,7 @@ function makeBridge(invoke, listen, send) {
       sharePage: (request) => invoke("artifact:share-page", request),
       revokePageShare: (request) => invoke("artifact:revoke-page-share", request),
       get: (request) => invoke("artifact:get", request),
+      asset: (request) => invoke("artifact:asset", request),
       list: (request) => invoke("artifact:list", request),
       apply: (request) => invoke("artifact:apply", request),
       delete: (request) => invoke("artifact:delete", request),
@@ -193,6 +212,9 @@ function makeBridge(invoke, listen, send) {
     resetKeybindings: () => invoke("keybindings:reset"),
     onKeybindings: (callback) => listen("keybindings:changed", callback),
     openKeybindingsFile: () => invoke("app:open-keybindings-file"),
+    readContextSettings: () => invoke("context:settings:read"),
+    saveContextSettings: (patch) => invoke("context:settings:save", patch),
+    onContextSettings: (callback) => listen("context:settings", callback),
     readBabysitSettings: () => invoke("babysit:settings:read"),
     saveBabysitSettings: (patch) => invoke("babysit:settings:save", patch),
     onBabysitSettings: (callback) => listen("babysit:settings", callback),
@@ -240,6 +262,8 @@ function makeBridge(invoke, listen, send) {
     refreshDiffs: (projectPath, worktreeIds) => invoke("worktree:refresh-diffs", projectPath, worktreeIds),
     readPullRequest: (worktreePath) => invoke("worktree:pull-request", worktreePath),
     readPullRequests: (worktreePath, refs) => invoke("worktree:pull-requests", worktreePath, refs),
+    readPullRequestSnapshot: (projectPath) => invoke("pull-requests:snapshot", projectPath),
+    onPullRequestsChanged: (callback) => listen("pull-requests:changed", callback),
     revealInFolder: (folder) => invoke("project:reveal", folder),
     copyImage: (file) => invoke("image:copy", file),
     saveImage: (file, name) => invoke("image:save", file, name),
@@ -319,6 +343,9 @@ function makeBridge(invoke, listen, send) {
     readRemoteDelegationEnabled: () => invoke("linked:remote-enabled:read"),
     saveRemoteDelegationEnabled: (value) => invoke("linked:remote-enabled:save", value),
     onRemoteDelegationEnabledChanged: (callback) => listen("linked:remote-enabled-changed", callback),
+    readDeviceNotesEnabled: () => invoke("device-notes:read"),
+    saveDeviceNotesEnabled: (value) => invoke("device-notes:save", value),
+    onDeviceNotesEnabledChanged: (callback) => listen("device-notes:changed", callback),
     stopNegotiation: (id) => invoke("linked:stop-negotiation", id),
     onAppShortcut: (callback) => listen("app:shortcut", callback),
     onLinkedWork: (callback) => listen("linked:changed", callback),
@@ -399,6 +426,8 @@ function makeBridge(invoke, listen, send) {
     readUsage: (scopeKey) => invoke("usage:read", scopeKey),
     setKeepAwake: (enabled) => invoke("app:set-keep-awake", enabled),
     getCachedUsage: (scopeKey) => invoke("usage:cached", scopeKey),
+    readTokenUsage: (request) => invoke("token-usage:read", request),
+    onTokenUsageChanged: (callback) => listen("token-usage:changed", () => callback()),
     setNotifyWhenWaiting: (on) => invoke("settings:notify-when-waiting", on),
     setNotificationChime: (chime) => invoke("settings:notification-chime", chime),
     setNotificationSchedule: (schedule) => invoke("settings:notification-schedule", schedule),
@@ -494,6 +523,15 @@ const local = makeBridge(
 
 /** @type {Map<string, import("../app/src/electron.d.ts").MilagreBridge>} */
 const remotes = new Map();
+// A message for a paired computer's Chat was typed on this one: that Chat's agent is told (packages/core/src/sent-from.cjs).
+const SENDS = new Set(["chat:send", "link:send"]);
+/**
+ * @param {string} channel
+ * @param {unknown[]} args
+ * @returns {unknown[]}
+ */
+const sentFromHere = (channel, args) =>
+  SENDS.has(channel) && args[0] && typeof args[0] === "object" ? [{ ...args[0], sentFrom: "computer" }, ...args.slice(1)] : args;
 /**
  * A paired computer's bridge (spec "Routing"): the same calls, carried by main to that computer (computers-ipc.cjs), and
  * its events, tagged with it. This Mac's own actions refuse with NOT_REMOTE.
@@ -505,7 +543,8 @@ function remote(computerId) {
   let bridge = remotes.get(id);
   if (!bridge) {
     bridge = makeBridge(
-      (channel, ...args) => (isLocalOnly(channel) ? Promise.reject(new Error(NOT_REMOTE)) : ipcRenderer.invoke("computers:invoke", id, channel, args)),
+      (channel, ...args) =>
+        isLocalOnly(channel) ? Promise.reject(new Error(NOT_REMOTE)) : ipcRenderer.invoke("computers:invoke", id, channel, sentFromHere(channel, args)),
       (channel, callback) => listenComputer(id, channel, callback),
       () => {},
     );
@@ -543,8 +582,12 @@ const bridge = {
   // Dictation records and transcribes on this computer, whichever computer the Chat is on (dictation.cjs).
   dictation: {
     status: () => ipcRenderer.invoke("app:dictation-status"),
+    download: (id) => ipcRenderer.invoke("app:dictation-download", id),
+    cancel: (id) => ipcRenderer.invoke("app:dictation-cancel", id),
+    remove: (id) => ipcRenderer.invoke("app:dictation-remove", id),
+    prepare: (id) => ipcRenderer.invoke("app:dictation-prepare", id),
     transcribe: (request) => ipcRenderer.invoke("app:dictation-transcribe", request),
-    onProgress: (callback) => listenHere("app:dictation-progress", callback),
+    onModel: (callback) => listenHere("app:dictation-model", callback),
     openSettings: () => ipcRenderer.invoke("app:dictation-open-settings"),
   },
 };
@@ -565,6 +608,8 @@ contextBridge.exposeInMainWorld("milagreBrowserPanel", {
   setPages: (pages) => ipcRenderer.invoke("browser-panel:pages", pages),
   /** @param {number} contentsId @param {{ x: number; y: number; width: number; height: number }} rect */
   capture: (contentsId, rect) => ipcRenderer.invoke("browser-panel:capture", contentsId, rect),
+  /** @param {string} chatKey */
+  remotePartition: (chatKey) => ipcRenderer.invoke("browser-panel:remote-partition", chatKey),
 });
 
 // Kept local to this window, independent of the selected computer or agent host.

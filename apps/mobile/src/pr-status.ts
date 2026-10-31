@@ -9,8 +9,10 @@ type Pool = {
   cache: Map<string, { at: number; value: PullRequest | null }>;
 };
 const pools = new WeakMap<Client, Pool>();
-// Keep slow GitHub lookups out of the capacity used by snapshots and sends.
-export function readPullRequest(client: Client, path: string, active: () => boolean, ref?: string): Promise<PullRequest | null | undefined> {
+// Keep slow GitHub lookups out of the capacity used by snapshots and sends. A current Mac answers from its own PR poll
+// at once; the pool still matters on a Mac that predates it, where each request runs gh. `fresh` skips the 30 s cache:
+// the Mac said this Project's PRs changed.
+export function readPullRequest(client: Client, path: string, active: () => boolean, ref?: string, fresh = false): Promise<PullRequest | null | undefined> {
   let pool = pools.get(client);
   if (!pool) {
     pool = { running: 0, queue: [], pending: new Map(), cache: new Map() };
@@ -19,7 +21,7 @@ export function readPullRequest(client: Client, path: string, active: () => bool
   const state = pool;
   const key = JSON.stringify([path, ref]);
   const cached = state.cache.get(key);
-  if (cached && (Date.now() - cached.at < 30000 || (ref && cached.value?.state === "MERGED"))) return Promise.resolve(cached.value);
+  if (cached && ((!fresh && Date.now() - cached.at < 30000) || (ref && cached.value?.state === "MERGED"))) return Promise.resolve(cached.value);
   const pending = state.pending.get(key);
   if (pending) {
     pending.job.active.push(active);
@@ -71,4 +73,16 @@ export function readPullRequest(client: Client, path: string, active: () => bool
   state.queue.push(job);
   drain();
   return promise;
+}
+
+// The open Project's live socket heard "pulls": the Mac's PR poll found a change. Screens showing PRs read again.
+const pullListeners = new WeakMap<Client, Set<() => void>>();
+export function pullRequestsChanged(client: Client) {
+  for (const listener of pullListeners.get(client) ?? []) listener();
+}
+export function onPullRequestsChanged(client: Client, listener: () => void): () => void {
+  let listeners = pullListeners.get(client);
+  if (!listeners) pullListeners.set(client, (listeners = new Set()));
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }

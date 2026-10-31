@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
-import { archiveChat, archiveLinkChat } from "./archive.mjs";
+import { archiveChat, archiveLinkChat, deleteUndoWindow, undoDelete } from "./archive.mjs";
 import type { ArchiveDeps } from "./archive.mjs";
 import type { ArchivePlan } from "./archive.mjs";
 
@@ -238,4 +238,25 @@ test("an idle shared Chat archives without a stop", async () => {
 
 test("a shared Chat that can't be hidden reports it", async () => {
   await assert.rejects(archiveLinkChat({ running: false, stop: async () => {}, hide: () => Promise.reject(new Error("Host offline")) }), /Host offline/);
+});
+
+test("an Undo in the window brings the Chat back and removes nothing", async () => {
+  const h = harness({ undoWindow: async () => true });
+  assert.equal(await archiveChat(h.deps, 2, "remove", { ...plan, status: { ...status, removable: true } }), "undone");
+  assert.deepEqual(h.calls, ["stop", "hide", "restore"]);
+});
+
+test("once the window passes without an Undo, the deletion goes on", async () => {
+  const h = harness({ undoWindow: async () => false });
+  assert.equal(await archiveChat(h.deps, 1, "hide", null), "hidden");
+  assert.deepEqual(h.calls, ["stop", "hide", "destroy"]);
+});
+
+test("undoDelete calls off only a deletion still waiting", async () => {
+  const waiting = deleteUndoWindow("/work/shop#2", 10_000);
+  assert.equal(undoDelete("/work/shop#2"), true);
+  assert.equal(await waiting, true);
+  assert.equal(undoDelete("/work/shop#2"), false);
+  assert.equal(await deleteUndoWindow("/work/shop#3", 5), false);
+  assert.equal(undoDelete("/work/shop#3"), false);
 });

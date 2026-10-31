@@ -71,15 +71,37 @@ export function archiveChoices({ plan }) {
   return { choices: [{ mode, label: "Delete", tone: "danger" }], reason: null, immediate: true };
 }
 
-/** What a Chat without a Project says after deletion. */
-export const CHAT_ARCHIVED_NOTICE = "Chat deleted";
+/** How long a deleted Chat can still be brought back: its toast's Undo. The conversation and worktree go after it. */
+export const DELETE_UNDO_MS = 6000;
+
+// Deletions waiting out their Undo, by `projectPath#id`: each holds the function that calls the deletion off.
+const undoable = new Map();
 
 /**
- * The notice after an archive: only a Chat without a Project says it went ("Chat deleted"), since its folder goes
- * with it and nothing lists it any more. A kept one ("kept": its folder stayed) already says why it came back.
+ * Waits out a deletion's Undo. Resolves `true` when `undoDelete` called it off, `false` once the time is up. A second
+ * wait on the same Chat ends the first as if its time were up.
  */
-export function archivedNotice(outcome, { chatsHome = false } = {}) {
-  return chatsHome && (outcome === "hidden" || outcome === "removed") ? CHAT_ARCHIVED_NOTICE : null;
+export function deleteUndoWindow(chatId, ms = DELETE_UNDO_MS) {
+  undoable.get(chatId)?.(false);
+  return new Promise((resolve) => {
+    const finish = (undone) => {
+      clearTimeout(timer);
+      if (undoable.get(chatId) === finish) undoable.delete(chatId);
+      resolve(undone);
+    };
+    const timer = setTimeout(() => finish(false), ms);
+    // Node (the tests) needn't stay up for it; React Native's timers have no unref.
+    timer.unref?.();
+    undoable.set(chatId, finish);
+  });
+}
+
+/** Calls off a deletion still waiting out its Undo; `false` when it has gone ahead (or never started). */
+export function undoDelete(chatId) {
+  const finish = undoable.get(chatId);
+  if (!finish) return false;
+  finish(true);
+  return true;
 }
 
 /** What archiving ends among the chat's Terminals: those running a command, by its name. */
@@ -104,7 +126,8 @@ export function removeFailureNotice(error) {
 }
 
 /**
- * Deletes a Chat. It is hidden temporarily while the checked Worktree cleanup runs.
+ * Deletes a Chat. It is hidden at once; `undoWindow`, when given, then holds the permanent steps back, and an Undo in it
+ * brings the Chat back ("undone") with nothing removed. After it the checked Worktree cleanup runs.
  * The worktree is removed only when the chosen mode asks for it, the menu's status is at hand, and no other chat
  * uses it by now. A refusal restores the Chat. With its Worktree kept, destroy removes the conversation.
  */
@@ -114,8 +137,14 @@ export async function archiveChat(deps, sessionId, mode, plan) {
   const wantsRemoval = mode === "remove" || mode === "delete";
   // Another chat may have started using the worktree since the menu looked at it.
   const removing = wantsRemoval && latest && worktree?.base && plan?.status && !worktreeShared(latest, sessionId) ? worktree : null;
+  // The window opens with the toast, before the host has answered the hide, so an Undo tapped at once still counts.
+  const undone = deps.undoWindow?.();
   const stopped = deps.stop();
   await deps.hide();
+  if (undone && (await undone)) {
+    await deps.restore();
+    return "undone";
+  }
   if (!removing || !plan?.status) {
     try {
       await deps.destroy();

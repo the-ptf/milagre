@@ -178,6 +178,138 @@ test("exclusive ownership rejects another profile owner and aliases of an open P
   assert.equal((await other.openProject(alias)).path, project);
 });
 
+test("opening and reopening a Git Project ignores runtime state while shared configuration stays stageable", async (t) => {
+  const { project, make } = await fixture(t);
+  const git = (...args) => execFileSync("git", ["-C", project, ...args], { encoding: "utf8" });
+  const runtime = make();
+  await Promise.all([runtime.openProject(project), runtime.openProject(project)]);
+  assert.equal(git("status", "--porcelain"), "");
+  const metadata = path.join(project, ".milagre");
+  // Include SQLite side files, migration backups and interrupted writes as well as completed saves.
+  for (const file of ["chats.db-wal", "chats.db-shm", "chats.db-journal", "coordination.json.before-chats-db", "coordination.json.123.1.tmp"])
+    await fs.writeFile(path.join(metadata, file), "");
+  for (const folder of ["runtime.lock.takeover", "details", "images", "subagents", "runtime", "worktrees"]) {
+    await fs.mkdir(path.join(metadata, folder), { recursive: true });
+    await fs.writeFile(path.join(metadata, folder, "local.json"), "{}");
+  }
+  git("add", ".");
+  assert.equal(git("diff", "--cached", "--name-only"), "");
+  const ignore = await fs.readFile(path.join(metadata, ".gitignore"), "utf8");
+  await runtime.close();
+  const reopened = make();
+  await reopened.openProject(project);
+  assert.equal(git("status", "--porcelain"), "");
+  assert.equal(await fs.readFile(path.join(metadata, ".gitignore"), "utf8"), ignore);
+  for (const file of ["worktree.json", "checkpoint-ignore", "team-notes.txt"]) await fs.writeFile(path.join(metadata, file), "shared\n");
+  git("add", ".");
+  assert.deepEqual(git("diff", "--cached", "--name-only").trim().split("\n"), [
+    ".milagre/checkpoint-ignore",
+    ".milagre/team-notes.txt",
+    ".milagre/worktree.json",
+  ]);
+});
+
+test("a text-only Git Project opens, closes and reopens without hard-link support", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const link = syncFs.linkSync;
+  const metadata = path.join(project, ".milagre");
+  t.mock.method(syncFs, "linkSync", (from, to) => {
+    if (to === path.join(metadata, ".gitignore")) throw Object.assign(new Error("hard links unsupported"), { code: "ENOTSUP" });
+    return link(from, to);
+  });
+  const warn = t.mock.method(console, "warn", () => {});
+  const runtime = make();
+  await Promise.all([runtime.openProject(project), runtime.openProject(project)]);
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:patch", [project, session.id, { title: "Text-only Chat" }]);
+  await runtime.close();
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  const reopened = make();
+  assert.equal((await reopened.openProject(project)).path, project);
+  const restored = await reopened.invoke("project:current");
+  assert.equal(restored.state.sessions[session.id].title, "Text-only Chat");
+  await reopened.close();
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  assert.ok((await fs.readdir(metadata)).every((file) => !file.startsWith(".gitignore")));
+  assert.equal(warn.mock.callCount(), 2);
+});
+
+test("opening preserves an existing metadata ignore file, including when tracked", async (t) => {
+  const { project, make } = await fixture(t);
+  const metadata = path.join(project, ".milagre");
+  await fs.mkdir(metadata);
+  const original = "# Team rules\r\n*.local\r\n!worktree.json";
+  const file = path.join(metadata, ".gitignore");
+  await fs.writeFile(file, original);
+  const runtime = make();
+  await runtime.openProject(project);
+  assert.equal(await fs.readFile(file, "utf8"), original);
+  await runtime.close();
+  execFileSync("git", ["-C", project, "add", ".milagre/.gitignore"]);
+  const reopened = make();
+  await reopened.openProject(project);
+  assert.equal(await fs.readFile(file, "utf8"), original);
+  assert.equal(execFileSync("git", ["-C", project, "diff", "--", ".milagre/.gitignore"], { encoding: "utf8" }), "");
+});
+
+test("a partial ignore write releases both ownership locks and permits a protected retry", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const write = syncFs.writeFileSync;
+  const mocked = t.mock.method(syncFs, "writeFileSync", (file, ...args) => {
+    if (path.dirname(file) === path.join(project, ".milagre") && path.basename(file).startsWith(".gitignore.")) {
+      write(file, "# partial", { flag: "wx" });
+      throw Object.assign(new Error("ignore write denied"), { code: "ENOSPC" });
+    }
+    return write(file, ...args);
+  });
+  const runtime = make();
+  await assert.rejects(runtime.openProject(project), /ignore write denied/);
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  assert.deepEqual(await fs.readdir(path.join(project, ".milagre")), []);
+  mocked.mock.restore();
+  await runtime.openProject(project);
+  assert.ok(await fs.stat(path.join(project, ".milagre", ".gitignore")));
+  assert.equal(execFileSync("git", ["-C", project, "status", "--porcelain"], { encoding: "utf8" }), "");
+});
+
+test("ignore initialization still releases repository ownership if project-lock cleanup fails", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const link = syncFs.linkSync;
+  const unlink = syncFs.unlinkSync;
+  const mockedLink = t.mock.method(syncFs, "linkSync", (from, to) => {
+    if (to === path.join(project, ".milagre", ".gitignore")) throw new Error("ignore publish denied");
+    return link(from, to);
+  });
+  const mockedUnlink = t.mock.method(syncFs, "unlinkSync", (file) => {
+    if (file === path.join(project, ".milagre", "runtime.lock", "owner.json")) throw new Error("project-lock cleanup denied");
+    return unlink(file);
+  });
+  await assert.rejects(make().openProject(project), /project-lock cleanup denied/);
+  await assert.rejects(fs.stat(path.join(project, ".git", "milagre-runtime.lock")), { code: "ENOENT" });
+  mockedLink.mock.restore();
+  mockedUnlink.mock.restore();
+});
+
+test("opening a metadata symlink never creates an ignore file at its external destination", async (t) => {
+  const { project, make } = await fixture(t);
+  const external = path.join(path.dirname(project), "external-metadata");
+  await fs.mkdir(external);
+  await fs.symlink(external, path.join(project, ".milagre"), process.platform === "win32" ? "junction" : "dir");
+  await make().openProject(project);
+  await assert.rejects(fs.stat(path.join(external, ".gitignore")), { code: "ENOENT" });
+});
+
+test("opening a non-Git Project does not create Git ignore configuration", async (t) => {
+  const { project, make } = await fixture(t);
+  await fs.rm(path.join(project, ".git"), { recursive: true });
+  await make().openProject(project);
+  await assert.rejects(fs.stat(path.join(project, ".milagre", ".gitignore")), { code: "ENOENT" });
+});
+
 test("close waits for a command already changing saved settings before releasing ownership", async (t) => {
   const { project, make } = await fixture(t);
   const runtime = make();
@@ -534,6 +666,30 @@ function reloadAgents() {
     },
   };
 }
+
+test("archiving a Chat stops its running turn, so the question it waits on stops asking", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  agents.running();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const runOf = async () => (await runtime.invoke("chat:runs")).runs[chatId];
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "Ask me", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const session = agents.sessions[0];
+  session.options.emit({ type: "question-request", requestId: "q1", questions: [{ id: "0", question: "Which one?", options: [] }] });
+  for (let i = 0; i < 200 && !(await runOf())?.questions?.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal((await runOf()).questions.length, 1);
+
+  // A client whose copy of the runs missed the turn archives without stopping it first.
+  await runtime.invoke("chat:patch", [project, chat.id, { archived: true, unread: false }]);
+  for (let i = 0; i < 200 && (await runOf()); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(session.turnActive, false);
+  assert.equal(await runOf(), undefined);
+  await runtime.close();
+});
 
 test("chat:reload ends the agent's process, and the next message resumes its session in a new one", async (t) => {
   const { project, make } = await fixture(t);
@@ -1763,17 +1919,64 @@ test('an attention notice for a project-less Chat is titled "No project"', async
 });
 
 async function homeChatOnWorktree(t) {
-  const { make, chatsHome } = await fixture(t);
+  const { make, chatsHome, dataDir } = await fixture(t);
   const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
   await runtime.invoke("chats:ensure");
   const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
   const worktree = made.project.state.worktrees[made.worktreeId];
   const session = Object.values(made.project.state.sessions).find((item) => item.worktree_id === worktree.id);
-  return { runtime, chatsHome, worktree, chatId: `${chatsHome}#${session.id}`, sessionId: session.id };
+  return { runtime, chatsHome, dataDir, worktree, chatId: `${chatsHome}#${session.id}`, sessionId: session.id };
 }
 
+async function savedScreen(dataDir, chatId, image = "SAVED_SCREEN") {
+  const dir = path.join(dataDir, "computer-use", "frames");
+  const name = require("node:crypto").createHash("sha256").update(chatId).digest("hex").slice(0, 24);
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, `${name}.json`);
+  await fs.writeFile(file, JSON.stringify({ seq: 1, image, at: Date.now() }));
+  return file;
+}
+
+test("chat:delete removes its screen and rejects pending, later and restarted viewers", async (t) => {
+  const { make, project, dataDir } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${session.id}`;
+  const file = await savedScreen(dataDir, chatId);
+  assert.equal((await runtime.invoke("computer-use:frame", [{ chatId }])).image, "SAVED_SCREEN");
+  const pending = assert.rejects(runtime.invoke("computer-use:frame", [{ chatId, after: 1 }]), /existing Chat/);
+  await new Promise((resolve) => setImmediate(resolve));
+  await runtime.invoke("chat:delete", [project, session.id]);
+  await pending;
+  await assert.rejects(fs.stat(file), { code: "ENOENT" });
+  await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
+  await runtime.close();
+  const restarted = make();
+  await restarted.invoke("project:current");
+  await assert.rejects(restarted.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
+});
+
+test("screen requests refuse unopened and nonexistent Chats but keep existing Chats' frames", async (t) => {
+  const { make, project, dataDir } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${session.id}`;
+  await savedScreen(dataDir, chatId);
+  for (const missing of ["/unopened#1", `${project}#999999`]) {
+    await savedScreen(dataDir, missing);
+    await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId: missing }]), /existing Chat/);
+  }
+  await runtime.close();
+  const restarted = make();
+  await restarted.invoke("project:current");
+  assert.equal((await restarted.invoke("computer-use:frame", [{ chatId }])).image, "SAVED_SCREEN");
+});
+
 test("worktree:remove removes a Chats home worktree and drops its Chat", async (t) => {
-  const { runtime, chatsHome, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  const { runtime, chatsHome, dataDir, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  const screenFile = await savedScreen(dataDir, chatId);
   const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
   assert.equal(seen.removable, true);
   const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: false, chatId }]);
@@ -1782,6 +1985,8 @@ test("worktree:remove removes a Chats home worktree and drops its Chat", async (
   const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
   assert.equal(state.worktrees[worktree.id], undefined);
   assert.equal(state.sessions[sessionId], undefined);
+  await assert.rejects(fs.stat(screenFile), { code: "ENOENT" });
+  await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
   // The home itself stays.
   assert.ok((await fs.stat(chatsHome)).isDirectory());
 });

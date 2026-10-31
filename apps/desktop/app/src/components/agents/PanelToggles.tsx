@@ -21,7 +21,7 @@ import { useWindowChrome } from "../../lib/window-chrome";
 
 /** A side panel the open Chat can show: whether it is open, and what shows or hides it. */
 export type SidePanel = { open: boolean; toggle: () => void; promoted?: boolean };
-type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "agentBrowser" | "simulator";
+type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator";
 
 // Panels register their availability and actions here; the toolbar promotes Browser and keeps the rest in its menu.
 let panels: Partial<Record<PanelName, SidePanel>> = {};
@@ -71,7 +71,6 @@ const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof Pa
   { name: "artifacts", label: "Artifacts", icon: File01Icon, command: "artifacts.toggle" },
   { name: "designs", label: "Designs", icon: PaintBoardIcon, command: "designs.toggle" },
   { name: "browser", label: "browser", title: "Browser panel", icon: Globe02Icon, command: "browser.toggle" },
-  { name: "agentBrowser", label: "Agent browser", icon: Globe02Icon, command: "browser.toggle" },
   { name: "simulator", label: "Simulators", icon: SmartphoneIcon, command: "simulator.toggle" },
 ];
 
@@ -81,7 +80,7 @@ const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof Pa
  */
 export const CORNER_PITCH = 40;
 
-const isBrowserShortcut = (name: PanelName, panel: SidePanel) => (name === "browser" || name === "agentBrowser") && panel.promoted !== false;
+const isBrowserShortcut = (name: PanelName, panel: SidePanel) => name === "browser" && panel.promoted !== false;
 /** How many buttons PanelToggles shows, for what sits left of them. */
 export const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) => {
   const available = BUTTONS.filter(({ name }) => shown[name]);
@@ -135,42 +134,23 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
   return (
     <div
       data-slot="panel-toggles"
-      className="fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 [-webkit-app-region:no-drag]"
+      className="fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 rounded-control bg-surface/90 backdrop-blur-chip [-webkit-app-region:no-drag]"
       style={{ right: right + chrome.rightInset }}
     >
-      {browser && shown.agentBrowser ? (
-        <PanelMenu
-          label="Browser"
-          icon={Globe02Icon}
-          entries={[
-            {
-              id: "browser",
-              label: "Browser panel",
-              icon: Globe02Icon,
-              ...browser,
-            },
-            {
-              id: "agentBrowser",
-              label: "Agent browser",
-              icon: Globe02Icon,
-              ...shown.agentBrowser,
-            },
-          ]}
-        />
-      ) : browser || shown.agentBrowser ? (
+      {browser && (
         <Tooltip label="Browser" shortcut={shortcutLabel(rules, "browser.toggle")} compactHint side="bottom" align="end">
           <button
             type="button"
             aria-label="Toggle browser panel"
-            aria-pressed={(browser ?? shown.agentBrowser)!.open}
+            aria-pressed={browser.open}
             data-panel-toggle="browser"
-            onClick={(browser ?? shown.agentBrowser)!.toggle}
-            className={controlClass((browser ?? shown.agentBrowser)!.open)}
+            onClick={browser.toggle}
+            className={controlClass(browser.open)}
           >
             <HugeiconsIcon icon={Globe02Icon} size={18} strokeWidth={1.8} />
           </button>
         </Tooltip>
-      ) : null}
+      )}
       {pullRequest && (
         <Tooltip label={`Pull request #${pullRequest.number}`} side="bottom" align="end">
           <button

@@ -44,6 +44,10 @@ const DEVICE_METHODS = Object.freeze([
 ]);
 // A paired desktop's own channel (peer-channel.cjs): rpc / evt / part messages over the relay or the LAN.
 const DESKTOP_PEER = "desktop-peer-v1";
+// A paired desktop may open TCP streams from this computer on its channel (peer-streams.cjs).
+const PEER_TCP = "peer-tcp-v1";
+// A paired desktop may register its Browser pages for this host's Chats, reached back over its channel (#832).
+const PEER_PANEL_PAGES = "peer-panel-pages-v1";
 // Asked by a paired desktop, which has no phone:* methods: where it can reach this Mac (relay identity, LAN routes).
 const PEER_METHODS = Object.freeze(["peer:routes"]);
 // The desktop app's update, checked and installed from the phone or a paired desktop (host-updates.cjs).
@@ -606,7 +610,7 @@ async function startDaemon({
    * the socket has none. The carrier hands the result each parsed request (`receive`), a framing error (`invalid`) and,
    * once, its own close (`close`).
    */
-  function acceptConnection({ send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null }) {
+  function acceptConnection({ send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null, openStream = null }) {
     if (mustAuthenticate && !authenticationToken) throw new Error("requireAuthentication needs a daemon that has an authentication token");
     let authenticated = !mustAuthenticate;
     let challenge;
@@ -624,7 +628,9 @@ async function startDaemon({
     const resultPages = createResultPages(maxFrameBytes, { ttlMs: pagesTtlMs, budgetChars: pagesBudgetChars });
     const view = { focused: false, projectPath: null, chatId: null };
     // Never accept an actor supplied in RPC arguments. Each authenticated connection owns its viewer capabilities.
-    const context = Object.freeze({ clientId: randomUUID() });
+    // A paired desktop's channel can also carry streams back to that desktop (peer-streams.cjs): its Browser pages reach
+    // this host's browser service through them.
+    const context = Object.freeze({ clientId: randomUUID(), ...(openStream ? { openStream } : {}) });
     // This connection in clients, views and patchClients.
     const key = Symbol("connection");
     const connection = { send, policy };
@@ -745,6 +751,7 @@ async function startDaemon({
               SUBAGENT_TAILS,
               ARCHIVED_SUMMARIES,
               DESKTOP_PEER,
+              ...(policy === peerPolicy ? [PEER_TCP, PEER_PANEL_PAGES] : []),
               REMOTE_FILES,
             ],
             methods: [

@@ -115,6 +115,30 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
   return { dataDir, project, bridge, request, rpc, token, daemon };
 }
 
+test("phone and desktop receive the same Project icon, including large repository images and icon resets", async (t) => {
+  const { dataDir, project, rpc } = await fixture(t);
+  const png = await fs.readFile(path.join(__dirname, "../../desktop/app/public/logo-milagre-image.png"));
+  const repositoryIcon = `data:image/png;base64,${png.toString("base64")}`;
+  assert.ok(repositoryIcon.length > 600_000, "exercise the full-size icon previously replaced with a folder on phones");
+  await fs.mkdir(path.join(project, ".milagre"));
+  await fs.writeFile(path.join(project, ".milagre/icon.png"), png);
+  const desktop = await connect({ dataDir });
+  t.after(() => desktop.close());
+  await desktop.call("project:open", [project]);
+  const phoneCall = async (method, args) => {
+    const response = await rpc(method, args);
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  assert.equal(await desktop.call("project:image", [project]), repositoryIcon);
+  assert.ok((await phoneCall("project:image", [project])) === repositoryIcon, "phone receives the repository icon unchanged");
+  const chosenIcon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+  assert.equal(await phoneCall("project:set-icon", [project, chosenIcon]), chosenIcon);
+  assert.equal(await desktop.call("project:image", [project]), chosenIcon);
+  assert.ok((await phoneCall("project:set-icon", [project, null])) === repositoryIcon, "reset restores the repository icon on phones");
+  assert.equal(await phoneCall("project:image", [project]), await desktop.call("project:image", [project]));
+});
+
 test("inbox question and approval actions settle through the owner, and Clear removes unread outcomes", async (t) => {
   const { rpc, request, project } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
   await rpc("project:open", [project]);
@@ -1998,4 +2022,16 @@ test("phone uploads above 5 MiB fit the HTTP and daemon carriers and sends use i
     },
   ]);
   assert.equal(sent.status, 200, await sent.text());
+});
+
+test("the host's PR poll finding a change tells live phones to read their PR rows again", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {
+    stdio: "ignore",
+  });
+  assert.equal((await rpc("project:open", [project])).status, 200);
+  const phone = await openLive(bridge, project, { authorization: `Bearer ${token}` });
+  // No GitHub remote here: the first read settles as "no PR", which is still news to a phone showing the row.
+  assert.equal((await rpc("worktree:pull-request", [project])).status, 200);
+  await until(() => phone.messages.includes("pulls"));
 });

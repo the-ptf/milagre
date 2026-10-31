@@ -6,7 +6,7 @@ const { chatTitle } = require("@milagre/shared/chats");
 const { compactionText } = require("@milagre/shared/compaction");
 const { routineRunText } = require("@milagre/shared/routines");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
-const { claudeModel, codexModel, antigravityModel } = require("../git-text.cjs");
+const { claudeModel, codexModel, antigravityModel, kiroModel } = require("../git-text.cjs");
 const { extractJson } = require("./antigravity-text.cjs");
 
 // Handing a chat off to the other provider in place: the chat as a markdown transcript on disk, and a short brief
@@ -197,6 +197,7 @@ function createHandoverModels({ cli, clientVersion }) {
     claude: claudeModel({ getCommand: getCommand("claude") }),
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: BRIEF_SCHEMA }),
+    kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: BRIEF_SCHEMA }),
   };
 }
 

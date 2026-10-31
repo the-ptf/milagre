@@ -354,7 +354,7 @@ test("a confined phone gets no worktree root outside its folder", async (t) => {
 
 test("the demo daemon reports only the demo agent, whichever provider the phone picks", async (t) => {
   const f = await fixture(t);
-  assert.deepEqual((await f.rpc("agent:models")).body.result, { codex: [DEMO_MODEL], claude: null, antigravity: null });
+  assert.deepEqual((await f.rpc("agent:models")).body.result, { codex: [DEMO_MODEL], claude: null, antigravity: null, kiro: null });
   const status = (await f.rpc("agent:cli-status")).body.result;
   assert.deepEqual(status.codex, { state: "ready" });
   assert.equal(status.claude.state, "missing");

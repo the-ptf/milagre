@@ -56,6 +56,22 @@ const PATHS = Object.freeze({
   "simulator:input": denySimulator,
   "simulator:repair": denySimulator,
   "simulator:close": denySimulator,
+  // The owner's Experimental switch for device notes.
+  "device-notes:read": denied,
+  "device-notes:save": denied,
+  // Computer use drives the owner's own desktop apps. A demo Project never reaches it.
+  "computer-use:settings:read": denied,
+  "computer-use:settings:save": denied,
+  "computer-use:status": denied,
+  "computer-use:guide": denied,
+  "computer-use:frame": denied,
+  // Simlock leases run on the owner's machines with the owner's token. A demo Project never reaches them.
+  "simlock:settings:read": denySimulator,
+  "simlock:settings:save": denySimulator,
+  "simlock:identity": denySimulator,
+  "simlock:models": denySimulator,
+  "simlock:lease": denySimulator,
+  "simlock:release": denySimulator,
   // Browsers on the host can hold the owner's signed-in sessions. A demo Project never reaches them.
   "browser:list": denied,
   "browser:attach": denied,
@@ -77,6 +93,7 @@ const PATHS = Object.freeze({
   "terminal:close": denied,
   // A design is read through its Chat, which must be in the folder.
   "artifact:get": ([value]) => [chatProject(value?.chatId)],
+  "artifact:asset": ([value]) => [chatProject(value?.chatId)],
   "artifact:apply": denied,
   "artifact:delete": denied,
   "artifact:list": ([value]) => [chatProject(value?.chatId)],
@@ -161,6 +178,8 @@ const PATHS = Object.freeze({
   "keybindings:reset": denied,
   // Babysit PRs settings name no folder, but their level and instructions go into every future babysit Run in every Chat
   // on the Mac: a confined phone only reads them.
+  "context:settings:read": none,
+  "context:settings:save": denied,
   "babysit:settings:read": none,
   "babysit:settings:save": denied,
   // How long Done Chats wait before archiving applies to every Project on the Mac: a confined phone only reads it.
@@ -233,6 +252,8 @@ const PATHS = Object.freeze({
   "local-mcp:enableClient": denied,
   "local-mcp:disableClient": denied,
   "usage:read": (args) => (args[0] == null ? [] : [args[0]]),
+  // Token usage names every Project and folder an agent ran in on the Mac.
+  "token-usage:read": denied,
   "usage:cached": (args) => (args[0] == null ? [] : [args[0]]),
   "agent:answer-question": ([value]) => [chatProject(value?.chatId)],
   "agent:set-permission-mode": ([value]) => [chatProject(value?.chatId)],

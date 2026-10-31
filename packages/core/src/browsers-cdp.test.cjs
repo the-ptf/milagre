@@ -154,6 +154,7 @@ test("a capture streams frames, maps normalized input to CSS pixels and never cl
   channel.send({ kind: "navigate", action: "back" });
   channel.send({ kind: "navigate", action: "forward" });
   channel.send({ kind: "navigate", action: "reload" });
+  channel.send({ kind: "viewport", width: 640, height: 480 });
   const params = socket.sent.map(({ method, params }) => [method, params]);
   assert.deepEqual(
     params,
@@ -167,11 +168,12 @@ test("a capture streams frames, maps normalized input to CSS pixels and never cl
       ["Input.insertText", { text: "héllo" }],
       ["Page.navigateToHistoryEntry", { entryId: 7 }],
       ["Page.reload", {}],
+      ["Emulation.setDeviceMetricsOverride", { width: 640, height: 480, deviceScaleFactor: 0, mobile: false }],
     ],
     "forward is a no-op at the newest entry",
   );
   await channel.close();
-  assert.deepEqual(methods(socket).slice(-1), ["Page.stopScreencast"]);
+  assert.deepEqual(methods(socket).slice(-2), ["Emulation.clearDeviceMetricsOverride", "Page.stopScreencast"], "the page gets its own size back");
   assert.equal(
     methods(socket).some((method) => /closeTarget|Browser\.close/.test(method ?? "")),
     false,

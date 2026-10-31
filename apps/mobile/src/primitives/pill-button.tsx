@@ -11,6 +11,7 @@ export function PillButton({
   disabled = false,
   secondary = false,
   loading = false,
+  tone = "ink",
   style,
 }: {
   title: string;
@@ -19,6 +20,7 @@ export function PillButton({
   disabled?: boolean;
   secondary?: boolean;
   loading?: boolean;
+  tone?: "ink" | "orange";
   style?: StyleProp<ViewStyle>;
 }) {
   const { colors } = useTheme();
@@ -42,7 +44,7 @@ export function PillButton({
           gap: 8,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: secondary ? colors.surface : colors.ink,
+          backgroundColor: tone === "orange" ? colors.orangeTint : secondary ? colors.surface : colors.ink,
           borderWidth: secondary ? 1 : 0,
           borderColor: colors.lineStrong,
           opacity: disabled ? 0.4 : pressed ? 0.7 : 1,
@@ -51,11 +53,11 @@ export function PillButton({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={secondary ? colors.ink2 : colors.onInk} />
+        <ActivityIndicator color={tone === "orange" ? colors.orangeInk : secondary ? colors.ink2 : colors.onInk} />
       ) : icon ? (
-        <Icon icon={icon} tone={secondary ? "ink" : "onInk"} size={18} />
+        <Icon icon={icon} tone={tone === "orange" ? "orangeInk" : secondary ? "ink" : "onInk"} size={18} />
       ) : null}
-      <Text style={{ color: secondary ? colors.ink : colors.onInk, fontSize: 15, fontWeight: "600" }}>{title}</Text>
+      <Text style={{ color: tone === "orange" ? colors.orangeInk : secondary ? colors.ink : colors.onInk, fontSize: 15, fontWeight: "600" }}>{title}</Text>
     </Pressable>
   );
 }

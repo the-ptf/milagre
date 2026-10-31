@@ -1,3 +1,7 @@
+import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
+import { useContextSettings } from "../context-settings";
+import { compactionContext } from "@milagre/shared/compaction";
+import { CleanIcon } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
 import { ComposerTray, OfflineTray } from "../offline-tray";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
@@ -6,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -16,7 +20,7 @@ import {
   ArrowDown01Icon,
   ArrowUp01Icon,
   BubbleChatIcon,
-  BrowserIcon,
+  Globe02Icon,
   GitPullRequestIcon,
   Cancel01Icon,
   File01Icon,
@@ -30,6 +34,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
+import { compactButtonState } from "@milagre/shared/chat-display";
+import { useCompactButtonDisplay, useShowContextSize } from "../chat-display-setting";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
@@ -107,9 +113,6 @@ import { Approval, ActivityQuestions } from "../questions";
 import { QueuedMessages } from "../queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
-// Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
-import LINEAR_MARK from "../../assets/linear-mark.png";
-import PR_TOOLBAR_ICON from "../../assets/pr-toolbar.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplit, useSplitLayout } from "../split-context";
@@ -118,13 +121,15 @@ import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
-import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
+import { HeaderAction, HeaderActionGroup } from "../primitives/header-action-group";
+import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
+import { ToastPill } from "../primitives/toast";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
@@ -152,6 +157,7 @@ import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { BesideSession, touchPane } from "../beside-session";
+import { SENT_FROM } from "../sent-from";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -186,7 +192,7 @@ const NO_CHECKPOINTS: CheckpointApi = {
 // the Browser, PR and ⋯ buttons sharing a pill, and the clear space beside the title. The title is never wider than 230.
 const HEADER_EDGE = 16;
 const HEADER_BUTTON = 44;
-const HEADER_BUTTON_PITCH = 60;
+const HEADER_BUTTON_PITCH = 44;
 const HEADER_GAP = 12;
 const HEADER_TITLE_MAX = 230;
 /** The widest the header title may be on a screen `screenWidth` wide: what is left between the sidebar button and the toolbar group. */
@@ -327,6 +333,9 @@ function ChatPane({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const [showContextSize] = useShowContextSize();
+  const { settings: contextSettings } = useContextSettings();
+  const [compactButtonDisplay] = useCompactButtonDisplay();
   // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
   // params, so the new snapshot never renders against the old route and briefly unmounts the composer.
   const [internalBrowser] = useInternalBrowser();
@@ -385,7 +394,7 @@ function ChatPane({
   const [error, setError] = useState("");
   // Bumped after a link or unlink so the Linear issues of the Worktrees are read again.
   const [linkVersion, setLinkVersion] = useState(0);
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -610,6 +619,10 @@ function ChatPane({
   // A summary can acknowledge a send before its message page arrives. Keep what is already on screen during that read.
   const [transcript, setTranscript] = useState({ key: scrollKey, messages: loadedMessages });
   const messages = lean && historyPage.loading && !loadedMessages.length && transcript.key === scrollKey ? transcript.messages : loadedMessages;
+  const compactionFeedback = useCompactionFeedback(
+    messages.findLast((item) => compactionContext(item)),
+    scrollKey,
+  );
   if (transcript.key !== scrollKey || transcript.messages !== messages) setTranscript({ key: scrollKey, messages });
   // A saved Chat whose page is still on its way shows nothing yet, not the new-chat welcome.
   const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
@@ -674,6 +687,17 @@ function ChatPane({
   // Long Chats mount their newest messages first; earlier ones load on request.
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
   const visible = shown.key === scrollKey ? shown.count : PAGE;
+  // A Chat followed at its bottom as new messages arrive lets go of the history it showed: its earlier messages unmount
+  // and its window keeps its last turns, so a Chat open for hours costs what a fresh one does. Scrolling up reads them again.
+  const { trim: trimHistory } = historyPage;
+  const seenCount = useRef(messages.length);
+  useEffect(() => {
+    const grew = messages.length > seenCount.current;
+    seenCount.current = messages.length;
+    if (!grew || !following.current || historyRead.current || historyAnchor.current) return;
+    if (visible > PAGE) setShown({ key: scrollKey, count: PAGE });
+    trimHistory();
+  }, [messages.length, visible, scrollKey, trimHistory]);
   // Quiet heartbeats fold into one line and their replies drop out.
   const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
   async function showEarlier() {
@@ -1071,6 +1095,40 @@ function ChatPane({
   const branchDisabled = targetDisabled || (newWorktree && !branches?.items.length);
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
+  const supportsCompact = Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact;
+  const quietContext = supportsCompact && contextSettings.autoCompact;
+  const compactState = compactButtonState(compactButtonDisplay, contextUsage, supportsCompact, contextSettings.buttonThreshold, quietContext);
+  const compactQueued = chat?.queued?.find((item) => compactionContext(item));
+  const compacting = compactionContext(messages.findLast((item) => compactionContext(item)))?.status === "preparing";
+  const compactBlocked = compacting || busy || Boolean(session.error) || Boolean(chat?.archived) || unavailable;
+  const compactButton =
+    !quietContext && (compactState.visible || compactQueued || compacting) ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={compactQueued ? "Cancel queued compaction" : "Compact context"}
+        accessibilityHint={run ? "Compact after the current turn." : "Summarize this Chat to free up context."}
+        accessibilityState={{ disabled: compactBlocked }}
+        disabled={compactBlocked}
+        onPress={() =>
+          compactQueued ? void action(() => client.call("chat:queue-remove", [chatId, compactQueued.id]), true) : composer.requestCompact(chatId)
+        }
+        style={({ pressed }) => ({
+          minHeight: 44,
+          minWidth: 44,
+          flexDirection: "row",
+          gap: 4,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 8,
+          opacity: compactBlocked ? 0.4 : pressed ? 0.6 : 1,
+        })}
+      >
+        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={14} />
+        <Text style={{ fontSize: 12, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}>
+          {compacting ? "Compacting…" : compactQueued ? "Queued" : run ? "After turn" : "Compact"}
+        </Text>
+      </Pressable>
+    ) : null;
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
   // A new Chat before its first message: "Start building in <Computer / Project>" in the middle of the screen picks its Project.
   const startingChat = !params.id && !pending && !messages.length;
@@ -1517,6 +1575,7 @@ function ChatPane({
                 ...media,
                 prompt: attachmentPrompt(sent, media.files),
                 ...options,
+                sentFrom: SENT_FROM,
               },
             ])
           : client.call<{ sessionId: number }>("chat:send", [
@@ -1529,6 +1588,7 @@ function ChatPane({
                 // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
                 prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files),
                 ...options,
+                sentFrom: SENT_FROM,
                 ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
                 // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
                 ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
@@ -1649,11 +1709,19 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
-    else if (id === "done" && chat)
-      void action(() => client.call("chat:patch", [project.path, chat.id, { done: true, unread: false }])).then((ok) => ok && showToast("Moved to Done"));
+    else if (id === "done" && chat) void markDone(chat);
     else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
+  }
+  // Done leaves the finished Chat for a new one in the same Project (the Chat beside just closes); the toast's Undo
+  // brings it back to the list.
+  async function markDone(finished: NonNullable<typeof chat>) {
+    const ok = await action(() => client.call("chat:patch", [project.path, finished.id, { done: true, unread: false }]));
+    if (!ok) return;
+    if (secondary) closeBeside();
+    else router.setParams({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined });
+    showToast("Moved to Done", () => void action(() => client.call("chat:patch", [project.path, finished.id, { done: false }])));
   }
   // Archive starts immediately, preserves unsaved work, and stops a running turn.
   // The sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
@@ -1696,6 +1764,7 @@ function ChatPane({
           chat: target,
           running: !!run,
           chatsHome: chatsHomeOpen,
+          hostId: params.hostId || session.client?.url,
           onConfirm: () => {
             session.expectActivity();
             leave();
@@ -1727,11 +1796,11 @@ function ChatPane({
   const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
   const linkHint = storedIssue && !(worktree?.name ?? "").toLowerCase().includes(storedIssue.toLowerCase()) ? LINK_PR_HINT(storedIssue) : null;
   /** Picks an issue from the list and links it to this Chat's Worktree. */
-  /** A short confirmation over the transcript that goes away on its own, for results that need no answer. */
-  function showToast(message: string) {
+  /** A short confirmation over the transcript that goes away on its own; one with `undo` stays longer and offers Undo. */
+  function showToast(text: string, undo?: () => void) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = setTimeout(() => setToast(""), 3000);
+    setToast({ text, undo });
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 6000 : 3000);
   }
   function linkIssue() {
     if (!worktree) return;
@@ -1804,107 +1873,7 @@ function ChatPane({
       </HeaderTitleBox>
     </>
   );
-  const more = (
-    <Stack.Toolbar placement="right">
-      {browserShortcut &&
-        (Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button
-            icon="globe"
-            accessibilityLabel={browserShortcut.accessibilityLabel}
-            onPress={() => {
-              touchPane(secondary ? "beside" : "routed");
-              browserShortcut.onPress();
-            }}
-          />
-        ) : (
-          <Stack.Toolbar.View>
-            <HeaderButton
-              label={browserShortcut.accessibilityLabel}
-              icon={BrowserIcon}
-              onPress={() => {
-                touchPane(secondary ? "beside" : "routed");
-                browserShortcut.onPress();
-              }}
-            />
-          </Stack.Toolbar.View>
-        ))}
-      {pr &&
-        (Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button
-            icon={PR_TOOLBAR_ICON}
-            iconRenderingMode="template"
-            accessibilityLabel={`Pull request #${pr.number}`}
-            onPress={() => headerAction("pr")}
-          />
-        ) : (
-          <Stack.Toolbar.View>
-            <HeaderButton label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={28} onPress={() => headerAction("pr")} />
-          </Stack.Toolbar.View>
-        ))}
-      <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
-        {/* A Chat without a Project has no Git changes to review, as on desktop. */}
-        {!chatsHomeOpen && (
-          <Stack.Toolbar.MenuAction
-            icon="doc.text.magnifyingglass"
-            subtitle={diff ? `+${diff.added} −${diff.removed}` : undefined}
-            onPress={() => headerAction("changes")}
-          >
-            View changes
-          </Stack.Toolbar.MenuAction>
-        )}
-        {chat && (
-          <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={!!run} onPress={() => headerAction("undo")}>
-            Undo changes
-          </Stack.Toolbar.MenuAction>
-        )}
-        {ownRoutine && (
-          <Stack.Toolbar.MenuAction icon={ownHeartbeat ? "waveform.path.ecg" : "repeat"} onPress={() => headerAction("routine")}>
-            {ownHeartbeat ? "Heartbeat" : "Routine"}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {linearIssue && (
-          <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" onPress={() => openLinearIssue(linearIssue.url)}>
-            {issueChipLabel(linearIssue)}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {linkHint && (
-          <Stack.Toolbar.MenuAction icon="info.circle" disabled>
-            {linkHint}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {agents.length > 0 && (
-          <Stack.Toolbar.MenuAction icon="person.2" subtitle={String(agents.length)} onPress={() => headerAction("agents")}>
-            Subagents
-          </Stack.Toolbar.MenuAction>
-        )}
-        {chat && (
-          <Stack.Toolbar.Menu inline>
-            <Stack.Toolbar.MenuAction icon="pencil" onPress={() => headerAction("rename")}>
-              Rename
-            </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.MenuAction icon="arrow.clockwise" disabled={busy} onPress={() => headerAction("reload")}>
-              Reload chat
-            </Stack.Toolbar.MenuAction>
-            {canLink &&
-              (storedIssue ? (
-                <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" disabled={busy} onPress={() => void unlinkWorktreeIssue()}>
-                  Unlink issue
-                </Stack.Toolbar.MenuAction>
-              ) : (
-                <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" disabled={busy} onPress={linkIssue}>
-                  Link issue…
-                </Stack.Toolbar.MenuAction>
-              ))}
-            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "trash"} disabled={busy} onPress={() => headerAction("archive")}>
-              {chat.archived ? "Restore" : "Delete"}
-            </Stack.Toolbar.MenuAction>
-          </Stack.Toolbar.Menu>
-        )}
-      </Stack.Toolbar.Menu>
-    </Stack.Toolbar>
-  );
-  // Two Chats side by side share one native header, so each draws its own: title, the ⋯ menu (the header's, as a
-  // pull-down) and a close button. The routed one keeps the sidebar button at its left.
+  // Both header layouts use the same actions and one glass capsule.
   const paneMenu: MenuSection[] = [
     {
       items: [
@@ -1916,6 +1885,7 @@ function ChatPane({
         ...(chat ? [{ id: "undo", title: "Undo changes", systemImage: "arrow.uturn.backward", disabled: !!run }] : []),
         ...(ownRoutine ? [{ id: "routine", title: ownHeartbeat ? "Heartbeat" : "Routine", systemImage: ownHeartbeat ? "waveform.path.ecg" : "repeat" }] : []),
         ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
+        ...(linkHint ? [{ id: "link-hint", title: linkHint, systemImage: "info.circle", disabled: true }] : []),
         ...(agents.length > 0 ? [{ id: "agents", title: "Subagents", systemImage: "person.2", subtitle: String(agents.length) }] : []),
       ],
     },
@@ -1947,6 +1917,29 @@ function ChatPane({
         ]
       : []),
   ];
+  const headerActions = (
+    <HeaderActionGroup>
+      {browserShortcut && (
+        <HeaderAction
+          label={browserShortcut.accessibilityLabel}
+          icon={Globe02Icon}
+          onPress={() => {
+            touchPane(secondary ? "beside" : "routed");
+            browserShortcut.onPress();
+          }}
+        />
+      )}
+      {pr && <HeaderAction label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={24} onPress={() => headerAction("pr")} />}
+      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
+        <HeaderAction label="Chat actions" icon={MoreHorizontalIcon} />
+      </PullDown>
+    </HeaderActionGroup>
+  );
+  const more = (
+    <Stack.Toolbar placement="right">
+      <Stack.Toolbar.View hidesSharedBackground>{headerActions}</Stack.Toolbar.View>
+    </Stack.Toolbar>
+  );
   const paneHeader = paired ? (
     <View
       pointerEvents="box-none"
@@ -1966,29 +1959,7 @@ function ChatPane({
       <View pointerEvents="box-none" style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
         {startingChat ? null : header}
       </View>
-      {browserShortcut && (
-        <GlassIconButton
-          label={browserShortcut.accessibilityLabel}
-          systemImage="globe"
-          icon={BrowserIcon}
-          onPress={() => {
-            touchPane(secondary ? "beside" : "routed");
-            browserShortcut.onPress();
-          }}
-        />
-      )}
-      {pr && (
-        <GlassIconButton
-          label={`Pull request #${pr.number}`}
-          systemImage="arrow.triangle.pull"
-          icon={GitPullRequestIcon}
-          iconSize={28}
-          onPress={() => headerAction("pr")}
-        />
-      )}
-      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
-        <GlassIconButton label="Chat actions" systemImage="ellipsis" icon={MoreHorizontalIcon} onPress={() => {}} />
-      </PullDown>
+      {headerActions}
       <GlassIconButton label="Close Chat" systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
     </View>
   ) : null;
@@ -2354,13 +2325,19 @@ function ChatPane({
                 )}
                 {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
                 {toast ? (
-                  <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
-                    <View
-                      accessibilityLiveRegion="polite"
-                      style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
-                    >
-                      <Text style={{ color: colors.surface, fontSize: 14 }}>{toast}</Text>
-                    </View>
+                  <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
+                    <ToastPill
+                      text={toast.text}
+                      onUndo={
+                        toast.undo &&
+                        (() => {
+                          const { undo } = toast;
+                          if (toastTimer.current) clearTimeout(toastTimer.current);
+                          setToast(null);
+                          undo?.();
+                        })
+                      }
+                    />
                   </View>
                 ) : null}
                 <MessageNavigation
@@ -2382,6 +2359,8 @@ function ChatPane({
                   {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
                   {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
                   <View
+                    ref={planPanel.attachRoom}
+                    collapsable={false}
                     onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                     style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
                   >
@@ -2427,13 +2406,14 @@ function ChatPane({
                           />
                         )}
                         {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
+                        <PlanPill panel={planPanel} />
                         {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
                         {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
                       </ScrollView>
                     )}
                     {chat?.queued?.length ? (
                       <QueuedMessages
-                        items={chat.queued}
+                        items={chat.queued.filter((item) => !compactionContext(item) || chat.queueHeld)}
                         held={Boolean(chat.queueHeld)}
                         running={Boolean(run)}
                         disabled={actionBusy}
@@ -2836,6 +2816,7 @@ function ChatPane({
                                 </View>
                               </PullDown>
                               <AgentControls
+                                compact={Boolean(compactButton)}
                                 model={model}
                                 effort={preferences.effort}
                                 fastMode={preferences.fastMode}
@@ -2858,13 +2839,46 @@ function ChatPane({
                                 onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                               />
                               <View style={{ flex: 1 }} />
-                              <PlanPill panel={planPanel} />
-                              {contextUsage && contextUsage.size > 0 && params.id && (
-                                <ContextRing
-                                  {...contextUsage}
-                                  canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
-                                  onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
-                                />
+                              {!quietContext && compactionFeedback ? (
+                                <Text
+                                  accessibilityRole="text"
+                                  accessibilityLiveRegion="polite"
+                                  style={{ fontSize: 12, color: colors.greenInk, paddingHorizontal: 8 }}
+                                >
+                                  ✓ {compactionFeedback.percent}% · {compactionFeedback.freed} freed
+                                </Text>
+                              ) : (
+                                !quietContext &&
+                                (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                    {/* The tint is the send button's 34pt height; the buttons keep their 44pt touch targets. */}
+                                    {compactState.warning && (
+                                      <View
+                                        pointerEvents="none"
+                                        style={{
+                                          position: "absolute",
+                                          left: 0,
+                                          right: 0,
+                                          top: "50%",
+                                          height: 34,
+                                          marginTop: -17,
+                                          borderRadius: 999,
+                                          backgroundColor: colors.orangeTint,
+                                        }}
+                                      />
+                                    )}
+                                    {compactButton}
+                                    {contextUsage && contextUsage.size > 0 && params.id && (
+                                      <ContextRing
+                                        {...contextUsage}
+                                        canCompact={supportsCompact}
+                                        threshold={contextSettings.buttonThreshold}
+                                        showSize={showContextSize}
+                                        onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                                      />
+                                    )}
+                                  </View>
+                                )
                               )}
                               {run && !offline && !draft.trim() && !attachments.length && (
                                 <IconButton

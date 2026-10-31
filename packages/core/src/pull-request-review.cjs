@@ -2,6 +2,7 @@ const { execFile } = require("node:child_process");
 const { createGit } = require("./git/client.cjs");
 const { createGitDiff } = require("./git-diff.cjs");
 const { thisComputer } = require("@milagre/shared/host-computer");
+const { scheduled } = require("./process-lanes.cjs");
 
 // The PR a Chat's branch opened, read and reviewed through gh: one GraphQL query for everything the PR panel
 // shows, and GraphQL mutations (or `gh pr merge` / `gh pr ready`) for every write. Draft comments live in the
@@ -256,7 +257,7 @@ function range(base, head) {
  * promisified execFile does. Every method returns a result object and never throws.
  */
 function createPullRequestReview({
-  exec = defaultExec,
+  exec = scheduled(defaultExec),
   env = process.env,
   diff = createGitDiff({ env }),
   git = createGit({ env }),
@@ -506,4 +507,4 @@ function createPullRequestReview({
   };
 }
 
-module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, toDetail, GH_LOGIN, GH_MISSING };
+module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, GH_LOGIN, GH_MISSING };

@@ -82,6 +82,7 @@ export async function runChatAction({
   state,
   link,
   chatsHome,
+  hostId,
   refresh,
   expectActivity,
   notify,
@@ -96,6 +97,8 @@ export async function runChatAction({
   link?: OpenLink;
   /** The Chat has no Project. */
   chatsHome?: boolean;
+  /** The Computer the Chat is on, so its deletion hides and undoes only its own row. */
+  hostId?: string;
   onConfirm?: () => void;
   refresh: () => Promise<unknown>;
   expectActivity: () => void;
@@ -125,6 +128,7 @@ export async function runChatAction({
       chat,
       running,
       chatsHome,
+      hostId,
       onConfirm: () => {
         onConfirm?.();
         expectActivity();

@@ -42,7 +42,7 @@ test("Antigravity names a chat through its one-shot agent session", async () => 
       provider === "antigravity" ? { command: process.execPath, args: [fake], env: { ...process.env, FAKE_SCENARIO: "json" } } : { problem: "missing" },
     clientVersion: "1.0.0",
   });
-  assert.deepEqual(Object.keys(models).toSorted(), ["antigravity", "claude", "codex"]);
+  assert.deepEqual(Object.keys(models).toSorted(), ["antigravity", "claude", "codex", "kiro"]);
   assert.equal(
     await generateChatTitle({ prompt: "fix the login redirect bug on mobile", provider: "antigravity" }, { models, timeoutMs: 20_000 }),
     "Fix mobile login redirect",

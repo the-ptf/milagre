@@ -15,6 +15,7 @@ export function AgentControls({
   fastMode,
   ultracode,
   disabled,
+  compact = false,
   onToggle,
 }: {
   model: MobileModel;
@@ -23,6 +24,7 @@ export function AgentControls({
   fastMode?: boolean;
   ultracode?: boolean;
   disabled?: boolean;
+  compact?: boolean;
   onToggle: () => void;
 }) {
   const { colors } = useTheme();
@@ -55,14 +57,14 @@ export function AgentControls({
       <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13, fontWeight: "500", flexShrink: 1 }}>
         {model.name}
       </Text>
-      {!!label && (
+      {!!label && !compact && (
         <Text numberOfLines={1} style={{ color: orchestrating ? colors.purpleInk : colors.ink2, fontSize: 13, flexShrink: 2 }}>
           <Text style={{ color: colors.ink3 }}>· </Text>
           {label}
         </Text>
       )}
       {fast && <Icon icon={FlashIcon} tone="orange" size={13} />}
-      <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+      {!compact && <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />}
     </Pressable>
   );
 }

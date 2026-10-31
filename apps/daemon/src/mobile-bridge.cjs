@@ -16,8 +16,6 @@ const { pullRequestRefs } = require("@milagre/shared/chats");
 const { connect } = require("./client.cjs");
 const { createConfinement } = require("./confine.cjs");
 
-// Characters of a data URL the phone gets for a Project's icon (about 450 KB of image).
-const MAX_PROJECT_IMAGE = 600_000;
 const METHODS = new Set([
   "live-activity:state",
   "live-activity:open",
@@ -62,6 +60,8 @@ const METHODS = new Set([
   "keybindings:set-command",
   "keybindings:reset-command",
   "keybindings:reset",
+  "context:settings:read",
+  "context:settings:save",
   "babysit:settings:read",
   "babysit:settings:save",
   "done:settings:read",
@@ -98,6 +98,19 @@ const METHODS = new Set([
   "simulator:input",
   "simulator:repair",
   "simulator:close",
+  "computer-use:settings:read",
+  "computer-use:settings:save",
+  "device-notes:read",
+  "device-notes:save",
+  "computer-use:status",
+  "computer-use:guide",
+  "computer-use:frame",
+  "simlock:settings:read",
+  "simlock:settings:save",
+  "simlock:identity",
+  "simlock:models",
+  "simlock:lease",
+  "simlock:release",
   "browser:list",
   "browser:attach",
   "browser:open",
@@ -116,6 +129,7 @@ const METHODS = new Set([
   "terminal:resize",
   "terminal:close",
   "artifact:get",
+  "artifact:asset",
   "artifact:apply",
   "artifact:delete",
   "artifact:list",
@@ -176,6 +190,7 @@ const METHODS = new Set([
   "accounts:remove",
   "usage:read",
   "usage:cached",
+  "token-usage:read",
   "agent:answer-question",
   "agent:set-permission-mode",
   "agent:models",
@@ -672,11 +687,13 @@ async function startMobileBridge({
       const types = [];
       if (entry.kinds.has("accounts")) types.push("accounts");
       if (entry.kinds.has("usage")) types.push("usage");
+      if (entry.kinds.has("token-usage")) types.push("token-usage");
       if (entry.kinds.has("mcp")) types.push("mcp");
       if (entry.kinds.has("designs")) types.push("designs");
       if (entry.kinds.has("keybindings")) types.push("keybindings");
       if (entry.kinds.has("links")) types.push("links");
       if (entry.kinds.has("routines")) types.push("routines");
+      if (entry.kinds.has("pulls")) types.push("pulls");
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
       entry.kinds.clear();
@@ -725,6 +742,7 @@ async function startMobileBridge({
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
       if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
+      if (channel === "token-usage:changed" && !confine) signal(entry, "token-usage", 0);
       if ((channel === "mcp:changed" || channel === "local-mcp:changed") && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
       // A hand edit of keybindings.json or a change from Settings: the phone reads keybindings:read again.
@@ -732,6 +750,9 @@ async function startMobileBridge({
       // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a
       // Project-less socket is refused), so the phone's Routines screen reads on focus instead of on this signal.
       if (channel === "routines:changed") signal(entry, "routines", 0);
+      // A Project's PRs changed on the host's poll (pull-request-watch.cjs): the phone reads its PR rows again. Every
+      // socket is told, as the Chat list shows rows from several Projects; the signal carries no data.
+      if (channel === "pull-requests:changed") signal(entry, "pulls", LIVE_DELAY.project);
       // A Link made or removed anywhere (canvas, sidebar, another phone): the phone reads canvas:links again. A confined
       // phone is refused canvas:links, so it isn't told.
       if (channel === "canvas:links-changed" && !confine) signal(entry, "links", 0);
@@ -1008,13 +1029,8 @@ async function startMobileBridge({
             // The phone only looks up the new worktree's Chat; a large Project's whole state is tens of MB, past what a LAN socket buffers.
             if (request.method === "worktree:create" && result?.project?.state)
               result = { ...result, project: forNewWorktree(result.project, result.worktreeId) };
-            // A Project's icon can be a full-size app icon; past this size the phone keeps its folder glyph.
-            if (
-              (request.method === "project:image" || request.method === "project:set-icon") &&
-              typeof result === "string" &&
-              result.length > MAX_PROJECT_IMAGE
-            )
-              result = null;
+            // Project icons retain the desktop's result. Core bounds repository images to 5 MiB and chosen icons
+            // to 450 KB; a smaller transport-only limit silently replaces valid icons with folders on phones.
           }
         } else throw failure(404, "Unknown endpoint");
         reply(200, { result: result ?? null });

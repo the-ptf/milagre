@@ -1,25 +1,24 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { afterPaint } from "@milagre/shared/after-paint";
 import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { Easing, ReduceMotion, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import {
-  ArrowLeft01Icon,
-  BrowserIcon,
-  Cancel01Icon,
-  CircleDotIcon,
-  File01Icon,
-  FileDiffIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
-  PaintBoardIcon,
-  SmartphoneIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, File01Icon, FileDiffIcon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
+import { ClosesLeftContext, hideRevealed } from "./chat-swipe-row";
 import { ChangesView } from "./app/changes";
 import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
@@ -38,6 +37,7 @@ import { DesignsSheet } from "./designs-sheet";
 import { ArtifactSheet } from "./artifact";
 import { BrowserSheet } from "./browser";
 import type { BrowserTab, ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
+import { PR_ICONS } from "./pr-look";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
@@ -129,8 +129,9 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
   // While a Chat picked in the open navigation replaces the screen under it: the timer that slides the navigation away
-  // regardless, and the screen that took the panels, until its own transition ends.
+  // regardless, and the screen that took the panels, until it paints or its native transition ends.
   const handoff = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelArrival = useRef<(() => void) | null>(null);
   const arriving = useRef<object | null>(null);
   const reset = useCallback(() => {
     progress.set(0);
@@ -148,6 +149,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     [progress],
   );
   const endHandoff = useCallback(() => {
+    cancelArrival.current?.();
+    cancelArrival.current = null;
     if (handoff.current) clearTimeout(handoff.current);
     handoff.current = null;
     arriving.current = null;
@@ -176,13 +179,18 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
         current.current = next;
         setScreen(next);
         setMounted((previous) => (previous.right ? { ...previous, right: false } : previous));
+        // The replacement has animation: "none", so transitionEnd can be absent or arrive before its listener.
+        // Focus attaches after commit: let that screen paint, then reveal it without waiting for the 1 s watchdog.
+        cancelArrival.current = afterPaint(() => {
+          if (arriving.current === next.token) finishHandoff();
+        });
         return;
       }
       if (current.current?.token !== next.token) reset();
       current.current = next;
       setScreen(next);
     },
-    [reset],
+    [reset, finishHandoff],
   );
   const arrived = useCallback(
     (token: object) => {
@@ -605,6 +613,12 @@ export function SidePanelsHost() {
       if (now !== null && now !== before) scheduleOnRN(setLeftAwake, now);
     },
   );
+  // The navigation's rows swipe only once it is all the way open.
+  const leftOpen = useDerivedValue(() => progress.get() >= 0.99);
+  // Closed, the navigation forgets a row left showing Done.
+  useEffect(() => {
+    if (!leftAwake) hideRevealed();
+  }, [leftAwake]);
   // Made once per change of what it shows, so opening or closing the panel doesn't render the list again on the slide's
   // first frame.
   const activeChatId = screen?.chatId;
@@ -660,7 +674,9 @@ export function SidePanelsHost() {
           <SafeAreaInsetsContext.Provider value={card ? NO_INSETS : insets}>
             {mounted.left && (
               <Animated.View {...hidden("left")} style={[frame("left"), left]}>
-                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>{navigation}</SafeAreaInsetsContext.Provider>
+                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>
+                  <ClosesLeftContext.Provider value={leftOpen}>{navigation}</ClosesLeftContext.Provider>
+                </SafeAreaInsetsContext.Provider>
               </Animated.View>
             )}
             {/* Wide enough, the right panel docks beside the Chat instead (RightDock in split-layout.tsx). */}
@@ -735,8 +751,12 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               <PanelTab
                 key={prChoiceKey(choice)}
                 label={`#${choice.number}`}
-                icon={TAB_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : "open")]}
-                tone={choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED") ? "purpleInk" : (choice.look?.tone ?? "green")}
+                icon={PR_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : choice.state === "CLOSED" ? "closed" : "open")]}
+                tone={
+                  choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED")
+                    ? "purpleInk"
+                    : (choice.look?.tone ?? (choice.state === "CLOSED" ? "ink3" : "green"))
+                }
                 selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
                 onPress={() => {
                   onPick(prChoiceKey(choice));
@@ -839,6 +859,9 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               hostId={designs.hostId}
               chatId={designs.chatId}
               id={designs.id}
+              tab={designs.tab}
+              comment={designs.comment}
+              requestId={designs.requestId}
               onClose={() => closeTab("designs")}
             />
           ) : (
@@ -857,8 +880,6 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
     </View>
   );
 }
-
-const TAB_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
 
 /** A tab of the right panel: Changes, one of the Chat's PRs with its state's icon, or the Chat's simulators or designs. */
 function PanelTab({ label, icon, tone, selected, onPress }: { label: string; icon: IconData; tone: Tone; selected: boolean; onPress: () => void }) {

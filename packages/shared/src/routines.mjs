@@ -93,7 +93,11 @@ const isQuietRun = (message) => routineRunOf(message)?.quiet === true;
  * collapse into the last of them, which carries how many there were and its own context.
  */
 export function groupQuietRuns(messages) {
-  const entries = messages.map((message) => ({ message }));
+  // Silent compaction is absent from both the transcript and its navigation rail; failures remain visible.
+  const entries = messages.map((message) => ({
+    message,
+    ...(message.context?.kind === "compaction" && message.context.quiet && message.context.status !== "failed" ? { hidden: true } : {}),
+  }));
   let run = [];
   const close = () => {
     if (run.length > 1) {

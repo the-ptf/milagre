@@ -1244,6 +1244,39 @@ code.step-running.step-sweep {
   }
 }
 
+/* COMPONENT-SPECIFIC — DownloadRing: the arrow falls into the ring, rests and drops out below it, again and again, while a
+ * speech model downloads. The ring clips it, so it reads as one arrow going down and down. Reduced motion holds it still. */
+@keyframes download-drop {
+  0% {
+    transform: translateY(-115%);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+  35% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  62% {
+    transform: translateY(0);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
+  }
+  100% {
+    transform: translateY(115%);
+    opacity: 0;
+  }
+}
+
+.download-drop {
+  animation: download-drop 1.3s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .download-drop {
+    animation: none;
+  }
+}
+
 /* COMPONENT-SPECIFIC — ThinkingIndicator: the Milagre mark twinkling, lit like the old pixel loader. On a 2.4s cycle
  * the legs and the sparkle take turns: while the sparkle holds, the legs light up, left then right, from 15% ink; once
  * they are dim again the sparkle swells, turns and settles back (four-fold symmetry, so the quarter turn loops seamlessly).
@@ -1797,4 +1830,65 @@ code.step-running.step-sweep {
 /* The Terminal panel's surface shows through xterm: its stylesheet paints the viewport black whatever the theme says. */
 [data-terminal-body] .xterm .xterm-viewport {
   background-color: transparent;
+}
+
+/* ── welcome sky ──────────────────────────────────────── */
+/* A new Chat's backdrop: a faint wash of light from above and the logo's sparkle glinting on the page, one or two at a
+ * time. Neutral ink, no colour: it should be noticed on the second look, not the first. */
+.welcome-sky {
+  --sky-light: color-mix(in srgb, var(--accent) 11%, transparent);
+  --sky-sparkle: var(--ink-4);
+  animation: fade-in 1200ms ease-out both;
+}
+.dark .welcome-sky {
+  --sky-light: rgb(255 255 255 / 0.07);
+  --sky-sparkle: var(--ink-2);
+}
+.welcome-sky-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(70% 55% at 50% 0%, var(--sky-light), transparent);
+  animation: welcome-sky-wash 10s ease-in-out infinite alternate;
+}
+.welcome-sky-sparkle {
+  position: absolute;
+  fill: var(--sky-sparkle);
+  opacity: 0;
+  scale: 0;
+  animation-name: welcome-sky-glint;
+  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
+@keyframes welcome-sky-wash {
+  from {
+    opacity: 0.6;
+  }
+}
+/* Most of each cycle is dark; the glint drifts a few pixels down as it turns, like light settling. */
+@keyframes welcome-sky-glint {
+  0% {
+    opacity: 0;
+    scale: 0;
+    rotate: 0deg;
+    translate: 0 -4px;
+  }
+  7% {
+    opacity: 0.9;
+    scale: 1;
+  }
+  16%,
+  100% {
+    opacity: 0;
+    scale: 0;
+    rotate: 90deg;
+    translate: 0 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-sky,
+  .welcome-sky-wash,
+  .welcome-sky-sparkle {
+    animation: none;
+  }
 }

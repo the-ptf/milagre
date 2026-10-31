@@ -2,20 +2,22 @@ export type MorphRect = { x: number; y: number; width: number; height: number; r
 type Box = { x: number; y: number; width: number; height: number };
 
 /**
- * The Tasks panel's room: the Chat's own side padding, a gap under the header, at most this share of the window above
- * the keyboard, and its corner radius.
+ * The Tasks panel's room: the composer column's own side padding, a gap under the header, at most this share of the
+ * window above the keyboard, and its corner radius.
  */
 export const PLAN_PANEL = { edge: 12, top: 52, share: 0.7, radius: 20 } as const;
 
 /**
  * Where the Tasks pill's surface starts and ends, relative to the overlay it is drawn in. It grows from the pill to the
- * Chat's full width, keeping the pill's bottom edge, and is as tall as its content up to 70% of the window above the
- * keyboard and never above the header. Window coordinates in, overlay coordinates out.
+ * full width of the composer's column (`room`, the whole window when unmeasured), keeping the pill's bottom edge, and is
+ * as tall as its content up to 70% of the window above the keyboard and never above the header. Window coordinates in,
+ * overlay coordinates out.
  */
 export function planPanelFrame({
   window,
   insets,
   pill,
+  room = { x: 0, width: window.width },
   content,
   keyboard = 0,
   origin = { x: 0, y: 0 },
@@ -23,17 +25,21 @@ export function planPanelFrame({
   window: { width: number; height: number };
   insets: { top: number; left: number; right: number };
   pill: Box;
+  room?: { x: number; width: number };
   content: number;
   keyboard?: number;
   origin?: { x: number; y: number };
 }): { from: MorphRect; to: MorphRect } {
   const bottom = pill.y + pill.height;
-  const width = Math.max(pill.width, window.width - insets.left - insets.right - 2 * PLAN_PANEL.edge);
+  // An iPad's pinned sidebar or docked panel sits beside the column; the safe area still bounds a landscape phone's.
+  const left = Math.max(room.x, insets.left) + PLAN_PANEL.edge;
+  const right = Math.min(room.x + room.width, window.width - insets.right) - PLAN_PANEL.edge;
+  const width = Math.max(pill.width, right - left);
   const cap = Math.min(Math.round((window.height - keyboard) * PLAN_PANEL.share), bottom - insets.top - PLAN_PANEL.top);
   const height = Math.max(pill.height, Math.min(content, cap));
   return {
     from: { x: pill.x - origin.x, y: pill.y - origin.y, width: pill.width, height: pill.height, radius: pill.height / 2 },
-    to: { x: insets.left + PLAN_PANEL.edge - origin.x, y: bottom - height - origin.y, width, height, radius: PLAN_PANEL.radius },
+    to: { x: left - origin.x, y: bottom - height - origin.y, width, height, radius: PLAN_PANEL.radius },
   };
 }
 

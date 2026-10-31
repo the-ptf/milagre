@@ -166,7 +166,10 @@ export function UsageCard({
         <div className="flex flex-col gap-3 border-t border-line px-4 pb-4 pt-3">
           {usage.windows.map((item) => (
             <div key={item.id} className="flex flex-col gap-1.5">
-              <p className="text-[13px] font-medium">{item.label}</p>
+              <p className="flex items-baseline justify-between gap-2 text-[13px] font-medium">
+                {item.label}
+                {item.detail && <span className="text-12 font-normal tabular-nums text-ink-3">{item.detail}</span>}
+              </p>
               <UsageBar usedPercent={item.usedPercent} display={usageDisplay} className="h-1.5 w-full" />
               <div className="flex items-center justify-between text-[12px] tabular-nums text-ink-2">
                 <span>

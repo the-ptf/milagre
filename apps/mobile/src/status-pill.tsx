@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View, type ColorValue, type TextStyle } from "react-native";
+import { useEffect, useState, type ReactNode, type Ref } from "react";
+import { Pressable, StyleSheet, Text, View, type ColorValue, type LayoutChangeEvent, type TextStyle, type ViewInstance } from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -92,51 +92,75 @@ function kitFor(scale: number): PillKit {
 }
 const useKit = () => kitFor(useTheme().motionScale);
 
+/** A pill's frame and the gap between its icon and text, shared with the Tasks panel that grows out of one. */
+export const STATUS_PILL = { height: HEIGHT, paddingHorizontal: 8, gap: 6 } as const;
+
 /**
- * The status pills above the composer (Terminal, Ports, Simulators, Browser, Subagents, the PR action): one height,
- * a Liquid Glass body, counts that roll up or down when they change and labels whose letters fade in when they change.
+ * The status pills above the composer (Terminal, Ports, Tasks, Simulators, Browser, Subagents, the PR action): one
+ * height, a solid body, counts that roll up or down when they change and labels whose letters fade in when they change.
+ * `count` and `total` show as "count" or "count/total", after the label when there is one.
  */
 export function StatusPill({
   label,
   count,
+  total,
   icon,
   leading,
   tone = "ink2",
   tint,
   accessibilityLabel,
+  accessibilityHint,
+  expanded,
+  hidden = false,
+  chipRef,
+  onLayout,
   onPress,
   disabled = false,
 }: {
-  label: string;
+  label?: string;
   count?: number;
+  total?: number;
   icon?: IconData;
   leading?: ReactNode;
   tone?: Tone;
   tint?: ColorValue;
   accessibilityLabel?: string;
+  accessibilityHint?: string;
+  /** Set on a pill that opens a panel: whether it is open. */
+  expanded?: boolean;
+  /** Keeps the pill's place in the row while something drawn over it stands in for it. */
+  hidden?: boolean;
+  chipRef?: Ref<ViewInstance>;
+  onLayout?: (event: LayoutChangeEvent) => void;
   onPress: () => void;
   disabled?: boolean;
 }) {
   const { colors } = useTheme();
   const kit = useKit();
   const text: TextStyle = { color: colors[tone], fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, fontVariant: ["tabular-nums"] };
+  const spoken = [label, count === undefined ? undefined : total === undefined ? count : `${count}/${total}`].filter((part) => part !== undefined).join(" ");
   return (
-    <Animated.View entering={kit.pillIn} exiting={kit.pillOut} layout={kit.layout}>
+    <Animated.View entering={kit.pillIn} exiting={kit.pillOut} layout={kit.layout} onLayout={onLayout} style={hidden ? { opacity: 0 } : undefined}>
       <Pressable
+        ref={chipRef}
+        collapsable={false}
         accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel ?? (count === undefined ? label : `${label} ${count}`)}
-        accessibilityState={{ disabled }}
-        disabled={disabled}
+        accessibilityLabel={accessibilityLabel ?? spoken}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={{ disabled: disabled || hidden, ...(expanded === undefined ? {} : { expanded }) }}
+        accessibilityElementsHidden={hidden}
+        importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
+        disabled={disabled || hidden}
         onPress={onPress}
         hitSlop={8}
         style={({ pressed }) => ({
           height: HEIGHT,
-          paddingHorizontal: 8,
+          paddingHorizontal: STATUS_PILL.paddingHorizontal,
           borderRadius: HEIGHT / 2,
           borderCurve: "continuous",
           flexDirection: "row",
           alignItems: "center",
-          gap: 6,
+          gap: STATUS_PILL.gap,
           borderWidth: 1,
           borderColor: colors.line,
           overflow: "hidden",
@@ -154,10 +178,16 @@ export function StatusPill({
                 {leading}
                 {icon && <Icon icon={icon} tone={tone} size={ICON_SIZE} />}
                 <Animated.View layout={kit.layout} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Letters text={label} style={text} />
+                  {label !== undefined && <Letters text={label} style={text} />}
                   {count !== undefined && (
-                    <Animated.View entering={kit.countIn} exiting={kit.countOut}>
+                    <Animated.View entering={kit.countIn} exiting={kit.countOut} style={{ flexDirection: "row", alignItems: "center" }}>
                       <RollingNumber value={count} style={text} />
+                      {total !== undefined && (
+                        <>
+                          <Text style={text}>/</Text>
+                          <RollingNumber value={total} style={text} />
+                        </>
+                      )}
                     </Animated.View>
                   )}
                 </Animated.View>
@@ -167,6 +197,20 @@ export function StatusPill({
         )}
       </Pressable>
     </Animated.View>
+  );
+}
+
+/**
+ * A pill's contents without its body or motion, for a stand-in drawn where the pill is (the Tasks panel fades one out as
+ * it grows). Sized exactly like StatusPill's.
+ */
+export function StatusPillFace({ label, icon, tone = "ink2" }: { label: string; icon?: IconData; tone?: Tone }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ height: HEIGHT, paddingHorizontal: STATUS_PILL.paddingHorizontal + 1, flexDirection: "row", alignItems: "center", gap: STATUS_PILL.gap }}>
+      {icon && <Icon icon={icon} tone={tone} size={ICON_SIZE} />}
+      <Text style={{ color: colors[tone], fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, fontVariant: ["tabular-nums"] }}>{label}</Text>
+    </View>
   );
 }
 

@@ -20,7 +20,7 @@ function localPath(source, cwd) {
     return null;
   }
 }
-function imagePaths(message, cwd) {
+function imagePaths(message, cwd, { includeViewed = true } = {}) {
   const paths = new Set();
   const visit = (tokens) => {
     for (const token of tokens) {
@@ -33,7 +33,7 @@ function imagePaths(message, cwd) {
   };
   visit(markdown.parse(message.body || message.text || "", {}));
   for (const step of message.steps || [])
-    if (step.kind === "image" && step.file) {
+    if (step.kind === "image" && step.file && (includeViewed || step.imageOrigin !== "viewed")) {
       const file = localPath(step.file, cwd);
       if (file && mimeTypes[path.extname(file).toLowerCase()]) paths.add(file);
     }
@@ -89,7 +89,11 @@ class ChatImages {
   async capture(projectPath, state, message) {
     if (message.role !== "assistant") return message;
     const images = [...(message.images || [])];
-    for (const file of [...imagePaths(message, this.cwd(state, message, projectPath))].slice(0, 16)) {
+    const cwd = this.cwd(state, message, projectPath);
+    // Keep Markdown and generated images in their original slots; snapshots have their own allowance.
+    const legacy = [...imagePaths(message, cwd, { includeViewed: false })].slice(0, 16);
+    const viewed = [...imagePaths({ steps: message.steps?.filter((step) => step.imageOrigin === "viewed") }, cwd)].slice(0, 16);
+    for (const file of new Set([...legacy, ...viewed])) {
       if (images.some((image) => image.sourcePath === file || image.path === file)) continue;
       try {
         images.push(await this.copy(projectPath, file));

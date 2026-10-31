@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, AppState, Linking, Pressable, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, CommentAdd01Icon, Link01Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, CommentAdd01Icon, Link01Icon, LinkSquare02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
+import { openablePageUrl } from "@milagre/shared/loopback-url";
 import type { BrowserFrame, BrowserList, BrowserTarget } from "@milagre/shared/browser";
 import { createBrowserBridge, createBrowserReceiverHtml } from "@milagre/shared/browser-receiver";
 import type { Client } from "./client";
@@ -14,6 +15,7 @@ import { useTheme } from "./theme";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
 import { radius, type } from "./design-tokens";
 import type { ChatTab } from "./panel-tabs";
+import { useReachableHost } from "./routes-native";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
 function useBrowsers(client: Client | null, chatId: string | undefined, visible = true) {
@@ -188,6 +190,14 @@ export function BrowserSheet({
     }
   };
   const shown = opening || openError ? { title: "Browser", url: url ?? "" } : selected ? (page ?? { title: selected.title, url: selected.url }) : null;
+  // The page in the phone's browser: the computer's localhost is reached at its address on this network, as reply links are.
+  const reachableHost = useReachableHost(source?.url);
+  const openExternally = () => {
+    if (!shown) return;
+    const { href, reason } = openablePageUrl(shown.url, { remote: true, host: reachableHost });
+    if (href) void Linking.openURL(href).catch(() => Alert.alert("Could not open this page", `Visit ${href} in your browser.`));
+    else Alert.alert("This page can't open here", reason);
+  };
   return (
     <View style={{ flex: 1, backgroundColor: onClose === goBack ? colors.page : colors.surface, paddingBottom: insets.bottom }}>
       {/* Keep the header as one native view: form-sheet scroll sizing cannot account for a flattened header. */}
@@ -211,6 +221,8 @@ export function BrowserSheet({
         ) : (
           <View style={{ width: 40 }} />
         )}
+        {/* Balances the Open button beside Close, so the title stays centred. */}
+        {selected && <View style={{ width: 40 }} />}
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
             {shown?.title || "Browser"}
@@ -219,6 +231,7 @@ export function BrowserSheet({
             {shown?.url || "This Chat"}
           </Text>
         </View>
+        {selected && <CircleButton label="Open in your browser" icon={LinkSquare02Icon} onPress={openExternally} />}
         <CircleButton label="Close browser" icon={Cancel01Icon} onPress={onClose} />
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>

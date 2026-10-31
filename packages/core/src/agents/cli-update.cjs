@@ -192,6 +192,9 @@ async function upgradeRelease(name, deps) {
 
 async function runCliUpdate(name, deps = {}) {
   if (name === "antigravity") return updateAntigravity(deps);
+  // kiro-cli updates itself; Milagre doesn't install it (docs/adr/0007-kiro-over-acp.md).
+  if (name === "kiro")
+    return { ok: false, error: "Kiro CLI is installed and updated outside Milagre: `brew install --cask kiro-cli` installs it, `kiro-cli update` updates it." };
   if (deps.targetVersion) {
     if (!["claude", "codex"].includes(name) || !/^\d+\.\d+\.\d+$/.test(deps.targetVersion)) return { ok: false, error: "Invalid provider release." };
     return upgradeRelease(name, deps);

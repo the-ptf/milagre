@@ -35,6 +35,7 @@ import { useTheme } from "./theme";
 import { PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
 import { markDesignDeleted } from "./use-design-catalog";
 import { onShareAvailability } from "./share-availability";
+import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
 
 /** A comment waiting for Send, pinned where the user held the design. */
@@ -50,6 +51,7 @@ type CanvasCommand = Record<string, unknown> & { t: string };
  * deleted, as on desktop. In memory, for the app's life.
  */
 const unsent = new Map<string, { notes: Note[]; choice: ArtifactRef | null }>();
+const EMPTY_DESIGNS: Record<string, Artifact> = {};
 
 const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: design.version, title: design.title, format: design.format });
 
@@ -77,7 +79,7 @@ export function DesignsSheet({
 }) {
   const { colors, motionScale } = useTheme();
   const styles = useStyles();
-  const { client, designs: feature, snapshot } = useSession();
+  const { client, designs: feature, snapshot, reconnects } = useSession();
   const insets = useSafeAreaInsets();
   const close = useCallback(() => (onClose ? onClose() : router.back()), [onClose]);
   const matching = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
@@ -88,7 +90,12 @@ export function DesignsSheet({
   const [listError, setListError] = useState("");
   // The version shown of each design; null shows the newest.
   const [versions, setVersions] = useState<Record<string, number | null>>(() => (id ? { [id]: version ? Number(version) : null } : {}));
-  const [loaded, setLoaded] = useState<Record<string, Artifact>>({});
+  const [loadedState, setLoaded] = useState<{ source: typeof source; chatId: typeof chatId; designs: Record<string, Artifact> }>({
+    source,
+    chatId,
+    designs: {},
+  });
+  const loaded = loadedState.source === source && loadedState.chatId === chatId ? loadedState.designs : EMPTY_DESIGNS;
   const [view, setView] = useState<CanvasView>({ mode: "design", id: id ?? null });
   const [notes, setNotes] = useState<Note[]>(() => (chatKey && unsent.get(chatKey)?.notes) || []);
   const [choice, setChoice] = useState<ArtifactRef | null>(() => (chatKey && unsent.get(chatKey)?.choice) || null);
@@ -180,42 +187,64 @@ export function DesignsSheet({
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
   const ordered = useMemo(() => rows.flatMap((row) => row.designs), [rows]);
 
-  // Every design's shown version, the opened one first, a few at a time. A newest version reloads when the agent makes
+  // Every design's shown version, the opened one first. A newest version reloads when the agent makes
   // another; a chosen older one stays.
-  const fetching = useRef(new Set<string>());
+  const pendingLoads = useRef(new WeakMap<NonNullable<typeof source>, Map<string, Promise<Artifact>>>());
   useEffect(() => {
-    if (!source || !summaries) return;
+    if (!source || !summaries || !chatId) return;
     let live = true;
+    let pending = pendingLoads.current.get(source);
+    if (!pending) {
+      pending = new Map();
+      pendingLoads.current.set(source, pending);
+    }
+    const inFlight = pending;
     const wanted = ordered
       .map((design) => {
         const pinned = versions[design.id] ?? null;
         const have = loaded[design.id];
         const target = pinned ?? design.version;
-        return { design, pinned, stale: !have || have.version !== target };
+        return { design, target, stale: !have || have.version !== target };
       })
-      .filter((item) => item.stale && !fetching.current.has(item.design.id))
+      .filter((item) => item.stale)
       .sort((a, b) => Number(b.design.id === view.id) - Number(a.design.id === view.id));
     const load = async (queue: typeof wanted) => {
-      for (const { design, pinned } of queue) {
-        fetching.current.add(design.id);
+      for (const { design, target } of queue) {
+        if (!live) return;
+        const key = JSON.stringify([chatId, design.id, target]);
+        let promise = inFlight.get(key);
+        if (!promise) {
+          promise = loadCanvasDesign(source, { chatId, id: design.id, version: target }, reconnects);
+          inFlight.set(key, promise);
+        }
         try {
-          const artifact = await source.call<Artifact>("artifact:get", [{ chatId, id: design.id, ...(pinned === null ? {} : { version: pinned }) }]);
-          if (live && artifact.format === "design" && artifact.document) setLoaded((current) => ({ ...current, [design.id]: artifact }));
+          const artifact = await promise;
+          if (live && artifact.format === "design" && artifact.document)
+            setLoaded((current) => ({
+              source,
+              chatId,
+              designs: { ...(current.source === source && current.chatId === chatId ? current.designs : {}), [design.id]: artifact },
+            }));
         } catch {
           /* A deleted or unreadable design stays blank on the board. */
         } finally {
-          fetching.current.delete(design.id);
+          if (inFlight.get(key) === promise) inFlight.delete(key);
         }
       }
     };
-    // Three at a time keeps the opened design first without one slow read holding the rest.
-    for (let lane = 0; lane < 3; lane++) void load(wanted.filter((_, index) => index % 3 === lane));
+    // Warm the cache with the opened design, then keep relay round trips in parallel.
+    // Superseding effects reuse matching in-flight reads, and obsolete queues stop before starting another.
+    void load(wanted.slice(0, 1)).then(() => {
+      if (!live) return;
+      const rest = wanted.slice(1);
+      for (let lane = 0; lane < 3; lane++) void load(rest.filter((_, index) => index % 3 === lane));
+    });
     return () => {
       live = false;
     };
     // `loaded` is read to skip designs already there; the loads themselves update it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, chatId, summaries, ordered, versions]);
+  }, [source, chatId, summaries, ordered, versions, reconnects]);
 
   // The canvas page: commands wait for it to say it is ready.
   // The canvas page: until it says it is ready, commands are dropped, and each time it does (a fresh page after the
@@ -245,12 +274,25 @@ export function DesignsSheet({
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
 
   const sentDocs = useRef(new Map<string, string>());
+  const sentFonts = useRef(new Set<string>());
   useEffect(() => {
+    sentDocs.current.clear();
+    sentFonts.current.clear();
+  }, [source, chatId]);
+  useEffect(() => {
+    if (!ready.current) return;
+    const sendFont = (key: string, css: string) => {
+      if (sentFonts.current.has(key)) return;
+      command({ t: "fonts", key, css });
+      sentFonts.current.add(key);
+    };
     for (const artifact of Object.values(loaded)) {
-      const key = `${artifact.version}:${artifact.html.length}`;
+      if (artifact.format === "design" && artifact.fontKey && artifact.fontCss) sendFont(artifact.fontKey, artifact.fontCss);
+      const font = artifact.format === "design" ? artifact.fontKey : undefined;
+      const key = `${artifact.version}:${artifact.html.length}:${font ?? ""}`;
       if (sentDocs.current.get(artifact.id) === key) continue;
       sentDocs.current.set(artifact.id, key);
-      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html) });
+      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html), ...(font ? { font } : {}) });
     }
     // The layout first: the page makes a design's frame when it lays the design out.
   }, [loaded, command, epoch, layoutKey]);
@@ -301,6 +343,7 @@ export function DesignsSheet({
         case "ready":
           ready.current = true;
           sentDocs.current.clear();
+          sentFonts.current.clear();
           setEpoch((value) => value + 1);
           return;
         case "painted":
@@ -366,12 +409,23 @@ export function DesignsSheet({
       kind: "designs",
       text: designFeedbackMessage({ choice, comments }),
       onSent: () => {
-        if (comments.length) source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
+        if (!comments.length) return;
+        source
+          .call("artifact:add-comments", [{ chatId, comments }])
+          .then(() => source.call<ArtifactComment[]>("artifact:comments", [{ chatId }]))
+          .then((all) => Array.isArray(all) && setSent(all))
+          .catch(() => {});
       },
     });
-    // Docked beside the Chat, the Chat is on screen already and sends it now.
-    if (onClose) sendDesignMessageNow(`${hostId}|${chatId}`);
-    close();
+    if (!onClose) {
+      close();
+      return;
+    }
+    // Docked beside the Chat, the Chat is on screen already and sends it now; the canvas stays open, its pins turn sent.
+    sendDesignMessageNow(`${hostId}|${chatId}`);
+    setComposer(null);
+    setNotes([]);
+    setChoice(null);
   };
   const remove = (design: Artifact) =>
     Alert.alert(`Delete ${design.title}?`, "Every version of this design and the comments on it are deleted.", [

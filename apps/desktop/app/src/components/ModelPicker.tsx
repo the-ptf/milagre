@@ -2,6 +2,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { FlashIcon, Search01Icon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { providerName } from "@milagre/shared/providers";
+import { formatCredits } from "@milagre/shared/kiro-models";
 import type { AgentCliStatus, EffortLevel, ModelCapability, ModelOption, ModelProvider } from "../model";
 import { effortCopy } from "../model";
 import { cliMessage, cliTabLabel } from "../lib/cli-status";
@@ -15,6 +16,11 @@ import { RangeSlider } from "./primitives/RangeSlider";
 function contextLabel(model: ModelOption) {
   const size = contextWindowFor(model);
   return size ? formatTokens(size) : undefined;
+}
+
+/** A Kiro model's credit multiplier ("2×"), else its context window. */
+function metaLabel(model: ModelOption) {
+  return model.credits ? formatCredits(model.credits) : contextLabel(model);
 }
 
 /** Model, thinking effort, fast mode and Ultracode in one popover: a provider rail that scrolls as providers grow,
@@ -139,7 +145,7 @@ export function ModelPicker({
         <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2">
           {models.map((model) => {
             const selected = model.id === selectedModel.id && model.provider === selectedModel.provider;
-            const meta = contextLabel(model);
+            const meta = metaLabel(model);
             return (
               <button
                 key={model.id}
@@ -155,6 +161,7 @@ export function ModelPicker({
                 {meta && (
                   <span
                     data-picker-meta
+                    title={model.credits ? `Uses ${formatCredits(model.credits)} the credits Auto would` : undefined}
                     className="shrink-0 rounded-chip border border-line px-1 text-[10px] leading-[14px] font-medium tabular-nums text-ink-3"
                   >
                     {meta}
