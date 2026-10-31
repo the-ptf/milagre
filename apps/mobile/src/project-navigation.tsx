@@ -11,7 +11,6 @@ import {
   Add01Icon,
   ArrowDown01Icon,
   CheckmarkCircle02Icon,
-  Delete02Icon,
   HourglassIcon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
@@ -38,7 +37,6 @@ import type { LinearIssue } from "@milagre/shared/linear";
 import type { ChatSearchMatch, Client, RecentProject, RegisteredProject, Snapshot } from "./client";
 import { ALL_CHATS_LABEL, CHATS_GROUP_LABEL, NO_PROJECT_LABEL } from "@milagre/shared/chats-home";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { undoDelete } from "@milagre/shared/archive";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
@@ -69,6 +67,8 @@ import { showChoiceSheet } from "./choice-store";
 import { ArchivingOverlay, useArchiveActivity } from "./archive-progress";
 import { clearArchiveNotice, deletionKey, showArchiveNotice } from "./archive";
 import { ToastPill } from "./primitives/toast";
+import { undoHistory, useHistoryToast } from "./undo-history";
+import type { UndoAction } from "@milagre/shared/undo-history";
 import { AttentionDot, useAttention } from "./attention";
 import { lastUserModel, projectOfKey } from "@milagre/shared/agent-runs";
 import { useComputerChatPullRequests, type ComputerPullRequestTargets } from "./use-chat-pull-requests";
@@ -425,12 +425,11 @@ const NavigationBody = memo(function NavigationBody({
   const [subchatFolds, setSubchatFolds] = useState<ReadonlySet<string>>(() => new Set());
   // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
   const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
-  // The last Chat marked Done from this list, for the toast's Undo.
-  const [doneToast, setDoneToast] = useState<{ row: { hostId: string; path: string; chat: AgentSession }; at: number } | null>(null);
   const [page, setPage] = useState<"add" | null>(null);
   const [addHostId, setAddHostId] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const archives = useArchiveActivity();
+  const historyToast = useHistoryToast("list");
   // The Chats this sidebar is archiving, by computer: another computer's Chat with the same path and id is not archiving.
   const [archiveRequests] = useState(() => new Set<string>());
   const [error, setError] = useState("");
@@ -965,10 +964,37 @@ const NavigationBody = memo(function NavigationBody({
       if (alive.current) setBusy(false);
     }
   }
+  /** Done, Reopen, Pin and Unpin as steps in the undo history; undefined for the actions it doesn't take back. */
+  function undoStep(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string): UndoAction | undefined {
+    const run = (next: string) => () => void act(row, next, false);
+    if (action === "done")
+      return {
+        text: "Moved to Done",
+        kind: "done",
+        undoneText: "Back in Chats",
+        place: "list",
+        // Done also marked it read; Undo puts back the unread it had.
+        undo: () => void act(row, "reopen", false).then(() => (row.chat.unread ? act(row, "unread", false) : undefined)),
+        redo: run("done"),
+      };
+    if (action === "reopen")
+      return { text: "Back in Chats", kind: "undone", undoneText: "Moved to Done", undoneKind: "done", place: "list", undo: run("done"), redo: run("reopen") };
+    if (action === "pin" || action === "unpin") {
+      const other = action === "pin" ? "unpin" : "pin";
+      return {
+        text: action === "pin" ? "Pinned" : "Unpinned",
+        undoneText: other === "pin" ? "Pinned" : "Unpinned",
+        place: "list",
+        undo: run(other),
+        redo: run(action),
+      };
+    }
+    return undefined;
+  }
   // A Chat's ⋯ choice runs against its own computer's client and its own Project's copy, which is reread afterwards.
   // Archive stays in this sidebar, including when its Chat is open behind it, so the row's progress and the list's
   // scroll position stay in place.
-  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string) {
+  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string, record = true) {
     const { hostId, path: projectPath, chat } = row;
     if (action === "open-beside") {
       openBeside({ hostId, projectPath, chatId: chat.id });
@@ -995,11 +1021,11 @@ const NavigationBody = memo(function NavigationBody({
         next.delete(archiveKey);
         return next;
       });
-    if (doneMark) {
-      setDoneMarks((marks) => new Map(marks).set(archiveKey, doneMark));
-      if (action === "done") setDoneToast({ row, at: Date.now() });
-      else setDoneToast((toast) => (toast?.row.chat.id === chat.id && toast.row.path === projectPath ? null : toast));
-    }
+    if (doneMark) setDoneMarks((marks) => new Map(marks).set(archiveKey, doneMark));
+    // Done, Reopen and pins join the undo history: the toast's Undo and Redo (and an iPad's ⌘Z / ⇧⌘Z) run their opposite
+    // through here again, unrecorded.
+    const step = record ? undoStep(row, action) : undefined;
+    if (step) undoHistory.record(step);
     if (action === "archive") archiveRequests.add(archiveKey);
     let confirmed = false;
     setError("");
@@ -1031,7 +1057,7 @@ const NavigationBody = memo(function NavigationBody({
       if (action === "done" && docked && isCurrent && projectPath === currentPath && chat.id === activeChatId && alive.current)
         onNavigate({ pathname: "/chat", params: { projectPath, hostId } });
     } catch (e) {
-      if (action === "done" && alive.current) setDoneToast((toast) => (toast?.row.chat.id === chat.id && toast.row.path === projectPath ? null : toast));
+      if (step) undoHistory.drop(step);
       if (confirmed) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else if (alive.current) setError((e as Error).message);
     } finally {
@@ -1298,12 +1324,6 @@ const NavigationBody = memo(function NavigationBody({
       load,
     };
   });
-  useEffect(() => {
-    if (!doneToast) return;
-    // Long enough to read it and reach Undo with a thumb.
-    const timer = setTimeout(() => setDoneToast((toast) => (toast?.at === doneToast.at ? null : toast)), 10000);
-    return () => clearTimeout(timer);
-  }, [doneToast]);
   const doneHours = useDoneRetention(
     views.map((view) => view.hostId),
     clientOf,
@@ -1496,25 +1516,10 @@ const NavigationBody = memo(function NavigationBody({
         onNewChat={() => startNewChat()}
         visible={visible}
       />
-      {/* "Chat deleted" (its Undo calls the deletion off) or "Moved to Done" (its Undo reopens the Chat), floating over the
-          list without moving it. A deletion started on the Chat screen shows here, since that screen has gone. */}
-      {archives.deleted || doneToast ? (
+      {/* The undo history's toast for this list (Done, Reopen, pins, a deletion), floating over it without moving it. */}
+      {historyToast ? (
         <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: bottomInset + 8, alignItems: "center" }}>
-          <ToastPill
-            text={archives.deleted ? "Chat deleted" : "Moved to Done"}
-            icon={archives.deleted ? Delete02Icon : CheckmarkCircle02Icon}
-            onUndo={() => {
-              if (archives.deleted) {
-                undoDelete(archives.deleted);
-                return;
-              }
-              if (!doneToast) return;
-              const { row } = doneToast;
-              setDoneToast(null);
-              // Done also marked it read; Undo puts back the unread it had.
-              void act(row, "reopen").then(() => (row.chat.unread ? act(row, "unread") : undefined));
-            }}
-          />
+          <ToastPill key={historyToast.id} {...historyToast} />
         </View>
       ) : null}
       {busy && (

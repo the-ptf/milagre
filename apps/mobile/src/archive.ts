@@ -1,9 +1,11 @@
 import { readWithTimeout } from "@milagre/shared/read-timeout";
 import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
 import type { TerminalList } from "@milagre/shared/terminal";
+import { undoHistory, type UndoAction } from "@milagre/shared/undo-history";
 import {
   archiveChat,
   archiveChoices,
+  DELETE_UNDO_MS,
   deleteUndoWindow,
   isMilagreWorktree,
   undoDelete,
@@ -135,11 +137,26 @@ export function clearArchiveNotice() {
  */
 function openUndo(owner: string, ms?: number) {
   setActivity({ hidden: new Set(activity.hidden).add(owner), deleted: owner });
-  const window = deleteUndoWindow(owner, ms).finally(() => {
+  // The list's toast offers the Undo through the undo history, wherever the deletion started (one from the Chat screen
+  // shows on the list, since that screen has gone). No redo: Redo never deletes a Worktree.
+  const step: UndoAction = {
+    text: "Chat deleted",
+    kind: "deleted",
+    undoneText: "Chat restored",
+    place: "list",
+    undo: () => undoDelete(owner),
+    undoWindowMs: ms ?? DELETE_UNDO_MS,
+  };
+  undoHistory.record(step);
+  const window = deleteUndoWindow(owner, ms);
+  // Once the time is up there is nothing left to undo, and the toast goes; an Undo keeps its "Chat restored".
+  void window.then((undone) => undone || undoHistory.drop(step));
+  void window.finally(() => {
     if (activity.deleted === owner) setActivity({ deleted: "" });
   });
   const show = () => {
     // A deletion that failed before its time was up has nothing left to undo: its toast goes too.
+    undoHistory.drop(step);
     undoDelete(owner);
     const hidden = new Set(activity.hidden);
     hidden.delete(owner);

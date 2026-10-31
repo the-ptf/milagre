@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CheckmarkCircle02Icon, Delete02Icon, Link04Icon, Tick02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
+import { Link04Icon, Tick02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
 import {
   canLinkProjects,
   findLink,
@@ -17,7 +17,7 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import type { ProjectLink } from "@/electron";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
-import { TOAST_CLASS } from "../../lib/toast";
+import { undoHistory, type UndoAction } from "../../lib/undo-history";
 import type { SidebarRecent } from "./ChatRow";
 
 /* ─────────────────────────────────────────────────────────
@@ -26,12 +26,12 @@ import type { SidebarRecent } from "./ChatRow";
  * them: the Link icon and hover-card lines on linked rows, the
  * popover a drop or "Link with…" opens (scope, Always allow,
  * Link and ask), the chat list behind "Link with…", the list
- * behind "Remove Link with…", and the toast that undoes them.
+ * behind "Remove Link with…", and the undo history (the sidebar's
+ * toast) that takes them back.
  * One provider serves every Project's chat list, so a chat
  * dropped on another Project's chat links the two.
  * ───────────────────────────────────────────────────────── */
 
-const TOAST_MS = 6000;
 const POPOVER_WIDTH = 320;
 const PICKER_WIDTH = 300;
 
@@ -60,9 +60,8 @@ type SidebarLinksValue = {
 };
 
 const NO_ENDS: LinkedEnd[] = [];
-/** `kind` leads the toast with its icon: a deletion's trash or Done's check. */
-type ToastOptions = { undo?: () => void; left?: number; kind?: "deleted" | "done" };
-const TOAST_ICONS = { deleted: Delete02Icon, done: CheckmarkCircle02Icon };
+/** With an `undo`, the toast's step joins the undo history, so ⌘Z takes it back too; without one it is a plain notice. */
+type ToastOptions = Partial<Omit<UndoAction, "text">>;
 
 const SidebarLinksContext = createContext<SidebarLinksValue>({
   links: [],
@@ -101,7 +100,6 @@ export function SidebarLinksProvider({
   const [links, setLinks] = useState<ProjectLink[]>([]);
   const [asking, setAsking] = useState<{ source: LinkChat; target: LinkChat; anchor: Anchor } | null>(null);
   const [picking, setPicking] = useState<{ source: LinkChat; anchor: Anchor; mode: "link" | "remove" } | null>(null);
-  const [toast, setToast] = useState<{ text: string; left: number; undo?: () => void; kind?: ToastOptions["kind"] } | null>(null);
   const handles = useRef(new Set<LinkListHandle>());
   const latest = useRef({ scopes, projects, onAskChat });
   latest.current = { scopes, projects, onAskChat };
@@ -129,15 +127,9 @@ export function SidebarLinksProvider({
     return window.milagre?.onLinksChanged?.((next) => Array.isArray(next) && setLinks(next));
   }, [read]);
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), TOAST_MS);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  const showToast = useCallback((text: string, options: ToastOptions = {}) => {
-    const left = options.left ?? (document.querySelector("aside")?.getBoundingClientRect().right ?? 0) + 12;
-    setToast({ text, undo: options.undo, left, kind: options.kind });
+  const showToast = useCallback((text: string, { undo, ...options }: ToastOptions = {}) => {
+    if (undo) undoHistory.record({ ...options, text, undo });
+    else undoHistory.notify(text);
   }, []);
 
   const scopeOf = useCallback((key: string) => scopes.find((scope) => scope.scopeKey === key), [scopes]);
@@ -201,16 +193,17 @@ export function SidebarLinksProvider({
     }
     // A step after the Link that fails leaves the Link in place and says what didn't happen, in the phone's words.
     const undo = created && (() => void remove(created!, false));
+    const undone = { undoneText: "Link removed" };
     if (choice.allow && created) {
       try {
         await bridge.grantDelegations?.(`${ask.source.scopeKey}#${ask.source.item.id}`, created.id);
       } catch (error) {
-        showToast(`Link created. Could not always allow Delegations: ${ipcErrorMessage(error)}`, { undo });
+        showToast(`Link created. Could not always allow Delegations: ${ipcErrorMessage(error)}`, { undo, ...undone });
         return;
       }
     }
     const text = choice.text.trim();
-    if (!text || !latest.current.onAskChat || !ask.target.item.details?.path) return showToast("Link created", { undo });
+    if (!text || !latest.current.onAskChat || !ask.target.item.details?.path) return showToast("Link created", { undo, ...undone });
     const current = latest.current;
     const targetName = targetProject
       ? (current.scopes.find((scope) => scope.projectId === targetProject)?.projectName ??
@@ -226,10 +219,10 @@ export function SidebarLinksProvider({
     try {
       await latest.current.onAskChat(ask.source.scopeKey, ask.source.item.id, message);
     } catch (error) {
-      showToast(`Link created. Could not ask “${ask.source.item.label}”: ${ipcErrorMessage(error)}`, { undo });
+      showToast(`Link created. Could not ask “${ask.source.item.label}”: ${ipcErrorMessage(error)}`, { undo, ...undone });
       return;
     }
-    showToast(`Link created. Asked “${ask.source.item.label}”.`, { undo });
+    showToast(`Link created. Asked “${ask.source.item.label}”.`, { undo, ...undone });
   }
 
   async function remove(link: ProjectLink, offerUndo = true) {
@@ -239,6 +232,7 @@ export function SidebarLinksProvider({
       setLinks(await bridge.removeLink(link.id));
       if (offerUndo)
         showToast("Link removed", {
+          undoneText: "Linked again",
           // The same Link comes back, id and all, so an Always allow grant on it holds again. A Mac before restore makes a new one.
           undo: () =>
             void (bridge.restoreLink ? bridge.restoreLink(link) : bridge.addLink(link.a, link.b)).then(setLinks, (error) =>
@@ -333,32 +327,6 @@ export function SidebarLinksProvider({
           }}
         />
       )}
-      {toast &&
-        createPortal(
-          <div
-            role="status"
-            data-chat-toast
-            className={`${TOAST_CLASS} bottom-4 flex items-center gap-3`}
-            style={{ left: toast.left, animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
-          >
-            {toast.kind && <HugeIcon icon={TOAST_ICONS[toast.kind]} size={16} />}
-            <span>{toast.text}</span>
-            {toast.undo && (
-              <button
-                type="button"
-                data-chat-toast-undo
-                onClick={() => {
-                  setToast(null);
-                  toast.undo?.();
-                }}
-                className="relative shrink-0 font-semibold underline-offset-2 before:absolute before:-inset-2 hover:underline"
-              >
-                Undo
-              </button>
-            )}
-          </div>,
-          document.body,
-        )}
     </SidebarLinksContext.Provider>
   );
 }

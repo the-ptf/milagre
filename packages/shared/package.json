@@ -72,6 +72,7 @@
       "default": "./src/html-render.mjs"
     },
     "./after-paint": "./src/after-paint.ts",
+    "./undo-history": "./src/undo-history.ts",
     "./computer-use": "./src/computer-use.ts",
     "./tool-activity": {
       "types": "./src/tool-activity.d.mts",

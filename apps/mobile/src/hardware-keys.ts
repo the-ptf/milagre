@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, type RefObject } from "react";
-import { Platform, findNodeHandle, type TextInputInstance } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type RefObject } from "react";
+import { Platform, TextInput, findNodeHandle, type TextInputInstance } from "react-native";
 import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
 import {
   evaluateWhen,
@@ -10,6 +10,7 @@ import {
   type KeybindingRule,
   type WhenContext,
 } from "@milagre/shared/keybindings";
+import { undoHistory } from "./undo-history";
 
 // UIKeyCommand's inputs for the keys that aren't a character.
 const INPUTS: Record<string, string> = {
@@ -80,13 +81,16 @@ export function chatShortcutIndex(command: KeybindingCommandId) {
  */
 export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcut: (command: KeybindingCommandId) => void) {
   const latest = useRef(onShortcut);
+  const history = useUndoShortcuts();
   useEffect(() => {
     latest.current = onShortcut;
   }, [onShortcut]);
   useEffect(() => {
     if (!native) return;
     const subscription = native.addListener("shortcut", ({ id }) => {
-      if (keybindingCommand(commandOf(id))?.mobile) latest.current(commandOf(id));
+      if (id === UNDO.id) undoHistory.undo();
+      else if (id === REDO.id) undoHistory.redo();
+      else if (keybindingCommand(commandOf(id))?.mobile) latest.current(commandOf(id));
     });
     return () => {
       subscription.remove();
@@ -94,8 +98,24 @@ export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcu
     };
   }, []);
   useEffect(() => {
-    if (native) void native.setShortcutsAsync(hardwareShortcuts(rules)).catch(() => {});
-  }, [rules]);
+    if (native) void native.setShortcutsAsync([...hardwareShortcuts(rules), ...history]).catch(() => {});
+  }, [rules, history]);
+}
+
+const UNDO: Shortcut = { id: "history.undo", input: "z", modifiers: ["command"], title: "Undo" };
+const REDO: Shortcut = { id: "history.redo", input: "z", modifiers: ["command", "shift"], title: "Redo" };
+const NO_SHORTCUTS: Shortcut[] = [];
+
+/**
+ * ⌘Z / ⇧⌘Z for the undo history, offered only while its toast shows Undo or Redo and no text field has the keyboard: a
+ * hardware shortcut wins over the focused field's own key, so offering it for longer would take ⌘Z from the composer.
+ */
+function useUndoShortcuts(): Shortcut[] {
+  const toast = useSyncExternalStore(undoHistory.subscribe, undoHistory.toast);
+  const open = !!toast?.button && !TextInput.State.currentlyFocusedInput();
+  const undo = open && undoHistory.canUndo();
+  const redo = open && undoHistory.canRedo();
+  return useMemo(() => (undo || redo ? [...(undo ? [UNDO] : []), ...(redo ? [REDO] : [])] : NO_SHORTCUTS), [undo, redo]);
 }
 
 /**
