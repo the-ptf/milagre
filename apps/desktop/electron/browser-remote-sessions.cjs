@@ -68,4 +68,4 @@ function createRemoteBrowserSessions({ fromPartition, proxyPort, harden }) {
   };
 }
 
-module.exports = { createRemoteBrowserSessions, chatPartition, CHAT_PARTITION };
+module.exports = { createRemoteBrowserSessions, chatPartition };
