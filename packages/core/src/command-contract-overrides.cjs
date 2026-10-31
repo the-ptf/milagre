@@ -75,6 +75,8 @@ module.exports = {
   ]),
   "live-activity:forget": request({ deviceId: s }),
   "computers:vault-status": [],
+  // The loopback SOCKS5 port a remote Chat's Browser pages reach the web through (browser-proxy.cjs).
+  "computers:browser-proxy": [p("computerId")],
   "computers:unlock": request({ key: s }),
   "computers:setup-key": request({ file: s }),
   "computers:import-keys": request({

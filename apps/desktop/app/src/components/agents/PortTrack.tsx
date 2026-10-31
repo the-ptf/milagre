@@ -90,9 +90,13 @@ export function PortTrack({
                 {(() => {
                   const computer = portComputer(port);
                   const url = portUrl(port);
+                  // In the Browser panel another computer's port opens at its own localhost: the Chat's pages reach the
+                  // web from that computer (#832), so a server on its loopback alone opens too.
+                  const panelUrl = computer ? `http://localhost:${port.port}` : url;
                   const rowClass = "flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-[13px] text-ink no-underline focus-visible:outline-2";
-                  // Another computer's port opens at its LAN or tailnet IP; one this Mac can't reach is shown, not linked.
-                  if (computer && !url)
+                  // Outside the panel another computer's port opens at its LAN or tailnet IP; one this Mac can't reach
+                  // that way is shown, not linked, unless the panel can open it.
+                  if (computer && !url && !onOpen)
                     return (
                       <span data-port-remote title={unreachablePortReason(port, computer)} className={rowClass}>
                         <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
@@ -107,12 +111,13 @@ export function PortTrack({
                       href={url ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      title={`Open ${url}`}
+                      title={url ? `Open ${url}` : `Open in the Browser panel, through ${computer}. ${unreachablePortReason(port, computer ?? "")}`}
                       onClick={(event) => {
-                        if (!onOpen || computer || !url || !opensInPanel(event)) return;
+                        // With no address this Mac reaches, the row opens only in the panel.
+                        if (!onOpen || !panelUrl || (url && !opensInPanel(event))) return;
                         event.preventDefault();
                         setOpened(false);
-                        onOpen(url);
+                        onOpen(panelUrl);
                       }}
                       {...(computer ? { "data-port-remote": true } : {})}
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-[13px] text-ink no-underline focus-visible:outline-2"

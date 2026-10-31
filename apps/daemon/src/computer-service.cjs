@@ -1,6 +1,7 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { createComputers } = require("./computers.cjs");
+const { createBrowserProxies } = require("./browser-proxy.cjs");
 const { createComputerVault } = require("./computer-vault.cjs");
 const { createComputerCaches } = require("./computer-cache.cjs");
 const { registerComputers } = require("./computers-ipc.cjs");
@@ -77,6 +78,13 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
   })();
   // Startup failures remain observable through calls; they never become unhandled rejections.
   void ready.catch(() => {});
+  // A remote Chat's Browser pages reach the web from its computer through this proxy (browser-proxy.cjs, #832). Desktop
+  // main points the page's session at it. computers:* is this Mac's own: a paired desktop is never let in (peer-policy).
+  const proxies = createBrowserProxies({ openStream: (id, target, port) => computers.openStream(id, target, port), log: (line) => console.log(line) });
+  handlers.set("computers:browser-proxy", async (_context, computerId) => {
+    if (typeof computerId !== "string" || !computers.list().some((computer) => computer.id === computerId)) throw new Error("Unknown computer.");
+    return { port: await proxies.port(computerId) };
+  });
   handlers.set("computers:vault-status", () => vault.status());
   handlers.set("computers:unlock", (_context, { key } = {}) => vault.unlock(key));
   handlers.set("computers:setup-key", (_context, { file } = {}) =>
@@ -92,6 +100,7 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
   handlers.set("computers:import-keys", (_context, value) => vault.importLegacy(value));
   const remove = handlers.get("computers:remove");
   handlers.set("computers:remove", async (context, id) => {
+    void proxies.drop(id);
     const result = await remove(context, id);
     states.delete(String(id));
     hear(() => onRemoved(String(id)));
@@ -126,6 +135,7 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
     async close() {
       await ready.catch(() => {});
       await controls;
+      await proxies.close();
       await computers.close();
       cache.close();
     },

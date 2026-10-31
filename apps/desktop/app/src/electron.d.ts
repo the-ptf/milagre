@@ -840,6 +840,11 @@ declare global {
       setPages: (pages: { contentsId: number; chatKey: string }[]) => Promise<void>;
       /** A PNG data URL of part of the page with webContents id `contentsId`, in its CSS pixels; null if it is gone. */
       capture: (contentsId: number, rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>;
+      /**
+       * The session a Chat on another computer opens its pages in, with that computer as its proxy: the page draws here
+       * and reaches localhost and the web from there. Rejects while the computer can't be reached.
+       */
+      remotePartition?: (chatKey: string) => Promise<string>;
     };
     milagre: MilagreBridge & {
       /** The same calls on a paired computer, carried there by main; this Mac's own actions refuse with "Not available on a remote computer". */
