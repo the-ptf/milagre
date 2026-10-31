@@ -45,6 +45,16 @@ async function browserChecks() {
       if (!guest) await delay(100);
     }
     assert.ok(guest, "the page renders inside the transcript");
+    const waitForGuest = async (source) => {
+      for (let i = 0; i < 100; i++) {
+        if (await guest.executeJavaScript(source)) return;
+        await delay(50);
+      }
+      const state = await guest.executeJavaScript(
+        'JSON.stringify({width:innerWidth,client:document.documentElement.clientWidth,table:document.querySelector("table")?.getBoundingClientRect().toJSON()})',
+      );
+      throw Error("Timed out: " + source + " " + state);
+    };
     assert.equal(await guest.executeJavaScript("window.checked"), true);
     const shot = async (name) => {
       await delay(250);
@@ -132,7 +142,8 @@ async function browserChecks() {
     );
     assert.equal(await guest.executeJavaScript("document.body.scrollWidth<=innerWidth"), true, "table scrolling stays inside the reply");
     window.setContentSize(1000, 1000);
-    await delay(250);
+    await waitFor("innerWidth===1000");
+    await waitForGuest('innerWidth>500 && getComputedStyle(document.querySelector("table")).display==="table"');
     assert.equal(
       await guest.executeJavaScript('getComputedStyle(document.querySelector("table")).display'),
       "table",
@@ -144,7 +155,8 @@ async function browserChecks() {
       "100% tables retain the full wide layout",
     );
     window.setContentSize(390, 844);
-    await delay(250);
+    await waitFor("innerWidth===390");
+    await waitForGuest('innerWidth<500 && getComputedStyle(document.querySelector("table")).overflowX==="auto"');
     assert.equal(await guest.executeJavaScript('getComputedStyle(document.querySelector("table")).overflowX'), "auto", "containment reapplies after narrowing");
     await window.reload();
     await waitFor('document.querySelector("[data-slot=html-reply]")?.textContent.includes("Could not load")');

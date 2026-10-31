@@ -144,7 +144,14 @@ async function previewHtml({ html, width = 720, appearance = "light" }) {
     while (!height) {
       const { result } = await session.send("Runtime.evaluate", { expression: "window.htmlRenderContentHeight", returnByValue: true });
       height = result?.value;
-      if (Date.now() > deadline) throw Error("The HTML page did not finish rendering. Check its scripts.");
+      if (Date.now() > deadline) {
+        const state = await session.send("Runtime.evaluate", {
+          expression:
+            "JSON.stringify({ready:document.readyState,visibility:document.visibilityState,protocol:location.protocol,frames:window.frames.length,height:window.htmlRenderContentHeight})",
+          returnByValue: true,
+        });
+        throw Error(`The HTML page did not finish rendering. Check its scripts. Browser state: ${state.result?.value}`);
+      }
       if (!height) await delay(100);
     }
     // Allow image/font layout and scheduled interaction setup to settle, then measure again.

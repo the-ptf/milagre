@@ -115,7 +115,8 @@ const bootstrap = (theme) => `(()=>{
   for(const table of document.querySelectorAll('table')){
    const left=table.scrollLeft;
    table.removeAttribute('data-milagre-overflow-table');
-   if(table.getBoundingClientRect().right>width+.5||table.scrollWidth>width){
+   // Collapsed borders can round scrollWidth up by one CSS pixel without clipping content.
+   if(table.getBoundingClientRect().right>width+1||table.scrollWidth>width+1){
     let contained=false;
     for(let p=table.parentElement;p&&p!==document.body;p=p.parentElement){if(/auto|scroll/.test(getComputedStyle(p).overflowX)&&p.getBoundingClientRect().right<=width+.5){contained=true;break}}
     if(!contained){table.setAttribute('data-milagre-overflow-table','');table.scrollLeft=left}
@@ -123,6 +124,7 @@ const bootstrap = (theme) => `(()=>{
   }
  };
  const measure=()=>{
+  if(!document.documentElement||!document.body)return;
   containTables();
   const width=document.documentElement.clientWidth;
   const overflowX=Math.max(0,document.documentElement.scrollWidth-width,(document.body?.scrollWidth||0)-width);
@@ -135,6 +137,7 @@ const bootstrap = (theme) => `(()=>{
  const schedule=()=>{if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;measure()})}};
  addEventListener('DOMContentLoaded',()=>{new ResizeObserver(schedule).observe(document.documentElement);new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true,characterData:true});measure()});
  addEventListener('resize',schedule);
+ addEventListener('themechange',schedule);
  addEventListener('load',measure);
  document.fonts?.ready.then(measure);
 })();`;
