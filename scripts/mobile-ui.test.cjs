@@ -3955,6 +3955,34 @@ function navigationHost(
   };
 }
 
+test("the Project icon count folds a family without opening its Chat in grouped and One list layouts", () => {
+  for (const chatList of ["grouped", "list"]) {
+    const nav = navigationHost(Promise.resolve(), { chatList });
+    nav.state.project.state.sessions[4] = { id: 4, worktree_id: 1, title: "Parent" };
+    nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, title: "Child", parent: 4 };
+    const family = () => {
+      const list = nav.rows();
+      const parent = list.props.data.find((item) => item.kind === "chat" && item.chat.id === 4);
+      assert.ok(parent, `${chatList} lists the parent`);
+      return list.props.renderItem({ item: parent });
+    };
+    const badge = (label) => find(family(), (node) => node.type === "Pressable" && node.props.accessibilityLabel === label);
+    const count = badge("Show 1 subchat");
+    assert.ok(count, `${chatList} has an independent count button`);
+    assert.equal(textOf(count), "1");
+    assert.equal(count.props.hitSlop, 12);
+    assert.ok(find(family(), (node) => node.type === "ProjectIcon"));
+    count.props.onPress();
+    assert.ok(nav.rows().props.data.some((item) => item.kind === "chat" && item.chat.id === 5));
+    assert.equal(badge("Hide 1 subchat").props.accessibilityState.expanded, true);
+    assert.equal(nav.opened.length, 0, "tapping the count does not open the parent");
+    assert.equal(nav.routes.length, 0);
+    badge("Hide 1 subchat").props.onPress();
+    assert.ok(!nav.rows().props.data.some((item) => item.kind === "chat" && item.chat.id === 5));
+    nav.unmount();
+  }
+});
+
 test("the sidebar reads its computers only while shown, all Projects in One list and the unfolded ones when grouped", () => {
   const list = navigationHost(Promise.resolve(), { chatList: "list" });
   list.render();

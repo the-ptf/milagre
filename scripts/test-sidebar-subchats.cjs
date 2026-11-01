@@ -82,7 +82,8 @@ async function browserChecks() {
       await evaluate(`window.setMode(${JSON.stringify(mode)})`);
       await delay(150);
       await check(["4", "1", "3"]);
-      await evaluate(`document.querySelector('button[aria-label="Show 1 subchat of Parent"]').click()`);
+      assert.equal(await evaluate(`document.querySelector('[data-subchat-badge]').textContent.trim()`), "1", `${mode} folds from the icon's count`);
+      await evaluate(`document.querySelector('[data-subchat-badge]').click()`);
       await delay(150);
       await check(["4", "1", "2", "3"]);
       await evaluate(`document.querySelector('button[aria-label="Hide 1 subchat of Parent"]').click()`);

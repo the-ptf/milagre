@@ -2238,7 +2238,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               family={family}
               project={inbox ? scope.name : undefined}
               dragging={dragging === key}
-              {...(inbox ? scope.badge : {})}
+              {...scope.badge}
             />
           </div>
         );

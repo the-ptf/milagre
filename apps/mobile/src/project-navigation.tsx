@@ -1902,22 +1902,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     tap();
     foldSubchats(item.key);
   };
-  const familyToggle = family ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={familyLabel}
-      accessibilityState={{ expanded: !family.folded }}
-      hitSlop={8}
-      onPress={foldFamily}
-      style={s.subchatToggle}
-    >
-      <View style={family.folded ? { transform: [{ rotate: "-90deg" }] } : undefined}>
-        <Icon icon={ArrowDown01Icon} tone={family.asking ? "orangeInk" : "ink3"} size={13} />
-      </View>
-      <Text style={[s.detail, family.asking && { color: colors.orangeInk }]}>{`${family.count} subchat${family.count === 1 ? "" : "s"}`}</Text>
-    </Pressable>
-  ) : null;
-  // The list's rows carry the count on the Project icon's corner instead: it folds the family, orange while one asks.
+  // Every layout uses the same count on the Project icon to fold its family.
   const familyBadge = family ? (
     <Pressable
       accessibilityRole="button"
@@ -1959,6 +1944,14 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   const archiving =
     archivingChats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&
     (item.hostId === currentHostId || archiveRequests.has(`${item.hostId}|${item.path}#${item.chat.id}`));
+  const rowProjectIcon = (
+    <View pointerEvents="box-none">
+      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <ProjectIcon client={clientOf(item.hostId)} path={item.members?.[0]?.path ?? item.path} size={32} />
+      </View>
+      {!archiving && familyBadge}
+    </View>
+  );
   // A Chat without a Project, in the Chats group or a search: its title, then its computer and age, never a branch or PR.
   if (item.home) {
     const detail = chatsRowDetail(item.hostName + (offline ? ", offline" : ""), item.chat.summary?.lastAt, now);
@@ -2138,16 +2131,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               accessibilityElementsHidden={archiving}
               importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
             >
-              <View pointerEvents="box-none">
-                <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                  {item.members?.[0] ? (
-                    <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
-                  ) : (
-                    <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
-                  )}
-                </View>
-                {!archiving && familyBadge}
-              </View>
+              {rowProjectIcon}
               <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
                 <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
                   {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={13} />}
@@ -2203,6 +2187,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
           hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
         >
+          {family && <View style={{ marginLeft: 12, opacity: archiving ? 0.3 : 1 }}>{rowProjectIcon}</View>}
           <View
             style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
             accessibilityElementsHidden={archiving}
@@ -2263,7 +2248,6 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               </View>
             )}
           </View>
-          {!archiving && familyToggle}
           {!item.pending && !archiving && (
             <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
               <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -2388,7 +2372,6 @@ const makeS = (colors: Palette) =>
     chat: { flexDirection: "row", alignItems: "center" },
     subchat: { paddingLeft: 16 },
     subchatGuide: { position: "absolute", left: 24, top: 0, bottom: 0, width: StyleSheet.hairlineWidth },
-    subchatToggle: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 22 },
     subchatBadge: {
       position: "absolute",
       right: -6,

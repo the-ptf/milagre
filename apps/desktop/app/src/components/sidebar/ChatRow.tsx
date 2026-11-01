@@ -21,7 +21,6 @@ import {
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowDown01Icon,
   Delete02Icon,
   BubbleChatIcon,
   EthernetPortIcon,
@@ -679,30 +678,6 @@ export const ChatRow = memo(function ChatRow({
   const inbox = projectName !== undefined;
   const shownFamily = collapsed ? undefined : family;
   const familyBadgeFill = shownFamily?.asking ? "var(--orange)" : shownFamily?.folded ? "var(--line-strong)" : "var(--accent-tint)";
-  const familyToggle = shownFamily && (
-    <button
-      key="subchats"
-      type="button"
-      data-subchat-toggle
-      aria-expanded={!shownFamily.folded}
-      aria-label={`${shownFamily.folded ? "Show" : "Hide"} ${shownFamily.count} subchat${shownFamily.count === 1 ? "" : "s"} of ${item.label}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        shownFamily.onToggle();
-      }}
-      className={`pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-inline hover:text-ink focus-visible:text-ink ${shownFamily.asking ? "text-orange-ink" : ""}`}
-    >
-      <HugeiconsIcon
-        icon={ArrowDown01Icon}
-        size={12}
-        strokeWidth={2}
-        color="currentColor"
-        className={`shrink-0 transition-transform duration-150 ${shownFamily.folded ? "-rotate-90" : ""}`}
-      />
-      {shownFamily.count} subchat{shownFamily.count === 1 ? "" : "s"}
-    </button>
-  );
-  if (familyToggle && !inbox) facts.unshift(familyToggle);
   const factLine = Boolean(projectName) || facts.length > 0 || Boolean(branch || diff || lastAt !== undefined) || hasChips;
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
@@ -736,7 +711,7 @@ export const ChatRow = memo(function ChatRow({
         <span className="truncate">{projectName}</span>
       </span>,
     );
-  const twoLines = factLine || item.worktreeCount !== undefined;
+  const twoLines = factLine || item.worktreeCount !== undefined || Boolean(shownFamily);
   // A Link chat alone keeps its Worktrees under the title; any second-line fact moves it there.
   const prLines = factLine;
   const rowRef = useRef<HTMLDivElement>(null);
@@ -924,6 +899,11 @@ export const ChatRow = memo(function ChatRow({
                 )
               )}
             </span>
+            {shownFamily && (
+              <span className="mr-2">
+                <RowProjectIcon image={projectImage} initial={projectInitial} />
+              </span>
+            )}
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />
             <span
               className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : doneable ? "group-hover/row:pr-[76px]" : "group-hover/row:pr-6"} ${menu ? (doneable ? "pr-[76px]" : "pr-6") : ""} ${
@@ -963,8 +943,8 @@ export const ChatRow = memo(function ChatRow({
           </button>
         )}
 
-        {/* The One list's family count sits on the Project icon's corner, and folds or unfolds the family. */}
-        {inbox && shownFamily && !renaming && (
+        {/* Every expanded sidebar layout folds a family from the count on its Project icon. */}
+        {shownFamily && !renaming && (
           <button
             type="button"
             data-subchat-toggle
