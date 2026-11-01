@@ -585,6 +585,8 @@ export function chatBranchLabel(session, worktreeName) {
   return former ? `${former.branch ?? former.name} · removed` : worktreeName;
 }
 
+export const RUN_WORKTREE_REMOVED_NOTE = "This Run's Worktree was removed because the Run left nothing in it. Start a new Chat to continue.";
+
 /** Whether a Run's row can open its saved Chat, including after its Worktree was removed. */
 export function canOpenRunChat(states, chatKey) {
   return !states[projectOfKey(chatKey)] || chatLeft(states, chatKey);

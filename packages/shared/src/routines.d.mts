@@ -108,6 +108,7 @@ export function fallbackText(routine: Pick<Routine, "fallback">, nameOf?: (provi
 export function retryNote(run: RoutineRun): string;
 /** The branch a Chat's header names: its Worktree's, or "<branch> · removed" for a Run's Chat whose Worktree went. */
 export function chatBranchLabel(session: Pick<AgentSession, "formerWorktree"> | null | undefined, worktreeName: string | undefined): string | undefined;
+export const RUN_WORKTREE_REMOVED_NOTE: string;
 /** The not archived Chats whose `routine.hidden` is set, across Projects. `chatKey` is "<path>#<id>". */
 export function hiddenRunChats(
   scopes: ReadonlyArray<{ path: string; state: { sessions: Record<string, AgentSession> } }>,

@@ -102,6 +102,7 @@ import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
 import {
   chatBranchLabel,
+  RUN_WORKTREE_REMOVED_NOTE,
   chatRoutine,
   clock,
   groupQuietRuns,
@@ -2075,7 +2076,14 @@ function ChatPane({
       onActivity={openActivity}
     />
   ) : null;
-  const sendDisabled = busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!chat?.archived || (!offline && unavailable);
+  const sendDisabled =
+    busy ||
+    picking ||
+    (newWorktree && !base) ||
+    (!draft.trim() && !attachments.length) ||
+    !!chat?.archived ||
+    !!chat?.formerWorktree ||
+    (!offline && unavailable);
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
@@ -2163,16 +2171,22 @@ function ChatPane({
                     <Text style={styles.caption}>Demo agent. Send tools, approval, question, or slow to try the controls.</Text>
                   )}
                   {session.providerError ? <Text style={styles.caption}>{session.providerError}</Text> : null}
-                  {chat?.archived && (
+                  {chat?.formerWorktree ? (
                     <View style={styles.card}>
-                      <Text style={styles.muted}>This Chat is archived. Restore it to send a message.</Text>
-                      <PillButton
-                        title="Restore Chat"
-                        disabled={busy}
-                        onPress={() => void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]))}
-                        style={{ alignSelf: "flex-start" }}
-                      />
+                      <Text style={styles.muted}>{RUN_WORKTREE_REMOVED_NOTE}</Text>
                     </View>
+                  ) : (
+                    chat?.archived && (
+                      <View style={styles.card}>
+                        <Text style={styles.muted}>This Chat is archived. Restore it to send a message.</Text>
+                        <PillButton
+                          title="Restore Chat"
+                          disabled={busy}
+                          onPress={() => void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]))}
+                          style={{ alignSelf: "flex-start" }}
+                        />
+                      </View>
+                    )
                   )}
                   {/* A new Chat's empty state is the centred "Start building in" line instead. */}
                   {!messages.length && !run && !pageLoading && !historyPage.error && !startingChat && (

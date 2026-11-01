@@ -673,6 +673,8 @@ function createRoutineScheduler({
       if (retries(entry, error, event)) {
         event.quiet = true;
         startRetry(chatId, entry, error);
+        onChange();
+        return;
       } else if (failedAgain(finish(run, chatId, { status: "failed", error }))) {
         event.quiet = true;
       }
