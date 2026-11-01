@@ -55,8 +55,15 @@ export interface SubchatState {
 }
 
 /** The last line the agent wrote, for a live row: one line, cut at the front when long. */
+// Markdown read as plain text for a one-line detail: no code ticks, emphasis marks or link targets.
+const plain = (text: string) =>
+  text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(`+|\*{1,3})([^`*]+)\1/g, "$2")
+    .replace(/`/g, "");
+
 export function latestLine(text: string | undefined, max = 120): string {
-  const lines = (text ?? "")
+  const lines = plain(text ?? "")
     .split("\n")
     .map((line) => line.replace(/^[#>*\-\s]+/, "").trim())
     .filter(Boolean);
@@ -106,7 +113,7 @@ export function subchatState(input: SubchatInput, now: number): SubchatState {
   const ended = latestLine(input.report);
   if (outcome === "failed") return make("failed", ended || "Its last turn failed");
   if (outcome === "cancelled") return make("stopped", ended || "Stopped");
-  return make("done", input.report?.trim() || "Finished");
+  return make("done", plain(input.report ?? "").trim() || "Finished");
 }
 
 export interface SubchatSummary {

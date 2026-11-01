@@ -72,3 +72,12 @@ test("direct Subchats are the listed Chats that keep this one as parent", () => 
   assert.deepEqual(directSubchats(sessions, "/p#1"), ["/p#2", "/p#4"]);
   assert.equal(latestLine("# Plan\n\n- step one\n  last line  \n"), "last line");
 });
+
+test("details read markdown as plain text", () => {
+  assert.equal(latestLine("Wrote `A` to **note.txt**, see [the PR](https://x/1)"), "Wrote A to note.txt, see the PR");
+  assert.equal(subchatState(base({ report: "Wrote `hello` to `a.txt`." }), now).detail, "Wrote hello to a.txt.");
+});
+
+test("plain details keep underscores in names", () => {
+  assert.equal(latestLine("Renamed `close_cash_session` in pos_v2"), "Renamed close_cash_session in pos_v2");
+});
