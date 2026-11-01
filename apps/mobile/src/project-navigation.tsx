@@ -421,8 +421,10 @@ const NavigationBody = memo(function NavigationBody({
   const now = useActivityClock(rowShow.lastActivity || doneOpen || views.some((view) => view.home?.exists));
   // The Chats group folds for as long as the app runs; it isn't one computer's, so the per-computer folds don't hold it.
   const [chatsFolded, setChatsFolded] = useState(false);
-  // Folded subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts).
-  const [subchatFolds, setSubchatFolds] = useState<ReadonlySet<string>>(() => new Set());
+  // Opened subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts): a family starts
+  // folded, its parent alone, until its count is tapped.
+  const [subchatOpen, setSubchatOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const subchatFolds = useMemo(() => ({ has: (key: string) => !subchatOpen.has(key) }), [subchatOpen]);
   // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
   const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
@@ -1315,8 +1317,8 @@ const NavigationBody = memo(function NavigationBody({
       foldChats: () => setChatsFolded((folded) => !folded),
       foldDone: () => setDoneOpen((open) => !open),
       foldSubchats: (key) =>
-        setSubchatFolds((folded) => {
-          const next = new Set(folded);
+        setSubchatOpen((open) => {
+          const next = new Set(open);
           if (!next.delete(key)) next.add(key);
           return next;
         }),
@@ -1893,23 +1895,37 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     else void enter(item.hostId, item.path, item.chat.id, item.pending);
   };
   const family = item.family;
-  const familyLabel = family ? `${family.folded ? "Show" : "Hide"} ${family.count} subchat${family.count === 1 ? "" : "s"}` : "";
-  const familyToggle = family ? (
+  const familyLabel = family
+    ? `${family.folded ? "Show" : "Hide"} ${family.count} subchat${family.count === 1 ? "" : "s"}${family.asking ? ", one needs you" : ""}`
+    : "";
+  const foldFamily = () => {
+    tap();
+    foldSubchats(item.key);
+  };
+  // Every layout uses the same count on the Project icon to fold its family.
+  const familyBadge = family ? (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={familyLabel}
       accessibilityState={{ expanded: !family.folded }}
-      hitSlop={8}
-      onPress={() => {
-        tap();
-        foldSubchats(item.key);
-      }}
-      style={s.subchatToggle}
+      hitSlop={12}
+      onPress={foldFamily}
+      style={[
+        s.subchatBadge,
+        {
+          borderColor: selected ? selectedFill : colors.panel,
+          backgroundColor: colors.panel,
+        },
+      ]}
     >
-      <View style={family.folded ? { transform: [{ rotate: "-90deg" }] } : undefined}>
-        <Icon icon={ArrowDown01Icon} tone="ink3" size={13} />
-      </View>
-      <Text style={s.detail}>{`${family.count} subchat${family.count === 1 ? "" : "s"}`}</Text>
+      <View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          { borderRadius: 10, backgroundColor: family.asking ? colors.orange : family.folded ? colors.lineStrong : colors.accentTint },
+        ]}
+      />
+      <Text style={[s.subchatBadgeText, { color: family.asking ? "#1a1206" : family.folded ? colors.ink : colors.accentInk }]}>{family.count}</Text>
     </Pressable>
   ) : null;
   // A subchat sits indented under its parent, with a line down to it.
@@ -1928,6 +1944,14 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   const archiving =
     archivingChats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&
     (item.hostId === currentHostId || archiveRequests.has(`${item.hostId}|${item.path}#${item.chat.id}`));
+  const rowProjectIcon = (
+    <View pointerEvents="box-none">
+      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <ProjectIcon client={clientOf(item.hostId)} path={item.members?.[0]?.path ?? item.path} size={32} />
+      </View>
+      {!archiving && familyBadge}
+    </View>
+  );
   // A Chat without a Project, in the Chats group or a search: its title, then its computer and age, never a branch or PR.
   if (item.home) {
     const detail = chatsRowDetail(item.hostName + (offline ? ", offline" : ""), item.chat.summary?.lastAt, now);
@@ -2074,7 +2098,6 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         : []),
       ...(otherComputer ? [{ key: "computer", node: <ComputerTag name={item.hostName} offline={offline} large /> }] : []),
     ];
-    if (familyToggle) parts.splice(1, 0, { key: "subchats", links: true, node: familyToggle });
     return (
       <ChatSwipeRow
         unread={!!item.chat.unread}
@@ -2108,13 +2131,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               accessibilityElementsHidden={archiving}
               importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
             >
-              <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                {item.members?.[0] ? (
-                  <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
-                ) : (
-                  <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
-                )}
-              </View>
+              {rowProjectIcon}
               <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
                 <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
                   {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={13} />}
@@ -2170,6 +2187,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
           hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
         >
+          {family && <View style={{ marginLeft: 12, opacity: archiving ? 0.3 : 1 }}>{rowProjectIcon}</View>}
           <View
             style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
             accessibilityElementsHidden={archiving}
@@ -2230,7 +2248,6 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               </View>
             )}
           </View>
-          {!archiving && familyToggle}
           {!item.pending && !archiving && (
             <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
               <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -2355,7 +2372,19 @@ const makeS = (colors: Palette) =>
     chat: { flexDirection: "row", alignItems: "center" },
     subchat: { paddingLeft: 16 },
     subchatGuide: { position: "absolute", left: 24, top: 0, bottom: 0, width: StyleSheet.hairlineWidth },
-    subchatToggle: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 22 },
+    subchatBadge: {
+      position: "absolute",
+      right: -6,
+      bottom: -6,
+      minWidth: 20,
+      height: 20,
+      paddingHorizontal: 4,
+      borderRadius: 10,
+      borderWidth: 2,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    subchatBadgeText: { fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
     grouped: { marginVertical: 2, marginHorizontal: 8, borderRadius: 8, borderCurve: "continuous" },
     chatBody: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 56, paddingLeft: 12, paddingVertical: 8 },
     line: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 },

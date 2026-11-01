@@ -25,7 +25,7 @@ const recents = [
 window.setMode = (chatList) => updateSettings({ chatList });
 window.setMode("list");
 createRoot(document.getElementById("root")).render(
- <SidebarNav fill workspaceName="P" projectPath="/p" recents={recents} activeId="1"
+ <SidebarNav fill workspaceName="P" workspaceImage="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" projectPath="/p" recents={recents} activeId="1"
    onJumpChatsChange={(ids) => { window.jumpIds = ids; }} />
 );
 `;
@@ -76,9 +76,15 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelector('[data-chat-id="1"]')`);
-    await check(["4", "1", "2", "3"]);
+    // A family starts folded: its parent alone.
+    await check(["4", "1", "3"]);
     for (const mode of ["grouped", "list"]) {
       await evaluate(`window.setMode(${JSON.stringify(mode)})`);
+      await delay(150);
+      await check(["4", "1", "3"]);
+      assert.equal(await evaluate(`document.querySelector('[data-subchat-badge]').textContent.trim()`), "1", `${mode} folds from the icon's count`);
+      assert.ok(await evaluate(`document.querySelector('[data-chat-id="1"] [data-chat-project-icon] img')`), `${mode} keeps the Project image under the count`);
+      await evaluate(`document.querySelector('[data-subchat-badge]').click()`);
       await delay(150);
       await check(["4", "1", "2", "3"]);
       await evaluate(`document.querySelector('button[aria-label="Hide 1 subchat of Parent"]').click()`);
@@ -90,11 +96,9 @@ async function browserChecks() {
       await evaluate(`document.querySelector('button[aria-label="Expand sidebar"]').click()`);
       await delay(150);
       await check(["4", "1", "3"]);
-      await evaluate(`document.querySelector('button[aria-label="Show 1 subchat of Parent"]').click()`);
-      await delay(150);
     }
     assert.deepEqual(errors, []);
-    console.log("PASS: grouped, One list and rail hints match keyboard targets with nested, folded, pinned and Done Chats");
+    console.log("PASS: grouped, One list and rail hints match keyboard targets with nested (folded at first), pinned and Done Chats");
     app.exit(0);
   } catch (error) {
     console.error(error);

@@ -33,18 +33,30 @@ function lastReply(state, sessionId) {
   )?.body;
 }
 
-/** What a Chat's agent replied after a Delegation's message (Milagre's own notes left out), or undefined. */
+// The text a reply ends with: what follows its last tool step, or the last stretch of text between steps when it ended on
+// one. A saved reply holds the whole turn (its narration between tool calls too); step offsets index its body.
+function replyEnd(message) {
+  const body = message.body ?? "";
+  const cuts = [...new Set([0, ...(message.steps ?? []).filter((step) => step.kind !== "thinking").map((step) => step.offset ?? 0)])]
+    .filter((cut) => cut >= 0 && cut <= body.length)
+    .sort((a, b) => a - b);
+  for (let index = cuts.length - 1; index >= 0; index--) {
+    const text = body.slice(cuts[index], cuts[index + 1] ?? body.length).trim();
+    if (text) return text;
+  }
+  return body.trim();
+}
+
+/**
+ * What a Chat's agent ended its reply to a Delegation with (Milagre's own notes left out), or undefined: the text after
+ * the last tool step of its last reply, so the narration of the work stays in that Chat and the report is its answer.
+ */
 function delegationReply(state, sessionId, delegationId) {
   const messages = (state.messages ?? state).filter((message) => message.session_id === sessionId);
   const start = messages.findIndex((message) => message.context?.kind === "delegation" && message.context.delegationId === delegationId);
   if (start === -1) return undefined;
-  return (
-    messages
-      .slice(start + 1)
-      .filter((message) => message.role === "assistant" && message.context === null && message.body?.trim())
-      .map((message) => message.body.trim())
-      .join("\n\n") || undefined
-  );
+  const last = messages.slice(start + 1).findLast((message) => message.role === "assistant" && message.context === null && message.body?.trim());
+  return last ? replyEnd(last) || undefined : undefined;
 }
 
 /** "Project / branch / Chat title", how one Chat names another across a Link. */

@@ -2,6 +2,8 @@ import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
+import { SubchatTrack } from "./agents/SubchatTrack";
+import { DelegationReportLine } from "./DelegationReportLine";
 import { UpdatePillSlot } from "./UpdateNotice";
 import { BrowserPanel } from "./agents/BrowserPanel";
 import { isPageCommentImage, PageCommentsCard } from "./agents/BrowserComments";
@@ -21,7 +23,9 @@ import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
 import { chatHistory } from "@milagre/shared/chat-history";
-import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../model";
+import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, PermissionDecision, QuestionAnswers, Subagent } from "../model";
+import type { SubchatSource } from "../lib/subchat-track";
+import { latestReports, reportMarker } from "@milagre/shared/subchat-states";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -121,6 +125,7 @@ import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
+import { linkedHeading } from "@milagre/shared/linked-message";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
 import { isWorktreeLinked } from "@milagre/shared/worktree-link";
@@ -308,6 +313,8 @@ function ReplyContent({
  */
 export const MessageCardContext = createContext<((message: AppChatMessage) => ReactNode) | null>(null);
 
+const NO_REPORTS: ReadonlyMap<string, string> = new Map();
+
 const MessageSection = memo(function MessageSection({
   message,
   isUser,
@@ -396,6 +403,14 @@ const MessageSection = memo(function MessageSection({
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   const linked = linkedContext(message);
+  // A Subchat's finished report is one line, its text opening on a tap.
+  const marker = linked ? reportMarker(linked) : null;
+  if (marker && linked)
+    return (
+      <article id={`message-${message.id}`} data-slot="message" data-linked={linked.kind} className="flex min-w-0 w-full flex-col">
+        <DelegationReportLine marker={marker} body={message.body} chat={linkedHeading(linked).chat} onOpenChat={onOpenChat} />
+      </article>
+    );
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.
   const prAction = isUser && isPullRequestAction(message.context) ? message.context : null;
@@ -913,6 +928,10 @@ interface ChatComposerProps {
   onArchiveSubagent?: (id: string, archived: boolean) => void;
   onStopAdvisor?: (id: string) => void;
   onRetryAdvisor?: (id: string) => void;
+  /** The Chat's Subchats, for the pill beside the composer's PR pills; absent when it has none. Opening one uses onOpenLinkedChat. */
+  subchats?: SubchatSource;
+  onAnswerSubchat?: (chatKey: string, requestId: string, answers: QuestionAnswers) => void;
+  onRespondSubchat?: (chatKey: string, requestId: string, decision: PermissionDecision) => void;
   waitingForSubagents?: boolean;
   /** The Chat's activity (chat-activity.mjs): a background one shows how many background agents still work. */
   activity?: ChatActivity;
@@ -1315,6 +1334,9 @@ export function ChatComposer({
   onArchiveSubagent,
   onStopAdvisor,
   onRetryAdvisor,
+  subchats,
+  onAnswerSubchat,
+  onRespondSubchat,
   waitingForSubagents = false,
   activity,
   plan,
@@ -1384,6 +1406,7 @@ export function ChatComposer({
   onOpenPullRequestLink,
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
+  const subchatReports = useMemo(() => (subchats ? latestReports(messages) : NO_REPORTS), [subchats, messages]);
   const chatWidth = useSettings().appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
@@ -1744,6 +1767,18 @@ export function ChatComposer({
           {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
           <LayoutGroup>
+            {/* The Subchats lead the left side; the last pill there takes the free space to its right. */}
+            {!isNewChat && subchats && onOpenLinkedChat && onAnswerSubchat && onRespondSubchat && (
+              <SubchatTrack
+                key={`subchats-${subchats.parentKey}`}
+                source={subchats}
+                reports={subchatReports}
+                className={pullRequestAction || reviewPill ? "" : "mr-auto"}
+                onOpen={onOpenLinkedChat}
+                onAnswer={onAnswerSubchat}
+                onRespond={onRespondSubchat}
+              />
+            )}
             <AnimatePresence initial={false}>
               {!isNewChat && pullRequestAction && (
                 <PillSlot key="pr-action" slot="pr-action" className={reviewPill ? "flex" : "mr-auto flex"}>

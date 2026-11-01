@@ -50,3 +50,16 @@ test("a Chat's family: its topmost listed ancestor and that one's live subchats"
   assert.equal(chatFamily(sessions, "/p#6"), null);
   assert.equal(chatFamily(sessions, "/p#7"), null, "a parent that's gone leaves no family");
 });
+
+test("a family is asking when one of its subchats waits on the user, folded or not", () => {
+  const rows = [row("1"), { ...row("2", "1"), mark: "question" }, row("3", "1"), row("5"), row("6", "5")];
+  const asking = (item: { mark?: string }) => item.mark === "question";
+  const shown = shownChats(rows, { ...rowKeys("/p"), folded: new Set(["/p#1", "/p#5"]), asking });
+  assert.deepEqual(
+    shown.map(({ item, family }) => [item.id, family?.asking]),
+    [
+      ["1", true],
+      ["5", false],
+    ],
+  );
+});

@@ -968,6 +968,11 @@ class Delegations {
     if (this.suspended || delegation?.status !== "running") return;
     delegation.status = outcome;
     const reply = await this.ports.reply(delegation.to_chat, delegation.id);
+    // A Delegation to "new" was labelled before that Chat had a title; by now its agent has named it.
+    const label = await Promise.resolve(this.ports.chat(delegation.to_chat))
+      .then((info) => info?.label)
+      .catch(() => undefined);
+    if (label) delegation.to_label = label;
     if (delegation.hosted) {
       delegation.report = reportBody(outcome, reply);
       await this.persist();

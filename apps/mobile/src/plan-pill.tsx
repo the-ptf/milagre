@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   AccessibilityInfo,
   BackHandler,
@@ -41,12 +41,12 @@ type Span = { x: number; width: number };
 type Phase = "closed" | "open" | "closing";
 
 /**
- * The Tasks pill's state, shared by the pill above the composer and the panel drawn over the Chat. The composer clips
- * its children, so the panel lives in an overlay at the screen's root and grows from where the pill was measured, to
- * the width of the composer's column (attachRoom): beside an iPad's sidebar or docked panel, never under them.
+ * A status pill's panel state, shared by the pill above the composer and the panel drawn over the Chat (Tasks, Subchats).
+ * The composer clips its children, so the panel lives in an overlay at the screen's root and grows from where the pill
+ * was measured, to the width of the composer's column (attachRoom): beside an iPad's sidebar or docked panel, never
+ * under them. `available` says the pill has something to show; without it, or for another Chat, the panel is closed.
  */
-export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
-  const label = planPillLabel(plan);
+export function usePillPanel(available: boolean, chatId: string) {
   const [state, setState] = useState<{ phase: Phase; chatId: string }>({ phase: "closed", chatId });
   const [pill, setPill] = useState<Box | null>(null);
   const [room, setRoom] = useState<Span | null>(null);
@@ -58,8 +58,8 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   const column = useRef<ViewInstance | null>(null);
   const overlay = useRef<ViewInstance | null>(null);
   const refocus = useRef(false);
-  // The plan goes with its Chat: when it is gone, or this is another Chat, the panel is closed at once.
-  const stale = state.phase !== "closed" && (!label || state.chatId !== chatId);
+  // What the pill shows goes with its Chat: when it is gone, or this is another Chat, the panel is closed at once.
+  const stale = state.phase !== "closed" && (!available || state.chatId !== chatId);
   if (stale) setState({ phase: "closed", chatId });
   const phase = stale ? "closed" : state.phase;
   const attachChip = useCallback((node: ViewInstance | null) => {
@@ -141,9 +141,18 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   }, [phase]);
   // The same object until something here changes, so the memoized pill and panel skip the Chat's other renders (typing).
   return useMemo(
-    () => ({ plan, label, phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout }),
-    [plan, label, phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout],
+    () => ({ phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout }),
+    [phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout],
   );
+}
+
+export type PillPanelState = ReturnType<typeof usePillPanel>;
+
+/** The Tasks pill's state: the shared panel state, with the plan it shows. */
+export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
+  const label = planPillLabel(plan);
+  const panel = usePillPanel(!!label, chatId);
+  return useMemo(() => ({ ...panel, plan, label }), [panel, plan, label]);
 }
 
 export type PlanPanelState = ReturnType<typeof usePlanPanel>;
@@ -190,12 +199,29 @@ function SectionLabel({ title, count, textRef }: { title: string; count?: number
 }
 
 /**
- * The Tasks panel: the pill's surface grown over the Chat, a fixed "Tasks" header with the leaf total and a collapse
- * control above the tree and phase graph, which scroll as one body. Both faces stay mounted and crossfade while the
- * surface's frame and corners move; the backdrop, the collapse control, a swipe down on the header and Android back
- * fold it back into the pill. Render it once, over the transcript and the composer.
+ * A status pill's panel (Tasks, Subchats): the pill's surface grown over the Chat, a fixed header with a count and a
+ * collapse control above a body that scrolls. Both faces stay mounted and crossfade while the surface's frame and
+ * corners move; the backdrop, the collapse control, a swipe down on the header and Android back fold it back into the
+ * pill. `face` is the pill's own contents, drawn where the pill is while the surface grows out of it. Render it once,
+ * over the transcript and the composer; `testId` prefixes the backdrop, surface and panel.
  */
-export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelState }) {
+export function PillPanel({
+  panel,
+  name,
+  testId,
+  title,
+  count,
+  face,
+  children,
+}: {
+  panel: PillPanelState;
+  name: string;
+  testId: string;
+  title: string;
+  count?: number;
+  face: ReactNode;
+  children: ReactNode;
+}) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
@@ -208,7 +234,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const pillFace = useSharedValue(1);
   const panelFace = useSharedValue(0);
   const heading = useRef<TextInstance>(null);
-  const { plan, label, phase, close, settle, opening, attachOverlay, keyboard, room, origin } = panel;
+  const { phase, close, settle, attachOverlay, keyboard, room, origin } = panel;
   // Before the first opening the pill is unmeasured; the panel still lays out at its real width so its height is known.
   const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 96, width: 48, height: STATUS_PILL.height };
   const { from, to } = planPanelFrame({ window, insets, pill, room: room ?? undefined, content: header + body, keyboard, origin });
@@ -261,18 +287,16 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
       else drag.set(withTiming(0, { duration: Math.round(200 * scale), easing: EASE, reduceMotion: ReduceMotion.System }));
     },
   });
-  if (!plan || !label) return null;
   const open = phase === "open";
   const shown = phase !== "closed";
-  const tasks = plan.tasks.length > 0;
-  const { total } = taskCounts(plan.tasks);
+  const noun = name.toLowerCase();
   const inert = { pointerEvents: "none", accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" } as const;
   return (
     <View
       ref={attachOverlay}
       collapsable={false}
       pointerEvents={shown ? "box-none" : "none"}
-      // Open, VoiceOver stays inside: the backdrop's Close tasks and the card. The Chat behind hides itself on Android.
+      // Open, VoiceOver stays inside: the backdrop's Close button and the card. The Chat behind hides itself on Android.
       accessibilityViewIsModal={open}
       onAccessibilityEscape={close}
       accessibilityElementsHidden={!shown}
@@ -281,9 +305,9 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
     >
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, backdropStyle]}>
         <Pressable
-          testID="plan-backdrop"
+          testID={`${testId}-backdrop`}
           accessibilityRole="button"
-          accessibilityLabel="Close tasks"
+          accessibilityLabel={`Close ${noun}`}
           disabled={!open}
           onPress={close}
           style={StyleSheet.absoluteFill}
@@ -310,12 +334,12 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
           fillStyle,
         ]}
       />
-      <Animated.View testID="plan-surface" style={[{ position: "absolute", overflow: "hidden", borderCurve: "continuous" }, surfaceStyle]}>
+      <Animated.View testID={`${testId}-surface`} style={[{ position: "absolute", overflow: "hidden", borderCurve: "continuous" }, surfaceStyle]}>
         {/* Anchored to the surface's bottom-right at its final size, so the growing surface uncovers it. */}
         <Animated.View
-          testID="plan-panel"
+          testID={`${testId}-panel`}
           role="dialog"
-          accessibilityLabel="Tasks"
+          accessibilityLabel={name}
           {...(open ? {} : inert)}
           style={[{ position: "absolute", right: 0, bottom: 0, width: to.width, height: to.height }, panelStyle]}
         >
@@ -324,8 +348,8 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
               onLayout={({ nativeEvent }) => setHeader(Math.ceil(nativeEvent.layout.height))}
               style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 16, paddingRight: 6, paddingTop: 6 }}
             >
-              <SectionLabel title={tasks ? "Tasks" : "Phase graph"} count={tasks ? total : undefined} textRef={heading} />
-              <IconButton label="Collapse tasks" icon={ArrowShrink02Icon} tone="ink3" size={36} onPress={close} />
+              <SectionLabel title={title} count={count} textRef={heading} />
+              <IconButton label={`Collapse ${noun}`} icon={ArrowShrink02Icon} tone="ink3" size={36} onPress={close} />
             </View>
           </GestureDetector>
           {/* The tree and the graph scroll as one body under the fixed header. */}
@@ -341,24 +365,44 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
             style={{ flex: 1 }}
             contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 16, gap: 20 }}
           >
-            {tasks && <PlanTree plan={plan} />}
-            {plan.phases.length > 0 && (
-              <View style={{ gap: 10 }}>
-                {tasks && (
-                  <View style={{ flexDirection: "row", paddingHorizontal: 4 }}>
-                    <SectionLabel title="Phase graph" />
-                  </View>
-                )}
-                <PlanPhaseGraph key={opening} plan={plan} />
-              </View>
-            )}
+            {children}
           </PageScroll>
         </Animated.View>
       </Animated.View>
       {/* The pill face stays at the pill's spot and fades as the surface grows out of it. */}
       <Animated.View {...inert} style={[{ position: "absolute", left: from.x, top: from.y, width: from.width, height: from.height }, pillStyle]}>
-        <StatusPillFace icon={ListTodoIcon} label={label} />
+        {face}
       </Animated.View>
     </View>
+  );
+}
+
+/** The Tasks panel: the task tree and the phase graph, as one body. */
+export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelState }) {
+  const { plan, label, opening } = panel;
+  if (!plan || !label) return null;
+  const tasks = plan.tasks.length > 0;
+  const { total } = taskCounts(plan.tasks);
+  return (
+    <PillPanel
+      panel={panel}
+      name="Tasks"
+      testId="plan"
+      title={tasks ? "Tasks" : "Phase graph"}
+      count={tasks ? total : undefined}
+      face={<StatusPillFace icon={ListTodoIcon} label={label} />}
+    >
+      {tasks && <PlanTree plan={plan} />}
+      {plan.phases.length > 0 && (
+        <View style={{ gap: 10 }}>
+          {tasks && (
+            <View style={{ flexDirection: "row", paddingHorizontal: 4 }}>
+              <SectionLabel title="Phase graph" />
+            </View>
+          )}
+          <PlanPhaseGraph key={opening} plan={plan} />
+        </View>
+      )}
+    </PillPanel>
   );
 });

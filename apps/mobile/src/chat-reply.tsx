@@ -8,6 +8,8 @@ import { Alert02Icon, ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { ChatMessage, ChatStep, LinkedContext, LimitResume } from "@milagre/shared/model";
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
+import { reportMarker } from "@milagre/shared/subchat-states";
+import { SubchatMarker } from "./subchat-marker";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
 import { onlyImageMentions, promptParts } from "@milagre/shared/prompt-parts";
@@ -445,6 +447,10 @@ export const ChatReply = memo(function ChatReply({
       </View>
     );
   }
+  // A Subchat's report is one grey line that opens the report where it stands; a Negotiation round keeps its full text.
+  const marker = linked && message?.role === "assistant" && !run ? reportMarker(linked) : null;
+  if (marker && linked)
+    return <SubchatMarker marker={marker} chat={linkedHeading(linked).chat} body={text} onOpenChat={onOpenChat} media={savedMedia} basePath={basePath} />;
   return (
     <View style={{ gap: 14, paddingVertical: 8 }}>
       {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}

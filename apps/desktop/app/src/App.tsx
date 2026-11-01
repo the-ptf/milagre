@@ -148,6 +148,8 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { chatFamily, OpenSubchatContext } from "./lib/subchat-rows";
+import type { SubchatSource } from "./lib/subchat-track";
+import { directSubchats } from "@milagre/shared/subchat-states";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
@@ -991,6 +993,12 @@ function App() {
     [backgroundKey],
   );
   const linkedWork = useLinkedWork();
+  // The open Chat's Subchats, for the pill above its composer; none for a Chat that delegated nothing in its own Project.
+  const subchats = useMemo<SubchatSource | undefined>(() => {
+    if (!project || !selectedSession || selectedSession.id <= 0 || !state) return undefined;
+    const parentKey = chatKey(project.path, selectedSession.id);
+    return directSubchats(state.sessions, parentKey).length ? { parentKey, sessions: state.sessions, runs: agentRuns.runs, work: linkedWork } : undefined;
+  }, [project, selectedSession?.id, state?.sessions, agentRuns.runs, linkedWork]);
   const remoteDelegations = useMemo(
     () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
     [linkedWork, project, selectedSession],
@@ -3933,6 +3941,9 @@ function App() {
                         onArchiveSubagent={archiveChild}
                         onStopAdvisor={(id) => controlAdvisor("stop", id)}
                         onRetryAdvisor={(id) => controlAdvisor("retry", id)}
+                        subchats={subchats}
+                        onAnswerSubchat={(key, requestId, answers) => void agentRuns.answerQuestion(key, requestId, answers).catch(() => {})}
+                        onRespondSubchat={(key, requestId, decision) => void agentRuns.respond(key, requestId, decision).catch(() => {})}
                         waitingForSubagents={run?.waitingForSubagents}
                         activity={selectedSession ? chatActivity(selectedSession, run) : undefined}
                         plan={selectedSession?.plan}

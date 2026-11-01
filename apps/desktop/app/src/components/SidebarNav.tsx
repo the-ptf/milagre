@@ -234,6 +234,9 @@ type SidebarNavProps = {
 
 const NO_CHAT_ACTIONS: ChatRowActions = {};
 const NEVER_ACTIVE = () => false;
+// A subchat that waits on the user (a question or an approval) turns its family's badge orange.
+const subchatAsks = (row: Pick<SidebarRecent, "mark">) => row.mark === "question" || row.mark === "waiting";
+
 // Groups of the all-Projects sidebar the user folded, by Project path or Link key; the rest stay open.
 const CLOSED_SCOPES_KEY = "milagre.sidebarClosedScopes";
 function readClosedScopes(): string[] {
@@ -1102,7 +1105,7 @@ export default memo(function SidebarNav({
       (current ? selectedLink?.projects[0] : undefined) ?? { path: "", name: scope.name || "Project" }
     );
   };
-  // The One list's rows: each scope's icon.
+  // Each scope's icon, on One list rows and grouped family rows.
   const scopeBadge = (scope: (typeof scopes)[number], current: boolean): ScopeBadge => {
     if (scope.link) {
       const first = linkFirstProject(scope, scope.link, current);
@@ -1514,6 +1517,7 @@ export default memo(function SidebarNav({
           part.pinned.length > 0 ? (
             <ChatList
               key={part.scope.key}
+              {...scopeBadge(part.scope, part.current)}
               recents={part.pinned}
               scopeKey={part.scope.key}
               {...part.list}
@@ -1765,6 +1769,7 @@ export default memo(function SidebarNav({
                                   <div className="min-w-0 overflow-hidden">
                                     {rest.length > 0 || pinned.length > 0 ? (
                                       <ChatList
+                                        {...scopeBadge(scope, current)}
                                         recents={pinned.length ? [...pinned, ...rest] : rest}
                                         scopeKey={scope.key}
                                         {...list}
@@ -1799,6 +1804,8 @@ export default memo(function SidebarNav({
                   ) : (
                     <ChatList
                       recents={recents}
+                      projectImage={workspace.image}
+                      projectInitial={workspace.name}
                       scopeKey={currentKey}
                       isActive={(item) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle)}
                       collapsed={collapsed}
@@ -2202,6 +2209,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
       key: (chat) => `${chat.scopeKey}#${chat.row.id}`,
       parent: (chat) => (chat.row.parent === undefined ? undefined : `${chat.scopeKey}#${chat.row.parent}`),
       folded: folds,
+      asking: (chat) => subchatAsks(chat.row),
     });
     if (free.length === chats.length) return nested;
     const pinned: (ShownRow & { item: (typeof chats)[number] })[] = chats.filter((chat) => chat.row.pinned).map((item) => ({ item, subchat: false }));
@@ -2234,7 +2242,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               family={family}
               project={inbox ? scope.name : undefined}
               dragging={dragging === key}
-              {...(inbox ? scope.badge : {})}
+              {...scope.badge}
             />
           </div>
         );
@@ -2327,7 +2335,7 @@ function ChatList({
   // Subchats sit under their parent's row, unless the sidebar is a rail of icons.
   const folds = useSubchatFolds();
   const shownRest = useMemo(
-    () => (collapsed ? rest.map((item) => ({ item, subchat: false })) : shownChats(rest, { ...rowKeys(scopeKey), folded: folds })),
+    () => (collapsed ? rest.map((item) => ({ item, subchat: false })) : shownChats(rest, { ...rowKeys(scopeKey), folded: folds, asking: subchatAsks })),
     [rest, folds, collapsed, scopeKey],
   );
   // A subchat's row opens it beside its parent.

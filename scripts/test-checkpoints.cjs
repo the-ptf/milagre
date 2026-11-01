@@ -228,7 +228,8 @@ async function browserChecks() {
           session_id: 1,
           role: "assistant",
           body: "Linked assistant answer",
-          context: { kind: "delegation-report", from: "other#1", fromLabel: "Other Chat", status: "done" },
+          // A Negotiation round keeps its text (a plain report is one line, with no reply footer).
+          context: { kind: "delegation-report", from: "other#1", fromLabel: "Other Chat", status: "done", negotiation: { id: "n1", round: 1 } },
         },
       ])})`,
     );

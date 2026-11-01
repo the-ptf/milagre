@@ -43,6 +43,7 @@
     "src/linear.ts",
     "src/chat-row.ts",
     "src/subchats.ts",
+    "src/subchat-states.ts",
     "src/chat-display.ts",
     "src/canvas.ts",
     "src/simulator.ts",
@@ -404,6 +405,7 @@
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
     "./subchats": "./src/subchats.ts",
+    "./subchat-states": "./src/subchat-states.ts",
     "./chats-home": {
       "types": "./src/chats-home.d.mts",
       "default": "./src/chats-home.mjs"
