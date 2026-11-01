@@ -20,7 +20,6 @@ const LOCAL_ONLY = new Set([
   "accounts:login",
   "accounts:cancel",
   "accounts:remove",
-  "accounts:assign",
   "chat:limit-switch",
   "agent:update-cli",
   "agent:provider-updates",

@@ -79,6 +79,19 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
       if (id === "projects")
         return [
           read(
+            "project_accounts",
+            "Show the saved provider Accounts and the effective next-turn Account for a Project. Accounts are shared by all its Chats; running turns keep their existing Account. Returns public identities and status, never credentials.",
+            { ...projectInput, refresh: z.boolean().default(false) },
+            (args) => host.projectAccounts(args),
+          ),
+          act(
+            "project_set_account",
+            "Choose a saved provider Account for all Chats in a Project, as its model picker does. accountId null follows the computer default; use an ID from project_accounts to pin an Account. Running turns and background tasks keep their existing Account. This does not restart or send a message to any Chat, or change a named Link's independent Accounts.",
+            "create",
+            { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro"]), accountId: z.string().min(1).max(128).nullable() },
+            (args) => host.setProjectAccount(args, assertActive),
+          ),
+          read(
             "project_list",
             "List Projects in Milagre (with inScope for this Chat, or only the Projects granted to an outside connection).",
             {},

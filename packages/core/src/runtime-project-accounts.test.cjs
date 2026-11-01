@@ -15,6 +15,51 @@ async function until(check) {
   assert.ok(check(), "Expected runtime event did not arrive");
 }
 
+test("MCP account choices obey Project grants, persist, and leave running Chats on their original account", async (t) => {
+  const f = await fixture(t);
+  const runtime = f.make();
+  const projectPath = f.projects[0];
+  const opened = await runtime.openProject(projectPath);
+  const sessionId = Object.values(opened.state.sessions)[0].id;
+  await f.send(runtime, projectPath, sessionId);
+  const connection = await runtime.invoke("local-mcp:create", [
+    {
+      label: "Account chooser",
+      grants: { projects: { projectPaths: [projectPath], capabilities: ["read", "create"] } },
+    },
+  ]);
+  const call = async (name, args) => {
+    const response = await fetch(connection.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${connection.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    });
+    const payload = await response.json();
+    if (payload.result.isError) throw Error(payload.result.content[0].text);
+    return JSON.parse(payload.result.content[0].text);
+  };
+  const group = (value) => value.providers.find((item) => item.provider === "claude");
+  const before = await call("project_accounts", { projectPath, refresh: true });
+  assert.equal(group(before).effectiveId, f.ids.work);
+  assert.equal(group(before).accounts.find((item) => item.id === f.ids.personal).email, "fixture@example.test");
+  assert.ok(!JSON.stringify(before).includes(f.dataDir), "Public account choices contain no private profile paths");
+  await assert.rejects(call("project_set_account", { projectPath: f.projects[1], provider: "claude", accountId: f.ids.shared }), /scope/);
+  await assert.rejects(call("project_set_account", { projectPath, provider: "claude", accountId: "missing-account" }), /account/i);
+  assert.equal(group(await call("project_set_account", { projectPath, provider: "claude", accountId: f.ids.personal })).effectiveId, f.ids.personal);
+  assert.equal(f.created[0].closed, false);
+  assert.equal(f.created[0].context.accountId, f.ids.work);
+  assert.equal(group(await call("project_set_account", { projectPath, provider: "claude", accountId: null })).accountId, null);
+  await runtime.invoke("local-mcp:update", [
+    connection.connection.id,
+    {
+      label: "Read accounts",
+      grants: { projects: { projectPaths: [projectPath], capabilities: ["read"] } },
+    },
+  ]);
+  await assert.rejects(call("project_set_account", { projectPath, provider: "claude", accountId: f.ids.work }), /tool|unavailable/i);
+  assert.equal(group(await runtime.invoke("accounts:scope", [projectPath])).accountId, null);
+});
+
 // A shared Link Chat's agent about to change both Projects: each gets the Chat's Worktree first (link_worktree_create).
 async function createWorktrees(context) {
   const tool = context.linked.tools.find((item) => item.name === "link_worktree_create");

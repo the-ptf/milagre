@@ -17,7 +17,6 @@ const LOCAL_ONLY = Object.freeze([
   "accounts:login",
   "accounts:cancel",
   "accounts:remove",
-  "accounts:assign",
   "chat:limit-switch",
   "agent:update-cli",
   "agent:provider-updates",
@@ -130,6 +129,8 @@ const OPEN_PROJECT = (id, result) => withPath(id, result);
 const PROJECT_LIST = (id, result) => each(id, result, withRemotePath);
 /** @type {Record<string, (id: string, result: any) => any>} */
 const RESULTS = {
+  "accounts:scope": (id, result) => field(id, result, "scopeKey", key),
+  "accounts:assign": (id, result) => field(id, result, "scopeKey", key),
   "project:open": OPEN_PROJECT,
   "project:current": OPEN_PROJECT,
   "project:switch": OPEN_PROJECT,

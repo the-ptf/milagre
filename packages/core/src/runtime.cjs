@@ -3192,6 +3192,8 @@ function createRuntime(options) {
     activeWorktrees: async (projectPath) => (await activeWorktrees(projectPath)).map((worktree) => worktree.path),
     approve: (chatId, request) => agents.askApproval(chatId, request),
     models: (projectPath) => handlers.get("agent:models")(null, projectPath),
+    getProjectAccounts: (projectPath, refresh) => handlers.get("accounts:scope")(null, projectPath, refresh),
+    assignProjectAccount: async (projectPath, provider, id, canAssign) => limitSwitch.decorate(await assignAccount(projectPath, provider, id, { canAssign })),
     worktreeStatus,
     removeWorktree: (projectPath, worktreePath) => handlers.get("worktree:remove")(null, worktreePath, { projectPath }),
     assertRegistrableProject,
