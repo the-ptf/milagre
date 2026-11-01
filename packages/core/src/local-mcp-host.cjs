@@ -62,6 +62,8 @@ function createLocalMcpHost({
   activeWorktrees,
   approve,
   models = async () => ({}),
+  getProjectAccounts,
+  assignProjectAccount,
   worktreeStatus,
   removeWorktree,
   registerProject = async () => {
@@ -229,6 +231,18 @@ function createLocalMcpHost({
   return {
     projects,
     validateProject,
+    async projectAccounts({ projectPath, refresh }) {
+      await validateProject(projectPath);
+      return getProjectAccounts(projectPath, refresh);
+    },
+    async setProjectAccount({ projectPath, provider, accountId }, assertActive) {
+      await validateProject(projectPath);
+      assertActive();
+      return assignProjectAccount(projectPath, provider, accountId, () => {
+        assertActive();
+        return true;
+      });
+    },
     requestProjectScope,
     validateChat: validateDesignChat,
     async addProject({ projectPath }, caller, inScope = () => false, onGrant) {

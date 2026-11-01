@@ -41,6 +41,25 @@ window.milagre = {
   },
   onAccountsChanged: (listener) => (accountListeners.add(listener), () => accountListeners.delete(listener)),
 };
+const remoteAccountListeners = new Set();
+let remoteChoice = null;
+window.remoteAssigned = [];
+window.remoteAccountFailure = false;
+const remoteBridge = {
+  getProjectAccounts: async (scopeKey) => ({ scopeKey, providers: [
+    { provider: 'claude', accountId: remoteChoice, effectiveId: remoteChoice ?? 'remote-work', defaultId: 'remote-work', accounts: [ready('remote-work', 'work@remote.test'), ready('remote-personal', 'me@remote.test')] },
+  ] }),
+  assignProjectAccount: async (scopeKey, provider, id) => {
+    if (window.remoteAccountFailure) throw Error('The remote computer is unavailable');
+    window.remoteAssigned.push([scopeKey, provider, id]);
+    remoteChoice = id;
+    remoteAccountListeners.forEach(listener => listener());
+    return remoteBridge.getProjectAccounts(scopeKey);
+  },
+  onAccountsChanged: listener => (remoteAccountListeners.add(listener), () => remoteAccountListeners.delete(listener)),
+};
+window.changeRemoteAccount = id => { remoteChoice = id; remoteAccountListeners.forEach(listener => listener()); };
+window.milagre.on = () => remoteBridge;
 function Fixture() {
   const [hasSession, setSession] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -67,8 +86,8 @@ window.showLiveUsage = () => {
   const first = remote + "|/projects/work";
   const second = remote + "|/projects/other";
   const usageListeners = new Set();
-  const remoteAccounts = new Set();
-  const snapshot = (percent) => ({ accountKey: "work-default", providers: [{ provider: "claude", status: "ok", updatedAt: new Date().toISOString(), account: { id: "work", label: "Remote work" }, windows: [{ ...weekly, usedPercent: percent }] }] });
+  const remoteAccounts = remoteAccountListeners;
+  const snapshot = (percent) => ({ accountKey: remoteChoice ?? 'remote-default', providers: [{ provider: "claude", status: "ok", updatedAt: new Date().toISOString(), account: { id: remoteChoice ?? 'remote-work', label: "Remote work" }, windows: [{ ...weekly, usedPercent: percent }] }] });
   let saved = snapshot(34);
   const pending = [];
   const pendingCache = [];
@@ -82,7 +101,7 @@ window.showLiveUsage = () => {
   };
   window.remoteAccountsChanged = () => remoteAccounts.forEach(listener => listener());
   window.finishUsageRead = (percent) => pending.shift()(snapshot(percent));
-  window.milagre.on = () => ({
+  Object.assign(remoteBridge, {
     getCachedUsage: () => window.deferUsageCache ? new Promise(resolve => { const value = saved; pendingCache.push(() => resolve(value)); }) : Promise.resolve(saved),
     readUsage: (scope) => { window.usageReads.push(scope); return new Promise(resolve => pending.push(resolve)); },
     onAccountsChanged: listener => (remoteAccounts.add(listener), () => remoteAccounts.delete(listener)),
@@ -249,10 +268,26 @@ async function browserChecks() {
     assert.equal(await evaluate(`Boolean(${picker})`), false, "One saved account shows plain text");
     await evaluate('window.setScope("6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7|/projects/work")');
     await evaluate('document.querySelectorAll(".sidebar-usage-row")[0].click()');
-    await waitFor(`${cardText}.includes("Work")`);
-    assert.equal(await evaluate(`Boolean(${picker})`), false, "Remote usage never offers an account picker");
-    assert.equal(await evaluate("window.assigned.length"), 1, "Remote usage did not assign an account");
-    await screenshot("remote-account-read-only");
+    await waitFor(`${picker}?.textContent.includes('work@remote.test')`);
+    await evaluate(`${picker}.click()`);
+    await waitFor('Boolean(document.querySelector("[role=listbox]"))');
+    await screenshot("remote-account-picker");
+    await evaluate('[...document.querySelectorAll("[role=listbox] [data-picker-row]")].find(row => row.textContent.includes("me@remote.test")).click()');
+    await waitFor(`${picker}?.textContent.includes('me@remote.test')`);
+    assert.deepEqual(await evaluate("window.remoteAssigned[0]"), ["6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7|/projects/work", "claude", "remote-personal"]);
+    assert.equal(await evaluate("window.assigned.length"), 1, "Changing the remote Account leaves this Mac untouched");
+    await screenshot("remote-account-switched");
+    await evaluate("window.changeRemoteAccount(null)");
+    await waitFor(`${picker}?.textContent.includes('work@remote.test')`);
+    await evaluate(`window.remoteAccountFailure = true; ${picker}.click()`);
+    await waitFor('Boolean(document.querySelector("[role=listbox]"))');
+    await evaluate('[...document.querySelectorAll("[role=listbox] [data-picker-row]")].find(row => row.textContent.includes("me@remote.test")).click()');
+    await waitFor(`${cardText}.includes('The remote computer is unavailable')`);
+    assert.match(await evaluate(`${picker}.textContent`), /work@remote.test/, "A failed write keeps the selected Account");
+    await evaluate(`window.remoteAccountFailure = false; ${picker}.click()`);
+    await waitFor('Boolean(document.querySelector("[role=listbox]"))');
+    await evaluate('[...document.querySelectorAll("[role=listbox] [data-picker-row]")].find(row => row.textContent.includes("me@remote.test")).click()');
+    await waitFor(`${picker}?.textContent.includes('me@remote.test') && !${cardText}.includes('The remote computer is unavailable')`);
     await evaluate("window.setScope(undefined)");
     await evaluate('document.querySelector("aside").style.marginTop = ""');
     await evaluate('window.setSidebarUsage("compact")');
@@ -331,6 +366,17 @@ async function browserChecks() {
     await evaluate("window.finishUsageRead(23)");
     await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("23%")');
     assert.equal(await evaluate("window.localUsageReads"), 0);
+    await evaluate('document.querySelector(".sidebar-usage-row").click()');
+    await waitFor(`${picker}?.textContent.includes('me@remote.test')`);
+    await evaluate(`${picker}.click()`);
+    await waitFor('Boolean(document.querySelector("[role=listbox]"))');
+    await evaluate('[...document.querySelectorAll("[role=listbox] [data-picker-row]")].find(row => row.textContent === "work@remote.test").click()');
+    await waitFor("window.usageReads.length === 5");
+    assert.deepEqual(await evaluate("window.remoteAssigned.at(-1)"), ["6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7|/projects/other", "claude", "remote-work"]);
+    await evaluate("window.finishUsageRead(7)");
+    await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("7%")');
+    await waitFor(`${picker}?.textContent.includes('work@remote.test')`);
+    assert.equal(await evaluate("window.localUsageReads"), 0, "The chosen Account refreshes usage on its owning computer");
     await screenshot("remote-live-usage");
     console.log(
       "PASS: weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, compact one-line mode, collapsed rail, account email and name fallback, account picker",

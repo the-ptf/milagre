@@ -11,6 +11,9 @@ import { formatTokens } from "./usage/format";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
+import { projectAccountOptions, useProjectAccounts } from "./ProjectAccountsSettings";
+import { Select } from "./primitives/Select";
+import { bridgeForKey } from "../lib/computer-bridge";
 
 /** The model's context window as the picker shows it: "1M", "272k". */
 function contextLabel(model: ModelOption) {
@@ -26,6 +29,7 @@ function metaLabel(model: ModelOption) {
 /** Model, thinking effort, fast mode and Ultracode in one popover: a provider rail that scrolls as providers grow,
  * the provider's models, and the selected model's settings beside them. Picking a model keeps it open. */
 export function ModelPicker({
+  scope,
   style,
   providers,
   provider,
@@ -46,6 +50,7 @@ export function ModelPicker({
   ultracode,
   onUltracodeChange,
 }: {
+  scope?: string;
   style: CSSProperties;
   providers: ModelProvider[];
   provider: ModelProvider;
@@ -76,6 +81,10 @@ export function ModelPicker({
 
   // Arrow keys move through the model rows, Enter picks; the search field keeps typing.
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest('[role="listbox"]')) {
+      event.stopPropagation();
+      return;
+    }
     const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-picker-row]")];
     const at = rows.indexOf(document.activeElement as HTMLButtonElement);
     const searching = event.target instanceof HTMLInputElement;
@@ -131,6 +140,7 @@ export function ModelPicker({
             {totalModels} {totalModels === 1 ? "model" : "models"}
           </span>
         </div>
+        {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
         <label className="mr-2 mb-1 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-1.5 text-ink-3">
           <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.8} color="currentColor" />
           <input
@@ -230,6 +240,41 @@ export function ModelPicker({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ModelAccountPicker({ scope, provider }: { scope: string; provider: ModelProvider }) {
+  const { shown, busy, error, load, act } = useProjectAccounts(scope);
+  const group = shown?.providers.find((item) => item.provider === provider);
+  if (error)
+    return (
+      <p role="alert" className="mr-2 mb-2 text-11 text-red-ink">
+        {error}{" "}
+        <button className="underline" onClick={() => void load(true)}>
+          Retry
+        </button>
+      </p>
+    );
+  if (!shown)
+    return (
+      <p role="status" className="mb-2 text-11 text-ink-3">
+        Checking accounts...
+      </p>
+    );
+  if (!group) return null;
+  return (
+    <div data-model-account className="mr-2 mb-2 flex min-w-0 flex-col gap-1">
+      <Select
+        label={`${providerName(provider)} account`}
+        value={group.accountId ?? ""}
+        width={340}
+        disabled={busy}
+        triggerClassName="w-full"
+        options={projectAccountOptions(group)}
+        onChange={(id) => void act(() => bridgeForKey(scope).assignProjectAccount(scope, provider, id || null))}
+      />
+      <p className="text-11 leading-snug text-ink-3">Applies to all Chats in this Project or Link. Running turns keep their account.</p>
     </div>
   );
 }

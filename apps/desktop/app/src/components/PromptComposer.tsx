@@ -88,6 +88,8 @@ interface PromptComposerProps {
   reconnectingName?: string | null;
   imageDraft: ImageDraft;
   projectPath: string;
+  /** Account routing uses the canonical Project or Link, rather than a Link Chat's workspace folder. */
+  accountScope?: string;
   draft: string;
   onDraftChange: (draft: string) => void;
   /** Prompts sent in this chat, oldest first; Up and Down at the field's first or last line step through them. */
@@ -174,6 +176,7 @@ export function PromptComposer({
   reconnectingName,
   imageDraft,
   projectPath,
+  accountScope = projectPath,
   draft,
   onDraftChange,
   history = NO_HISTORY,
@@ -796,6 +799,7 @@ export function PromptComposer({
 
         {modelOpen && (
           <ModelPicker
+            scope={accountScope}
             style={anchorStyle}
             providers={providerTabs}
             provider={provider}

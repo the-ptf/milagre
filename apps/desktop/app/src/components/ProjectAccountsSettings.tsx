@@ -92,12 +92,12 @@ export function useProjectAccounts(scope: string) {
     setError("");
     setBusy(false);
     void load();
-    const off = window.milagre.onAccountsChanged?.(() => void load());
+    const off = bridgeForKey(scope).onAccountsChanged?.(() => void load());
     return () => {
       generation.current++;
       off?.();
     };
-  }, [load]);
+  }, [load, scope]);
   const shown = snapshot?.scopeKey === scope ? snapshot : null;
   const signingIn = !!shown?.providers.some((group) => group.accounts.some((account) => account.state === "signing-in"));
   useEffect(() => {

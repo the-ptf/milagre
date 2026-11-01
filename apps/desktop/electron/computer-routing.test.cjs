@@ -135,7 +135,6 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "computers:list",
     "app:version",
     "accounts:add",
-    "accounts:assign",
     "chat:limit-switch",
     "app:open-keybindings-file",
   ])
@@ -150,6 +149,7 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "fs:list-dirs",
     "media:read",
     "accounts:scope",
+    "accounts:assign",
     "babysit:settings:read",
     "babysit:settings:save",
     "done:settings:read",
@@ -226,11 +226,18 @@ test("another computer's Routines, Runs and targets come back naming it, and its
   ]);
 });
 
-test("remote usage is readable while every account mutation remains local", () => {
-  for (const method of ["usage:read", "usage:cached"]) assert.equal(isLocalOnly(method), false, method);
-  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
+test("remote usage can select a saved Project account while sign-ins and computer defaults stay local", () => {
+  for (const method of ["usage:read", "usage:cached", "accounts:scope", "accounts:assign"]) assert.equal(isLocalOnly(method), false, method);
+  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "chat:limit-switch"])
     assert.equal(isLocalOnly(method), true, method);
   assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
+  for (const method of ["accounts:scope", "accounts:assign"])
+    for (const scopeKey of ["/p", `milagre-link:${LINK}`])
+      assert.deepEqual(qualifyResult(ID, method, { scopeKey, providers: [{ accountId: "account-id", effectiveId: "account-id" }] }), {
+        scopeKey: scopeKey === "/p" ? `${ID}|/p` : `milagre-link:${ID}|${LINK}`,
+        providers: [{ accountId: "account-id", effectiveId: "account-id" }],
+      });
+  assert.deepEqual(stripComputer(ID, [`${ID}|/p`, "claude", "account-id"]), ["/p", "claude", "account-id"]);
 });
 
 test("a remote Project's PR change names that computer's Project", () => {

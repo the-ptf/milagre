@@ -1880,6 +1880,7 @@ export function ChatComposer({
                 reconnectingName={reconnectingName}
                 imageDraft={imageDraft}
                 projectPath={projectPath}
+                accountScope={messageScope ?? projectPath}
                 draft={draft}
                 onDraftChange={onDraftChange}
                 history={promptHistory}

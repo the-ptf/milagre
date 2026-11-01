@@ -461,7 +461,11 @@ async function browserChecks() {
     );
     await evaluate(`document.querySelector('.sidebar-usage-row').click()`);
     await waitFor(`document.querySelector('[data-usage-account]')?.textContent.includes('remote@example.test')`);
-    assert.equal(await evaluate(`!!document.querySelector('[data-usage-card] [aria-haspopup="listbox"]')`), false, "remote usage has no account picker");
+    assert.equal(
+      await evaluate(`!!document.querySelector('[data-usage-card] [aria-haspopup="listbox"]')`),
+      false,
+      "Usage keeps the account text when this computer supplies no account choices",
+    );
     await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await waitFor(`!document.querySelector('[data-usage-card]')`);
     await screenshot("remote-chat");

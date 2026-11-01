@@ -12,6 +12,47 @@ function fixture(t) {
 }
 const config = { label: "Editor", grants: { designs: { chatId: "/project#1", designIds: ["one"], capabilities: ["read", "write"] } } };
 
+test("revoking an MCP connection fences an account assignment waiting in the host queue", async (t) => {
+  const { createLocalMcpRegistry } = require("./local-mcp-registry.cjs");
+  const { managementToolGroups } = require("./local-mcp-tools.cjs");
+  const { createLocalMcpHost } = require("./local-mcp-host.cjs");
+  const projectPath = fs.realpathSync(fixture(t));
+  let revision = 1;
+  let queued;
+  let signalQueued;
+  const queuedReady = new Promise((resolve) => {
+    signalQueued = resolve;
+  });
+  let wrote = false;
+  const host = createLocalMcpHost({
+    projects: async () => [{ path: projectPath }],
+    assignProjectAccount: (_project, _provider, _id, canAssign) =>
+      new Promise((resolve, reject) => {
+        queued = () => {
+          try {
+            canAssign();
+            wrote = true;
+            resolve({});
+          } catch (error) {
+            reject(error);
+          }
+        };
+        signalQueued();
+      }),
+  });
+  const registry = createLocalMcpRegistry({
+    connection: () => ({ revision, grants: { projects: { projectPaths: [projectPath], capabilities: ["create"] } } }),
+  });
+  for (const group of managementToolGroups({ host })) registry.registerToolGroup(group);
+  const tool = registry.toolsFor("outside").find((item) => item.name === "project_set_account");
+  const pending = tool.run({ projectPath, provider: "codex", accountId: null });
+  await queuedReady;
+  revision++;
+  queued();
+  await assert.rejects(pending, /changed or revoked/);
+  assert.equal(wrote, false);
+});
+
 test("Windows private JSON protects staged files before replacement and preserves state when ACL setup fails", (t) => {
   const vm = require("node:vm");
   const directory = fixture(t);
