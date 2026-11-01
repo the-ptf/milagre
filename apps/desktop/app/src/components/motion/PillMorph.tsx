@@ -30,6 +30,8 @@ export function PillMorph({
   height,
   fill = false,
   expanded = false,
+  className = "",
+  anchor = "right",
   pill,
   children,
 }: {
@@ -52,6 +54,10 @@ export function PillMorph({
    * composer row lifts itself above the window's chrome while it holds an expanded panel (ChatComposer).
    */
   expanded?: boolean;
+  /** Placement of the pill's spot in the composer row (`mr-auto` for a pill at the row's left). */
+  className?: string;
+  /** The pill corner the panel hangs from: the bottom-right (opens to the left) or, for a pill at the row's left, the bottom-left. */
+  anchor?: "left" | "right";
   pill: Omit<ComponentProps<typeof StatusPill>, "ref" | "bare" | "onClick">;
   /** The panel; as a function it gets a close that hands focus back to the pill, for the panel's own close control. */
   children: ReactNode | ((close: () => void) => ReactNode);
@@ -59,7 +65,7 @@ export function PillMorph({
   return (
     <AnimatePresence initial={false}>
       {shown && (
-        <Morph key={slot} {...{ slot, panelSlot, title, tooltip, opened, onOpenChange, width, height, fill, expanded, pill }}>
+        <Morph key={slot} {...{ slot, panelSlot, title, tooltip, opened, onOpenChange, width, height, fill, expanded, className, anchor, pill }}>
           {children}
         </Morph>
       )}
@@ -78,9 +84,12 @@ function Morph({
   height: preferredHeight,
   fill,
   expanded,
+  className,
+  anchor = "right",
   pill,
   children,
 }: Omit<ComponentProps<typeof PillMorph>, "shown">) {
+  const side = anchor === "left" ? "left-0" : "right-0";
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement | null>(null);
@@ -97,8 +106,8 @@ function Morph({
     if (!box) return;
     const width = Math.round(Math.max(0, Math.min(preferredWidth, window.innerWidth - 2 * EDGE)));
     const height = Math.round(Math.max(0, Math.min(preferredHeight, window.innerHeight * VIEWPORT_SHARE, box.bottom - EDGE)));
-    // Anchored to the pill's right edge when that fits; otherwise moved right just enough to clear the window's left padding.
-    const shift = Math.max(0, EDGE - (box.right - width));
+    // Anchored to the pill's edge when that fits; otherwise moved just enough to clear the window's padding on the far side.
+    const shift = anchor === "left" ? Math.max(0, box.left + width - (window.innerWidth - EDGE)) : Math.max(0, EDGE - (box.right - width));
     setRoom((current) => (current.width === width && current.height === height && current.shift === shift ? current : { width, height, shift }));
   };
   const close = (returnFocus: boolean) => {
@@ -145,7 +154,7 @@ function Morph({
       ref={root}
       slot={slot}
       still={opened && expanded}
-      className="relative shrink-0"
+      className={`relative shrink-0 ${className}`}
       style={pillSize ? { width: pillSize.width, height: pillSize.height } : undefined}
     >
       {/* One surface morphs between the pill and the panel; both faces stay mounted and crossfade over it. Closed, it is
@@ -157,7 +166,7 @@ function Morph({
           opened && expanded
             ? { position: "fixed", inset: 20, zIndex: 50, borderRadius: 10 }
             : size
-              ? { width: size.width, height: size.height, right: opened ? -room.shift : 0, borderRadius: opened ? 10 : size.height / 2 }
+              ? { width: size.width, height: size.height, [anchor]: opened ? -room.shift : 0, borderRadius: opened ? 10 : size.height / 2 }
               : undefined
         }
         className={`absolute bottom-0 z-10 overflow-hidden text-ink ${expanded ? "" : MORPH_SURFACE} ${opened ? "bg-surface shadow-raised" : `status-pill ${PILL_TONES[pill.tone ?? "ink"]}`}`}
@@ -178,7 +187,7 @@ function Morph({
           {...morphFace(opened, reduce, scale)}
           data-expanded={(opened && expanded) || undefined}
           style={opened && expanded ? { inset: 0 } : fill ? { width: room.width, height: room.height } : { width: room.width, maxHeight: room.height }}
-          className={`absolute right-0 bottom-0 flex flex-col bg-surface focus:outline-none ${opened ? "visible" : HIDDEN_FACE}`}
+          className={`absolute ${side} bottom-0 flex flex-col bg-surface focus:outline-none ${opened ? "visible" : HIDDEN_FACE}`}
         >
           {typeof children === "function" ? children(() => close(true)) : children}
         </motion.div>
@@ -188,9 +197,9 @@ function Morph({
         ref={measurePill}
         data-face="pill"
         {...morphFace(!opened, reduce, scale)}
-        className={`absolute right-0 bottom-0 z-10 flex ${opened ? HIDDEN_FACE : "visible"}`}
+        className={`absolute ${side} bottom-0 z-10 flex ${opened ? HIDDEN_FACE : "visible"}`}
       >
-        <Tooltip label={tooltip} align="end">
+        <Tooltip label={tooltip} align={anchor === "left" ? "start" : "end"}>
           <StatusPill
             ref={trigger}
             bare
