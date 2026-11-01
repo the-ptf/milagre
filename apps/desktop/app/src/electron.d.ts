@@ -279,7 +279,10 @@ export type CliProgress =
 
 export type MilagreBridge = {
   /** `source` is the page's Chat and files, which its `assets/<name>` references load from that Chat's computer. */
-  createArtifactPreview: (html: string, source?: { chatId: string; assets: import("@milagre/shared/artifact").ArtifactAsset[] }) => Promise<string>;
+  createArtifactPreview: (
+    html: string,
+    source?: { chatId?: string; assets?: import("@milagre/shared/artifact").ArtifactAsset[]; inline?: true },
+  ) => Promise<string>;
   releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
   /** Experimental: agents operate desktop apps on this computer (Settings › Experimental). */

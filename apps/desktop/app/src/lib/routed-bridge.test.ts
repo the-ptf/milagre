@@ -146,6 +146,7 @@ const ALLOWED: Record<string, string[]> = {
   "components/agents/UsageLimitCard.tsx": ["onAccountsChanged"],
   // Previews register bytes in this renderer's local Electron protocol, even for remote Chats.
   "components/agents/ArtifactCanvas.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
+  "components/agents/HtmlReply.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
   "components/motion/MediaLightbox.tsx": ["showImageMenu"],
   "lib/state-events.ts": ["onRuntimeSnapshot", "onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
   // Connection metadata and raw events originate on this Mac, including for a paired computer's readers.

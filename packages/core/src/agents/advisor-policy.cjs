@@ -19,6 +19,7 @@ const EXECUTION_FEATURES = [
   "view_image",
   "skill_mcp_dependency_install",
   "default_mode_request_user_input",
+  "send_message_to_user_async",
 ];
 
 function advisorPolicy(provider, tools = []) {

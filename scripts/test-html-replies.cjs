@@ -14,16 +14,26 @@ import '/src/styles.css';
 const page=${JSON.stringify(page)};
 const steps=[{id:'step-1',kind:'artifact',status:'done',tool:'html_render',artifact:page}];
 let unavailable=true;
-window.milagre={readDesignsEnabled:async()=>({enabled:false}),onDesignsEnabledChanged:()=>()=>{},artifacts:{list:async()=>[],comments:async()=>[],get:async()=>{if(unavailable){unavailable=false;throw Error('Offline')}return {...page,html:${JSON.stringify(html)}}}}};
+window.milagre={createArtifactPreview:window.fixturePreviews.create,releaseArtifactPreview:window.fixturePreviews.release,readDesignsEnabled:async()=>({enabled:false}),onDesignsEnabledChanged:()=>()=>{},artifacts:{list:async()=>[],comments:async()=>[],get:async()=>{if(unavailable){unavailable=false;throw Error('Offline')}return {...page,html:${JSON.stringify(html)}}}}};
 window.external=[]; window.open=(url)=>window.external.push(url);
 document.body.className='bg-page';
 createRoot(document.getElementById('root')).render(<main style={{maxWidth:768,margin:'0 auto',padding:'24px 16px'}}><div className="min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink"><p className="mb-2">Here is the quarter, with the controls to explore it.</p><ArtifactsProvider chatId="/fixture#1" steps={steps} userMessages={[]}><ArtifactCards steps={steps}/></ArtifactsProvider><p>Written answer below the HTML.</p></div></main>);
 `;
 async function browserChecks() {
-  const { app, BrowserWindow } = require("electron");
+  const { app, BrowserWindow, protocol, ipcMain } = require("electron");
+  protocol.registerSchemesAsPrivileged([{ scheme: "milagre-artifact", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
   app.setPath("userData", fs.mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-html-ui-")));
   await app.whenReady();
-  const window = new BrowserWindow({ width: 1000, height: 1000, show: false, webPreferences: { backgroundThrottling: false } });
+  const previews = require("../apps/desktop/electron/artifact-preview.cjs").createArtifactPreviews();
+  protocol.handle("milagre-artifact", (request) => previews.handle(request));
+  ipcMain.handle("fixture:preview", (event, html, source) => previews.register(event.sender.id, html, source));
+  ipcMain.handle("fixture:release", (event, url) => previews.release(event.sender.id, url));
+  const preload = path.join(app.getPath("userData"), "preload.cjs");
+  fs.writeFileSync(
+    preload,
+    `const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('fixturePreviews',{create:(html,source)=>ipcRenderer.invoke('fixture:preview',html,source),release:url=>ipcRenderer.invoke('fixture:release',url)});`,
+  );
+  const window = new BrowserWindow({ width: 1000, height: 1000, show: false, webPreferences: { preload, backgroundThrottling: false } });
   require("../apps/desktop/electron/links.cjs").guardNavigation(window.webContents, { appUrl: new URL(process.argv[2]).origin + "/", openExternal: () => {} });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   const waitFor = async (source) => {
@@ -193,12 +203,14 @@ async function main() {
           useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__html__") return next();
             response.setHeader("content-type", "text/html");
-            response.end(
-              await server.transformIndexHtml(
-                request.url,
-                '<html><body><div id="root"></div><script type="module" src="/__html_fixture.tsx"></script></body></html>',
-              ),
+            const document = await server.transformIndexHtml(
+              request.url,
+              '<html><body><div id="root"></div><script type="module" src="/__html_fixture.tsx"></script></body></html>',
             );
+            const { rendererCsp } = await import("../apps/desktop/renderer-csp.mjs");
+            const own = [...document.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+            response.setHeader("Content-Security-Policy", rendererCsp(own));
+            response.end(document);
           });
         },
       },

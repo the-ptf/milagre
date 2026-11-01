@@ -1,7 +1,7 @@
 // HTML artifacts run in separate opaque sandboxed documents. Unlike srcdoc, a protocol
 // response gets its own CSP, so the main renderer never needs unsafe-inline scripts.
 const { randomBytes } = require("node:crypto");
-const { artifactCsp, artifactDocument } = require("@milagre/shared/artifact-document");
+const { artifactCsp, artifactDocument, ARTIFACT_CSP } = require("@milagre/shared/artifact-document");
 const { ASSET_HASH, ASSET_NAME, byteRange, rewriteAssetUrls } = require("@milagre/shared/artifact-assets");
 const { diagramScript } = require("@milagre/shared/diagram-script");
 const PREFIX = "milagre-artifact://preview/";
@@ -39,10 +39,18 @@ function createArtifactPreviews({ readAsset } = {}) {
       );
       const page = chatId && assets.length ? rewriteAssetUrls(html, assets, (asset) => `${url}/assets/${asset.name}`) : html;
       // The page's viewer drives its helper (pins, comments, zoom); Mermaid blocks render with Pele.
-      const body = artifactDocument(page, { page: true, diagrams: diagramScript(), assets: ASSET_SOURCE });
+      const inline = source?.inline === true;
+      const body = inline ? artifactDocument(page) : artifactDocument(page, { page: true, diagrams: diagramScript(), assets: ASSET_SOURCE });
       const size = Buffer.byteLength(body);
       if (bytes + size > MAX_TOTAL || entries.size >= 128) throw new Error("Too many artifact previews are open.");
-      entries.set(url, { owner, body, bytes: size, chatId, assets: new Map(assets.map((asset) => [asset.name, asset])) });
+      entries.set(url, {
+        owner,
+        body,
+        policy: inline ? ARTIFACT_CSP : PREVIEW_CSP,
+        bytes: size,
+        chatId,
+        assets: new Map(assets.map((asset) => [asset.name, asset])),
+      });
       bytes += size;
       return url;
     },
@@ -57,7 +65,7 @@ function createArtifactPreviews({ readAsset } = {}) {
         return new Response(entry.body, {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
-            "Content-Security-Policy": PREVIEW_CSP,
+            "Content-Security-Policy": entry.policy,
             "Cache-Control": "no-store",
             "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff",

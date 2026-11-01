@@ -37,7 +37,9 @@ const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
 // It is set per thread, where an unknown feature is ignored; `--enable` would refuse to start instead.
-const THREAD_CONFIG = { features: { default_mode_request_user_input: true } };
+// Async questions are emitted as agent messages, with no pending RPC to answer. Keep the supported question
+// tool exposed instead: it waits on item/tool/requestUserInput and both clients can answer its native card.
+const THREAD_CONFIG = { features: { default_mode_request_user_input: true, send_message_to_user_async: false } };
 
 // Milagre permission mode -> Codex policy. Ask asks before any command Codex doesn't already trust,
 // Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks. Bot rules asks
@@ -227,7 +229,7 @@ class CodexSession {
     this.turnActive = true;
     this.cancelRequested = false;
     this.guard = request.guard ?? null;
-    Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false });
+    Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false, asyncMessages: new Set() });
     let markReady;
     this.turnReady = new Promise((resolve) => {
       markReady = resolve;

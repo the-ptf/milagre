@@ -73,3 +73,16 @@ test("an Artifact preview's files load from its own address, read in chunks from
   previews.clear(1);
   assert.equal(previews.handle(new Request(`${url}/assets/clip.mp4`)).status, 404, "a released preview's files go with it");
 });
+
+test("inline replies have an independent sealed policy without the live Artifact helper", async () => {
+  const { htmlRenderShell } = require("@milagre/shared/html-render");
+  const previews = createArtifactPreviews();
+  const url = previews.register(1, htmlRenderShell('<button onclick="this.textContent=2">1</button>'), { inline: true });
+  const response = previews.handle(new Request(url));
+  const document = await response.text();
+  assert.match(document, /milagre:html-render/);
+  assert.doesNotMatch(document, /milagre:artifact-page/);
+  assert.doesNotMatch(response.headers.get("Content-Security-Policy"), /milagre-artifact:/);
+  previews.release(1, url);
+  assert.equal(previews.handle(new Request(url)).status, 404);
+});

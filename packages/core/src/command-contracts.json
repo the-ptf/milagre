@@ -5041,9 +5041,11 @@
           "items": {
             "$ref": "#/$defs/T60"
           }
+        },
+        "inline": {
+          "enum": [true]
         }
       },
-      "required": ["chatId", "assets"],
       "additionalProperties": false
     },
     "T60": {
