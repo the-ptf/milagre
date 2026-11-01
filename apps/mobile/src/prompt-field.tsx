@@ -15,7 +15,7 @@ import { useRpc } from "./use-rpc";
 import { Field, ListRow, PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
-import { useReturnKey } from "./hardware-keys";
+import { useOnScreenReturn, useReturnKey } from "./hardware-keys";
 import type { PastedImage } from "./attachment-picker";
 import {
   NOTICE_SECONDS,
@@ -29,7 +29,7 @@ import {
 } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { useDictationAction } from "./chat-display-setting";
-import { CAPSULE_INSET, CAPSULE_WIDTH, DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { CAPSULE_INSET, CAPSULE_WIDTH, DictationCapsule, MIC_INSET, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
@@ -40,8 +40,9 @@ const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 const GLYPHS = "MilagreChipGlyphs";
 const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
 const IMAGE_ICON = "#26a69a";
-// The mic sits over the field's trailing edge; the text stops short of it. The capsule needs a little more room.
-const MIC_WIDTH = MIC_SIZE + 2;
+// The mic sits over the field's trailing edge; the text stops short of it, 8pt before the mic and 6pt before the capsule.
+const MIC_ROOM = MIC_INSET.right + MIC_SIZE + 8;
+const CAPSULE_ROOM = CAPSULE_INSET.right + CAPSULE_WIDTH + 6;
 
 function useChipGlyphs() {
   const [ready, setReady] = useState(() => Font.isLoaded(GLYPHS));
@@ -128,6 +129,7 @@ export function PromptField({
   const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
   const enter = useReturnKey(paste.ref, onSubmit);
+  const onScreenReturn = useOnScreenReturn(onSubmit);
   const glyphs = useChipGlyphs();
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
   const skillList = data?.skills;
@@ -385,6 +387,7 @@ export function PromptField({
           }}
           label="Message"
           hideLabel
+          {...onScreenReturn}
           placeholder={placeholder}
           multiline
           autoCorrect
@@ -421,7 +424,7 @@ export function PromptField({
             maxHeight: 140,
             paddingHorizontal: 10,
             paddingVertical: 6,
-            ...(dictation.available ? { paddingRight: 10 + (capsule ? CAPSULE_WIDTH + 2 : MIC_WIDTH) } : null),
+            ...(dictation.available ? { paddingRight: capsule ? CAPSULE_ROOM : MIC_ROOM } : null),
           }}
         >
           <Text style={{ fontSize: inputSize, color: colors.ink }}>
@@ -473,7 +476,9 @@ export function PromptField({
           </Text>
         </Field>
         {dictation.available ? (
-          <View style={{ position: "absolute", right: capsule ? CAPSULE_INSET.right : 4, bottom: capsule ? CAPSULE_INSET.bottom : 6 }}>
+          <View
+            style={{ position: "absolute", right: capsule ? CAPSULE_INSET.right : MIC_INSET.right, bottom: capsule ? CAPSULE_INSET.bottom : MIC_INSET.bottom }}
+          >
             {dictationError ? (
               <DictationNotice
                 error={dictationError}

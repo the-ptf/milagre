@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type RefObject } from "react";
-import { Platform, TextInput, findNodeHandle, type TextInputInstance } from "react-native";
+import { Platform, TextInput, findNodeHandle, type TextInputInstance, type TextInputProps } from "react-native";
 import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
+import { useKeyboardState } from "react-native-keyboard-controller";
 import {
   evaluateWhen,
   keybindingCommand,
@@ -179,4 +180,23 @@ export function useReturnKey(ref: RefObject<TextInputInstance | null>, onReturn?
     };
   }, [enabled, attach]);
   return { attach };
+}
+
+const IS_IPAD = Platform.OS === "ios" && Platform.isPad;
+/**
+ * Taller than the bar of shortcuts an iPad shows over a hardware keyboard (about 55-70pt), shorter than any on-screen
+ * keyboard: what tells the two apart.
+ */
+const ON_SCREEN_KEYBOARD_MIN = 150;
+
+/**
+ * The return key of an iPad's on-screen keyboard sends, as Enter does on desktop. That keyboard can't say whether Shift was
+ * down, so a new line comes from a hardware keyboard's Shift+Return (or a paste): while only the shortcut bar shows, the
+ * field keeps adding lines and useReturnKey sends on Return. An iPhone's return key adds a line, as before.
+ */
+export function useOnScreenReturn(onReturn?: () => void): Pick<TextInputProps, "returnKeyType" | "submitBehavior" | "onSubmitEditing"> {
+  const onScreen = useKeyboardState((state) => state.isVisible && state.height >= ON_SCREEN_KEYBOARD_MIN);
+  if (!IS_IPAD || !onReturn) return {};
+  // The key reads Send from the start: switching its label while the keyboard is up waits for the next focus.
+  return { returnKeyType: "send", submitBehavior: onScreen ? "submit" : "newline", ...(onScreen ? { onSubmitEditing: () => onReturn() } : {}) };
 }
