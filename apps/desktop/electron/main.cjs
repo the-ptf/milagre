@@ -4,15 +4,12 @@ const { createQuitHandler } = require("./quit.cjs");
 const { createEditorOpener } = require("./editor-open.cjs");
 const {
   app,
-  BrowserWindow,
   clipboard,
   ClipboardItem,
-  dialog,
   ipcMain: electronIpcMain,
   Menu,
   nativeImage,
   Notification,
-  shell,
   protocol,
   safeStorage,
   powerMonitor,
@@ -40,6 +37,19 @@ const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
 const { createComputersLane } = require("./computers-lane.cjs");
+const { createBackgroundMode, isBackground } = require("./background-mode.cjs");
+// MILAGRE_BACKGROUND=1 (agents' and checks' copies): nothing of the app comes on screen; CDP still sees every window.
+const electron = require("electron");
+const background = createBackgroundMode({
+  enabled: isBackground(process.env),
+  platform: process.platform,
+  app,
+  BrowserWindow: electron.BrowserWindow,
+  shell: electron.shell,
+  dialog: electron.dialog,
+});
+const { BrowserWindow, shell, dialog } = background;
+const notificationsSupported = () => background.notifications(Notification.isSupported());
 protocol.registerSchemesAsPrivileged([
   // stream: an Artifact page's videos and audio play from its preview's address.
   { scheme: "milagre-artifact", privileges: { standard: true, secure: true, stream: true } },
@@ -76,6 +86,7 @@ async function startDesktop() {
   const indexFile = path.join(__dirname, "../dist/index.html");
   const appUrl = app.isPackaged ? pathToFileURL(indexFile).href : process.env.MILAGRE_DEV_SERVER_URL || "http://127.0.0.1:5173";
   const { createFloatingInbox } = require("./floating-inbox.cjs");
+  background.start();
   await app.whenReady();
   const preferences = require("./preferences.cjs").createPreferencesStore(path.join(app.getPath("userData"), "preferences.json"));
   // Synchronous writes finish before an updater can close the window.
@@ -319,6 +330,7 @@ async function startDesktop() {
   ipcMain.handle("image:copy", (_event, file) => copyImageFile(file));
   ipcMain.handle("image:save", (event, file, name) => saveImageFile(event, file, name));
   ipcMain.handle("image:menu", (event, file, name) => {
+    if (!background.menus) return;
     Menu.buildFromTemplate([
       { label: "Copy Image", click: () => void copyImageFile(file).catch(() => {}) },
       { label: "Save Image…", click: () => void saveImageFile(event, file, name).catch(() => {}) },
@@ -345,7 +357,7 @@ async function startDesktop() {
       return requireWorktreeRoot(root).catch(() => /** @type {Promise<string[]>} */ (runtime.invoke("project:plain-root", [root])));
     }
   }
-  const openEditor = createEditorOpener({ editors, open: openInEditor, checkRoot: checkEditorRoot });
+  const openEditor = createEditorOpener({ editors, open: background.editorOpener(openInEditor), checkRoot: checkEditorRoot });
   ipcMain.handle("editor:open", (_event, request) => openEditor(request));
   // Settings > Skills opens or reveals a SKILL.md wherever it lives (~/.claude/skills is no checkout), but only a file the
   // Project's skill catalog lists, so the renderer can't name any other file.
@@ -354,7 +366,7 @@ async function startDesktop() {
     if (typeof file !== "string" || ![...skills, ...shadowed].some((skill) => skill.path === file))
       throw new Error("That skill is no longer there. Reload the list.");
   }
-  const openSkillFile = createEditorOpener({ editors, open: openInEditor, checkRoot: async () => {} });
+  const openSkillFile = createEditorOpener({ editors, open: background.editorOpener(openInEditor), checkRoot: async () => {} });
   ipcMain.handle("skills:open", async (_event, { projectPath, file, editor } = {}) => {
     await checkSkillFile(projectPath, file);
     return openSkillFile({ root: path.dirname(file), path: path.basename(file), editor });
@@ -370,7 +382,7 @@ async function startDesktop() {
     if (!window) return;
     if (window.isMinimized()) window.restore();
     window.show();
-    if (process.platform === "darwin") app.focus({ steal: true });
+    background.focusApp();
     window.focus();
     window.webContents.send(channel, ...args);
   }
@@ -384,7 +396,7 @@ async function startDesktop() {
     playChime: (chime) => mainWindow?.webContents.send("notification:play-chime", chime),
     openChat: openChatFromNotification,
     openPhoneSettings: () => openFromNotification("notification:open-phone-settings"),
-    setBadge: (value) => app.dock?.setBadge(value),
+    setBadge: (value) => background.setBadge(value),
   });
 
   // The window reports the "Notify when waiting" setting, kept with its other settings.
@@ -398,19 +410,19 @@ async function startDesktop() {
   ipcMain.handle("settings:notification-schedule", (_event, schedule) => notifier.setSchedule(schedule));
 
   ipcMain.handle("notification:state", (_event, state) => notifier.sync(state));
-  ipcMain.handle("notification:completed", (_event, notice) => (Notification.isSupported() ? notifier.notifyCompletion(notice) : false));
+  ipcMain.handle("notification:completed", (_event, notice) => (notificationsSupported() ? notifier.notifyCompletion(notice) : false));
 
   // The theme's page color, pushed by the renderer whenever its theme resolves.
-  ipcMain.handle("settings:window-background", (event, background) => {
+  ipcMain.handle("settings:window-background", (event, color) => {
     const window = BrowserWindow.fromWebContents(event.sender);
-    if (window && !window.isDestroyed()) applyWindowBackground(window, background);
+    if (window && !window.isDestroyed()) applyWindowBackground(window, color);
   });
 
   let connectionState = { connected: true };
   ipcMain.handle("runtime:connection", () => connectionState);
   // Phones that paired while Milagre was closed are announced once it connects; the host keeps them until then.
   const deviceNotices = createDeviceNotices({
-    methods: () => (runtime && Notification.isSupported() ? runtime.hostMethods() : null),
+    methods: () => (runtime && notificationsSupported() ? runtime.hostMethods() : null),
     invoke: (method, args) => runtime.invoke(method, args),
     notifyPhones: (phones, options) => notifier.notifyPhonesPaired(phones, options),
     notifyDevice: (kind) => notifier.notifyDevicePaired(kind),
@@ -436,11 +448,11 @@ async function startDesktop() {
         }
         if (channel === "computers:event") {
           if (payload.channel === "agent:event") notifier.observe(payload.payload.chatId, payload.payload.event);
-          if (payload.channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload.payload);
+          if (payload.channel === "notification:waiting" && notifyWhenWaiting && notificationsSupported()) notifier.notify(payload.payload);
         }
         if (channel === "computers:forgotten") notifier.forgetComputer(payload.computerId);
         if (channel === "agent:event") notifier.observe(payload.chatId, payload.event);
-        if (channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload);
+        if (channel === "notification:waiting" && notifyWhenWaiting && notificationsSupported()) notifier.notify(payload);
         if (channel === "phone:paired") void deviceNotices.paired(payload);
         if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
         if (channel === "keybindings:changed" && payload?.rules) setForwardedRules(payload.rules);
@@ -453,7 +465,7 @@ async function startDesktop() {
         }
         if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
           mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
-        if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);
+        if (channel === "devices:pending" && notificationsSupported()) notifier.notifyComputerWaiting(payload?.requests);
         if (channel === "runtime:connection") {
           connectionState = payload;
           // A host started again after it went away can be newer, with more commands. (Not yet set during the first connect.)
@@ -543,7 +555,7 @@ async function startDesktop() {
     if (!window || window.isDestroyed()) return;
     if (window.isMinimized()) window.restore();
     window.show();
-    if (process.platform === "darwin") app.focus({ steal: true });
+    background.focusApp();
     window.focus();
   }
   registerHostMethods();
@@ -660,7 +672,7 @@ async function startDesktop() {
     app.setName("Milagre");
     if (process.platform === "darwin" && app.dock) {
       const appIcon = nativeImage.createFromPath(appIconPath);
-      if (!appIcon.isEmpty()) app.dock.setIcon(appIcon);
+      if (!appIcon.isEmpty()) background.setDockIcon(appIcon);
     }
     createWindow();
     void runtime.resumeRecentProjects().catch((error) => console.warn(error.message));
