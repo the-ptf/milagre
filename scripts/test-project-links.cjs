@@ -67,6 +67,8 @@ async function main() {
     cwd: projects[0],
     registryRoots: [],
     worktreeRoot,
+    // Its own Chats home: the default ~/.milagre/chats belongs to the Milagre running on this Mac.
+    chatsHome: path.join(dir, "chats-home"),
     environmentReady: Promise.resolve(),
     titleModels: {},
     agentCli: async () => ({ command: "/fake" }),
@@ -104,7 +106,8 @@ async function main() {
     for (const project of projects) await client.call("project:open", [project]);
     await client.call("project:open", [projects[0]]);
     const rendererUrl = process.env.MILAGRE_TEST_DEV_SERVER_URL || pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
-    const env = { ...process.env, MILAGRE_DEV_SERVER_URL: rendererUrl, MILAGRE_WORKTREE_ROOT: worktreeRoot };
+    // Off screen: no Dock icon, window or focus change on the Mac running it. MILAGRE_BACKGROUND=0 shows the app.
+    const env = { MILAGRE_BACKGROUND: "1", ...process.env, MILAGRE_DEV_SERVER_URL: rendererUrl, MILAGRE_WORKTREE_ROOT: worktreeRoot };
     delete env.ELECTRON_RUN_AS_NODE;
     // Other windows on a busy machine cover this one; macOS then pauses its animation frames and the canvas and panels never finish.
     const unthrottled = ["--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"];

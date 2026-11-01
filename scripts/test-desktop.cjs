@@ -91,6 +91,8 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
   console.log(`CHECK: ${expectTheme ? "installed" : "source"} desktop${expectStartupError ? " ownership recovery" : onboarding ? " onboarding" : ""}`);
   const env = { ...process.env };
   env.MILAGRE_CHATS_HOME = path.join(profile, "chats-home");
+  // Off screen: no Dock icon, window or focus change on the Mac running it. MILAGRE_BACKGROUND=0 shows the app.
+  env.MILAGRE_BACKGROUND ??= "1";
   delete env.ELECTRON_RUN_AS_NODE;
   // Onboarding reads agent history from these: a fake Claude Code history names one folder without Git.
   if (onboarding) Object.assign(env, { CLAUDE_CONFIG_DIR: onboarding.claudeHome, CODEX_HOME: onboarding.codexHome, MILAGRE_ONBOARDING_TEMP_FOLDERS: "1" });
