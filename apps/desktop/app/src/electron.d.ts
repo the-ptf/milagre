@@ -19,6 +19,7 @@ import type {
   TranscriptState,
   ChatMessage,
   Routine,
+  RoutineFallback,
   RoutineRun,
   RoutineTarget,
   RoutineTrigger,
@@ -107,6 +108,8 @@ export type RoutineUpdate = Partial<Pick<Routine, "name" | "prompt" | "enabled">
   provider?: ModelProvider | null;
   model?: string | null;
   permissionMode?: string | null;
+  /** The model a Run retries on after a provider-side failure; null goes back to the automatic pick. */
+  fallback?: RoutineFallback | null;
   trigger?: RoutineTrigger;
   target?: RoutineTarget;
   /** Webhook Routines: a new HMAC secret (write-only, never read back) and the header the signature comes in (null or blank: the default). */
@@ -116,7 +119,7 @@ export type RoutineUpdate = Partial<Pick<Routine, "name" | "prompt" | "enabled">
 
 /** A Routine the user makes in the Routines form. It is always theirs (`createdBy` is set by the Mac). */
 export type RoutineCreate = Pick<Routine, "name" | "prompt" | "trigger" | "target"> &
-  Partial<Pick<Routine, "provider" | "model" | "permissionMode" | "maxRuns" | "expiresAt">> & {
+  Partial<Pick<Routine, "provider" | "model" | "permissionMode" | "fallback" | "maxRuns" | "expiresAt">> & {
     /** Webhook Routines: the HMAC secret, write-only (signs the Routine), and the header the signature comes in. */
     signingSecret?: string;
     signingHeader?: string;

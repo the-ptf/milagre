@@ -5,6 +5,7 @@ import {
   EVERY_MINUTES,
   deleteWarning,
   emptyRoutineForm,
+  fallbackApplies,
   firstRunAt,
   promptHint,
   formFromRoutine,
@@ -183,6 +184,7 @@ test("a Routine opens in the form and saves back as an update of what changed", 
       provider: "codex",
       model: null,
       permissionMode: null,
+      fallback: null,
       maxRuns: null,
       expiresAt: null,
     },
@@ -399,4 +401,36 @@ test("firstRunAt reads the schedule on its own time zone's clock", () => {
   assert.equal(firstRunAt(form({ mode: "cron", cron: "0 9 * * *" }), now), null);
   assert.equal(firstRunAt({ ...form({}), trigger: "linear" }, now), null);
   assert.equal(firstRunAt(form({ mode: "every", every: 7, unit: "min" }), now), null);
+});
+
+test("a picked fallback goes into the input and the patch; automatic leaves create without one and clears it on update", () => {
+  const form = { ...linearForm(), fallbackProvider: "codex", fallbackModel: " gpt-6.1-sol ", fallbackEffort: "high" };
+  assert.deepEqual(formToInput(form, NOW).input.fallback, { provider: "codex", model: "gpt-6.1-sol", effort: "high" });
+  assert.equal("fallback" in formToInput(linearForm(), NOW).input, false);
+  const routine = { ...formToInput(form, NOW).input, id: "r1", enabled: true, runCount: 0, createdAt: NOW, updatedAt: NOW, createdBy: { kind: "user" } };
+  const opened = formFromRoutine(routine, "UTC", NOW);
+  assert.deepEqual([opened.fallbackProvider, opened.fallbackModel, opened.fallbackEffort], ["codex", "gpt-6.1-sol", "high"]);
+  assert.deepEqual(formToUpdate({ ...opened, fallbackEffort: "" }, routine, NOW).patch.fallback, { provider: "codex", model: "gpt-6.1-sol" });
+  assert.equal(formToUpdate({ ...opened, fallbackProvider: "", fallbackModel: "" }, routine, NOW).patch.fallback, null);
+});
+
+test("only Runs in a Chat of their own retry: a Heartbeat and a comment Routine have no fallback", () => {
+  assert.equal(fallbackApplies(linearForm()), true);
+  assert.equal(fallbackApplies({ ...linearForm(), runIn: "project" }), true);
+  assert.equal(fallbackApplies({ ...linearForm(), runIn: "chat" }), false);
+  assert.equal(fallbackApplies({ ...linearForm(), linear: { ...linearForm().linear, event: "comment" } }), false);
+  const heartbeat = withRunIn(
+    {
+      ...emptyRoutineForm("UTC", NOW),
+      name: "beat",
+      prompt: "p",
+      chatId: "/code/app#3",
+      projectPath: "/code/app",
+      fallbackProvider: "codex",
+      fallbackModel: "gpt-6.1-sol",
+    },
+    "chat",
+    NOW,
+  );
+  assert.equal("fallback" in formToInput(heartbeat, NOW).input, false);
 });

@@ -370,7 +370,7 @@ async function browserChecks() {
           `JSON.stringify([...document.querySelectorAll('[data-routine-editor] [data-routine-chips] button')].map((chip) => chip.textContent.trim()))`,
         ),
       ),
-      ["Every hour", "New Worktree in milagre-ade", "Default model", "Default mode"],
+      ["Every hour", "New Worktree in milagre-ade", "Default model", "Retry on another provider", "Default mode"],
     );
     assert.match(
       await evaluate(`document.querySelector('[data-routine-runs-placeholder]').textContent`),

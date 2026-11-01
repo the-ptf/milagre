@@ -204,6 +204,11 @@ export interface AgentSession {
    * until it waits on an approval or question; it is absent on a Chat made before Run Chats were hidden.
    */
   routine?: { routineId: string; runId: string; hidden?: boolean };
+  /**
+   * Set on a Run's Chat whose Worktree Milagre removed once the Run ended leaving nothing in it: the Chat is archived and
+   * kept on the Project folder's Worktree so its Run's history still opens it, and a send into it is refused.
+   */
+  formerWorktree?: { path: string; name: string; branch?: string };
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
   /**
@@ -486,6 +491,29 @@ export type RoutineEvent =
 
 export type RoutineRunStatus = "running" | "acted" | "quiet" | "failed" | "skipped-busy" | "missed";
 
+/**
+ * The model a Run in a Chat of its own retries on, once, when its attempt fails for a provider-side reason (the model at
+ * capacity, a rate or usage limit, the agent exiting unexpectedly). A Routine without one retries on another installed
+ * provider's recommended model.
+ */
+export interface RoutineFallback {
+  provider: ModelProvider;
+  model: string;
+  effort?: EffortLevel;
+}
+
+/** An attempt of a Run that failed and was retried on the fallback: its Chat, what it ran on and how it failed. */
+export interface RoutineRunAttempt {
+  chatId?: string;
+  worktreeId?: string;
+  provider?: ModelProvider;
+  model?: string;
+  effort?: EffortLevel;
+  startedAt: number;
+  endedAt: number;
+  error: string;
+}
+
 export interface Routine {
   id: string;
   name: string;
@@ -495,6 +523,8 @@ export interface Routine {
   provider?: ModelProvider;
   model?: string;
   permissionMode?: string;
+  /** What a Run retries on after a provider-side failure; unset, another installed provider's recommended model. */
+  fallback?: RoutineFallback;
   enabled: boolean;
   createdBy: { kind: "agent"; chatId: string } | { kind: "user" };
   maxRuns?: number;
@@ -535,6 +565,10 @@ export interface RoutineRun {
   error?: string;
   /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
   rejected?: boolean;
+  /** Earlier attempts that failed for a provider-side reason; `chatId` and `status` are the last attempt's. */
+  attempts?: RoutineRunAttempt[];
+  /** Set when the last attempt was the retry: the model it ran on. */
+  fallback?: RoutineFallback;
 }
 
 /**

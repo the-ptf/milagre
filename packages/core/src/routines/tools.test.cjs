@@ -429,3 +429,42 @@ test("routine_update keeps a Heartbeat's Chat; routine_create, whose Runs start 
   assert.equal((await call("routine_update", { id: heartbeat.id, prompt: "check the PR again" })).isError, false);
   assert.deepEqual(kept, [CHAT]);
 });
+
+test("routine_create and routine_update set the fallback a failed Run retries on, and null clears it", async () => {
+  const { store, call } = setup();
+  const made = await call("routine_create", {
+    name: "nightly",
+    prompt: "p",
+    trigger: "schedule",
+    every: "2h",
+    fallbackProvider: "codex",
+    fallbackModel: "gpt-6.1-sol",
+    fallbackEffort: "high",
+  });
+  assert.equal(made.isError, false);
+  assert.match(made.text, /retries on codex gpt-6\.1-sol \(high\)\.$/);
+  const [routine] = store.list();
+  assert.deepEqual(routine.fallback, { provider: "codex", model: "gpt-6.1-sol", effort: "high" });
+
+  const changed = await call("routine_update", { id: routine.id, fallbackProvider: "claude", fallbackModel: "claude-opus-5-5" });
+  assert.equal(changed.isError, false);
+  assert.deepEqual(store.get(routine.id).fallback, { provider: "claude", model: "claude-opus-5-5" });
+  const cleared = await call("routine_update", { id: routine.id, fallbackProvider: null });
+  assert.match(cleared.text, /retries on another installed provider's recommended model\.$/);
+  assert.equal(store.get(routine.id).fallback, undefined);
+
+  // A provider without a model, or a model without a provider, is refused before anything is saved.
+  assert.equal((await call("routine_update", { id: routine.id, fallbackModel: "gpt-6.1-sol" })).isError, true);
+  assert.equal((await call("routine_create", { name: "x", prompt: "p", trigger: "schedule", every: "2h", fallbackProvider: "claude" })).isError, true);
+  assert.equal(
+    (await call("routine_create", { name: "y", prompt: "p", trigger: "schedule", every: "2h", fallbackProvider: "gpt", fallbackModel: "m" })).isError,
+    true,
+  );
+  assert.equal(store.list().length, 1);
+});
+
+test("the prompt limit stays at 4000 characters", async () => {
+  const { call } = setup();
+  assert.equal((await call("routine_create", { name: "long", prompt: "p".repeat(4001), trigger: "schedule", every: "2h" })).isError, true);
+  assert.equal((await call("routine_create", { name: "fits", prompt: "p".repeat(4000), trigger: "schedule", every: "2h" })).isError, false);
+});

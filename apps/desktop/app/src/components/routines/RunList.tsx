@@ -14,7 +14,7 @@ import {
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
-import { clock, daySummary, foldText, foldTimes, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
+import { attemptText, clock, daySummary, foldText, foldTimes, retryNote, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
 import { ThisComputer } from "../../lib/shortcut-hints";
 
 type HugeIconData = typeof CheckmarkCircle02Icon;
@@ -35,18 +35,25 @@ const firstLine = (text: string | undefined) =>
 
 /** A Run that did something: its icon and color, and the words its row shows (a failed one says why, in red). */
 function runLook(run: RoutineRun, routineName: string): { icon: HugeIconData; spin?: boolean; tone: string; text: string; failed?: boolean } {
-  if (run.status === "running") return { icon: Loading03Icon, spin: true, tone: "text-ink-3", text: runTitle(run, routineName) };
+  // A Run that ran on its fallback says so after its words.
+  const note = retryNote(run);
+  const noted = (text: string) => (note ? `${text} · ${note}` : text);
+  if (run.status === "running") return { icon: Loading03Icon, spin: true, tone: "text-ink-3", text: noted(runTitle(run, routineName)) };
   if (run.status === "failed") {
     const error = firstLine(run.error);
-    return { icon: Alert02Icon, tone: "text-red-ink", text: error ? `Failed: ${error}` : "Failed", failed: true };
+    return { icon: Alert02Icon, tone: "text-red-ink", text: noted(error ? `Failed: ${error}` : "Failed"), failed: true };
   }
-  return { icon: CheckmarkCircle02Icon, tone: "text-ink-3", text: runTitle(run, routineName) };
+  return { icon: CheckmarkCircle02Icon, tone: "text-ink-3", text: noted(runTitle(run, routineName)) };
 }
 
 /** A folded Run as its line says it: a quiet one its summary, a skipped one that its Chat was busy, and so on. */
 function foldedLine(run: RoutineRun): { icon: HugeIconData; text: string } {
   if (run.rejected) return { icon: UnavailableIcon, text: firstLine(run.error) ?? "Refused" };
-  if (run.status === "quiet") return { icon: Moon02Icon, text: run.summary?.trim() || "Quiet" };
+  if (run.status === "quiet") {
+    const note = retryNote(run);
+    const text = run.summary?.trim() || "Quiet";
+    return { icon: Moon02Icon, text: note ? `${text} · ${note}` : text };
+  }
   if (run.status === "skipped-busy") return { icon: NextIcon, text: "Its Chat was busy" };
   return { icon: Clock01Icon, text: `${ThisComputer} missed its time` };
 }
@@ -160,6 +167,25 @@ export function RunList({
       return next;
     });
   const openable = (run: RoutineRun) => (run.chatId && canOpen(run.chatId) ? run.chatId : undefined);
+  // The attempts a Run retried after, each a muted line under it that opens its own Chat while it is there.
+  const attempts = (run: RoutineRun) =>
+    (run.attempts ?? []).map((attempt) => {
+      const chat = attempt.chatId && canOpen(attempt.chatId) ? attempt.chatId : undefined;
+      return (
+        <Row
+          key={`${run.id}:attempt:${attempt.endedAt}`}
+          data-routine-run-attempt={`${run.id}:${attempt.endedAt}`}
+          time=""
+          icon={<Icon icon={Alert02Icon} className="text-ink-3" />}
+          text={attemptText(attempt)}
+          title={attempt.error}
+          muted
+          selected={chat !== undefined && chat === selectedChat}
+          trailing={chat ? chevron : undefined}
+          onClick={chat ? () => onOpenChat(chat) : undefined}
+        />
+      );
+    });
 
   const entry = (item: RunEntry) => {
     if (item.kind === "run") {
@@ -167,7 +193,7 @@ export function RunList({
       const look = runLook(run, routineName);
       // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
       const chat = openable(run);
-      return (
+      const row = (
         <Row
           key={run.id}
           data-routine-run={run.id}
@@ -182,6 +208,14 @@ export function RunList({
           trailing={chat ? chevron : undefined}
           onClick={chat ? () => onOpenChat(chat) : undefined}
         />
+      );
+      return run.attempts?.length ? (
+        <div key={run.id}>
+          {row}
+          {attempts(run)}
+        </div>
+      ) : (
+        row
       );
     }
     const key = `fold:${item.runs[item.runs.length - 1]!.id}`;
@@ -201,7 +235,7 @@ export function RunList({
           item.runs.map((run) => {
             const line = foldedLine(run);
             const chat = run.status === "quiet" && !run.rejected ? openable(run) : undefined;
-            return (
+            return [
               <Row
                 key={run.id}
                 data-routine-run={run.id}
@@ -214,8 +248,9 @@ export function RunList({
                 selected={chat !== undefined && chat === selectedChat}
                 trailing={chat ? chevron : undefined}
                 onClick={chat ? () => onOpenChat(chat) : undefined}
-              />
-            );
+              />,
+              ...attempts(run),
+            ];
           })}
       </div>
     );

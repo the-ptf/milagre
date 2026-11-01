@@ -22,6 +22,7 @@ const UPDATABLE = new Set([
   "provider",
   "model",
   "permissionMode",
+  "fallback",
   "trigger",
   "target",
   "signingHeader",
@@ -164,6 +165,15 @@ function checkTarget(value) {
     default:
       throw new Error("target kind must be chat or new-chat");
   }
+}
+
+// The model a Run in a Chat of its own retries on once when its own model fails for a provider-side reason (see
+// scheduler.cjs providerFailure): a provider and a model, and an effort when it names one.
+function checkFallback(value) {
+  if (!isObject(value)) throw new Error("fallback must be an object with a provider and a model");
+  const fallback = { provider: checkText(value.provider, "fallback provider", 40), model: checkText(value.model, "fallback model", 200) };
+  if (value.effort != null) fallback.effort = checkText(value.effort, "fallback effort", 40);
+  return fallback;
 }
 
 function checkCreatedBy(value) {
@@ -747,6 +757,7 @@ function createRoutineStore({
     const createdBy = checkCreatedBy(input.createdBy);
     const routine = { id: id(), name, prompt, trigger, target, enabled: true, createdBy, runCount: 0, createdAt: at, updatedAt: at };
     for (const key of ["provider", "model", "permissionMode"]) if (input[key] != null) routine[key] = checkText(input[key], key);
+    if (input.fallback != null) routine.fallback = checkFallback(input.fallback);
     if (input.maxRuns != null) routine.maxRuns = checkMaxRuns(input.maxRuns);
     if (input.signingHeader != null) routine.signingHeader = checkSigningHeader(input.signingHeader, trigger);
     if (input.expiresAt != null) routine.expiresAt = checkExpiresAt(input.expiresAt, at);
@@ -764,7 +775,7 @@ function createRoutineStore({
 
   /**
    * Changes a Routine. `trigger` and `target` replace the stored one whole, after the same checks as `create`, and must be
-   * of the same kind. `null` clears provider, model, permissionMode, maxRuns and expiresAt. Nothing changes unless all of it is valid.
+   * of the same kind. `null` clears provider, model, permissionMode, fallback, maxRuns and expiresAt. Nothing changes unless all of it is valid.
    */
   function update(routineId, patch) {
     return transact((state, tx) => {
@@ -782,6 +793,8 @@ function createRoutineStore({
         if (patch[key] === null) delete next[key];
         else if (patch[key] !== undefined) next[key] = checkText(patch[key], key);
       }
+      if (patch.fallback === null) delete next.fallback;
+      else if (patch.fallback !== undefined) next.fallback = checkFallback(patch.fallback);
       if (patch.maxRuns === null) delete next.maxRuns;
       else if (patch.maxRuns !== undefined) next.maxRuns = checkMaxRuns(patch.maxRuns);
       if (patch.expiresAt === null) {
@@ -1083,6 +1096,31 @@ function createRoutineStore({
     });
   }
 
+  /**
+   * Turns a Run whose attempt failed for a provider-side reason into its retry on `fallback` ({ provider, model, effort? }).
+   * The failed attempt is kept on the Run (`attempts`: its Chat, the settings it ran on, its error and when it ended), and
+   * the Run goes on running, so it ends, and counts, once. A Run retries once: null when it already did, or isn't running.
+   */
+  function retryRun(runId, { error, provider, model, effort, fallback }) {
+    checkText(error, "error");
+    const next = checkFallback(fallback);
+    return transact((state, tx) => {
+      const found = findRun(state, runId);
+      if (!found || found.run.status !== "running" || found.run.fallback) return null;
+      const at = now();
+      const attempt = { startedAt: found.run.startedAt, endedAt: at, error };
+      if (found.run.chatId !== undefined) attempt.chatId = found.run.chatId;
+      if (found.run.worktreeId !== undefined) attempt.worktreeId = found.run.worktreeId;
+      if (provider != null) attempt.provider = provider;
+      if (model != null) attempt.model = model;
+      if (effort != null) attempt.effort = effort;
+      found.run.attempts = [...(found.run.attempts ?? []), attempt];
+      found.run.fallback = next;
+      tx.changed = true;
+      return copy(found.run);
+    });
+  }
+
   function finishRun(runId, { status, summary, error, chatId, title }) {
     if (!FINISH_STATUSES.has(status)) throw new Error(`Invalid run status: ${JSON.stringify(status)}`);
     return transact((state, tx) => {
@@ -1260,6 +1298,7 @@ function createRoutineStore({
     claimQueued,
     deferRun,
     attachChat,
+    retryRun,
     finishRun,
     setRunTitle,
     // How many Runs are under way, in every Routine, a completed one's last Run included.

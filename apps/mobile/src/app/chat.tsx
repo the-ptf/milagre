@@ -100,7 +100,17 @@ import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
-import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
+import {
+  chatBranchLabel,
+  RUN_WORKTREE_REMOVED_NOTE,
+  chatRoutine,
+  clock,
+  groupQuietRuns,
+  isRoutineRun,
+  mergedRoutineRunText,
+  routineRunOf,
+  routineRunText,
+} from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -1945,7 +1955,7 @@ function ChatPane({
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
                 <Icon icon={GitBranchIcon} tone="ink3" size={11} />
                 <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
-                  {worktree?.name ?? ""}
+                  {chatBranchLabel(chat, worktree?.name) ?? ""}
                 </Text>
                 <Text style={{ fontSize: 12 }}>
                   <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
@@ -2082,7 +2092,14 @@ function ChatPane({
       onActivity={openActivity}
     />
   ) : null;
-  const sendDisabled = busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!chat?.archived || (!offline && unavailable);
+  const sendDisabled =
+    busy ||
+    picking ||
+    (newWorktree && !base) ||
+    (!draft.trim() && !attachments.length) ||
+    !!chat?.archived ||
+    !!chat?.formerWorktree ||
+    (!offline && unavailable);
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
@@ -2170,16 +2187,22 @@ function ChatPane({
                     <Text style={styles.caption}>Demo agent. Send tools, approval, question, or slow to try the controls.</Text>
                   )}
                   {session.providerError ? <Text style={styles.caption}>{session.providerError}</Text> : null}
-                  {chat?.archived && (
+                  {chat?.formerWorktree ? (
                     <View style={styles.card}>
-                      <Text style={styles.muted}>This Chat is archived. Restore it to send a message.</Text>
-                      <PillButton
-                        title="Restore Chat"
-                        disabled={busy}
-                        onPress={() => void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]))}
-                        style={{ alignSelf: "flex-start" }}
-                      />
+                      <Text style={styles.muted}>{RUN_WORKTREE_REMOVED_NOTE}</Text>
                     </View>
+                  ) : (
+                    chat?.archived && (
+                      <View style={styles.card}>
+                        <Text style={styles.muted}>This Chat is archived. Restore it to send a message.</Text>
+                        <PillButton
+                          title="Restore Chat"
+                          disabled={busy}
+                          onPress={() => void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]))}
+                          style={{ alignSelf: "flex-start" }}
+                        />
+                      </View>
+                    )
                   )}
                   {/* A new Chat's empty state is the centred "Start building in" line instead. */}
                   {!messages.length && !run && !pageLoading && !historyPage.error && !startingChat && (

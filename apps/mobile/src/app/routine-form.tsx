@@ -32,6 +32,7 @@ import {
   EVERY_HOURS,
   EVERY_MINUTES,
   emptyRoutineForm,
+  fallbackApplies,
   formFromRoutine,
   formToInput,
   formToUpdate,
@@ -265,6 +266,11 @@ export default function RoutineFormSheet() {
   const models = providers.flatMap((provider) => modelsFor(provider, session.models).map((model) => ({ ...model, provider })));
   const model = models.find((item) => item.provider === form.provider && item.id === form.model);
   const mode = PERMISSION_MODES.find((item) => item.id === form.permissionMode);
+  // The model a failed Run retries on, and its effort; automatic when none is picked (see fallbackApplies).
+  const fallbackModel = models.find((item) => item.provider === form.fallbackProvider && item.id === form.fallbackModel);
+  const fallbackName = fallbackModel?.name ?? (form.fallbackModel || "Another provider");
+  const fallbackEfforts = fallbackModel?.efforts ?? [];
+  const effortName = (effort: string) => `${effort.charAt(0).toUpperCase()}${effort.slice(1)}`;
   const zones = timezones();
   const placeholders = placeholdersFor(
     (form.trigger === "linear"
@@ -702,6 +708,66 @@ export default function RoutineFormSheet() {
             >
               <FormRow icon={SparklesIcon} label="Model" value={model?.name ?? (form.model || "Default")} />
             </PullDown>
+            {fallbackApplies(form) ? (
+              <PullDown
+                label="Fallback"
+                title="Retry on"
+                searchable={{ placeholder: "Search models", emptyLabel: "No matching models" }}
+                nativeTrigger={shows(fallbackName)}
+                sections={[
+                  {
+                    items: [
+                      {
+                        id: DEFAULT,
+                        title: "Another provider",
+                        subtitle: "When a Run fails on its model, it retries once on another installed provider",
+                        checked: !form.fallbackModel,
+                      },
+                      ...models.map((item) => ({
+                        id: `${item.provider}:${item.id}`,
+                        title: item.name,
+                        subtitle: providerName(item.provider),
+                        checked: item === fallbackModel,
+                      })),
+                    ],
+                  },
+                ]}
+                onSelect={(choice) => {
+                  if (choice === DEFAULT) change({ fallbackProvider: "", fallbackModel: "", fallbackEffort: "" });
+                  else {
+                    const split = choice.indexOf(":");
+                    const provider = choice.slice(0, split) as ModelProvider;
+                    const modelId = choice.slice(split + 1);
+                    const efforts = models.find((item) => item.provider === provider && item.id === modelId)?.efforts ?? [];
+                    // Another model drops an effort it doesn't take.
+                    change({
+                      fallbackProvider: provider,
+                      fallbackModel: modelId,
+                      fallbackEffort: efforts.includes(form.fallbackEffort) ? form.fallbackEffort : "",
+                    });
+                  }
+                }}
+              >
+                <FormRow icon={Refresh01Icon} label="Fallback" value={fallbackName} />
+              </PullDown>
+            ) : null}
+            {fallbackApplies(form) && form.fallbackModel && (fallbackEfforts.length > 0 || form.fallbackEffort) ? (
+              <PullDown
+                label="Fallback effort"
+                title="Fallback effort"
+                sections={[
+                  {
+                    items: [
+                      { id: DEFAULT, title: "Default", subtitle: "The model's own default", checked: !form.fallbackEffort },
+                      ...fallbackEfforts.map((effort) => ({ id: effort, title: effortName(effort), checked: effort === form.fallbackEffort })),
+                    ],
+                  },
+                ]}
+                onSelect={(choice) => change({ fallbackEffort: choice === DEFAULT ? "" : choice })}
+              >
+                <FormRow icon={Refresh01Icon} label="Fallback effort" value={form.fallbackEffort ? effortName(form.fallbackEffort) : "Default"} />
+              </PullDown>
+            ) : null}
             <PullDown
               label="Mode"
               title="Permissions"

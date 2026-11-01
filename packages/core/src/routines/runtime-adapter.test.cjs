@@ -2091,3 +2091,30 @@ test("a babysit Heartbeat deleted by its own Chat's stop rule, or by hand, says 
   assert.equal(notes.length, 2);
   await routines.stop();
 });
+
+test("a retry's Chat goes beside the failed one, in its Worktree, and its send carries the fallback's model and effort", async () => {
+  const { adapter, calls, sent } = newChatFixture();
+  const chat = await adapter.retryChat({ routine: triage(), run: { id: "run-5" }, chatId: "/project#4" });
+  // No new Worktree: the failed attempt's is still in the Project.
+  assert.deepEqual(calls.created, []);
+  assert.equal(calls.emptyChats[0].worktreeId, 7);
+  assert.equal(calls.emptyChats[0].options.fresh, true);
+  assert.deepEqual(calls.emptyChats[0].options.origin, { routineId: "r9", runId: "run-5" });
+  assert.deepEqual(chat, { chatId: "/project#4", worktreeId: "7", createdWorktree: false });
+  await adapter.send("/project#4", {
+    body: "b",
+    prompt: "p",
+    context: { kind: "routine-run", runId: "run-5" },
+    settings: { provider: "claude", model: "claude-opus-5-5", effort: "high", permissionMode: "full" },
+  });
+  assert.equal(sent[0].provider, "claude");
+  assert.equal(sent[0].model, "claude-opus-5-5");
+  assert.equal(sent[0].effort, "high");
+});
+
+test("a retry whose Worktree left the Project makes a new one, as the Run's first Chat was made", async () => {
+  const { adapter, calls } = newChatFixture();
+  const chat = await adapter.retryChat({ routine: triage(), run: { id: "run-5" }, chatId: "/project#99" });
+  assert.equal(calls.created.length, 1);
+  assert.equal(chat.createdWorktree, true);
+});

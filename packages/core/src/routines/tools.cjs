@@ -2,6 +2,7 @@ const path = require("node:path");
 const { z } = require("zod");
 const { clock, triggerText } = require("@milagre/shared/routines");
 const { projectOfKey } = require("@milagre/shared/agent-runs");
+const { PROVIDERS } = require("@milagre/shared/providers");
 const { everyToCron } = require("./cron.cjs");
 
 // Milagre's routine tools, the same for every provider: an agent sets, lists, changes and stops heartbeats that
@@ -51,6 +52,34 @@ function summary(routine) {
 }
 
 const LINEAR_EVENTS = ["assigned", "label-added", "state", "comment"];
+
+const FALLBACK_HINT =
+  "When a Run fails for a provider-side reason (model at capacity, rate or usage limit, the agent exiting unexpectedly), Milagre retries it once, right away, on this model. Without one it retries on another installed provider's recommended model.";
+const fallbackFields = (clearable) => ({
+  fallbackProvider: (clearable ? z.enum(PROVIDERS).nullable() : z.enum(PROVIDERS))
+    .optional()
+    .describe(`The provider a failed Run retries on; give it with fallbackModel. ${clearable ? "null goes back to the automatic pick. " : ""}${FALLBACK_HINT}`),
+  fallbackModel: z.string().min(1).max(200).optional().describe("The model id the retry runs on, as the model picker lists it."),
+  fallbackEffort: z.string().min(1).max(40).optional().describe("The retry's effort, e.g. medium or high; the model's default when left out."),
+});
+
+// The fallback a tool call names: undefined when it names none, null when it clears it (routine_update), else
+// { provider, model, effort? }.
+function fallbackOf({ fallbackProvider, fallbackModel, fallbackEffort }) {
+  if (fallbackProvider === null) {
+    if (fallbackModel !== undefined || fallbackEffort !== undefined)
+      throw new Error("fallbackProvider null clears the fallback: leave out fallbackModel and fallbackEffort.");
+    return null;
+  }
+  if (fallbackProvider === undefined && fallbackModel === undefined && fallbackEffort === undefined) return undefined;
+  if (fallbackProvider === undefined || fallbackModel === undefined) throw new Error("Give fallbackProvider and fallbackModel together.");
+  return { provider: fallbackProvider, model: fallbackModel, ...(fallbackEffort !== undefined ? { effort: fallbackEffort } : {}) };
+}
+
+const fallbackText = (routine) =>
+  routine.fallback
+    ? `${routine.fallback.provider} ${routine.fallback.model}${routine.fallback.effort ? ` (${routine.fallback.effort})` : ""}`
+    : "another installed provider's recommended model";
 
 // A Linear trigger with `changes` applied. What isn't given stays (its workspace, team, event and the event's filter); a
 // label belongs only to label-added and a state only to state, and each of those events needs its own.
@@ -173,9 +202,11 @@ function createRoutineTools({
           state: z.string().min(1).max(80).optional().describe("For linearEvent state: the state the issue moves to."),
           workspace: z.string().min(1).max(80).optional().describe("The Linear workspace. Needed only when several are connected."),
           projectWorkspace: z.enum(["worktree", "project"]).optional().describe("Where a Run works: a new Worktree (default) or the Project folder."),
+          ...fallbackFields(false),
         },
         readOnly: false,
-        run: async ({ name, prompt, trigger, cron, every, timezone, linearEvent, team, label, state, workspace, projectWorkspace }) => {
+        run: async ({ name, prompt, trigger, cron, every, timezone, linearEvent, team, label, state, workspace, projectWorkspace, ...fallbackInput }) => {
+          const fallback = fallbackOf(fallbackInput);
           let built;
           if (trigger === "schedule") {
             if ((cron === undefined) === (every === undefined)) throw new Error("Give exactly one of cron or every, not both and not neither.");
@@ -212,16 +243,17 @@ function createRoutineTools({
             provider: settings.provider,
             model: settings.model,
             permissionMode: settings.permissionMode,
+            ...(fallback ? { fallback } : {}),
             createdBy: { kind: "agent", chatId },
           });
           const where = mode === "project" ? "in the Project folder" : "in a new Worktree";
-          return `Routine "${routine.name}" set: ${triggerText(routine.trigger)}, runs ${where} in ${path.basename(project)}.`;
+          return `Routine "${routine.name}" set: ${triggerText(routine.trigger)}, runs ${where} in ${path.basename(project)}${routine.fallback ? `, retries on ${fallbackText(routine)}` : ""}.`;
         },
       },
       {
         name: ROUTINE_UPDATE,
         description:
-          "Change a Routine in this Chat's Project: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn), a Linear trigger's linearEvent, team, label or state, or pause it with enabled false. A Linear trigger keeps the filters you don't give; label-added needs a label and state needs a state.",
+          "Change a Routine in this Chat's Project: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn), a Linear trigger's linearEvent, team, label or state, the fallback model a failed Run retries on, or pause it with enabled false. A Linear trigger keeps the filters you don't give; label-added needs a label and state needs a state.",
         input: {
           id: z.string().min(1).max(64),
           name: z.string().min(1).max(80).optional(),
@@ -236,10 +268,12 @@ function createRoutineTools({
           team: z.string().max(80).nullable().optional().describe('For a linear trigger: only issues of this team key. null or "" clears it.'),
           label: z.string().min(1).max(80).optional().describe("For linearEvent label-added: the label."),
           state: z.string().min(1).max(80).optional().describe("For linearEvent state: the state the issue moves to."),
+          ...fallbackFields(true),
         },
         readOnly: false,
-        run: async ({ id, every, expiresIn, linearEvent, team, label, state, ...rest }) => {
+        run: async ({ id, every, expiresIn, linearEvent, team, label, state, fallbackProvider, fallbackModel, fallbackEffort, ...rest }) => {
           const current = own(id);
+          const fallback = fallbackOf({ fallbackProvider, fallbackModel, fallbackEffort });
           if (rest.cron !== undefined && every !== undefined) throw new Error("Give cron or every, not both.");
           if (rest.timezone !== undefined) checkTimezone(rest.timezone);
           const patch = Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
@@ -247,9 +281,10 @@ function createRoutineTools({
           if (expiresIn !== undefined) patch.expiresAt = now() + expiresInMs(expiresIn);
           if ([linearEvent, team, label, state].some((value) => value !== undefined))
             patch.trigger = linearTrigger(current.trigger, { linearEvent, team, label, state });
+          if (fallback !== undefined) patch.fallback = fallback;
           const routine = store.update(id, patch);
           if (routine.target?.kind === "chat") await keepChat(routine.target.chatId);
-          return `Updated "${routine.name}": ${summary(routine)}.`;
+          return `Updated "${routine.name}": ${summary(routine)}${fallback !== undefined ? `, retries on ${fallbackText(routine)}` : ""}.`;
         },
       },
       {

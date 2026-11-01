@@ -13,7 +13,7 @@ import {
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
-import { clock, daySummary, foldText, foldTimes, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
+import { attemptText, clock, daySummary, foldText, foldTimes, retryNote, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
 import { Icon, SpinnerRing, type IconData, type Tone } from "./icons";
 import { ChatMarkIcon } from "./status-indicators";
 import { Button, useStyles } from "./ui";
@@ -32,18 +32,25 @@ const firstLine = (text: string | undefined) =>
 
 /** A Run that did something: its icon (none while it runs: a spinner), its tone, and its words (a failed one says why). */
 function runLook(run: RoutineRun, routineName: string): { icon?: IconData; tone: Tone; text: string; failed?: boolean } {
-  if (run.status === "running") return { tone: "ink3", text: runTitle(run, routineName) };
+  // A Run that ran on its fallback says so after its words, as on desktop.
+  const note = retryNote(run);
+  const noted = (text: string) => (note ? `${text} · ${note}` : text);
+  if (run.status === "running") return { tone: "ink3", text: noted(runTitle(run, routineName)) };
   if (run.status === "failed") {
     const error = firstLine(run.error);
-    return { icon: Alert02Icon, tone: "red", text: error ? `Failed: ${error}` : "Failed", failed: true };
+    return { icon: Alert02Icon, tone: "red", text: noted(error ? `Failed: ${error}` : "Failed"), failed: true };
   }
-  return { icon: CheckmarkCircle02Icon, tone: "ink3", text: runTitle(run, routineName) };
+  return { icon: CheckmarkCircle02Icon, tone: "ink3", text: noted(runTitle(run, routineName)) };
 }
 
 /** A folded Run as its line says it: a quiet one its summary, a skipped one that its Chat was busy, and so on. */
 function foldedLine(run: RoutineRun): { icon: IconData; text: string } {
   if (run.rejected) return { icon: UnavailableIcon, text: firstLine(run.error) ?? "Refused" };
-  if (run.status === "quiet") return { icon: Moon02Icon, text: run.summary?.trim() || "Quiet" };
+  if (run.status === "quiet") {
+    const note = retryNote(run);
+    const text = run.summary?.trim() || "Quiet";
+    return { icon: Moon02Icon, text: note ? `${text} · ${note}` : text };
+  }
   if (run.status === "skipped-busy") return { icon: NextIcon, text: "Its Chat was busy" };
   return { icon: Clock01Icon, text: "This Mac missed its time" };
 }
@@ -145,6 +152,21 @@ export function RunList({
     </Pressable>
   );
 
+  // The attempts a Run retried after: a muted line each, under it, that opens its own Chat while it is there.
+  const attempts = (run: RoutineRun) =>
+    (run.attempts ?? []).map((attempt) => {
+      const chat = attempt.chatId && canOpen(attempt.chatId) ? attempt.chatId : undefined;
+      return row({
+        key: `${run.id}:attempt:${attempt.endedAt}`,
+        when: "",
+        icon: <Icon icon={Alert02Icon} tone="ink3" size={16} />,
+        text: attemptText(attempt),
+        muted: true,
+        trailing: chat ? ArrowRight01Icon : undefined,
+        onPress: chat ? () => onOpenChat(chat) : undefined,
+      });
+    });
+
   const entry = (item: RunEntry) => {
     if (item.kind === "run") {
       const { run } = item;
@@ -162,6 +184,7 @@ export function RunList({
           trailing: chat ? ArrowRight01Icon : undefined,
           onPress: chat ? () => onOpenChat(chat) : undefined,
         }),
+        ...attempts(run),
       ];
     }
     const key = `fold:${item.runs[item.runs.length - 1]!.id}`;
@@ -178,19 +201,22 @@ export function RunList({
         expandedState: open,
       }),
       ...(open
-        ? item.runs.map((run) => {
+        ? item.runs.flatMap((run) => {
             const line = foldedLine(run);
             const chat = run.status === "quiet" && !run.rejected ? openable(run) : undefined;
-            return row({
-              key: run.id,
-              when: clock(run.startedAt),
-              icon: <Icon icon={line.icon} tone="ink3" size={16} />,
-              text: line.text,
-              muted: true,
-              unread: chat !== undefined && unreadChats.has(chat),
-              trailing: chat ? ArrowRight01Icon : undefined,
-              onPress: chat ? () => onOpenChat(chat) : undefined,
-            });
+            return [
+              row({
+                key: run.id,
+                when: clock(run.startedAt),
+                icon: <Icon icon={line.icon} tone="ink3" size={16} />,
+                text: line.text,
+                muted: true,
+                unread: chat !== undefined && unreadChats.has(chat),
+                trailing: chat ? ArrowRight01Icon : undefined,
+                onPress: chat ? () => onOpenChat(chat) : undefined,
+              }),
+              ...attempts(run),
+            ];
           })
         : []),
     ];

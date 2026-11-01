@@ -1,4 +1,4 @@
-import type { AgentSession, ChatMessage, Routine, RoutineRun, RoutineRunContext, RoutineTrigger } from "./model.ts";
+import type { AgentSession, ChatMessage, ModelProvider, Routine, RoutineRun, RoutineRunAttempt, RoutineRunContext, RoutineTrigger } from "./model.ts";
 
 /**
  * The divider a message stands for, or null. A `routine-run` message gives its own context. A `linear-issue` message that
@@ -98,6 +98,17 @@ export function triggerChipText(trigger: RoutineTrigger, localZone?: string): st
 export function routineWhereText(target: Routine["target"], chatTitle?: (chatId: string) => string | undefined): string;
 /** A Run's name: its own `title`, else "<key> <title>" for a Linear event, else the Routine's name. */
 export function runTitle(run: RoutineRun, routineName: string): string;
+/** The line of a Run's attempt that failed and was retried: "First try on gpt-6.1-sol failed: <first line of its error>". */
+export function attemptText(attempt: RoutineRunAttempt): string;
+/** Whether a Routine's Runs retry on a fallback: only Runs in a Chat of their own. */
+export function routineRetries(routine: Pick<Routine, "target" | "trigger">): boolean;
+/** "Retry on <model name>[ · effort]", or "Retry on another provider" when the Routine names no fallback. */
+export function fallbackText(routine: Pick<Routine, "fallback">, nameOf?: (provider: ModelProvider, model: string) => string | undefined): string;
+/** "retried on <model>" for a Run that ran on its fallback, "" otherwise. */
+export function retryNote(run: RoutineRun): string;
+/** The branch a Chat's header names: its Worktree's, or "<branch> · removed" for a Run's Chat whose Worktree went. */
+export function chatBranchLabel(session: Pick<AgentSession, "formerWorktree"> | null | undefined, worktreeName: string | undefined): string | undefined;
+export const RUN_WORKTREE_REMOVED_NOTE: string;
 /** The not archived Chats whose `routine.hidden` is set, across Projects. `chatKey` is "<path>#<id>". */
 export function hiddenRunChats(
   scopes: ReadonlyArray<{ path: string; state: { sessions: Record<string, AgentSession> } }>,

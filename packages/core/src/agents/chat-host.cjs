@@ -141,6 +141,8 @@ const hasMessages = (state, session) => (session.summary?.count ?? 0) > 0 || sta
 
 // A new chat in a worktree takes its chat that has no messages yet, if there is one (not a handover still
 // waiting for its brief or holding it as a draft, nor one a Routine's Run made); otherwise one is made. Resolves the state with it.
+const FORMER_WORKTREE = "This Run's Worktree was removed because the Run left nothing in it. Start a new Chat to continue.";
+
 function starterChat(latest, worktree) {
   const existing = Object.values(latest.sessions).find(
     (item) => item.worktree_id === worktree.id && !item.handoverPending && item.handoverDraft === undefined && !item.routine && !hasMessages(latest, item),
@@ -974,6 +976,9 @@ class ChatHost {
           )
             throw Object.assign(new Error("This continuation was cancelled or superseded."), { limitResumeStale: true });
         }
+        // A Run's Chat whose Worktree was removed once the Run left nothing behind (routines/run-worktree.cjs) is kept to
+        // read: it sits on the Project folder's Worktree only to outlive its own, and must never run there.
+        if (session?.formerWorktree) throw new Error(FORMER_WORKTREE);
         // A chat runs in its own worktree; a new one goes to the worktree asked for.
         const worktree = session?.workspacePath ? { path: session.workspacePath } : latest.worktrees[session?.worktree_id ?? request.worktreeId];
         if (!worktree) throw new Error("That worktree is no longer in the project.");
