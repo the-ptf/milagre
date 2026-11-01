@@ -128,6 +128,7 @@ import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
+import { SubchatPanel, SubchatPill, useSubchatPanel } from "../subchat-pill";
 import { useTheme } from "../theme";
 import { ToastPill } from "../primitives/toast";
 import { undoHistory, useHistoryToast } from "../undo-history";
@@ -977,6 +978,11 @@ function ChatPane({
   // The Tasks pill grows into its panel over the transcript; the panel is drawn at the screen's root, above the composer.
   const planPanel = usePlanPanel(
     params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
+    `${session.snapshot?.project?.path}#${params.id}`,
+  );
+  // The Subchats pill, the same way: the Chats this Chat's Delegations made, in a panel over the transcript.
+  const subchatPanel = useSubchatPanel(
+    params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined,
     `${session.snapshot?.project?.path}#${params.id}`,
   );
   // Polled here, not in the chip: a command serving one of these ports leaves the background line.
@@ -2099,7 +2105,7 @@ function ChatPane({
             {!paired && sidebar}
             {!paired && more}
             <View style={{ flex: 1 }}>
-              <PanelSwipe panels={panels} covered={planPanel.phase !== "closed"}>
+              <PanelSwipe panels={panels} covered={planPanel.phase !== "closed" || subchatPanel.phase !== "closed"}>
                 {/* The header clearance is in paddingTop; an automatic iOS inset would add it a second time. */}
                 <KeyboardChatScrollView
                   key={scrollKey}
@@ -2448,6 +2454,7 @@ function ChatPane({
                         style={{ marginHorizontal: -12, flexGrow: 0 }}
                         contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
                       >
+                        {chat && !chatsHomeOpen && <SubchatPill panel={subchatPanel} messages={messages} />}
                         {prAction && prActionRequest && chat && !chatsHomeOpen && (
                           <PullRequestAction
                             pr={prAction.pr}
@@ -3008,6 +3015,7 @@ function ChatPane({
               />
             )}
             <PlanPanel panel={planPanel} />
+            <SubchatPanel panel={subchatPanel} messages={messages} onOpenChat={openFamilyChat} />
           </View>
         </PanelTabsContext>
       </ChatLinkProvider>

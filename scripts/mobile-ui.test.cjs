@@ -337,6 +337,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/subchats" && !(id in modules)) return require("../packages/shared/src/subchats.ts");
       if (base === "subchat-rows" && !(id in modules))
         return load("subchat-rows.ts", { "@milagre/shared/subchats": require("../packages/shared/src/subchats.ts") }, "", cache);
+      // The Subchats pill and panel read the session, the Mac's Routines and a clock: a test draws them as named elements, with no
+      // Subchat. A Delegation report's marker (subchat-marker.tsx) is one too; the states it reads (subchat-states.ts) are pure.
+      if (base === "subchat-pill" && !(id in modules))
+        return { SubchatPill: "SubchatPill", SubchatPanel: "SubchatPanel", useSubchatPanel: () => ({ phase: "closed", keys: [] }) };
+      if (base === "subchat-marker" && !(id in modules)) return { SubchatMarker: "SubchatMarker" };
+      if (id === "@milagre/shared/subchat-states" && !(id in modules)) return require("../packages/shared/src/subchat-states.ts");
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
       // The iPad panel's dragged width, kept on the device; a test keeps the default.
@@ -997,7 +1003,7 @@ function planPanelHost(initial) {
   const backs = [];
   const keyboard = { height: 0, listeners: [] };
   const window = { width: 402, height: 874 };
-  const { usePlanPanel, PlanPill, PlanPanel } = load("plan-pill.tsx", {
+  const { usePlanPanel, PlanPill, PlanPanel, PillPanel } = load("plan-pill.tsx", {
     react: { ...react, memo: (component) => component },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
@@ -1074,7 +1080,9 @@ function planPanelHost(initial) {
     react.begin();
     const panel = usePlanPanel(host.plan, "c1");
     if (host.column) panel.attachRoom({ measureInWindow: (done) => done(host.column.x, 700, host.column.width, 174) });
-    const tree = { pill: PlanPill({ panel }), overlay: PlanPanel({ panel }) };
+    // The Tasks panel is the shared PillPanel around its tree; a test reads it expanded.
+    const planPanel = PlanPanel({ panel });
+    const tree = { pill: PlanPill({ panel }), overlay: planPanel?.type === PillPanel ? PillPanel(planPanel.props) : planPanel };
     const chip = find(tree.pill, (node) => node.type === "StatusPill");
     if (chip) chip.props.chipRef({ measureInWindow: (done) => done(host.pill.x, host.pill.y, host.pill.width, host.pill.height) });
     const root = tree.overlay;
@@ -12985,8 +12993,32 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
   line.props.onPress();
   assert.deepEqual(opened, ["/api#2"]);
   const report = { kind: "delegation-report", delegationId: "d", from: "/web#3", fromLabel: "web / main / Fix", status: "done" };
-  const back = ChatReply({ message: { id: 5, session_id: 2, role: "assistant", body: "Renamed it.", context: report }, media: () => null, onActivity() {} });
-  assert.deepEqual(header(back).props.context, report);
+  // A Subchat's report is one marker line over its body, the sender's key opening that Chat.
+  const back = ChatReply({
+    message: { id: 5, session_id: 2, role: "assistant", body: "Renamed it.", context: report },
+    media: () => null,
+    onActivity() {},
+    onOpenChat: (key) => opened.push(key),
+  });
+  assert.equal(back.type, "SubchatMarker");
+  assert.deepEqual(back.props.marker, { text: "Fix finished", kind: "done" });
+  assert.equal(back.props.chat, "/web#3");
+  assert.equal(back.props.body, "Renamed it.");
+  assert.equal(header(back), undefined, "no sender line over the marker");
+  const failed = ChatReply({
+    message: { id: 7, session_id: 2, role: "assistant", body: "Tests broke.", context: { ...report, status: "failed" } },
+    media: () => null,
+    onActivity() {},
+  });
+  assert.deepEqual(failed.props.marker, { text: "Fix failed", kind: "failed" });
+  // A Negotiation round keeps its sender line and full text.
+  const round = { ...report, negotiation: { round: 2 } };
+  const negotiation = ChatReply({
+    message: { id: 8, session_id: 2, role: "assistant", body: "My position.", context: round },
+    media: () => null,
+    onActivity() {},
+  });
+  assert.deepEqual(header(negotiation).props.context, round);
   // An ordinary message has no sender line.
   assert.equal(
     header(ChatReply({ message: { id: 6, session_id: 2, role: "user", body: "Hi", context: null }, media: () => null, onActivity() {} })),
