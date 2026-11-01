@@ -2424,32 +2424,22 @@ for (const reactCompiler of [false, true])
   });
 
 for (const reactCompiler of [false, true])
-  test(`usage revision isolates pending account reads and closes the old connection (compiler: ${reactCompiler})`, async () => {
+  test(`account usage source changes isolate pending reads and close the old connection (compiler: ${reactCompiler})`, async () => {
     const host = hookHost({ effects: true });
-    const listeners = new Set(),
-      connections = [],
+    const connections = [],
       reads = [];
-    const AppState = {
-      currentState: "active",
-      addEventListener: (_event, fn) => {
-        listeners.add(fn);
-        return { remove: () => listeners.delete(fn) };
-      },
-    };
-    const react = {
-      ...host,
-      useSyncExternalStore(subscribe, snapshot) {
-        host.useEffect(() => subscribe(() => {}), [subscribe]);
-        return snapshot();
-      },
-    };
-    const client = {
-      call(method) {
+    const source = () => ({
+      cached() {
         const pending = deferred();
-        reads.push({ method, ...pending });
+        reads.push({ method: "cached", ...pending });
         return pending.promise;
       },
-      live() {
+      read() {
+        const pending = deferred();
+        reads.push({ method: "read", ...pending });
+        return pending.promise;
+      },
+      subscribe() {
         const connection = {
           closed: 0,
           close() {
@@ -2457,45 +2447,43 @@ for (const reactCompiler of [false, true])
           },
         };
         connections.push(connection);
-        return connection;
+        return () => connection.close();
       },
-    };
-    const { useUsage } = load(
-      "use-usage.ts",
-      {
-        react,
-        "react/compiler-runtime": compilerRuntime(host),
-        "react-native": { AppState },
-        "./usage-state": require("../apps/mobile/src/usage-state.ts"),
-      },
+    });
+    const sources = [source(), source()];
+    const { useAccountUsage } = load(
+      "../../../packages/shared/src/use-account-usage.ts",
+      { react: host, "react/compiler-runtime": compilerRuntime(host), "./usage": require("@milagre/shared/usage") },
       "",
       new Map(),
       reactCompiler,
     );
     const render = (revision) => {
       host.begin();
-      return useUsage(client, "/p", revision);
+      return useAccountUsage(sources[revision]);
     };
     try {
       const old = render(0);
+      const oldRead = old.refresh();
       assert.equal(reads.length, 2);
       assert.equal(render(0).refresh, old.refresh);
-      assert.equal(reads.length, 2, "same revision keeps the store and its pending reads");
+      assert.equal(reads.length, 2, "the same source keeps its pending requests");
       assert.equal(render(1).snapshot, null);
-      assert.equal(reads.length, 4, "new account gets fresh cached and live reads");
+      const newRead = render(1).refresh();
+      assert.equal(reads.length, 4, "the new computer gets its own cached and live reads");
       assert.equal(connections[0].closed, 1);
-      assert.equal(listeners.size, 1);
       for (const read of reads.slice(2)) read.resolve({ accountKey: "new-account", providers: [] });
+      await newRead;
       await settle();
       assert.equal(render(1).snapshot.accountKey, "new-account");
       for (const read of reads.slice(0, 2)) read.resolve({ accountKey: "old-account", providers: [] });
+      await oldRead;
       await settle();
       assert.equal(render(1).snapshot.accountKey, "new-account");
       assert.equal(connections.length, 2);
     } finally {
       host.unmount();
     }
-    assert.equal(listeners.size, 0);
     assert.equal(connections[1].closed, 1);
   });
 
