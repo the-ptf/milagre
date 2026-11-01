@@ -1,0 +1,9 @@
+{
+  "about": "Earlier turns of a Chat about the dictation code, as the `chat` variant's Chat. It names some of the corpus's files and functions and not others (routines.mjs, wrangler, mobile-bridge.cjs), as a real Chat would.",
+  "messages": [
+    "Dictation drops technical words. Can you look at how the phone and the desktop transcribe?",
+    "Both apps stream audio through `createStreamingDictation` in `packages/shared/src/voice-stream.ts`, and the take is written into the draft by `insertDictation` and `writeTake` in `voice-dictation.ts`.\n\nOn desktop, `useDictation.ts` asks `dictation:context` for the project's words and passes them to Whisper through `whisperPrompt` (`packages/shared/src/dictation.mjs`). The phone does the same in `voice-dictation-hook.ts`, and `PromptComposer.tsx` hosts the mic on desktop. Tests live in `dictation.test.mjs`.",
+    "Ok, and the Apple path on the iPhone?",
+    "`voice-transcription.ios.ts` sends the words to Apple's `DictationTranscriber` as contextual strings. The `OTA` that shipped last week still has the old vocabulary."
+  ]
+}
