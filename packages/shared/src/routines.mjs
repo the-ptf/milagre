@@ -577,11 +577,15 @@ export function chatLeft(states, chatKey) {
 }
 
 /**
- * Whether a Run's row opens its Chat. While the client holds its Project's state, only a Chat still there does (chatLeft,
- * archived or not): a Worktree removed with its Chat leaves nothing to open. A Project the client holds no state for can't
- * tell, so the row opens, and opening the Chat loads that Project (the desktop window by path, as the canvas does; the
- * phone's Chat screen, which says so if the Chat is gone).
+ * The branch a Chat's header names: its Worktree's, or for a Run's Chat whose Worktree went once the Run left nothing in
+ * it (`formerWorktree`), that Worktree's branch and that it was removed ("milagre/chat-ab12 · removed").
  */
+export function chatBranchLabel(session, worktreeName) {
+  const former = session?.formerWorktree;
+  return former ? `${former.branch ?? former.name} · removed` : worktreeName;
+}
+
+/** Whether a Run's row can open its saved Chat, including after its Worktree was removed. */
 export function canOpenRunChat(states, chatKey) {
   return !states[projectOfKey(chatKey)] || chatLeft(states, chatKey);
 }

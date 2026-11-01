@@ -389,9 +389,71 @@ test("a schedule Routine starts a Chat of its own in a new Worktree; a quiet Run
   assert.ok(f.tool("heartbeat_create"), "the Chat the user started keeps them");
 
   const worktreeId = session.worktree_id;
+  const worktreePath = state.worktrees[worktreeId].path;
   agent.finish("(pass) inbox empty");
   await eventually(async () => (await latestRun(f)).status === "quiet");
   await eventually(async () => !(await snapshot(f)).worktrees[worktreeId], { timeoutMs: 10_000 });
+  await f.runtime.routines.idle();
+  await assertKeptRunChat(f, session.id, worktreePath, run);
+});
+
+// A Run's Chat whose Worktree went: still in the Project, archived, on the Project folder's Worktree with where it ran,
+// its messages kept, openable from its Run, and refusing a send.
+async function assertKeptRunChat(f, sessionId, worktreePath, run) {
+  await assert.rejects(fs.access(worktreePath), "the checkout is gone");
+  const latest = await snapshot(f);
+  const kept = latest.sessions[sessionId];
+  assert.ok(kept, "the Run's Chat stays");
+  assert.equal(kept.archived, true);
+  assert.equal(latest.worktrees[kept.worktree_id].path, f.project);
+  assert.equal(kept.formerWorktree.path, worktreePath);
+  assert.match(kept.formerWorktree.branch, /^milagre\//);
+  assert.deepEqual(kept.routine, { routineId: run.routineId, runId: run.id, hidden: true });
+  assert.ok(
+    latest.messages.some((message) => message.session_id === sessionId && message.role === "user"),
+    "its messages stay",
+  );
+  assert.equal((await latestRun(f)).chatId, `${f.project}#${sessionId}`);
+  await assert.rejects(
+    f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId, body: "One more thing", provider: "claude", model: "cm" }]),
+    /Worktree was removed because the Run left nothing in it/,
+  );
+}
+
+test("an acted Run that left nothing in its Worktree removes it and keeps its Chat, archived", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  await createTriage(f);
+  await f.beat();
+  const { state, session, agent } = await runChat(f);
+  const run = await latestRun(f);
+  const worktreePath = state.worktrees[session.worktree_id].path;
+  agent.finish("Replied on the issue; nothing to change here.");
+  await eventually(async () => (await latestRun(f)).status === "acted");
+  await eventually(async () => !(await snapshot(f)).worktrees[session.worktree_id], { timeoutMs: 10_000 });
+  await f.runtime.routines.idle();
+  await assertKeptRunChat(f, session.id, worktreePath, run);
+});
+
+test("an acted Run that committed in its Worktree keeps it, and its Chat as it was", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  await createTriage(f);
+  await f.beat();
+  const { state, session, agent } = await runChat(f);
+  const worktree = state.worktrees[session.worktree_id];
+  await fs.writeFile(path.join(worktree.path, "fix.md"), "fixed\n");
+  const git = (...args) => execFileSync("git", ["-c", "user.email=qa@example.com", "-c", "user.name=QA", ...args], { cwd: worktree.path });
+  git("add", "fix.md");
+  git("commit", "-qm", "fix");
+  agent.finish("Committed the fix.");
+  await eventually(async () => (await latestRun(f)).status === "acted");
+  await f.runtime.routines.idle();
+  const latest = await snapshot(f);
+  assert.ok(latest.worktrees[session.worktree_id], "the Worktree stays");
+  assert.equal(latest.sessions[session.id].worktree_id, session.worktree_id);
+  assert.equal(latest.sessions[session.id].archived, undefined);
+  assert.equal(latest.sessions[session.id].formerWorktree, undefined);
 });
 
 // Models that name a scheduled run (and only that: a Chat's first message gets no title from them).

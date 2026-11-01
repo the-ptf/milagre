@@ -34,6 +34,7 @@ import {
   fallbackText,
   retryNote,
   routineRetries,
+  chatBranchLabel,
   runWhen,
   triggerText,
   unreadRunChats,
@@ -739,4 +740,14 @@ test("a retried Run's history names the first try, the model it retried on and w
   assert.equal(routineRetries({ target, trigger: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }), true);
   assert.equal(routineRetries({ target, trigger: { kind: "linear", workspace: "w", event: "comment" } }), false);
   assert.equal(routineRetries({ target: { kind: "chat", chatId: "/p#1" }, trigger: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }), false);
+});
+
+test("a Run's Chat whose Worktree went names its old branch as removed; any other Chat names its Worktree's", () => {
+  assert.equal(
+    chatBranchLabel({ formerWorktree: { path: "/w/chat-ab12", name: "chat-ab12", branch: "milagre/chat-ab12" } }, "main"),
+    "milagre/chat-ab12 · removed",
+  );
+  assert.equal(chatBranchLabel({ formerWorktree: { path: "/w/chat-ab12", name: "chat-ab12" } }, "main"), "chat-ab12 · removed");
+  assert.equal(chatBranchLabel({}, "fix-login"), "fix-login");
+  assert.equal(chatBranchLabel(null, undefined), undefined);
 });

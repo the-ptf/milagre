@@ -631,7 +631,7 @@ function triggers({ chatOptions = {} } = {}) {
   const clock = { t: START };
   let n = 0;
   const store = createRoutineStore({ file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` });
-  const calls = { start: [], send: [], patch: [], archive: [], linked: [], defer: [], order: [], name: [] };
+  const calls = { start: [], send: [], patch: [], archive: [], retire: [], linked: [], defer: [], order: [], name: [] };
   const state = { busy: new Set(), linked: "c1", gate: null, startError: null, createdWorktree: true, reply: "", nameError: null };
   const chats = {
     exists: () => true,
@@ -670,6 +670,11 @@ function triggers({ chatOptions = {} } = {}) {
     async archive(chatId, options) {
       calls.order.push("archive");
       calls.archive.push({ chatId, ...options });
+    },
+    async retireWorktree(chatIds) {
+      calls.order.push("retire");
+      calls.retire.push(chatIds);
+      return { removed: true };
     },
     async nameRun(chatId, runId, options) {
       calls.name.push({ chatId, runId, options, status: runStatus(store, runId) });
@@ -767,7 +772,7 @@ test("a due schedule trigger with a new-chat target starts a Chat, records it on
   assert.ok(ctx.changes() > 0);
 });
 
-test("a quiet first turn archives the new Chat after its divider is patched, and removes the Worktree it made", async () => {
+test("a quiet first turn archives the new Chat after its divider is patched, then retires the Worktree it made", async () => {
   const ctx = triggers();
   const routine = createSchedule(ctx);
   nextSlot(ctx, routine);
@@ -780,11 +785,12 @@ test("a quiet first turn archives the new Chat after its divider is patched, and
   assert.equal(run.summary, "inbox empty");
   assert.equal(run.chatId, "new1");
   assert.deepEqual(ctx.calls.patch, [{ chatId: "new1", runId: run.id, patch: { quiet: true, summary: "inbox empty" }, session: { unread: false } }]);
-  assert.deepEqual(ctx.calls.archive, [{ chatId: "new1", removeWorktree: true }]);
-  assert.deepEqual(ctx.calls.order, ["patch", "patched", "archive"]);
+  assert.deepEqual(ctx.calls.archive, [{ chatId: "new1", removeWorktree: false }]);
+  assert.deepEqual(ctx.calls.retire, [["new1"]]);
+  assert.deepEqual(ctx.calls.order, ["patch", "patched", "archive", "retire"]);
 });
 
-test("an acted first turn keeps its Chat", async () => {
+test("an acted first turn keeps its Chat unarchived and asks for the Worktree it made to be retired", async () => {
   const ctx = triggers();
   const routine = createSchedule(ctx);
   nextSlot(ctx, routine);
@@ -795,6 +801,39 @@ test("an acted first turn keeps its Chat", async () => {
   assert.equal(ctx.store.runs(routine.id)[0].status, "acted");
   assert.deepEqual(ctx.calls.patch[0].patch, { quiet: false });
   assert.deepEqual(ctx.calls.archive, []);
+  assert.deepEqual(ctx.calls.retire, [["new1"]]);
+});
+
+test("a failed Run in a new Chat retires its Worktree too; one in the Project folder, or one that made no Worktree, doesn't", async () => {
+  const ctx = triggers();
+  const routine = createSchedule(ctx);
+  nextSlot(ctx, routine);
+  await tickAndSettle(ctx);
+  ctx.scheduler.observe("new1", { type: "turn-started" });
+  ctx.scheduler.observe("new1", { type: "turn-failed", message: "npm test failed" });
+  await ctx.raw.idle();
+  assert.equal(ctx.store.runs(routine.id)[0].status, "failed");
+  assert.deepEqual(ctx.calls.archive, []);
+  assert.deepEqual(ctx.calls.retire, [["new1"]]);
+
+  const folder = triggers();
+  folder.state.createdWorktree = false;
+  const inFolder = createSchedule(folder);
+  nextSlot(folder, inFolder);
+  await tickAndSettle(folder);
+  endTurn(folder, "new1", "Sorted 4 issues.");
+  await folder.raw.idle();
+  assert.deepEqual(folder.calls.retire, []);
+});
+
+test("a Run whose turn never started retires the Worktree it made", async () => {
+  const ctx = triggers({ chatOptions: { send: async () => ({ started: Promise.resolve({}) }) } });
+  const routine = createSchedule(ctx);
+  nextSlot(ctx, routine);
+  await tickAndSettle(ctx);
+  await ctx.raw.idle();
+  assert.equal(ctx.store.runs(routine.id)[0].status, "failed");
+  assert.deepEqual(ctx.calls.retire, [["new1"]]);
 });
 
 test("an acted Run in a new Chat asks for the Run and its Chat to be named, once the Run has ended", async () => {
@@ -817,7 +856,7 @@ test("a quiet Run in a new Chat passes its summary to be named, and the Chat is 
   await ctx.raw.idle();
   const run = ctx.store.runs(routine.id)[0];
   assert.deepEqual(ctx.calls.name, [{ chatId: "new1", runId: run.id, options: { quietSummary: "inbox empty" }, status: "quiet" }]);
-  assert.deepEqual(ctx.calls.archive, [{ chatId: "new1", removeWorktree: true }]);
+  assert.deepEqual(ctx.calls.archive, [{ chatId: "new1", removeWorktree: false }]);
 });
 
 test("a failed Run in a new Chat is not named", async () => {
@@ -940,7 +979,7 @@ test("the Run is pending before its first message is awaited: a turn that ends w
   nextSlot(ctx, routine);
   await tickAndSettle(ctx);
   assert.equal(ctx.store.runs(routine.id)[0].status, "quiet");
-  assert.deepEqual(ctx.calls.archive, [{ chatId: "new1", removeWorktree: true }]);
+  assert.deepEqual(ctx.calls.archive, [{ chatId: "new1", removeWorktree: false }]);
 });
 
 test("five queued webhook events start three Chats, and the fourth starts once one of them ends", async () => {

@@ -149,7 +149,7 @@ import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { chatFamily, OpenSubchatContext } from "./lib/subchat-rows";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
+import { canOpenRunChat, chatBranchLabel, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
@@ -3835,7 +3835,7 @@ function App() {
                     <RunChatHeader
                       chatKey={focusedChatKey}
                       title={chatTitle(selectedSession, displayedMessages)}
-                      branch={showGit ? selectedWorktree?.name : undefined}
+                      branch={showGit ? chatBranchLabel(selectedSession, selectedWorktree?.name) : undefined}
                       onClose={closeRunPane}
                     />
                   )}

@@ -72,6 +72,7 @@ const { registerCheckpoints } = require("./checkpoint-runtime.cjs");
 const { createSentFromNotes } = require("./sent-from.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
 const { createPullRequestReader, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
+const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
 const { createPullRequestWatch } = require("./pull-request-watch.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents } = require("./project-state.cjs");
@@ -1586,6 +1587,42 @@ function createRuntime(options) {
         await environmentReady;
         return (await worktreeStatus(worktree.path, worktree.base).catch(() => null))?.removable === true;
       },
+      // A Run's Worktree once the Run ended: it goes when it left nothing behind, and the Run's Chats stay, archived
+      // (routines/run-worktree.cjs). Tracked like a removal, so closing waits for it.
+      retire: (projectPath, worktreeId, chatIds) =>
+        track(
+          () =>
+            retireRunWorktree({
+              projectPath,
+              worktreeId,
+              chatIds,
+              state: async (scope) => (states.has(scope) ? states.get(scope) : null),
+              busy: (chatKey) => Boolean(chats.runs?.[chatKey] || chats.startingTurns?.has(chatKey) || chats.isBusy?.(chatKey)),
+              status: async (worktree) => {
+                await environmentReady;
+                return worktreeStatus(worktree.path, worktree.base).catch(() => null);
+              },
+              hasRemote: async (worktree) => Boolean((await git.text(worktree.path, ["remote"])).trim()),
+              openPullRequest: async (worktree) => {
+                const lookup = await readPullRequestStateOf(worktree.path).catch(() => ({ known: false, pr: null }));
+                return { known: lookup.known, open: lookup.pr?.state === "OPEN" };
+              },
+              // What runs for the Chat stops before its Worktree goes, as removeOwnWorktree's closeSession does.
+              closeChat: async (chatKey) => {
+                terminals.closeChat(chatKey);
+                await advisorDelivery.stop(chatKey);
+                await advisors.stopChat(chatKey);
+                await worktreeSetups.cancel(chatKey);
+                await agents.closeChat(chatKey);
+              },
+              moveChats: (scope, sessionIds, change) => moveRunChats(scope, sessionIds, change),
+              remove: async (worktree) => {
+                const result = await handlers.get("worktree:remove")({}, worktree.path, { projectPath });
+                if (!result?.removed && !result?.alreadyRemoved) throw new Error("The Worktree wasn't removed.");
+              },
+            }),
+          background,
+        ),
       base: async (projectPath) => (await git.resolveBase(projectPath).catch(() => ({ name: "main" }))).name,
       projectWorktree: async (projectPath) => Object.values((await linkedState(projectPath)).worktrees).find((worktree) => worktree.path === projectPath)?.id,
     },
@@ -1961,6 +1998,43 @@ function createRuntime(options) {
     stopping.catch(() => {});
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
     void track(() => stopping, background).catch((error) => console.warn("Milagre couldn't stop an archived Chat's work:", error.message));
+  }
+  /**
+   * Moves a Run's Chats off the Worktree about to be removed, so they outlive it: archived, on the Project folder's
+   * Worktree, with `formerWorktree` naming where they ran (a send into one is refused, see ChatHost.send). `archive` names
+   * empty Chats there, which only get archived. Resolves with what each was before; `{ restore }` puts those back when the
+   * removal failed.
+   */
+  async function moveRunChats(projectPath, sessionIds, { worktreeId, formerWorktree, archive = [], restore }) {
+    const before = {};
+    await editProject(
+      projectPath,
+      (state) => {
+        const sessions = { ...state.sessions };
+        for (const id of restore ? [] : archive) {
+          const session = sessions[id];
+          if (!session) continue;
+          before[id] = { worktree_id: session.worktree_id, archived: session.archived };
+          sessions[id] = { ...session, archived: true };
+        }
+        for (const id of sessionIds) {
+          const session = sessions[id];
+          if (!session) continue;
+          if (restore) {
+            const previous = restore[id];
+            if (!previous) continue;
+            const { formerWorktree: _former, ...rest } = session;
+            sessions[id] = { ...rest, worktree_id: previous.worktree_id, archived: previous.archived };
+            continue;
+          }
+          before[id] = { worktree_id: session.worktree_id, archived: session.archived };
+          sessions[id] = { ...session, worktree_id: worktreeId, archived: true, formerWorktree };
+        }
+        return { ...state, sessions };
+      },
+      { chats: [] },
+    );
+    return before;
   }
   async function stopChatWork(chatId) {
     terminals.closeChat(chatId);

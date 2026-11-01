@@ -442,6 +442,23 @@ function routineChats({
       }
     },
     archive: (chatId, options) => archive(chatId, options),
+    // The Worktree a Run made, once the Run ended in `chatIds` (its Chats there): removed when it left nothing behind,
+    // the Chats kept archived (run-worktree.cjs). Resolves with { removed, reason? }.
+    async retireWorktree(chatIds) {
+      if (typeof worktrees.retire !== "function") return { removed: false, reason: "no Worktree" };
+      const groups = new Map();
+      for (const chatId of chatIds) {
+        const worktreeId = session(chatId)?.worktree_id;
+        if (worktreeId === undefined) continue;
+        groups.set(`${projectOfKey(chatId)}#${worktreeId}`, { projectPath: projectOfKey(chatId), worktreeId });
+      }
+      let result = { removed: false, reason: "no Worktree" };
+      for (const { projectPath, worktreeId } of groups.values()) {
+        result = await worktrees.retire(projectPath, worktreeId, chatIds);
+        if (!result.removed) console.info(`[routines] kept a Run's Worktree: ${result.reason}`);
+      }
+      return result;
+    },
     headBranch: (chatId) => headBranch(chatId),
     linkedChat: (issue) => linkedChat(issue),
     // `session` patches the Chat in the same change (see ChatHost.patchMessageContext). A Linear Run's card keeps its

@@ -100,7 +100,16 @@ import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
-import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
+import {
+  chatBranchLabel,
+  chatRoutine,
+  clock,
+  groupQuietRuns,
+  isRoutineRun,
+  mergedRoutineRunText,
+  routineRunOf,
+  routineRunText,
+} from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -1929,7 +1938,7 @@ function ChatPane({
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
                 <Icon icon={GitBranchIcon} tone="ink3" size={11} />
                 <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
-                  {worktree?.name ?? ""}
+                  {chatBranchLabel(chat, worktree?.name) ?? ""}
                 </Text>
                 <Text style={{ fontSize: 12 }}>
                   <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
