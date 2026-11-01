@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { tap } from "./primitives/tap";
-import { whisperModelFor } from "@milagre/shared/dictation";
+import { VOCABULARY_WAIT_MS, snapTerms, whisperModelFor } from "@milagre/shared/dictation";
 import {
   ERRORS,
   IDLE,
@@ -30,7 +30,8 @@ export type DictationPartial = { text: string; settled: number };
 const NO_PARTIAL: DictationPartial = { text: "", settled: 0 };
 
 /** The Chat a take is for: its folder's words guide the local recognizer. */
-export type DictationChat = { client: Client; cwd: string; chatTitle?: string; provider?: string };
+/** The Chat dictated into: `chatId` lets the Mac add the names its last turns used to the recognizer's words. */
+export type DictationChat = { client: Client; cwd: string; chatTitle?: string; provider?: string; chatId?: number };
 
 /** The take that is preparing or recording anywhere in the app: one microphone, so starting another ends it quietly. */
 const microphone = createMicrophone();
@@ -201,20 +202,26 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       const target = chatRef.current;
       // The project's words are read while the user talks too.
       const terms = target?.cwd
-        ? target.client.call<{ terms: string[] }>("dictation:context", [{ cwd: target.cwd, chatTitle: target.chatTitle }]).then(
-            (result) => result?.terms ?? [],
-            () => [],
-          )
+        ? target.client
+            .call<{ terms: string[] }>("dictation:context", [
+              { cwd: target.cwd, chatTitle: target.chatTitle, ...(target.chatId === undefined ? {} : { scope: target.cwd, chatId: target.chatId }) },
+            ])
+            .then(
+              (result) => result?.terms ?? [],
+              () => [],
+            )
         : Promise.resolve([]);
       let vocabulary: string[] = [];
-      void terms.then((words) => {
+      const known = terms.then((words) => {
         vocabulary = words;
       });
+      // The first inference waits briefly for the project's words; a slow or offline computer doesn't hold it up.
+      const vocabularyReady = Promise.race([known, new Promise((resolve) => setTimeout(resolve, VOCABULARY_WAIT_MS))]);
       const stream = createStreamingDictation({
         transcribe: async (audio) => {
-          await prepared;
+          await Promise.all([prepared, vocabularyReady]);
           if (take.current?.id !== id) return "";
-          return transcriber.transcribe(audio, { language, terms: vocabulary, model });
+          return snapTerms(await transcriber.transcribe(audio, { language, terms: vocabulary, model }), vocabulary);
         },
         onPartial: (text, settled) => {
           if (take.current?.id === id) setPartial({ text, settled });

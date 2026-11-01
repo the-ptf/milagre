@@ -806,10 +806,21 @@ function createRuntime(options) {
     return searchFiles(root, query);
   });
   // Dictation: the words a Chat's project gives the recognizer, and the AI fix-up of a phone's Apple transcript.
-  commands.handle("dictation:context", async (_event, { cwd, chatTitle } = {}) => {
+  commands.handle("dictation:context", async (_event, { cwd, chatTitle, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
   });
+  // The last turns of the Chat being dictated into, for the names it has used. Only an open Project's Chat; anything else
+  // (a Link, a Chat not loaded, a failed read) gives none rather than holding the take up.
+  async function dictationMessages(scope, chatId) {
+    if (typeof scope !== "string" || !states.has(scope) || !Number.isSafeInteger(chatId)) return [];
+    try {
+      const { messages } = chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, { turns: 6, limit: 40 });
+      return messages.map((message) => message.body).filter((body) => typeof body === "string");
+    } catch {
+      return [];
+    }
+  }
   commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider } = {}) => {
     await knownFolder(cwd);
     const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });

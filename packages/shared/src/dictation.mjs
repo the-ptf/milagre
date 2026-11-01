@@ -53,11 +53,72 @@ export function appleLocale(language) {
   return DICTATION_LANGUAGES.find((item) => item.code === language)?.locale ?? "";
 }
 
-// Words every Chat may name: the app, its agents and its own nouns.
-const APP_TERMS = ["Milagre", "Claude", "Codex", "Antigravity", "Kiro", "Worktree", "Chat", "Routine", "Heartbeat", "MCP", "pull request"];
+// Names every Chat may say, which recognizers swap for common words ("code X", "cloud", "Cairo"): Milagre's own nouns,
+// its agents and their models.
+const APP_TERMS = [
+  "Milagre",
+  "Claude",
+  "Claude Code",
+  "Codex",
+  "Antigravity",
+  "Kiro",
+  "Opus",
+  "Sonnet",
+  "Haiku",
+  "Worktree",
+  "Chat",
+  "Routine",
+  "Heartbeat",
+  "MCP",
+  "ACP",
+  "pull request",
+];
+// Providers, tools and services a message to a coding agent names in any project.
+const DEV_TERMS = [
+  "GitHub",
+  "OpenAI",
+  "Gemini",
+  "GPT",
+  "Anthropic",
+  "TypeScript",
+  "JavaScript",
+  "React",
+  "React Native",
+  "Expo",
+  "Expo Router",
+  "Electron",
+  "Node",
+  "npm",
+  "Vite",
+  "Tailwind",
+  "Supabase",
+  "Vercel",
+  "Cloudflare",
+  "Docker",
+  "Postgres",
+  "Linear",
+  "Slack",
+  "Xcode",
+  "TestFlight",
+  "iOS",
+  "iPad",
+  "Android",
+  "API",
+  "CLI",
+  "SDK",
+  "JSON",
+  "CI",
+  "PR",
+  "OTA",
+  "EAS",
+];
 // Folder names that say nothing about the project.
 const NOISE = new Set(["src", "lib", "dist", "build", "test", "tests", "app", "apps", "packages", "index", "main", "utils", "scripts", "docs", "assets"]);
-const MAX_TERMS = 120;
+const MAX_TERMS = 150;
+/** How long a take's first inference waits for the project's words before it goes without them. */
+export const VOCABULARY_WAIT_MS = 1500;
+const RECENT_FILES = 20;
+const CODE_NAME = /[a-z][A-Z]|^[A-Z][a-z]+[A-Z]|[a-z]_[a-z]/;
 
 /** A file's name without its extensions, kept when it reads as a word someone would say. */
 function stem(file) {
@@ -67,29 +128,101 @@ function stem(file) {
 }
 
 /**
- * The words a dictated message about this project likely contains, most telling first: the app's names, the project, branch
- * and Chat title, then its code names (PascalCase and camelCase file names, which recognizers split or swap for common
- * words) and its folders. Unique, at most 120.
+ * How someone names a file they're working on: a code name as it is ("PromptComposer"), anything else with its extension
+ * ("voice-dictation.ts"), which is how it gets said ("voice dictation dot ts").
  */
-export function dictationTerms({ projectName, branch, chatTitle, files = [] } = {}) {
+function fileTerm(file) {
+  const name = String(file).split("/").at(-1) ?? "";
+  const base = stem(file);
+  if (!base) return "";
+  if (CODE_NAME.test(base)) return base;
+  return /\.[A-Za-z0-9]{1,5}$/.test(name) ? name : "";
+}
+
+/**
+ * The names a source file declares that someone would say: functions, classes, types and exported constants with more
+ * than one word in them (`createStreamingDictation`, `PromptComposer`, `snap_terms`), in the order they appear, at most `limit`.
+ */
+export function codeNames(source, limit = 8) {
+  const names = [];
+  const add = (name) => {
+    if (name.length >= 6 && CODE_NAME.test(name) && !names.includes(name)) names.push(name);
+  };
+  const text = String(source ?? "").slice(0, 200_000);
+  // Declarations at the start of a line (top level, or a type's members) and exported constants: a test's locals never.
+  const declaration =
+    /^[ \t]*(?:(?:export|default|async|public|private|internal|static|pub|open|final)\s+)*(?:function\*?|class|def|func|fn|struct|protocol|enum|interface|type)\s+([A-Za-z_$][\w$]*)/gm;
+  for (const match of text.matchAll(declaration)) add(match[1]);
+  for (const match of text.matchAll(/^export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm)) add(match[1]);
+  for (const match of text.matchAll(/module\.exports\s*=\s*\{([^}]*)\}/g))
+    for (const name of match[1].split(/[\s,:]+/)) if (/^[A-Za-z_$][\w$]*$/.test(name)) add(name);
+  return names.slice(0, limit);
+}
+
+const FILE_NAME =
+  /[\w.-]*[A-Za-z][\w-]*\.(?:[cm]?[jt]sx?|d\.ts|json|md|mdx|swift|kt|kts|py|go|rs|rb|java|cs|css|scss|html|ya?ml|toml|sh|sql|vue|svelte|dart|php|gradle|plist|xml)(?!\w|\.\w)/g;
+
+/**
+ * The names a Chat has already used, which the next message likely says again: file names as fileTerm names them
+ * (`voice-dictation.ts`, `PromptComposer`, from a path or on their own), code names (`useDictation`, `PromptComposer`) and short acronyms in backticks. `messages` are
+ * the Chat's message bodies, oldest first; the newest count first. At most `limit`.
+ */
+export function chatTerms(messages, limit = 40) {
+  const found = [];
+  const add = (term) => {
+    if (term && !found.includes(term)) found.push(term);
+  };
+  for (const body of [...(messages ?? [])].toReversed()) {
+    if (found.length >= limit) break;
+    const text = String(body ?? "")
+      .slice(0, 20_000)
+      .replace(/https?:\/\/\S+/g, " ");
+    for (const match of text.matchAll(FILE_NAME)) {
+      add(fileTerm(match[0]));
+    }
+    for (const match of text.matchAll(/(?<![\w./-])[A-Za-z_$][\w$]{5,}(?![\w.(/-]*\.[a-z])/g)) if (CODE_NAME.test(match[0])) add(match[0]);
+    for (const match of text.matchAll(/`([A-Z][A-Z0-9]{1,5})`/g)) add(match[1]);
+  }
+  return found.slice(0, limit);
+}
+
+/**
+ * The words a dictated message about this project likely contains, most telling first: the app's names, the project, branch
+ * and Chat title, the names the Chat has already used (`chat`, from chatTerms), then what the user is working on (the files
+ * changed most recently, `recent`, and the names declared in them, `names`), the usual tools and services, then the rest of the project's code names (PascalCase and camelCase file
+ * names, which recognizers split or swap for common words) and its folders. Unique, at most 150.
+ */
+export function dictationTerms({ projectName, branch, chatTitle, chat = [], files = [], recent = [], names = [] } = {}) {
   const terms = [...APP_TERMS];
   if (projectName) terms.push(projectName);
   if (branch && !/^(main|master|HEAD)$/.test(branch)) terms.push(branch.replace(/^[^/]+\//, "").replace(/[-_]+/g, " "));
   if (chatTitle) terms.push(chatTitle);
+  terms.push(...chat);
+  // Hidden folders hold tooling (.github, .milagre), not what the project is about.
+  const visible = (file) =>
+    !String(file)
+      .split("/")
+      .some((part) => part.startsWith("."));
+  // A recently changed file and two of the names in it, by turns, so neither crowds the other out of a short prompt.
+  const working = recent.filter(visible).slice(0, RECENT_FILES).map(fileTerm).filter(Boolean);
+  for (let i = 0, j = 0; i < working.length || j < names.length; i++, j += 2) {
+    if (i < working.length) terms.push(working[i]);
+    terms.push(...names.slice(j, j + 2));
+  }
+  terms.push(...DEV_TERMS);
   const code = [];
   const folders = [];
   for (const file of files) {
+    if (!visible(file)) continue;
     const parts = String(file).split("/");
-    // Hidden folders hold tooling (.github, .milagre), not what the project is about.
-    if (parts.some((part) => part.startsWith("."))) continue;
     const name = stem(file);
-    if (name && /[a-z][A-Z]|^[A-Z][a-z]+[A-Z]/.test(name)) code.push(name);
+    if (name && CODE_NAME.test(name)) code.push(name);
     for (const folder of parts.slice(0, -1)) if (!NOISE.has(folder.toLowerCase()) && !folder.includes(".")) folders.push(folder);
   }
   terms.push(...code, ...folders);
   const seen = new Set();
   return terms
-    .map((term) => term.trim())
+    .map((term) => String(term).trim())
     .filter((term) => {
       const key = term.toLowerCase();
       if (!term || seen.has(key)) return false;
@@ -97,6 +230,171 @@ export function dictationTerms({ projectName, branch, chatTitle, files = [] } = 
       return true;
     })
     .slice(0, MAX_TERMS);
+}
+
+const keyOf = (text) =>
+  String(text)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]/g, "");
+
+// Names that are no English word, so a lowercase, split or near hearing of one is always that name.
+const BRANDS = new Set(
+  [
+    "Milagre",
+    "Claude",
+    "Claude Code",
+    "Codex",
+    "Antigravity",
+    "Kiro",
+    "GitHub",
+    "OpenAI",
+    "Gemini",
+    "Anthropic",
+    "TypeScript",
+    "JavaScript",
+    "Supabase",
+    "Vercel",
+    "Cloudflare",
+    "TestFlight",
+    "Xcode",
+    "iPad",
+    "iOS",
+    "Android",
+    "npm",
+  ].map(keyOf),
+);
+// Words that say the next or previous words name code: "the use dictation hook", "a função insert dictation".
+const CODE_CUES = new Set(
+  "function functions hook hooks component components method methods class type interface module variable prop props screen helper constant struct enum endpoint command tool test file função funções componente componentes arquivo método classe tela".split(
+    " ",
+  ),
+);
+// Spoken punctuation in file names: "voice dictation dot ts", "ponto ts".
+const DOT_WORDS = new Set(["dot", "ponto", "punto", "point"]);
+const MAX_WINDOW = 7;
+const NEAR_WINDOW = 3;
+
+/**
+ * A word's consonant skeleton, for names a recognizer heard nearly right: "Milliger" and "Milagre" are both "mlgr",
+ * "codecs" and "Codex" both "kdks". Vowels, h, w and y go; letters that sound alike become one; doubles collapse.
+ */
+function skeleton(text) {
+  return keyOf(text)
+    .replace(/ph/g, "f")
+    .replace(/ck|q/g, "k")
+    .replace(/x/g, "ks")
+    .replace(/c/g, "k")
+    .replace(/z/g, "s")
+    .replace(/v/g, "f")
+    .replace(/[aeiouhwy]/g, "")
+    .replace(/(.)\1+/g, "$1");
+}
+
+/** How a term may be heard, and whether a hearing of it can be trusted without more context. */
+function termShape(term) {
+  const parts = term.split(/[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])/).filter(Boolean);
+  const key = keyOf(term);
+  return {
+    term,
+    key,
+    brand: BRANDS.has(key),
+    file: /\.[A-Za-z0-9]{1,5}$/.test(term) && !/\s/.test(term),
+    // Mixed case inside the word (GitHub, iPad, useDictation), an acronym (MCP) or punctuation (whisper.rn): a lowercase
+    // hearing is wrong; a plain capitalized word (Chat, Linear) can be ordinary English and is left alone.
+    marked: /.[A-Z]/.test(term) || /^[A-Z0-9]{2,}$/.test(term) || /[._-]/.test(term) || BRANDS.has(key),
+    parts: parts.length,
+    code: CODE_NAME.test(term) && !/\s/.test(term),
+  };
+}
+
+/**
+ * The transcript with the project's terms spelled as the project spells them, where the recognizer heard their sounds
+ * but wrote other words: "code X" > "Codex", "voice dictation dot ts" > "voice-dictation.ts", "N P M" > "npm",
+ * "the use dictation hook" > "the useDictation hook", "OpenVoiceDictation.ts" > "Open voice-dictation.ts". A name that is
+ * no English word is also matched by its sound ("Milliger" > "Milagre"); anything else needs its exact letters, and a
+ * misheard sound is left for the AI fix-up. A two-word code name ("prompt editor") needs a word around it that says it is
+ * code (hook, function, file...), because the same two words are ordinary speech.
+ */
+export function snapTerms(text, terms) {
+  const source = String(text ?? "");
+  if (!source || !terms?.length) return source;
+  const shapes = new Map();
+  const sounds = new Map();
+  for (const term of terms) {
+    const shape = termShape(String(term));
+    if (shape.key.length < 2 || shapes.has(shape.key)) continue;
+    shapes.set(shape.key, shape);
+    const sound = skeleton(shape.term);
+    if (shape.brand && sound.length >= 4 && !sounds.has(sound)) sounds.set(sound, shape);
+  }
+  const tokens = [...source.matchAll(/[\p{L}\p{N}](?:[\p{L}\p{N}_'’-]|\.(?=[\p{L}\p{N}]))*/gu)].map((match) => ({
+    text: match[0],
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+  // Words join across spaces, hyphens and a stray period ("use. Dictation"), never across a comma.
+  const joinable = (left, right) => /^[\s.-]*$/.test(source.slice(left.end, right.start));
+  const cueNear = (from, to) =>
+    [tokens[from - 1], tokens[from - 2], tokens[to + 1], tokens[to + 2]].some((token) => token && CODE_CUES.has(token.text.toLowerCase()));
+  /** Whether `size` words heard as exactly this term's letters can be trusted to mean it. */
+  const trusted = (shape, from, size) => {
+    if (shape.file || shape.brand) return true;
+    if (size === 1) return shape.marked;
+    // Spelled out letter by letter: "N P M", "M C P".
+    if (tokens.slice(from, from + size).every((token) => token.text.length === 1)) return true;
+    if (shape.code) return shape.parts >= 3 || cueNear(from, from + size - 1);
+    if (/\s/.test(shape.term)) return /\s[A-Z]/.test(shape.term);
+    return shape.marked;
+  };
+  /** A term glued to the word before it, as Whisper writes it: "OpenVoiceDictation.ts", "CheckUseDictation". */
+  const glued = (token) => {
+    for (let at = 1; at < token.text.length - 2; at++) {
+      if (!/[a-z]/.test(token.text[at - 1]) || !/[A-Z]/.test(token.text[at])) continue;
+      const shape = shapes.get(keyOf(token.text.slice(at)));
+      if (shape && (shape.file || (shape.code && shape.parts >= 2))) return { prefix: token.text.slice(0, at), shape };
+    }
+    return null;
+  };
+  const edits = [];
+  for (let i = 0; i < tokens.length;) {
+    let matched = null;
+    for (let size = Math.min(MAX_WINDOW, tokens.length - i); size >= 1 && !matched; size--) {
+      const window = tokens.slice(i, i + size);
+      if (window.some((token, index) => index > 0 && !joinable(window[index - 1], token))) continue;
+      const spokenDot = window.some((token, index) => index > 0 && index < size - 1 && DOT_WORDS.has(token.text.toLowerCase()));
+      const letters = window.map((token) => token.text).join("");
+      const candidates = [keyOf(letters)];
+      if (spokenDot)
+        candidates.push(
+          keyOf(
+            window
+              .filter((token) => !DOT_WORDS.has(token.text.toLowerCase()))
+              .map((token) => token.text)
+              .join(""),
+          ),
+        );
+      for (const [index, key] of candidates.entries()) {
+        const shape = shapes.get(key);
+        if (!shape || (index > 0 && !shape.file) || !trusted(shape, i, size)) continue;
+        matched = { start: window[0].start, end: window.at(-1).end, term: shape.term, size };
+        break;
+      }
+      if (matched || size > NEAR_WINDOW) continue;
+      // Near hearings of a brand: same consonants, same first sound.
+      const near = sounds.get(skeleton(letters));
+      if (near && skeleton(near.term)[0] === skeleton(window[0].text)[0]) matched = { start: window[0].start, end: window.at(-1).end, term: near.term, size };
+    }
+    const joined = !matched && glued(tokens[i]);
+    if (joined) matched = { start: tokens[i].start, end: tokens[i].end, term: `${joined.prefix} ${joined.shape.term}`, size: 1 };
+    if (matched) {
+      if (source.slice(matched.start, matched.end) !== matched.term) edits.push(matched);
+      i += matched.size;
+    } else i++;
+  }
+  let result = source;
+  for (const edit of edits.toReversed()) result = result.slice(0, edit.start) + edit.term + result.slice(edit.end);
+  return result;
 }
 
 // Whisper reads at most 224 tokens of prompt and drops the start of a longer one; about 600 characters stays under that.

@@ -5665,6 +5665,12 @@
         },
         "chatTitle": {
           "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "number"
         }
       },
       "required": ["cwd"],

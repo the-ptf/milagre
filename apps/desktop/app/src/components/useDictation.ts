@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import captureWorklet from "../lib/dictation-worklet.js?url&no-inline";
-import { whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
+import { VOCABULARY_WAIT_MS, snapTerms, whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   ERRORS,
@@ -47,8 +47,16 @@ function closeAudio(audio: AudioContext) {
  * Local PCM capture and partial inference while speaking. Only the final transcript edits or sends the draft. A take whose
  * model isn't on this computer yet downloads it first (`downloading`, with `download` progress) and records once it lands.
  */
-export function useDictation(cwd: string, scope: string, onTranscript: (text: string, anchor: DictationAnchor) => void) {
+export function useDictation(
+  cwd: string,
+  scope: string,
+  onTranscript: (text: string, anchor: DictationAnchor) => void,
+  /** The Chat dictated into (its Project scope and id): the names its last turns used guide the recognizer. */
+  chat: { scope?: string; chatId?: number } = {},
+) {
   const bridge = useBridge();
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
   const { dictationLanguage, dictationModel } = useSettings();
   const model = whisperModelFor("desktop", dictationModel);
   const models = useDictationModels();
@@ -153,12 +161,14 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
         if (!live()) return void stream.getTracks().forEach((track) => track.stop());
         let vocabulary: string[] = [];
-        void bridge
-          .dictationContext({ cwd })
+        const terms = bridge
+          .dictationContext({ cwd, scope: chatRef.current.scope || undefined, chatId: chatRef.current.chatId })
           .then((context) => {
             vocabulary = context.terms;
           })
-          .catch(() => []);
+          .catch(() => {});
+        // The first inference waits briefly for the project's words; a slow or offline computer doesn't hold it up.
+        const vocabularyReady = Promise.race([terms, new Promise((resolve) => setTimeout(resolve, VOCABULARY_WAIT_MS))]);
         // Load the model during capture, rather than after Stop.
         const prepared = window.milagre.dictation.prepare(model.id);
         prepared.catch(() => {});
@@ -180,7 +190,7 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
         const resample = createDictationResampler();
         const transcript = createStreamingDictation({
           transcribe: async (pcm) => {
-            await prepared;
+            await Promise.all([prepared, vocabularyReady]);
             if (!live()) return "";
             const result = await window.milagre.dictation.transcribe({
               audio: pcm,
@@ -188,7 +198,7 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
               prompt: whisperPrompt(vocabulary, language),
               model: model.id,
             });
-            return result.text;
+            return snapTerms(result.text, vocabulary);
           },
           onPartial: (text, settled) => {
             if (live()) setPartial({ text, settled });

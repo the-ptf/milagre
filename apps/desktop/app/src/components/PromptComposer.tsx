@@ -532,14 +532,19 @@ export function PromptComposer({
   const writeLatest = useRef(write);
   writeLatest.current = write;
 
-  const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
-    // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
-    take.current ??= startTake(draftLatest.current, anchor.selection);
-    const written = writeLatest.current(text, text.length);
-    take.current = null;
-    setProvisional(null);
-    if (written && dictationAction === "send") dictatedSend.current = { value: written.value, scope: imageDraft.scope };
-  });
+  const dictation = useDictation(
+    projectPath,
+    imageDraft.scope,
+    (text, anchor) => {
+      // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
+      take.current ??= startTake(draftLatest.current, anchor.selection);
+      const written = writeLatest.current(text, text.length);
+      take.current = null;
+      setProvisional(null);
+      if (written && dictationAction === "send") dictatedSend.current = { value: written.value, scope: imageDraft.scope };
+    },
+    { scope: mentions.project, chatId: mentions.currentId },
+  );
   const partialText = dictation.partial.text;
   const partialSettled = dictation.partial.settled;
   useEffect(() => {

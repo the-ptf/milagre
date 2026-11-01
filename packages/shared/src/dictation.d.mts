@@ -2,7 +2,19 @@ export type DictationLanguage = { code: string; name: string; locale: string | n
 export const DICTATION_LANGUAGES: readonly DictationLanguage[];
 export function dictationLanguage(value: unknown): string;
 export function appleLocale(language: string): string;
-export function dictationTerms(context?: { projectName?: string; branch?: string | null; chatTitle?: string; files?: readonly string[] }): string[];
+export function dictationTerms(context?: {
+  projectName?: string;
+  branch?: string | null;
+  chatTitle?: string;
+  chat?: readonly string[];
+  files?: readonly string[];
+  recent?: readonly string[];
+  names?: readonly string[];
+}): string[];
+export function chatTerms(messages: readonly string[], limit?: number): string[];
+export function codeNames(source: string, limit?: number): string[];
+export function snapTerms(text: string, terms: readonly string[]): string;
+export const VOCABULARY_WAIT_MS: number;
 export function whisperPrompt(terms: readonly string[], language?: string): string;
 export type WhisperModel = {
   id: string;

@@ -213,7 +213,7 @@ export function PromptField({
       setProvisional(null);
       if (written && dictationAction === "send") dictatedSend.current = { value: written.value, projectPath, currentId };
     },
-    projectPath ? { client, cwd: projectPath, chatTitle, provider } : undefined,
+    projectPath ? { client, cwd: projectPath, chatTitle, provider, chatId: currentId } : undefined,
   );
   const partialText = dictation.partial.text;
   const partialSettled = dictation.partial.settled;

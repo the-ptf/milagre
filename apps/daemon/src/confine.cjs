@@ -282,7 +282,7 @@ const PATHS = Object.freeze({
   // The file search for the phone's @ menu: the root must be inside the folder; it names no other path.
   "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
-  "dictation:context": ([value]) => [value?.cwd],
+  "dictation:context": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
   "dictation:polish": ([value]) => [value?.cwd],
   "worktree:create": ([value]) => [value?.projectPath],
   "worktree:link-issue": ([value]) => [value?.projectPath],
