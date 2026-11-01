@@ -51,6 +51,23 @@ export function formatUpdatedAgo(updatedAt: string, now: number): string {
   return `Updated ${Math.floor(elapsed / DAY)}d ago`;
 }
 
+/** Short windows use a countdown; longer windows show the computer viewer's local reset time. */
+export function formatResetsAt(resetsAt: string | null, now: number): string | null {
+  if (!resetsAt || !Number.isFinite(Date.parse(resetsAt))) return null;
+  if (Date.parse(resetsAt) - now < DAY) return formatResetsIn(resetsAt, now);
+  return `Resets ${new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(resetsAt))}`;
+}
+
+/** Use the oldest last-good read so a fresh account never makes another account's stale data look current. */
+export function overviewUpdatedAt(snapshot: UsageSnapshot | null): string | null {
+  const times =
+    snapshot?.providers
+      .filter((item) => item.windows.length > 0)
+      .map((item) => Date.parse(item.updatedAt))
+      .filter(Number.isFinite) ?? [];
+  return times.length ? new Date(Math.min(...times)).toISOString() : null;
+}
+
 /** The providers the sidebar shows: those with numbers. One in error keeps showing its last-known windows. */
 export function visibleProviders(snapshot: UsageSnapshot) {
   return snapshot.providers.filter((item) => item.status !== "unavailable" && item.windows.length > 0);
@@ -79,7 +96,7 @@ export function mergeSnapshot(previous: UsageSnapshot | null, next: UsageSnapsho
     ...(next.accountKey ? { accountKey: next.accountKey } : {}),
     providers: next.providers.map((current) => {
       if (current.status !== "error") return current;
-      const before = previous?.providers.find((item) => item.provider === current.provider);
+      const before = previous?.providers.find((item) => item.provider === current.provider && item.account?.id === current.account?.id);
       if (!before || before.windows.length === 0) return current;
       const windows = before.windows.filter((item) => !item.resetsAt || Date.parse(item.resetsAt) > now);
       const banked = before.bankedResets ? { bankedResets: before.bankedResets } : {};
@@ -89,6 +106,13 @@ export function mergeSnapshot(previous: UsageSnapshot | null, next: UsageSnapsho
 }
 
 export { formatTokens };
+
+/** All Accounts stay separate, including two providers' connected CLI accounts, both named `default`. */
+export function accountUsageGroups(snapshot: UsageSnapshot | null) {
+  return PROVIDERS.map((provider) => ({ provider, accounts: snapshot?.providers.filter((item) => item.provider === provider) ?? [] })).filter(
+    (group) => group.accounts.length > 0,
+  );
+}
 
 /** How full the agent's context window is: the percent used and the token counts behind it. */
 export function contextSummary({ used, size }: { used: number; size: number }) {

@@ -41,6 +41,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ProviderLogo } from "../ProviderLogo";
+import { AccountUsageSection } from "../usage/AccountUsageSection";
 
 const PREFS_KEY = "milagre.tokenUsage";
 // While a scan runs, the page reads again this often; a token-usage:changed event also reads at once.
@@ -531,7 +532,13 @@ function TokenMix({ totals, metric }: { totals: TokenUsageTotals; metric: TokenU
  * and its provider split, the last 90 days as a calendar that picks the days the page covers, then where it went:
  * Projects and their Chats, models and token categories.
  */
-export function TokenUsagePage({ onOpenChat }: { onOpenChat?: (computerId: string, projectPath: string, sessionId: number) => void }) {
+export function TokenUsagePage({
+  onOpenChat,
+  onManageAccounts,
+}: {
+  onOpenChat?: (computerId: string, projectPath: string, sessionId: number) => void;
+  onManageAccounts?: () => void;
+}) {
   const [prefs, setPrefs] = useState(readPrefs);
   const [days, setDays] = useState<TokenUsageDays | null>(null);
   const { thisMac, computers } = useComputers();
@@ -628,6 +635,12 @@ export function TokenUsagePage({ onOpenChat }: { onOpenChat?: (computerId: strin
           </p>
         )}
 
+        <AccountUsageSection
+          key={picked}
+          computerId={picked}
+          computerName={picked === LOCAL_COMPUTER ? thisMac || "this Mac" : computerName}
+          onManageAccounts={onManageAccounts}
+        />
         {report && (
           <>
             <TotalCard report={report} metric={metric} onClear={days ? () => setDays(null) : undefined} />

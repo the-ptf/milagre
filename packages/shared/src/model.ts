@@ -1163,7 +1163,7 @@ export interface UsageWindow {
 
 export interface ProviderUsage {
   /** The host Account whose limits are shown, captured with the usage read. */
-  account?: Pick<ProviderAccount, "id" | "label" | "email">;
+  account?: Pick<ProviderAccount, "id" | "label" | "email"> & { state?: ProviderAccount["state"]; default?: true };
   provider: ModelProvider;
   status: "ok" | "unavailable" | "error";
   windows: UsageWindow[];

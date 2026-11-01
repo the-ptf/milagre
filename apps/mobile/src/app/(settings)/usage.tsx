@@ -7,7 +7,7 @@ export default function UsageScreen() {
     <>
       <Stack.Screen options={{ title: "Plan usage" }} />
       <SettingsScroll>
-        <UsageSection />
+        <UsageSection header />
       </SettingsScroll>
     </>
   );

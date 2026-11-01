@@ -4,6 +4,8 @@
 const os = require("node:os");
 const path = require("node:path");
 const { chatTitle } = require("@milagre/shared/chats");
+const { isLinkScopeKey, scopeKey } = require("@milagre/shared/chat-scopes");
+const { CHATS_ACCOUNT_LABEL } = require("@milagre/shared/chats-home");
 const { priceOf } = require("./token-usage-pricing.cjs");
 const { HOUR } = require("./token-usage-scan.cjs");
 
@@ -126,27 +128,61 @@ function cleanDays(days) {
   return days.from <= days.to ? { from: days.from, to: days.to } : { from: days.to, to: days.from };
 }
 
-/** Projects, their Worktree folders and their Chats' native session ids, for crediting sessions. */
+/** Every Chat owner, including those deliberately kept out of the Project registry. Metadata readers don't open Chats. */
+async function readTokenUsageScopes({ registry, chatsHome, projectState, linkState }) {
+  const projects = [...(await registry.list())];
+  if ((await chatsHome.exists()) && !projects.some((project) => chatsHome.isHome(project.path)))
+    projects.push({ path: chatsHome.path, name: CHATS_ACCOUNT_LABEL });
+  const entries = await Promise.all(
+    projects.map(async (project) => ({
+      path: project.path,
+      name: chatsHome.isHome(project.path) ? CHATS_ACCOUNT_LABEL : project.name || path.basename(project.path),
+      state: await Promise.resolve()
+        .then(() => projectState(project.path))
+        .catch(() => null),
+    })),
+  );
+  for (const link of await registry.listProjectGroups()) {
+    entries.push({
+      path: scopeKey({ kind: "link", linkId: link.id }),
+      name: link.name,
+      state: await Promise.resolve()
+        .then(() => linkState(link.id))
+        .catch(() => null),
+    });
+  }
+  return entries;
+}
+
+/** Projects, Chats home and named Links, their folders and their Chats' native session ids. */
 function attributionIndex(projects, worktreeRoot) {
   const sessions = new Map();
   const folders = [];
   const byName = new Map();
   for (const project of projects) {
     const entry = { path: project.path, name: project.name };
-    folders.push([project.path, entry]);
-    if (!byName.has(path.basename(project.path))) byName.set(path.basename(project.path), entry);
+    if (!isLinkScopeKey(project.path)) {
+      folders.push([project.path, entry]);
+      if (!byName.has(path.basename(project.path))) byName.set(path.basename(project.path), entry);
+    }
     const state = project.state;
     for (const worktree of Object.values(state?.worktrees ?? {})) {
       if (typeof worktree?.path === "string" && worktree.path !== project.path) folders.push([worktree.path, entry]);
     }
+    const firstMessages = new Map();
+    for (const message of Array.isArray(state?.messages) ? state.messages : []) {
+      if (!firstMessages.has(message.session_id) && message.role !== "assistant" && message.body?.trim()) firstMessages.set(message.session_id, message);
+    }
     for (const session of Object.values(state?.sessions ?? {})) {
       if (!session || typeof session.id !== "number") continue;
-      const chat = { project: entry, sessionId: session.id, title: chatTitle(session) };
+      const messages = firstMessages.has(session.id) ? [firstMessages.get(session.id)] : [];
+      const chat = { project: entry, sessionId: session.id, title: chatTitle(session, messages) };
+      if (typeof session.workspacePath === "string") folders.push([session.workspacePath, entry]);
       const ids = [session.native_session_id, ...Object.values(session.native_sessions ?? {})];
       for (const id of ids) if (typeof id === "string" && id) sessions.set(id, chat);
     }
   }
-  folders.sort((a, b) => b[0].length - a[0].length);
+  folders.sort((a, b) => b[0].length - a[0].length || Number(isLinkScopeKey(a[1].path)) - Number(isLinkScopeKey(b[1].path)));
   const projectOfFolder = (cwd) => {
     if (!cwd) return null;
     for (const [folder, entry] of folders) {
@@ -252,7 +288,11 @@ function buildReport({ rows, prices, projects, range, days, timeZone, now, workt
       group.chats.set(chatKey, {
         ...(chat ? { sessionId: chat.sessionId } : {}),
         kind: chat ? "chat" : !project ? "folder" : row.milagre ? "archived" : "outside",
-        title: chat ? chat.title : project ? row.title || worktreeTitle(row.cwd, worktreeRoot) || "Untitled session" : folderName(row.cwd),
+        title: chat
+          ? chat.title || row.title || "Untitled Chat"
+          : project
+            ? row.title || worktreeTitle(row.cwd, worktreeRoot) || "Untitled session"
+            : folderName(row.cwd),
         ...(!project && row.cwd ? { detail: homeRelative(row.cwd) } : {}),
         providers: [],
         totals: emptyTotals(),
@@ -357,4 +397,4 @@ function createTokenUsage({ scan, pricing, projects, worktreeRoot, emit = () => 
   };
 }
 
-module.exports = { buildReport, createTokenUsage };
+module.exports = { buildReport, createTokenUsage, readTokenUsageScopes };

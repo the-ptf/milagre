@@ -97,7 +97,7 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
-const { createTokenUsage } = require("./token-usage.cjs");
+const { createTokenUsage, readTokenUsageScopes } = require("./token-usage.cjs");
 const { createTokenUsageScan } = require("./token-usage-scan.cjs");
 const { createTokenPricing } = require("./token-usage-pricing.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
@@ -487,12 +487,12 @@ function createRuntime(options) {
   const kiroUsage = createKiroUsage({ cli: () => baseCli("kiro") });
   // A host may bring its own usage, models and CLI status (the review demo, which runs no real agent).
   const accountUsage = new Map();
-  // Tests replace single readers. Claude's and Codex's are called with no arguments; Antigravity's gets the Account's environment.
+  // Tests replace single readers; each gets the Account's environment.
   const readers = options.usageReaders ?? {};
-  function usageForAccounts(scope) {
-    const claude = accounts.selected("claude", scope),
-      codex = accounts.selected("codex", scope),
-      antigravity = accounts.selected("antigravity", scope);
+  function usageForAccounts(scope, overrides = {}) {
+    const claude = overrides.claude ?? accounts.selected("claude", scope),
+      codex = overrides.codex ?? accounts.selected("codex", scope),
+      antigravity = overrides.antigravity ?? accounts.selected("antigravity", scope);
     // The default Antigravity Account adds nothing to the key, so existing cache files keep their names.
     const key = `${claude}-${codex}${antigravity === "default" ? "" : `-${antigravity}`}`;
     if (!accountUsage.has(key)) {
@@ -508,13 +508,12 @@ function createRuntime(options) {
         read: createUsageReader({
           ready: () => environmentReady,
           store,
-          readClaude:
-            readers.claude ??
-            (async () => {
-              const env = accounts.environment("claude", claude);
-              return env.CLAUDE_CONFIG_DIR ? readClaudeProfileUsage({ command: (await baseCli("claude")).command, env }) : readClaudeUsage();
-            }),
-          readCodex: readers.codex ?? (() => readCodexUsage({ env: accounts.environment("codex", codex) })),
+          readClaude: async () => {
+            const env = accounts.environment("claude", claude);
+            if (readers.claude) return readers.claude({ env });
+            return env.CLAUDE_CONFIG_DIR ? readClaudeProfileUsage({ command: (await baseCli("claude")).command, env }) : readClaudeUsage();
+          },
+          readCodex: () => (readers.codex ?? readCodexUsage)({ env: accounts.environment("codex", codex) }),
           readAntigravity: () => (readers.antigravity ?? readAntigravityUsage)({ env: accounts.environment("antigravity", antigravity) }),
           readKiro: readers.kiro ?? kiroUsage,
         }),
@@ -1858,6 +1857,53 @@ function createRuntime(options) {
     return usageWithAccounts(usage, cachedSnapshot(usage.store, Date.now()));
   });
 
+  // Keep every saved identity visible; only signed-in Accounts query usage. Pin unrelated providers to their CLI
+  // profiles so changing a computer default cannot move another Account's overview into a different cache.
+  async function allAccountUsage(refresh) {
+    const identities = await accounts.list();
+    const connected = identities.providers
+      .filter((group) => group.installed !== false)
+      .flatMap((group) => group.accounts.map((account) => ({ ...account, default: group.selectedId === account.id })));
+    const providers = await Promise.all(
+      connected.map(async (account) => {
+        const usage = usageForAccounts(undefined, { claude: "default", codex: "default", antigravity: "default", [account.provider]: account.id });
+        const result = account.state === "ready" ? (refresh ? await usage.read.provider(account.provider) : usage.read.cached(account.provider)) : null;
+        return {
+          ...(result ?? {
+            provider: account.provider,
+            status: "unavailable",
+            windows: [],
+            updatedAt: new Date().toISOString(),
+            message:
+              account.message ||
+              (account.state === "ready" ? "Refresh to check usage." : account.state === "unknown" ? "Checking account sign-in…" : "Account is not signed in."),
+          }),
+          account: {
+            id: account.id,
+            label: account.label,
+            state: account.state,
+            ...(account.default ? { default: true } : {}),
+            ...(account.email ? { email: account.email } : {}),
+          },
+        };
+      }),
+    );
+    return {
+      accountKey: `all:${connected
+        .map((account) => `${account.provider}:${account.id}:${account.state}`)
+        .sort()
+        .join(",")}`,
+      providers,
+    };
+  }
+  commands.handle("usage:accounts:read", async () => {
+    await environmentReady;
+    const snapshot = await allAccountUsage(true);
+    emit("usage:changed", {});
+    return snapshot;
+  });
+  commands.handle("usage:accounts:cached", () => allAccountUsage(false));
+
   // Token usage page: every Claude Code and Codex transcript on this computer (the connected CLI accounts' and each
   // Account's folders), priced with LiteLLM's list and credited to the Projects and Chats Milagre knows.
   async function tokenUsageRoots() {
@@ -1886,14 +1932,14 @@ function createRuntime(options) {
     createTokenUsage({
       scan: createTokenUsageScan({ cacheFile: path.join(dataDir, "token-usage-cache.json"), roots: tokenUsageRoots }),
       pricing: createTokenPricing({ file: path.join(dataDir, "model-prices.json"), onChange: () => emit("token-usage:changed", {}) }),
-      projects: async () =>
-        Promise.all(
-          (await projectRegistry().list()).map(async (project) => ({
-            path: project.path,
-            name: chatsHome.isHome(project.path) ? CHATS_ACCOUNT_LABEL : project.name || path.basename(project.path),
-            state: await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null),
-          })),
-        ),
+      projects: () =>
+        readTokenUsageScopes({
+          registry: projectRegistry(),
+          chatsHome,
+          projectState: projectStateReadOnly,
+          // A named Link owns its canonical Chat. Read metadata without opening it or hydrating its messages.
+          linkState: (id) => linkStore.cached(id) ?? readRawState(linkStore.directory(id)),
+        }),
       worktreeRoot: worktreeRoot(),
       emit,
     });
