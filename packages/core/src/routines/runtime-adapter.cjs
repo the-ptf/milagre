@@ -128,6 +128,8 @@ function routineChats({
   hasRun = () => false,
   setRunTitle = () => false,
   generateRunTitle = async () => null,
+  // The model a failed Run retries on when its Routine names no fallback ({ provider, projectPath }), or null.
+  fallbackFor = async () => null,
 }) {
   // runId -> the webhook delivery its first message was worded from, deleted once that message is sent.
   const webhookRuns = new Map();
@@ -297,6 +299,33 @@ function routineChats({
       .catch(() => null);
   }
 
+  /**
+   * The Chat of a Run's retry, beside the failed attempt's `chatId`: in the same Worktree (or Project folder) while it is
+   * still in the Project, else in a new one as the Run's first Chat was made. Named and marked as the Run's, like it.
+   */
+  async function retryChat({ routine, run, chatId }) {
+    if (isClosing()) throw new Error("Milagre is closing.");
+    const { projectPath } = routine.target;
+    const issue = run.event?.kind === "linear" ? run.event.issue : null;
+    await startCheck(routine.target);
+    const state = await openState(projectPath, sessionIdFromKey(chatId));
+    const previous = state?.sessions?.[sessionIdFromKey(chatId)]?.worktree_id;
+    let worktreeId = previous;
+    let createdWorktree = false;
+    if (worktreeId === undefined || !state?.worktrees?.[worktreeId]) ({ worktreeId, createdWorktree } = await workspaceFor(routine, issue));
+    try {
+      const sessionId = await chats.emptyChat(projectPath, worktreeId, {
+        origin: { routineId: routine.id, runId: run.id },
+        ...(issue ? { title: `${issue.key} ${issue.title}` } : { generatedTitle: routine.name }),
+        fresh: true,
+      });
+      return { chatId: chatKey(projectPath, sessionId), worktreeId: String(worktreeId), createdWorktree };
+    } catch (error) {
+      if (createdWorktree) await dropWorktree(projectPath, worktreeId);
+      throw error;
+    }
+  }
+
   // Archives a Chat a Run started; with `removeWorktree`, its Worktree goes too when nothing in it is worth keeping.
   async function archive(chatId, { removeWorktree = false } = {}) {
     const projectPath = projectOfKey(chatId);
@@ -335,6 +364,8 @@ function routineChats({
         const settings = latest ?? {
           provider: target.provider ?? claimed?.provider ?? "claude",
           model: lastUserModel(state, sessionId) || claimed?.model,
+          // A retry names the fallback's effort; any other Run goes at the model's default.
+          ...(claimed?.effort ? { effort: claimed.effort } : {}),
         };
         sending = await chats.send({
           ...settings,
@@ -373,6 +404,13 @@ function routineChats({
     // Called on the turn's end, which is published after it was folded into the saved reply (ChatHost.receive).
     replyText: (chatId) => routineReply(cachedState(projectOfKey(chatId)), sessionIdFromKey(chatId)),
     startChat: (request) => startChat(request),
+    retryChat: (request) => retryChat(request),
+    // What the Chat's latest turn ran on: the provider, model and effort a failed attempt is recorded with.
+    ranOn(chatId) {
+      const latest = chats.turnSettings?.(chatId);
+      return latest ? { provider: latest.provider, model: latest.model, ...(latest.effort ? { effort: latest.effort } : {}) } : null;
+    },
+    fallbackFor: (request) => fallbackFor(request),
     /**
      * Titles a Run that has just ended from what it did, and its Chat with it when the Chat is the Run's own and still
      * unnamed by the user. `quietSummary` (a quiet Run's `(pass)` line) is the title as it is; otherwise the title comes
@@ -515,6 +553,8 @@ function createRoutines({
   chatMessages = async () => [],
   markRunChats = async () => {},
   archiveRunChat = async () => {},
+  // The model a Run retries on when its Routine names no fallback ({ provider, projectPath }): see routineChats.
+  fallbackFor = async () => null,
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
@@ -587,6 +627,7 @@ function createRoutines({
       return saved;
     },
     generateRunTitle: (request) => generateRunTitle(request),
+    fallbackFor: (request) => fallbackFor(request),
   });
   const scheduler = createRoutineScheduler({
     store,

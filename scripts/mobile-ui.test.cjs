@@ -15741,7 +15741,7 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
   const chips = find(tree, (node) => node.type === "ScrollView" && node.props.horizontal);
   assert.deepEqual(
     allNodes(chips, (node) => typeof node.type === "function" && node.type.name === "Chip").map((node) => node.props.text),
-    ["Linear · label agent added", "New Worktree in p", "Opus 5.5", "Auto mode"],
+    ["Linear · label agent added", "New Worktree in p", "Opus 5.5", "Retry on another provider", "Auto mode"],
   );
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Last Run 10:15"));
   const filter = find(tree, (node) => node.type === "Segmented");
@@ -15756,6 +15756,30 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
     find(host.render(), (node) => node.type === "Button"),
     undefined,
   );
+});
+
+test("a phone Run retried on its fallback names the model it retried on and lists the failed first try, which opens its own Chat", () => {
+  const [, trigger] = routineFixtures();
+  const retried = {
+    id: "r7",
+    routineId: "tr",
+    startedAt: at(10, 15),
+    status: "acted",
+    chatId: "/p#18",
+    title: "Sorted the inbox",
+    fallback: { provider: "claude", model: "claude-opus-5-5" },
+    attempts: [
+      { chatId: "/p#17", provider: "codex", model: "gpt-6.1-sol", startedAt: at(10, 15), endedAt: at(10, 16), error: "Selected model is at capacity." },
+    ],
+  };
+  const host = routineHost({ routines: [{ ...trigger, runs: [retried] }], states: { "/p": { sessions: { 17: { id: 17 }, 18: { id: 18 } } } } });
+  const rows = host.rows(host.runList(host.render()));
+  assert.deepEqual(
+    rows.map((row) => row.props.accessibilityLabel),
+    ["Sorted the inbox · retried on claude-opus-5-5. 10:15", "First try on gpt-6.1-sol failed: Selected model is at capacity."],
+  );
+  rows[1].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes.at(-1))).params.id, "17");
 });
 
 // A babysit Heartbeat runs only on what changed on its PR and follows the Babysit PRs settings: no Run now, no Edit.

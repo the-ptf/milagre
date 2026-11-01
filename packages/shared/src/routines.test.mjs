@@ -30,6 +30,10 @@ import {
   routineRunOf,
   routineRunText,
   runTitle,
+  attemptText,
+  fallbackText,
+  retryNote,
+  routineRetries,
   runWhen,
   triggerText,
   unreadRunChats,
@@ -712,4 +716,27 @@ test("quiet compactions leave no transcript or navigation entry, while failures 
       .map((entry) => entry.message.id),
     [1, 4, 5],
   );
+});
+
+test("a retried Run's history names the first try, the model it retried on and what the Routine retries on", () => {
+  const attempt = {
+    startedAt: 1,
+    endedAt: 2,
+    provider: "codex",
+    model: "gpt-6.1-sol",
+    error: "Selected model is at capacity. Please try a different model.\nmore",
+  };
+  assert.equal(attemptText(attempt), "First try on gpt-6.1-sol failed: Selected model is at capacity. Please try a different model.");
+  assert.equal(attemptText({ startedAt: 1, endedAt: 2, error: "" }), "First try on its model failed");
+  const run = { id: "1", routineId: "r", startedAt: 1, status: "acted", fallback: { provider: "claude", model: "claude-opus-5-5", effort: "high" } };
+  assert.equal(retryNote(run), "retried on claude-opus-5-5 · high");
+  assert.equal(retryNote({ id: "1", routineId: "r", startedAt: 1, status: "acted" }), "");
+  const names = (provider, model) => (model === "claude-opus-5-5" ? "Opus 5.5" : undefined);
+  assert.equal(fallbackText({ fallback: run.fallback }, names), "Retry on Opus 5.5 · high");
+  assert.equal(fallbackText({ fallback: { provider: "codex", model: "gpt-6.1-sol" } }, names), "Retry on gpt-6.1-sol");
+  assert.equal(fallbackText({}), "Retry on another provider");
+  const target = { kind: "new-chat", projectPath: "/p", workspace: "worktree" };
+  assert.equal(routineRetries({ target, trigger: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }), true);
+  assert.equal(routineRetries({ target, trigger: { kind: "linear", workspace: "w", event: "comment" } }), false);
+  assert.equal(routineRetries({ target: { kind: "chat", chatId: "/p#1" }, trigger: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }), false);
 });

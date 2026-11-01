@@ -482,6 +482,45 @@ export function runTitle(run, routineName) {
   return routineName;
 }
 
+const firstErrorLine = (text) =>
+  String(text ?? "")
+    .split("\n")
+    .find((line) => line.trim())
+    ?.trim() ?? "";
+
+/** What a model is called in a Run's history: its id, with the effort when one was named ("gpt-6.1-sol", "claude-opus-5-5 · high"). */
+const modelText = ({ model, effort }) => (model ? `${model}${effort ? ` · ${effort}` : ""}` : "its model");
+
+/** Whether a Routine's Runs retry on a fallback: Runs in a Chat of their own do; a Heartbeat's beat and a Linear comment don't. */
+export function routineRetries(routine) {
+  return routine.target?.kind === "new-chat" && !(routine.trigger?.kind === "linear" && routine.trigger.event === "comment");
+}
+
+/**
+ * What a Routine's Runs retry on, as its page says it: "Retry on Opus 5.5 · high", or "Retry on another provider" when it
+ * names no fallback. `nameOf(provider, model)` is the model's name as the picker lists it, or undefined.
+ */
+export function fallbackText(routine, nameOf = () => undefined) {
+  const fallback = routine.fallback;
+  if (!fallback) return "Retry on another provider";
+  const name = nameOf(fallback.provider, fallback.model) ?? fallback.model;
+  return `Retry on ${name}${fallback.effort ? ` · ${fallback.effort}` : ""}`;
+}
+
+/**
+ * The line of a Run's attempt that failed and was retried, under the Run's row: "First try on gpt-6.1-sol failed: Selected
+ * model is at capacity."
+ */
+export function attemptText(attempt) {
+  const error = firstErrorLine(attempt.error);
+  return `First try on ${modelText(attempt)} failed${error ? `: ${error}` : ""}`;
+}
+
+/** What a Run that ran on its fallback adds to its row ("retried on claude-opus-5-5"), or "" for any other Run. */
+export function retryNote(run) {
+  return run.fallback ? `retried on ${modelText(run.fallback)}` : "";
+}
+
 /**
  * The Chats Routines' Runs created and keep out of the lists, across Projects: not archived, with `routine.hidden`. `chatKey`
  * is `<path>#<id>`, as in the inbox; `unread` is whether the Chat has a result nobody has opened.

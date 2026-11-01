@@ -14,7 +14,7 @@ import {
   Tick02Icon,
   WebhookIcon,
 } from "@hugeicons/core-free-icons";
-import type { ModelOption, Routine } from "@milagre/shared/model";
+import type { ModelCapabilities, ModelOption, Routine } from "@milagre/shared/model";
 import { clock } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { PROMPT_PLACEHOLDER, firstRunAt, promptHint, type RoutineFormState } from "@milagre/shared/routine-form";
@@ -400,6 +400,7 @@ function WebhookRows({ form, initial }: { form: RoutineFormApi; initial?: Routin
 export function RoutineEditor({
   initial,
   models,
+  capabilities = null,
   defaultProjectPath,
   onCancel,
   onSaved,
@@ -411,6 +412,7 @@ export function RoutineEditor({
 }: {
   initial?: RoutineWithRuns;
   models: ModelOption[];
+  capabilities?: ModelCapabilities | null;
   defaultProjectPath?: string;
   onCancel: () => void;
   onSaved: () => void;
@@ -424,7 +426,7 @@ export function RoutineEditor({
   /** A problem reading the Routines after a save, shown with the form's own. */
   error?: string | null;
 }) {
-  const form = useRoutineForm({ initial, models, defaultProjectPath });
+  const form = useRoutineForm({ initial, models, capabilities, defaultProjectPath });
   const { state, update, errors, editing, comment } = form;
   const nameInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState(false);
@@ -469,6 +471,7 @@ export function RoutineEditor({
       });
   };
   const modelIcon = <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
+  const fallbackIcon = <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
   const modeIcon = <HugeiconsIcon icon={SecurityCheckIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
   const whereIcon = form.heartbeat ? BubbleChatIcon : state.runIn === "worktree" ? GitBranchIcon : Folder01Icon;
   const triggerIcon = initial ? routineIcon(initial) : state.trigger === "linear" ? Tag01Icon : state.trigger === "webhook" ? WebhookIcon : Clock01Icon;
@@ -584,6 +587,28 @@ export function RoutineEditor({
             onChange={(model) => update({ model, provider: models.find((entry) => entry.id === model)?.provider ?? "" })}
             width={260}
           />
+          {form.fallback && (
+            <Select
+              label="Fallback"
+              variant="chip"
+              leading={fallbackIcon}
+              value={form.fallbackValue}
+              options={form.options.fallback}
+              onChange={form.setFallback}
+              width={300}
+            />
+          )}
+          {form.fallback && state.fallbackModel && form.options.fallbackEffort && (
+            <Select
+              label="Fallback effort"
+              variant="chip"
+              leading={fallbackIcon}
+              value={state.fallbackEffort}
+              options={form.options.fallbackEffort}
+              onChange={(fallbackEffort) => update({ fallbackEffort })}
+              width={200}
+            />
+          )}
           <Select
             label="Mode"
             variant="chip"

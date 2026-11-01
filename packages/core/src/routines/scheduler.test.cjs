@@ -1836,3 +1836,154 @@ test("a babysit Routine can't be run now", async () => {
   await assert.rejects(ctx.scheduler.runNow(routine.id), /A babysit Routine runs when its PR changes/);
   assert.equal(ctx.calls.send.length, 0);
 });
+
+// A Run's retry on its fallback: `retryChat` makes the retry's Chat, `ranOn` says what the failed turn ran on, and
+// `fallbackFor` is the automatic pick.
+function retrying({ fallback = null, ranOn = { provider: "codex", model: "gpt-6.1-sol" } } = {}) {
+  const retry = { chats: [], picks: [], fallback };
+  const ctx = triggers({
+    chatOptions: {
+      ranOn: () => ranOn,
+      async fallbackFor(request) {
+        retry.picks.push(request);
+        return retry.fallback;
+      },
+      async retryChat({ routine, run, chatId }) {
+        retry.chats.push({ routineId: routine.id, runId: run.id, chatId, attempts: run.attempts });
+        return { chatId: `retry${retry.chats.length}`, worktreeId: "w1", createdWorktree: false };
+      },
+    },
+  });
+  return { ...ctx, retry };
+}
+const AT_CAPACITY = "Selected model is at capacity. Please try a different model.";
+const CODEX_CRASH = "Codex stopped unexpectedly: Codex exited with code 1. Send your message again to continue this chat.";
+const OPUS = { provider: "claude", model: "claude-opus-5-5", effort: "high" };
+
+async function failTurn(ctx, chatId, message, { started = true } = {}) {
+  if (started) ctx.scheduler.observe(chatId, { type: "turn-started" });
+  const event = message === "cancelled" ? { type: "turn-cancelled" } : { type: "turn-failed", message };
+  ctx.scheduler.observe(chatId, event);
+  await ctx.raw.idle();
+  return event;
+}
+
+test("a Run whose model is at capacity retries once, right away, on the Routine's fallback in the same Worktree", async () => {
+  const ctx = retrying();
+  const routine = createSchedule(ctx, { provider: "codex", model: "gpt-6.1-sol", permissionMode: "full", fallback: OPUS });
+  await ctx.scheduler.runNow(routine.id);
+  assert.equal(ctx.calls.send.length, 1);
+  const event = await failTurn(ctx, "new1", AT_CAPACITY);
+  // The retry speaks for the Run: the first attempt's failure tells no one.
+  assert.equal(event.quiet, true);
+  assert.deepEqual(
+    ctx.retry.chats.map(({ chatId }) => chatId),
+    ["new1"],
+  );
+  assert.equal(ctx.calls.send.length, 2);
+  const [first, second] = ctx.calls.send;
+  assert.equal(second.chatId, "retry1");
+  assert.equal(second.body, first.body);
+  assert.equal(second.prompt, first.prompt);
+  assert.deepEqual(second.settings, { provider: "claude", model: "claude-opus-5-5", effort: "high", permissionMode: "full" });
+  const run = ctx.store.runs(routine.id)[0];
+  assert.equal(run.status, "running");
+  assert.equal(run.chatId, "retry1");
+  assert.deepEqual(run.fallback, OPUS);
+  assert.deepEqual(run.attempts, [
+    { startedAt: run.startedAt, endedAt: ctx.clock.t, error: AT_CAPACITY, chatId: "new1", worktreeId: "w1", provider: "codex", model: "gpt-6.1-sol" },
+  ]);
+  // The retry's turn ends the Run, once.
+  ctx.state.reply = "Sorted 4 issues.";
+  ctx.scheduler.observe("retry1", { type: "turn-started" });
+  ctx.scheduler.observe("retry1", { type: "turn-completed" });
+  await ctx.raw.idle();
+  const ended = ctx.store.runs(routine.id)[0];
+  assert.equal(ended.status, "acted");
+  assert.equal(ended.chatId, "retry1");
+  const after = ctx.store.get(routine.id);
+  assert.equal(after.runCount, 1);
+  assert.equal(after.failedStreak, 0);
+});
+
+test("a retry that fails too ends the Run failed once, adds one to the failure streak and doesn't retry again", async () => {
+  const ctx = retrying();
+  const routine = createSchedule(ctx, { provider: "codex", model: "gpt-6.1-sol", fallback: OPUS });
+  await ctx.scheduler.runNow(routine.id);
+  await failTurn(ctx, "new1", AT_CAPACITY);
+  const event = await failTurn(ctx, "retry1", "Claude hit its usage limit");
+  assert.equal(event.quiet, undefined);
+  assert.equal(ctx.retry.chats.length, 1);
+  const run = ctx.store.runs(routine.id)[0];
+  assert.equal(run.status, "failed");
+  assert.equal(run.error, "Claude hit its usage limit");
+  assert.equal(run.attempts.length, 1);
+  const after = ctx.store.get(routine.id);
+  assert.equal(after.runCount, 1);
+  assert.equal(after.failedStreak, 1);
+});
+
+test("a cancelled Run and an ordinary task failure don't retry", async () => {
+  for (const ending of ["cancelled", "npm test failed: 3 tests failed"]) {
+    const ctx = retrying();
+    const routine = createSchedule(ctx, { fallback: OPUS });
+    await ctx.scheduler.runNow(routine.id);
+    await failTurn(ctx, "new1", ending);
+    assert.equal(ctx.retry.chats.length, 0, ending);
+    assert.equal(ctx.calls.send.length, 1, ending);
+    const run = ctx.store.runs(routine.id)[0];
+    assert.equal(run.status, "failed", ending);
+    assert.equal(run.attempts, undefined, ending);
+    assert.equal(ctx.store.get(routine.id).failedStreak, 1, ending);
+  }
+});
+
+test("an agent that exits before its turn starts retries too", async () => {
+  const ctx = retrying();
+  const routine = createSchedule(ctx, { fallback: OPUS });
+  await ctx.scheduler.runNow(routine.id);
+  await failTurn(ctx, "new1", CODEX_CRASH, { started: false });
+  assert.equal(ctx.retry.chats.length, 1);
+  assert.equal(ctx.calls.send.at(-1).chatId, "retry1");
+  assert.equal(ctx.store.runs(routine.id)[0].attempts[0].error, CODEX_CRASH);
+});
+
+test("a Routine with no fallback retries on the model fallbackFor picks for the failed provider, and fails as is when there is none", async () => {
+  const ctx = retrying({ fallback: { provider: "claude", model: "claude-opus-5-5" } });
+  const routine = createSchedule(ctx, { provider: "codex", model: "gpt-6.1-sol" });
+  await ctx.scheduler.runNow(routine.id);
+  await failTurn(ctx, "new1", AT_CAPACITY);
+  assert.deepEqual(ctx.retry.picks, [{ provider: "codex", projectPath: "/p" }]);
+  assert.deepEqual(ctx.calls.send.at(-1).settings, { provider: "claude", model: "claude-opus-5-5", permissionMode: undefined });
+
+  const none = retrying({ fallback: null });
+  const lone = createSchedule(none, { provider: "codex", model: "gpt-6.1-sol" });
+  await none.scheduler.runNow(lone.id);
+  await failTurn(none, "new1", AT_CAPACITY);
+  assert.equal(none.retry.chats.length, 0);
+  const run = none.store.runs(lone.id)[0];
+  assert.equal(run.status, "failed");
+  assert.equal(run.error, AT_CAPACITY);
+  assert.equal(none.store.get(lone.id).failedStreak, 1);
+});
+
+test("a fallback that is the model that just failed doesn't retry", async () => {
+  const ctx = retrying({ ranOn: { provider: "claude", model: "claude-opus-5-5" } });
+  const routine = createSchedule(ctx, { fallback: { provider: "claude", model: "claude-opus-5-5" } });
+  await ctx.scheduler.runNow(routine.id);
+  await failTurn(ctx, "new1", AT_CAPACITY);
+  assert.equal(ctx.retry.chats.length, 0);
+  assert.equal(ctx.store.runs(routine.id)[0].status, "failed");
+});
+
+test("a Heartbeat's beat that fails at capacity doesn't retry: its Chat runs on its own model", async () => {
+  const ctx = setup({ chatOptions: { retryChat: async () => assert.fail("no retry"), fallbackFor: async () => OPUS } });
+  ctx.store.update(ctx.routine.id, { fallback: OPUS });
+  due(ctx);
+  await ctx.scheduler.tick();
+  ctx.scheduler.observe("c1", { type: "turn-started" });
+  ctx.scheduler.observe("c1", { type: "turn-failed", message: AT_CAPACITY });
+  await ctx.scheduler.idle();
+  assert.equal(lastRun(ctx).status, "failed");
+  assert.equal(ctx.calls.send.length, 1);
+});

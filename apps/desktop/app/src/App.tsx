@@ -3804,6 +3804,7 @@ function App() {
                   {view === "routines" && (
                     <RoutinesPage
                       models={models}
+                      capabilities={capabilities}
                       projectPath={project.path}
                       unreadRoutines={unreadRunRoutineIds}
                       routineId={routineId}

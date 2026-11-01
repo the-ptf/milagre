@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ModelOption, Routine, RoutineTrigger } from "@milagre/shared/model";
+import type { ModelCapabilities, ModelOption, Routine, RoutineTrigger } from "@milagre/shared/model";
+import { capabilityFor } from "@milagre/shared/model-options";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { PROVIDERS, providerName } from "@milagre/shared/providers";
 import { projectOfKey } from "@milagre/shared/agent-runs";
@@ -9,6 +10,7 @@ import {
   EVERY_HOURS,
   EVERY_MINUTES,
   emptyRoutineForm,
+  fallbackApplies,
   formFromRoutine,
   formToInput,
   formToUpdate,
@@ -82,7 +84,18 @@ const LINEAR_WHEN: SelectOption<RoutineFormState["linear"]["event"]>[] = [
  * of every computer with Routines on (only the edited Routine's own computer when editing) and Linear choices, a webhook's URL with Copy and Rotate, field errors, and the submit that sends
  * `routines:create` or `routines:update` (packages/shared/routine-form validates both).
  */
-export function useRoutineForm({ initial, models, defaultProjectPath }: { initial?: RoutineWithRuns; models: ModelOption[]; defaultProjectPath?: string }) {
+export function useRoutineForm({
+  initial,
+  models,
+  capabilities = null,
+  defaultProjectPath,
+}: {
+  initial?: RoutineWithRuns;
+  models: ModelOption[];
+  /** What each reported model accepts: the fallback's efforts come from here. */
+  capabilities?: ModelCapabilities | null;
+  defaultProjectPath?: string;
+}) {
   const [state, setState] = useState<RoutineFormState>(() => {
     const zone = localZone();
     if (!initial) return { ...emptyRoutineForm(zone), projectPath: defaultProjectPath ?? "" };
@@ -258,6 +271,30 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
         .map((model) => ({ value: model.id, label: model.name, icon: <ProviderLogo provider={provider} size={14} />, group: providerName(provider) })),
     ),
   ];
+  // The model a failed Run retries on: automatic (another installed provider's recommended model) or one picked here.
+  const fallbackOptions: SelectOption<string>[] = [
+    { value: "", label: "Retry on another provider", description: "When a Run fails on its model, it retries once on another installed provider" },
+    ...PROVIDERS.flatMap((provider) =>
+      models
+        .filter((model) => model.provider === provider)
+        .map((model) => ({
+          value: `${provider}:${model.id}`,
+          label: `Retry on ${model.name}`,
+          icon: <ProviderLogo provider={provider} size={14} />,
+          group: providerName(provider),
+        })),
+    ),
+  ];
+  const fallbackModel = state.fallbackModel ? models.find((model) => model.provider === state.fallbackProvider && model.id === state.fallbackModel) : undefined;
+  if (state.fallbackModel && !fallbackModel)
+    fallbackOptions.push({ value: `${state.fallbackProvider}:${state.fallbackModel}`, label: `Retry on ${state.fallbackModel}` });
+  const fallbackEfforts = fallbackModel ? capabilityFor(fallbackModel, capabilities).efforts : [];
+  const fallbackEffortOptions: SelectOption<string>[] = [
+    { value: "", label: "Default effort" },
+    ...fallbackEfforts.map((effort) => ({ value: effort, label: `${effort[0]!.toUpperCase()}${effort.slice(1)} effort` })),
+  ];
+  if (state.fallbackEffort && !fallbackEfforts.includes(state.fallbackEffort))
+    fallbackEffortOptions.push({ value: state.fallbackEffort, label: `${state.fallbackEffort} effort` });
   const modeOptions: SelectOption<string>[] = [
     { value: "", label: "Default mode" },
     ...PERMISSION_MODES.map((mode) => ({ value: mode.id, label: mode.name, description: mode.description })),
@@ -320,9 +357,23 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     placeholders,
     whereText,
     triggerText: draftTriggerText(state),
+    // Only a Run in a Chat of its own retries; a Heartbeat's beat and a Linear comment run on their Chat's model.
+    fallback: fallbackApplies(state),
+    fallbackValue: state.fallbackModel ? `${state.fallbackProvider}:${state.fallbackModel}` : "",
+    // Picking another model drops an effort it doesn't take.
+    setFallback: (value: string) => {
+      const split = value.indexOf(":");
+      const provider = (split > 0 ? value.slice(0, split) : "") as RoutineFormState["fallbackProvider"];
+      const model = split > 0 ? value.slice(split + 1) : "";
+      const picked = models.find((item) => item.provider === provider && item.id === model);
+      const efforts = picked ? capabilityFor(picked, capabilities).efforts : [];
+      update({ fallbackProvider: provider, fallbackModel: model, fallbackEffort: efforts.includes(state.fallbackEffort) ? state.fallbackEffort : "" });
+    },
     ready: state.name.trim().length > 0 && state.prompt.trim().length > 0,
     options: {
       model: modelOptions,
+      fallback: fallbackOptions,
+      fallbackEffort: fallbackEfforts.length > 0 || state.fallbackEffort ? fallbackEffortOptions : null,
       mode: modeOptions,
       project: projectOptions,
       chat: chatOptions,
