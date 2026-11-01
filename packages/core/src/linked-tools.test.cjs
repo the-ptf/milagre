@@ -207,3 +207,31 @@ test("runTool reads text and images only from a plain object with a text key", a
   assert.equal(await run(null), "null");
   assert.deepEqual(await runTool({ name: "t", input: {}, run: async () => ({ text: "only text" }) }, {}), { text: "only text", images: [], isError: false });
 });
+
+test("a Delegation report is how the reply ended, not the narration between its tool calls", () => {
+  const { delegationReply } = require("./linked-tools.cjs");
+  const narration = "Primeiro confiro a aprovação.\n\nDisparando o db-push na main.\n\n";
+  const answer = "Tudo publicado e ligado na FLIM.";
+  const body = `${narration}${answer}`;
+  const messages = [
+    { id: 1, session_id: 3, role: "user", body: "Do it", context: { kind: "delegation", delegationId: "d1" } },
+    { id: 2, session_id: 3, role: "assistant", body: "Note", context: { kind: "linked-notice" } },
+    {
+      id: 3,
+      session_id: 3,
+      role: "assistant",
+      body,
+      context: null,
+      steps: [
+        { kind: "thinking", offset: body.length },
+        { kind: "tool", offset: "Primeiro confiro a aprovação.\n\n".length },
+        { kind: "tool", offset: narration.length },
+      ],
+    },
+  ];
+  assert.equal(delegationReply({ messages }, 3, "d1"), answer);
+  // A reply that ended on a tool call reports its last stretch of text.
+  const ended = { ...messages[2], body: narration, steps: [{ kind: "tool", offset: narration.length }] };
+  assert.equal(delegationReply({ messages: [messages[0], ended] }, 3, "d1"), "Primeiro confiro a aprovação.\n\nDisparando o db-push na main.");
+  assert.equal(delegationReply({ messages: [messages[0]] }, 3, "d1"), undefined);
+});

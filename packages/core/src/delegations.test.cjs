@@ -639,7 +639,7 @@ test("an Antigravity Delegation reports after consuming its queued advisor resul
   assert.equal((await fixture.messages(fixture.chatOf("api"))).filter((message) => message.context?.kind === "delegation-report").length, 0);
   parent.finish("Applied the advisor's recommendation");
   const report = await findMessage(fixture, "api", "delegation-report");
-  assert.equal(report.body, "Waiting for review\n\nApplied the advisor's recommendation");
+  assert.equal(report.body, "Applied the advisor's recommendation", "the report is how the reply ended, not every turn after the Delegation");
   assert.equal(report.context.status, "done");
 });
 
