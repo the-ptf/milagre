@@ -30,3 +30,12 @@ test("HTML replies take the reader theme into the first paint and drop unsafe va
   assert.deepEqual(readHtmlRenderMessage({ channel: HTML_RENDER_MESSAGE, type: "size", height: 30 }), { type: "size", height: HTML_RENDER_MIN_HEIGHT + 6 });
   assert.equal(htmlRenderHeight(1), HTML_RENDER_MIN_HEIGHT);
 });
+
+test("inline roots stay transparent even when a preview or reader supplies a solid background", () => {
+  const shell = htmlRenderShell("<p>x</p>", HTML_RENDER_THEMES.light);
+  const document = shell.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+  assert.match(shell, /html\{background:transparent;color-scheme:light\}/);
+  assert.match(document, /--background:transparent/);
+  assert.match(document, /background:transparent!important/);
+  assert.doesNotMatch(document, /background:'background'|root.background=theme.background/);
+});

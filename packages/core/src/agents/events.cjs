@@ -436,6 +436,17 @@ function mapCodexNotification(method, params, state) {
       state.compactions.set(id, status);
       return status === "preparing" ? [{ type: "context-compacting" }] : [{ type: "context-compacted", trigger: "auto" }];
     }
+    // Older/in-flight threads may still emit async messages without text deltas. Preserve their actual public text
+    // (including the question fallback Codex supplies), even though new threads expose the synchronous card tool.
+    if (params.item.type === "agentMessage" && params.item.delivery === "async") {
+      if (method !== "item/completed" || !params.item.text) return [];
+      state.asyncMessages ??= new Set();
+      if (state.asyncMessages.has(params.item.id)) return [];
+      state.asyncMessages.add(params.item.id);
+      const events = state.hasText ? [textDelta(state, "\n\n", true)] : [];
+      state.lastItemId = params.item.id;
+      return [...events, textDelta(state, params.item.text)];
+    }
     if (params.item.type === "reasoning") return codexReasoning(method, params.item, state);
     const step = codexStep(params.item);
     if (!step) return [];

@@ -634,7 +634,10 @@ test("turning TLDR writing off in Settings drops the rules", () => {
 
 // A budget, so the prompt every Chat sends can't grow back without anyone noticing. Raise it on purpose, not by accident.
 test("a default Chat's system prompt stays under its size budget", () => {
-  assert.ok(MILAGRE_INSTRUCTIONS.length <= 11_000, `the default system prompt is ${MILAGRE_INSTRUCTIONS.length} characters`);
+  // Absolute skill paths vary with the checkout name; budget the instruction text independently of that path.
+  const { BUNDLED_SKILLS_DIRECTORY } = require("../bundled-skills.cjs");
+  const instructions = MILAGRE_INSTRUCTIONS.replaceAll(BUNDLED_SKILLS_DIRECTORY, "/milagre/bundled-skills");
+  assert.ok(instructions.length <= 11_000, `the default system prompt is ${instructions.length} characters`);
 });
 
 test("the instructions say Milagre's tools may be missing, and name the skills to read before attaching", () => {
@@ -857,4 +860,23 @@ test("Claude: a suggestion consumes only the completed parent turn's eligibility
   state.suggestionTurnId = "completed";
   mapClaudeMessage({ type: "system", subtype: "init", session_id: "s" }, state);
   assert.deepEqual(mapClaudeMessage(suggestion, state), [], "an implicit init invalidates the completed turn");
+});
+
+test("Codex: async public messages without deltas remain visible once, before the next reply", () => {
+  const state = { ...codexState(), turnId: "t-1" };
+  const message = {
+    type: "agentMessage",
+    id: "async-1",
+    delivery: "async",
+    text: "Issue 14?\n- Alta\n- Baixa",
+    questions: [{ title: "Issue 14?", options: ["Alta", "Baixa"] }],
+  };
+  assert.deepEqual(itemEvent("item/started", message, state), []);
+  assert.deepEqual(itemEvent("item/completed", message, state), [{ type: "text-delta", messageId: "t-1", text: message.text }]);
+  assert.deepEqual(itemEvent("item/completed", message, state), []);
+  assert.deepEqual(mapCodexNotification("item/agentMessage/delta", { threadId: "thread-1", turnId: "t-1", itemId: "reply", delta: "Waiting." }, state), [
+    { type: "text-delta", messageId: "t-1", text: "\n\n", startsMessage: true },
+    { type: "text-delta", messageId: "t-1", text: "Waiting." },
+  ]);
+  assert.deepEqual(itemEvent("item/completed", { ...message, id: "empty", text: "" }, state), []);
 });

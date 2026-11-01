@@ -67,7 +67,7 @@ export const HTML_RENDER_THEMES = {
  */
 const THEME_ENTRIES = `(value)=>{
  if(!value||typeof value!=='object')return [];
- const colors={background:'background',surface:'surface',field:'field',ink:'ink',ink2:'ink-2',muted:'muted',line:'line',lineStrong:'line-strong',accent:'accent',accentInk:'accent-ink',accentTint:'accent-tint',onAccent:'on-accent',green:'green',orange:'orange',red:'red',purple:'purple'};
+ const colors={surface:'surface',field:'field',ink:'ink',ink2:'ink-2',muted:'muted',line:'line',lineStrong:'line-strong',accent:'accent',accentInk:'accent-ink',accentTint:'accent-tint',onAccent:'on-accent',green:'green',orange:'orange',red:'red',purple:'purple'};
  const color=/^(transparent|#[0-9a-f]{3,8}|(rgba?|hsla?|oklch|oklab|lab|lch|color)\\([0-9a-z.,%\\s/+-]{1,80}\\))$/i;
  const entries=[];
  for(const [key,name] of Object.entries(colors))if(typeof value[key]==='string'&&color.test(value[key].trim()))entries.push([name,value[key].trim()]);
@@ -149,9 +149,9 @@ const bootstrap = (theme) => `(()=>{
  * own, so its first line sits where the reply's text would start.
  */
 const BASE_STYLE = `
-:root{--background:#f4f9fe;--surface:#fff;--field:#f5f5f5;--ink:#1c222b;--ink-2:#616770;--muted:#6e737b;--line:#edeeee;--line-strong:#e0e1e3;--accent:#007df3;--accent-ink:#0068cd;--accent-tint:#e3f0fe;--on-accent:#fff;--green:#199a4d;--orange:#ef720d;--red:#e3474c;--purple:#a855f7;--font:system-ui,sans-serif;--mono:ui-monospace,Menlo,monospace;--text-size:13px;--leading:1.55;--scheme:light;--chart-1:var(--accent);--chart-2:var(--orange);--chart-3:var(--green);--chart-4:var(--purple);--chart-5:var(--red);--radius:8px;--control-height:30px;color-scheme:var(--scheme)}
+:root{--background:transparent;--surface:#fff;--field:#f5f5f5;--ink:#1c222b;--ink-2:#616770;--muted:#6e737b;--line:#edeeee;--line-strong:#e0e1e3;--accent:#007df3;--accent-ink:#0068cd;--accent-tint:#e3f0fe;--on-accent:#fff;--green:#199a4d;--orange:#ef720d;--red:#e3474c;--purple:#a855f7;--font:system-ui,sans-serif;--mono:ui-monospace,Menlo,monospace;--text-size:13px;--leading:1.55;--scheme:light;--chart-1:var(--accent);--chart-2:var(--orange);--chart-3:var(--green);--chart-4:var(--purple);--chart-5:var(--red);--radius:8px;--control-height:30px;color-scheme:var(--scheme)}
 @media (pointer:coarse){:root{--control-height:36px}}
-html,body{margin:0!important;padding:0!important;border:0!important;background:var(--background)!important;box-shadow:none!important;min-height:0!important;height:auto!important;max-width:none!important;width:auto!important}
+html,body{margin:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;min-height:0!important;height:auto!important;max-width:none!important;width:auto!important}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{display:flow-root;overflow-x:hidden}
 :where(body){font-family:var(--font);font-size:var(--text-size);line-height:var(--leading);letter-spacing:var(--tracking,normal);color:var(--ink);-webkit-font-smoothing:antialiased;overflow-wrap:break-word;-webkit-tap-highlight-color:transparent}
@@ -222,19 +222,18 @@ export function htmlRenderShell(html, theme = {}) {
     `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><script>${bootstrap(theme)}</script><style>${BASE_STYLE}</style>${html}`,
   );
   const initialTheme = JSON.stringify(theme).replace(/</g, "\\u003c");
-  // The outer page paints the reader's background too, so nothing flashes before the inner page loads.
+  // Inline pages always let the transcript show through, including before the inner document loads.
   // Every frame level shares the reader's color scheme: Chromium paints an opaque backdrop under a transparent page
   // whose scheme differs from its frame's.
-  const background = typeof theme.background === "string" && /^[#a-z0-9(),.%\s/+-]{1,80}$/i.test(theme.background) ? theme.background : "transparent";
   const scheme = theme.scheme === "dark" ? "dark" : "light";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}; frame-src 'none'"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block}html{background:${background};color-scheme:${scheme}}body{overflow:hidden}</style></head><body><iframe title="HTML reply" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(document)}"></iframe><script>(()=>{
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}; frame-src 'none'"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block}html{background:transparent;color-scheme:${scheme}}body{overflow:hidden}</style></head><body><iframe title="HTML reply" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(document)}"></iframe><script>(()=>{
  const frame=document.querySelector('iframe'),channel='${HTML_RENDER_MESSAGE}';
 
  let theme=${initialTheme};
  const sendTheme=()=>frame.contentWindow.postMessage({channel,type:'theme',theme},'*');frame.addEventListener('load',()=>{sendTheme();const ready={channel,type:'ready'};if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify(ready));else parent.postMessage(ready,'*')});
  window.htmlRenderConsole=[];
  addEventListener('message',e=>{
-  if(e.source===parent&&e.data?.channel===channel&&e.data.type==='theme'){theme=e.data.theme;const root=document.documentElement.style;if(typeof theme?.background==='string'&&/^[#a-z0-9(),.%\\s/+-]{1,80}$/i.test(theme.background))root.background=theme.background;if(theme?.scheme==='light'||theme?.scheme==='dark')root.colorScheme=theme.scheme;sendTheme();return}
+  if(e.source===parent&&e.data?.channel===channel&&e.data.type==='theme'){theme=e.data.theme;const root=document.documentElement.style;if(theme?.scheme==='light'||theme?.scheme==='dark')root.colorScheme=theme.scheme;sendTheme();return}
   if(e.source!==frame.contentWindow||e.data?.channel!==channel)return;
   if(e.data.type==='console'&&typeof e.data.text==='string'&&window.htmlRenderConsole.length<50){window.htmlRenderConsole.push({level:String(e.data.level).slice(0,20),text:e.data.text.slice(0,2000)});return}
   if(e.data.type==='overflow'&&Number.isFinite(e.data.overflowX)&&e.data.overflowX>=0){window.htmlRenderOverflow={overflowX:e.data.overflowX,overflowSelector:typeof e.data.overflowSelector==='string'?e.data.overflowSelector.slice(0,300):null};return}

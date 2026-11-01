@@ -146,7 +146,7 @@ test("starts threads and turns with Milagre's identity, instructions and policy"
 
   assert.equal(find("initialize").clientInfo.name, "milagre");
   assert.equal(find("thread/start").developerInstructions, MILAGRE_INSTRUCTIONS);
-  assert.deepEqual(find("thread/start").config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(find("thread/start").config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } });
   assert.equal(find("turn/start").approvalPolicy, "never");
   assert.deepEqual(find("turn/start").sandboxPolicy, { type: "dangerFullAccess" });
   assert.deepEqual(find("turn/start").input, [{ type: "text", text: "Hi", text_elements: [] }]);
@@ -189,7 +189,7 @@ test("resumes a saved thread without announcing it again", async (t) => {
   await ended(events);
   const resume = (await received(session)).find((message) => message.method === "thread/resume").params;
   assert.equal(resume.threadId, "thread-9");
-  assert.deepEqual(resume.config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(resume.config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } });
   assert.equal(
     events.some((event) => event.type === "session-started"),
     false,
@@ -950,7 +950,7 @@ test("a Chat's linked tools reach Codex as an MCP server in the thread config; a
   await ended(events);
   const start = (await received(session)).find((message) => message.method === "thread/start").params;
   assert.deepEqual(start.config, {
-    features: { default_mode_request_user_input: true },
+    features: { default_mode_request_user_input: true, send_message_to_user_async: false },
     mcp_servers: { milagre: { url: "http://127.0.0.1:1234/mcp/abc", tool_timeout_sec: 86400 } },
   });
   assert.deepEqual(reported, [true]);
@@ -960,7 +960,7 @@ test("a Chat's linked tools reach Codex as an MCP server in the thread config; a
   const attempts = (await received(rejecting.session)).filter((message) => message.method === "thread/start").map((message) => message.params.config);
   assert.deepEqual(
     attempts,
-    [start.config, { features: { default_mode_request_user_input: true } }, undefined],
+    [start.config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } }, undefined],
     "the MCP server goes first, the whole config last",
   );
   assert.deepEqual(reported, [true, false]);
@@ -1602,7 +1602,9 @@ test("a failing mcpExtras still starts the Codex thread and is logged once", asy
   });
   await session.startTurn(TURN);
   await ended(events);
-  assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, {
+    features: { default_mode_request_user_input: true, send_message_to_user_async: false },
+  });
   assert.equal(warn.mock.callCount(), 1);
   assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
 });

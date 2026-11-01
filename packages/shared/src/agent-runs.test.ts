@@ -1037,3 +1037,17 @@ test("the agent's answer to a steering message is saved as its own reply, not fo
   applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), step("s3"));
   assert.equal(applied.state.messages.length, before + 1);
 });
+
+test("a missing final reasoning summary preserves the public summary received during streaming", () => {
+  const events: AgentEvent[] = [
+    { type: "step-started", step: { id: "thought", kind: "thinking", title: "Thinking" } },
+    { type: "step-output", id: "thought", text: "Preparing HTML verification\n\nCheck the published page." },
+    { type: "step-completed", id: "thought", status: "done", title: "Thought" },
+  ];
+  const { runs } = fold(events);
+  assert.equal(runs[key(1)].steps[0].detail, "Preparing HTML verification\n\nCheck the published page.");
+  const ended = fold([{ type: "step-completed", id: "thought", status: "done", detail: "Authoritative summary." }], runs).runs;
+  assert.equal(ended[key(1)].steps[0].detail, "Authoritative summary.");
+  const saved = fold([{ type: "turn-completed" }], runs).state.messages.at(-1);
+  assert.equal(saved?.steps?.[0].detail, "Preparing HTML verification\n\nCheck the published page.");
+});

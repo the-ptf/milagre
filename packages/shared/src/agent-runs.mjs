@@ -61,14 +61,15 @@ function updateStep(run, id, update) {
   return next ? { ...run, steps: run.steps.map((step, position) => (position === index ? next : step)) } : null;
 }
 
-/** The detail a step ends with replaces what streamed into it; a step that ends without one keeps none. */
-function endStep({ detail: _streamed, ...step }, end) {
+/** Tool completion replaces its output. A missing reasoning summary must not erase a public summary already streamed. */
+function endStep({ detail: streamed, ...step }, end) {
+  const detail = end.detail ?? (step.kind === "thinking" ? streamed : undefined);
   return {
     ...step,
     status: end.status,
     title: end.title ?? step.title,
     ...(end.note === undefined ? {} : { note: end.note }),
-    ...(end.detail === undefined ? {} : { detail: end.detail }),
+    ...(detail === undefined ? {} : { detail }),
     ...(end.durationMs === undefined ? {} : { durationMs: end.durationMs }),
     ...(end.endedAt === undefined ? {} : { endedAt: end.endedAt }),
     ...(end.summary === undefined ? {} : { summary: end.summary }),
