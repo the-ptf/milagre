@@ -102,7 +102,7 @@ export function AccountUsageSection({
       {groups.map((group) => (
         <div key={group.provider} data-usage-provider={group.provider} className="flex min-w-0 flex-col">
           <h3
-            aria-label={`${providerName(group.provider)}, ${group.accounts.length} accounts`}
+            aria-label={`${providerName(group.provider)}, ${group.accounts.length} ${group.accounts.length === 1 ? "account" : "accounts"}`}
             className="flex items-center gap-2 border-b border-line pb-3 text-15 font-semibold text-ink"
           >
             <ProviderLogo provider={group.provider} size={16} />
@@ -140,7 +140,7 @@ export function AccountUsageSection({
                               aria-busy={pending === `${group.provider}:${identity.id}`}
                               aria-label={`Set ${identity.label} as the ${providerName(group.provider)} default on this computer`}
                               onClick={() => void setDefault(group.provider, identity.id)}
-                              className="h-6 w-28 rounded-control border border-line px-2 text-12 font-medium text-ink opacity-0 transition-colors group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-hover disabled:opacity-40"
+                              className="h-6 w-28 rounded-control border border-line px-2 text-12 font-medium text-ink opacity-0 transition-colors group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-hover disabled:group-hover:opacity-40 disabled:group-focus-within:opacity-40"
                             >
                               Set as default
                             </button>

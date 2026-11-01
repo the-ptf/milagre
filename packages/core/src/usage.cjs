@@ -286,6 +286,7 @@ function createUsageReader(deps = {}) {
   };
   const pending = new Map();
   const latest = new Map();
+  const checked = new Map();
   const readers = { claude: readClaude, codex: readCodex, antigravity: readAntigravity, kiro: readKiro };
   let environment;
   const waitReady = () =>
@@ -301,6 +302,7 @@ function createUsageReader(deps = {}) {
           .then(() => readProvider(provider, readers[provider]))
           .then((result) => {
             latest.set(provider, result);
+            checked.set(provider, new Date(now()).toISOString());
             return result;
           })
           .finally(() => pending.delete(provider)),
@@ -319,6 +321,8 @@ function createUsageReader(deps = {}) {
     return inFlight;
   }
   readUsage.provider = providerUsage;
+  // A failed check can retain old quota numbers; its check time must not overwrite their updatedAt.
+  readUsage.checkedAt = (provider) => checked.get(provider);
   readUsage.cached = (provider) => {
     const result = latest.get(provider);
     return result

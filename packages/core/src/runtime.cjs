@@ -1868,6 +1868,7 @@ function createRuntime(options) {
       connected.map(async (account) => {
         const usage = usageForAccounts(undefined, { claude: "default", codex: "default", antigravity: "default", [account.provider]: account.id });
         const result = account.state === "ready" ? (refresh ? await usage.read.provider(account.provider) : usage.read.cached(account.provider)) : null;
+        const checkedAt = usage.read.checkedAt(account.provider);
         return {
           ...(result ?? {
             provider: account.provider,
@@ -1878,6 +1879,7 @@ function createRuntime(options) {
               account.message ||
               (account.state === "ready" ? "Refresh to check usage." : account.state === "unknown" ? "Checking account sign-in…" : "Account is not signed in."),
           }),
+          ...(checkedAt ? { checkedAt } : {}),
           account: {
             id: account.id,
             label: account.label,
@@ -1889,6 +1891,7 @@ function createRuntime(options) {
       }),
     );
     return {
+      generatedAt: new Date().toISOString(),
       accountKey: `all:${connected
         .map((account) => `${account.provider}:${account.id}:${account.state}`)
         .sort()

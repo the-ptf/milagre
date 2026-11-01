@@ -94,6 +94,7 @@ export function mergeSnapshot(previous: UsageSnapshot | null, next: UsageSnapsho
   if (previous?.accountKey !== next.accountKey) previous = null;
   return {
     ...(next.accountKey ? { accountKey: next.accountKey } : {}),
+    ...(next.generatedAt ? { generatedAt: next.generatedAt } : {}),
     providers: next.providers.map((current) => {
       if (current.status !== "error") return current;
       const before = previous?.providers.find((item) => item.provider === current.provider && item.account?.id === current.account?.id);

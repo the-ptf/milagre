@@ -657,3 +657,28 @@ test("without a signed-in profile the default Antigravity reader is unavailable"
   assert.equal(antigravity.status, "unavailable");
   assert.deepEqual(antigravity.windows, []);
 });
+
+test("provider check timestamps advance on errors and unavailable results without relabeling last-good quotas", async () => {
+  let clock = NOW;
+  const old = new Date(NOW - 3600000).toISOString();
+  const windows = [{ id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 42, resetsAt: null }];
+  const results = [
+    { provider: "claude", status: "ok", updatedAt: old, windows },
+    { provider: "claude", status: "error", updatedAt: new Date(NOW).toISOString(), windows: [] },
+    { provider: "claude", status: "unavailable", updatedAt: new Date(NOW).toISOString(), windows: [] },
+  ];
+  const reader = createUsageReader({ now: () => clock, readClaude: async () => results.shift() });
+  assert.equal(reader.checkedAt("claude"), undefined, "an unqueried account has no completed check timestamp");
+  await reader.provider("claude");
+  assert.equal(reader.checkedAt("claude"), new Date(clock).toISOString());
+  clock += 20000;
+  const failed = await reader.provider("claude");
+  assert.equal(reader.checkedAt("claude"), new Date(clock).toISOString());
+  assert.equal(failed.updatedAt, old);
+  assert.deepEqual(failed.windows, windows);
+  assert.equal(reader.cached("claude").updatedAt, old);
+  clock += 20000;
+  await reader.provider("claude");
+  assert.equal(reader.checkedAt("claude"), new Date(clock).toISOString());
+  assert.equal(reader.cached("claude").status, "unavailable");
+});

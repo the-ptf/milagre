@@ -11657,12 +11657,16 @@ function planUsageHost() {
   let syncs = 0;
   let providerRefreshes = 0;
   const requests = [];
+  let events, usageSource;
   const client = {
     call: async (method, args) => {
       requests.push([method, args && JSON.parse(JSON.stringify(args))]);
       return snapshot;
     },
-    live: () => ({ close() {} }),
+    live: (_scope, options) => {
+      events = options;
+      return { close() {} };
+    },
   };
   const { UsageSection, ProviderRows, WindowRow } = load(
     "usage-section.tsx",
@@ -11675,15 +11679,18 @@ function planUsageHost() {
       "@milagre/shared/providers": require("@milagre/shared/providers"),
       "@milagre/shared/usage": require("@milagre/shared/usage"),
       "@milagre/shared/use-account-usage": {
-        useAccountUsage: (source) => ({
-          snapshot,
-          loading: false,
-          error: "",
-          refresh: source.read,
-          refreshAccounts: async () => {
-            syncs++;
-          },
-        }),
+        useAccountUsage: (source) => {
+          usageSource = source;
+          return {
+            snapshot,
+            loading: false,
+            error: "",
+            refresh: source.read,
+            refreshAccounts: async () => {
+              syncs++;
+            },
+          };
+        },
       },
       "./icons": { ProviderLogo: "ProviderLogo", Icon: "Icon" },
       "./ui": { IconButton: "IconButton", PullDown: "PullDown", useStyles: () => fakeStyles },
@@ -11721,6 +11728,8 @@ function planUsageHost() {
   return {
     render,
     requests,
+    source: () => usageSource,
+    events: () => events,
     snapshot,
     setSnapshot: (next) => {
       snapshot = next;
@@ -11939,6 +11948,154 @@ test("a transport failure marks last-known usage and drops windows that have res
     [2, 4, 2],
   );
   assert.equal(result.snapshot.providers[0].updatedAt, cached.providers[0].updatedAt);
+});
+
+test("recent unavailable and failed checks are fresh despite old quotas or phone clock skew", async (t) => {
+  const hostNow = Date.now() - 10 * 60000;
+  const providers = ["unavailable", "error", "ok"].map((status, index) => ({
+    provider: "claude",
+    account: { id: String(index), label: "Account", state: "ready" },
+    status,
+    updatedAt: new Date(hostNow - 3600000).toISOString(),
+    checkedAt: new Date(hostNow - 15000).toISOString(),
+    windows: [],
+  }));
+  const cached = { accountKey: "checked", generatedAt: new Date(hostNow).toISOString(), providers };
+  let reads = 0;
+  const render = overviewHook(t, {
+    cached: async () => cached,
+    read: async () => {
+      reads++;
+      return cached;
+    },
+    subscribe: () => () => {},
+  });
+  render();
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "freshness uses the host's last-check time, regardless of result or available windows");
+  assert.equal(render().snapshot.generatedAt, cached.generatedAt);
+  await render().refresh();
+  assert.equal(reads, 1, "manual Refresh still forces a live read");
+});
+
+test("unchecked placeholders and expired checks still refresh on open", async (t) => {
+  for (const checkedAt of [undefined, new Date(Date.now() - 61000).toISOString()]) {
+    const cached = {
+      accountKey: "stale",
+      generatedAt: new Date().toISOString(),
+      providers: [
+        {
+          provider: "claude",
+          account: { id: "work", label: "Work", state: "ready" },
+          status: "unavailable",
+          windows: [],
+          updatedAt: new Date().toISOString(),
+          ...(checkedAt ? { checkedAt } : {}),
+        },
+      ],
+    };
+    let reads = 0;
+    const render = overviewHook(t, {
+      cached: async () => cached,
+      read: async () => {
+        reads++;
+        return cached;
+      },
+      subscribe: () => () => {},
+    });
+    render();
+    await new Promise(setImmediate);
+    assert.equal(reads, 1, "a recent placeholder timestamp cannot suppress the first real provider read");
+  }
+});
+
+test("a socket cache read overtaking the mount cache preserves freshness and pending refreshes", async (t) => {
+  const fresh = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  fresh.providers.forEach((entry) => {
+    entry.checkedAt = new Date().toISOString();
+  });
+  const mount = deferred(),
+    socket = deferred(),
+    manual = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? mount.promise : caches === 2 ? socket.promise : Promise.resolve(fresh)),
+    read: () => {
+      reads++;
+      return manual.promise;
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  socket.resolve(fresh);
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "socket open does not turn a fresh cache into an account mutation");
+  mount.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, fresh.accountKey);
+  const pending = render().refresh();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(render().loading, true, "a socket cache update never cancels the in-flight live read");
+  manual.resolve({ ...fresh, accountKey: "live" });
+  await pending;
+  assert.equal(render().snapshot.accountKey, "live");
+});
+
+test("phone socket status reads usage cache while account signals invalidate account metadata", () => {
+  const screen = planUsageHost();
+  screen.render();
+  let cacheReads = 0,
+    accountChanges = 0;
+  const off = screen.source().subscribe(
+    () => {
+      cacheReads++;
+    },
+    () => {
+      accountChanges++;
+    },
+  );
+  screen.events().onStatus(true);
+  assert.equal(cacheReads, 1);
+  assert.equal(accountChanges, 0);
+  screen.events().onSignal("accounts");
+  assert.equal(accountChanges, 1);
+  const header = find(screen.render(), (node) => node.props?.accessibilityLabel === "Codex, 1 account");
+  assert.equal(header.props.accessible, true);
+  off();
+});
+
+test("a failed socket cache read that overtakes mount still settles the initial load", async (t) => {
+  const initial = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? initial.promise : Promise.reject(new Error("Cache unavailable"))),
+    read: async () => {
+      reads++;
+      return { accountKey: "live", providers: [] };
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(reads, 1);
+  assert.equal(render().loading, false);
+  assert.equal(render().snapshot.accountKey, "live");
+  initial.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "live");
 });
 
 function subagentGlance() {

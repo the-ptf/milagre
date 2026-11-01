@@ -1168,6 +1168,8 @@ export interface ProviderUsage {
   status: "ok" | "unavailable" | "error";
   windows: UsageWindow[];
   updatedAt: string;
+  /** Latest completed provider check, including unsuccessful checks. Quota timestamps stay in updatedAt. */
+  checkedAt?: string;
   message?: string;
   /** Rate-limit resets the account has banked; absent when there are none. */
   bankedResets?: number;
@@ -1175,6 +1177,8 @@ export interface ProviderUsage {
 
 export interface UsageSnapshot {
   accountKey?: string;
+  /** Host clock at the snapshot read, so cache freshness is independent of phone clock skew. */
+  generatedAt?: string;
   providers: ProviderUsage[];
 }
 

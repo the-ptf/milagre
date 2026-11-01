@@ -182,7 +182,7 @@ export function UsageSection({ header = false }: { header?: boolean }) {
             if (signal === "accounts") accountsChanged();
           },
           onStatus: (open) => {
-            if (open) accountsChanged();
+            if (open) usageChanged();
           },
         });
         return () => live.close();
@@ -285,7 +285,9 @@ export function UsageSection({ header = false }: { header?: boolean }) {
         groups.map((group) => (
           <View key={group.provider} style={{ gap: 16 }}>
             <View
-              accessibilityLabel={`${providerName(group.provider)}, ${group.accounts.length} accounts`}
+              accessible
+              accessibilityRole="header"
+              accessibilityLabel={`${providerName(group.provider)}, ${group.accounts.length} ${group.accounts.length === 1 ? "account" : "accounts"}`}
               style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
             >
               <ProviderLogo provider={group.provider} size={16} />

@@ -478,7 +478,9 @@ test("the account usage overview reads every connected Account separately withou
   assert.equal(reads.length, 0, "cache reads never query usage");
   const [report, simultaneous] = await Promise.all([runtime.invoke("usage:accounts:read"), runtime.invoke("usage:accounts:read")]);
   assert.equal(reads.length, 4, "concurrent reads share one request for each Account");
-  assert.deepEqual(report, simultaneous);
+  assert.deepEqual(report.providers, simultaneous.providers);
+  assert.equal(report.accountKey, simultaneous.accountKey);
+  assert.equal(Number.isFinite(Date.parse(report.generatedAt)), true);
   assert.equal(
     report.providers.every((entry) => entry.provider === "claude"),
     true,

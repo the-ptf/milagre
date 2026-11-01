@@ -13,7 +13,13 @@ const FRESH_MS = 60_000;
 
 function fresh(snapshot: UsageSnapshot) {
   const ready = snapshot.providers.filter((item) => !item.account?.state || item.account.state === "ready");
-  return ready.length > 0 && ready.every((item) => item.status === "ok" && item.windows.length > 0 && Date.now() - Date.parse(item.updatedAt) < FRESH_MS);
+  const hostNow = snapshot.generatedAt ? Date.parse(snapshot.generatedAt) : Date.now();
+  return ready.every((item) => {
+    // An unavailable placeholder has no check time. A recent failed check still counts, without relabeling old quotas.
+    const checkedAt = Date.parse(item.checkedAt ?? (item.status === "ok" ? item.updatedAt : ""));
+    const age = hostNow - checkedAt;
+    return age >= 0 && age < FRESH_MS;
+  });
 }
 
 /** One computer's complete account overview. Pushes read saved numbers, never querying providers again. */
@@ -72,12 +78,13 @@ export function useAccountUsage(source: AccountUsageSource | null) {
       try {
         const next = await source.cached();
         if (!live || at !== revision || generation !== cacheGeneration) return;
+        const initial = snapshot === null;
         const sameAccounts = snapshot !== null && snapshot.accountKey === next.accountKey;
         snapshot = mergeSnapshot(snapshot, next, Date.now());
         setState((current) => ({ ...current, source, snapshot, loading: !!inFlight, error: "" }));
-        if ((reason === "mount" && !fresh(next)) || (reason === "accounts" && !sameAccounts)) void refresh();
+        if (((reason === "mount" || (reason === "usage" && initial)) && !fresh(next)) || (reason === "accounts" && !sameAccounts)) void refresh();
       } catch {
-        if (live && at === revision && generation === cacheGeneration && reason !== "usage") void refresh();
+        if (live && at === revision && generation === cacheGeneration && (reason !== "usage" || snapshot === null)) void refresh();
       }
     };
     refreshRef.current = refresh;
