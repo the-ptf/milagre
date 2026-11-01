@@ -1928,6 +1928,7 @@ test("a Run whose model is at capacity retries once, right away, on the Routine'
   const run = ctx.store.runs(routine.id)[0];
   assert.equal(run.status, "running");
   assert.equal(run.chatId, "retry1");
+  assert.deepEqual(ctx.calls.retire, []);
   assert.deepEqual(run.fallback, OPUS);
   assert.deepEqual(run.attempts, [
     { startedAt: run.startedAt, endedAt: ctx.clock.t, error: AT_CAPACITY, chatId: "new1", worktreeId: "w1", provider: "codex", model: "gpt-6.1-sol" },
@@ -1940,6 +1941,7 @@ test("a Run whose model is at capacity retries once, right away, on the Routine'
   const ended = ctx.store.runs(routine.id)[0];
   assert.equal(ended.status, "acted");
   assert.equal(ended.chatId, "retry1");
+  assert.deepEqual(ctx.calls.retire, [["new1", "retry1"]]);
   const after = ctx.store.get(routine.id);
   assert.equal(after.runCount, 1);
   assert.equal(after.failedStreak, 0);
