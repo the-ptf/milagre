@@ -8,6 +8,7 @@ import {
   GitBranchIcon,
   PencilEdit02Icon,
   PlayIcon,
+  RefreshIcon,
   SecurityCheckIcon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
@@ -17,7 +18,9 @@ import {
   canEditRoutine,
   canRunNow,
   clock,
+  fallbackText,
   filterRuns,
+  routineRetries,
   routineTimes,
   routineWhereText,
   runFilterCounts,
@@ -200,6 +203,11 @@ export function RoutinePage({
           <Chip icon={SparklesIcon} data-routine-chip="model">
             {model}
           </Chip>
+          {routineRetries(routine) && (
+            <Chip icon={RefreshIcon} data-routine-chip="fallback">
+              {fallbackText(routine, (provider, id) => models.find((entry) => entry.provider === provider && entry.id === id)?.name)}
+            </Chip>
+          )}
           <Chip icon={SecurityCheckIcon} data-routine-chip="mode">
             {mode}
           </Chip>

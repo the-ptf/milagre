@@ -2596,3 +2596,53 @@ test("upsertHeartbeat works again after the babysit routine completes", () => {
   const heartbeat = store.upsertHeartbeat({ ...base, chatId: "c1", name: "Babysit PR #7", every: "5m" });
   assert.equal(heartbeat.trigger.kind, "schedule");
 });
+
+const OPUS = { provider: "claude", model: "claude-opus-5-5", effort: "high" };
+
+test("a Routine keeps a checked fallback; update replaces it and null clears it", () => {
+  const { store, options } = setup();
+  const routine = store.create({ ...spec, fallback: { ...OPUS, extra: "dropped" } });
+  assert.deepEqual(routine.fallback, OPUS);
+  assert.deepEqual(createRoutineStore(options).get(routine.id).fallback, OPUS);
+  assert.deepEqual(store.update(routine.id, { fallback: { provider: "codex", model: "gpt-6.1-sol" } }).fallback, { provider: "codex", model: "gpt-6.1-sol" });
+  assert.equal("fallback" in store.update(routine.id, { fallback: null }), false);
+  for (const fallback of [{ provider: "claude" }, { model: "x" }, "claude", { provider: "claude", model: "" }]) {
+    assert.throws(() => store.create({ ...spec, fallback }), /fallback/);
+    assert.throws(() => store.update(routine.id, { fallback }), /fallback/);
+  }
+});
+
+test("retryRun keeps the failed attempt on the Run, which runs on and finishes and counts once", () => {
+  const { store, clock, options } = setup();
+  const routine = store.create(spec);
+  store.enqueue(routine.id, delivery(1));
+  const [{ run }] = store.claimQueued(clock.t, 3);
+  store.attachChat(run.id, { chatId: "/repo#s1", worktreeId: "w1" });
+  clock.t += 60_000;
+  const retried = store.retryRun(run.id, { error: "Selected model is at capacity.", provider: "codex", model: "gpt-6.1-sol", fallback: OPUS });
+  assert.equal(retried.status, "running");
+  assert.deepEqual(retried.fallback, OPUS);
+  assert.deepEqual(retried.attempts, [
+    {
+      startedAt: run.startedAt,
+      endedAt: clock.t,
+      error: "Selected model is at capacity.",
+      chatId: "/repo#s1",
+      worktreeId: "w1",
+      provider: "codex",
+      model: "gpt-6.1-sol",
+    },
+  ]);
+  // One retry per Run.
+  assert.equal(store.retryRun(run.id, { error: "again", fallback: OPUS }), null);
+  store.attachChat(run.id, { chatId: "/repo#s2", worktreeId: "w1" });
+  store.finishRun(run.id, { status: "failed", error: "Claude hit its usage limit" });
+  const saved = createRoutineStore(options).runs(routine.id)[0];
+  assert.equal(saved.chatId, "/repo#s2");
+  assert.equal(saved.attempts.length, 1);
+  const after = store.get(routine.id);
+  assert.equal(after.runCount, 1);
+  assert.equal(after.failedStreak, 1);
+  // A finished Run has nothing to retry.
+  assert.equal(store.retryRun(run.id, { error: "late", fallback: OPUS }), null);
+});

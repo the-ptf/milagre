@@ -12,6 +12,7 @@ const { createChatScopes } = require("./chat-scopes.cjs");
 const { registerLinkRuntime } = require("./link-runtime.cjs");
 const { isLinkScopeKey, scopeFromKey, scopeKey } = require("@milagre/shared/chat-scopes");
 const { PROVIDERS } = require("@milagre/shared/providers");
+const { defaultFallback } = require("./routines/fallback.cjs");
 const { CHATS_ACCOUNT_LABEL } = require("@milagre/shared/chats-home");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { compactionMessage } = require("@milagre/shared/compaction");
@@ -1598,6 +1599,15 @@ function createRuntime(options) {
       await updateProject(projectPath, (state) => withRunChatsHidden(state, decided, (routine) => routine.hidden === undefined), { chats: [] });
     },
     archiveRunChat: (chatId, runId) => track(() => archiveRunChat(projectOfKey(chatId), sessionIdFromKey(chatId), runId), background),
+    // A failed Run's retry, when its Routine names no fallback: another provider that is ready on the Project's accounts.
+    fallbackFor: async ({ provider, projectPath }) => {
+      const services = routing.services(projectPath, routing.selection(projectPath));
+      const [status, models] = await Promise.all([
+        options.agentCliStatus ? options.agentCliStatus() : services.status(),
+        options.agentModels ? options.agentModels() : services.models(),
+      ]);
+      return defaultFallback(provider, status, models);
+    },
     // Made further down; read when a Routine first needs them.
     linear: () => linear,
     // Webhook secrets and waiting deliveries, beside routines.json; URLs are on the relay the phone uses.

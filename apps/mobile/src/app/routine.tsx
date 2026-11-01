@@ -1,7 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Platform, ScrollView, Text, View } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { BubbleChatIcon, Folder01Icon, GitBranchIcon, PencilEdit02Icon, PlayIcon, SecurityCheckIcon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+  BubbleChatIcon,
+  Folder01Icon,
+  GitBranchIcon,
+  PencilEdit02Icon,
+  PlayIcon,
+  Refresh01Icon,
+  SecurityCheckIcon,
+  SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
@@ -10,7 +19,9 @@ import {
   canOpenRunChat,
   canRunNow,
   clock,
+  fallbackText,
   filterRuns,
+  routineRetries,
   routineTimes,
   routineWhereText,
   runFilterCounts,
@@ -236,6 +247,12 @@ export default function RoutineScreen() {
             text={routineWhereText(target, chatTitle)}
           />
           <Chip icon={SparklesIcon} text={model} />
+          {routineRetries(routine) ? (
+            <Chip
+              icon={Refresh01Icon}
+              text={fallbackText(routine, (provider, modelId) => modelsFor(provider, session.models).find((item) => item.id === modelId)?.name)}
+            />
+          ) : null}
           <Chip icon={SecurityCheckIcon} text={mode} />
         </ScrollView>
         {times ? <Text style={[styles.caption, { fontSize: 13, paddingHorizontal: 4 }]}>{times}</Text> : null}

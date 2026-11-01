@@ -2,6 +2,7 @@ const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const { clock, parsePass } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { linearIssueUrl } = require("@milagre/shared/linear-issue");
+const { providerFailure } = require("./fallback.cjs");
 const { BABYSIT_PASS_HINT, babysitPrompt, effectiveLevel, effectiveResolve } = require("./babysit-prompt.cjs");
 
 const TICK_MS = 1000;
@@ -17,6 +18,7 @@ const RUN_NOW_BABYSIT = "A babysit Routine runs when its PR changes";
 const AUTHOR_MAX = 80;
 
 const errorText = (error) => error?.message ?? String(error);
+
 const isComment = (event) => event?.kind === "linear" && event.change === "comment";
 const isPullRequest = (event) => event?.kind === "pull-request";
 // Whether a claimed Run makes a Chat: a trigger's (a comment and a pull-request event go into a Chat that exists), or a
@@ -95,6 +97,14 @@ function schedulePrompt(template, at, timezone) {
 
 // What a Run executes on, as its Routine said when the Run was claimed (the claim's copy): an edit since never reaches it.
 const claimedSettings = (routine) => ({ provider: routine.provider, model: routine.model, permissionMode: routine.permissionMode });
+// A retry's: the fallback's provider, model and effort, in the Routine's permission mode.
+const fallbackSettings = (routine, fallback) => ({
+  provider: fallback.provider,
+  model: fallback.model,
+  ...(fallback.effort ? { effort: fallback.effort } : {}),
+  permissionMode: routine.permissionMode,
+});
+const sameModel = (a, b) => a.provider === b.provider && a.model === b.model;
 
 /**
  * Starts each Routine's Runs and records how their turns went. A heartbeat's beat goes into its Chat; a trigger's Run (and a
@@ -104,7 +114,10 @@ const claimedSettings = (routine) => ({ provider: routine.provider, model: routi
  * patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder, and words its first message),
  * archive, linkedChat (the Chat a Linear issue's comments go into, or null), headBranch (the branch checked out in a Chat's
  * Worktree, or null) and nameRun (titles an acted or quiet Run once
- * it has ended, and a Run's own Chat with it; `{ quietSummary }` for a quiet one).
+ * it has ended, and a Run's own Chat with it; `{ quietSummary }` for a quiet one). For a Run's retry, `ranOn(chatId)` is
+ * the provider, model and effort its Chat's turn ran on (or null), `fallbackFor({ provider, projectPath })` the model to
+ * retry on when the Routine names none (or null), and `retryChat({ routine, run, chatId })` makes the retry's Chat beside
+ * the failed one (in its Worktree when it is still there).
  */
 function createRoutineScheduler({
   store,
@@ -193,6 +206,7 @@ function createRoutineScheduler({
       // it does for a busy Chat, and a beat is skipped, uncounted, as it would have been a moment earlier.
       if (error?.busy && entry.comment) store.deferRun(entry.runId, now() + COMMENT_RETRY_MS);
       else if (error?.busy && !entry.newChat) finish({ id: entry.runId }, chatId, { status: "skipped-busy" });
+      else if (retries(entry, errorText(error))) await retry(chatId, entry, errorText(error));
       else finish({ id: entry.runId }, chatId, { status: "failed", error: errorText(error) });
       return;
     }
@@ -246,9 +260,92 @@ function createRoutineScheduler({
       archive(chatId, removeWorktree);
       return;
     }
-    const entry = { runId: run.id, sent: false, turnStarted: false, newChat: true, createdWorktree: removeWorktree };
+    const message = { body, prompt: prompt + PASS_HINT, context };
+    const entry = { runId: run.id, sent: false, turnStarted: false, newChat: true, createdWorktree: removeWorktree, routine, message };
     pending.set(chatId, entry);
-    await deliver(chatId, entry, { body, prompt: prompt + PASS_HINT, context, settings: claimedSettings(routine) });
+    await deliver(chatId, entry, { ...message, settings: claimedSettings(routine) });
+  }
+
+  // Whether a failed attempt gets its one retry: a Run in a Chat of its own, on its first attempt, failing for a
+  // provider-side reason, while the scheduler runs.
+  const retries = (entry, error, event) => Boolean(entry.newChat && entry.routine && !entry.retried && !stopped && providerFailure(error, event));
+
+  /**
+   * The one retry of a Run whose attempt in `chatId` failed for a provider-side reason: a new Chat beside it (in the same
+   * Worktree when it is still there) gets the same first message, on the Routine's fallback or, when it names none, the
+   * model `fallbackFor` picks on another installed provider. The Run keeps the failed attempt (store.cjs retryRun) and
+   * goes on running, so it ends, and counts toward the failure streak, once. With no model to retry on, it fails as is.
+   */
+  async function retry(chatId, entry, error) {
+    const { routine, message } = entry;
+    const projectPath = routine.target.projectPath;
+    let ran = null;
+    try {
+      ran = chats.ranOn?.(chatId) ?? null;
+    } catch {}
+    const tried = { provider: ran?.provider ?? routine.provider, model: ran?.model ?? routine.model, effort: ran?.effort };
+    let fallback = routine.fallback ?? null;
+    if (!fallback) {
+      try {
+        fallback = (await chats.fallbackFor?.({ provider: tried.provider, projectPath })) ?? null;
+      } catch (failure) {
+        console.warn("[routines] couldn't pick a fallback model", failure);
+      }
+    }
+    if (!fallback?.provider || !fallback.model || (tried.provider && tried.model && sameModel(tried, fallback)) || stopped) {
+      finishFailed(chatId, entry, error);
+      return;
+    }
+    let retried;
+    try {
+      retried = store.retryRun(entry.runId, { error, ...tried, fallback });
+    } catch (failure) {
+      console.warn("[routines] couldn't record a Run's retry", failure);
+    }
+    if (!retried) {
+      finishFailed(chatId, entry, error);
+      return;
+    }
+    onChange();
+    let chat;
+    try {
+      chat = await chats.retryChat({ routine, run: retried, chatId });
+    } catch (failure) {
+      finish({ id: entry.runId }, chatId, { status: "failed", error: `${error} · retry on ${fallback.model} didn't start: ${errorText(failure)}` });
+      return;
+    }
+    if (!store.attachChat(entry.runId, { chatId: chat.chatId, worktreeId: chat.worktreeId })) {
+      archive(chat.chatId, chat.createdWorktree === true);
+      return;
+    }
+    const next = {
+      ...entry,
+      sent: false,
+      turnStarted: false,
+      turnId: undefined,
+      retried: true,
+      createdWorktree: entry.createdWorktree || chat.createdWorktree === true,
+    };
+    pending.set(chat.chatId, next);
+    await deliver(chat.chatId, next, { ...message, settings: fallbackSettings(routine, fallback) });
+  }
+
+  function finishFailed(chatId, entry, error) {
+    finish({ id: entry.runId }, chatId, { status: "failed", error });
+    onChange();
+  }
+
+  // Starts a failed attempt's retry off the tick: it may look up models and make a Chat.
+  function startRetry(chatId, entry, error) {
+    track(
+      retry(chatId, entry, error)
+        .then(() => onChange())
+        .catch((failure) => {
+          console.warn("[routines] retry failed", failure);
+          finish({ id: entry.runId }, chatId, { status: "failed", error });
+          onChange();
+        }),
+    );
   }
 
   // A Linear comment goes into the Chat linked to its issue. A person wrote it, so a busy Chat makes it wait rather than skip
@@ -376,6 +473,13 @@ function createRoutineScheduler({
   function release(chatId, entry, error, event) {
     if (pending.get(chatId) !== entry) return;
     pending.delete(chatId);
+    if (retries(entry, error, event)) {
+      // The retry speaks for the Run: the failed attempt's end tells no one.
+      if (event) event.quiet = true;
+      startRetry(chatId, entry, error);
+      onChange();
+      return;
+    }
     const routine = finish({ id: entry.runId }, chatId, { status: "failed", error });
     if (failedAgain(routine)) {
       if (event) event.quiet = true;
@@ -539,8 +643,14 @@ function createRoutineScheduler({
       } else if (finish(run, chatId, { status: "acted" })) {
         nameRun(chatId, entry.runId, {});
       }
-    } else if (failedAgain(finish(run, chatId, { status: "failed", error: event.type === "turn-failed" ? event.message : "cancelled" }))) {
-      event.quiet = true;
+    } else {
+      const error = event.type === "turn-failed" ? (event.message ?? "turn failed") : "cancelled";
+      if (retries(entry, error, event)) {
+        event.quiet = true;
+        startRetry(chatId, entry, error);
+      } else if (failedAgain(finish(run, chatId, { status: "failed", error }))) {
+        event.quiet = true;
+      }
     }
     // A quiet beat takes back only the unread mark its turn's end set (ChatHost marks that end `markedUnread`): a mark
     // already there, or one the user cleared during the beat, is left as it is.

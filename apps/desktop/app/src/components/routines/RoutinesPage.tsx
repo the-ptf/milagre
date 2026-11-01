@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon, PlusSignIcon, Pulse01Icon, RepeatIcon, ZapIcon } from "@hugeicons/core-free-icons";
-import type { ModelOption } from "@milagre/shared/model";
+import type { ModelCapabilities, ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { RoutineRow } from "./RoutineRow";
@@ -38,6 +38,7 @@ const NO_CHATS: ReadonlySet<string> = new Set();
  */
 export function RoutinesPage({
   models,
+  capabilities = null,
   projectPath,
   unreadRoutines,
   routineId = null,
@@ -51,6 +52,8 @@ export function RoutinesPage({
   onCloseRunChat,
 }: {
   models: ModelOption[];
+  /** What each reported model accepts (efforts), for the fallback's effort. */
+  capabilities?: ModelCapabilities | null;
   /** The open Project, where a new Routine runs unless another is picked. */
   projectPath?: string;
   /** The ids of Routines with a hidden Run Chat nobody opened: their rows show a dot. */
@@ -219,6 +222,7 @@ export function RoutinesPage({
       key={initial?.id ?? "new"}
       initial={initial}
       models={models}
+      capabilities={capabilities}
       defaultProjectPath={projectPath}
       onDirtyChange={setDirty}
       error={opening ? loadError : null}
