@@ -8,6 +8,10 @@ file names, code identifiers, CLI tools. It runs the recognizers Milagre ships, 
 - **Whisper** (`@fugood/whisper.node`, the desktop binding): the same models, prompt and decoding options as
   `apps/desktop/electron/dictation.cjs`. `small` stands in for the phone's default.
 
+- **Parakeet** (`--engines …,parakeet`): Paseo's local recognizer, NVIDIA Parakeet TDT 0.6B v2 (English) and v3 (25
+  European languages) through `sherpa-onnx-node`, installed into the cache rather than the repo. It takes no prompt, so
+  the project's words reach it only through snapping and the fix-up. Not shipped in Milagre; here to compare.
+
 Apple is scored on English only: its Portuguese dictation on macOS 27.0 returns only the first word of each clip.
 
 ```sh

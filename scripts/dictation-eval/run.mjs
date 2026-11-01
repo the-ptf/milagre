@@ -22,7 +22,9 @@ const option = (name, fallback) => {
 const flag = (name) => argv.includes(`--${name}`);
 if (flag("help")) {
   console.log(`node scripts/dictation-eval/run.mjs [options]
-  --engines apple,whisper          recognizers to score (default: both)
+  --engines apple,whisper          recognizers to score (default: both); add parakeet for Paseo's local model
+  --parakeet v2,v3                 Parakeet models (v2: English, v3: 25 European languages), run with sherpa-onnx-node
+                                   from <cache>/sherpa; downloaded once
   --models large-v3-turbo,small    Whisper models (default: large-v3-turbo,small); downloaded once into the cache
   --voices Samantha,Daniel,Rishi   macOS voices for English cases (Portuguese cases use Luciana)
   --variants raw,main,new,snap     raw: no vocabulary. main: the vocabulary as main builds it. new: as this checkout
@@ -46,6 +48,7 @@ const list = (value) =>
 const cache = path.resolve(option("cache", path.join(os.homedir(), ".cache/milagre-dictation-eval")));
 const engines = list(option("engines", "apple,whisper"));
 const whisperModels = list(option("models", "large-v3-turbo,small"));
+const parakeetModels = list(option("parakeet", "v2,v3"));
 const voices = list(option("voices", "Samantha,Daniel,Rishi"));
 const variants = list(option("variants", "raw,main,new,snap"));
 if (flag("polish") && !variants.includes("polish")) variants.push("polish");
@@ -277,6 +280,63 @@ async function runWhisper(model, batch, prompt, language) {
   return rows;
 }
 
+// Paseo's local recognizer: NVIDIA Parakeet TDT 0.6B through sherpa-onnx, greedy decoding as Paseo runs it. It takes no
+// prompt, so the project's words reach it only through snapping and the fix-up.
+const PARAKEET = {
+  v2: { dir: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8", languages: ["en"] },
+  v3: { dir: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", languages: ["en", "pt"] },
+};
+const parakeetRecognizers = new Map();
+function parakeetRecognizer(id) {
+  if (!parakeetRecognizers.has(id)) {
+    const dir = path.join(cache, "models", PARAKEET[id].dir);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(path.dirname(dir), { recursive: true });
+      console.error(`Downloading ${PARAKEET[id].dir}…`);
+      execFileSync("sh", [
+        "-c",
+        `curl -sL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/${PARAKEET[id].dir}.tar.bz2 | tar xj -C "${path.dirname(dir)}"`,
+      ]);
+    }
+    const sherpaDir = path.join(cache, "sherpa");
+    if (!fs.existsSync(path.join(sherpaDir, "node_modules/sherpa-onnx-node"))) {
+      fs.mkdirSync(sherpaDir, { recursive: true });
+      if (!fs.existsSync(path.join(sherpaDir, "package.json"))) fs.writeFileSync(path.join(sherpaDir, "package.json"), '{"private":true}');
+      execFileSync("npm", ["install", "sherpa-onnx-node@1.12.28", "--no-audit", "--no-fund"], { cwd: sherpaDir, stdio: "inherit" });
+    }
+    const sherpa = createRequire(path.join(sherpaDir, "package.json"))("sherpa-onnx-node");
+    const file = (name) => path.join(dir, name);
+    parakeetRecognizers.set(id, {
+      sherpa,
+      recognizer: new sherpa.OfflineRecognizer({
+        featConfig: { sampleRate: 16000, featureDim: 80 },
+        modelConfig: {
+          transducer: { encoder: file("encoder.int8.onnx"), decoder: file("decoder.int8.onnx"), joiner: file("joiner.int8.onnx") },
+          tokens: file("tokens.txt"),
+          numThreads: Math.max(1, Math.min(4, os.availableParallelism() - 1)),
+          provider: "cpu",
+          modelType: "nemo_transducer",
+          debug: 0,
+        },
+        decodingMethod: "greedy_search",
+      }),
+    });
+  }
+  return parakeetRecognizers.get(id);
+}
+
+function runParakeet(model, batch) {
+  const { sherpa, recognizer } = parakeetRecognizer(model);
+  return batch.map((clip) => {
+    const started = Date.now();
+    const wave = sherpa.readWave(clip.file);
+    const stream = recognizer.createStream();
+    stream.acceptWaveform({ sampleRate: wave.sampleRate, samples: wave.samples });
+    recognizer.decode(stream);
+    return { text: recognizer.getResult(stream).text.trim(), ms: Date.now() - started };
+  });
+}
+
 // ---- the AI fix-up, as the app calls it ----
 const claudeBin = (() => {
   for (const candidate of [path.join(os.homedir(), ".local/bin/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"])
@@ -349,6 +409,7 @@ const groups = (key) => {
 const recognizers = [
   ...(engines.includes("apple") ? [{ engine: "apple", model: "dictation" }] : []),
   ...(engines.includes("whisper") ? whisperModels.map((model) => ({ engine: "whisper", model })) : []),
+  ...(engines.includes("parakeet") ? parakeetModels.map((model) => ({ engine: "parakeet", model })) : []),
 ];
 for (const { engine, model } of recognizers) {
   // polish reuses snap's transcript; recognizing once per vocabulary keeps the run short.
@@ -357,11 +418,23 @@ for (const { engine, model } of recognizers) {
     for (const [language, batch] of groups((clip) => clip.item.language)) {
       // Apple's Portuguese dictation on macOS 27.0 returns only the first word of a clip, so it can't stand in for the phone's.
       if (engine === "apple" && language !== "en") continue;
+      if (engine === "parakeet" && !PARAKEET[model].languages.includes(language)) continue;
       const setup = variantOf(variant, language);
-      const recognizeKey = `${["snap", "polish", "local"].includes(variant) ? "new" : variant === "chat-polish" ? "chat" : variant}:${language}`;
+      // Parakeet hears the same with any vocabulary: one recognition serves every variant.
+      const recognizeKey =
+        engine === "parakeet"
+          ? `any:${language}`
+          : `${["snap", "polish", "local"].includes(variant) ? "new" : variant === "chat-polish" ? "chat" : variant}:${language}`;
       if (!recognized.has(recognizeKey)) {
         console.error(`${engine}/${model} ${recognizeKey} (${batch.length} clips)`);
-        recognized.set(recognizeKey, engine === "apple" ? runApple(batch, setup.terms, language) : await runWhisper(model, batch, setup.prompt, language));
+        recognized.set(
+          recognizeKey,
+          engine === "apple"
+            ? runApple(batch, setup.terms, language)
+            : engine === "parakeet"
+              ? runParakeet(model, batch)
+              : await runWhisper(model, batch, setup.prompt, language),
+        );
       }
       const heard = recognized.get(recognizeKey);
       const finals =
