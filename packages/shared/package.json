@@ -193,6 +193,10 @@
       "types": "./src/routines.d.mts",
       "default": "./src/routines.mjs"
     },
+    "./routine-flows": {
+      "types": "./src/routine-flows.d.mts",
+      "default": "./src/routine-flows.mjs"
+    },
     "./babysit": {
       "types": "./src/babysit.d.mts",
       "default": "./src/babysit.mjs"
