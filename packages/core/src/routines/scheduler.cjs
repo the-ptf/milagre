@@ -207,7 +207,10 @@ function createRoutineScheduler({
       if (error?.busy && entry.comment) store.deferRun(entry.runId, now() + COMMENT_RETRY_MS);
       else if (error?.busy && !entry.newChat) finish({ id: entry.runId }, chatId, { status: "skipped-busy" });
       else if (retries(entry, errorText(error))) await retry(chatId, entry, errorText(error));
-      else finish({ id: entry.runId }, chatId, { status: "failed", error: errorText(error) });
+      else {
+        finish({ id: entry.runId }, chatId, { status: "failed", error: errorText(error) });
+        if (entry.newChat) leave(chatId, entry, false);
+      }
       return;
     }
     // No turn of the Run's own will end it: a start that failed or was stopped resolves without a turn id, and a message
@@ -261,7 +264,7 @@ function createRoutineScheduler({
       return;
     }
     const message = { body, prompt: prompt + PASS_HINT, context };
-    const entry = { runId: run.id, sent: false, turnStarted: false, newChat: true, createdWorktree: removeWorktree, routine, message };
+    const entry = { runId: run.id, sent: false, turnStarted: false, newChat: true, createdWorktree: removeWorktree, chatIds: [chatId], routine, message };
     pending.set(chatId, entry);
     await deliver(chatId, entry, { ...message, settings: claimedSettings(routine) });
   }
@@ -312,6 +315,7 @@ function createRoutineScheduler({
       chat = await chats.retryChat({ routine, run: retried, chatId });
     } catch (failure) {
       finish({ id: entry.runId }, chatId, { status: "failed", error: `${error} · retry on ${fallback.model} didn't start: ${errorText(failure)}` });
+      leave(chatId, entry, false);
       return;
     }
     if (!store.attachChat(entry.runId, { chatId: chat.chatId, worktreeId: chat.worktreeId })) {
@@ -325,6 +329,7 @@ function createRoutineScheduler({
       turnId: undefined,
       retried: true,
       createdWorktree: entry.createdWorktree || chat.createdWorktree === true,
+      chatIds: [...entry.chatIds, chat.chatId],
     };
     pending.set(chat.chatId, next);
     await deliver(chat.chatId, next, { ...message, settings: fallbackSettings(routine, fallback) });
@@ -332,6 +337,7 @@ function createRoutineScheduler({
 
   function finishFailed(chatId, entry, error) {
     finish({ id: entry.runId }, chatId, { status: "failed", error });
+    if (entry.newChat) leave(chatId, entry, false);
     onChange();
   }
 
@@ -481,6 +487,7 @@ function createRoutineScheduler({
       return;
     }
     const routine = finish({ id: entry.runId }, chatId, { status: "failed", error });
+    if (entry.newChat) leave(chatId, entry, false);
     if (failedAgain(routine)) {
       if (event) event.quiet = true;
       // A beat that steered into someone else's turn has no turn end of its own to silence.
@@ -598,6 +605,24 @@ function createRoutineScheduler({
     track(after.then(() => chats.archive(chatId, { removeWorktree })).catch((error) => console.warn("[routines] archive failed", error)));
   }
 
+  /**
+   * A Run in a Chat of its own has ended, however it ended, once `after` (its divider's patch) settles. A quiet one leaves
+   * nothing to read, so its Chat is archived. Then the Worktree the Run made goes when it left nothing behind (no changes,
+   * no commits off its base or upstream, no open PR): the adapter's retireWorktree keeps the Run's Chat, archived and
+   * readable from the Run's history, and keeps the Worktree whenever any of that doesn't hold.
+   */
+  function leave(chatId, entry, quiet, after = Promise.resolve()) {
+    track(
+      after
+        .then(async () => {
+          if (quiet) await chats.archive(chatId, { removeWorktree: false });
+          if (entry.createdWorktree) await chats.retireWorktree?.(entry.chatIds ?? [chatId]);
+          return null;
+        })
+        .catch((error) => console.warn("[routines] couldn't tidy up after a Run", error)),
+    );
+  }
+
   // Runs synchronously: it marks the event quiet before the runtime broadcasts it.
   function observe(chatId, event) {
     if (silenced.has(chatId)) {
@@ -648,6 +673,8 @@ function createRoutineScheduler({
       if (retries(entry, error, event)) {
         event.quiet = true;
         startRetry(chatId, entry, error);
+        onChange();
+        return;
       } else if (failedAgain(finish(run, chatId, { status: "failed", error }))) {
         event.quiet = true;
       }
@@ -656,8 +683,7 @@ function createRoutineScheduler({
     // already there, or one the user cleared during the beat, is left as it is.
     const session = event.markedUnread ? { unread: false } : undefined;
     const patched = quiet ? patchContext(chatId, entry.runId, { quiet, summary }, session) : patchContext(chatId, entry.runId, { quiet });
-    // A quiet Run in a Chat of its own leaves nothing to read there: the Chat is archived once its divider says quiet.
-    if (quiet && entry.newChat) archive(chatId, entry.createdWorktree, patched);
+    if (entry.newChat) leave(chatId, entry, quiet, patched);
     onChange();
   }
 

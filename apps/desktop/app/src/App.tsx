@@ -149,7 +149,7 @@ import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { chatFamily, OpenSubchatContext } from "./lib/subchat-rows";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
+import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
@@ -3835,7 +3835,7 @@ function App() {
                     <RunChatHeader
                       chatKey={focusedChatKey}
                       title={chatTitle(selectedSession, displayedMessages)}
-                      branch={showGit ? selectedWorktree?.name : undefined}
+                      branch={showGit ? chatBranchLabel(selectedSession, selectedWorktree?.name) : undefined}
                       onClose={closeRunPane}
                     />
                   )}
@@ -3908,7 +3908,7 @@ function App() {
                           showGit && selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined
                         }
                         isSending={isSending}
-                        sendBlocked={preparingHere}
+                        sendBlocked={preparingHere || Boolean(selectedSession?.formerWorktree)}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
                         offlineTray={
                           offlineTray.shown && project ? (
@@ -4029,7 +4029,13 @@ function App() {
                           saveChatPreferences(localStorage, project.path, { baseBranch: branch });
                         }}
                         newChatError={newChatError}
-                        composerNote={runPaneOpen && selectedSession?.routine?.hidden ? RUN_CHAT_REPLY_NOTE : undefined}
+                        composerNote={
+                          selectedSession?.formerWorktree
+                            ? RUN_WORKTREE_REMOVED_NOTE
+                            : runPaneOpen && selectedSession?.routine?.hidden
+                              ? RUN_CHAT_REPLY_NOTE
+                              : undefined
+                        }
                         findOpen={findOpen}
                         findSignal={findSignal}
                         findSeed={findSeed}

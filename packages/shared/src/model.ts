@@ -204,6 +204,11 @@ export interface AgentSession {
    * until it waits on an approval or question; it is absent on a Chat made before Run Chats were hidden.
    */
   routine?: { routineId: string; runId: string; hidden?: boolean };
+  /**
+   * Set on a Run's Chat whose Worktree Milagre removed once the Run ended leaving nothing in it: the Chat is archived and
+   * kept on the Project folder's Worktree so its Run's history still opens it, and a send into it is refused.
+   */
+  formerWorktree?: { path: string; name: string; branch?: string };
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
   /**
