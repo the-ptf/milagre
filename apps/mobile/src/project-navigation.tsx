@@ -421,8 +421,10 @@ const NavigationBody = memo(function NavigationBody({
   const now = useActivityClock(rowShow.lastActivity || doneOpen || views.some((view) => view.home?.exists));
   // The Chats group folds for as long as the app runs; it isn't one computer's, so the per-computer folds don't hold it.
   const [chatsFolded, setChatsFolded] = useState(false);
-  // Folded subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts).
-  const [subchatFolds, setSubchatFolds] = useState<ReadonlySet<string>>(() => new Set());
+  // Opened subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts): a family starts
+  // folded, its parent alone, until its count is tapped.
+  const [subchatOpen, setSubchatOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const subchatFolds = useMemo(() => ({ has: (key: string) => !subchatOpen.has(key) }), [subchatOpen]);
   // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
   const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
@@ -1315,8 +1317,8 @@ const NavigationBody = memo(function NavigationBody({
       foldChats: () => setChatsFolded((folded) => !folded),
       foldDone: () => setDoneOpen((open) => !open),
       foldSubchats: (key) =>
-        setSubchatFolds((folded) => {
-          const next = new Set(folded);
+        setSubchatOpen((open) => {
+          const next = new Set(open);
           if (!next.delete(key)) next.add(key);
           return next;
         }),

@@ -17,7 +17,7 @@ const parentKeyOf = (row: ChatLike) => (row.chat.parent === undefined ? undefine
  * The list with each run of Chat rows (a Project's, or the one list's) nested: pinned rows keep their place, the rest put
  * each subchat under its topmost listed ancestor, and a family in `folded` (by the parent row's key) shows its parent alone.
  */
-export function nestChatRows<R extends Listed>(rows: readonly R[], folded: ReadonlySet<string>): (R & SubchatMarks)[] {
+export function nestChatRows<R extends Listed>(rows: readonly R[], folded: { has(key: string): boolean }): (R & SubchatMarks)[] {
   if (!rows.some((row) => isChat(row) && row.chat.parent !== undefined)) return rows as R[];
   const result: (R & SubchatMarks)[] = [];
   let run: (R & ChatLike)[] = [];

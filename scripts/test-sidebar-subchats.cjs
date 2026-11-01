@@ -76,9 +76,13 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelector('[data-chat-id="1"]')`);
-    await check(["4", "1", "2", "3"]);
+    // A family starts folded: its parent alone.
+    await check(["4", "1", "3"]);
     for (const mode of ["grouped", "list"]) {
       await evaluate(`window.setMode(${JSON.stringify(mode)})`);
+      await delay(150);
+      await check(["4", "1", "3"]);
+      await evaluate(`document.querySelector('button[aria-label="Show 1 subchat of Parent"]').click()`);
       await delay(150);
       await check(["4", "1", "2", "3"]);
       await evaluate(`document.querySelector('button[aria-label="Hide 1 subchat of Parent"]').click()`);
@@ -90,11 +94,9 @@ async function browserChecks() {
       await evaluate(`document.querySelector('button[aria-label="Expand sidebar"]').click()`);
       await delay(150);
       await check(["4", "1", "3"]);
-      await evaluate(`document.querySelector('button[aria-label="Show 1 subchat of Parent"]').click()`);
-      await delay(150);
     }
     assert.deepEqual(errors, []);
-    console.log("PASS: grouped, One list and rail hints match keyboard targets with nested, folded, pinned and Done Chats");
+    console.log("PASS: grouped, One list and rail hints match keyboard targets with nested (folded at first), pinned and Done Chats");
     app.exit(0);
   } catch (error) {
     console.error(error);

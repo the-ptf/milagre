@@ -12,7 +12,7 @@ export type ShownRow = { subchat: boolean; family?: { count: number; folded: boo
  */
 export function shownChats<T>(
   rows: readonly T[],
-  { key, parent, folded }: { key: (row: T) => string; parent: (row: T) => string | undefined; folded: ReadonlySet<string> },
+  { key, parent, folded }: { key: (row: T) => string; parent: (row: T) => string | undefined; folded: SubchatFolds },
 ): (ShownRow & { item: T })[] {
   if (!rows.some((row) => parent(row) !== undefined)) return rows.map((item) => ({ item, subchat: false }));
   const byKey = new Map(rows.map((row) => [key(row), row]));
@@ -43,7 +43,7 @@ export const rowKeys = (scope: string) => ({
 export function jumpChatRows<T extends Pick<SidebarRecent, "id" | "parent" | "pinned" | "doneAt">>(
   rows: readonly T[],
   scope: string,
-  folded: ReadonlySet<string>,
+  folded: SubchatFolds,
   collapsed = false,
 ): T[] {
   const live = rows.filter((row) => !row.doneAt);
@@ -59,14 +59,23 @@ const toggleFor = (key: string) => {
   return toggle;
 };
 
-// Folded families, by the parent's chat key (`<scope>#<id>`), kept across launches on this Mac.
-const FOLDS_KEY = "milagre.subchatsFolded";
-let folds: ReadonlySet<string> = readFolds();
+/** Which families show their parent alone, by the parent's chat key. */
+export type SubchatFolds = { has(key: string): boolean };
+
+// Opened families, by the parent's chat key (`<scope>#<id>`), kept across launches on this Mac: a family starts folded,
+// its parent alone, until its count is clicked. (Before, the folded ones were kept, under milagre.subchatsFolded.)
+const OPEN_KEY = "milagre.subchatsOpen";
+let opened: ReadonlySet<string> = readOpened();
+let folds: SubchatFolds = foldsOf(opened);
 const listeners = new Set<() => void>();
 
-function readFolds(): ReadonlySet<string> {
+function foldsOf(open: ReadonlySet<string>): SubchatFolds {
+  return { has: (key) => !open.has(key) };
+}
+
+function readOpened(): ReadonlySet<string> {
   try {
-    const saved = JSON.parse(globalThis.localStorage?.getItem(FOLDS_KEY) ?? "[]");
+    const saved = JSON.parse(globalThis.localStorage?.getItem(OPEN_KEY) ?? "[]");
     return new Set(Array.isArray(saved) ? saved.filter((key) => typeof key === "string") : []);
   } catch {
     return new Set();
@@ -75,20 +84,20 @@ function readFolds(): ReadonlySet<string> {
 
 /** Folds or unfolds the family under the Chat `key`. */
 function toggleSubchats(key: string) {
-  const next = new Set(folds);
-  if (next.has(key)) next.delete(key);
-  else next.add(key);
-  folds = next;
+  const next = new Set(opened);
+  if (!next.delete(key)) next.add(key);
+  opened = next;
+  folds = foldsOf(next);
   try {
-    globalThis.localStorage?.setItem(FOLDS_KEY, JSON.stringify([...next]));
+    globalThis.localStorage?.setItem(OPEN_KEY, JSON.stringify([...next]));
   } catch {
     // A full storage keeps the fold for this run only.
   }
   for (const listener of listeners) listener();
 }
 
-/** The folded families; re-renders when one folds or unfolds. */
-export function useSubchatFolds(): ReadonlySet<string> {
+/** The folded families (all but the ones opened); re-renders when one folds or unfolds. */
+export function useSubchatFolds(): SubchatFolds {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
