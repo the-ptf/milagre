@@ -4,7 +4,7 @@ export { chatFamily } from "@milagre/shared/subchats";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 
 /** How a sidebar row shows: a subchat sits under its parent (subchats.ts), whose row counts them and folds them away. */
-export type ShownRow = { subchat: boolean; family?: { count: number; folded: boolean; onToggle: () => void } };
+export type ShownRow = { subchat: boolean; family?: { count: number; folded: boolean; asking: boolean; onToggle: () => void } };
 
 /**
  * `rows` (unpinned, not Done Chats, in the list's order) with each subchat under its topmost listed ancestor; a folded
@@ -12,7 +12,12 @@ export type ShownRow = { subchat: boolean; family?: { count: number; folded: boo
  */
 export function shownChats<T>(
   rows: readonly T[],
-  { key, parent, folded }: { key: (row: T) => string; parent: (row: T) => string | undefined; folded: SubchatFolds },
+  {
+    key,
+    parent,
+    folded,
+    asking = () => false,
+  }: { key: (row: T) => string; parent: (row: T) => string | undefined; folded: SubchatFolds; asking?: (row: T) => boolean },
 ): (ShownRow & { item: T })[] {
   if (!rows.some((row) => parent(row) !== undefined)) return rows.map((item) => ({ item, subchat: false }));
   const byKey = new Map(rows.map((row) => [key(row), row]));
@@ -27,7 +32,11 @@ export function shownChats<T>(
     }
     const rowKey = key(row);
     const isFolded = folded.has(rowKey);
-    shown.push({ item: row, subchat: false, family: { count: children.length, folded: isFolded, onToggle: toggleFor(rowKey) } });
+    shown.push({
+      item: row,
+      subchat: false,
+      family: { count: children.length, folded: isFolded, asking: children.some(asking), onToggle: toggleFor(rowKey) },
+    });
     if (!isFolded) for (const child of children) shown.push({ item: child, subchat: true });
   }
   return shown;

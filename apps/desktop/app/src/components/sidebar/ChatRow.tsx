@@ -444,7 +444,6 @@ function InboxLine({
   computer,
   archiving,
   waiting = 0,
-  family,
   subchat = false,
 }: {
   item: SidebarRecent;
@@ -458,8 +457,6 @@ function InboxLine({
   archiving: boolean;
   /** Messages waiting on this Mac for the chat's offline computer. */
   waiting?: number;
-  /** A parent row's "5 subchats" toggle, after the Project. */
-  family?: ReactNode;
   /** The row is indented as a subchat. */
   subchat?: boolean;
 }) {
@@ -481,7 +478,6 @@ function InboxLine({
         </span>
       ),
   });
-  if (family) parts.push({ key: "subchats", node: family });
   if (bot)
     parts.push({
       key: "bot",
@@ -634,8 +630,11 @@ export const ChatRow = memo(function ChatRow({
   chatKey?: string;
   /** A subchat, indented under its parent's row (subchat-rows.ts). */
   subchat?: boolean;
-  /** A parent's subchats: "5 subchats" on its second line folds and unfolds them. */
-  family?: { count: number; folded: boolean; onToggle: () => void };
+  /**
+   * A parent's subchats: a count on the Project icon (the One list) or "5 subchats" on line two folds and unfolds them,
+   * orange while one of them waits on you (`asking`).
+   */
+  family?: { count: number; folded: boolean; asking?: boolean; onToggle: () => void };
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -690,7 +689,7 @@ export const ChatRow = memo(function ChatRow({
         event.stopPropagation();
         shownFamily.onToggle();
       }}
-      className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-inline hover:text-ink focus-visible:text-ink"
+      className={`pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-inline hover:text-ink focus-visible:text-ink ${shownFamily.asking ? "text-orange-ink" : ""}`}
     >
       <HugeiconsIcon
         icon={ArrowDown01Icon}
@@ -963,6 +962,26 @@ export const ChatRow = memo(function ChatRow({
           </button>
         )}
 
+        {/* The One list's family count sits on the Project icon's corner, and folds or unfolds the family. */}
+        {inbox && shownFamily && !renaming && (
+          <button
+            type="button"
+            data-subchat-toggle
+            data-subchat-badge
+            data-asking={shownFamily.asking || undefined}
+            aria-expanded={!shownFamily.folded}
+            aria-label={`${shownFamily.folded ? "Show" : "Hide"} ${shownFamily.count} subchat${shownFamily.count === 1 ? "" : "s"} of ${item.label}${shownFamily.asking ? ", one needs you" : ""}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              shownFamily.onToggle();
+            }}
+            className={`sidebar-copy absolute top-[22px] left-[30px] z-20 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-10 font-semibold tabular-nums ring-2 ring-surface transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
+              shownFamily.asking ? "bg-orange text-black" : shownFamily.folded ? "bg-hover-2 text-ink-2 hover:text-ink" : "bg-accent-tint text-accent-ink"
+            } ${archiving ? "opacity-30" : ""}`}
+          >
+            {shownFamily.count}
+          </button>
+        )}
         {subchat && !collapsed && <span aria-hidden data-subchat-guide className="pointer-events-none absolute inset-y-0 left-[19px] w-px bg-line" />}
         {inbox && !renaming && (
           <InboxLine
@@ -976,7 +995,6 @@ export const ChatRow = memo(function ChatRow({
             computer={rowComputer}
             archiving={archiving}
             waiting={waiting}
-            family={familyToggle || undefined}
             subchat={subchat}
           />
         )}
