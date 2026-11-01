@@ -25,7 +25,7 @@ const recents = [
 window.setMode = (chatList) => updateSettings({ chatList });
 window.setMode("list");
 createRoot(document.getElementById("root")).render(
- <SidebarNav fill workspaceName="P" projectPath="/p" recents={recents} activeId="1"
+ <SidebarNav fill workspaceName="P" workspaceImage="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" projectPath="/p" recents={recents} activeId="1"
    onJumpChatsChange={(ids) => { window.jumpIds = ids; }} />
 );
 `;
@@ -83,6 +83,7 @@ async function browserChecks() {
       await delay(150);
       await check(["4", "1", "3"]);
       assert.equal(await evaluate(`document.querySelector('[data-subchat-badge]').textContent.trim()`), "1", `${mode} folds from the icon's count`);
+      assert.ok(await evaluate(`document.querySelector('[data-chat-id="1"] [data-chat-project-icon] img')`), `${mode} keeps the Project image under the count`);
       await evaluate(`document.querySelector('[data-subchat-badge]').click()`);
       await delay(150);
       await check(["4", "1", "2", "3"]);

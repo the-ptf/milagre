@@ -1105,7 +1105,7 @@ export default memo(function SidebarNav({
       (current ? selectedLink?.projects[0] : undefined) ?? { path: "", name: scope.name || "Project" }
     );
   };
-  // The One list's rows: each scope's icon.
+  // Each scope's icon, on One list rows and grouped family rows.
   const scopeBadge = (scope: (typeof scopes)[number], current: boolean): ScopeBadge => {
     if (scope.link) {
       const first = linkFirstProject(scope, scope.link, current);
@@ -1517,6 +1517,7 @@ export default memo(function SidebarNav({
           part.pinned.length > 0 ? (
             <ChatList
               key={part.scope.key}
+              {...scopeBadge(part.scope, part.current)}
               recents={part.pinned}
               scopeKey={part.scope.key}
               {...part.list}
@@ -1768,6 +1769,7 @@ export default memo(function SidebarNav({
                                   <div className="min-w-0 overflow-hidden">
                                     {rest.length > 0 || pinned.length > 0 ? (
                                       <ChatList
+                                        {...scopeBadge(scope, current)}
                                         recents={pinned.length ? [...pinned, ...rest] : rest}
                                         scopeKey={scope.key}
                                         {...list}
@@ -1802,6 +1804,8 @@ export default memo(function SidebarNav({
                   ) : (
                     <ChatList
                       recents={recents}
+                      projectImage={workspace.image}
+                      projectInitial={workspace.name}
                       scopeKey={currentKey}
                       isActive={(item) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle)}
                       collapsed={collapsed}
