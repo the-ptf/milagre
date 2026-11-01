@@ -985,6 +985,16 @@ function ChatPane({
     params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined,
     `${session.snapshot?.project?.path}#${params.id}`,
   );
+  // Both pill panels grow to the composer's column: beside an iPad's sidebar or docked panel, never under them.
+  const { attachRoom: attachPlanRoom } = planPanel;
+  const { attachRoom: attachSubchatRoom } = subchatPanel;
+  const attachPanelRooms = useCallback(
+    (node: Parameters<typeof attachPlanRoom>[0]) => {
+      attachPlanRoom(node);
+      attachSubchatRoom(node);
+    },
+    [attachPlanRoom, attachSubchatRoom],
+  );
   // Polled here, not in the chip: a command serving one of these ports leaves the background line.
   const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
   const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
@@ -2432,7 +2442,7 @@ function ChatPane({
                   {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
                   {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
                   <View
-                    ref={planPanel.attachRoom}
+                    ref={attachPanelRooms}
                     collapsable={false}
                     onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                     style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}

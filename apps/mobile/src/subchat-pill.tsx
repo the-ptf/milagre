@@ -176,7 +176,16 @@ function SubchatRow({
   const needsYou = state.kind === "needs-you";
   const inline = inlineQuestion(state.request);
   const detailInk = state.kind === "failed" ? colors.redInk : state.kind === "done" ? colors.ink2 : colors.ink3;
-  const labelInk = needsYou ? colors.orangeInk : state.kind === "failed" ? colors.redInk : colors.ink3;
+  // The label in its state's color, as on desktop; Queued and Stopped stay quiet.
+  const labelInk = {
+    "needs-you": colors.orangeInk,
+    failed: colors.redInk,
+    working: colors.accentInk,
+    holding: colors.purpleInk,
+    queued: colors.ink3,
+    stopped: colors.ink3,
+    done: colors.greenInk,
+  }[state.kind];
   const request = state.request;
   return (
     <View style={{ borderRadius: radius.control, borderCurve: "continuous", backgroundColor: needsYou ? colors.orangeTint : undefined }}>
