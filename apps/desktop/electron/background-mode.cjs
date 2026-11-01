@@ -38,7 +38,8 @@ function hiddenWindowOptions(options) {
 }
 
 /**
- * The parts of `electron` main.cjs uses that can put something on screen, made quiet when `enabled`.
+ * The parts of `electron` main.cjs uses that can put something on screen, made quiet when `enabled` on macOS. Only there
+ * do never-shown windows keep drawing: on Linux (CI's Xvfb) Page.captureScreenshot times out, so elsewhere the app shows.
  * @param {{
  *   enabled: boolean;
  *   platform: NodeJS.Platform;
@@ -49,13 +50,14 @@ function hiddenWindowOptions(options) {
  *   log?: (message: string) => void;
  * }} options
  */
-function createBackgroundMode({ enabled, platform, app, BrowserWindow, shell, dialog, log = (message) => console.log(message) }) {
+function createBackgroundMode({ enabled: requested, platform, app, BrowserWindow, shell, dialog, log = (message) => console.log(message) }) {
+  const enabled = requested && platform === "darwin";
   const skipped = (what) => log(`MILAGRE_BACKGROUND: skipped ${what}`);
   return {
     enabled,
     /** On macOS an accessory app has no Dock icon or menu bar and is never activated. Call before the first window. */
     start() {
-      if (!enabled || platform !== "darwin") return;
+      if (!enabled) return;
       app.setActivationPolicy("accessory");
       app.dock?.hide();
     },

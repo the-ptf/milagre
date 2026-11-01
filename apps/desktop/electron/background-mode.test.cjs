@@ -149,8 +149,15 @@ test("in background nothing reaches the screen: no Dock, focus, badge, notificat
   assert.match(calls[0][1], /^MILAGRE_BACKGROUND: skipped opening https:\/\/example\.com$/);
 });
 
-test("background off macOS keeps the Dock calls out", () => {
-  const { calls, options } = fakes();
-  createBackgroundMode({ ...options, enabled: true, platform: "linux" }).start();
-  assert.deepEqual(calls, []);
+test("off macOS background is ignored: hidden windows there draw nothing for CDP screenshots", () => {
+  for (const platform of /** @type {const} */ (["linux", "win32"])) {
+    const { calls, Window, options } = fakes();
+    const mode = createBackgroundMode({ ...options, enabled: true, platform });
+    mode.start();
+    assert.equal(mode.enabled, false);
+    assert.equal(mode.BrowserWindow, Window);
+    assert.equal(mode.shell, options.shell);
+    assert.equal(mode.notifications(true), true);
+    assert.deepEqual(calls, []);
+  }
 });

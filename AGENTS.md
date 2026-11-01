@@ -4,7 +4,7 @@
 
 Run `npm run typecheck`, `npm run lint` and `npm test -- --unit` before opening or updating a PR. Run the Electron check for the screen you touched with `npm test -- --only <name>`. A change under `apps/desktop/electron` or to window, dock, menu or notification code also gets `npm test -- --only test-desktop` on your Mac: CI runs that macOS smoke on pushes to main only, so a PR is the last place it is caught before merge.
 
-Every desktop copy an agent or check starts on a Mac someone is using runs with `MILAGRE_BACKGROUND=1`: no window, Dock icon, focus change, notification or dialog, while CDP (`Runtime.evaluate`, `Page.captureScreenshot`) still sees the real UI. `test-desktop` and `test-project-links` set it; `MILAGRE_BACKGROUND=0` shows the app.
+Every desktop copy an agent or check starts on a Mac someone is using runs with `MILAGRE_BACKGROUND=1` (macOS only; other platforms ignore it): no window, Dock icon, focus change, notification or dialog, while CDP (`Runtime.evaluate`, `Page.captureScreenshot`) still sees the real UI. `test-desktop` and `test-project-links` set it; `MILAGRE_BACKGROUND=0` shows the app.
 
 ### Landing page Lighthouse budget
 
