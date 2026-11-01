@@ -1895,23 +1895,45 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     else void enter(item.hostId, item.path, item.chat.id, item.pending);
   };
   const family = item.family;
-  const familyLabel = family ? `${family.folded ? "Show" : "Hide"} ${family.count} subchat${family.count === 1 ? "" : "s"}` : "";
+  const familyLabel = family
+    ? `${family.folded ? "Show" : "Hide"} ${family.count} subchat${family.count === 1 ? "" : "s"}${family.asking ? ", one needs you" : ""}`
+    : "";
+  const foldFamily = () => {
+    tap();
+    foldSubchats(item.key);
+  };
   const familyToggle = family ? (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={familyLabel}
       accessibilityState={{ expanded: !family.folded }}
       hitSlop={8}
-      onPress={() => {
-        tap();
-        foldSubchats(item.key);
-      }}
+      onPress={foldFamily}
       style={s.subchatToggle}
     >
       <View style={family.folded ? { transform: [{ rotate: "-90deg" }] } : undefined}>
-        <Icon icon={ArrowDown01Icon} tone="ink3" size={13} />
+        <Icon icon={ArrowDown01Icon} tone={family.asking ? "orangeInk" : "ink3"} size={13} />
       </View>
-      <Text style={s.detail}>{`${family.count} subchat${family.count === 1 ? "" : "s"}`}</Text>
+      <Text style={[s.detail, family.asking && { color: colors.orangeInk }]}>{`${family.count} subchat${family.count === 1 ? "" : "s"}`}</Text>
+    </Pressable>
+  ) : null;
+  // The list's rows carry the count on the Project icon's corner instead: it folds the family, orange while one asks.
+  const familyBadge = family ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={familyLabel}
+      accessibilityState={{ expanded: !family.folded }}
+      hitSlop={12}
+      onPress={foldFamily}
+      style={[
+        s.subchatBadge,
+        {
+          borderColor: selected ? selectedFill : colors.panel,
+          backgroundColor: family.asking ? colors.orange : family.folded ? colors.field : colors.accentTint,
+        },
+      ]}
+    >
+      <Text style={[s.subchatBadgeText, { color: family.asking ? "#1a1206" : family.folded ? colors.ink2 : colors.accentInk }]}>{family.count}</Text>
     </Pressable>
   ) : null;
   // A subchat sits indented under its parent, with a line down to it.
@@ -2076,7 +2098,6 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         : []),
       ...(otherComputer ? [{ key: "computer", node: <ComputerTag name={item.hostName} offline={offline} large /> }] : []),
     ];
-    if (familyToggle) parts.splice(1, 0, { key: "subchats", links: true, node: familyToggle });
     return (
       <ChatSwipeRow
         unread={!!item.chat.unread}
@@ -2110,12 +2131,15 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               accessibilityElementsHidden={archiving}
               importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
             >
-              <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                {item.members?.[0] ? (
-                  <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
-                ) : (
-                  <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
-                )}
+              <View pointerEvents="box-none">
+                <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                  {item.members?.[0] ? (
+                    <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
+                  ) : (
+                    <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
+                  )}
+                </View>
+                {!archiving && familyBadge}
               </View>
               <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
                 <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
@@ -2358,6 +2382,19 @@ const makeS = (colors: Palette) =>
     subchat: { paddingLeft: 16 },
     subchatGuide: { position: "absolute", left: 24, top: 0, bottom: 0, width: StyleSheet.hairlineWidth },
     subchatToggle: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 22 },
+    subchatBadge: {
+      position: "absolute",
+      right: -6,
+      bottom: -6,
+      minWidth: 20,
+      height: 20,
+      paddingHorizontal: 4,
+      borderRadius: 10,
+      borderWidth: 2,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    subchatBadgeText: { fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
     grouped: { marginVertical: 2, marginHorizontal: 8, borderRadius: 8, borderCurve: "continuous" },
     chatBody: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 56, paddingLeft: 12, paddingVertical: 8 },
     line: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 },
