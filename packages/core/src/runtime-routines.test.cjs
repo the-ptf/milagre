@@ -258,6 +258,19 @@ test("archiving the Chat ends its heartbeats", async (t) => {
   assert.deepEqual(await f.list(), []);
 });
 
+test("marking the Chat Done ends its heartbeats; reopening it doesn't bring them back", async (t) => {
+  const f = await fixture(t);
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  await f.finish("ok");
+  assert.equal((await f.list()).length, 1);
+  await f.runtime.invoke("chat:patch", [f.project, f.id, { unread: false }]);
+  assert.equal((await f.list()).length, 1, "another patch leaves them");
+  await f.runtime.invoke("chat:patch", [f.project, f.id, { done: true, unread: false }]);
+  assert.deepEqual(await f.list(), []);
+  await f.runtime.invoke("chat:patch", [f.project, f.id, { done: false }]);
+  assert.deepEqual(await f.list(), []);
+});
+
 test("commands update, run now and delete a routine, each saying routines changed", async (t) => {
   const f = await fixture(t);
   await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
