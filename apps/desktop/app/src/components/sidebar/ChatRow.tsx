@@ -976,7 +976,7 @@ export const ChatRow = memo(function ChatRow({
               shownFamily.onToggle();
             }}
             className={`sidebar-copy absolute top-[22px] left-[30px] z-20 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-10 font-semibold tabular-nums ring-2 ring-surface transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
-              shownFamily.asking ? "bg-orange text-black" : shownFamily.folded ? "bg-hover-2 text-ink-2 hover:text-ink" : "bg-accent-tint text-accent-ink"
+              shownFamily.asking ? "bg-orange text-black" : shownFamily.folded ? "bg-line-strong text-ink" : "bg-accent-tint text-accent-ink"
             } ${archiving ? "opacity-30" : ""}`}
           >
             {shownFamily.count}

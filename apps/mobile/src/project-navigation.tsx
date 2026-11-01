@@ -1929,11 +1929,11 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         s.subchatBadge,
         {
           borderColor: selected ? selectedFill : colors.panel,
-          backgroundColor: family.asking ? colors.orange : family.folded ? colors.field : colors.accentTint,
+          backgroundColor: family.asking ? colors.orange : family.folded ? colors.lineStrong : colors.accentTint,
         },
       ]}
     >
-      <Text style={[s.subchatBadgeText, { color: family.asking ? "#1a1206" : family.folded ? colors.ink2 : colors.accentInk }]}>{family.count}</Text>
+      <Text style={[s.subchatBadgeText, { color: family.asking ? "#1a1206" : family.folded ? colors.ink : colors.accentInk }]}>{family.count}</Text>
     </Pressable>
   ) : null;
   // A subchat sits indented under its parent, with a line down to it.
