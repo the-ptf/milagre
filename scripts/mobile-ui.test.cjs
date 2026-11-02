@@ -170,6 +170,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
+      if (["media-source", "viewed-images"].includes(relative) && !(id in modules))
+        return load(`${relative}.${relative === "viewed-images" ? "tsx" : "ts"}`, modules, "", cache);
       if (relative === "design-tokens") return require("../apps/mobile/src/design-tokens.ts");
       // The undo history (undo-history.ts over the shared one) is one store, as on the phone; its toast reads it directly.
       if (relative === "undo-history" && !(id in modules)) return undoHistoryModule();
@@ -20422,4 +20424,107 @@ test("the phone flow editor offers all six types and keeps each If path editable
   branches[1].props.onPress();
   assert.equal(routes.at(-1).pathname, "/flow-add-step");
   assert.equal(routes.at(-1).params.branch, "otherwise");
+});
+
+test("phone media fetch distinguishes pending, rejected and replaced sources", async () => {
+  const react = hookHost({ effects: true });
+  const { useMediaState } = load("media-source.ts", { react });
+  const first = deferred();
+  const render = (source) => {
+    react.begin();
+    return useMediaState(source);
+  };
+  assert.equal(render(first.promise).failed, false);
+  assert.equal(render(first.promise).source, null);
+  first.reject(new Error("Image unavailable"));
+  await settle();
+  assert.equal(render(first.promise).failed, true);
+  const replacement = deferred();
+  assert.equal(render(replacement.promise).failed, false);
+  replacement.resolve({ uri: "durable-image" });
+  await settle();
+  assert.equal(render(replacement.promise).source.uri, "durable-image");
+  assert.equal(render(replacement.promise).failed, false);
+  react.unmount();
+});
+
+test("phone viewed strip groups loaded thumbnails, excludes failed media and recovers a durable replacement", async () => {
+  const parent = hookHost({ effects: true });
+  const tiles = new Map();
+  let active = parent;
+  const react = Object.fromEntries(["useState", "useRef", "useMemo", "useCallback", "useEffect"].map((name) => [name, (...args) => active[name](...args)]));
+  const { ViewedImages } = load("viewed-images.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Image: "Image", Text: "Text", Pressable: "Pressable" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./ui": { PageScroll: "PageScroll" },
+  });
+  const rejected = deferred();
+  const paths = [];
+  const opened = [];
+  const steps = ["one", "two", "bad", "rejected"].map((id) => ({
+    id,
+    kind: "image",
+    status: "done",
+    title: "Viewed image",
+    imageOrigin: "viewed",
+    sourceFile: "/original/" + id + ".png",
+    file: "/snapshot/" + id + ".png",
+  }));
+  const media = (file) => {
+    paths.push(file);
+    return file.endsWith("rejected.png") ? rejected.promise : { uri: "/durable/" + file.split("/").pop() };
+  };
+  const render = (resolve = media) => {
+    active = parent;
+    parent.begin();
+    const tree = ViewedImages({ steps, media: resolve, open: (images, index, thumbs) => opened.push({ images, index, thumbs }) });
+    const buttons = tree.props.children.map((element) => {
+      let host = tiles.get(element.props.entry.id);
+      if (!host) tiles.set(element.props.entry.id, (host = hookHost({ effects: true })));
+      active = host;
+      host.begin();
+      return element.type(element.props);
+    });
+    return { tree, buttons };
+  };
+  let { tree, buttons } = render();
+  assert.equal(tree.props.horizontal, true);
+  assert.equal(buttons.length, 4);
+  assert.ok(buttons.every((button) => button.props.disabled));
+  for (const button of buttons.slice(0, 2)) find(button, (node) => node.type === "Image").props.onLoad();
+  find(buttons[2], (node) => node.type === "Image").props.onError();
+  rejected.reject(new Error("Forbidden"));
+  await settle();
+  ({ buttons } = render());
+  ({ buttons } = render());
+  assert.equal(buttons[0].props.disabled, false);
+  assert.equal(buttons[0].props.style({ pressed: false }).width, 80);
+  assert.equal(buttons[0].props.style({ pressed: false }).height, 80);
+  assert.match(buttons[0].props.accessibilityLabel, /one.png.*Open full screen/);
+  for (const button of buttons.slice(2)) {
+    assert.equal(button.props.disabled, true);
+    assert.match(button.props.accessibilityLabel, /Image unavailable/);
+    assert.equal(button.props.accessibilityState.busy, false);
+  }
+  buttons[1].props.onPress();
+  assert.equal(opened[0].images.length, 2);
+  assert.equal(opened[0].index, 1);
+  assert.equal(opened[0].images[0].source.uri, "/durable/one.png");
+  assert.ok(
+    paths.every((file) => file.startsWith("/snapshot/")),
+    "provenance never reaches media resolution",
+  );
+  const replacement = (file) => ({ uri: "/new-durable/" + file.split("/").pop() });
+  ({ buttons } = render(replacement));
+  assert.match(buttons[2].props.accessibilityLabel, /Loading image/);
+  find(buttons[2], (node) => node.type === "Image").props.onLoad();
+  render(replacement);
+  ({ buttons } = render(replacement));
+  assert.equal(buttons[2].props.disabled, false);
+  buttons[2].props.onPress();
+  assert.equal(opened.at(-1).images[0].source.uri, "/new-durable/bad.png");
+  parent.unmount();
+  for (const host of tiles.values()) host.unmount();
 });

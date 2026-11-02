@@ -1,5 +1,15 @@
 import { isDesktopStep } from "./desktop-steps.ts";
-import type { ChatStep } from "./model.ts";
+import type { ChatStep, ImageAttachment } from "./model.ts";
+
+/** Snapshot provenance is only a label. Only step.file can select a durable attachment. */
+export function replyImageFile(step: ChatStep, attachments: ImageAttachment[] = []): string | undefined {
+  if (!step.file) return undefined;
+  return attachments.find((image) => image.sourcePath === step.file)?.path || step.file;
+}
+
+export function viewedImageName(step: ChatStep): string {
+  return (step.sourceFile || step.file || "").split(/[\\/]/).pop() || "Viewed image";
+}
 
 export type ReplyPart = { type: "text"; text: string } | { type: "steps"; steps: ChatStep[] };
 
@@ -51,13 +61,15 @@ export function replyActivity(
   setup: ChatStep[];
   activity: ActivityEntry[];
   images: ChatStep[];
+  viewedImages: ChatStep[];
   artifacts: ArtifactStep[];
   heartbeats: HeartbeatStep[];
   desktop: ChatStep[];
   answer: string;
 } {
   const setup = allSteps.filter((step) => step.kind === "setup");
-  const images = allSteps.filter((step) => step.kind === "image");
+  const images = allSteps.filter((step) => step.kind === "image" && step.imageOrigin !== "viewed");
+  const viewedImages = allSteps.filter((step) => step.kind === "image" && step.imageOrigin === "viewed");
   // One entry per design, at its newest version in this reply, where it was first shown.
   const artifacts: ArtifactStep[] = [];
   for (const step of allSteps.filter(isArtifactCard)) {
@@ -77,7 +89,7 @@ export function replyActivity(
     return part.type === "text" ? [part] : part.steps.map((step) => ({ type: "step", step }));
   });
   const answer = answerIndex === -1 ? "" : (parts[answerIndex] as { text: string }).text;
-  return { setup, activity, images, artifacts, heartbeats, desktop, answer };
+  return { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer };
 }
 
 /**

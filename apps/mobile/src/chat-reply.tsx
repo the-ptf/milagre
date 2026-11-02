@@ -1,5 +1,5 @@
-import { memo, useCallback, useMemo, useEffect, useRef, useState } from "react";
-import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "./display-clock";
 import { ActivitySources } from "./activity-source";
@@ -41,33 +41,14 @@ import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
 import { useStyles } from "./ui";
+import { useMedia } from "./media-source";
+import { ViewedImages } from "./viewed-images";
 import { showImages, type MediaValue, type ViewerImage } from "./viewer-store";
 
 /** Resolves a saved file on the computer to an authenticated image source, or a cached file once it is fetched. */
 export type MediaSource = (path: string) => MediaValue;
 
-/** The image to show now: a ready source as is, a loading one once it arrives (null until then, or if it fails). */
-export function useMedia(source: MediaValue | null): ImageSourcePropType | null {
-  const pending = typeof (source as Promise<ImageSourcePropType> | null)?.then === "function" ? (source as Promise<ImageSourcePropType>) : null;
-  const [loaded, setLoaded] = useState<{ from: Promise<ImageSourcePropType>; value: ImageSourcePropType | null } | null>(null);
-  useEffect(() => {
-    if (!pending) return;
-    let current = true;
-    pending.then(
-      (value) => {
-        if (current) setLoaded({ from: pending, value });
-      },
-      () => {
-        if (current) setLoaded({ from: pending, value: null });
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [pending]);
-  if (!pending) return source as ImageSourcePropType | null;
-  return loaded?.from === pending ? loaded.value : null;
-}
+export { useMedia } from "./media-source";
 /** Measures every thumbnail first, so the viewer morphs out of the tapped one and back into whichever is showing. */
 function open(images: ViewerImage[], index: number, thumbs: (ViewInstance | null)[]) {
   void Promise.all(
@@ -503,6 +484,7 @@ export const ChatReply = memo(function ChatReply({
           />
         )
       )}
+      <ViewedImages steps={reply.viewedImages} media={savedMedia} open={open} />
       {reply.images.map((step) => (
         <View key={step.id} style={{ gap: 6 }}>
           <ToolRow step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
