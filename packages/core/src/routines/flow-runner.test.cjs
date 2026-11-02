@@ -384,6 +384,26 @@ test("pause lets the step under way finish and holds the next one until resume; 
   assert.equal(run.flow.state.work.status, "running");
 });
 
+test("an approval pauses immediately and an answer holds the next step until resume", async () => {
+  const steps = [
+    { id: "ask", name: "Ask", kind: "ask", message: "Continue?", expiresInHours: 24 },
+    { id: "work", name: "Work", kind: "agent", prompt: "Go", chat: "run", output: [], retries: 0, onInvalid: "stop" },
+  ];
+  const ctx = setup({ steps, trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" } });
+  await ctx.scheduler.runNow(ctx.routine.id);
+  await ctx.settle();
+  const id = ctx.run().id;
+  await ctx.scheduler.flowAct(id, "pause");
+  assert.equal(ctx.run().flow.status, "paused");
+  await ctx.scheduler.flowAct(id, "approve");
+  await ctx.settle();
+  assert.equal(ctx.run().flow.status, "paused");
+  assert.equal(ctx.run().flow.state.work, undefined);
+  await ctx.scheduler.flowAct(id, "resume");
+  await ctx.settle();
+  assert.equal(ctx.run().flow.state.work.status, "running");
+});
+
 test("a draft saves incomplete steps; publishing checks them and bumps the revision", () => {
   const ctx = setup();
   const draft = [...pilot(), { id: "note", name: "Comment", kind: "linear-comment", body: "" }];

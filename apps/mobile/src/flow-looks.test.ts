@@ -91,6 +91,13 @@ test("a step's timeline line says what it did", () => {
   );
   assert.equal(
     stepRunLine(
+      { kind: "step", step: ask, depth: 0, status: "waiting", run: { status: "waiting", approval: { askedAt: 0, expiresAt: 24 * 3_600_000, message: "" } } },
+      -30_000,
+    ),
+    "No answer in 24 h ends the Run",
+  );
+  assert.equal(
+    stepRunLine(
       {
         kind: "step",
         step: ask,

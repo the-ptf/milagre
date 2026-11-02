@@ -156,7 +156,7 @@ export function stepRunLine(row: Extract<FlowRunRow, { kind: "step" }>, now: num
   if (status === "waiting") {
     if (approval && !approval.decision) {
       if (step.kind === "pull-request") return `Waiting for you since ${clock(approval.askedAt)}`;
-      const left = Math.max(1, Math.ceil((approval.expiresAt - now) / 3_600_000));
+      const left = Math.max(1, Math.ceil((approval.expiresAt - Math.max(now, approval.askedAt)) / 3_600_000));
       return `No answer in ${left} h ends the Run`;
     }
     if (step.kind === "wait") {

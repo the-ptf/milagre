@@ -642,7 +642,9 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
         if (!flow) return false;
         flow.pauseRequested = true;
         // Nothing is under way: it pauses now. A turn under way finishes first (step() pauses before the next one).
-        if (!runningAgent({ flow }) && flow.status !== "waiting") flow.status = "paused";
+        const waiting = waitingStep({ flow });
+        const awaitingApproval = waiting && flow.state[waiting.id]?.approval;
+        if (!runningAgent({ flow }) && (flow.status !== "waiting" || awaitingApproval)) flow.status = "paused";
       });
       onChange();
       return store.getRun(runId)?.run ?? null;

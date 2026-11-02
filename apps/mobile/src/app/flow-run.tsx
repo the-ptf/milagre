@@ -456,7 +456,7 @@ function ApprovalCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const preview = approval.preview;
-  const left = Math.max(1, Math.ceil((approval.expiresAt - now) / 3_600_000));
+  const left = Math.max(1, Math.ceil((approval.expiresAt - Math.max(now, approval.askedAt)) / 3_600_000));
   const approveTitle = step.kind === "pull-request" ? (preview?.draft === false ? "Open PR" : "Open draft PR") : "Approve";
   return (
     <StepCard>
