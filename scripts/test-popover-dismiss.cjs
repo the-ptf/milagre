@@ -186,7 +186,7 @@ async function browserChecks() {
 
     await click(model);
     // The open picker covers the transcript's centre; press the transcript beside it, not a model row.
-    await click('[data-testid="transcript"]', { inset: 24, fromRight: true });
+    await click('[data-testid="transcript"]', { inset: 24 });
     assert.equal(await panels(), 0, "Pressing the transcript closes the picker");
 
     await click('button[aria-label="Theme"]');
