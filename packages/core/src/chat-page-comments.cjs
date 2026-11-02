@@ -217,4 +217,4 @@ function pageElement(value) {
   };
 }
 
-module.exports = { commentAtPoint, createChatPageComments, pageCommentToolDefinitions };
+module.exports = { commentAtPoint, createChatPageComments, pageCommentToolDefinitions, pageElement };

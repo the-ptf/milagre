@@ -8345,6 +8345,28 @@ test("mobile simulator receiver is an OTA JS string cached locally; backgroundin
   assert.equal(tree.type, "DomWebView");
   assert.match(tree.props.source.uri, /^file:\/\/\/cache\//);
   assert.match(h.files.get(tree.props.source.uri), /RTCPeerConnection/);
+  const events = {},
+    destinations = [];
+  const popupWindow = {};
+  require("node:vm").runInNewContext(tree.props.injectedJavaScriptBeforeContentLoaded, {
+    window: popupWindow,
+    URL,
+    location: { href: BROWSER_PAGE.url, assign: (url) => destinations.push(url) },
+    document: {
+      addEventListener: (name, callback) => {
+        events[name] = callback;
+      },
+    },
+  });
+  const link = { target: "_blank" };
+  events.click({ target: { closest: () => link } });
+  assert.equal(link.target, "_self");
+  const form = { target: "payment" };
+  events.submit({ target: form });
+  assert.equal(form.target, "_self");
+  assert.equal(popupWindow.open("/login-popup"), popupWindow);
+  popupWindow.open("javascript:alert(1)");
+  assert.deepEqual(destinations, ["https://example.com/login-popup"]);
   assert.equal(tree.props.useExpoModulesBridge, false);
   tree.props.ref.current = { injectJavaScript: (value) => injected.push(value) };
   tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: "milagre-simulator", id: 1, method: "open", args: { deviceId: "sim" } }) } });
@@ -8638,7 +8660,8 @@ function browserHost(client) {
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "@hugeicons/core-free-icons": {},
-      "@milagre/shared/browser-receiver": require("../packages/shared/src/browser-receiver.mjs"),
+      "@milagre/shared/page-picker": require("../packages/shared/src/page-picker.mjs"),
+      "./browser-page-url": require("../apps/mobile/src/browser-page-url.ts"),
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
@@ -8675,32 +8698,24 @@ function browserHost(client) {
 }
 const BROWSER_PAGE = { id: "browser-1:" + "A".repeat(32), title: "Login", url: "https://example.com/login", browser: "Chrome 141", source: "agent" };
 
-test("mobile browser link selects the requested page among several and retries without leaving the app", async (t) => {
-  const requested = { ...BROWSER_PAGE, id: "requested-page", source: "panel", url: "http://localhost:5173/" };
+test("mobile browser link loads on the device without opening a desktop page", async (t) => {
   const calls = [];
-  let attempt = 0;
   const h = browserHost({
     url: "mac",
     call: async (method, args) => {
       calls.push([method, args]);
-      if (method === "browser:open-page") {
-        if (++attempt === 1) throw new Error("Open Milagre on your computer and retry.");
-        return requested;
-      }
-      return { supported: true, targets: [BROWSER_PAGE, requested], others: [] };
+      return { supported: true, targets: [BROWSER_PAGE], others: [] };
     },
   });
   t.after(() => h.cleanup());
   const render = () => h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1", url: "http://localhost:5173" });
-  assert.match(JSON.stringify(render()), /Opening page/);
-  await settle();
-  assert.match(JSON.stringify(render()), /Open Milagre on your computer/);
-  find(render(), (node) => node.props.title === "Retry").props.onPress();
   render();
   await settle();
-  assert.equal(find(render(), (node) => node.props.targetId === requested.id).props.targetId, requested.id);
-  assert.equal(calls.filter(([method]) => method === "browser:open-page").length, 2);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([method]) => method === "browser:open-page")[1])), [{ chatId: "/p#1", url: "http://localhost:5173" }]);
+  assert.ok(find(render(), (node) => node.props?.url === "http://localhost:5173"));
+  assert.deepEqual(
+    calls.map(([method]) => method),
+    ["browser:list"],
+  );
 });
 
 test("mobile browser shortcut lists only this Chat and hides until the Chat has a page", async (t) => {
@@ -8779,12 +8794,20 @@ test("mobile browser sheet opens a sole page directly, lists several, and attach
     const [header, body] = tree.props.children;
     assert.equal(header.props.collapsable, false);
     assert.equal(body.props.collapsable, false);
-    assert.equal(!!find(body, (node) => node.props?.targetId === BROWSER_PAGE.id), direct);
+    assert.equal(!!find(body, (node) => node.props?.url === BROWSER_PAGE.url), direct);
     assert.deepEqual(
       calls.map(([method]) => method),
       ["browser:list"],
       "listing starts no capture",
     );
+    if (direct) {
+      list.targets = [{ ...BROWSER_PAGE, url: "https://example.com/agent-next" }];
+      const refreshed = h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
+      assert.ok(
+        find(refreshed, (node) => node.props?.url === BROWSER_PAGE.url),
+        "host polling preserves the selected page snapshot",
+      );
+    }
     if (!direct) {
       const attach = find(body, (node) => node.type === "PillButton" && node.props.title === "Attach");
       attach.props.onPress();
@@ -8806,41 +8829,80 @@ test("mobile browser sheet opens a sole page directly, lists several, and attach
   }
 });
 
-test("mobile browser frames are written to local files; only their address enters the WebView", async () => {
-  const injected = [];
+test("mobile browser loads public URLs directly and ignores web content RPCs", async (t) => {
+  const calls = [],
+    pages = [];
   const client = {
-    call: async (method) =>
-      method === "browser:open"
-        ? { viewerId: "viewer", target: BROWSER_PAGE }
-        : method === "browser:frame"
-          ? { sequence: 7, data: "anBlZw==", viewport: { width: 800, height: 600 }, generation: 1 }
-          : null,
+    call: async (...args) => {
+      calls.push(args);
+    },
   };
   const h = browserHost(client);
-  h.render("TestBrowserWebView", { client, chatId: "/p#1", targetId: BROWSER_PAGE.id, onPage() {} });
+  t.after(() => h.cleanup());
+  const props = { client, chatId: "/p#1", url: BROWSER_PAGE.url, host: null, onPage: (page) => pages.push(page), onExternalUrl() {}, onPick() {} };
+  h.render("TestBrowserWebView", props);
   await settle();
-  const tree = h.render("TestBrowserWebView", { client, chatId: "/p#1", targetId: BROWSER_PAGE.id, onPage() {} });
+  const tree = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");
   assert.equal(tree.type, "DomWebView");
+  assert.equal(tree.props.source.uri, BROWSER_PAGE.url);
+  const events = {},
+    destinations = [];
+  const popupWindow = {};
+  require("node:vm").runInNewContext(tree.props.injectedJavaScriptBeforeContentLoaded, {
+    window: popupWindow,
+    URL,
+    location: { href: BROWSER_PAGE.url, assign: (url) => destinations.push(url) },
+    document: {
+      addEventListener: (name, callback) => {
+        events[name] = callback;
+      },
+    },
+  });
+  const link = { target: "_blank" };
+  events.click({ target: { closest: () => link } });
+  assert.equal(link.target, "_self");
+  const form = { target: "payment" };
+  events.submit({ target: form });
+  assert.equal(form.target, "_self");
+  assert.equal(popupWindow.open("/login-popup"), popupWindow);
+  popupWindow.open("javascript:alert(1)");
+  assert.deepEqual(destinations, ["https://example.com/login-popup"]);
   assert.equal(tree.props.useExpoModulesBridge, false);
-  assert.match(h.files.get(tree.props.source.uri), /milagre-browser/);
-  tree.props.ref.current = { injectJavaScript: (value) => injected.push(value) };
-  tree.props.onMessage({
-    nativeEvent: { data: JSON.stringify({ channel: "milagre-browser", id: 1, method: "open", args: { chatId: "/p#1", targetId: BROWSER_PAGE.id } }) },
-  });
+  assert.notEqual(tree.props.scrollEnabled, false);
+  tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ method: "open", args: { chatId: "/p#1" } }) } });
+  tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ kind: "page", url: BROWSER_PAGE.url, title: "Native page" }) } });
+  assert.equal(pages[0].title, "Native page");
+  assert.deepEqual(calls, []);
+  assert.equal(h.files.size, 0, "no frame files are written");
+});
+
+test("mobile browser requests an authenticated proxy off the LAN and releases it on close", async (t) => {
+  const calls = [],
+    pages = [];
+  const client = {
+    call: async (method, args) => {
+      calls.push([method, args]);
+      return { id: "lease", url: "https://proxy.example/auth", origin: "https://proxy.example" };
+    },
+  };
+  const h = browserHost(client);
+  t.after(() => h.cleanup());
+  const props = { client, chatId: "/p#1", url: "http://localhost:5173/page", host: null, onPage: (page) => pages.push(page), onExternalUrl() {}, onPick() {} };
+  h.render("TestBrowserWebView", props);
   await settle();
-  tree.props.onMessage({
-    nativeEvent: { data: JSON.stringify({ channel: "milagre-browser", id: 2, method: "frame", args: { viewerId: "viewer", after: 0 } }) },
-  });
-  await settle();
-  const reply = injected.find((script) => script.includes('"id":2'));
-  assert.ok(reply.includes("file:///cache/browser-"), "the WebView gets a file address");
-  assert.ok(!reply.includes("anBlZw=="), "frame bytes stay out of injected script");
-  assert.deepEqual(h.writes.at(-1)[1], "base64");
-  h.background();
-  await settle();
-  assert.ok(injected.some((script) => script.includes("browserDispose")));
+  const tree = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");
+  assert.equal(tree.props.source.uri, "https://proxy.example/auth");
+  tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ kind: "page", url: "https://proxy.example/next?q=1", title: "Next" }) } });
+  assert.equal(pages[0].url, "http://localhost:5173/next?q=1");
+  const navigated = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");
+  assert.equal(navigated.key, tree.key, "navigation keeps the native page mounted");
+  assert.equal(navigated.props.source.uri, "https://proxy.example/next?q=1", "a later prop update cannot reload the bootstrap URL");
   h.cleanup();
-  assert.equal(h.files.size, 0, "the viewer page and frames are deleted");
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ["browser:page-url", [{ url: props.url }]],
+    ["browser:release-page-url", [{ id: "lease" }]],
+  ]);
 });
 
 for (const provider of ["claude", "codex"])

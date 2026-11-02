@@ -12,4 +12,6 @@ Process lineage stays the first evidence because it needs no change to agent pro
 
 Only browsers with a loopback DevTools port qualify. A browser driven over `--remote-debugging-pipe` (Playwright MCP's default) has no endpoint another client can attach to; it does not appear.
 
-Viewing never claims control. The first viewer of a page gets the free control lease, and Take control moves it, ending the previous controller's held keys and mouse button. The lease governs Milagre's viewers only: the agent keeps its own DevTools connection and can still act on the page while a person controls it. The Take control tooltip says so.
+Opening a Browser page loads its HTTP(S) address in the device's own WebView. It never starts a screencast or takes a control lease on the agent's page. Each device has its own navigation, inputs and sign-ins. Ownership still controls which addresses are offered in a Chat; it does not synchronize page state.
+
+Desktop pages on another computer use the existing SOCKS proxy over the paired channel. Mobile uses a reachable LAN/Tailscale address when available, otherwise an authenticated Cloudflare Quick Tunnel to an HTTP/WebSocket proxy for that page's origin. A private address that fails to load directly retries through the proxy. Tunnels require a random bootstrap credential, then an HttpOnly cookie; they expire when idle and close with the page or daemon. Older clients retain the capture RPCs for compatibility, but current Browser panels never call them.

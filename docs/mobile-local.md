@@ -54,9 +54,9 @@ The host renews each lease every two minutes with a ten-minute TTL and ends it a
 
 1. Have the Chat's agent open a Chromium browser with a DevTools port, for example `--remote-debugging-port=0`, or tools such as chrome-devtools-mcp or agent-browser configured with one.
 2. Select the **Browser** pill left of Simulators. A single page opens directly; with several, choose one by its title and URL.
-3. Tap or click the page, swipe or scroll it, and use **Back**, **Forward**, **Reload** and **Keyboard**. Holding still for a moment before moving drags instead of scrolling.
+3. Interact with the site normally: select text, type, scroll and use Reload.
 
-The pill appears once this Chat has a page: one of a browser its agent started, or of a browser attached to the Chat by the agent (`browser_attach`) or by you. Another browser on the computer appears under **Other browsers on this computer** and joins the Chat only after **Attach**; **Detach** removes it again and leaves it running. Opening a page starts its capture; closing the viewer stops the capture and leaves the page and browser open. One viewer controls a page at a time; **Take control** moves control, but the agent can still act on the page. Frames travel over the existing phone connection, so no TURN service is needed. See [the design notes](research/remote-browser-control.md) for supported browsers and limits.
+The Browser offers pages owned by this Chat or explicitly attached to it. Opening one loads its address in this device's WebView, with independent navigation and sign-ins. It never streams the computer's screen or controls the agent's page. Public sites load directly. Local servers use a reachable LAN/Tailscale address; otherwise the computer opens an authenticated Cloudflare HTTP/WebSocket tunnel. A direct private address that fails to load retries through that proxy. Hard-coded links to other localhost origins still need reachable addresses or their own proxy; the proxy does not rewrite application source.
 
 ## Try the demo
 
