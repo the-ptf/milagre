@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { resolveProject } = require("./project-identity.cjs");
 const { createLink, pruneLinks, restoreLink } = require("./project-links.cjs");
-const { createProjectGroup, updateProjectGroup, validProjectGroup } = require("./project-groups.cjs");
+const { createProjectGroup, deleteProjectGroup, updateProjectGroup, validProjectGroup } = require("./project-groups.cjs");
 
 const DEFAULT_ROOTS = [path.join(os.homedir(), "Developer"), path.join(os.homedir(), ".milagre", "worktrees")];
 const SKIP = new Set([".git", "node_modules", ".next", ".cache"]);
@@ -147,6 +147,12 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         return data;
       });
       return updated;
+    },
+    deleteProjectGroup: async (id) => {
+      await update(async (data) => {
+        data.projectGroups = deleteProjectGroup(data.projectGroups ?? [], id);
+        return data;
+      });
     },
     // The sidebar, the canvas and every Project open ask for it. The first list scans for coordination files (the marker
     // is persisted even if the scan finds nothing), and every write checks each entry with Git (present). Between them a

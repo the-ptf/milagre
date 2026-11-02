@@ -13,7 +13,9 @@ import { useDesigns } from "./use-designs";
 import { readPermission, savedChatDefaults, savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
 import type { ChatLocation } from "./navigation-store";
 import type { SavedHost } from "./hosts-store";
-import type { AgentCliStatus, AgentModels, ModelProvider, PermissionMode } from "@milagre/shared/model";
+import type { AgentCliStatus, AgentModels, ModelProvider, NamedLinkDeleted, PermissionMode } from "@milagre/shared/model";
+import { isLinkScopeKey, scopeKey as keyOfScope } from "@milagre/shared/chat-scopes";
+import { isDeletedLinkState, isLinkGone } from "@milagre/shared/worktree-link";
 import type { Attachment } from "./attachments";
 import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
@@ -190,6 +192,9 @@ function useSessionState() {
   const [lastLocation, setLastLocation] = useState<ChatLocation | null>(null);
   const busyUntil = useRef(0);
   const generation = useRef(0);
+  // The Links this phone is deleting now (`host|scope`), and the last open Link it left because another device deleted it.
+  const deletingLinks = useRef(new Set<string>());
+  const [deletedLink, setDeletedLink] = useState<{ hostId: string; path: string; name: string } | null>(null);
   const selection = useRef<{ client: Client; path: string } | null>(null);
   // The last snapshot of each Project this session saw, so reopening one shows its Chats at once while it refreshes.
   const seen = useRef(new Map<string, Snapshot>());
@@ -546,6 +551,25 @@ function useSessionState() {
     if (!client) throw new Error("Connect to your computer first.");
     const removingGeneration = generation.current;
     await client.call("project:forget", [path]);
+    return dropScope(client.url, path, removingGeneration);
+  };
+  // A deleted Link leaves this phone as a removed Project does. Resolves to what link:delete did, and whether this
+  // navigation is still the one the delete started from.
+  const deleteLink = async (linkId: string) => {
+    if (!client) throw new Error("Connect to your computer first.");
+    const removingGeneration = generation.current;
+    const path = keyOfScope({ kind: "link", linkId });
+    // Its link:state says deleted before link:delete answers: the open Link's refresh leaves it to this.
+    deletingLinks.current.add(`${client.url}|${path}`);
+    try {
+      const result = await client.call<NamedLinkDeleted>("link:delete", [linkId]);
+      return { result, sameNavigation: await dropScope(client.url, path, removingGeneration) };
+    } finally {
+      deletingLinks.current.delete(`${client.url}|${path}`);
+    }
+  };
+  // The Project or Link at `path` is gone from computer `hostId`: its open, saved location and list row go too.
+  const dropScope = async (hostId: string, path: string, removingGeneration: number) => {
     const sameNavigation = generation.current === removingGeneration;
     // Invalidate an in-flight open before it can put the removed Project back on screen.
     if (sameNavigation && (selection.current?.path === path || snapshot?.project.path === path || opening?.path === path)) {
@@ -555,10 +579,10 @@ function useSessionState() {
       setOpening(null);
     }
     const completionGeneration = generation.current;
-    setLastLocation((current) => (current?.hostId === client.url && current.projectPath === path ? null : current));
-    await savedNavigation.forgetProject(client.url, path);
-    seen.current.delete(`${client.url}|${path}`);
-    listed.current.delete(`${client.url}|${path}`);
+    setLastLocation((current) => (current?.hostId === hostId && current.projectPath === path ? null : current));
+    await savedNavigation.forgetProject(hostId, path);
+    seen.current.delete(`${hostId}|${path}`);
+    listed.current.delete(`${hostId}|${path}`);
     // A removed Project's saved location/cache belongs to its computer; the visible list and navigation belong to
     // the current selection. Neither an RPC nor a keychain write may replace a newer computer or Chat.
     if (!sameNavigation || generation.current !== completionGeneration) return false;
@@ -566,6 +590,10 @@ function useSessionState() {
     void reloadProjects().catch(() => {});
     return true;
   };
+  const dropScopeRef = useRef(dropScope);
+  useEffect(() => {
+    dropScopeRef.current = dropScope;
+  });
   const setProjectHidden = useCallback(
     async (path: string, hidden: boolean) => {
       setRecent((previous) =>
@@ -592,9 +620,20 @@ function useSessionState() {
   const refresh = useCallback(async () => {
     const current = selection.current;
     if (!client || !projectPath || current?.client !== client || current.path !== projectPath) return;
+    const linked = isLinkScopeKey(projectPath);
+    // The open Link was deleted on another device: it goes as a removed Project does, and the Chat on screen leaves for
+    // the Projects list (deletedLink). One this phone is deleting is dropped when link:delete answers.
+    const leave = async () => {
+      if (deletingLinks.current.has(`${client.url}|${projectPath}`)) return;
+      const shown = latest.current?.project.path === projectPath ? latest.current.project : null;
+      const name = shown?.link?.link.name || shown?.name;
+      if (await dropScopeRef.current(client.url, projectPath, generation.current))
+        setDeletedLink({ hostId: client.url, path: projectPath, name: name || "This Link" });
+    };
     try {
       const state = await client.snapshot(projectPath);
       if (current === selection.current) {
+        if (linked && isDeletedLinkState(state.project.state)) return await leave();
         seen.current.set(`${client.url}|${projectPath}`, state);
         putSnapshot(reconcileState(latest.current ?? undefined, state));
         setError("");
@@ -604,7 +643,10 @@ function useSessionState() {
         }
       }
     } catch (error) {
-      if (current === selection.current) throw error;
+      if (current !== selection.current) return;
+      if (linked && deletingLinks.current.has(`${client.url}|${projectPath}`)) return;
+      if (linked && isLinkGone(error instanceof Error ? error.message : String(error))) return await leave();
+      throw error;
     }
   }, [client, projectPath, putSnapshot]);
   /** Fetches only the Project's streaming turns: they go to the runs store, and the snapshot on screen stays as it is. */
@@ -682,6 +724,9 @@ function useSessionState() {
     seedPreview,
     reloadProjects,
     forgetProject,
+    deleteLink,
+    /** The open Link this phone left because another device deleted it, set each time; the Chat screen leaves it. */
+    deletedLink,
     setProjectHidden,
     claimAutoOpen,
     opening,

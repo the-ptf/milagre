@@ -13,8 +13,21 @@ import { InlineError } from "./primitives/InlineError";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { bridgeForKey } from "../lib/computer-bridge";
 type Project = { id: string; name: string; path: string };
-/** Creates a Link, or edits `link`'s name and member Projects. Chats already started keep their Worktrees. */
-export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedProjectLink; onClose: () => void; onCreated: (link: NamedProjectLink) => void }) {
+/**
+ * Creates a Link, or edits `link`'s name and member Projects. Chats already started keep their Worktrees. Editing, it
+ * offers Delete Link…, which `onDelete` takes to its confirmation.
+ */
+export function LinkProjectDialog({
+  link,
+  onClose,
+  onCreated,
+  onDelete,
+}: {
+  link?: NamedProjectLink;
+  onClose: () => void;
+  onCreated: (link: NamedProjectLink) => void;
+  onDelete?: (link: NamedProjectLink) => void;
+}) {
   const bridge = bridgeForKey(link ? `milagre-link:${link.id}` : null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,6 +83,11 @@ export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedPr
       className="flex flex-col"
       actions={
         <>
+          {link && onDelete && (
+            <Button variant="danger-ghost" data-link-delete disabled={saving} onClick={() => onDelete(link)} className="mr-auto">
+              Delete Link…
+            </Button>
+          )}
           <Button variant="ghost" disabled={saving} onClick={onClose}>
             Cancel
           </Button>

@@ -57,6 +57,14 @@ test("a call to a computer loses that computer's id everywhere in its arguments,
 test("a computer's events and results come back naming it", () => {
   assert.deepEqual(qualifyEvent(ID, "project:state", { path: "/p", patch: [] }), { path: `${ID}|/p`, patch: [] });
   assert.deepEqual(qualifyEvent(ID, "link:state", { linkId: LINK, state: {} }), { linkId: `${ID}|${LINK}`, state: {} });
+  // A deleted Link's last state reaches the window under the computer's Link id, so the window leaves it there too.
+  assert.deepEqual(qualifyEvent(ID, "link:state", { linkId: LINK, state: { deletedAt: "2026-11-02T00:00:00.000Z" } }), {
+    linkId: `${ID}|${LINK}`,
+    state: { deletedAt: "2026-11-02T00:00:00.000Z" },
+  });
+  // A delete's answer names Worktree folders as that computer has them: shown, never routed again.
+  assert.deepEqual(qualifyResult(ID, "link:delete", { removed: ["/w/a"], kept: ["/w/b"] }), { removed: ["/w/a"], kept: ["/w/b"] });
+  assert.deepEqual(qualifyResult(ID, "link:delete-check", { chats: 2, running: ["Fix header"] }), { chats: 2, running: ["Fix header"] });
   assert.deepEqual(qualifyEvent(ID, "agent:event", { chatId: "/p#2", event: { type: "turn-started" } }), {
     chatId: `${ID}|/p#2`,
     event: { type: "turn-started" },

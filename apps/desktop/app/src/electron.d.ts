@@ -13,6 +13,8 @@ import type {
   ProjectAccountScope,
   ProjectAccountsSnapshot,
   NamedProjectLink,
+  NamedLinkDeleteCheck,
+  NamedLinkDeleted,
   OpenLink,
   LinkState,
   LinkSendRequest,
@@ -649,6 +651,10 @@ export type MilagreBridge = {
   listNamedLinks: () => Promise<NamedProjectLink[]>;
   createNamedLink: (request: { name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;
   updateNamedLink: (request: { id: string; name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;
+  /** What deleting a Link would close: its Chats not archived yet, and the titles of the running ones. */
+  checkDeleteNamedLink: (id: string) => Promise<NamedLinkDeleteCheck>;
+  /** Deletes a Link: refused while one of its Chats runs; archives its Chats and removes only its untouched Worktrees. */
+  deleteNamedLink: (id: string) => Promise<NamedLinkDeleted>;
   openNamedLink: (id: string) => Promise<OpenLink & StateStamp>;
   /** A Link's chats as saved, without opening it or preparing its worktrees. */
   readLink: (id: string) => Promise<{ link: NamedProjectLink; state: LinkState } & StateStamp>;

@@ -1,4 +1,4 @@
-import { LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
+import { deletedLinkText, LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -11,10 +11,15 @@ import { useSession } from "../session";
 import { usePanelNavigation } from "../side-panels";
 import { ProjectIcon } from "../project-icon";
 import { useRpc } from "../use-rpc";
-import { CheckboxBox, CircleButton, ErrorNotice, Field, PageScroll, SheetHeader, pressStyle, useStyles } from "../ui";
+import { CheckboxBox, CircleButton, ErrorNotice, Field, PageScroll, PillButton, SheetHeader, pressStyle, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { showArchiveNotice } from "../archive";
+import { confirmLinkDelete, linkDeleteError } from "../link-delete";
 
-/** Creates a Link, or with `linkId` edits that Link's name and member Projects. Chats already started keep their Worktrees. */
+/**
+ * Creates a Link, or with `linkId` edits that Link's name and member Projects. Chats already started keep their Worktrees.
+ * Editing, Delete Link at the bottom asks first, as desktop's Edit Link dialog does.
+ */
 export default function LinkProjects() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -67,6 +72,29 @@ export default function LinkProjects() {
       navigate({ pathname: "/chat", params: { projectPath: scopeKey({ kind: "link", linkId: link.id }), hostId: client.url } });
     } catch (error) {
       setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  // A deleted Link that was open leaves for the Projects list; one deleted from elsewhere closes this sheet.
+  async function remove() {
+    const client = session.client;
+    if (!client || !linkId || !editing || busy) return;
+    setBusy(true);
+    setError("");
+    // The saved name, not one typed here and not saved yet.
+    const linkName = editing.link?.name ?? editing.name ?? "this Link";
+    try {
+      if (!(await confirmLinkDelete(client.call, linkId, linkName))) return;
+      const open = session.snapshot?.project.path === scopeKey({ kind: "link", linkId });
+      const { result, sameNavigation } = await session.deleteLink(linkId);
+      if (current.current !== client) return;
+      const kept = deletedLinkText(linkName, result.kept);
+      if (kept) showArchiveNotice(kept);
+      if (open && sameNavigation) navigate("/projects");
+      else router.back();
+    } catch (failure) {
+      setError(linkDeleteError(failure));
     } finally {
       setBusy(false);
     }
@@ -156,6 +184,7 @@ export default function LinkProjects() {
         </PageScroll>
         <Text style={styles.caption}>{selected.length} selected. Choose at least two Projects.</Text>
         {failure ? <ErrorNotice message={failure} /> : null}
+        {editing ? <PillButton title="Delete Link" secondary destructive disabled={busy} onPress={() => void remove()} /> : null}
       </View>
     </PageScroll>
   );

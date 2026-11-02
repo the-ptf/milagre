@@ -3,6 +3,8 @@ const path = require("node:path");
 const { createGit } = require("./git/client.cjs");
 const { createWorktree: create, slugify, DEFAULT_WORKTREE_ROOT } = require("./worktrees.cjs");
 const { resolveSetupCommand, runSetupCommand } = require("./worktree-setup.cjs");
+const { removeWorktree: removeChecked } = require("./worktree-cleanup.cjs");
+const { changedCopiedFiles } = require("./worktree-files.cjs");
 const { validLinkId } = require("@milagre/shared/chat-scopes");
 
 /**
@@ -19,9 +21,16 @@ function createLinkWorkspaces({
   createWorktree = create,
   runSetup = runSetupCommand,
   deferSetup,
+  removeWorktree = removeChecked,
+  changedCopied = changedCopiedFiles,
   git = createGit(),
 }) {
   const queues = new Map();
+  // Links whose Worktrees a delete released this run: a Chat or Worktree queued behind the release must not be made.
+  const released = new Set();
+  const refuseReleased = (id, state) => {
+    if (released.has(id) || state.deletedAt) throw new Error("This Link is being deleted.");
+  };
   // A member is the Chat's once its Worktree exists and its setup ran, or waits for its review (deferSetup).
   const isReady = (member) => Boolean(member.setupDone || member.setupDeferred);
   // One preparation at a time per Link, so a new Chat and a new member never race on the same state.
@@ -195,6 +204,7 @@ function createLinkWorkspaces({
   async function prepare({ link, chatId, prompt = "", operationId }) {
     if (!validLinkId(operationId) || !Number.isSafeInteger(chatId) || chatId < 1) throw new Error("Invalid Link preparation request");
     const state = await store.get(link.id);
+    refuseReleased(link.id, state);
     let prep = state.preparations[operationId] ?? Object.values(state.preparations).find((item) => item.chatId === chatId);
     if (prep?.chatId !== undefined && prep.chatId !== chatId) throw new Error("Preparation belongs to another Chat");
     if (prep && !unfinished(prep)) return result(prep);
@@ -228,6 +238,7 @@ function createLinkWorkspaces({
   }
   async function addMember({ link, chatId, project: wanted }) {
     const state = await store.get(link.id);
+    refuseReleased(link.id, state);
     const prep = Object.values(state.preparations).find((item) => item.chatId === chatId);
     if (prep?.status !== "ready") throw new Error("This Chat's workspace is not ready.");
     const projects = await membersAvailable(link);
@@ -244,8 +255,46 @@ function createLinkWorkspaces({
     }
     return { member: await materialize(link, prep, member), created: true };
   }
+  // A deleted Link's Worktrees. One git says holds nothing unsaved goes with its milagre/ branch, through the same checked
+  // removal as an archived Chat's (worktree-cleanup.cjs). One with changes or unpushed commits stays, as does one whose
+  // setup was cut short, that was never verified, or that can't be checked. Each comes back with its member record.
+  async function release(linkId) {
+    const state = await store.get(linkId);
+    const members = new Map();
+    for (const prep of Object.values(state.preparations)) for (const member of prep.members) members.set(member.worktreePath, member);
+    for (const session of Object.values(state.sessions)) for (const member of session.worktrees ?? []) members.set(member.worktreePath, member);
+    const removed = [],
+      kept = [];
+    released.add(linkId);
+    for (const member of members.values()) {
+      const exists = await fs.lstat(member.worktreePath).then(
+        () => true,
+        () => false,
+      );
+      if (!exists) continue;
+      // What its commits are counted against. A base reserved as "HEAD" (no main, master or origin/HEAD) would be the
+      // Worktree's own HEAD and count none, so the commit it started from stands in.
+      const checkedBase = member.base && member.base !== "HEAD" ? member.base : member.initialCommit;
+      try {
+        if ((!member.created && !isReady(member)) || (member.setupStarted && !member.setupDone)) throw new Error("Unverified Worktree");
+        // git status leaves out ignored files, so a copied .env edited here would go with a clean Worktree.
+        if ((await changedCopied({ projectPath: member.projectPath, worktreePath: member.worktreePath, setting: member.copyPatterns })).length)
+          throw new Error("Copied files changed");
+        await removeWorktree({ path: member.worktreePath, root, projectPath: member.projectPath, base: checkedBase });
+        removed.push(member);
+      } catch {
+        kept.push({ ...member, checkedBase });
+      }
+    }
+    return { removed, kept };
+  }
   return {
     membersAvailable,
+    /**
+     * Removes a deleted Link's untouched Worktrees and resolves to `{ removed, kept }` member records; a kept one carries
+     * `checkedBase`, the ref its commits were counted against. From then on the Link gets no new Chat or Worktree.
+     */
+    releaseLinkWorktrees: (linkId) => queued(linkId, () => release(linkId)),
     prepareLinkChat: (request) => queued(request.link.id, () => prepare(request)),
     /** Gives a Link Chat its Worktree in one Project, or the one it has. Resolves to `{ member, created }`. */
     addLinkWorktree: (request) => queued(request.link.id, () => addMember(request)),

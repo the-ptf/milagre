@@ -237,3 +237,45 @@ test("a deferred setup leaves its review for later and the Worktree is the Chat'
   );
   assert.equal((await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" })).created, false);
 });
+
+test("a deleted Link's release keeps unpushed commits, edited copied files and cut-short setups, and makes nothing after", async (t) => {
+  const { link, store, workspaces, projects } = await fixture(t);
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "clean", operationId: randomUUID() });
+  const [cleanApi, committedWeb] = await addBoth(link, workspaces, 1);
+  await readyChat(link, store, workspaces, { link, chatId: 2, prompt: "copied", operationId: randomUUID() });
+  const [copiedApi, cutWeb] = await addBoth(link, workspaces, 2);
+  // A commit not pushed anywhere, in a Worktree whose base was reserved as "HEAD" (a repo with no main or master).
+  execFileSync("git", ["-C", committedWeb.worktreePath, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "Work"]);
+  // api's .env is a copied file git ignores: unchanged in one Worktree, edited in the other.
+  const api = projects.find((project) => project.name === "api");
+  await fs.appendFile(path.join(api.path, ".git", "info", "exclude"), "\n.env\n");
+  await fs.writeFile(path.join(api.path, ".env"), "TOKEN=original\n");
+  await fs.writeFile(path.join(cleanApi.worktreePath, ".env"), "TOKEN=original\n");
+  await fs.writeFile(path.join(copiedApi.worktreePath, ".env"), "TOKEN=edited\n");
+  const patch = (member) =>
+    member.worktreePath === committedWeb.worktreePath
+      ? { ...member, base: "HEAD" }
+      : member.worktreePath === cutWeb.worktreePath
+        ? { ...member, setupStarted: true, setupDone: false }
+        : member;
+  await store.update(link.id, (state) => ({
+    ...state,
+    preparations: Object.fromEntries(Object.entries(state.preparations).map(([id, prep]) => [id, { ...prep, members: prep.members.map(patch) }])),
+    sessions: Object.fromEntries(Object.entries(state.sessions).map(([id, session]) => [id, { ...session, worktrees: session.worktrees.map(patch) }])),
+  }));
+
+  const { removed, kept } = await workspaces.releaseLinkWorktrees(link.id);
+  assert.deepEqual(
+    removed.map((member) => member.worktreePath),
+    [cleanApi.worktreePath],
+  );
+  assert.deepEqual(kept.map((member) => member.worktreePath).sort(), [committedWeb.worktreePath, copiedApi.worktreePath, cutWeb.worktreePath].sort());
+  // The commits were counted against the commit the Worktree started from, which its Project checks against later too.
+  assert.equal(kept.find((member) => member.worktreePath === committedWeb.worktreePath).checkedBase, committedWeb.initialCommit);
+  for (const member of kept) assert.ok((await fs.stat(member.worktreePath)).isDirectory());
+  await assert.rejects(fs.stat(cleanApi.worktreePath), { code: "ENOENT" });
+  assert.equal(execFileSync("git", ["-C", api.path, "branch", "--list", cleanApi.branch]).toString().trim(), "");
+  // Nothing new is made for the Link once its Worktrees are released.
+  await assert.rejects(workspaces.addLinkWorktree({ link, chatId: 2, project: "web" }), /being deleted/);
+  await assert.rejects(workspaces.prepareLinkChat({ link, chatId: 3, prompt: "late", operationId: randomUUID() }), /being deleted/);
+});

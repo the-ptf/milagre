@@ -2729,6 +2729,8 @@ function sessionHost(
       react,
       "@milagre/shared/reconcile": require("@milagre/shared/reconcile"),
       "@milagre/shared/stable-order": require("@milagre/shared/stable-order"),
+      "@milagre/shared/chat-scopes": require("@milagre/shared/chat-scopes"),
+      "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
       "react/jsx-runtime": { jsx },
       "react-native": { AppState },
       "./client": {
@@ -2845,6 +2847,96 @@ test("reloading Projects keeps their order when opening a Chat moves its Project
     ["D", "B", "C"],
     "a new Project goes on top and a removed one leaves",
   );
+});
+
+/** A session with a Link open and its live socket up, whose snapshot reads answer from `link.read`. */
+async function openLinkSession(link) {
+  const sockets = [];
+  const forgotten = [];
+  const render = sessionHost(
+    {
+      url: "mac",
+      call: async (method, args) => {
+        if (method === "project:recent") return link.recent;
+        if (method === "link:delete") return link.deleting.promise;
+        return method === "project:open" ? { path: args[0] } : {};
+      },
+      snapshot: async (projectPath) => link.read(projectPath),
+      live: (projectPath, options) => {
+        const socket = { projectPath, options, close() {} };
+        sockets.push(socket);
+        return socket;
+      },
+    },
+    {
+      effects: true,
+      AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+      navigationStore: { read: async () => null, save: async () => {}, forgetProject: async (...args) => void forgotten.push(args) },
+    },
+  );
+  await render().connect({ address: "mac", token: "token" });
+  await render().open(link.scope);
+  render();
+  await settleAll();
+  render();
+  return { render, forgotten, signal: () => sockets.at(-1).options.onSignal("project") };
+}
+const linkOpen = (projectPath, extra = {}) => ({ project: { path: projectPath, name: "Food", state: { sessions: {}, ...extra } }, runs: { runs: {} } });
+
+for (const how of ["its state marked deleted", "a read refused with Link no longer exists"]) {
+  test(`the open Link deleted on another device leaves the phone, told by ${how}`, async () => {
+    const scope = "milagre-link:3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+    let deleted = false;
+    const link = {
+      scope,
+      recent: [{ path: "/p" }, { path: scope, name: "Food" }],
+      read: async (projectPath) => {
+        if (!deleted) return linkOpen(projectPath);
+        if (how.startsWith("its state")) return linkOpen(projectPath, { deletedAt: "2026-11-02T14:00:00.000Z" });
+        throw new Error("Link no longer exists");
+      },
+    };
+    const { render, forgotten, signal } = await openLinkSession(link);
+    assert.equal(render().snapshot.project.path, scope);
+    assert.equal(render().deletedLink, null);
+    deleted = true;
+    link.recent = [{ path: "/p" }];
+    signal();
+    await settleAll();
+    assert.equal(render().snapshot, null);
+    assert.equal(render().error, "", "a deleted Link is not a lost connection");
+    assert.equal(JSON.stringify(render().deletedLink), JSON.stringify({ hostId: "mac", path: scope, name: "Food" }));
+    assert.equal(JSON.stringify(render().recent.map((item) => item.path)), JSON.stringify(["/p"]));
+    assert.equal(JSON.stringify(forgotten), JSON.stringify([["mac", scope]]));
+  });
+}
+
+test("a Link this phone deletes is not taken for one deleted elsewhere while link:delete runs", async () => {
+  const scope = "milagre-link:3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+  let deleted = false;
+  const link = {
+    scope,
+    recent: [{ path: "/p" }, { path: scope, name: "Food" }],
+    deleting: deferred(),
+    read: async (projectPath) => {
+      if (deleted) throw new Error("Link no longer exists");
+      return linkOpen(projectPath);
+    },
+  };
+  const { render, signal } = await openLinkSession(link);
+  const deleting = render().deleteLink("3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01");
+  // The computer says the Link is gone before link:delete answers.
+  deleted = true;
+  signal();
+  await settleAll();
+  assert.equal(render().snapshot.project.path, scope, "the delete's own answer drops it");
+  assert.equal(render().error, "");
+  link.recent = [{ path: "/p" }];
+  link.deleting.resolve({ removed: [], kept: [] });
+  const { sameNavigation } = await deleting;
+  assert.equal(sameNavigation, true);
+  assert.equal(render().snapshot, null);
+  assert.equal(render().deletedLink, null, "not said to be deleted on another device");
 });
 
 test("removing the open Project clears its snapshot and list entry; a failed removal preserves both", async () => {
@@ -4098,6 +4190,8 @@ function navigationHost(
       "./confirm-store": confirmStore,
     }),
     "@milagre/shared/chat-scopes": require("@milagre/shared/chat-scopes"),
+    "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
+    "./link-delete": load("link-delete.ts", { "./confirm-store.ts": confirmStore, "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link") }),
     "./accounts-section": { AccountsSection: "AccountsSection" },
     "./confirm-store": confirmStore,
     "./app/settings": { SettingsView: "SettingsView" },
@@ -5116,6 +5210,61 @@ test("a sidebar Project can be removed from the list after confirming", async ()
   assert.ok(nav.storeCalls.some(([name]) => name === "refreshAll"));
 });
 
+test("a sidebar Link is deleted after confirming its Chat count, and the open one leaves for the Projects list", async () => {
+  const alerts = [];
+  // A Link id is a UUID: the phone tells a Link row from a Project row by it (isLinkScopeKey).
+  const id = "3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+  const scope = `milagre-link:${id}`;
+  const link = { id, name: "Food", projectIds: ["api", "web"] };
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger(alerts),
+    session: {
+      recent: [{ path: "/last" }, { path: scope, name: "Food", link, projects: [] }],
+      deleteLink: async (linkId) => {
+        nav.calls.push(["deleteLink", linkId]);
+        return { result: { removed: ["/wt/api"], kept: ["/wt/web"] }, sameNavigation: true };
+      },
+    },
+  });
+  nav.session.client.call = async (...args) => {
+    nav.calls.push(args);
+    return args[0] === "link:delete-check" ? { chats: 2, running: [] } : undefined;
+  };
+  nav.session.snapshot = snapshot(scope);
+  const row = nav.rows().props.data.findIndex((item) => item.kind === "project" && item.path === scope);
+  assert.notEqual(row, -1);
+  const menu = nav.open(nav.rows().props.renderItem({ item: nav.rows().props.data[row] }));
+  assert.equal(
+    JSON.stringify(menu.props.sections.flatMap((section) => section.items.map((item) => [item.id, item.destructive === true]))),
+    JSON.stringify([
+      ["new", false],
+      ["copy", false],
+      ["edit", false],
+      ["delete", true],
+    ]),
+  );
+  menu.props.onSelect("delete");
+  await settleAll();
+  assert.equal(alerts[0].title, "Delete Food?");
+  assert.match(alerts[0].message, /^Its 2 Chats are archived/);
+  assert.equal(
+    JSON.stringify(alerts[0].buttons),
+    JSON.stringify([
+      ["Delete Link", "destructive"],
+      ["Cancel", "cancel"],
+    ]),
+  );
+  assert.equal(
+    JSON.stringify(nav.calls),
+    JSON.stringify([
+      ["link:delete-check", [id]],
+      ["deleteLink", id],
+    ]),
+  );
+  assert.deepEqual(nav.routes, ["/projects"]);
+  assert.ok(nav.storeCalls.some(([name]) => name === "refreshAll"));
+});
+
 test("a removal completed after newer navigation does not replace the visible screen", async () => {
   const pending = deferred();
   const nav = navigationHost(deferred().promise, { alert: pressDanger([]), session: { forgetProject: () => pending.promise } });
@@ -5124,6 +5273,28 @@ test("a removal completed after newer navigation does not replace the visible sc
   pending.resolve(false);
   await settleAll();
   assert.deepEqual(nav.routes, []);
+});
+
+test("a Chat of a Link deleted on another device leaves for the Projects list and says so; a Chat elsewhere stays", () => {
+  const archive = require("../apps/mobile/src/archive.ts");
+  const scope = "milagre-link:3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+  archive.clearArchiveNotice();
+  // Another Project's Chat is on screen: the Link the session left is not this one.
+  const elsewhere = chatHost({ effects: true });
+  elsewhere.session.deletedLink = { hostId: "mac", path: scope, name: "Food" };
+  elsewhere.render();
+  assert.equal(elsewhere.router.replaced, undefined);
+  assert.equal(archive.archiveActivity().notice, "");
+  // The Link's own Chat: the session dropped its snapshot, and the Chat leaves instead of opening it again.
+  const host = chatHost({ effects: true });
+  Object.assign(host.params, { projectPath: scope, id: "3", hostId: "mac" });
+  host.session.snapshot = null;
+  host.session.open = () => new Promise(() => {});
+  host.session.deletedLink = { hostId: "mac", path: scope, name: "Food" };
+  host.render();
+  assert.equal(host.router.replaced, "/projects");
+  assert.equal(archive.archiveActivity().notice, "Food was deleted on another device.");
+  archive.clearArchiveNotice();
 });
 
 test("a new Chat reached without a Worktree starts in the Project checkout once it loads", () => {

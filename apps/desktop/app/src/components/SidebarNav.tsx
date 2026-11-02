@@ -31,6 +31,7 @@ import {
   Cancel01Icon,
   CloudOffIcon,
   Copy01Icon,
+  Delete02Icon,
   FolderAddIcon,
   FolderOpenIcon,
   FrameIcon,
@@ -152,6 +153,8 @@ type SidebarNavProps = {
   onOpenComputerSettings?: (id: string | null) => void;
   /** Opens the dialog that renames a Link or changes its member Projects. */
   onEditLink?: (id: string) => void;
+  /** Opens the confirmation that deletes a Link. */
+  onDeleteLink?: (id: string) => void;
   workspaceName?: string;
   workspaceImage?: string | null;
   /** Runs the folder dialog. */
@@ -567,6 +570,7 @@ export default memo(function SidebarNav({
   onAddComputer,
   onOpenComputerSettings,
   onEditLink,
+  onDeleteLink,
   onOpenProject,
   onSwitchLink,
   onSwitchProject,
@@ -1196,13 +1200,16 @@ export default memo(function SidebarNav({
     .filter((project) => !isHome(project.path) && (project.current || !hiddenComputers.has(project.computerId)))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 
-  // A Project's ⋯ rows include removal, even for the open Project. A Link gets its name copied and can be edited.
+  // A Project's ⋯ rows include removal, even for the open Project. A Link gets its name copied, and can be edited or deleted.
   const scopeMenu = (scope: { key: string; name: string; link: NamedProjectLink | null }): ScopeMenuItem[] => {
     const link = scope.link;
     if (link)
       return [
         { key: "copy-name", label: "Copy Link name", icon: Copy01Icon, run: () => copy(scope.name) },
         ...(onEditLink ? [{ key: "edit", label: "Edit Link…", icon: PencilEdit02Icon, run: () => onEditLink(link.id) }] : []),
+        ...(onDeleteLink
+          ? [{ key: "delete", label: "Delete Link…", icon: Delete02Icon, destructive: true, separatorBefore: true, run: () => onDeleteLink(link.id) }]
+          : []),
       ];
     const actions: Record<ProjectMenuKey, Pick<ScopeMenuItem, "run" | "disabled">> = {
       reveal: { run: () => void window.milagre?.revealInFolder(scope.key).catch(() => {}) },

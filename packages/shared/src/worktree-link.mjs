@@ -46,3 +46,61 @@ export const LINK_UPDATE_WORKTREES_TEXT = "New Chats get a Worktree in a Project
 
 /** A Link Project the Chat hasn't changed, in its Changes list. */
 export const LINK_PENDING_WORKTREE_TEXT = "No Worktree yet. The Chat creates one when it changes this Project.";
+
+const listed = (names) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? ""));
+
+/** Why a Link can't be deleted yet: its Chats whose turn is running, by title. The daemon refuses with the same words. */
+export function linkRunningText(titles) {
+  const many = titles.length > 1;
+  return `${listed(titles)} ${many ? "are" : "is"} running. Stop ${many ? "them" : "it"} before deleting the Link.`;
+}
+
+/**
+ * The confirmation before a Named Link is deleted, on desktop and phone. `chats` counts its Chats not archived yet.
+ * What it says is what link:delete does: Chats archived with their transcripts kept, untouched Worktrees removed.
+ */
+export function deleteLinkText(name, chats) {
+  const closing =
+    chats === 0
+      ? "It has no Chats."
+      : chats === 1
+        ? "Its Chat is archived, and its transcript stays on disk."
+        : `Its ${chats} Chats are archived, and their transcripts stay on disk.`;
+  return {
+    title: `Delete ${name}?`,
+    message: `${closing} Worktrees without changes are removed. Ones with changes or unpushed commits stay, as Chats in their Projects. The Projects themselves don't change.`,
+    action: "Delete Link",
+  };
+}
+
+/** After a delete: the Worktrees it kept, now Chats in their Projects. Null when it kept none. */
+export function deletedLinkText(name, kept) {
+  if (!kept.length) return null;
+  const count = kept.length === 1 ? "1 Worktree with changes stays in its Project" : `${kept.length} Worktrees with changes stay in their Projects`;
+  return `Deleted ${name}. ${count}: ${kept.join(", ")}`;
+}
+
+/**
+ * A failed Link delete as desktop and phone say it. A computer too old to have link:delete answers "not available
+ * from mobile" over the phone bridge, and "Unknown command" or "No handler" to a paired Mac: it is asked to update.
+ * `computer` names it on desktop ("this Mac", or a paired computer's name); without it, the phone's words for its Mac.
+ */
+export function linkDeleteFailure(message, { computer } = {}) {
+  if (!/not available from mobile|unknown command|no handler/i.test(message)) return message;
+  return computer ? `Update Milagre on ${computer} to delete its Links.` : "Update Milagre on your Mac to delete Links from your phone.";
+}
+
+/** Whether a Link read or open failed because the Link was deleted (here or on another device). */
+export function isLinkGone(message) {
+  return /Link no longer exists/i.test(message);
+}
+
+/** Whether a Link's state says it was deleted: link:delete marks it before the Link leaves the registry. */
+export function isDeletedLinkState(state) {
+  return Boolean(state && typeof state === "object" && "deletedAt" in state && state.deletedAt);
+}
+
+/** The notice when the open Link closes because another device deleted it. */
+export function linkDeletedElsewhereText(name) {
+  return `${name} was deleted on another device.`;
+}

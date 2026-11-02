@@ -5,7 +5,7 @@ import { compactionContext } from "@milagre/shared/compaction";
 import { CleanIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
 import { ComposerTray, OfflineTray } from "../offline-tray";
-import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
+import { LINK_CHAT_WORKTREES_TEXT, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
@@ -911,6 +911,16 @@ function ChatPane({
   // A Chat picked in another Project opens that Project here, behind the splash mark, rather than in the navigation.
   // The Chat beside is always of the open Project, and never opens another.
   const { wanted, error: openError, retry: retryOpen } = useOpenProject(secondary ? {} : params);
+  // The open Link was deleted on another device: the session dropped it, and its Chat leaves for the Projects list, as
+  // a Link deleted from this phone does. A Chat of another Project or computer stays.
+  const deletedLink = secondary ? null : session.deletedLink;
+  const routedScope = params.projectPath || session.snapshot?.project.path;
+  const leftDeleted = !!deletedLink && routedScope === deletedLink.path && (!params.hostId || params.hostId === deletedLink.hostId);
+  useEffect(() => {
+    if (!leftDeleted || !deletedLink) return;
+    showArchiveNotice(linkDeletedElsewhereText(deletedLink.name));
+    router.replace("/projects");
+  }, [leftDeleted, deletedLink]);
   // A new Chat picked without a Worktree starts in the Project's own checkout once the Project is here.
   const loaded = targetMatches && !!session.snapshot;
   const needsWorktree = !params.id && !params.worktreeId;

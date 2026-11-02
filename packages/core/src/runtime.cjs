@@ -76,7 +76,7 @@ const { createPullRequestReader, readPullRequestState, readPullRequests } = requ
 const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
 const { createPullRequestWatch } = require("./pull-request-watch.cjs");
-const { emptyState, reconcileState, markDisconnectedSubagents } = require("./project-state.cjs");
+const { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases } = require("./project-state.cjs");
 const { migrateWorktreeChats } = require("./worktree-chats.cjs");
 const { createLinear } = require("./linear/index.cjs");
 const { createLinearIssues } = require("./linear/issues.cjs");
@@ -654,7 +654,8 @@ function createRuntime(options) {
     projects: states,
     links: linkStore,
     validateLink: async (id) => {
-      const members = await linkWorkspaces.membersAvailable(await linkRuntime.definition(id));
+      // A turn starts only in a Link that may take work: not one being deleted (link-runtime.cjs usable).
+      const members = await linkWorkspaces.membersAvailable(await linkRuntime.usable(id));
       for (const member of members) await ownProject(member.path);
       linkMembers.set(
         id,
@@ -2641,7 +2642,7 @@ function createRuntime(options) {
   // running agent owns it at once, the Link's windows show it, and the Project lists it as the shared Chat's. Its setup
   // gets the same review as an ordinary Worktree's, now, before the agent works in it.
   async function createLinkWorktree({ chatId, linkId, sessionId, project }) {
-    const made = await linkWorkspaces.addLinkWorktree({ link: await linkRuntime.definition(linkId), chatId: sessionId, project });
+    const made = await linkWorkspaces.addLinkWorktree({ link: await linkRuntime.usable(linkId), chatId: sessionId, project });
     if (!made.created) return made;
     const scope = projectOfKey(chatId);
     agents.updateWorkspace(chatId, await scopeStates.executionContext(scope, sessionId));
@@ -2818,6 +2819,32 @@ function createRuntime(options) {
     sentFromNotes,
     broadcast: broadcastProjectState,
     titles: chatTitles,
+    // A deleted Link's Chat is archived like any other (its Terminals, advisors and Heartbeats stop), then its setup and
+    // agent close, so nothing keeps running in the Worktrees about to go.
+    retire: async (scope, sessionId) => {
+      const chatId = chatKey(scope, sessionId);
+      await archiveChat(scope, sessionId);
+      await worktreeSetups.cancel(chatId);
+      await agents.closeChat(chatId);
+    },
+    // Its member Projects are read again: a removed Worktree leaves them, and a kept one becomes theirs with the base it was
+    // made from, so deleting its Chat there can remove it later through the usual checks.
+    released: async ({ removed, kept }) => {
+      for (const member of removed) await worktreeSetups.forget(member.worktreePath);
+      for (const projectPath of new Set([...removed, ...kept].map((member) => member.projectPath))) {
+        const bases = new Map(
+          kept.filter((member) => member.projectPath === projectPath && member.checkedBase).map((member) => [member.worktreePath, member.checkedBase]),
+        );
+        if (!bases.size && !states.has(projectPath)) continue;
+        try {
+          await readProject(projectPath);
+          if (bases.size) await updateProject(projectPath, (state) => withWorktreeBases(state, bases), { chats: [] });
+        } catch (error) {
+          console.warn(`Milagre couldn't read ${projectName(projectPath)} again after deleting a Link:`, error.message);
+        }
+      }
+      await pruneLinks().catch((error) => console.warn("Milagre couldn't drop the canvas Links of a deleted Link's Worktrees:", error.message));
+    },
   });
   commands.handle("linked:snapshot", () => linked.snapshot());
   commands.handle("linked:remote-enabled:read", () => ({ enabled: remoteDelegation.enabled() }));
@@ -2959,6 +2986,8 @@ function createRuntime(options) {
     if (!cwd) throw new Error("Choose a Chat folder.");
     for (const key of scopeStates.projects().filter(isLinkScopeKey)) {
       const state = await scopeStates.get(key);
+      // A deleted Link's kept Worktrees are their Projects' now, and so is the Account they run on.
+      if (state.deletedAt) continue;
       if (Object.values(state.sessions).some((s) => s.workspacePath === cwd || s.worktrees?.some((m) => m.worktreePath === cwd))) return key;
     }
     return (await resolveProject(cwd)).path;
@@ -3580,7 +3609,11 @@ function createRuntime(options) {
     snapshot: () => {
       const home = chatsHome.path;
       return {
-        links: linkStore.ids().map((linkId) => ({ linkId, state: linkStore.has(linkId) ? linkStore.cached(linkId) : undefined })),
+        // Deleted Links' states stay loaded (ownedWorktrees reads every Link folder), but no window shows them.
+        links: linkStore
+          .ids()
+          .map((linkId) => ({ linkId, state: linkStore.has(linkId) ? linkStore.cached(linkId) : undefined }))
+          .filter((link) => !link.state?.deletedAt),
         projects: states
           .projects()
           .filter((projectPath) => !bots.isHome(projectPath))

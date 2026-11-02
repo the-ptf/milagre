@@ -84,7 +84,8 @@ function Root() {
     <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", details: { failed: true } }]} activeId="1"
       runningKeys={"/work/shop#7\\nmilagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3"} waitingKeys="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3" attentionPaths={["/work/shop"]} onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }}
       onScopeArchiveCheck={async (key, id) => { window.archiveChecked = [key, id]; return { milagreOwned: false, shared: false, status: null }; }}
-      onScopeArchive={async (key, id, mode) => { window.archived = [key, id, mode]; }} archivingChats={archivingChats} />
+      onScopeArchive={async (key, id, mode) => { window.archived = [key, id, mode]; }} archivingChats={archivingChats}
+      onEditLink={(id) => { window.editedLink = id; }} onDeleteLink={(id) => { window.deletedLink = id; }} />
   </div>
   );
 }
@@ -248,6 +249,21 @@ async function browserChecks() {
       "The open Project's menu offers Remove",
     );
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
+
+    // A Link's menu copies its name, edits it and, set apart in red, deletes it.
+    const linkScope = `[data-sidebar-scope="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]`;
+    await evaluate(`document.querySelector('${linkScope} [data-scope-menu]').click()`);
+    await waitFor(`!!document.querySelector("[data-scope-menu-panel]")`);
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-scope-menu-panel] [data-scope-menu-item]")].map((item) => item.textContent.trim())`),
+      ["Copy Link name", "Edit Link…", "Delete Link…"],
+    );
+    assert.equal(await evaluate(`document.querySelector('[data-scope-menu-item="delete"]').classList.contains("text-red-ink")`), true, "Delete is red");
+    assert.equal(await evaluate(`document.querySelector('[data-scope-menu-item="edit"]').classList.contains("text-red-ink")`), false);
+    await screenshot("link-scope-menu");
+    await evaluate(`document.querySelector('[data-scope-menu-item="delete"]').click()`);
+    await waitFor(`window.deletedLink === "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"`);
     await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
 
     // Confirmation is cancellable, and a failed save keeps the dialog open with a retry.

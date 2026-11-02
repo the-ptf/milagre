@@ -325,6 +325,8 @@ function makeBridge(invoke, listen, send) {
     listNamedLinks: () => invoke("link:list"),
     createNamedLink: (request) => invoke("link:create", request),
     updateNamedLink: (request) => invoke("link:update", request),
+    checkDeleteNamedLink: (id) => invoke("link:delete-check", id),
+    deleteNamedLink: (id) => invoke("link:delete", id),
     openNamedLink: (id) => invoke("link:open", id),
     readLink: (id) => invoke("link:snapshot", id),
     sendLinkMessage: (request) => invoke("link:send", request),

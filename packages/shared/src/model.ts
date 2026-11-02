@@ -278,6 +278,16 @@ export interface NamedProjectLink {
   createdAt: string;
   hidden?: boolean;
 }
+/** What deleting a Named Link would close (link:delete-check): its Chats not archived yet, and the running ones' titles. */
+export interface NamedLinkDeleteCheck {
+  chats: number;
+  running: string[];
+}
+/** What link:delete did with the Link's Worktrees: the folders it removed, and those it kept for their changes. */
+export interface NamedLinkDeleted {
+  removed: string[];
+  kept: string[];
+}
 export interface WorktreeBinding {
   projectId: string;
   projectPath: string;
@@ -318,6 +328,8 @@ export interface LinkState {
   sessions: Record<string, LinkChatSession>;
   messages: ChatMessage[];
   preparations: Record<string, LinkPreparation>;
+  /** When link:delete marked the Link deleted; every device leaves a Link whose state has it. */
+  deletedAt?: string;
 }
 export interface OpenLink {
   link: NamedProjectLink;
