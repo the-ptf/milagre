@@ -2,6 +2,8 @@ import { useShortcutLabel } from "../lib/keybindings";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
+import { DEFAULT_MESSAGE_DELIVERY, deliveryOptions, type MessageDelivery } from "@milagre/shared/queued-messages";
+import { Select } from "./primitives/Select";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -98,11 +100,12 @@ interface PromptComposerProps {
   onDraftChange: (draft: string) => void;
   /** Prompts sent in this chat, oldest first; Up and Down at the field's first or last line step through them. */
   history?: string[];
-  onSend: () => void;
+  onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   sendBlocked: boolean;
-  /** A turn is running in this chat; a message sent now steers it. */
+  /** A turn is running in this chat; follow-ups offer queued or immediate delivery. */
   running?: boolean;
+  runningProvider?: ModelProvider;
   /** A predicted follow-up, offered only in an empty, idle composer. */
   suggestion?: string;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
@@ -188,6 +191,7 @@ export function PromptComposer({
   onStop,
   sendBlocked,
   running = false,
+  runningProvider,
   suggestion,
   onCompact,
   compactionFeedback,
@@ -217,6 +221,9 @@ export function PromptComposer({
   placeholder,
 }: PromptComposerProps) {
   const mentions = useChatMentions();
+  const [delivery, setDelivery] = useState<MessageDelivery>(DEFAULT_MESSAGE_DELIVERY);
+  const choices = deliveryOptions(!compacting && providerCapabilities(runningProvider ?? selectedModel.provider).steer);
+  const sendLabel = delivery === "queue" ? "Queue message" : choices[1].label;
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -384,8 +391,8 @@ export function PromptComposer({
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
-  const canStop = !offlineName && running && Boolean(onStop);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const canStop = !offlineName && running && Boolean(onStop) && !canSend;
   const visibleSuggestion =
     suggestion &&
     !draft &&
@@ -494,10 +501,10 @@ export function PromptComposer({
           imageDraft.attachPath(path);
         }
       });
-      onSendLatest.current();
+      onSendLatest.current(running ? delivery : undefined);
       return;
     }
-    onSend();
+    onSend(running ? delivery : undefined);
   }
 
   // The picker stays open after a pick: effort, fast mode and Ultracode sit beside the models.
@@ -1058,10 +1065,9 @@ export function PromptComposer({
                   offlineName
                     ? offlinePlaceholder(offlineName)
                     : (running
-                        ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
-                          providerCapabilities(provider).steer
-                          ? "Steer the agent…"
-                          : "Queue a message for the next turn…"
+                        ? delivery === "queue"
+                          ? "Queue a message for the next turn…"
+                          : "Send a message now…"
                         : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
@@ -1248,9 +1254,13 @@ export function PromptComposer({
                   </button>
                 )}
               </span>
+              {running && !offlineName && (
+                <Select label="Follow-up delivery" value={delivery} options={choices} onChange={setDelivery} variant="text" compact disabled={sendBlocked} />
+              )}
               <button
                 type="button"
-                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : "Send"}
+                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? sendLabel : "Send"}
+                data-composer-submit
                 disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}

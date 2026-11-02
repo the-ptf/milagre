@@ -17,6 +17,7 @@ import { updateSettings } from '/src/lib/settings';
 window.updateSettings = updateSettings;
 const noop = () => {};
 window.sent = [];
+window.deliveries = [];
 window.stops = 0;
 window.milagre = { searchProjectFiles: async () => ['review.md'], listSkills: async root => ({ skills: root === '/other' ? [] : [
   { name: 'reorder', description: 'Gently put things in order', scope: 'bundled', provider: 'milagre', path: '/skills/reorder/SKILL.md' },
@@ -39,7 +40,7 @@ function Fixture() {
   return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
     <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
-      onSend={() => { window.sent.push(draft); setDraft(''); }} onStop={() => { window.stops++; }} sendBlocked={!!suggestOptions.blocked}
+      onSend={(delivery) => { window.deliveries.push(delivery); window.sent.push(draft); setDraft(''); }} onStop={() => { window.stops++; }} sendBlocked={!!suggestOptions.blocked}
       suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline} reconnectingName={suggestOptions.reconnecting}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
@@ -276,6 +277,26 @@ async function browserChecks() {
     assert.equal(await evaluate(`window.stops`), 0, "queuing never tries to stop the offline agent");
     await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
     await type("");
+    for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+      await evaluate(`window.setSuggestOptions({ provider: ${JSON.stringify(provider)}, running: true })`);
+      await type("follow up");
+      await evaluate(`document.querySelector('[aria-label="Follow-up delivery"]').click()`);
+      await waitFor(`!![...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes('After this turn'))`);
+      await evaluate(`[...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes('After this turn')).click()`);
+      await waitFor(`!!document.querySelector('[aria-label="Queue message"]')`);
+      await evaluate(`document.querySelector('[aria-label="Queue message"]').click()`);
+      await waitFor(`window.deliveries.at(-1) === 'queue' && ${editor}.value === ''`);
+      await type("urgent follow up");
+      await evaluate(`document.querySelector('[aria-label="Follow-up delivery"]').click()`);
+      const immediate = ["claude", "codex"].includes(provider) ? "Send now" : "Stop and send";
+      await waitFor(`!![...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes(${JSON.stringify(immediate)}))`);
+      await evaluate(`[...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes(${JSON.stringify(immediate)})).click()`);
+      await waitFor(`!!document.querySelector('[aria-label="${immediate}"]')`);
+      await screenshot("follow-up-" + provider);
+      await evaluate(`document.querySelector('[aria-label="${immediate}"]').click()`);
+      await waitFor(`window.deliveries.at(-1) === 'now' && ${editor}.value === ''`);
+    }
+    await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
     const beforeDictation = await evaluate("window.sent.length");
     await evaluate(`window.deliverTranscript('review this', { selection: { start: 0, end: 0 } })`);
     await waitFor(`${editor}.value === 'review this'`);

@@ -1,4 +1,5 @@
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat, startOutbox } from "./lib/outbox";
+import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { OfflineTray, useOfflineTray } from "./components/OfflineTray";
 import { preferenceStorage as localStorage } from "./lib/preference-storage.ts";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
@@ -2141,6 +2142,7 @@ function App() {
     preserveComposer = false,
     prAction?: PullRequestActionContext,
     issue?: LinearIssue,
+    delivery?: MessageDelivery,
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || preparingHere || imageDraft.loading) return false;
     if (movingDraft.current) return false;
@@ -2168,6 +2170,7 @@ function App() {
           request: {
             projectPath: project.path,
             sessionId: selectedSession?.id ?? null,
+            delivery,
             worktreeId: selectedWorktree.id,
             body,
             images: [],
@@ -2245,6 +2248,7 @@ function App() {
     }
     // Capture the user's choices before setup runs in the background.
     const options = {
+      delivery,
       provider: model.provider,
       model: model.id,
       permissionMode: mode,
@@ -2501,11 +2505,11 @@ function App() {
     }
   }
 
-  async function sendMessage() {
+  async function sendMessage(delivery?: MessageDelivery) {
     const body = draftStore.get().trim();
     if ((!body && !imageDraft.images.length && !imageDraft.files.length) || !state || !selectedWorktree || !project || preparingHere || imageDraft.loading)
       return;
-    await executeSend(body, permissionMode);
+    await executeSend(body, permissionMode, imageDraft.images, imageDraft.files, false, undefined, undefined, delivery);
   }
 
   // Keep finished message cards out of the typing render path. Recommendations still use
@@ -3886,7 +3890,7 @@ function App() {
                         earlier={earlierMessages}
                         // A draft becoming its saved Chat shows that Chat's window, not the selected one's.
                         trimHistory={lean && !(pendingHere && pendingCanonicalId !== null) ? chatWindow.trim : undefined}
-                        onSend={() => void sendMessage()}
+                        onSend={(delivery) => void sendMessage(delivery)}
                         onCompact={
                           selectedSession && providerCapabilities(selectedSession.provider ?? "claude").compact && !readOnly
                             ? () => void compactContext()

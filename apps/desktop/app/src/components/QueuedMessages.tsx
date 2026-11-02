@@ -3,6 +3,7 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import type { AgentSession, QueuedMessage } from "../model";
 import type { MilagreBridge } from "../electron";
 import { queueStatus } from "@milagre/shared/queued-messages";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import Tooltip from "./primitives/Tooltip";
 
@@ -11,15 +12,16 @@ export interface QueueControls {
   /** Stop (or a failure) ended the turn they waited on: they wait for Send now. */
   held: boolean;
   running: boolean;
+  canSteer?: boolean;
   onSendNow: (id: string) => void;
   onRemove: (id: string) => void;
 }
 
 /**
- * Messages waiting for the running turn of an agent that can't be steered (chat-host.cjs queues them). They sit above
+ * Messages waiting for the running turn to finish (chat-host.cjs queues them). They sit above
  * the composer, oldest first, each with Send now and Remove; the line above says when they go.
  */
-export function QueuedMessages({ items, held, running, onSendNow, onRemove, disabled }: QueueControls & { disabled?: boolean }) {
+export function QueuedMessages({ items, held, running, canSteer = false, onSendNow, onRemove, disabled }: QueueControls & { disabled?: boolean }) {
   if (!items.length) return null;
   return (
     <div
@@ -44,7 +46,7 @@ export function QueuedMessages({ items, held, running, onSendNow, onRemove, disa
               onClick={() => onSendNow(item.id)}
               className="shrink-0 rounded-control px-2 py-0.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink disabled:cursor-default disabled:opacity-40"
             >
-              {running ? "Stop and send" : "Send now"}
+              {running && !canSteer ? "Stop and send" : "Send now"}
             </button>
             <Tooltip label="Remove from queue" side="top" align="end">
               <button
@@ -69,7 +71,7 @@ export function QueuedMessages({ items, held, running, onSendNow, onRemove, disa
 export function queueControls(
   bridge: Pick<MilagreBridge, "sendQueuedNow" | "removeQueued">,
   chatId: string,
-  session: Pick<AgentSession, "queued" | "queueHeld"> | undefined,
+  session: Pick<AgentSession, "queued" | "queueHeld" | "provider"> | undefined,
   running: boolean,
   onError: (message: string) => void,
 ): QueueControls | undefined {
@@ -79,6 +81,7 @@ export function queueControls(
     items: session.queued,
     held: Boolean(session.queueHeld),
     running,
+    canSteer: providerCapabilities(session.provider).steer,
     onSendNow: (id) => void bridge.sendQueuedNow(chatId, id).catch(report("send")),
     onRemove: (id) => void bridge.removeQueued(chatId, id).catch(report("remove")),
   };

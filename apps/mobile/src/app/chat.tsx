@@ -121,6 +121,7 @@ import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
 import { QueuedMessages } from "../queued-messages";
+import { DEFAULT_MESSAGE_DELIVERY, deliveryOptions, type MessageDelivery } from "@milagre/shared/queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 import { Icon, LinearLogo } from "../icons";
@@ -442,6 +443,7 @@ function ChatPane({
   );
   const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
   const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
+  const [delivery, setDelivery] = useState<MessageDelivery>(DEFAULT_MESSAGE_DELIVERY);
   const targetHost = params.hostId || session.client?.url || "";
   const reachableHost = useReachableHost(session.client?.url);
   const targetProject = params.projectPath || session.snapshot?.project.path || "";
@@ -1141,6 +1143,9 @@ function ChatPane({
   const compactState = compactButtonState(compactButtonDisplay, contextUsage, supportsCompact, contextSettings.buttonThreshold, quietContext);
   const compactQueued = chat?.queued?.find((item) => compactionContext(item));
   const compacting = compactionContext(messages.findLast((item) => compactionContext(item)))?.status === "preparing";
+  const canSteer = !compacting && providerCapabilities(chat?.provider ?? actualProvider).steer;
+  const followUpChoices = deliveryOptions(canSteer);
+  const followUpLabel = delivery === "queue" ? followUpChoices[0].label : followUpChoices[1].label;
   const compactBlocked = compacting || busy || Boolean(session.error) || Boolean(chat?.archived) || unavailable;
   const compactButton =
     !quietContext && (compactState.visible || compactQueued || compacting) ? (
@@ -1450,6 +1455,7 @@ function ChatPane({
   }
   /** Whether the message went: "busy" when it wasn't tried, the Chat being busy. An issue key starts the Chat in its own new worktree. */
   async function send(body = draft, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+    const messageDelivery = run && !prAction && !issue ? delivery : undefined;
     // `/undo` opens Undo changes instead of reaching the agent, even mid-turn; its preview waits for the turn to end.
     if (chat && withAttachments && body.trim() === "/undo") {
       composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
@@ -1458,8 +1464,8 @@ function ChatPane({
       return false;
     }
     const issueKey = issue?.key;
-    // A turn running now takes this message as a steer, on the provider it already runs.
-    const steered = Boolean(run);
+    // Only immediate delivery into a steerable turn keeps a model pick for later.
+    const steered = Boolean(run) && messageDelivery !== "queue" && canSteer;
     if (!body && !(withAttachments && attachments.length)) return false;
     if (busy || sendingRef.current.has(sendingKey) || picking) return "busy";
     sendingRef.current.add(sendingKey);
@@ -1491,6 +1497,7 @@ function ChatPane({
             files: [],
             prompt: prAction ? pullRequestActionPrompt(prAction) : body,
             ...sendOptions(model, preferences),
+            delivery: messageDelivery,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
             ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
           },
@@ -1579,7 +1586,7 @@ function ChatPane({
     composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !sentIds.has(item.id)) }));
     following.current = true;
     Keyboard.dismiss();
-    const options = sendOptions(model, preferences);
+    const options = { ...sendOptions(model, preferences), delivery: messageDelivery };
     // A busy or unreachable Mac gets the send again until it takes it; the message shows as sending meanwhile. The host
     // recognises a resend by its clientMessageId (or a Link's operationId), so only a new Worktree, which has no such
     // id, waits for a Mac that never read the request.
@@ -2523,6 +2530,7 @@ function ChatPane({
                         items={chat.queued.filter((item) => !compactionContext(item) || chat.queueHeld)}
                         held={Boolean(chat.queueHeld)}
                         running={Boolean(run)}
+                        canSteer={canSteer}
                         disabled={actionBusy}
                         onSendNow={(id) => void action(() => client.call("chat:queue-send", [chatId, id]), true)}
                         onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
@@ -2882,8 +2890,10 @@ function ChatPane({
                               placeholder={
                                 offline
                                   ? `Queue a message for ${computerName || "this computer"}`
-                                  : run && !providerCapabilities(chat?.provider ?? actualProvider).steer
-                                    ? "Queue a message for the next turn"
+                                  : run
+                                    ? delivery === "queue"
+                                      ? "Queue a message for the next turn"
+                                      : "Send a message now"
                                     : chatsHomeOpen && !params.id
                                       ? CHATS_PLACEHOLDER
                                       : undefined
@@ -2902,6 +2912,28 @@ function ChatPane({
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
                             />
+                            {run && !offline && (
+                              <PullDown
+                                label="Follow-up delivery"
+                                nativeTrigger={{ title: followUpLabel, systemImage: "clock", disabled: busy, minHeight: 44, fontSize: 15 }}
+                                sections={[
+                                  {
+                                    items: followUpChoices.map((item) => ({
+                                      id: item.value,
+                                      title: item.label,
+                                      subtitle: item.description,
+                                      checked: item.value === delivery,
+                                    })),
+                                  },
+                                ]}
+                                onSelect={(id) => setDelivery(id as MessageDelivery)}
+                                style={{ alignSelf: "flex-end" }}
+                              >
+                                <View style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 10 }}>
+                                  <Text style={{ color: colors.ink2, fontSize: 15 }}>{followUpLabel}</Text>
+                                </View>
+                              </PullDown>
+                            )}
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                               <PullDown
                                 label="Add photos or files"
@@ -3005,9 +3037,9 @@ function ChatPane({
                                       : offline
                                         ? "Queue message"
                                         : run
-                                          ? providerCapabilities(chat?.provider ?? actualProvider).steer
-                                            ? "Send follow-up"
-                                            : "Queue message"
+                                          ? delivery === "queue"
+                                            ? "Queue message"
+                                            : followUpChoices[1].label
                                           : "Send message"
                                   }
                                   icon={ArrowUp01Icon}

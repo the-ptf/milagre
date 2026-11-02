@@ -22,6 +22,7 @@ import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
+import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, PermissionDecision, QuestionAnswers, Subagent } from "../model";
 import type { SubchatSource } from "../lib/subchat-track";
@@ -907,7 +908,7 @@ interface ChatComposerProps {
   pendingMessageId?: number;
   draft: string;
   onDraftChange: (draft: string) => void;
-  onSend: () => void;
+  onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
@@ -1544,13 +1545,13 @@ export function ChatComposer({
     return () => window.removeEventListener("keydown", onEscape);
   }, [runtimeChat, offlineName, onEscape]);
   // `/undo` opens the same list instead of going to the agent.
-  const send = useEvent(() => {
+  const send = useEvent((delivery?: MessageDelivery) => {
     if (runtimeChat && draft.trim() === "/undo") {
       onDraftChange("");
       openUndo();
       return;
     }
-    onSend();
+    onSend(delivery);
   });
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
@@ -1867,7 +1868,12 @@ export function ChatComposer({
             )}
             {offlineTray}
             {queue && !isNewChat && (
-              <QueuedMessages {...queue} items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))} disabled={sendBlocked} />
+              <QueuedMessages
+                {...queue}
+                canSteer={queue.canSteer && compactionContext(messages.findLast((message) => compactionContext(message)))?.status !== "preparing"}
+                items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))}
+                disabled={sendBlocked}
+              />
             )}
             {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
             {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
@@ -1897,6 +1903,7 @@ export function ChatComposer({
                 }}
                 sendBlocked={sendBlocked}
                 running={isSending}
+                runningProvider={sessionProvider}
                 suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
                 models={models}
                 cliStatus={cliStatus}

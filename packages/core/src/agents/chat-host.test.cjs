@@ -2273,6 +2273,111 @@ test("a change that throws, or a state update that fails, writes and publishes n
 // Antigravity (ACP) can't steer a running turn: what the user sends meanwhile waits in the chat's queue.
 const agy = (projectPath, body, extra = {}) => message(projectPath, body, { provider: "antigravity", model: "gemini-3-pro", ...extra });
 
+for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+  test(`${provider}: explicit queue waits, survives a duplicate send and runs in order`, async (t) => {
+    const h = harness();
+    t.after(() => h.manager.closeAll());
+    const chat = await h.host.send(message(ALPHA, "original", { provider }));
+    await chat.started;
+    await h.host.receive(`${ALPHA}#${chat.sessionId}`, { type: "session-started", nativeId: `${provider}-native` });
+    const chatId = `${ALPHA}#${chat.sessionId}`;
+    await h.host.receive(chatId, { type: "turn-started", turnId: "t1" });
+    const request = message(ALPHA, "second", { provider, sessionId: chat.sessionId, delivery: "queue", clientMessageId: "second" });
+    const queued = await h.host.send(request);
+    await h.host.send(request);
+    await h.host.send({ ...request, body: "third", clientMessageId: "third" });
+    assert.equal(queued.queued, true);
+    assert.equal(h.session(ALPHA).turns.length, 1);
+    assert.deepEqual(
+      h.saved.get(ALPHA).sessions[chat.sessionId].queued.map((item) => item.body),
+      ["second", "third"],
+    );
+    await h.host.receive(chatId, { type: "turn-completed" });
+    await queued.started;
+    assert.equal(h.session(ALPHA).turns[1].prompt, "second");
+    await h.host.receive(chatId, { type: "turn-completed" });
+    await waitUntil(() => h.session(ALPHA).turns.length === 3);
+    assert.equal(h.session(ALPHA).turns[2].prompt, "third");
+  });
+
+  test(`${provider}: send now uses steering or a saved stop-and-send`, async (t) => {
+    const h = harness();
+    t.after(() => h.manager.closeAll());
+    const chat = await h.host.send(message(ALPHA, "original", { provider }));
+    await chat.started;
+    await h.host.receive(`${ALPHA}#${chat.sessionId}`, { type: "session-started", nativeId: `${provider}-native` });
+    const chatId = `${ALPHA}#${chat.sessionId}`;
+    await h.host.receive(chatId, { type: "turn-started", turnId: "t1" });
+    let interrupts = 0;
+    h.host.interrupt = async (id) => {
+      interrupts++;
+      assert.equal(h.saved.get(ALPHA).sessions[chat.sessionId].queued[0].body, "urgent");
+      await h.host.receive(id, { type: "turn-cancelled" });
+    };
+    const result = await h.host.send(message(ALPHA, "urgent", { provider, sessionId: chat.sessionId, delivery: "now" }));
+    await result.started;
+    assert.equal(interrupts, ["claude", "codex"].includes(provider) ? 0 : 1);
+    assert.equal(h.session(ALPHA).turns[1].prompt, "urgent");
+    assert.equal(h.saved.get(ALPHA).sessions[chat.sessionId].queued, undefined);
+  });
+}
+
+test("Send now promotes a queued Codex message into its running turn without stopping it", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const chat = await h.host.send(message(ALPHA, "original", { provider: "codex" }));
+  await chat.started;
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await h.host.receive(chatId, { type: "turn-started", turnId: "t1" });
+  const queued = await h.host.send(message(ALPHA, "second", { provider: "codex", sessionId: chat.sessionId, delivery: "queue" }));
+  const id = h.saved.get(ALPHA).sessions[chat.sessionId].queued[0].id;
+  assert.deepEqual(await h.host.sendQueuedNow(chatId, id), { interrupt: false });
+  await queued.started;
+  assert.equal(h.session(ALPHA).turns[1].prompt, "second");
+  assert.equal(h.saved.get(ALPHA).sessions[chat.sessionId].queued, undefined);
+});
+
+test("queue requested after a turn ended starts immediately", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "work", { provider: "codex", delivery: "queue" }));
+  await sent.started;
+  assert.equal(sent.queued, undefined);
+  assert.equal(h.session(ALPHA).turns[0].prompt, "work");
+});
+
+test("a failed durable send never interrupts the current turn", async (t) => {
+  const h = await runningAgyChat(t);
+  let interrupts = 0;
+  h.host.interrupt = async () => {
+    interrupts++;
+  };
+  const flush = h.states.flush.bind(h.states);
+  h.states.flush = async () => {
+    throw new Error("Disk full");
+  };
+  await assert.rejects(h.host.send(agy(ALPHA, "urgent", { sessionId: h.chat.sessionId, delivery: "now" })), /Disk full/);
+  h.states.flush = flush;
+  assert.equal(interrupts, 0);
+  assert.equal(h.session(ALPHA).turns.length, 1);
+  assert.equal((await h.states.get(ALPHA)).sessions[h.chat.sessionId].queued, undefined);
+});
+
+test("Send now accepts a message that drained while its queue save finished", async (t) => {
+  const h = await runningAgyChat(t);
+  const save = h.host.queueSaved.bind(h.host);
+  h.host.queueSaved = async (...args) => {
+    const result = await save(...args);
+    await h.host.receive(h.chatId, { type: "turn-completed" });
+    await result.started;
+    return result;
+  };
+  const sent = await h.host.send(agy(ALPHA, "urgent", { sessionId: h.chat.sessionId, delivery: "now" }));
+  await sent.started;
+  assert.equal(h.session(ALPHA).turns.length, 2);
+  assert.equal(h.session(ALPHA).turns[1].prompt, "urgent");
+});
+
 async function runningAgyChat(t, options) {
   const h = harness(options);
   t.after(() => h.manager.closeAll());

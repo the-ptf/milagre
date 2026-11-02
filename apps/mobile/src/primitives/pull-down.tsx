@@ -79,10 +79,16 @@ export function PullDown({
     const trigger = nativeTrigger.title ? (
       <IOSHStack
         spacing={6}
-        modifiers={[padding({ horizontal: 10, vertical: 6 }), frame({ minWidth: 0, maxWidth: nativeTrigger.maxWidth ?? 260, alignment: "leading" })]}
+        modifiers={[
+          padding({ horizontal: 10, vertical: 6 }),
+          frame({ minWidth: 0, maxWidth: nativeTrigger.maxWidth ?? 260, minHeight: nativeTrigger.minHeight, alignment: "leading" }),
+          contentShape(shapes.rectangle()),
+        ]}
       >
         {nativeTrigger.showIcon !== false ? <IOSImage systemName={nativeTrigger.systemImage as never} size={14} color={colors.ink2} /> : null}
-        <IOSText modifiers={[font({ size: 13, weight: "medium" }), foregroundStyle(colors.ink2), lineLimit(1)]}>{nativeTrigger.title}</IOSText>
+        <IOSText modifiers={[font({ size: nativeTrigger.fontSize ?? 13, weight: "medium" }), foregroundStyle(colors.ink2), lineLimit(1)]}>
+          {nativeTrigger.title}
+        </IOSText>
         <IOSImage systemName="chevron.up.chevron.down" size={13} color={colors.ink3} />
       </IOSHStack>
     ) : (
