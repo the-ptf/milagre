@@ -1,4 +1,5 @@
 export const HTML_RENDER_MESSAGE: string;
+export const HTML_RENDER_LOAD_TIMEOUT: number;
 export const HTML_RENDER_MIN_HEIGHT: number;
 export const HTML_RENDER_MAX_HEIGHT: number;
 /** The reader's theme: colors as hex or CSS color functions, the chat text font, size in px and line height. */

@@ -132,6 +132,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   const locals = {
     "floating-inbox-button.tsx": ["landInboxButton"],
     "inbox.tsx": ["usePhoneInbox", "PhoneInboxPages"],
+    "html-reply.tsx": ["HtmlWebView"],
   };
   let source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
   if (reactCompiler)
@@ -19487,6 +19488,80 @@ test("inline HTML replies load their immutable page without app chrome", async (
   assert.equal(requests.length, 2);
   assert.equal(requests[1][1][0].version, 1);
   react.cleanup();
+});
+
+test("inline HTML reports loading until layout, times out with Retry, and rejects stale readiness", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const react = hookHost({ effects: true });
+  const pages = [];
+  class File {
+    constructor() {
+      this.uri = `file:///cache/reply-${pages.length}.html`;
+      this.exists = true;
+      pages.push(this);
+    }
+    writeSync(html) {
+      this.html = html;
+    }
+    delete() {
+      this.exists = false;
+    }
+  }
+  const source = load("html-reply.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: async () => {} } },
+    "expo-file-system": { File, Paths: { cache: "/cache" } },
+    "@expo/dom-webview": { DomWebView: "DomWebView" },
+    "@milagre/shared/html-render": require("../packages/shared/src/html-render.mjs"),
+    "./session": { useSession: () => ({}) },
+  });
+  const { HTML_RENDER_MESSAGE, HTML_RENDER_LOAD_TIMEOUT } = require("../packages/shared/src/html-render.mjs");
+  const heights = [];
+  let html = "<p>First</p>";
+  const render = () => {
+    react.begin();
+    return source.HtmlWebView({ html, onHeight: (height) => heights.push(height) });
+  };
+  const loading = () => find(render(), (node) => node.type?.name === "PageLoading");
+  const webview = () => find(render(), (node) => node.type === "DomWebView");
+  const send = (view, message) => view.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: HTML_RENDER_MESSAGE, ...message }) } });
+  assert.ok(loading(), "preparing the file has visible progress");
+  await new Promise(setImmediate);
+  const first = webview();
+  assert.ok(first);
+  assert.equal(first.props.useExpoModulesBridge, false);
+  send(first, { type: "ready" });
+  assert.ok(loading(), "load alone is not proof of a rendered document");
+  send(first, { type: "size", height: 480 });
+  assert.equal(loading(), undefined);
+  t.mock.timers.tick(HTML_RENDER_LOAD_TIMEOUT + 1);
+  assert.ok(webview(), "successful layout clears the watchdog");
+  html = "<p>Second</p>";
+  render();
+  await new Promise(setImmediate);
+  const second = webview();
+  assert.notEqual(second.props.source.uri, first.props.source.uri);
+  send(first, { type: "size", height: 480 });
+  assert.ok(loading(), "the previous document cannot reveal its replacement");
+  t.mock.timers.tick(HTML_RENDER_LOAD_TIMEOUT);
+  const retry = find(render(), (node) => node.props?.accessibilityLabel === "Retry HTML page");
+  assert.ok(retry);
+  assert.equal(webview(), undefined, "a stalled document is unmounted");
+  retry.props.onPress();
+  render();
+  await new Promise(setImmediate);
+  const retried = webview();
+  assert.notEqual(retried.props.source.uri, second.props.source.uri);
+  assert.ok(loading());
+  send(retried, { type: "size", height: 520 });
+  assert.equal(loading(), undefined);
+  assert.equal(heights.at(-1), 520);
+  react.cleanup();
+  assert.equal(
+    pages.every((file) => !file.exists),
+    true,
+  );
 });
 
 function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async () => null } = {}) {
