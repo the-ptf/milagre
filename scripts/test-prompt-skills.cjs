@@ -295,6 +295,14 @@ async function browserChecks() {
         assert.equal(await evaluate("window.deliveries.at(-1) ?? null"), followUps === "queue" ? "queue" : null, `${provider} sends the ${followUps} setting`);
       }
     }
+    // A Link Chat waiting on an approval or question shows no running turn, but the host still runs it: Queue must hold.
+    await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: "queue" })`);
+    await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
+    await type("answer later");
+    await waitFor(`!!document.querySelector('[aria-label="Send"]')`);
+    await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
+    await waitFor(`${editor}.value === ''`);
+    assert.equal(await evaluate("window.deliveries.at(-1) ?? null"), "queue", "Queue reaches the host even when the composer shows no running turn");
     await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: "now" })`);
     await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
     const beforeDictation = await evaluate("window.sent.length");

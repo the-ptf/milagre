@@ -513,10 +513,12 @@ export function PromptComposer({
           imageDraft.attachPath(path);
         }
       });
-      onSendLatest.current(running ? delivery : undefined);
+      onSendLatest.current(delivery);
       return;
     }
-    onSend(running ? delivery : undefined);
+    // Sent whether or not \`running\` is set: a turn waiting on an approval or question still runs on the host, which
+    // applies the delivery only while a turn runs.
+    onSend(delivery);
   }
 
   // The picker stays open after a pick: effort, fast mode and Ultracode sit beside the models.
