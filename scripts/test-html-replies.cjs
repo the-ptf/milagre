@@ -11,13 +11,16 @@ import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {ArtifactsProvider, ArtifactCards} from '/src/components/agents/ArtifactCard';
 import '/src/styles.css';
+import {HTML_RENDER_LOAD_TIMEOUT} from '@milagre/shared/html-render';
+const nativeTimeout=window.setTimeout;window.setTimeout=(fn,delay,...args)=>nativeTimeout(fn,window.fastWatchdog&&delay===HTML_RENDER_LOAD_TIMEOUT?100:delay,...args);
 const page=${JSON.stringify(page)};
 const steps=[{id:'step-1',kind:'artifact',status:'done',tool:'html_render',artifact:page}];
 let unavailable=true;
-window.milagre={createArtifactPreview:window.fixturePreviews.create,releaseArtifactPreview:window.fixturePreviews.release,readDesignsEnabled:async()=>({enabled:false}),onDesignsEnabledChanged:()=>()=>{},artifacts:{list:async()=>[],comments:async()=>[],get:async()=>{if(unavailable){unavailable=false;throw Error('Offline')}return {...page,html:${JSON.stringify(html)}}}}};
+window.milagre={createArtifactPreview:(html,source)=>window.fixturePreviews.create(window.stallNextPreview?'<p>Document did not initialize.</p>':html,source),releaseArtifactPreview:window.fixturePreviews.release,readDesignsEnabled:async()=>({enabled:false}),onDesignsEnabledChanged:()=>()=>{},artifacts:{list:async()=>[],comments:async()=>[],get:async()=>{if(unavailable){unavailable=false;throw Error('Offline')}return {...page,html:${JSON.stringify(html)}}}}};
 window.external=[]; window.open=(url)=>window.external.push(url);
 document.body.className='bg-page';
-createRoot(document.getElementById('root')).render(<main style={{maxWidth:768,margin:'0 auto',padding:'24px 16px'}}><div className="min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink"><p className="mb-2">Here is the quarter, with the controls to explore it.</p><ArtifactsProvider chatId="/fixture#1" steps={steps} userMessages={[]}><ArtifactCards steps={steps}/></ArtifactsProvider><p>Written answer below the HTML.</p></div></main>);
+function Fixture(){const [key,setKey]=React.useState(0);window.remountReply=()=>setKey(k=>k+1);return <main style={{maxWidth:768,margin:'0 auto',padding:'24px 16px'}}><div className="min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink"><p className="mb-2">Here is the quarter, with the controls to explore it.</p><ArtifactsProvider chatId="/fixture#1" steps={steps} userMessages={[]}><ArtifactCards key={key} steps={steps}/></ArtifactsProvider><p>Written answer below the HTML.</p></div></main>;}
+createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
 async function browserChecks() {
   const { app, BrowserWindow, protocol, ipcMain } = require("electron");
@@ -168,6 +171,12 @@ async function browserChecks() {
     await waitFor("innerWidth===390");
     await waitForGuest('innerWidth<500 && getComputedStyle(document.querySelector("table")).overflowX==="auto"');
     assert.equal(await guest.executeJavaScript('getComputedStyle(document.querySelector("table")).overflowX'), "auto", "containment reapplies after narrowing");
+    await evaluate("window.stallNextPreview=true;window.fastWatchdog=true;window.remountReply()");
+    await waitFor('document.querySelector("[data-slot=html-reply]").textContent.includes("Could not load this page")');
+    assert.equal(await evaluate('!!document.querySelector("[data-slot=html-reply] iframe")'), false, "stalled frames are removed");
+    await evaluate('window.stallNextPreview=false;window.fastWatchdog=false;document.querySelector("[data-slot=html-reply] button").click()');
+    await waitFor('!!document.querySelector("[data-slot=html-reply] iframe")');
+    await waitFor('!document.querySelector("[data-slot=html-reply]").textContent.includes("Loading page")');
     await window.reload();
     await waitFor('document.querySelector("[data-slot=html-reply]")?.textContent.includes("Could not load")');
     await evaluate('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Retry").click()');

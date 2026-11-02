@@ -2,11 +2,34 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, Text, View } from "react-native";
 import { File, Paths } from "expo-file-system";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
-import { HTML_RENDER_MESSAGE, htmlRenderHeight, htmlRenderShell, readHtmlRenderMessage, type HtmlRenderTheme } from "@milagre/shared/html-render";
+import {
+  HTML_RENDER_MESSAGE,
+  HTML_RENDER_LOAD_TIMEOUT,
+  htmlRenderHeight,
+  htmlRenderShell,
+  readHtmlRenderMessage,
+  type HtmlRenderTheme,
+} from "@milagre/shared/html-render";
 import type { Artifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "@milagre/shared/model";
 import { useSession } from "./session";
 import { fonts, useTheme } from "./theme";
+import { SpinnerRing } from "./icons";
+
+function PageLoading() {
+  const { colors, textPx } = useTheme();
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading page"
+      style={{ position: "absolute", inset: 0, alignItems: "center", justifyContent: "center", gap: 8 }}
+    >
+      <SpinnerRing size={18} />
+      <Text style={{ color: colors.ink3, fontSize: textPx }}>Loading page...</Text>
+    </View>
+  );
+}
 
 function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (height: number) => void; onEscape?: () => void }) {
   const { colors, scheme, textPx } = useTheme();
@@ -50,6 +73,14 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
   }, [theme]);
   const [prepared, setPrepared] = useState<{ html: string; attempt: number; file: File }>();
   const file = prepared?.html === html && prepared.attempt === attempt ? prepared.file : null;
+  const [laidOutFile, setLaidOutFile] = useState<string>();
+  const loaded = file !== null && laidOutFile === file.uri;
+  useEffect(() => {
+    if (loaded || failed) return;
+    const timeout = setTimeout(() => setFailed(true), HTML_RENDER_LOAD_TIMEOUT);
+    return () => clearTimeout(timeout);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each new document gets its own startup deadline.
+  }, [file, loaded, failed]);
   useEffect(() => {
     let live = true;
     ready.current = false;
@@ -107,34 +138,41 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
         </Text>
       </Pressable>
     );
-  if (!file) return <View style={{ flex: 1 }} />;
+  if (!file) return <PageLoading />;
   return (
-    <DomWebView
-      key={attempt}
-      ref={view}
-      source={{ uri: file.uri }}
-      style={{ flex: 1, backgroundColor: "transparent" }}
-      containerStyle={{ flex: 1 }}
-      useExpoModulesBridge={false}
-      automaticallyAdjustContentInsets={false}
-      contentInsetAdjustmentBehavior="never"
-      // The reply is as tall as its page: the transcript scrolls, the page never does.
-      scrollEnabled={false}
-      bounces={false}
-      showsVerticalScrollIndicator={false}
-      onMessage={(event) => {
-        const message = readHtmlRenderMessage(event.nativeEvent.data);
-        if (message?.type === "ready") {
-          ready.current = true;
-          sendTheme();
-        }
-        if (message?.type === "size") onHeight?.(message.height);
-        if (message?.type === "escape") onEscape?.();
-        if (message?.type === "link") void Linking.openURL(message.url).catch(() => {});
-      }}
-      onContentProcessDidTerminate={() => setFailed(true)}
-      onRenderProcessGone={() => setFailed(true)}
-    />
+    <View style={{ flex: 1 }}>
+      <DomWebView
+        key={attempt}
+        ref={view}
+        source={{ uri: file.uri }}
+        style={{ flex: 1, backgroundColor: "transparent" }}
+        containerStyle={{ flex: 1 }}
+        useExpoModulesBridge={false}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        // The reply is as tall as its page: the transcript scrolls, the page never does.
+        scrollEnabled={false}
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+        onMessage={(event) => {
+          const message = readHtmlRenderMessage(event.nativeEvent.data);
+          if (message?.type === "ready") {
+            ready.current = true;
+            sendTheme();
+          }
+          // The initial layout proves the page's scripts ran. `load` can wait longer for remote images or fonts.
+          if (message?.type === "size") {
+            setLaidOutFile(file.uri);
+            onHeight?.(message.height);
+          }
+          if (message?.type === "escape") onEscape?.();
+          if (message?.type === "link") void Linking.openURL(message.url).catch(() => {});
+        }}
+        onContentProcessDidTerminate={() => setFailed(true)}
+        onRenderProcessGone={() => setFailed(true)}
+      />
+      {!loaded && <PageLoading />}
+    </View>
   );
 }
 
@@ -176,7 +214,9 @@ export function HtmlReply({ chatId, page }: { chatId?: string; page: ArtifactRef
           )}
         </Text>
       ) : (
-        <View style={{ height }} accessibilityRole="progressbar" accessibilityLabel="Loading page" />
+        <View style={{ height }}>
+          <PageLoading />
+        </View>
       )}
     </View>
   );

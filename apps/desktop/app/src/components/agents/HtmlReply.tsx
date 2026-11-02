@@ -1,9 +1,26 @@
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
-import { htmlRenderShell, htmlRenderHeight, HTML_RENDER_MESSAGE, readHtmlRenderMessage, type HtmlRenderTheme } from "@milagre/shared/html-render";
+import {
+  htmlRenderShell,
+  htmlRenderHeight,
+  HTML_RENDER_MESSAGE,
+  HTML_RENDER_LOAD_TIMEOUT,
+  readHtmlRenderMessage,
+  type HtmlRenderTheme,
+} from "@milagre/shared/html-render";
 import type { ArtifactRef } from "../../model";
 import { ARTIFACT_CSP, type Artifact } from "@milagre/shared/artifact";
 import { THEME_EVENT } from "../../lib/theme-sheet";
 import { readArtifact } from "./ArtifactCanvas";
+import { SpinnerRing } from "../primitives/SpinnerRing";
+
+function PageLoading() {
+  return (
+    <div role="status" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-ink-3">
+      <SpinnerRing size={18} />
+      <span>Loading page...</span>
+    </div>
+  );
+}
 
 const TOKENS = {
   surface: "surface",
@@ -70,6 +87,15 @@ function HtmlFrame({
   const [attempt, setAttempt] = useState(0);
   const isolated = !!window.milagre?.createArtifactPreview;
   const url = registered?.source === source && registered.attempt === attempt ? registered.url : undefined;
+  const identity = isolated ? url : source;
+  const [laidOut, setLaidOut] = useState<{ identity: string | undefined; attempt: number }>();
+  const loaded = laidOut?.identity === identity && laidOut?.attempt === attempt;
+  useEffect(() => {
+    if (loaded || error) return;
+    const timeout = setTimeout(() => setError(true), HTML_RENDER_LOAD_TIMEOUT);
+    return () => clearTimeout(timeout);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each new document gets its own startup deadline.
+  }, [identity, attempt, loaded, error]);
   useEffect(() => {
     if (!isolated) return;
     let live = true;
@@ -102,7 +128,10 @@ function HtmlFrame({
       if (event.source !== frame.current?.contentWindow) return;
       const message = readHtmlRenderMessage(event.data);
       if (message?.type === "ready") changed();
-      if (message?.type === "size") onHeight?.(message.height);
+      if (message?.type === "size") {
+        setLaidOut((current) => (current?.identity === identity && current?.attempt === attempt ? current : { identity, attempt }));
+        onHeight?.(message.height);
+      }
       if (message?.type === "escape") onEscape?.();
       if (message?.type === "link") window.open(message.url, "_blank", "noopener,noreferrer");
     };
@@ -112,39 +141,41 @@ function HtmlFrame({
       window.removeEventListener(THEME_EVENT, changed);
       window.removeEventListener("message", receive);
     };
-  }, [host, onHeight, onEscape]);
-  if (isolated && !url)
+  }, [host, onHeight, onEscape, identity, attempt]);
+  if (error)
     return (
       <div role="status" className="text-ink-3">
-        {error ? (
-          <button
-            type="button"
-            className="text-accent-ink hover:underline"
-            onClick={() => {
-              setError(false);
-              setAttempt((n) => n + 1);
-            }}
-          >
-            Could not load this page. Retry
-          </button>
-        ) : (
-          "Loading page"
-        )}
+        <button
+          type="button"
+          className="text-accent-ink hover:underline"
+          onClick={() => {
+            setError(false);
+            setAttempt((n) => n + 1);
+          }}
+        >
+          Could not load this page. Retry
+        </button>
       </div>
     );
   return (
-    <iframe
-      ref={frame}
-      title={title}
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      src={isolated ? url : undefined}
-      srcDoc={isolated ? undefined : source}
-      {...{ csp: ARTIFACT_CSP }}
-      // Matches the page's scheme so Chromium keeps the transparent page see-through.
-      style={{ colorScheme: scheme() }}
-      className="block size-full border-0 bg-transparent"
-    />
+    <div className="relative size-full">
+      {(!isolated || url) && (
+        <iframe
+          key={attempt}
+          ref={frame}
+          title={title}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          src={isolated ? url : undefined}
+          srcDoc={isolated ? undefined : source}
+          {...{ csp: ARTIFACT_CSP }}
+          // Matches the page's scheme so Chromium keeps the transparent page see-through.
+          style={{ colorScheme: scheme() }}
+          className="block size-full border-0 bg-transparent"
+        />
+      )}
+      {!loaded && <PageLoading />}
+    </div>
   );
 }
 
@@ -184,7 +215,9 @@ export function HtmlReply({ chatId, page }: { chatId: string | null; page: Artif
           </button>
         </p>
       ) : (
-        <div style={{ height }} role="status" aria-label={chatId ? "Loading page" : "Open this Chat to see the page"} />
+        <div style={{ height }} className="relative" role="status" aria-label={chatId ? "Loading page" : "Open this Chat to see the page"}>
+          {chatId && <PageLoading />}
+        </div>
       )}
     </section>
   );
