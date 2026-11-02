@@ -346,7 +346,7 @@ export const ChatReply = memo(function ChatReply({
       <View style={{ gap: 6, paddingVertical: 4 }}>
         <LinkedHeader context={linked} onOpenChat={onOpenChat} />
         <MessageActions text={text}>
-          {(openActions) => (
+          {(openActions, swap) => (
             <View
               style={{
                 borderWidth: 1,
@@ -358,13 +358,15 @@ export const ChatReply = memo(function ChatReply({
                 ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
               }}
             >
-              <Text
-                selectable={selectableMessageText}
-                style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}
-                {...messageActionProps(openActions)}
-              >
-                {text}
-              </Text>
+              {swap(
+                <Text
+                  selectable={selectableMessageText}
+                  style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}
+                  {...messageActionProps(openActions)}
+                >
+                  {text}
+                </Text>,
+              )}
             </View>
           )}
         </MessageActions>
@@ -400,7 +402,7 @@ export const ChatReply = memo(function ChatReply({
           !!text &&
           !onlyImageMentions(text, userImages) && (
             <MessageActions text={text}>
-              {(openActions) => (
+              {(openActions, swap) => (
                 <View
                   style={{
                     backgroundColor: colors.canvas,
@@ -411,34 +413,36 @@ export const ChatReply = memo(function ChatReply({
                     ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
                   }}
                 >
-                  <Text
-                    selectable={selectableMessageText}
-                    accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
-                    style={{ color: colors.ink, fontSize: textPx, lineHeight }}
-                    {...messageActionProps(openActions)}
-                  >
-                    {parts.map((part, index) =>
-                      part.kind === "skill" ? (
-                        <SkillChip key={index} name={part.name} />
-                      ) : part.kind === "file" ? (
-                        <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
-                      ) : part.kind === "chat" ? (
-                        <ChatMentionChip
-                          key={`chat:${part.id}:${part.start}`}
-                          title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
-                          onOpen={
-                            chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
-                              ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
-                              : undefined
-                          }
-                        />
-                      ) : part.kind === "image" ? (
-                        <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
-                      ) : (
-                        part.text
-                      ),
-                    )}
-                  </Text>
+                  {swap(
+                    <Text
+                      selectable={selectableMessageText}
+                      accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
+                      style={{ color: colors.ink, fontSize: textPx, lineHeight }}
+                      {...messageActionProps(openActions)}
+                    >
+                      {parts.map((part, index) =>
+                        part.kind === "skill" ? (
+                          <SkillChip key={index} name={part.name} />
+                        ) : part.kind === "file" ? (
+                          <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                        ) : part.kind === "chat" ? (
+                          <ChatMentionChip
+                            key={`chat:${part.id}:${part.start}`}
+                            title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
+                            onOpen={
+                              chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
+                                ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
+                                : undefined
+                            }
+                          />
+                        ) : part.kind === "image" ? (
+                          <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
+                        ) : (
+                          part.text
+                        ),
+                      )}
+                    </Text>,
+                  )}
                 </View>
               )}
             </MessageActions>
@@ -470,9 +474,9 @@ export const ChatReply = memo(function ChatReply({
             />
           ) : (
             <MessageActions key={`text-${index}`} text={entry.text} markdown>
-              {(openActions) => (
-                <Markdown text={entry.text} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
-              )}
+              {(openActions, swap) =>
+                swap(<Markdown text={entry.text} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)
+              }
             </MessageActions>
           ),
         )
@@ -505,16 +509,18 @@ export const ChatReply = memo(function ChatReply({
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
       {!!reply.answer.trim() && (
         <MessageActions text={reply.answer} markdown>
-          {(openActions) => (
-            <Markdown
-              text={reply.answer}
-              streaming={!!run}
-              media={savedMedia}
-              basePath={basePath}
-              selectable={selectableMessageText}
-              onMessageAction={openActions}
-            />
-          )}
+          {(openActions, swap) =>
+            swap(
+              <Markdown
+                text={reply.answer}
+                streaming={!!run}
+                media={savedMedia}
+                basePath={basePath}
+                selectable={selectableMessageText}
+                onMessageAction={openActions}
+              />,
+            )
+          }
         </MessageActions>
       )}
       {/* The reply says what the Heartbeat is for; its card follows. */}
@@ -523,9 +529,9 @@ export const ChatReply = memo(function ChatReply({
       ))}
       {!!thought && (
         <MessageActions text={thought} markdown>
-          {(openActions) => (
+          {(openActions, swap) => (
             <View style={{ opacity: 0.75 }}>
-              <Markdown text={thought} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
+              {swap(<Markdown text={thought} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)}
             </View>
           )}
         </MessageActions>

@@ -17,6 +17,8 @@ export function onlyImageMentions(prompt: string, images: number | ((index: numb
 /** A Chat name from a prompt line: attached `[Image #N]` tokens dropped, or "Image" / "N images" when only they remained. */
 export function promptTitle(line: string, images?: number | ((index: number) => boolean)): string;
 export function skillLabel(name: string): string;
+/** Appends a selected passage as a Markdown quote, with room for a question. */
+export function quoteIntoDraft(draft: string, passage: string): string;
 
 export function formatChatMention(id: number): string;
 export function chatMentionTokens(prompt: string): { id: number; start: number; end: number }[];

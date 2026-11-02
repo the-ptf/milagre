@@ -156,6 +156,33 @@ async function browserChecks() {
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview stored.png"] img').src.startsWith('milagre-media:')`));
     await screenshot("legacy-and-stored-images");
 
+    // A selected passage quotes into this Chat without sending or discarding its existing draft.
+    await type("My question");
+    const passage = await evaluate(`(() => {
+      const content = document.querySelector('[data-slot="message-content"]');
+      const range = document.createRange(); range.selectNodeContents(content);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      return selection.toString();
+    })()`);
+    await waitFor(`!!document.querySelector('[aria-label="Ask about selected text"]')`);
+    const askPoint = await evaluate(
+      `(() => { const rect=document.querySelector('[aria-label="Ask about selected text"]').getBoundingClientRect(); return {x: Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)}; })()`,
+    );
+    window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...askPoint });
+    window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...askPoint });
+    const quoted = `My question\n\n${passage
+      .split("\n")
+      .map((line) => (line.trim() ? `> ${line}` : ">"))
+      .join("\n")}\n\n`;
+    await waitFor(`document.querySelector('[data-prompt-editor]').value === ${JSON.stringify(quoted)}`);
+    await waitFor(`document.activeElement.matches('[data-prompt-editor]')`);
+    assert.equal(await evaluate("window.calls.length"), 0, "Ask fills the draft without sending it");
+    // Typing starts after the quote, even when the draft had a previous caret.
+    await evaluate(`document.activeElement.dispatchEvent(new InputEvent('beforeinput', {inputType:'insertText', data:'?', bubbles:true, cancelable:true}))`);
+    await waitFor(`document.querySelector('[data-prompt-editor]').value === ${JSON.stringify(quoted + "?")}`);
+    await screenshot("ask-selected-passage");
+    await type("");
+
     // A sent message shows its @file mention and /skill as chips; the mentioned file gets no second tile, an unmentioned one keeps its tile.
     await waitFor(`!!document.querySelector('article [data-chip="skill"]')`);
     assert.equal(await evaluate(`document.querySelectorAll('article [data-chip="file"]').length`), 1);
