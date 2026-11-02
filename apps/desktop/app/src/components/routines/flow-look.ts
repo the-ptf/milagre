@@ -99,7 +99,7 @@ export function triggerRunText(routine: Routine, run: RoutineRun): string {
  * The number a Run goes by on the page ("Run 14"), or 0 for a Test run, which never counts. Runs are kept newest first and
  * the oldest trimmed, so the count starts from the Routine's total.
  */
-export function runNumber(routine: Routine & { runs: RoutineRun[] }, run: RoutineRun): number {
+function runNumber(routine: Routine & { runs: RoutineRun[] }, run: RoutineRun): number {
   if (run.flow?.dryRun) return 0;
   const counted = routine.runs.filter((entry) => !entry.flow?.dryRun);
   const index = counted.findIndex((entry) => entry.id === run.id);
@@ -147,6 +147,3 @@ export const firstLine = (text: string | undefined) =>
     ?.split("\n")
     .find((line) => line.trim())
     ?.trim() ?? "";
-
-/** "once", "twice", "3 times". */
-export const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);

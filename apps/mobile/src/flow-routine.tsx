@@ -38,7 +38,7 @@ const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 const failure = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
 /** Opens a flow Run's page. */
-export const openFlowRun = (routineId: string, runId: string) => router.push({ pathname: "/flow-run", params: { id: routineId, run: runId } });
+const openFlowRun = (routineId: string, runId: string) => router.push({ pathname: "/flow-run", params: { id: routineId, run: runId } });
 
 /** Starts a Test run of the draft (written first) and opens it. */
 export async function startTestRun(client: Client, routineId: string, flush: () => Promise<void>, refresh: () => Promise<void>) {

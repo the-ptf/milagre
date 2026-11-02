@@ -228,7 +228,7 @@ export function PathLabel({ text, tone = "bg-field text-ink-2" }: { text: string
 }
 
 /** Under an If: its two paths, indented on a rail that runs down from the If. */
-export function PathsBlock({ children }: { children: ReactNode }) {
+function PathsBlock({ children }: { children: ReactNode }) {
   return (
     <div className="relative">
       <span aria-hidden className="absolute top-0 bottom-0 left-[27px] w-px bg-line-strong" />

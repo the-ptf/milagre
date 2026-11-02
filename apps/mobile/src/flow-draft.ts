@@ -19,7 +19,7 @@ type Entry = {
 };
 
 /** How long typing rests before the draft is written. */
-export const SAVE_AFTER = 700;
+const SAVE_AFTER = 700;
 
 // One map per client, as the Routines store: a late answer from a computer the phone left never lands on this one's drafts.
 const drafts = new WeakMap<object, Map<string, Entry>>();

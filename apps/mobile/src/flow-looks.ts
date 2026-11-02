@@ -231,7 +231,7 @@ export function stepStateLook(status: FlowStepRun["status"] | "not-taken", run: 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** The pull request a Run opened, from its steps' receipts. */
-export function runPullRequest(run: RoutineRun) {
+function runPullRequest(run: RoutineRun) {
   for (const step of Object.values(run.flow?.state ?? {})) if (step.receipt?.kind === "pull-request") return step.receipt;
   return null;
 }
