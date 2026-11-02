@@ -19,7 +19,8 @@ const noop = () => {};
 window.sent = [];
 window.deliveries = [];
 window.stops = 0;
-window.milagre = { searchProjectFiles: async () => ['review.md'], listSkills: async root => ({ skills: root === '/other' ? [] : [
+window.contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps: 'now' };
+window.milagre = { readContextSettings: async () => window.contextSettings, onContextSettings: (listener) => { window.emitContextSettings = (value) => { window.contextSettings = value; listener(value); }; return noop; }, searchProjectFiles: async () => ['review.md'], listSkills: async root => ({ skills: root === '/other' ? [] : [
   { name: 'reorder', description: 'Gently put things in order', scope: 'bundled', provider: 'milagre', path: '/skills/reorder/SKILL.md' },
   { name: 'settle', description: 'Close out loose ends', scope: 'workspace', provider: 'claude', path: '/skills/settle/SKILL.md' },
   { name: 'tldr', description: 'Rewrite for a skimming reader', scope: 'bundled', provider: 'milagre', path: '/skills/tldr/SKILL.md' },
@@ -277,25 +278,24 @@ async function browserChecks() {
     assert.equal(await evaluate(`window.stops`), 0, "queuing never tries to stop the offline agent");
     await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
     await type("");
-    for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
-      await evaluate(`window.setSuggestOptions({ provider: ${JSON.stringify(provider)}, running: true })`);
-      await type("follow up");
-      await evaluate(`document.querySelector('[aria-label="Follow-up delivery"]').click()`);
-      await waitFor(`!![...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes('After this turn'))`);
-      await evaluate(`[...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes('After this turn')).click()`);
-      await waitFor(`!!document.querySelector('[aria-label="Queue message"]')`);
-      await evaluate(`document.querySelector('[aria-label="Queue message"]').click()`);
-      await waitFor(`window.deliveries.at(-1) === 'queue' && ${editor}.value === ''`);
-      await type("urgent follow up");
-      await evaluate(`document.querySelector('[aria-label="Follow-up delivery"]').click()`);
-      const immediate = ["claude", "codex"].includes(provider) ? "Send now" : "Stop and send";
-      await waitFor(`!![...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes(${JSON.stringify(immediate)}))`);
-      await evaluate(`[...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes(${JSON.stringify(immediate)})).click()`);
-      await waitFor(`!!document.querySelector('[aria-label="${immediate}"]')`);
-      await screenshot("follow-up-" + provider);
-      await evaluate(`document.querySelector('[aria-label="${immediate}"]').click()`);
-      await waitFor(`window.deliveries.at(-1) === 'now' && ${editor}.value === ''`);
+    // No picker in the composer: Settings › Chat › Messages during a turn decides, and providers that can't steer queue.
+    for (const followUps of ["now", "queue"]) {
+      await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: ${JSON.stringify(followUps)} })`);
+      for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+        await evaluate(`window.setSuggestOptions({ provider: ${JSON.stringify(provider)}, running: true })`);
+        await type("follow up");
+        assert.equal(await evaluate(`!!document.querySelector('[aria-label="Follow-up delivery"]')`), false, "no delivery picker beside Send");
+        const label = followUps === "now" && ["claude", "codex"].includes(provider) ? "Send now" : "Queue message";
+        await waitFor(`!!document.querySelector('[aria-label="${label}"]')`);
+        if (followUps === "queue" && provider === "claude") await screenshot("follow-up-queue");
+        if (followUps === "now" && provider === "claude") await screenshot("follow-up-steer");
+        const before = await evaluate("window.deliveries.length");
+        await evaluate(`document.querySelector('[aria-label="${label}"]').click()`);
+        await waitFor(`window.deliveries.length === ${before + 1} && ${editor}.value === ''`);
+        assert.equal(await evaluate("window.deliveries.at(-1) ?? null"), followUps === "queue" ? "queue" : null, `${provider} sends the ${followUps} setting`);
+      }
     }
+    await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: "now" })`);
     await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
     const beforeDictation = await evaluate("window.sent.length");
     await evaluate(`window.deliverTranscript('review this', { selection: { start: 0, end: 0 } })`);

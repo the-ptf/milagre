@@ -1,4 +1,6 @@
 import { ContextSettingsSection } from "./context-settings-section";
+import { useContextSettings } from "./context-settings";
+import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messages";
 import { Platform, Text, View } from "react-native";
 import { router } from "expo-router";
 import { DICTATION_FIX_MODELS, DICTATION_LANGUAGES, whisperModelFor, type DictationFixModel } from "@milagre/shared/dictation";
@@ -47,6 +49,7 @@ export function ChatDisplaySection() {
   const [fixModel, setFixModel] = useDictationFixModel();
   return (
     <View style={{ gap: 10 }}>
+      <FollowUpSetting />
       <ContextSettingsSection />
       <Text style={styles.section}>{CHAT_LIST_TITLE}</Text>
       <ChoiceCards<ChatList>
@@ -147,6 +150,43 @@ export function ChatDisplaySection() {
         you edit them first. Automatic uses the smallest model of the Chat&apos;s agent.
       </Text>
     </View>
+  );
+}
+
+/** Host-kept, like desktop's: a message sent while a turn runs steers it or waits in the queue. */
+function FollowUpSetting() {
+  const styles = useStyles();
+  const host = useContextSettings();
+  const current = FOLLOW_UP_OPTIONS.find((option) => option.value === host.settings.followUps) ?? FOLLOW_UP_OPTIONS[0];
+  const disabled = !host.ready || host.saving;
+  return (
+    <>
+      <Text style={styles.section}>Messages during a turn</Text>
+      <View style={[styles.card, { paddingVertical: 0, borderRadius: radius.card }]}>
+        <ListRow
+          inlineSubtitle
+          title="While the agent works"
+          subtitle={current.label}
+          disabled={disabled}
+          onPress={() =>
+            showActions({
+              title: "Messages during a turn",
+              actions: FOLLOW_UP_OPTIONS.map((option) => ({
+                id: option.value,
+                title: option.value === current.value ? `${option.label} ✓` : option.label,
+              })),
+              onSelect: (value) => void host.save({ followUps: value as FollowUps }),
+            })
+          }
+        />
+      </View>
+      <Text style={styles.muted}>{current.description}</Text>
+      {host.error ? (
+        <Text accessibilityRole="alert" style={styles.muted}>
+          {host.error}
+        </Text>
+      ) : null}
+    </>
   );
 }
 

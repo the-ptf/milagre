@@ -3,6 +3,8 @@ export interface ContextSettings {
   buttonThreshold: number;
   autoThreshold: number;
   autoCompact: boolean;
+  /** A message sent while a turn runs: steer it, or wait for the turn to end. */
+  followUps: "now" | "queue";
 }
 export const CONTEXT_DEFAULTS: Readonly<ContextSettings>;
 export const CONTEXT_GRADIENT_COLORS: [string, string, string, string];
