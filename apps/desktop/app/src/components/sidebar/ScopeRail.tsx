@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ChatMarkDotInline, type SidebarRecent } from "./ChatRow";
+import { useDismiss } from "../../lib/use-dismiss";
 import type { RailStatus } from "../../lib/sidebar-scopes";
 
-/** One Project or Link on the collapsed rail. */
+/** One Project, Link or Chat on the collapsed rail. */
 export type RailScope = {
   key: string;
   name: string;
   icon: ReactNode;
   current: boolean;
+  /** One list opens this Chat directly; grouped items open their scope. */
+  chat?: { scopeKey: string; id: string };
   /** What the icon's corner shows: a chat asking or waiting wins over one running. */
   status: RailStatus;
   /** The chats with a turn under way or waiting on the user, listed in the popover. */
@@ -23,8 +26,8 @@ const POPOVER_WIDTH = 240;
 const STATUS_LABEL: Record<RailStatus, string> = { attention: "waits for you", running: "running", idle: "" };
 
 /**
- * The collapsed sidebar with two or more Projects: one icon per scope, the open one marked, each with a dot or
- * ring for its chats' state. Resting on an icon opens its live chats beside the rail; clicking one opens it.
+ * The collapsed sidebar: one icon per scope in By Project, or per Chat in One list. Resting on an icon
+ * opens its Chats beside the rail; a Chat item opens directly, and a scope item switches Projects.
  */
 export function ScopeRail({
   scopes,
@@ -38,6 +41,9 @@ export function ScopeRail({
 }) {
   const [shown, setShown] = useState<{ key: string; top: number; left: number; flip: boolean } | null>(null);
   const timer = useRef<number | null>(null);
+  const railRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const clear = () => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
@@ -49,6 +55,7 @@ export function ScopeRail({
     [],
   );
   const place = (key: string, button: HTMLElement) => {
+    triggerRef.current = button;
     const rect = button.getBoundingClientRect();
     const rail = button.closest("aside")?.getBoundingClientRect() ?? rect;
     // Icons low in the window open upwards so the list stays on screen.
@@ -68,9 +75,16 @@ export function ScopeRail({
     clear();
     setShown(null);
   };
+  useDismiss(Boolean(shown), hide, (target) => Boolean(railRef.current?.contains(target) || popoverRef.current?.contains(target)));
+  const escape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    triggerRef.current?.focus();
+    hide();
+  };
   const open = shown ? scopes.find((scope) => scope.key === shown.key) : undefined;
   return (
-    <div data-scope-rail className="mx-auto flex w-8 flex-col gap-px">
+    <div ref={railRef} onKeyDown={escape} data-scope-rail className="mx-auto flex w-8 flex-col gap-px">
       {scopes.map((scope) => (
         <button
           key={scope.key}
@@ -78,10 +92,11 @@ export function ScopeRail({
           data-rail-scope={scope.key}
           data-rail-status={scope.status}
           aria-current={scope.current ? "true" : undefined}
-          aria-label={scope.status === "idle" ? scope.name : `${scope.name}, a chat ${STATUS_LABEL[scope.status]}`}
+          aria-label={`${scope.name}${scope.chat ? `, ${scope.chats[0]?.label ?? "Chat"}` : ""}${scope.status === "idle" ? "" : `, a chat ${STATUS_LABEL[scope.status]}`}`}
           onClick={() => {
             hide();
-            if (!scope.current) onOpenScope(scope.key);
+            if (scope.chat) onOpenChat(scope.chat.scopeKey, scope.chat.id);
+            else if (!scope.current) onOpenScope(scope.key);
           }}
           onPointerEnter={(event) => showSoon(scope.key, event.currentTarget)}
           onPointerLeave={hideSoon}
@@ -110,6 +125,8 @@ export function ScopeRail({
         open &&
         createPortal(
           <div
+            ref={popoverRef}
+            onKeyDown={escape}
             data-scope-rail-popover={open.key}
             role="group"
             aria-label={open.name}
@@ -134,7 +151,7 @@ export function ScopeRail({
                     data-rail-chat={chat.id}
                     onClick={() => {
                       hide();
-                      onOpenChat(open.key, chat.id);
+                      onOpenChat(open.chat?.scopeKey ?? open.key, chat.id);
                     }}
                     className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px] px-2 text-left text-[13px] font-medium text-ink-2 hover:bg-hover-2 hover:text-ink focus-visible:bg-hover-2 focus-visible:outline-none"
                   >

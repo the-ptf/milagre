@@ -892,7 +892,7 @@ export default memo(function SidebarNav({
   const showAll = !collapsed;
   // One list: every scope's chats in one column, each row naming its Project; Grouped by Project keeps a fold per scope.
   // With no selected scope, keep even Projects and Links without Chats available to choose.
-  const oneList = showAll && chatList === "list" && !!currentKey;
+  const oneList = chatList === "list" && !!currentKey;
   // The Chats group's homes: the open one, then each computer's that exists or that this window has a state of (one
   // made since its home was read). Only those that exist are read.
   const openHome = projectKind === "chats" && projectPath ? projectPath : undefined;
@@ -1004,7 +1004,8 @@ export default memo(function SidebarNav({
   // Canvas Links join this Mac's Projects: a Named Link's shared chats and another computer's take none.
   const linkProjectIdOf = (key: string | undefined) =>
     key && !key.startsWith("milagre-link:") && !isRemoteKey(key) ? (registeredProjects.find((project) => project.path === key)?.id ?? null) : null;
-  const groups = showAll
+  const buildGroups = showAll || oneList;
+  const groups = buildGroups
     ? scopes.map((scope) => {
         const current = scope.key === currentKey;
         // The Project just left has no read of its own yet; the copy it was shown from fills in until one arrives.
@@ -1050,7 +1051,7 @@ export default memo(function SidebarNav({
       })
     : [];
   // The Chats group's homes, each read like a Project's group; their rows merge into one list (chatsSidebarRows).
-  const homeGroups = showAll
+  const homeGroups = buildGroups
     ? homeScopes.map((key) => {
         const current = key === currentKey;
         const state = scopeStates[key] ?? cachedProjectCopy(key)?.state;
@@ -1142,7 +1143,7 @@ export default memo(function SidebarNav({
     );
   };
   const railScopes: RailScope[] | null =
-    collapsed && scopes.length > 1
+    collapsed && !oneList && scopes.length > 1
       ? scopes.map((scope) => {
           const current = scope.key === currentKey;
           const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
@@ -1360,6 +1361,28 @@ export default memo(function SidebarNav({
         chatOrder,
       )
     : [];
+  // Match the expanded list: pinned homes and Projects first, then the Chats group and the merged Project rows.
+  const railItems: RailScope[] | null =
+    collapsed && oneList
+      ? [
+          ...homeGroups.flatMap(({ key, pinned }) => pinned.map((row) => ({ scopeKey: key, row }))),
+          ...groups.flatMap(({ scope, pinned }) => pinned.map((row) => ({ scopeKey: scope.key, row }))),
+          ...chatsRows,
+          ...flatChats,
+        ].map(({ scopeKey, row }) => {
+          const scope = scopes.find((item) => item.key === scopeKey);
+          const current = scopeKey === currentKey;
+          return {
+            key: `${scopeKey}#${row.id}`,
+            name: scope?.name ?? CHATS_GROUP_LABEL,
+            icon: scope ? scopeIcon(scope, current) : <HugeIcon icon={BubbleChatIcon} size={20} />,
+            current: current && (activeId !== undefined ? row.id === activeId : row.label === selectedTitle),
+            status: railLive([row]).status,
+            chats: [row],
+            chat: { scopeKey, id: row.id },
+          };
+        })
+      : railScopes;
   const loadingScopes = groups.some(({ scope, state, current }) => !state && !current && !failedScopes.has(scope.key));
   // Pinned Chats without a Project sit in the Pinned section like any other, in both layouts.
   const chatsPinned = homeGroups.map(({ key, list, pinned }) =>
@@ -1799,8 +1822,8 @@ export default memo(function SidebarNav({
                             );
                           })}
                     </>
-                  ) : railScopes ? (
-                    <ScopeRail scopes={railScopes} onOpenScope={openRailScope} onOpenChat={openRailChat} />
+                  ) : railItems ? (
+                    <ScopeRail scopes={railItems} onOpenScope={openRailScope} onOpenChat={openRailChat} />
                   ) : (
                     <ChatList
                       recents={recents}
