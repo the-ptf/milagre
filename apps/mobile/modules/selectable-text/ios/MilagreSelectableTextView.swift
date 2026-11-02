@@ -172,11 +172,18 @@ final class MilagreSelectableTextView: ExpoView, UITextViewDelegate, UIEditMenuI
     let out = NSMutableAttributedString()
     let fontSize = CGFloat(look.fontSize)
     let codeSize = CGFloat(look.codeSize)
-    let body = UIFont.systemFont(ofSize: fontSize)
+    // React Native scales both font sizes and explicit line heights with this multiplier. Scale after rounding
+    // the unscaled line height, just as Text does; margins, list gaps and quote padding remain in layout points.
+    let scale = CGFloat(look.fontScale)
+    let body = UIFont.systemFont(ofSize: fontSize * scale)
     for (index, paragraph) in paragraphs.enumerated() {
       let kind = paragraph.kind
-      let size = kind == "code" ? codeSize + 1 : fontSize + CGFloat(paragraph.grow)
-      let lineHeight = kind == "code" ? round(size * 1.5) : kind == "heading" ? round(fontSize * 1.5) : CGFloat(look.lineHeight)
+      let size = (kind == "code" ? codeSize + 1 : fontSize + CGFloat(paragraph.grow)) * scale
+      let lineHeight = (kind == "code" ? round((codeSize + 1) * 1.5) : kind == "heading" ? round(fontSize * 1.5) : CGFloat(look.lineHeight)) * scale
+      let fonts = paragraph.spans.map { font(for: $0, kind: kind, size: size, scale: scale) }
+      // All runs in a React Native Text share a baseline, including inline code with different font metrics.
+      let tallest = fonts.map(\.lineHeight).max() ?? body.lineHeight
+      let baseline = max(0, (lineHeight - (paragraph.showMarker ? max(tallest, body.lineHeight) : tallest)) / 2)
       // Blockquotes sit after a 3pt rule and 14pt of padding; each list level after its marker and a 10pt gap.
       var indent = CGFloat(paragraph.quote) * 17
       var markerIndent = indent
@@ -186,13 +193,13 @@ final class MilagreSelectableTextView: ExpoView, UITextViewDelegate, UIEditMenuI
       }
       let first = out.length
       if paragraph.showMarker, let marker = paragraph.markers.last {
-        out.append(NSAttributedString(string: marker + "\t", attributes: attributes(font: body, lineHeight: lineHeight)))
+        out.append(NSAttributedString(string: marker + "\t", attributes: attributes(font: body, baseline: baseline)))
       }
-      for span in paragraph.spans {
-        out.append(NSAttributedString(string: span.text, attributes: attributes(for: span, kind: kind, size: size, lineHeight: lineHeight)))
+      for (span, font) in zip(paragraph.spans, fonts) {
+        out.append(NSAttributedString(string: span.text, attributes: attributes(for: span, kind: kind, font: font, baseline: baseline)))
       }
       if index < paragraphs.count - 1 {
-        out.append(NSAttributedString(string: "\n", attributes: attributes(font: body, lineHeight: lineHeight)))
+        out.append(NSAttributedString(string: "\n", attributes: attributes(font: fonts.last ?? body, baseline: baseline)))
       }
       // A line break inside the paragraph starts a new text paragraph without the gap or the marker.
       var firstLine = true
@@ -212,23 +219,29 @@ final class MilagreSelectableTextView: ExpoView, UITextViewDelegate, UIEditMenuI
     return out
   }
 
-  private func attributes(font: UIFont, lineHeight: CGFloat) -> [NSAttributedString.Key: Any] {
-    [.font: font, .foregroundColor: look.ink, .baselineOffset: max(0, (lineHeight - font.lineHeight) / 2)]
+  private func attributes(font: UIFont, baseline: CGFloat) -> [NSAttributedString.Key: Any] {
+    [.font: font, .foregroundColor: look.ink, .baselineOffset: baseline]
   }
 
-  private func attributes(for span: SelectionSpan, kind: String, size: CGFloat, lineHeight: CGFloat) -> [NSAttributedString.Key: Any] {
+  private func font(for span: SelectionSpan, kind: String, size: CGFloat, scale: CGFloat) -> UIFont {
     var font: UIFont
-    if kind == "code" {
-      font = .monospacedSystemFont(ofSize: size, weight: .regular)
-    } else if span.code {
-      font = .monospacedSystemFont(ofSize: CGFloat(look.codeSize) + 1.5, weight: .regular)
+    if kind == "code" || span.code {
+      let codeSize = kind == "code" ? size : (CGFloat(look.codeSize) + 1.5) * scale
+      font = UIFont(name: look.codeFontFamily, size: codeSize) ?? .monospacedSystemFont(ofSize: codeSize, weight: .regular)
+      if span.bold, let bold = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitBold)) {
+        font = UIFont(descriptor: bold, size: font.pointSize)
+      }
     } else {
       font = .systemFont(ofSize: size, weight: span.bold ? .semibold : .regular)
     }
     if span.italic, let italic = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitItalic)) {
       font = UIFont(descriptor: italic, size: font.pointSize)
     }
-    var result = attributes(font: font, lineHeight: lineHeight)
+    return font
+  }
+
+  private func attributes(for span: SelectionSpan, kind: String, font: UIFont, baseline: CGFloat) -> [NSAttributedString.Key: Any] {
+    var result = attributes(font: font, baseline: baseline)
     if kind == "code" || span.code { result[.backgroundColor] = look.codeBackground }
     if span.link {
       result[.foregroundColor] = look.accent

@@ -27,6 +27,8 @@ struct SelectionLook: Record {
   @Field var fontSize: Double = 15
   @Field var lineHeight: Double = 22
   @Field var codeSize: Double = 13
+  @Field var fontScale: Double = 1
+  @Field var codeFontFamily: String = "Menlo"
   @Field var ink: UIColor = .label
   @Field var accent: UIColor = .systemBlue
   @Field var codeBackground: UIColor = .secondarySystemBackground

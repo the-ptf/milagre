@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, TextInput, View, processColor, type GestureResponderEvent, type ViewProps } from "react-native";
+import { Platform, Pressable, StyleSheet, TextInput, View, processColor, useWindowDimensions, type GestureResponderEvent, type ViewProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { markdownPlainText } from "./plain-text";
 import { markdownSelection, plainSelection, type SelectionParagraph } from "./selection-document";
 import { PillButton } from "./ui";
-import { useTheme } from "./theme";
+import { fonts, useTheme } from "./theme";
 import { tap } from "./primitives/tap";
 
 /** Quotes a passage selected in a message into the Chat's composer (the selection menu's Ask). Unset hides Ask. */
@@ -13,7 +13,17 @@ export const MessageAskContext = createContext<((passage: string) => void) | nul
 
 type NativeSelectableTextProps = ViewProps & {
   paragraphs: SelectionParagraph[];
-  look: { fontSize: number; lineHeight: number; codeSize: number; ink: unknown; accent: unknown; codeBackground: unknown; selection: unknown };
+  look: {
+    fontSize: number;
+    lineHeight: number;
+    codeSize: number;
+    fontScale: number;
+    codeFontFamily: string;
+    ink: unknown;
+    accent: unknown;
+    codeBackground: unknown;
+    selection: unknown;
+  };
   start?: { x: number; y: number };
   askTitle: string;
   onContentHeight: (event: { nativeEvent: { height: number } }) => void;
@@ -82,6 +92,7 @@ export function MessageActions({
 
 function SelectionSlot({ selection, onClose, children }: { selection: Selection | null; onClose: () => void; children: React.ReactNode }) {
   const { colors, textPx, codeSize } = useTheme();
+  const { fontScale } = useWindowDimensions();
   const ask = useContext(MessageAskContext);
   // The native view's height, for the selection it was measured for; a new selection measures again.
   const [measured, setMeasured] = useState<{ selection: Selection; height: number } | null>(null);
@@ -92,12 +103,14 @@ function SelectionSlot({ selection, onClose, children }: { selection: Selection 
       fontSize: textPx,
       lineHeight: Math.round(textPx * 1.4667),
       codeSize,
+      fontScale,
+      codeFontFamily: fonts.mono,
       ink: processColor(colors.ink),
       accent: processColor(colors.accent),
       codeBackground: processColor(colors.field),
       selection: processColor(colors.accent),
     }),
-    [colors.ink, colors.accent, colors.field, textPx, codeSize],
+    [colors.ink, colors.accent, colors.field, textPx, codeSize, fontScale],
   );
   // The formatted text keeps its place, invisible, under the native view: the message never gets shorter, so a Chat
   // scrolled to its end doesn't move the text from under the finger. A taller native view (wrapped code) grows it.
