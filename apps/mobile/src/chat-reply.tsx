@@ -40,7 +40,8 @@ import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
-import { useStyles } from "./ui";
+import { hitSlopFor, lineHeight as typeLineHeight, radius, space, type } from "./design-tokens";
+import { InlineError, pressStyle, useStyles } from "./ui";
 import { showImages, type MediaValue, type ViewerImage } from "./viewer-store";
 
 /** Resolves a saved file on the computer to an authenticated image source, or a cached file once it is fetched. */
@@ -120,15 +121,16 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
               position: "absolute",
               left: 6,
               top: 6,
-              borderRadius: 5,
-              paddingHorizontal: 5,
-              paddingVertical: 1,
+              borderRadius: radius.chip,
+              borderCurve: "continuous",
+              paddingHorizontal: space.sm,
+              paddingVertical: space.xxs,
               backgroundColor: colors.surface,
               borderWidth: 1,
               borderColor: colors.line,
             }}
           >
-            <Text style={{ fontSize: 10, fontWeight: "600", color: colors.ink }}>#{index + 1}</Text>
+            <Text style={{ fontSize: type.caption2, lineHeight: typeLineHeight.caption2, fontWeight: "600", color: colors.ink }}>#{index + 1}</Text>
           </View>
         </Pressable>
       ))}
@@ -139,7 +141,7 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
 function Thumbnail({ source, size }: { source: MediaValue; size: number }) {
   const { colors } = useTheme();
   const ready = useMedia(source);
-  const style = { width: size, height: size, borderRadius: 14, backgroundColor: colors.canvas };
+  const style = { width: size, height: size, borderRadius: radius.card, borderCurve: "continuous" as const, backgroundColor: colors.canvas };
   return ready ? <Image source={ready} resizeMode="cover" style={style} /> : <View style={style} />;
 }
 /** An image the agent generated, under its step, at most 240 wide; tap for full screen. */
@@ -167,10 +169,28 @@ function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource })
             const { width, height } = nativeEvent.source;
             if (width && height) setRatio(width / height);
           }}
-          style={{ width: 240, aspectRatio: ratio, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.canvas }}
+          style={{
+            width: 240,
+            aspectRatio: ratio,
+            borderRadius: radius.card,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.canvas,
+          }}
         />
       ) : (
-        <View style={{ width: 240, aspectRatio: ratio, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.canvas }} />
+        <View
+          style={{
+            width: 240,
+            aspectRatio: ratio,
+            borderRadius: radius.card,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.canvas,
+          }}
+        />
       )}
     </Pressable>
   );
@@ -204,28 +224,35 @@ function ActivityRow({
       accessibilityRole="button"
       accessibilityLabel={`${label.replace(/`/g, "")}${waiting ? ", waiting for approval" : ""}${!current && summary.failed ? `, ${summary.failed} failed` : ""}. Show activity`}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 44 }, pressStyle({ pressed, kind: "row" })]}
     >
       <ActivitySources steps={steps} />
       <View style={{ flexShrink: 1 }}>
         {current && (runningCount <= 1 || waiting) ? (
-          <ActivityTitle key={current.id} title={label} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
+          <ActivityTitle
+            key={current.id}
+            title={label}
+            shimmer={!waiting}
+            style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: typeLineHeight.subheadline }}
+          />
         ) : (
-          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 14 }}>
+          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: typeLineHeight.subheadline }}>
             {current && runningCount > 1 ? `Running ${runningCount} calls` : label}
           </Text>
         )}
       </View>
-      {waiting && <Text style={{ color: colors.ink3, fontSize: 12.5 }}>Waiting for approval</Text>}
+      {waiting && <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: typeLineHeight.caption1 }}>Waiting for approval</Text>}
       {summary.failed > 0 && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Icon icon={Alert02Icon} tone="red" size={13} />
-          <Text style={{ color: colors.redInk, fontSize: 12.5 }}>{summary.failed} failed</Text>
+          <Icon icon={Alert02Icon} tone="red" size={12} />
+          <Text style={{ color: colors.redInk, fontSize: type.caption1, lineHeight: typeLineHeight.caption1 }}>{summary.failed} failed</Text>
         </View>
       )}
       <View style={{ flex: 1 }} />
       <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
-      {!!elapsed && <Text style={{ color: colors.ink3, fontSize: 12, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>}
+      {!!elapsed && (
+        <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: typeLineHeight.caption1, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>
+      )}
     </Pressable>
   );
 }
@@ -240,10 +267,18 @@ function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenC
       accessibilityHint={open ? "Opens that Chat" : undefined}
       disabled={!open}
       onPress={open}
-      style={{ flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", maxWidth: "100%" }}
+      // The 16pt line still takes a 44pt touch.
+      hitSlop={open ? hitSlopFor(typeLineHeight.caption1) : undefined}
+      style={({ pressed }) => [
+        { flexDirection: "row", alignItems: "center", gap: space.sm, alignSelf: "flex-start", maxWidth: "100%" },
+        pressStyle({ pressed }),
+      ]}
     >
-      <Icon icon={Link04Icon} color={open ? colors.accentInk : colors.ink3} size={13} />
-      <Text numberOfLines={1} style={{ flexShrink: 1, color: open ? colors.accentInk : colors.ink3, fontSize: 12, fontWeight: "500" }}>
+      <Icon icon={Link04Icon} color={open ? colors.accentInk : colors.ink3} size={12} />
+      <Text
+        numberOfLines={1}
+        style={{ flexShrink: 1, color: open ? colors.accentInk : colors.ink3, fontSize: type.caption1, lineHeight: typeLineHeight.caption1, fontWeight: "500" }}
+      >
         {text}
       </Text>
     </Pressable>
@@ -353,10 +388,10 @@ export const ChatReply = memo(function ChatReply({
               style={{
                 borderWidth: 1,
                 borderColor: colors.line,
-                borderRadius: 14,
+                borderRadius: radius.card,
                 borderCurve: "continuous",
-                paddingVertical: 10,
-                paddingHorizontal: 14,
+                paddingVertical: space.lg,
+                paddingHorizontal: space.xl,
                 ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
               }}
             >
@@ -408,10 +443,10 @@ export const ChatReply = memo(function ChatReply({
                 <View
                   style={{
                     backgroundColor: colors.canvas,
-                    borderRadius: 18,
+                    borderRadius: radius.sheet,
                     borderCurve: "continuous",
-                    paddingVertical: 10,
-                    paddingHorizontal: 14,
+                    paddingVertical: space.lg,
+                    paddingHorizontal: space.xl,
                     ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
                   }}
                 >
@@ -460,7 +495,7 @@ export const ChatReply = memo(function ChatReply({
   if (marker && linked)
     return <SubchatMarker marker={marker} chat={linkedHeading(linked).chat} body={text} onOpenChat={onOpenChat} media={savedMedia} basePath={basePath} />;
   return (
-    <View style={{ gap: 14, paddingVertical: 8 }}>
+    <View style={{ gap: space.xl, paddingVertical: space.md }}>
       {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}
       {reply.setup.map((step) => (
         <ToolRow key={step.id} step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
@@ -533,11 +568,12 @@ export const ChatReply = memo(function ChatReply({
       ))}
       {!!thought && (
         <MessageActions text={thought} markdown>
-          {(openActions, swap) => (
-            <View style={{ opacity: 0.75 }}>
-              {swap(<Markdown text={thought} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)}
-            </View>
-          )}
+          {(openActions, swap) =>
+            // Thinking reads a step quieter, in ink2 at full strength: code, links and images keep their own colours.
+            swap(
+              <Markdown text={thought} tone="ink2" media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />,
+            )
+          }
         </MessageActions>
       )}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
@@ -552,11 +588,7 @@ export const ChatReply = memo(function ChatReply({
           resumeBlocked={limitResumeBlocked}
         />
       )}
-      {!run && !limit && message?.outcome === "failed" && (
-        <Text accessibilityRole="alert" style={{ color: colors.error }}>
-          The turn failed. Review the response before trying again.
-        </Text>
-      )}
+      {!run && !limit && message?.outcome === "failed" && <InlineError message="The turn failed. Review the response before trying again." />}
       {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
   );

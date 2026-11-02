@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon, PlusSignIcon, Pulse01Icon, RepeatIcon, ZapIcon } from "@hugeicons/core-free-icons";
 import type { ModelCapabilities, ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Button } from "../primitives/Button";
+import { Chip } from "../primitives/Chip";
+import { EmptyState } from "../primitives/EmptyState";
+import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
+import { SectionLabel } from "../primitives/SectionLabel";
+import { radioKeys } from "../primitives/Segmented";
 import { RoutineRow } from "./RoutineRow";
 import { RoutineEditor } from "./RoutineEditor";
 import { RoutinePage } from "./RoutinePage";
@@ -29,7 +35,7 @@ function computerRoutinesProblem(view: ComputerView, error: string | null): stri
   if (error) return `Couldn't read ${view.name}'s Routines: ${error}`;
   return null;
 }
-const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
+const card = "divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card";
 
 const NO_CHATS: ReadonlySet<string> = new Set();
 
@@ -305,28 +311,19 @@ export function RoutinesPage({
       <div data-routines-page className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-6 pt-14 pb-10">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">Routines</h1>
-            <p className="mt-1 text-[13px] text-ink-2">Agents that run on a schedule or when something happens elsewhere.</p>
+            <h1 className="text-22 font-semibold tracking-[-0.02em] text-ink">Routines</h1>
+            <p className="mt-1 text-13 text-ink-2">Agents that run on a schedule or when something happens elsewhere.</p>
           </div>
           {enabled && (
-            <button
-              type="button"
-              data-routine-new
-              onClick={() => setEditing("new")}
-              className="inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-surface transition-opacity hover:opacity-90"
-            >
-              <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} color="currentColor" />
+            <Button data-routine-new onClick={() => setEditing("new")}>
+              <Icon icon={PlusSignIcon} size={16} />
               New Routine
-            </button>
+            </Button>
           )}
         </div>
-        {(error || loadError) && (
-          <p role="alert" className="mt-4 text-[13px] break-words text-red-ink">
-            {error ?? loadError}
-          </p>
-        )}
+        <InlineError className="mt-4">{error ?? loadError}</InlineError>
         {remoteProblems.map(({ id, problem }) => (
-          <p key={id} data-routines-computer-problem={id} className="mt-2 text-[13px] break-words text-ink-2">
+          <p key={id} data-routines-computer-problem={id} className="mt-2 text-13 break-words text-ink-2">
             {problem}
           </p>
         ))}
@@ -334,41 +331,35 @@ export function RoutinesPage({
           <>
             {routines.length > 0 && (
               <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <div role="tablist" aria-label="Show" className="flex gap-1.5">
+                <div role="radiogroup" aria-label="Show" onKeyDown={radioKeys({ axis: "horizontal" })} className="flex gap-1.5">
                   {chips.map((chip) => (
-                    <button
+                    <Chip
                       key={chip.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={filter === chip.id}
+                      variant="filter"
+                      checked={filter === chip.id}
+                      tabIndex={filter === chip.id ? 0 : -1}
                       data-routine-filter={chip.id}
                       onClick={() => setFilter(chip.id)}
-                      className={`h-7 rounded-full px-3 text-[12px] font-medium transition-colors ${
-                        filter === chip.id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
-                      }`}
                     >
                       {chip.label} {chip.count}
-                    </button>
+                    </Chip>
                   ))}
                 </div>
                 {computerChoices.length > 0 && (
-                  <div role="tablist" aria-label="Computer" className="flex flex-wrap gap-1.5">
+                  <div role="radiogroup" aria-label="Computer" onKeyDown={radioKeys({ axis: "horizontal" })} className="flex flex-wrap gap-1.5">
                     {["all", ...computerChoices].map((id) => (
-                      <button
+                      <Chip
                         key={id}
-                        type="button"
-                        role="tab"
-                        aria-selected={pickedComputer === id}
+                        variant="filter"
+                        checked={pickedComputer === id}
+                        tabIndex={pickedComputer === id ? 0 : -1}
+                        icon={id === "all" ? undefined : LaptopIcon}
                         data-routine-computer-filter={id}
                         onClick={() => setOnComputer(id)}
-                        className={`inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium transition-colors ${
-                          pickedComputer === id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
-                        }`}
                       >
-                        {id !== "all" && <HugeiconsIcon icon={LaptopIcon} size={13} strokeWidth={2} color="currentColor" />}
                         {id === "all" ? "Every computer" : computerName(id)}{" "}
                         {id === "all" ? routines.length : routines.filter((routine) => computerOfRoutine(routine) === id).length}
-                      </button>
+                      </Chip>
                     ))}
                   </div>
                 )}
@@ -377,37 +368,36 @@ export function RoutinesPage({
             <div className={empty ? "flex min-h-[200px] flex-1 flex-col items-center justify-center gap-3 py-10 text-center" : "mt-5 space-y-5"}>
               {heartbeats.length > 0 && (
                 <section data-routine-group="heartbeats" className="space-y-2">
-                  <h2 className="flex items-center gap-1.5 px-1 text-[13px] font-semibold text-ink">
-                    <HugeiconsIcon icon={Pulse01Icon} size={14} strokeWidth={1.8} color="currentColor" className="text-ink-2" />
+                  <SectionLabel icon={Pulse01Icon} className="px-1">
                     Heartbeats
-                  </h2>
+                  </SectionLabel>
                   <div className={card}>{heartbeats.map(row)}</div>
                 </section>
               )}
               {triggers.length > 0 && (
                 <section data-routine-group="triggers" className="space-y-2">
-                  <h2 className="flex items-center gap-1.5 px-1 text-[13px] font-semibold text-ink">
-                    <HugeiconsIcon icon={ZapIcon} size={14} strokeWidth={1.8} color="currentColor" className="text-ink-2" />
+                  <SectionLabel icon={ZapIcon} className="px-1">
                     Triggers
-                  </h2>
+                  </SectionLabel>
                   <div className={card}>{triggers.map(row)}</div>
                 </section>
               )}
               {empty && (
-                <div data-routines-empty className="flex flex-col items-center gap-3">
-                  <HugeiconsIcon icon={RepeatIcon} size={40} strokeWidth={1.5} color="currentColor" className="text-ink-3" />
-                  <p className="text-[13px] text-ink-2">No Routines yet.</p>
-                </div>
+                <EmptyState data-routines-empty icon={RepeatIcon} title="No Routines yet" className="p-0">
+                  {HELP}
+                </EmptyState>
               )}
               {routines.length > 0 && heartbeats.length === 0 && triggers.length === 0 && (
-                <p data-routines-empty className="px-1 text-[13px] text-ink-3">
+                <p data-routines-empty className="px-1 text-13 text-ink-3">
                   None here.
                 </p>
               )}
             </div>
-            <p data-routines-help className={`px-1 text-[12px] text-ink-3 ${empty ? "text-center" : "mt-5"}`}>
-              {HELP}
-            </p>
+            {!empty && (
+              <p data-routines-help className="mt-5 px-1 text-12 text-ink-3">
+                {HELP}
+              </p>
+            )}
           </>
         ) : null}
       </div>

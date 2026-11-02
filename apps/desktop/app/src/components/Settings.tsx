@@ -1,3 +1,4 @@
+import { permissionPresentation } from "@milagre/shared/model-copy";
 import { ContextSettings } from "./ContextSettings";
 import { useContextSettings } from "../lib/context-settings";
 import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messages";
@@ -59,6 +60,8 @@ import {
   Plug01Icon,
   RepeatIcon,
   SecurityCheckIcon,
+  Shield01Icon,
+  ShieldAlertIcon,
   Settings01Icon,
   SmartphoneIcon,
   UserCircleIcon,
@@ -175,19 +178,47 @@ const SECTIONS: Array<{
   { key: "general", label: "General", icon: <Icon icon={Settings01Icon} /> },
   { key: "usage", label: "Usage", icon: <Icon icon={ChartColumnIcon} /> },
   { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} /> },
-  { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} /> },
-  { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
+  {
+    key: "project-accounts",
+    label: "Project Accounts",
+    icon: <Icon icon={FolderKeyIcon} />,
+  },
+  {
+    key: "appearance",
+    label: "Appearance",
+    icon: <Icon icon={PaintBoardIcon} />,
+  },
   { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
-  { key: "keybindings", label: "Keybindings", icon: <Icon icon={KeyboardIcon} /> },
+  {
+    key: "keybindings",
+    label: "Keybindings",
+    icon: <Icon icon={KeyboardIcon} />,
+  },
   { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} /> },
-  { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
+  {
+    key: "notifications",
+    label: "Notifications",
+    icon: <Icon icon={Notification01Icon} />,
+  },
   { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} /> },
-  { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
+  {
+    key: "connections",
+    label: "Connections",
+    icon: <Icon icon={ConnectIcon} />,
+  },
   { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
   { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
   { key: "local-mcp", label: "Milagre", icon: <MilagreMark /> },
-  { key: "devices", label: "Devices", icon: <Icon icon={LaptopPhoneSyncIcon} /> },
-  { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} /> },
+  {
+    key: "devices",
+    label: "Devices",
+    icon: <Icon icon={LaptopPhoneSyncIcon} />,
+  },
+  {
+    key: "experimental",
+    label: "Experimental",
+    icon: <Icon icon={FlaskConicalIcon} />,
+  },
   { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} /> },
 ];
 
@@ -306,11 +337,11 @@ export function SettingsNav({
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="flex size-8 items-center justify-center rounded-[8px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96] [-webkit-app-region:no-drag]"
+          className="flex size-8 items-center justify-center rounded-control text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96] [-webkit-app-region:no-drag]"
         >
           <Icon icon={ArrowLeft01Icon} size={18} />
         </button>
-        <h2 className="text-[14px] font-semibold text-ink">Settings</h2>
+        <h2 className="text-13 font-semibold text-ink">Settings</h2>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-window bg-surface pt-2 shadow-card">
         <SettingsSearchField
@@ -333,7 +364,7 @@ export function SettingsNav({
             </GlideGroup>
             {computers.length > 0 && (
               <div data-settings-computers>
-                <div className="mx-2 mt-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">Computers</div>
+                <div className="mx-2 mt-2 flex h-8 items-center px-2">Computers</div>
                 <GlideGroup>
                   <RailButton icon={<ComputerDot tone="online" />} label={thisMac} active={false} onClick={() => onSelect("devices")} />
                   {computers.map((computer) => (
@@ -350,14 +381,14 @@ export function SettingsNav({
             )}
             {showProjectSettings && (
               <>
-                <div className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2 text-[12.5px] font-medium text-ink-3">Projects</div>
+                <div className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2">Projects</div>
                 <ScrollArea className="min-h-0 flex-1 pb-2">
                   <GlideGroup>
                     {rows.map((row) => (
                       <RailButton
                         key={row.path}
                         icon={
-                          <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-[5px] bg-ink text-[10px] font-semibold text-surface">
+                          <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-surface">
                             <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
                           </span>
                         }
@@ -386,7 +417,7 @@ function RoutePill({ state }: { state: "In use" | "Ready" | "Not available" }) {
   return (
     <span
       data-connection-state
-      className="rounded-full px-2 py-0.5 text-[11.5px]"
+      className="rounded-full px-2 py-0.5 text-11"
       style={state === "In use" ? { background: "var(--green-tint)", color: "var(--green-ink)" } : { background: "var(--hover)", color: "var(--ink-3)" }}
     >
       {state}
@@ -432,14 +463,17 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
     ]).then(([status, recent]) => {
       if (!live) return;
       const projects = (Array.isArray(recent) ? recent : []).filter((project) => !project?.hidden).map((project) => String(project.name));
-      setAbout({ version: typeof status?.version === "string" ? status.version : null, projects });
+      setAbout({
+        version: typeof status?.version === "string" ? status.version : null,
+        projects,
+      });
     });
     return () => {
       live = false;
     };
   }, [id, computer?.state]);
   const waiting = useOutbox().items.filter((item) => item.computerId === id && item.status !== "sent");
-  if (!computer) return <p className="mt-6 text-[13px] text-ink-3">This computer was removed.</p>;
+  if (!computer) return <p className="mt-6 text-13 text-ink-3">This computer was removed.</p>;
 
   const paired = computer.addedAt ? `paired ${new Date(computer.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : null;
   const status = [computer.state === "online" ? "Connected" : routeLine(computer, now), about?.version ? `Milagre ${about.version}` : null, paired]
@@ -478,7 +512,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
   };
   return (
     <div data-computer-settings>
-      <p data-computer-status className="mt-1 text-[13px] text-ink-3">
+      <p data-computer-status className="mt-1 text-13 text-ink-3">
         {status}
       </p>
       <Group title="General">
@@ -491,7 +525,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();
             }}
-            className="h-[30px] w-[220px] rounded-[8px] bg-field px-2.5 text-[13px] text-ink outline-none ring-1 ring-line-strong focus-visible:ring-accent"
+            className="h-[30px] w-[220px] rounded-control bg-field px-2.5 text-13 text-ink outline-none ring-1 ring-line-strong focus-visible:ring-accent"
           />
         </Row>
         <div data-computer-show-in-sidebar>
@@ -545,20 +579,20 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       </Group>
       {computer.state === "online" && (
         <section data-computer-mcp className="mt-6">
-          <h2 className="px-1 text-[12px] font-medium text-ink-3">MCP servers</h2>
+          <h2 className="px-1 text-12 font-medium text-ink-3">MCP servers</h2>
           <McpSettings key={id} bridge={bridgeFor(id)} remote />
           <LocalMcpSettings key={`local-${id}`} bridge={bridgeFor(id)} />
         </section>
       )}
       {error && (
-        <p role="alert" className="mt-3 text-[13px] text-red-ink">
+        <p role="alert" className="mt-3 text-13 text-red-ink">
           {error}
         </p>
       )}
       <Group title="Remove">
         <Row
           label={`Remove ${computer.name}`}
-          description={`Its chats leave this sidebar and ${thisComputer} forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
+          description={`Its Chats leave this sidebar and ${thisComputer} forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
             waiting.length ? ` ${waiting.length === 1 ? "1 message" : `${waiting.length} messages`} waiting on ${thisComputer} for it will be discarded.` : ""
           }`}
         >
@@ -586,7 +620,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
 function ChoiceGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-6">
-      <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">{title}</h2>
+      <h2 className="mb-2 px-1 text-12 font-medium text-ink-3">{title}</h2>
       {children}
     </section>
   );
@@ -607,7 +641,7 @@ function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onC
     if (px !== value) onCommit(px);
   };
   return (
-    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line bg-surface pr-2.5 pl-3 text-[13px] font-medium text-ink focus-within:border-ink-3">
+    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line-strong bg-field pr-2.5 pl-3 text-13 font-medium text-ink transition-colors duration-fast focus-within:border-accent">
       <input
         aria-label="Custom chat width in pixels"
         inputMode="numeric"
@@ -645,7 +679,7 @@ function NotificationChimeSetting() {
             aria-label="Play notification chime"
             title="Play"
             data-chime-play
-            className="flex size-7 items-center justify-center rounded-[7px] border border-line text-ink-2 hover:bg-hover"
+            className="relative flex size-7 shrink-0 items-center justify-center rounded-control bg-hover text-ink-2"
             onClick={() => playNotificationChime(notificationChime)}
           >
             <Icon icon={VolumeHighIcon} size={14} />
@@ -659,7 +693,10 @@ function NotificationChimeSetting() {
             updateSettings({ notificationChime: chime });
             playNotificationChime(chime);
           }}
-          options={NOTIFICATION_CHIMES.map((chime) => ({ value: chime.id, label: chime.label }))}
+          options={NOTIFICATION_CHIMES.map((chime) => ({
+            value: chime.id,
+            label: chime.label,
+          }))}
         />
       </div>
     </Row>
@@ -672,7 +709,7 @@ function PublishedPagesSettings() {
   return (
     <div data-slot="published-pages-setting">
       <Row label="Published pages" description="Manage public links to designs and artifacts, including pages from deleted Chats.">
-        <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
+        <button type="button" className="rounded-control border border-line px-3 py-1.5 text-12 hover:bg-hover" onClick={() => setPublishedPages(true)}>
           Manage
         </button>
       </Row>
@@ -697,7 +734,7 @@ function RemoteDelegationSettings() {
         />
       </Row>
       {setting.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
+        <p role="alert" className="px-4 pb-3 text-12 text-red-ink">
           {setting.error}
         </p>
       )}
@@ -736,7 +773,7 @@ function BotsSettings() {
         <SettingCheckbox label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
       </Row>
       {bots.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
+        <p role="alert" className="px-4 pb-3 text-12 text-red-ink">
           {bots.error}
         </p>
       )}
@@ -754,7 +791,10 @@ function DoneRetentionSetting() {
           label="Archive Done chats after"
           width={140}
           value={String(settings.retentionHours)}
-          options={DONE_RETENTION_OPTIONS.map((hours) => ({ value: String(hours), label: retentionLabel(hours) }))}
+          options={DONE_RETENTION_OPTIONS.map((hours) => ({
+            value: String(hours),
+            label: retentionLabel(hours),
+          }))}
           onChange={(value) => void save({ retentionHours: Number(value) }).catch(() => {})}
         />
       </Row>
@@ -884,7 +924,10 @@ function ChatSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void })
               value={englishOnly ? "en" : settings.dictationLanguage}
               disabled={englishOnly}
               onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
-              options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
+              options={DICTATION_LANGUAGES.map((language) => ({
+                value: language.code,
+                label: language.name,
+              }))}
             />
           </Row>
         </div>
@@ -971,7 +1014,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
   if (page === "computer-use") return <ComputerUseSettings onBack={() => setPage("experimental")} />;
   return (
     <>
-      <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+      <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>
       <Group title="Beta">
         <Row
           label="Floating inbox"
@@ -982,11 +1025,11 @@ function ExperimentalSettings({ title }: { title?: string }) {
         {settings.floatingInbox && (
           <div className="ml-4 border-l border-line pl-4">
             <Row
-              label="Show chat activity"
+              label="Show Chat activity"
               description="Include working chats with a progress summary and finished updates. Off: only questions and permission requests."
             >
               <SettingCheckbox
-                label="Show chat activity"
+                label="Show Chat activity"
                 checked={settings.floatingInboxActivity}
                 onChange={(floatingInboxActivity) => updateSettings({ floatingInboxActivity })}
               />
@@ -1049,8 +1092,11 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
               label: mode.name,
               description: mode.description,
               icon: (
-                <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
-                  <Icon icon={SecurityCheckIcon} size={14} />
+                <span className={`flex shrink-0 ${mode.id === "full" ? "text-orange-ink" : "text-ink-2"}`}>
+                  <Icon
+                    icon={{ shield: Shield01Icon, "security-check": SecurityCheckIcon, "shield-alert": ShieldAlertIcon }[permissionPresentation(mode.id).icon]}
+                    size={14}
+                  />
                 </span>
               ),
             }))}
@@ -1058,13 +1104,13 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
         </Row>
       </Group>
       <Group title="Sidebar">
-        <Row label="Chat order" description="Newest chat first keeps chats in place as replies arrive">
+        <Row label="Chat order" description="Newest Chat first keeps Chats in place as replies arrive">
           <Select<ChatOrder>
             label="Chat order"
             value={settings.chatOrder}
             onChange={(chatOrder) => updateSettings({ chatOrder })}
             options={[
-              { value: "created", label: "Newest chat first" },
+              { value: "created", label: "Newest Chat first" },
               { value: "recent", label: "Latest message first" },
             ]}
           />
@@ -1086,7 +1132,10 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
               label="Open files in"
               value={editor?.id ?? ""}
               onChange={(editorId) => updateSettings({ editorId })}
-              options={(editors ?? []).map((item) => ({ value: item.id, label: item.name }))}
+              options={(editors ?? []).map((item) => ({
+                value: item.id,
+                label: item.name,
+              }))}
             />
           )}
         </Row>
@@ -1207,7 +1256,11 @@ function shownFont(list: readonly FontOption[], id: string) {
 }
 
 function pxOptions<T extends string>(list: readonly { id: T; px: number }[]) {
-  return list.map((size) => ({ value: size.id, label: `${size.px} px`, description: size.id === "default" ? "default" : undefined }));
+  return list.map((size) => ({
+    value: size.id,
+    label: `${size.px} px`,
+    description: size.id === "default" ? "default" : undefined,
+  }));
 }
 
 // The window's stripes (as on body, pinned to the viewport), so a strip painted with them is invisible over the page.
@@ -1278,10 +1331,17 @@ function AppearanceSettings() {
             checked={settings.customThemeEnabled}
             onChange={(customThemeEnabled) => {
               if (!customThemeEnabled) {
-                updateSettings({ customThemeEnabled, ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}) });
+                updateSettings({
+                  customThemeEnabled,
+                  ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}),
+                });
               } else {
                 const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
-                updateSettings({ customThemeEnabled, customTheme: settings.customTheme ?? seedsFrom(from), colorTheme: "custom" });
+                updateSettings({
+                  customThemeEnabled,
+                  customTheme: settings.customTheme ?? seedsFrom(from),
+                  colorTheme: "custom",
+                });
               }
             }}
           />
@@ -1368,7 +1428,10 @@ function AppearanceSettings() {
                 value={appearance.chatWidth}
                 onChange={(chatWidth) => change("width", { chatWidth })}
                 onOpenChange={preview.menu("width")}
-                options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
+                options={CHAT_WIDTHS.map((width) => ({
+                  value: width.id,
+                  label: width.label,
+                }))}
               />
             </div>
           </Row>
@@ -1379,7 +1442,10 @@ function AppearanceSettings() {
               value={appearance.providerIcons}
               onChange={(providerIcons) => change("ui", { providerIcons })}
               onOpenChange={preview.menu("ui")}
-              options={PROVIDER_ICON_STYLES.map((style) => ({ value: style.id, label: style.label }))}
+              options={PROVIDER_ICON_STYLES.map((style) => ({
+                value: style.id,
+                label: style.label,
+              }))}
             />
           </Row>
           <Row label="Sidebar usage" description="One row per provider, or provider icons in one line." preview={preview.row("usage")}>
@@ -1389,7 +1455,10 @@ function AppearanceSettings() {
               value={appearance.sidebarUsage}
               onChange={(sidebarUsage) => change("usage", { sidebarUsage })}
               onOpenChange={preview.menu("usage")}
-              options={SIDEBAR_USAGE_MODES.map((mode) => ({ value: mode.id, label: mode.label }))}
+              options={SIDEBAR_USAGE_MODES.map((mode) => ({
+                value: mode.id,
+                label: mode.label,
+              }))}
             />
           </Row>
         </Group>
@@ -1421,7 +1490,10 @@ function AppearanceSettings() {
                 preview.hold(null);
                 setPlayMotion((count) => count + 1);
               }}
-              options={MOTION_SPEEDS.map((speed) => ({ value: speed.id, label: speed.label }))}
+              options={MOTION_SPEEDS.map((speed) => ({
+                value: speed.id,
+                label: speed.label,
+              }))}
             />
           </Row>
         </Group>
@@ -1456,7 +1528,13 @@ function DeviceResources() {
     return () => clearInterval(timer);
   }, []);
   const rows: ResourceComputer[] = [
-    { id: "this-mac", name: thisMac, detail: "This Mac", bridge: window.milagre, online: true },
+    {
+      id: "this-mac",
+      name: thisMac,
+      detail: "This Mac",
+      bridge: window.milagre,
+      online: true,
+    },
     ...(otherComputers ? computers.map((computer) => resourceComputer(computer, now)) : []),
   ];
   return (
@@ -1569,9 +1647,9 @@ function usePairedDevices() {
 }
 
 const SECONDARY_BUTTON =
-  "rounded-control border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50";
+  "rounded-control border border-line bg-surface px-3 py-1.5 text-12 font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50";
 const DANGER_BUTTON =
-  "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-[12px] font-medium text-red-ink transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
+  "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-12 font-medium text-red-ink transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
 
 function DeviceGroup({
   devices,
@@ -1597,13 +1675,13 @@ function DeviceGroup({
   return (
     <Group>
       {error ? (
-        <p data-devices-error className="break-words px-4 py-3 text-[12px] text-red-ink">
+        <p data-devices-error className="break-words px-4 py-3 text-12 text-red-ink">
           {error}
         </p>
       ) : (
         devices.length === 0 &&
         empty && (
-          <p data-devices-empty className="px-4 py-3 text-[12px] text-ink-3">
+          <p data-devices-empty className="px-4 py-3 text-12 text-ink-3">
             {empty}
           </p>
         )
@@ -1611,8 +1689,8 @@ function DeviceGroup({
       {devices.map((device) => {
         const asking = confirming === device.key;
         return (
-          <div key={device.key} data-device-row={device.kind} data-device-key={device.key} className="flex min-h-[52px] items-center gap-3 px-4 py-2">
-            <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-hover text-ink-2">
+          <div key={device.key} data-device-row={device.kind} data-device-key={device.key} className="flex min-h-12 items-center gap-3 px-4 py-2">
+            <span className="relative flex size-7 shrink-0 items-center justify-center rounded-control bg-hover text-ink-2">
               <Icon icon={device.kind === "computer" ? LaptopIcon : SmartphoneIcon} size={15} />
               <span
                 aria-hidden
@@ -1621,18 +1699,18 @@ function DeviceGroup({
             </span>
             <div className="grid min-w-0 flex-1 gap-0.5">
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-[13.5px] font-medium text-ink">{deviceName(device)}</span>
+                <span className="truncate text-13 font-medium text-ink">{deviceName(device)}</span>
                 {fresh.has(device.key) && (
                   <span
                     data-device-new
                     title="Paired since you last looked"
-                    className="shrink-0 rounded-full bg-accent-tint px-1.5 py-px text-[10.5px] font-semibold text-accent-ink"
+                    className="shrink-0 rounded-full bg-accent-tint px-1.5 py-px text-10 font-semibold text-accent-ink"
                   >
                     New
                   </span>
                 )}
               </span>
-              <span data-device-line className="text-[12px] text-ink-3">
+              <span data-device-line className="text-12 text-ink-3">
                 {asking ? removeDeviceQuestion(device) : deviceSeenLine(device, now)}
               </span>
             </div>
@@ -1660,7 +1738,7 @@ function DeviceGroup({
                 disabled={busy}
                 data-device-remove
                 onClick={() => setConfirming(device.key)}
-                className="shrink-0 rounded-control px-2 py-1 text-[12.5px] text-red-ink transition-colors hover:bg-red/5 disabled:cursor-default disabled:opacity-50"
+                className="shrink-0 rounded-control px-2 py-1 text-12 text-red-ink transition-colors hover:bg-red/5 disabled:cursor-default disabled:opacity-50"
               >
                 Remove
               </button>
@@ -1669,7 +1747,7 @@ function DeviceGroup({
         );
       })}
       {footer && (
-        <p data-devices-note className="px-4 py-3 text-[12px] text-ink-3">
+        <p data-devices-note className="px-4 py-3 text-12 text-ink-3">
           {footer}
         </p>
       )}
@@ -1750,7 +1828,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const { computers, phones } = devicesByKind(paired.list ?? []);
   return (
     <>
-      <p className="mt-1 text-[13px] text-ink-2">Phones and other computers that can see and drive {thisComputer}'s chats.</p>
+      <p className="mt-1 text-13 text-ink-2">Phones and other computers that can see and drive {thisComputer}'s chats.</p>
       <DeviceResources />
       <Group>
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
@@ -1774,18 +1852,18 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
           </Row>
         )}
         {status?.state === "on" && status.remote === "none" && (
-          <p data-phone-local-only className="px-4 py-3 text-[12px] text-ink-3">
+          <p data-phone-local-only className="px-4 py-3 text-12 text-ink-3">
             Only a phone simulator on {thisComputer} can connect. Set up a Cloudflare tunnel with npm run mobile:cloudflare to reach {thisComputer} from any
             network.
           </p>
         )}
         {status?.state === "error" && status.error && (
-          <p data-phone-error className="break-words px-4 py-3 text-[12px] text-red-ink">
+          <p data-phone-error className="break-words px-4 py-3 text-12 text-red-ink">
             {status.error}
           </p>
         )}
         {error && (
-          <p data-phone-action-error className="break-words px-4 py-3 text-[12px] text-red-ink">
+          <p data-phone-action-error className="break-words px-4 py-3 text-12 text-red-ink">
             Couldn't change device access: {error}
           </p>
         )}
@@ -1815,22 +1893,22 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
               alt="QR code to pair your phone"
               width={176}
               height={176}
-              className="size-44 shrink-0 rounded-[10px] bg-white"
+              className="size-44 shrink-0 rounded-card bg-paper"
             />
             <div className="grid min-w-0 gap-3">
               <div className="grid gap-0.5">
-                <span className="text-[13.5px] font-medium text-ink">Scan with the Milagre app</span>
-                <span className="text-[12px] text-ink-3">Open the app on your phone and point its camera at this code.</span>
+                <span className="text-13 font-medium text-ink">Scan with the Milagre app</span>
+                <span className="text-12 text-ink-3">Open the app on your phone and point its camera at this code.</span>
               </div>
               <div>
                 <button type="button" onClick={copyLink} className={SECONDARY_BUTTON}>
                   {copied ? "Copied" : "Copy link"}
                 </button>
               </div>
-              <p data-phone-warning className="text-[12px] text-ink-2">
+              <p data-phone-warning className="text-12 text-ink-2">
                 This code gives access to your agents. Don't share it or post a screenshot of it.
               </p>
-              <p className="flex gap-4 text-[12px] underline underline-offset-4">
+              <p className="flex gap-4 text-12 underline underline-offset-4">
                 <a href={PRIVACY_URL} target="_blank" rel="noreferrer">
                   Privacy policy
                 </a>
@@ -1840,7 +1918,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
               </p>
               {pairing && (
                 <div data-phone-pairing={pairing.open ? "open" : "closed"} className="flex flex-wrap items-center gap-3">
-                  <span className="text-[12px] text-ink-3">
+                  <span className="text-12 text-ink-3">
                     {pairing.open
                       ? `New devices can pair for ${pairing.minutes} more ${pairing.minutes === 1 ? "minute" : "minutes"}`
                       : "Pairing is closed to new devices."}
@@ -1992,7 +2070,7 @@ export function AboutSettings({ update }: { update: UpdateState | null }) {
           type="button"
           disabled={update?.status === "checking" || update?.status === "downloading" || update?.status === "unavailable" || update?.status === "installing"}
           onClick={() => void (update?.status === "downloaded" ? showUpdateNotice() : window.milagre.checkForUpdates())}
-          className="rounded-control border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50"
+          className="rounded-control border border-line bg-surface px-3 py-1.5 text-12 font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50"
         >
           {update?.status === "installing" ? "Restarting…" : update?.status === "downloaded" ? "Install & restart" : "Check for updates"}
         </button>
@@ -2112,8 +2190,8 @@ function FilesToCopy({ projectPath }: { projectPath: string }) {
   return (
     <div className="grid gap-2 px-4 py-3">
       <label htmlFor="files-to-copy" className="grid gap-0.5">
-        <span className="text-[13.5px] font-medium text-ink">Files to copy</span>
-        <span className="text-[12px] text-ink-3">
+        <span className="text-13 font-medium text-ink">Files to copy</span>
+        <span className="text-12 text-ink-3">
           Git-ignored files copied from the main checkout into each new worktree, such as env files. One pattern per line, .gitignore syntax. Leave empty for{" "}
           {DEFAULT_FILES_TO_COPY}.
         </span>
@@ -2129,22 +2207,22 @@ function FilesToCopy({ projectPath }: { projectPath: string }) {
         value={locked ? (found.worktreeInclude ?? "") : (text ?? "")}
         placeholder={DEFAULT_FILES_TO_COPY}
         onChange={(event) => edit(event.target.value)}
-        className={`w-full resize-y rounded-control border border-line px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink outline-none placeholder:text-ink-3 focus-visible:border-ink-3 ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
+        className={`w-full resize-y rounded-control border border-line px-3 py-2 font-mono text-12 leading-relaxed text-ink outline-none placeholder:text-ink-3 focus-visible:border-accent ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
       />
       {locked && (
-        <p data-files-to-copy-locked className="text-[12px] text-ink-2">
+        <p data-files-to-copy-locked className="text-12 text-ink-2">
           .worktreeinclude in the repo wins. Edit that file to change what is copied.
         </p>
       )}
       {loadError ? (
-        <p className="text-[12px] text-red-ink">Couldn't read this project's files: {loadError}</p>
+        <p className="text-12 text-red-ink">Couldn't read this project's files: {loadError}</p>
       ) : (
-        <p data-files-to-copy-preview className="break-words text-[12px] text-ink-3">
+        <p data-files-to-copy-preview className="break-words text-12 text-ink-3">
           {found ? previewSentence(found.matches) : "Checking…"}
         </p>
       )}
       {saveError && (
-        <p data-files-to-copy-error className="break-words text-[12px] text-red-ink">
+        <p data-files-to-copy-error className="break-words text-12 text-red-ink">
           Couldn't save: {saveError}
         </p>
       )}
@@ -2227,8 +2305,8 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
   return (
     <div className="grid gap-2 px-4 py-3">
       <label htmlFor="setup-command" className="grid gap-0.5">
-        <span className="text-[13.5px] font-medium text-ink">Setup command</span>
-        <span className="text-[12px] text-ink-3">Runs once in each new worktree before the agent starts, e.g. npm ci.</span>
+        <span className="text-13 font-medium text-ink">Setup command</span>
+        <span className="text-12 text-ink-3">Runs once in each new Worktree before the agent starts, e.g. npm ci.</span>
       </label>
       <input
         id="setup-command"
@@ -2241,20 +2319,20 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
         value={locked ? (resolved.command ?? "") : (text ?? "")}
         placeholder={locked ? "Nothing runs" : "npm ci"}
         onChange={(event) => edit(event.target.value)}
-        className={`h-9 w-full rounded-control border border-line px-3 font-mono text-[12.5px] text-ink outline-none placeholder:text-ink-3 focus-visible:border-ink-3 ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
+        className={`h-9 w-full rounded-control border border-line px-3 font-mono text-12 text-ink outline-none placeholder:text-ink-3 focus-visible:border-accent ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
       />
       {locked && (
-        <p data-setup-command-locked className="text-[12px] text-ink-2">
+        <p data-setup-command-locked className="text-12 text-ink-2">
           .milagre/worktree.json in the repo wins. Edit its "setup" to change the command.
         </p>
       )}
       {resolved?.note && (
-        <p data-setup-command-note className="break-words text-[12px] text-red-ink">
+        <p data-setup-command-note className="break-words text-12 text-red-ink">
           {resolved.note}
         </p>
       )}
       {error && (
-        <p data-setup-command-error className="break-words text-[12px] text-red-ink">
+        <p data-setup-command-error className="break-words text-12 text-red-ink">
           {error}
         </p>
       )}
@@ -2295,13 +2373,13 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
       <div className="flex items-center gap-4">
         <span
           data-project-icon-preview
-          className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-ink text-[16px] font-semibold text-surface"
+          className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-card bg-ink text-15 font-semibold text-surface"
         >
           <WorkspaceIcon src={imageOf(project.path)} fallback={projectInitial(project.name)} />
         </span>
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <span className="text-[13.5px] font-medium text-ink">Icon</span>
-          <span className="text-[12px] text-ink-3">
+          <span className="text-13 font-medium text-ink">Icon</span>
+          <span className="text-12 text-ink-3">
             Shown in the sidebar, the project switcher and on your phone. Reset goes back to the repository's own icon.
           </span>
         </div>
@@ -2325,7 +2403,7 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
         </button>
       </div>
       {error && (
-        <p data-project-icon-error className="break-words text-[12px] text-red-ink">
+        <p data-project-icon-error className="break-words text-12 text-red-ink">
           {error}
         </p>
       )}
@@ -2369,7 +2447,7 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
       <Row label="Show in sidebar" description={`In the sidebar on ${thisComputer}. Filters › Projects chooses them all at once.`}>
         <SettingCheckbox label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-12 text-red-ink">{error}</p>}
     </div>
   );
 }
@@ -2402,7 +2480,7 @@ export function MainSyncDefaultSetting() {
       <Row label={MAIN_SYNC_TITLE} description={MAIN_SYNC_HINT}>
         <SettingCheckbox label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-12 text-red-ink">{error}</p>}
     </div>
   );
 }
@@ -2634,7 +2712,7 @@ function LinearSettings() {
           </div>
         </Row>
       )}
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-12 text-red-ink">{error}</p>}
     </div>
   );
 }
@@ -2685,7 +2763,7 @@ export function MainSyncSetting({ projectPath }: { projectPath: string }) {
           options={mainSyncChoices(sync?.defaultValue ?? false).map((choice) => ({ value: choice.value, label: choice.title }))}
         />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-12 text-red-ink">{error}</p>}
     </div>
   );
 }
@@ -2768,7 +2846,7 @@ export function SettingsPanel({
     <ScrollArea className="h-full">
       <div ref={content} className="mx-auto w-full max-w-[640px] px-6 pt-14 pb-10">
         {/* MCP draws its own title row, with Refresh and Add server beside it; Experimental swaps it for Babysit PRs' page title. */}
-        {section !== "mcp" && section !== "experimental" && <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
+        {section !== "mcp" && section !== "experimental" && <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
         {section === "general" && <GeneralSettings models={models} />}
         {section === "accounts" && (
           <>
@@ -2787,7 +2865,7 @@ export function SettingsPanel({
         {section === "routines" && <RoutinesSettings />}
         {section === "connections" && (
           <>
-            <p className="mt-1 text-[13px] text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>
+            <p className="mt-1 text-13 text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>
             <Group title="Issue trackers">
               <LinearSettings />
             </Group>
@@ -2797,7 +2875,7 @@ export function SettingsPanel({
           (project ? (
             <SkillsSettings key={project.path} projectPath={project.path} />
           ) : (
-            <p className="mt-6 text-[13px] text-ink-3">Open a project to see its skills.</p>
+            <p className="mt-6 text-13 text-ink-3">Open a project to see its skills.</p>
           ))}
         {section === "mcp" && <McpSettings title={title} />}
         {section === "local-mcp" && (
@@ -2805,7 +2883,7 @@ export function SettingsPanel({
             <Group title="Designs and artifacts">
               <PublishedPagesSettings />
             </Group>
-            <h2 className="mt-6 px-1 text-[12px] font-medium text-ink-3">Milagre MCP</h2>
+            <h2 className="mt-6 px-1 text-12 font-medium text-ink-3">Milagre MCP</h2>
             <LocalMcpSettings bridge={window.milagre} />
           </>
         )}

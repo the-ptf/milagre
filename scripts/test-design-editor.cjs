@@ -164,7 +164,7 @@ async function browserChecks() {
   const read = () => api.get({ chatId, id: designId });
   const button = (text) =>
     evaluate(
-      `[...document.querySelectorAll("[data-slot=design-editor] button")].find((button) => button.textContent.trim() === ${JSON.stringify(text)}).click()`,
+      `[...document.querySelectorAll("[data-slot=design-editor] button, [data-slot=design-close-confirmation] button")].find((button) => button.textContent.trim() === ${JSON.stringify(text)}).click()`,
     );
   const select = async (label, value) => {
     await click(`button[aria-label="${label}"]`);
@@ -203,6 +203,7 @@ async function browserChecks() {
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `design-editor-${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
   const editor = 'document.querySelector("[data-slot=design-editor]")';
+  const confirmation = 'document.querySelector("dialog[data-slot=design-close-confirmation]")';
   const status = 'document.querySelector("[data-slot=design-save-status]")';
   const setLocal = (enabled) => {
     localEnabled = enabled;
@@ -1136,7 +1137,7 @@ async function browserChecks() {
       releaseSave = resolve;
     });
     await click("[data-slot=design-save]");
-    await waitFor(`${status}.textContent.includes("Saving...")`);
+    await waitFor(`${status}.textContent.includes("Saving…")`);
     let pendingPreview;
     for (let attempt = 0; attempt < 100 && !pendingPreview; attempt++) {
       for (const child of window.webContents.mainFrame.framesInSubtree) {
@@ -1170,7 +1171,8 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-slot=design-layers-panel]")');
     assert.ok(await evaluate(`!!${editor}`), "iframe Escape closes Layers first");
     await interactive.executeJavaScript('document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));');
-    await waitFor(`${editor}.textContent.includes("Your changes have not been saved")`);
+    // The confirmation is the shared Dialog, portalled to the body and shown modal over the editor.
+    await waitFor(`${confirmation}?.open && ${confirmation}.textContent.includes("Your changes have not been saved")`);
     assert.equal(await evaluate('document.querySelector("textarea[aria-label=Text]").value'), "Unsaved escape draft");
     await button("Keep editing");
     await click('[aria-label="Undo design edit"]');
@@ -1276,7 +1278,7 @@ async function browserChecks() {
     await screenshot("whole-page");
     await click('[aria-label="Select design Fieldnotes"]');
     await click('[aria-label="Close design editor"]');
-    await waitFor(`${editor}.textContent.includes("Discard changes")`);
+    await waitFor(`${confirmation}?.open && ${confirmation}.textContent.includes("Discard changes")`);
     await button("Discard changes");
     await waitFor(`!${editor}`);
     await openEditor();

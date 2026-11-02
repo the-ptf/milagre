@@ -9,9 +9,10 @@ import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel } from "@milagre/shared/attention";
 import { readAttentionButton, saveAttentionButton } from "./hosts-native";
 import { useSession } from "./session";
-import { radius } from "./design-tokens";
+import { chrome, lineHeight, radius, space, type } from "./design-tokens";
+
 import { Icon } from "./icons";
-import { PullDown } from "./ui";
+import { pressStyle, PullDown } from "./ui";
 import { useTheme } from "./theme";
 import { useFloatingInbox } from "./floating-inbox-setting";
 import { FloatingInboxChip } from "./inbox";
@@ -99,7 +100,7 @@ export function useAttentionButton(): [boolean, (on: boolean) => void] {
 
 export function AttentionDot() {
   const { colors } = useTheme();
-  return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.orange }} />;
+  return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />;
 }
 
 /** Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first. */
@@ -154,28 +155,30 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
         style={StyleSheet.absoluteFill}
       />
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.orangeTint }]} />
-      <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: 13, fontWeight: "600", maxWidth: 220 }}>
+      <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", maxWidth: 220 }}>
         {label}
       </Text>
-      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={14} strokeWidth={2} />
+      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} />
     </View>
   );
-  const place = { position: "absolute" as const, top: insets.top + 52, right: 12 };
+  // Floating overlays sit 8 under the header, clear of it, level with the top Toast.
+  const place = { position: "absolute" as const, top: insets.top + chrome.header + space.md, right: space.gutter };
   const first = waiting[0];
   if (waiting.length === 1 && first)
     return (
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label}. Open the Chat.`}
+        // The 32pt pill still takes a 44pt touch.
+        hitSlop={6}
         onPress={() => open(first)}
-        hitSlop={{ top: 6, bottom: 6 }}
-        style={({ pressed }) => [place, pressed && { transform: [{ scale: 0.97 }] }]}
+        style={({ pressed }) => [place, pressStyle({ pressed })]}
       >
         {pill}
       </Pressable>
     );
   return (
-    <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} style={place}>
+    <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} hitSlop={6} style={place}>
       {pill}
     </PullDown>
   );

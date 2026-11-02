@@ -30,6 +30,8 @@ export function MessageNavigation({
           key={item.index}
           accessibilityRole="button"
           accessibilityLabel={item.label}
+          // Horizontal only: a vertical slop would overlap the stacked ticks.
+          hitSlop={{ left: 10, right: 10 }}
           onPress={() => onSelect(item.index)}
           style={{ height: 24, flexShrink: 1, width: 24, alignItems: "center", justifyContent: "center" }}
         >

@@ -132,7 +132,7 @@ async function browserChecks() {
       const element = document.activeElement;
       return element.getAttribute('aria-label') || (element.querySelector('[data-model-name]') ? 'Model' : element.textContent.trim());
     })()`;
-    const expectedFocus = ["New worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Dictate", "Send"];
+    const expectedFocus = ["New Worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Dictate", "Send"];
     const tab = async (backwards = false) => {
       const modifiers = backwards ? ["shift"] : [];
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab", modifiers });
@@ -604,7 +604,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelectorAll('[data-save-failure] button')[1].disabled`), true, "Offline saving is disabled");
     await evaluate(`document.querySelector('[data-save-failure] button').click()`);
     await waitFor(
-      `document.querySelector('[data-save-failure] button').disabled && document.querySelector('[data-save-failure]').textContent.includes('Saving...')`,
+      `document.querySelector('[data-save-failure] button').disabled && document.querySelector('[data-save-failure]').textContent.includes('Saving…')`,
     );
     await evaluate(`window.finishSave(); window.setSaveScopes([]); window.setDisconnected(false);`);
     await waitFor(`!document.querySelector('[data-save-failure]')`);

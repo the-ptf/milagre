@@ -1,5 +1,5 @@
-import { Children, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon, Key01Icon } from "@hugeicons/core-free-icons";
 import { mcpSourceRank, mcpSummary, mcpTransportLine, type McpRow } from "@milagre/shared/mcp";
@@ -7,7 +7,8 @@ import { providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useMcp } from "./use-mcp";
-import { useStyles } from "./ui";
+import { EmptyState, Group, InlineError, ListRow, pressStyle, useStyles } from "./ui";
+import { radius } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const openServer = (row: McpRow) => router.push({ pathname: "/mcp-server", params: { name: row.name } });
@@ -37,7 +38,7 @@ export function McpSection() {
 
   return (
     <View style={{ gap: 16 }}>
-      <View style={{ gap: 6, paddingHorizontal: 4 }}>
+      <View style={{ gap: 6 }}>
         <Text accessibilityRole="header" style={styles.title}>
           MCP
         </Text>
@@ -47,83 +48,70 @@ export function McpSection() {
             : "Connect to a computer to see its MCP servers."}
         </Text>
       </View>
-      {mcp.error ? (
-        <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
-          {mcp.error}
-        </Text>
-      ) : null}
+      <InlineError message={mcp.error} />
       {mcp.problems.map((check) => (
         <Text key={`${check.provider}:${check.accountId}`} style={styles.muted}>
           {providerName(check.provider)} · {check.label}: {check.problem}
         </Text>
       ))}
       {signIn.length ? (
-        <Group title="Needs sign-in">
+        <Group title="Needs sign-in" inset={0}>
           {signIn.map((row) => (
             // Tappable like any row: the detail screen has the switches, and Edit and Remove for your own servers.
-            <Pressable
+            <ListRow
               key={row.name}
-              accessibilityRole="button"
-              accessibilityLabel={`${row.name}, needs sign-in on the Mac`}
+              title={row.name}
+              subtitle={mcpTransportLine(row)}
+              value="On the Mac"
               onPress={() => openServer(row)}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 10, opacity: pressed ? 0.5 : 1 })}
-            >
-              <View
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 9,
-                  borderCurve: "continuous",
-                  backgroundColor: colors.orangeTint,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Icon icon={Key01Icon} tone="orange" size={18} />
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text numberOfLines={1} style={[styles.text, { fontWeight: "500" }]}>
-                  {row.name}
-                </Text>
-                <Text numberOfLines={1} style={styles.caption}>
-                  {mcpTransportLine(row)}
-                </Text>
-              </View>
-              <Text style={[styles.caption, { fontSize: 13 }]}>On the Mac</Text>
-              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-            </Pressable>
+              leading={
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: radius.control,
+                    borderCurve: "continuous",
+                    backgroundColor: colors.orangeTint,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Icon icon={Key01Icon} tone="orange" size={18} />
+                </View>
+              }
+            />
           ))}
         </Group>
       ) : null}
       {user.length ? (
-        <Group title="Your servers">
+        <Group title="Your servers" inset={0}>
           {user.map((row) => (
             <ServerRow key={row.name} row={row} />
           ))}
         </Group>
       ) : null}
       {outside ? (
-        <View style={{ gap: 10 }}>
-          <View style={cardStyle(colors)}>
+        <View style={{ gap: 12 }}>
+          <Group>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Projects and plugins, ${outside}`}
               accessibilityState={{ expanded: open }}
               onPress={() => setOpen(!open)}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 56, opacity: pressed ? 0.5 : 1 })}
+              style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 52 }, pressStyle({ pressed, kind: "row" })]}
             >
-              <Text style={[styles.text, { flex: 1, fontWeight: "500" }]}>Projects and plugins</Text>
-              <Text style={[styles.muted, { fontSize: 17 }]}>{outside}</Text>
+              <Text style={[styles.text, { flex: 1 }]}>Projects and plugins</Text>
+              <Text style={[styles.text, { color: colors.ink3 }]}>{outside}</Text>
               <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={16} />
             </Pressable>
-          </View>
+          </Group>
           {open ? (
             <>
-              <Text style={[styles.caption, { paddingHorizontal: 4 }]}>Set up in a project, a plugin or claude.ai. Change them there.</Text>
+              <Text style={[styles.footnote, { paddingHorizontal: 16 }]}>Set up in a Project, a plugin or claude.ai. Change them there.</Text>
               {sources.map((group) => (
-                <Group key={group.source} title={group.source}>
+                <Group key={group.source} title={group.source} inset={0}>
                   {group.rows.map((row) => (
-                    <ServerRow key={row.name} row={row} compact />
+                    <ServerRow key={row.name} row={row} />
                   ))}
                 </Group>
               ))}
@@ -131,71 +119,28 @@ export function McpSection() {
           ) : null}
         </View>
       ) : null}
-      {empty ? <Text style={styles.muted}>No MCP servers yet. Tap + to add one, or use the Claude or Codex CLI on the Mac.</Text> : null}
+      {empty ? <EmptyState title="No MCP servers yet">Tap + to add one, or use the Claude or Codex CLI on the Mac.</EmptyState> : null}
     </View>
   );
 }
 
-const cardStyle = (colors: ReturnType<typeof useTheme>["colors"]) =>
-  ({
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderCurve: "continuous",
-    overflow: "hidden",
-    paddingHorizontal: 16,
-  }) as const;
-
-/** A small caps header over a grouped card; rows are separated by hairlines. */
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
-  return (
-    <View style={{ gap: 8 }}>
-      <Text accessibilityRole="header" style={[styles.section, { paddingHorizontal: 4 }]}>
-        {title}
-      </Text>
-      <View style={cardStyle(colors)}>
-        {Children.toArray(children).map((child, index) => (
-          <View key={(child as { key?: string }).key ?? String(index)}>
-            {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line }} /> : null}
-            {child}
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function ServerRow({ row, compact = false }: { row: McpRow; compact?: boolean }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
+/** A server: its name, how it runs and where it loads (redInk when a provider failed to load it). */
+function ServerRow({ row }: { row: McpRow }) {
   const failed = row.chips.find((chip) => chip.state === "failed");
   const kind = row.everywhere ? "Everywhere" : row.transport === "command" ? "Command" : row.transport === "url" ? "URL" : "claude.ai";
   const line = failed ? `${providerName(failed.provider)} failed · ${mcpSummary(row)}` : `${kind} · ${mcpSummary(row)}`;
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${row.name}. ${line}`}
+    <ListRow
+      title={row.name}
+      subtitle={line}
+      subtitleTone={failed ? "redInk" : "ink3"}
       onPress={() => openServer(row)}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        minHeight: compact ? 52 : 60,
-        paddingVertical: 10,
-        opacity: pressed ? 0.5 : 1,
-      })}
-    >
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={[styles.text, { fontWeight: "500" }]}>
-          {row.name}
-        </Text>
-        <Text numberOfLines={1} style={[styles.caption, { fontSize: 13 }, failed ? { color: colors.redInk } : null]}>
-          {line}
-        </Text>
-      </View>
-      {failed ? <Icon icon={Alert02Icon} tone="red" size={20} /> : null}
-      <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-    </Pressable>
+      trailing={
+        <>
+          {failed ? <Icon icon={Alert02Icon} tone="red" size={20} /> : null}
+          <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+        </>
+      }
+    />
   );
 }

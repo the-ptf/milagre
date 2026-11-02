@@ -35,7 +35,7 @@ function attachmentReader(client: Client, cwd: string) {
 }
 
 /** A PR's description or comment: GitHub's image tags show as images, read through the Mac. */
-export const PrMarkdown = memo(function PrMarkdown({ text, client, cwd }: { text: string; client: Client; cwd: string }) {
+export const PrMarkdown = memo(function PrMarkdown({ text, client, cwd, tone }: { text: string; client: Client; cwd: string; tone?: "ink" | "ink2" }) {
   const remote = useMemo(() => attachmentReader(client, cwd), [client, cwd]);
-  return <Markdown text={useMemo(() => githubHtmlToMarkdown(text), [text])} remote={remote} />;
+  return <Markdown text={useMemo(() => githubHtmlToMarkdown(text), [text])} remote={remote} tone={tone} />;
 });

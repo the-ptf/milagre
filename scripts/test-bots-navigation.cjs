@@ -148,7 +148,7 @@ async function browserChecks() {
     await waitFor(chatPaneShown);
     assert.equal(await evaluate(threadShown), false, "Open Chat leaves the bot thread");
     assert.equal(await evaluate(`!!document.querySelector('[data-routines-page]')`), false);
-    await waitFor(`document.querySelector('[data-sidebar-mode="projects"]')?.getAttribute('aria-pressed') === 'true'`);
+    await waitFor(`document.querySelector('[data-sidebar-mode="projects"]')?.getAttribute('aria-checked') === 'true'`);
     await waitFor(`document.querySelector("[aria-current=page]")?.textContent.includes("Watch CI on 461")`);
     await screenshot("bots-navigation-chat");
     assert.deepEqual(errors, []);

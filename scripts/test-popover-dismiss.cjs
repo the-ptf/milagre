@@ -60,7 +60,12 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", fs.mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-popover-dismiss-")));
   await app.whenReady();
-  const window = new BrowserWindow({ width: 1000, height: 640, show: false, webPreferences: { backgroundThrottling: false } });
+  const window = new BrowserWindow({
+    width: 1000,
+    height: 640,
+    show: false,
+    webPreferences: { backgroundThrottling: false },
+  });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   const errors = [];
   window.webContents.on("console-message", (details) => {
@@ -94,8 +99,18 @@ async function browserChecks() {
         true,
         "The click lands on the intended outside surface",
       );
-    window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
-    window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
+    window.webContents.sendInputEvent({
+      type: "mouseDown",
+      button: "left",
+      clickCount: 1,
+      ...point,
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseUp",
+      button: "left",
+      clickCount: 1,
+      ...point,
+    });
     await delay(150);
   };
   const panels = () => evaluate(`document.querySelectorAll('[data-picker-panel]').length`);

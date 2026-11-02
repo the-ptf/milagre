@@ -9,7 +9,11 @@ const REMOTE = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
 const OTHER = "7f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
 const ROOT = "/same/project";
 const settle = () => new Promise((resolve) => setImmediate(resolve));
-const catalog = (name) => ({ skills: [{ name }], shadowed: [{ name: `${name}-shadowed` }], warnings: [name] });
+const catalog = (name) => ({
+  skills: [{ name }],
+  shadowed: [{ name: `${name}-shadowed` }],
+  warnings: [name],
+});
 function endpoint() {
   const requests = [];
   const request = (...args) => new Promise((resolve, reject) => requests.push({ args, resolve, reject }));
@@ -52,7 +56,9 @@ function fixture() {
   local.on = (id) => ({ [REMOTE]: remote, [OTHER]: other })[id];
   function load(file, modules = {}) {
     const source = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
-    const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+    const compiled = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS },
+    }).outputText;
     const exports = {};
     vm.runInNewContext(compiled, {
       exports,
@@ -62,13 +68,16 @@ function fixture() {
     return exports;
   }
   const bridges = load("apps/desktop/app/src/lib/computer-bridge.ts");
-  const { useSkills } = load("apps/desktop/app/src/components/useSkills.ts", { "../lib/computer-bridge": bridges });
+  const { useSkills } = load("apps/desktop/app/src/components/useSkills.ts", {
+    "../lib/computer-bridge": bridges,
+  });
   const { useRpc } = load("apps/mobile/src/use-rpc.ts");
   const session = { client: remote, snapshot: { project: { path: ROOT } } };
   const { useSkillCatalog } = load("apps/mobile/src/use-skills.ts", {
     "./use-rpc": { useRpc },
     "./session": { useSession: () => session },
     "./theme": {},
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
   });
   return {
     local,

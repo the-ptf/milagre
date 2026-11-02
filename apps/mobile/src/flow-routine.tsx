@@ -336,7 +336,7 @@ function SettingChip({ icon, text }: { icon: Parameters<typeof Icon>[0]["icon"];
       accessibilityLabel={text}
       style={{ flexDirection: "row", alignItems: "center", gap: 6, height: 30, paddingHorizontal: 11, borderRadius: 14, backgroundColor: colors.field }}
     >
-      <Icon icon={icon} tone="ink2" size={15} />
+      <Icon icon={icon} tone="ink2" size={16} />
       <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
         {text}
       </Text>

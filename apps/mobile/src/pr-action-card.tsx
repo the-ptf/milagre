@@ -3,7 +3,9 @@ import { GitPullRequestIcon } from "@hugeicons/core-free-icons";
 import type { PullRequestActionContext } from "@milagre/shared/model";
 import { BLOCKERS } from "@milagre/shared/pr-blockers";
 import { Icon } from "./icons";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
+import { pressStyle } from "./ui";
 import { useContext } from "react";
 import { ChatLinkContext } from "./chat-link-context";
 
@@ -19,17 +21,17 @@ export function PullRequestActionCard({ action }: { action: PullRequestActionCon
       onPress={() => {
         if (!openChatLink?.(action.url)) void Linking.openURL(action.url).catch(() => {});
       }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      style={({ pressed }) => pressStyle({ pressed })}
     >
       <View
         style={{
           minWidth: 240,
           flexDirection: "row",
           alignItems: "center",
-          gap: 8,
-          paddingHorizontal: 14,
-          paddingVertical: 10,
-          borderRadius: 18,
+          gap: space.md,
+          paddingHorizontal: space.xl,
+          paddingVertical: space.lg,
+          borderRadius: radius.sheet,
           borderCurve: "continuous",
           borderWidth: 1,
           borderColor: colors.line,
@@ -37,10 +39,10 @@ export function PullRequestActionCard({ action }: { action: PullRequestActionCon
         }}
       >
         <Icon icon={GitPullRequestIcon} tone={blocker.tone === "red" ? "red" : "orange"} size={16} />
-        <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: "500" }} numberOfLines={1}>
+        <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }} numberOfLines={1}>
           {blocker.action}
         </Text>
-        <Text style={{ color: colors.ink3, fontSize: 13 }}>#{action.pr}</Text>
+        <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>#{action.pr}</Text>
       </View>
     </Pressable>
   );

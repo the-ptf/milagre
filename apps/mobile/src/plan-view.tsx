@@ -20,6 +20,7 @@ import type { ChatPlan, ChatTask } from "@milagre/shared/model";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon, SpinnerRing } from "./icons";
 import { PHASE_LABELS } from "./plan-label";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { useStyles } from "./ui";
 
@@ -39,8 +40,8 @@ const STATUS_LABELS: Record<ChatTask["status"], string> = { pending: "Pending", 
 function TaskMarker({ status }: { status: ChatTask["status"] }) {
   const { colors } = useTheme();
   if (status === "in_progress") return <SpinnerRing size={12} />;
-  if (status === "completed") return <Icon icon={Tick02Icon} tone="ink3" size={14} />;
-  return <View style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: colors.lineStrong }} />;
+  if (status === "completed") return <Icon icon={Tick02Icon} tone="ink3" size={12} />;
+  return <View style={{ width: 12, height: 12, borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.lineStrong }} />;
 }
 
 function Rows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: number; folded: Set<string>; toggle: (id: string) => void }) {
@@ -65,35 +66,46 @@ function Rows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: numb
             {
               flexWrap: "nowrap",
               alignItems: "flex-start",
-              gap: 8,
-              paddingVertical: 7,
-              paddingLeft: 4 + depth * 18,
-              paddingRight: 6,
-              borderRadius: 8,
+              gap: space.md,
+              paddingVertical: space.md,
+              paddingLeft: space.xs + depth * space.xl,
+              paddingRight: space.sm,
+              borderRadius: radius.control,
+              borderCurve: "continuous",
               borderWidth: 1,
               borderColor: "transparent",
             },
             current && { backgroundColor: colors.hover, borderColor: withAlpha(colors.accent, 0.5) },
           ]}
         >
-          <View style={{ width: 12, height: 21, justifyContent: "center" }}>
+          <View style={{ width: 12, height: lineHeight.subheadline, justifyContent: "center" }}>
             {parent && <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />}
           </View>
           <View
             style={{
               minWidth: 18,
-              height: 21,
-              paddingHorizontal: 4,
-              borderRadius: 4,
+              height: lineHeight.subheadline,
+              paddingHorizontal: space.xs,
+              borderRadius: radius.chip,
+              borderCurve: "continuous",
               backgroundColor: colors.hover,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: colors.ink3, fontSize: 11, fontVariant: ["tabular-nums"] }}>{index + 1}</Text>
+            <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontVariant: ["tabular-nums"] }}>{index + 1}</Text>
           </View>
-          <Text style={{ flex: 1, color: task.status === "completed" && !parent ? colors.ink3 : colors.ink, fontSize: 15, lineHeight: 21 }}>{title}</Text>
-          <View style={{ width: 16, height: 21, alignItems: "center", justifyContent: "center" }}>
+          <Text
+            style={{
+              flex: 1,
+              color: task.status === "completed" && !parent ? colors.ink3 : colors.ink,
+              fontSize: type.subheadline,
+              lineHeight: lineHeight.subheadline,
+            }}
+          >
+            {title}
+          </Text>
+          <View style={{ width: 16, height: lineHeight.subheadline, alignItems: "center", justifyContent: "center" }}>
             <TaskMarker status={task.status} />
           </View>
         </Pressable>
@@ -134,7 +146,7 @@ export function PlanPhaseGraph({ plan }: { plan: ChatPlan }) {
   if (!graph.points.length || !graph.current) return null;
   const layout = phaseGraphLayout(graph, width, { height: HEIGHT });
   return (
-    <View style={{ flexDirection: "row", gap: 8 }}>
+    <View style={{ flexDirection: "row", gap: space.md }}>
       <View style={{ height: HEIGHT, flexDirection: "column-reverse" }}>
         {PHASES.map((phase) => {
           const current = graph.current === phase;
@@ -145,14 +157,15 @@ export function PlanPhaseGraph({ plan }: { plan: ChatPlan }) {
                 height: ROW,
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 4,
-                paddingHorizontal: 4,
-                borderRadius: 4,
+                gap: space.xs,
+                paddingHorizontal: space.xs,
+                borderRadius: radius.chip,
+                borderCurve: "continuous",
                 backgroundColor: current ? colors.hover : "transparent",
               }}
             >
-              <Icon icon={PHASE_ICONS[phase]} tone={current ? "ink" : "ink3"} size={11} />
-              <Text style={{ fontSize: 11, lineHeight: 13, color: current ? colors.ink : colors.ink3 }}>{PHASE_LABELS[phase]}</Text>
+              <Icon icon={PHASE_ICONS[phase]} tone={current ? "ink" : "ink3"} size={12} />
+              <Text style={{ fontSize: type.caption2, lineHeight: lineHeight.caption2, color: current ? colors.ink : colors.ink3 }}>{PHASE_LABELS[phase]}</Text>
             </View>
           );
         })}
@@ -174,17 +187,17 @@ export function PlanPhaseGraph({ plan }: { plan: ChatPlan }) {
             {layout.gaps.map((gap) => (
               <G key={`${gap.x}-${gap.label}`}>
                 <Rect x={gap.x - 12} y={gap.y - 8} width={24} height={16} rx={4} fill={colors.hover} />
-                <SvgText x={gap.x} y={gap.y + 4} textAnchor="middle" fontSize={10} fill={colors.ink2}>
+                <SvgText x={gap.x} y={gap.y + 4} textAnchor="middle" fontSize={type.caption2} fill={colors.ink2}>
                   {gap.label}
                 </SvgText>
               </G>
             ))}
             {layout.ticks.map((tick) => (
-              <SvgText key={tick.x} x={tick.x} y={HEIGHT + 14} textAnchor={tick.anchor} fontSize={10} fill={colors.ink3}>
+              <SvgText key={tick.x} x={tick.x} y={HEIGHT + 14} textAnchor={tick.anchor} fontSize={type.caption2} fill={colors.ink3}>
                 {tick.label}
               </SvgText>
             ))}
-            <SvgText x={layout.now.x} y={HEIGHT + 14} textAnchor={layout.now.anchor} fontSize={10} fill={colors.ink3}>
+            <SvgText x={layout.now.x} y={HEIGHT + 14} textAnchor={layout.now.anchor} fontSize={type.caption2} fill={colors.ink3}>
               Now
             </SvgText>
           </Svg>

@@ -352,7 +352,7 @@ export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
       ) : null}
       {report?.refreshing ? (
         <View style={[styles.row, { gap: 8 }]}>
-          <SpinnerRing size={14} />
+          <SpinnerRing size={12} />
           <Text style={styles.caption}>
             {report.firstScan ? "Reading the Claude Code and Codex transcripts for the first time…" : "Reading new transcripts…"}
           </Text>
@@ -384,7 +384,7 @@ export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
                 </Pressable>
               ) : null}
             </View>
-            <Text selectable style={{ color: colors.ink, fontSize: type.largeTitle, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
+            <Text selectable style={{ color: colors.ink, fontSize: type.largeTitle, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
               {formatMetric(metric, whole)}
             </Text>
             <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: 20 }}>

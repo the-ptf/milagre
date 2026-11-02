@@ -106,7 +106,7 @@ const NOT_INDEXED: Record<string, string> = {
   "Dictation language": "aria label; the row is Language",
   "Pairing connection": "aria label; the row is Connect through",
   // Rows inside a section that only exist after another setting is turned on, or after opening a sub-page: the highlight cannot reach them.
-  "Show chat activity": "appears under Floating inbox once it is on",
+  "Show Chat activity": "appears under Floating inbox once it is on",
   "Devices at once": "Simlock rows, shown once Simlock devices is on",
   "Return a device after": "Simlock rows, shown once Simlock devices is on",
   "Start from": "Custom theme editor, shown once Custom theme is on",

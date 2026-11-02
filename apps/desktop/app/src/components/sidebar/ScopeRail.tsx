@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from 
 import { createPortal } from "react-dom";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import { SpinnerRing } from "../primitives/SpinnerRing";
+import { menuRowClass } from "../primitives/Popover";
+import { SectionLabel } from "../primitives/SectionLabel";
 import { ChatMarkDotInline, type SidebarRecent } from "./ChatRow";
 import { useDismiss } from "../../lib/use-dismiss";
 import type { RailStatus } from "../../lib/sidebar-scopes";
@@ -96,7 +98,7 @@ export function ScopeRail({
           data-row={scope.chat ? "" : undefined}
           data-rail-status={scope.status}
           aria-current={scope.current ? (scope.chat ? "page" : "true") : undefined}
-          aria-label={`${scope.name}${scope.chat ? `, ${scope.chats[0]?.label ?? "Chat"}` : ""}${scope.status === "idle" ? "" : `, a chat ${STATUS_LABEL[scope.status]}`}`}
+          aria-label={`${scope.name}${scope.chat ? `, ${scope.chats[0]?.label ?? "Chat"}` : ""}${scope.status === "idle" ? "" : `, a Chat ${STATUS_LABEL[scope.status]}`}`}
           onClick={() => {
             hide();
             if (scope.chat) onOpenChat(scope.chat.scopeKey, scope.chat.id);
@@ -109,7 +111,7 @@ export function ScopeRail({
             place(scope.key, event.currentTarget);
           }}
           onBlur={hideSoon}
-          className={`relative flex size-8 items-center justify-center rounded-[8px] transition-[background-color,transform] duration-150 active:scale-[0.96] ${scope.current ? "bg-hover-2" : "hover:bg-hover-2"}`}
+          className={`relative flex size-8 items-center justify-center rounded-control transition-[background-color,scale] duration-fast active:scale-press ${scope.current ? "bg-hover-2" : "hover:bg-hover"}`}
         >
           <span className="relative flex items-center justify-center">
             {scope.icon}
@@ -140,16 +142,18 @@ export function ScopeRail({
             aria-label={open.name}
             onPointerEnter={clear}
             onPointerLeave={hideSoon}
-            className="fixed z-[60] rounded-[12px] bg-surface p-2 shadow-overlay"
+            className="fixed z-[60] rounded-card bg-surface p-2 shadow-raised"
             style={{
               left: shown.left,
               width: POPOVER_WIDTH,
               ...(shown.flip ? { bottom: shown.top } : { top: shown.top }),
-              animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+              animation: "pop-in var(--duration-base) var(--ease-enter) both",
               transformOrigin: shown.flip ? "bottom left" : "top left",
             }}
           >
-            <div className="truncate px-2 pt-1 pb-1.5 text-[12.5px] font-medium text-ink-3">{open.name}</div>
+            <SectionLabel as="div" variant="menu" className="truncate px-2 pt-1 pb-1.5">
+              {open.name}
+            </SectionLabel>
             {open.chats.length > 0 ? (
               <div className="flex flex-col gap-px">
                 {open.chats.map((chat) => (
@@ -161,7 +165,7 @@ export function ScopeRail({
                       hide();
                       onOpenChat(open.chat?.scopeKey ?? open.key, chat.id);
                     }}
-                    className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px] px-2 text-left text-[13px] font-medium text-ink-2 hover:bg-hover-2 hover:text-ink focus-visible:bg-hover-2 focus-visible:outline-none"
+                    className={menuRowClass()}
                   >
                     <span className="flex size-4 shrink-0 items-center justify-center">
                       <ChatMarkDotInline mark={chat.mark ?? "idle"} failed={false} background={chat.background} />
@@ -171,7 +175,7 @@ export function ScopeRail({
                 ))}
               </div>
             ) : (
-              <p className="px-2 pb-1 text-[13px] text-ink-3">No chat running</p>
+              <p className="px-2 pb-1 text-12 text-ink-3">No Chat running</p>
             )}
           </div>,
           document.body,

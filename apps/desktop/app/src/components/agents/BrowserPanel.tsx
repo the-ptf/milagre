@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
@@ -18,6 +17,9 @@ import type { BrowserCandidate, BrowserTarget } from "@milagre/shared/browser";
 import type { AgentPort } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { SpinnerRing } from "../primitives/SpinnerRing";
+import { Button, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { radioKeys } from "../primitives/Segmented";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
@@ -61,9 +63,6 @@ export function BrowserPages() {
   );
   return null;
 }
-
-const ICON_BUTTON =
-  "flex size-7 shrink-0 items-center justify-center rounded-control text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-35 disabled:hover:bg-transparent";
 
 /**
  * A Chat's Browser panel, docked beside the chat left of a docked simulator: tabs, an address bar and the page. The
@@ -204,8 +203,14 @@ function BrowserTabs({
 }) {
   const { rules } = useKeybindings();
   return (
-    <div role="tablist" aria-label="Pages" className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+    <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
+      {/* The Tabs look and keys (one Tab stop, the arrows pick), with a close button per tab. */}
+      <div
+        role="tablist"
+        aria-label="Pages"
+        onKeyDown={radioKeys({ role: "tab", axis: "horizontal" })}
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
+      >
         {tabs.map((tab) => {
           const selected = tab.id === active;
           const attached = attachedTargets.find((target) => samePage(target.url) === samePage(tab.url));
@@ -218,41 +223,38 @@ function BrowserTabs({
               onAuxClick={(event) => {
                 if (event.button === 1) onCloseTab(tab.id);
               }}
-              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 ${selected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover/60"}`}
+              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 font-medium transition-colors ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                title={addressText(tab.url) || name}
-                onClick={() => onSelect(tab.id)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-              >
-                <TabIcon tab={tab} />
-                <span className="min-w-0 flex-1 truncate">{name}</span>
-              </button>
+              <Tooltip label={addressText(tab.url) || name} side="bottom" className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => onSelect(tab.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                >
+                  <TabIcon tab={tab} />
+                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                </button>
+              </Tooltip>
               {attached && (
-                <Tooltip label="Detach this browser from this Chat" side="bottom">
-                  <button
-                    type="button"
-                    aria-label={`Detach ${name} from this Chat`}
-                    data-browser-detach={targetBrowserId(attached.id)}
-                    disabled={streamed.attaching !== null}
-                    onClick={() => void streamed.detach(targetBrowserId(attached.id))}
-                    className="flex size-5 shrink-0 items-center justify-center rounded-inline text-ink-3 hover:bg-hover hover:text-ink"
-                  >
-                    <HugeiconsIcon icon={Unlink04Icon} size={12} aria-hidden />
-                  </button>
-                </Tooltip>
+                <IconButton
+                  label={`Detach ${name} from this Chat`}
+                  icon={Unlink04Icon}
+                  size={20}
+                  data-browser-detach={targetBrowserId(attached.id)}
+                  disabled={streamed.attaching !== null}
+                  onClick={() => void streamed.detach(targetBrowserId(attached.id))}
+                />
               )}
-              <button
-                type="button"
-                aria-label={`Close ${name}`}
+              <IconButton
+                label={`Close ${name}`}
+                icon={Cancel01Icon}
+                size={20}
                 onClick={() => onCloseTab(tab.id)}
-                className={`flex size-5 shrink-0 items-center justify-center rounded-inline text-ink-3 hover:bg-hover hover:text-ink ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={12} aria-hidden />
-              </button>
+                className={selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}
+              />
             </div>
           );
         })}
@@ -268,15 +270,9 @@ function BrowserTabs({
           />
         ))}
       </div>
-      <Tooltip label="New page" side="bottom">
-        <button type="button" aria-label="New page" onClick={() => addBlankTab(chatKey)} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={PlusSignIcon} size={15} aria-hidden />
-        </button>
-      </Tooltip>
+      <IconButton label="New page" icon={PlusSignIcon} side="bottom" onClick={() => addBlankTab(chatKey)} />
       <Tooltip label="Hide Browser panel" shortcut={shortcutLabel(rules, "browser.toggle")} side="bottom" align="end">
-        <button type="button" aria-label="Hide Browser panel" onClick={onClose} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={Cancel01Icon} size={15} aria-hidden />
-        </button>
+        <IconButton label="Hide Browser panel" icon={Cancel01Icon} onClick={onClose} />
       </Tooltip>
     </div>
   );
@@ -319,7 +315,7 @@ function DiscoveredTab({
         onClick={onView}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        <HugeiconsIcon icon={BrowserIcon} size={14} className="shrink-0 text-ink-3" aria-hidden />
+        <Icon icon={BrowserIcon} size={14} className="shrink-0 text-ink-3" />
         <span className="min-w-0 flex-1 truncate">{name}</span>
       </button>
       {/* Only an attachment can end here: the agent's browser and another computer's panel close where they run. */}
@@ -333,7 +329,7 @@ function DiscoveredTab({
             onClick={onDetach}
             className={`flex size-5 shrink-0 items-center justify-center rounded-inline text-ink-3 hover:bg-hover hover:text-ink disabled:opacity-40 ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
           >
-            <HugeiconsIcon icon={Unlink04Icon} size={12} aria-hidden />
+            <Icon icon={Unlink04Icon} size={12} />
           </button>
         </Tooltip>
       )}
@@ -345,7 +341,7 @@ function TabIcon({ tab }: { tab: BrowserTab }) {
   const [broken, setBroken] = useState(false);
   if (tab.loading) return <SpinnerRing size={12} />;
   if (tab.favicon && !broken) return <img src={tab.favicon} alt="" className="size-3.5 shrink-0 rounded-inline" onError={() => setBroken(true)} />;
-  return <HugeiconsIcon icon={Globe02Icon} size={14} className="shrink-0 text-ink-3" aria-hidden />;
+  return <Icon icon={Globe02Icon} size={14} className="shrink-0 text-ink-3" />;
 }
 
 /** An address as a page: its fragment and a trailing slash don't make another one. */
@@ -397,20 +393,10 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
   const blank = tab.url === "about:blank";
   return (
     <form onSubmit={submit} className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
-      <Tooltip label="Back" side="bottom">
-        <button type="button" aria-label="Back" disabled={!tab.canGoBack} onClick={() => page()?.goBack()} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
-        </button>
-      </Tooltip>
-      <Tooltip label="Forward" side="bottom">
-        <button type="button" aria-label="Forward" disabled={!tab.canGoForward} onClick={() => page()?.goForward()} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={ArrowRight01Icon} size={16} aria-hidden />
-        </button>
-      </Tooltip>
+      <IconButton label="Back" icon={ArrowLeft01Icon} side="bottom" disabled={!tab.canGoBack} onClick={() => page()?.goBack()} />
+      <IconButton label="Forward" icon={ArrowRight01Icon} side="bottom" disabled={!tab.canGoForward} onClick={() => page()?.goForward()} />
       <Tooltip label={tab.loading ? "Stop" : "Reload"} shortcut={tab.loading ? undefined : "⌘R"} side="bottom">
-        <button type="button" aria-label={tab.loading ? "Stop loading" : "Reload"} disabled={blank} onClick={reload} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={tab.loading ? Cancel01Icon : Refresh01Icon} size={15} aria-hidden />
-        </button>
+        <IconButton label={tab.loading ? "Stop loading" : "Reload"} icon={tab.loading ? Cancel01Icon : Refresh01Icon} disabled={blank} onClick={reload} />
       </Tooltip>
       <input
         ref={input}
@@ -434,13 +420,11 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
           setText(addressText(tab.url));
           event.currentTarget.blur();
         }}
-        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none placeholder:text-ink-3 focus:border-line-strong focus:bg-surface"
+        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent focus:bg-surface"
       />
       <CommentControls chatKey={chatKey} live={!blank && !tab.error} onSend={onSendComments} />
       <Tooltip label="Open in your default browser" side="bottom" align="end">
-        <button type="button" aria-label="Open in your default browser" disabled={blank} onClick={() => window.open(tab.url, "_blank")} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={LinkSquare02Icon} size={15} aria-hidden />
-        </button>
+        <IconButton label="Open in your default browser" icon={LinkSquare02Icon} disabled={blank} onClick={() => window.open(tab.url, "_blank")} />
       </Tooltip>
     </form>
   );
@@ -474,13 +458,9 @@ function BrowserPage({
       {tab.error ? (
         <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
           <p className="max-w-[320px] text-13 text-ink-2">{tab.error}</p>
-          <button
-            type="button"
-            onClick={() => navigateBrowserTab(chatKey, tab.id, tab.url)}
-            className="rounded-control border border-line px-3 py-1.5 text-12 text-ink hover:bg-hover"
-          >
+          <Button variant="secondary" size={28} onClick={() => navigateBrowserTab(chatKey, tab.id, tab.url)}>
             Try again
-          </button>
+          </Button>
         </div>
       ) : !live ? (
         <StartPage chatKey={chatKey} ports={ports} streamed={streamed} onAttach={onAttach} />
@@ -505,7 +485,7 @@ function StartPage({
   const servers = ports.filter((port) => !port.computerId).sort((a, b) => a.port - b.port);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 px-8">
-      <HugeiconsIcon icon={Globe02Icon} size={28} className="text-ink-3" aria-hidden />
+      <Icon icon={Globe02Icon} size={18} className="text-ink-4" />
       {servers.length ? (
         <div className="flex w-full max-w-[300px] flex-col gap-1">
           <p className="mb-1 text-center text-12 text-ink-3">This Chat's servers</p>
@@ -517,7 +497,7 @@ function StartPage({
                 type="button"
                 data-browser-port={port.port}
                 onClick={() => openBrowserTab(chatKey, url)}
-                className="flex items-center gap-2 rounded-control px-3 py-2 text-left text-13 hover:bg-hover"
+                className="flex h-8 items-center gap-2 rounded-control px-3 text-left text-13 transition-colors hover:bg-hover active:bg-hover-2"
               >
                 <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                 <span className="min-w-0 flex-1 truncate text-ink-3">{port.command}</span>
@@ -545,7 +525,7 @@ function OtherBrowsers({ chatKey, streamed, onAttach }: { chatKey: string; strea
       <p className="mb-1 text-center text-12 text-ink-3">{isRemoteKey(chatKey) ? "Other browsers on its computer" : "Other browsers on this computer"}</p>
       {streamed.others.map((other: BrowserCandidate) => (
         <div key={other.id} data-browser-other={other.id} className="flex items-center gap-2 rounded-control px-3 py-1.5">
-          <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden className="shrink-0 text-ink-3" />
+          <Icon icon={BrowserIcon} size={16} className="shrink-0 text-ink-3" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-13">{other.title || other.browser}</span>
             <span className="block truncate text-11 text-ink-3">
@@ -560,7 +540,7 @@ function OtherBrowsers({ chatKey, streamed, onAttach }: { chatKey: string; strea
               onClick={() => onAttach(other.id)}
               className="flex h-7 shrink-0 items-center gap-1 rounded-control px-2 text-12 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"
             >
-              <HugeiconsIcon icon={Link01Icon} size={14} aria-hidden />
+              <Icon icon={Link01Icon} size={14} />
               Attach
             </button>
           </Tooltip>

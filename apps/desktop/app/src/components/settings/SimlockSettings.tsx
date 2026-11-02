@@ -7,7 +7,7 @@ import { Select } from "../primitives/Select";
 import { Row } from "./SettingsGroup";
 
 const inputClass =
-  "h-9 w-full rounded-control border border-line bg-surface px-3 font-mono text-12 text-ink outline-none placeholder:text-ink-3 focus-visible:border-ink-3 disabled:bg-field disabled:text-ink-2";
+  "h-9 w-full rounded-control border border-line bg-surface px-3 font-mono text-12 text-ink outline-none placeholder:text-ink-3 focus-visible:border-accent disabled:bg-field disabled:text-ink-2";
 const LEASE_MINUTES = [15, 30, 60, 120, 240];
 const SIMLOCK_URL = "https://github.com/callstackincubator/simlock";
 

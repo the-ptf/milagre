@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Pressable, Text, TextInput, View, type TextInputInstance } from "react-native";
+import { Pressable, Text, View, type TextInputInstance } from "react-native";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { useFocusEffect } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, File01Icon, Message01Icon, Tick02Icon, Upload01Icon, UserCheck01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
 import { BABYSIT_DEFAULTS, BABYSIT_LEVELS, DAYS_OPTIONS, FAILURE_OPTIONS, INTERVAL_OPTIONS, type BabysitStep, type BabysitWake } from "@milagre/shared/babysit";
@@ -8,7 +9,7 @@ import { Icon, type IconData } from "./icons";
 import { useSession } from "./session";
 import { Group, Row } from "./settings-list";
 import { useTheme } from "./theme";
-import { ErrorNotice, Segmented, Toggle, useStyles } from "./ui";
+import { Chip, DISABLED_OPACITY, ErrorNotice, Field, InlineError, pressStyle, Segmented, Tag, Toggle, useStyles } from "./ui";
 
 type Save = (change: BabysitChange) => Promise<void>;
 
@@ -32,7 +33,7 @@ const options = (values: readonly number[], title: (value: number) => string) =>
 // Six segments share a phone's width, so the interval reads "5 min" where desktop's menu says "5 minutes".
 const INTERVALS = options(INTERVAL_OPTIONS, (value) => `${value} min`);
 // An off rule keeps its number, shown dimmed, so turning it back on restores it.
-const dimmed = (on: boolean) => (on ? null : { opacity: 0.4 });
+const dimmed = (on: boolean) => (on ? null : { opacity: DISABLED_OPACITY.control });
 const DAYS = options(DAYS_OPTIONS, (value) => plural(value, "day", "days"));
 const FAILURES = options(FAILURE_OPTIONS, (value) => plural(value, "time", "times"));
 
@@ -125,9 +126,7 @@ export function BabysitSection() {
   const caption = (text: string) => <Text style={styles.caption}>{text}</Text>;
   const saveMark = (mark: SaveState) =>
     mark === "error" ? (
-      <Text accessibilityRole="alert" style={[styles.caption, { color: colors.redInk }]}>
-        Not saved
-      </Text>
+      <InlineError message="Not saved" />
     ) : mark === "saving" ? (
       <Text style={styles.caption}>Saving…</Text>
     ) : mark === "saved" ? (
@@ -137,7 +136,7 @@ export function BabysitSection() {
       </View>
     ) : null;
   const toggle = (title: string, selected: boolean, onPress: () => void, disabled = false) => (
-    <Toggle title={title} selected={selected} disabled={disabled} tint={colors.accent} onPress={onPress} />
+    <Toggle title={title} selected={selected} disabled={disabled} onPress={onPress} />
   );
   const reset = () => {
     ownRule.reset();
@@ -145,15 +144,15 @@ export function BabysitSection() {
     change(BABYSIT_DEFAULTS);
   };
   return (
-    <View style={{ gap: 20 }}>
+    <View style={{ gap: space.section }}>
       {error}
-      <Group title="Babysit PRs">
+      <Group title="Babysit PRs" inset={0}>
         <View style={{ gap: 4, paddingVertical: 8 }}>
           {toggle("Babysit new PRs", settings.enabled, () => change({ enabled: !settings.enabled }))}
           {caption("Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.")}
         </View>
         <View style={{ gap: 8, paddingVertical: 12 }}>
-          <Text style={{ color: colors.ink, fontSize: 17 }}>Check every</Text>
+          <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Check every</Text>
           <Segmented
             label="Check every"
             value={String(settings.intervalMinutes)}
@@ -162,40 +161,26 @@ export function BabysitSection() {
           />
           {caption("Milagre asks GitHub itself on this interval. The agent only wakes when something new shows up, so idle PRs cost nothing.")}
         </View>
-        <View style={{ gap: 10, paddingVertical: 12 }}>
-          <Text style={{ color: colors.ink, fontSize: 17 }}>Wake the agent for</Text>
+        <View style={{ gap: space.lg, paddingVertical: space.lg }}>
+          <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Wake the agent for</Text>
           <View accessibilityLabel="Wake the agent for" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {WAKE.map(({ kind, label }) => {
               const on = settings.wake.includes(kind);
               return (
-                <Pressable
+                <Chip
                   key={kind}
-                  accessibilityRole="button"
-                  accessibilityLabel={label}
-                  accessibilityState={{ selected: on }}
+                  label={label}
+                  selected={on}
+                  multiple
+                  leading={<Icon icon={on ? Tick02Icon : Add01Icon} tone={on ? "onInk" : "ink2"} size={12} />}
                   onPress={() => toggleWake(kind)}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    height: 34,
-                    paddingHorizontal: 12,
-                    borderRadius: 17,
-                    borderWidth: 1,
-                    borderColor: on ? colors.accentTint : colors.line,
-                    backgroundColor: on ? colors.accentTint : "transparent",
-                    opacity: pressed ? 0.6 : 1,
-                  })}
-                >
-                  <Icon icon={on ? Tick02Icon : Add01Icon} tone={on ? "accentInk" : "ink2"} size={14} />
-                  <Text style={{ color: on ? colors.accentInk : colors.ink2, fontSize: 14, fontWeight: "500" }}>{label}</Text>
-                </Pressable>
+                />
               );
             })}
           </View>
         </View>
       </Group>
-      <Group title="When something needs fixing" footer="Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.">
+      <Group title="When something needs fixing" inset={0} footer="Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.">
         <View accessibilityRole="radiogroup" accessibilityLabel="When something needs fixing" style={{ gap: 8, paddingVertical: 12 }}>
           {BABYSIT_LEVELS.map((entry) => {
             const selected = entry.level === settings.level;
@@ -208,66 +193,59 @@ export function BabysitSection() {
                 onPress={() => {
                   if (!selected) change({ level: entry.level });
                 }}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  gap: 10,
-                  padding: 12,
-                  borderRadius: 14,
-                  borderCurve: "continuous",
-                  borderWidth: selected ? 2 : 1,
-                  borderColor: selected ? colors.accent : colors.line,
-                  backgroundColor: selected ? colors.accentTint : "transparent",
-                  opacity: pressed ? 0.7 : 1,
-                })}
+                style={({ pressed }) => [
+                  {
+                    flexDirection: "row",
+                    gap: space.lg,
+                    borderRadius: radius.card,
+                    borderCurve: "continuous",
+                    // The 2pt ink edge marks the choice; padding gives back the extra point so the card doesn't move.
+                    borderWidth: selected ? 2 : 1,
+                    borderColor: selected ? colors.ink : colors.lineStrong,
+                    padding: selected ? space.lg - 1 : space.lg,
+                  },
+                  pressStyle({ pressed }),
+                ]}
               >
-                {selected ? (
-                  <View style={{ width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent }}>
-                    <Icon icon={Tick02Icon} tone="onAccent" size={12} />
-                  </View>
-                ) : (
-                  <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.ink3 }} />
-                )}
                 <View style={{ flex: 1, gap: 6 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <Text style={{ flexShrink: 1, color: selected ? colors.accentInk : colors.ink, fontSize: 15, fontWeight: "600" }}>{entry.title}</Text>
-                    {entry.level === BABYSIT_DEFAULTS.level ? (
-                      <Text
-                        style={{
-                          color: colors.ink2,
-                          fontSize: 11,
-                          fontWeight: "500",
-                          backgroundColor: colors.field,
-                          borderRadius: 4,
-                          paddingHorizontal: 6,
-                          overflow: "hidden",
-                        }}
-                      >
-                        Default
-                      </Text>
-                    ) : null}
+                    <Text
+                      style={{
+                        flexShrink: 1,
+                        color: colors.ink,
+                        fontSize: type.subheadline,
+                        lineHeight: lineHeight.subheadline,
+                        fontWeight: "600",
+                      }}
+                    >
+                      {entry.title}
+                    </Text>
+                    {entry.level === BABYSIT_DEFAULTS.level ? <Tag label="Default" /> : null}
                   </View>
-                  <Text style={{ color: selected ? colors.accentInk : colors.ink3, fontSize: 13, lineHeight: 18 }}>{entry.description}</Text>
+                  <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{entry.description}</Text>
                   <View
                     accessibilityLabel={entry.steps.map((step) => STEPS[step].name).join(", then ")}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
                       alignSelf: "flex-start",
-                      gap: 3,
+                      gap: space.xs,
                       height: 24,
-                      paddingHorizontal: 8,
-                      borderRadius: 12,
-                      backgroundColor: selected ? colors.surface : colors.field,
+                      paddingHorizontal: space.md,
+                      borderRadius: radius.full,
+                      backgroundColor: colors.field,
                     }}
                   >
                     {entry.steps.map((step, index) => (
-                      <View key={step} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                        {index > 0 ? <Icon icon={ArrowRight01Icon} tone="ink3" size={10} /> : null}
-                        <Icon icon={STEPS[step].icon} tone={selected ? "accent" : "ink2"} size={13} />
+                      <View key={step} style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                        {index > 0 ? <Icon icon={ArrowRight01Icon} tone="ink3" size={12} /> : null}
+                        <Icon icon={STEPS[step].icon} tone="ink2" size={12} />
                       </View>
                     ))}
                   </View>
                 </View>
+                {/* CheckRow's tick, at the end. */}
+                {selected && <Icon icon={Tick02Icon} tone="ink" size={18} />}
               </Pressable>
             );
           })}
@@ -277,7 +255,7 @@ export function BabysitSection() {
           {caption("On by default. After replying on a thread, the agent marks it resolved.")}
         </View>
       </Group>
-      <Group title="Stop babysitting when">
+      <Group title="Stop babysitting when" inset={0}>
         <View style={{ gap: 4, paddingVertical: 8 }}>
           {toggle("The PR is merged or closed", true, () => {}, true)}
           {caption("Always")}
@@ -317,41 +295,41 @@ export function BabysitSection() {
           {caption("The agent checks it each time it wakes and ends the Heartbeat when it holds.")}
           {settings.ownRule ? (
             <View style={{ gap: 4, paddingTop: 6 }}>
-              <TextInput
+              <Field
                 ref={ownRuleInput}
-                accessibilityLabel="Your own rule"
+                label="Your own rule"
+                hideLabel
+                autoCapitalize="sentences"
+                autoCorrect
                 maxLength={300}
                 value={ownRule.value}
                 onChangeText={ownRule.onChangeText}
                 onFocus={ownRule.onFocus}
                 onBlur={ownRule.onBlur}
-                placeholderTextColor={colors.ink3}
-                selectionColor={colors.accent}
-                style={styles.input}
               />
               {ownRule.state === "error" ? saveMark("error") : null}
             </View>
           ) : null}
         </View>
       </Group>
-      <Group title="Your instructions">
-        {[
-          <View key="instructions" style={{ gap: 6, paddingVertical: 12 }}>
-            <TextInput
-              ref={instructionsInput}
-              accessibilityLabel="Your instructions"
-              multiline
-              maxLength={4000}
-              value={instructions.value}
-              onChangeText={instructions.onChangeText}
-              onFocus={instructions.onFocus}
-              onBlur={instructions.onBlur}
-              selectionColor={colors.accent}
-              style={[styles.input, { minHeight: 120, textAlignVertical: "top" }]}
-            />
-            <View style={{ minHeight: 16, alignItems: "flex-end" }}>{saveMark(instructions.state)}</View>
-          </View>,
-        ]}
+      <Group title="Your instructions" inset={0}>
+        <View style={{ gap: 6, paddingVertical: 12 }}>
+          <Field
+            ref={instructionsInput}
+            label="Your instructions"
+            hideLabel
+            autoCapitalize="sentences"
+            autoCorrect
+            multiline
+            maxLength={4000}
+            value={instructions.value}
+            onChangeText={instructions.onChangeText}
+            onFocus={instructions.onFocus}
+            onBlur={instructions.onBlur}
+            style={{ minHeight: 120, textAlignVertical: "top" }}
+          />
+          <View style={{ minHeight: 16, alignItems: "flex-end" }}>{saveMark(instructions.state)}</View>
+        </View>
       </Group>
       <View style={[styles.card, { paddingVertical: 0 }]}>
         <Row title="Reset all to defaults" chevron={false} onPress={reset} />

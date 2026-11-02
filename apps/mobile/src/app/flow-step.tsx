@@ -334,7 +334,7 @@ function InsertField({ fields, onInsert }: { fields: FlowReadable[]; onInsert: (
       onSelect={onInsert}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}>
-        <Icon icon={Add01Icon} tone="accentInk" size={14} />
+        <Icon icon={Add01Icon} tone="accentInk" size={12} />
         <Text style={{ color: colors.accentInk, fontSize: 13, fontWeight: "500" }}>Insert field</Text>
       </View>
     </PullDown>
@@ -523,7 +523,7 @@ function AgentFields({
                   }}
                 >
                   <Text style={{ color: colors.ink, fontSize: 15 }}>{FIELD_TYPES.find((item) => item.id === field.type)?.title ?? field.type}</Text>
-                  <Icon icon={ArrowRight01Icon} tone="ink3" size={14} />
+                  <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
                 </View>
               </PullDown>
             </View>

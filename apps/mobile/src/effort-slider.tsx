@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Platform, View } from "react-native";
+import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import * as Haptics from "expo-haptics";
 import { useMotionScale, springTo } from "./motion";
+import { radius } from "./design-tokens";
+import { tap } from "./primitives/tap";
 import { useTheme } from "./theme";
 
 const HEIGHT = 32;
@@ -41,7 +42,7 @@ export function EffortSlider({
   }, [index, width, span, steps, x, last, scale]);
 
   const pick = (next: number) => {
-    if (Platform.OS === "ios") void Haptics.selectionAsync().catch(() => {});
+    tap();
     onChange(next);
   };
   const gesture = sliderGesture({ x, last, span, steps, pick, scale });
@@ -61,7 +62,14 @@ export function EffortSlider({
           if (next >= 0 && next < count) pick(next);
         }}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-        style={{ height: HEIGHT, borderRadius: 10, borderCurve: "continuous", backgroundColor: colors.field, overflow: "hidden", justifyContent: "center" }}
+        style={{
+          height: HEIGHT,
+          borderRadius: radius.control,
+          borderCurve: "continuous",
+          backgroundColor: colors.field,
+          overflow: "hidden",
+          justifyContent: "center",
+        }}
       >
         <Animated.View style={[{ position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: colors.ink, opacity: 0.12 }, fill]} />
         {width > 0 &&
@@ -73,13 +81,12 @@ export function EffortSlider({
                 left: INSET + (span * stop) / steps - 2,
                 width: 4,
                 height: 4,
-                borderRadius: 2,
-                backgroundColor: colors.ink3,
-                opacity: 0.6,
+                borderRadius: radius.full,
+                backgroundColor: colors.ink4,
               }}
             />
           ))}
-        <Animated.View style={[{ position: "absolute", left: 0, width: HANDLE, height: 20, borderRadius: 2, backgroundColor: colors.ink }, handle]} />
+        <Animated.View style={[{ position: "absolute", left: 0, width: HANDLE, height: 20, borderRadius: radius.full, backgroundColor: colors.ink }, handle]} />
       </View>
     </GestureDetector>
   );

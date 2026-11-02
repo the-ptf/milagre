@@ -5,6 +5,7 @@ import type { Client } from "./client";
 import type { MenuSection } from "./ui";
 import { archiveFromPhone, startArchiving, type ArchiveRequest } from "./archive";
 import { archiveLinkChat } from "@milagre/shared/archive";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import { pinPatch } from "./pins";
 
 /**
@@ -39,7 +40,7 @@ export function chatMenu(
       : []),
     {
       items: [
-        { id: "rename", title: "Rename chat", systemImage: "pencil" },
+        { id: "rename", title: UI_COPY.renameChat, systemImage: "pencil" },
         chat.unread ? { id: "read", title: "Mark as read", systemImage: "checkmark" } : { id: "unread", title: "Mark as unread", systemImage: "circle" },
       ],
     },
@@ -154,7 +155,7 @@ export async function runChatAction({
   if (action === "rename") {
     const title = await new Promise<string | null>((resolve) =>
       Alert.prompt(
-        "Rename Chat",
+        UI_COPY.renameChat,
         undefined,
         [
           { text: "Cancel", style: "cancel", onPress: () => resolve(null) },

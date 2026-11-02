@@ -98,11 +98,11 @@ export function OfflineTray({ target, chip }: { target: OfflineTrayTarget; chip:
               backgroundColor: colors.field,
             }}
           >
-            <Icon icon={LaptopIcon} tone="ink2" size={14} />
+            <Icon icon={LaptopIcon} tone="ink2" size={12} />
             <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: type.subheadline, fontWeight: "500" }}>
               {target.computerName}
             </Text>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.ink4 }} />
+            <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.ink4 }} />
             <Text style={{ color: colors.ink3, fontSize: type.subheadline }}>offline</Text>
           </View>
         </View>
@@ -130,7 +130,7 @@ function Row({ item, onAct }: { item: OutboxItem; onAct: (work: Promise<unknown>
   return (
     <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, paddingLeft: 10, paddingTop: 8, paddingBottom: 6 }}>
       <View style={{ height: 20, justifyContent: "center" }}>
-        <Icon icon={failed ? AlertCircleIcon : Clock01Icon} tone="orangeInk" size={15} strokeWidth={2} />
+        <Icon icon={failed ? AlertCircleIcon : Clock01Icon} tone="orangeInk" size={16} strokeWidth={2} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 15, lineHeight: 20 }}>
@@ -138,7 +138,7 @@ function Row({ item, onAct }: { item: OutboxItem; onAct: (work: Promise<unknown>
         </Text>
         {!!(attachment || status) && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            {!!attachment && <Icon icon={images.length ? Image01Icon : Attachment01Icon} tone="ink3" size={13} />}
+            {!!attachment && <Icon icon={images.length ? Image01Icon : Attachment01Icon} tone="ink3" size={12} />}
             <Text numberOfLines={2} style={{ flexShrink: 1, color: failed ? colors.orangeInk : colors.ink3, fontSize: 13 }}>
               {[attachment, status].filter(Boolean).join(" · ")}
             </Text>

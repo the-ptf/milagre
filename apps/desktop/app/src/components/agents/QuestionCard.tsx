@@ -1,12 +1,10 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { AgentQuestion, QuestionAnswers, QuestionRequest } from "../../model";
 import {
   advancesOnPick,
-  arrowTab,
   draftAnswers,
   draftOf,
   nextTab,
@@ -19,9 +17,14 @@ import {
   typeAnswer,
 } from "../../lib/question-answers";
 import type { QuestionDrafts } from "../../lib/question-answers";
-import { SPRING_PRESS, SPRING_SWAP } from "../../lib/ease";
+import { SPRING_SWAP } from "../../lib/ease";
 import { SecretCard } from "./SecretCard";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Button } from "../primitives/Button";
+import { CheckboxBox } from "../primitives/Checkbox";
+import { Input } from "../primitives/Field";
+import { Icon } from "../primitives/Icon";
+import { Tabs } from "../primitives/Tabs";
 
 /**
  * The open chat's oldest question: the agent's options as rows, an answer of the user's own, and Dismiss.
@@ -50,7 +53,6 @@ function OrdinaryQuestionCard({
   const reduce = useReducedMotion();
   const [drafts, setDrafts] = useState<QuestionDrafts>({});
   const [selected, setActive] = useState(0);
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
   // Next, or a pick that moves on, and the panel remounts, so focus would fall to the page: put it in the new panel.
   const focusPanel = useRef(false);
@@ -98,14 +100,6 @@ function OrdinaryQuestionCard({
     }
   }
 
-  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    const index = arrowTab(count, active, event.key);
-    if (index === null) return;
-    event.preventDefault();
-    setActive(index);
-    tabRefs.current[index]?.focus();
-  }
-
   useEffect(() => {
     if (!focusPanel.current) return;
     focusPanel.current = false;
@@ -128,35 +122,22 @@ function OrdinaryQuestionCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={reduce ? undefined : { opacity: 0, y: 6, scale: 0.985 }}
       transition={reduce ? { duration: 0 } : SPRING_SWAP}
-      className="flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay"
+      className="flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card bg-surface shadow-overlay"
     >
       <ScrollArea className="grid flex-1 gap-3 p-4">
         {several && (
-          <div role="tablist" aria-label="Questions" className="flex flex-wrap gap-1.5">
-            {questions.map((item, index) => {
-              const selected = index === active;
-              return (
-                <button
-                  key={item.id}
-                  ref={(node) => {
-                    tabRefs.current[index] = node;
-                  }}
-                  type="button"
-                  role="tab"
-                  id={`question-tab-${item.id}`}
-                  aria-selected={selected}
-                  aria-controls="question-panel"
-                  tabIndex={selected ? 0 : -1}
-                  onClick={() => setActive(index)}
-                  onKeyDown={handleTabKeyDown}
-                  className={`inline-flex items-center gap-1 rounded-chip border px-2 py-1 text-xs font-medium transition-colors ${selected ? "border-line-strong text-ink" : "border-transparent text-ink-3 hover:text-ink-2"}`}
-                >
-                  {questionAnswered(item, drafts) && <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2.2} color="currentColor" />}
-                  {tabLabel(item, index)}
-                </button>
-              );
-            })}
-          </div>
+          <Tabs
+            label="Questions"
+            value={String(active)}
+            options={questions.map((item, index) => ({
+              value: String(index),
+              label: tabLabel(item, index),
+              icon: questionAnswered(item, drafts) ? Tick02Icon : undefined,
+              controls: "question-panel",
+            }))}
+            onChange={(value) => setActive(Number(value))}
+            className="flex-wrap"
+          />
         )}
 
         <div
@@ -164,41 +145,34 @@ function OrdinaryQuestionCard({
           id="question-panel"
           ref={panelRef}
           role={several ? "tabpanel" : question.multiSelect ? "group" : "radiogroup"}
-          aria-labelledby={several ? `question-tab-${question.id}` : undefined}
-          aria-label={several ? undefined : question.question}
+          aria-label={several ? tabLabel(question, active) : question.question}
           className="grid gap-1.5"
         >
-          <h2 className="text-sm font-semibold text-ink">{question.question}</h2>
-          {question.multiSelect && <p className="text-xs text-ink-3">Pick any that apply.</p>}
+          <h2 className="text-15 font-semibold text-ink">{question.question}</h2>
+          {question.multiSelect && <p className="text-12 text-ink-3">Pick any that apply.</p>}
           {question.options.map((option, index) => {
             const picked = draft.picked.includes(option.label);
             return (
-              <motion.button
+              <button
                 key={`${index}-${option.label}`}
                 type="button"
                 role={question.multiSelect ? "checkbox" : "radio"}
                 aria-checked={picked}
                 disabled={!pending}
                 onClick={() => pick(question, option.label)}
-                whileTap={reduce || !pending ? undefined : { scale: 0.99 }}
-                transition={SPRING_PRESS}
-                className={`flex w-full items-start gap-2.5 rounded-control border px-2.5 py-2 text-left transition-colors disabled:cursor-default ${picked ? "border-line-strong bg-inset" : "border-line bg-surface hover:border-line-strong hover:bg-hover disabled:hover:border-line disabled:hover:bg-surface"}`}
+                className={`flex w-full items-start gap-2 rounded-control border px-2.5 py-2 text-left transition-colors disabled:cursor-default ${picked ? "border-line-strong bg-inset" : "border-line bg-surface enabled:hover:border-line-strong enabled:hover:bg-hover enabled:active:bg-hover-2"}`}
               >
-                <span
-                  aria-hidden
-                  className={`mt-0.5 flex size-4 shrink-0 items-center justify-center border ${question.multiSelect ? "rounded-[5px]" : "rounded-full"} ${picked ? "border-ink bg-ink text-surface" : "border-line-strong bg-surface"}`}
-                >
-                  {picked && <HugeiconsIcon icon={Tick02Icon} size={11} strokeWidth={2.4} color="currentColor" />}
-                </span>
+                {/* The row is the control (role and aria-checked), so it draws only the box. */}
+                <CheckboxBox checked={picked} radio={!question.multiSelect} className="mt-0.5" />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium leading-5 text-ink">{option.label}</span>
-                  {option.description && <span className="block text-xs leading-5 text-ink-2">{option.description}</span>}
+                  <span className="block text-13 font-medium text-ink">{option.label}</span>
+                  {option.description && <span className="block text-12 text-ink-2">{option.description}</span>}
                 </span>
-              </motion.button>
+              </button>
             );
           })}
           {question.allowOther && (
-            <input
+            <Input
               type={question.secret ? "password" : "text"}
               value={draft.typed}
               disabled={!pending}
@@ -207,7 +181,6 @@ function OrdinaryQuestionCard({
               placeholder={question.options.length ? "Other…" : "Type your answer"}
               aria-label={`Your own answer to: ${question.question}`}
               autoComplete="off"
-              className="w-full rounded-control border border-line bg-field px-2.5 py-2 text-[13px] text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent"
             />
           )}
         </div>
@@ -222,27 +195,14 @@ function OrdinaryQuestionCard({
             transition={reduce ? { duration: 0 } : SPRING_SWAP}
             className="flex flex-wrap justify-start gap-2 border-t border-line bg-inset px-4 py-3"
           >
-            <motion.button
-              type="button"
-              onClick={() => onAnswer(null)}
-              whileTap={reduce ? undefined : { scale: 0.97 }}
-              transition={SPRING_PRESS}
-              className="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:border-line-strong hover:bg-hover"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.8} color="currentColor" />
+            <Button variant="secondary" onClick={() => onAnswer(null)}>
+              <Icon icon={Cancel01Icon} size={14} />
               Dismiss
-            </motion.button>
-            <motion.button
-              type="button"
-              disabled={!ready}
-              onClick={advance}
-              whileTap={reduce || !ready ? undefined : { scale: 0.97 }}
-              transition={SPRING_PRESS}
-              className="inline-flex items-center gap-1.5 rounded-control bg-ink px-3 py-2 text-xs font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
-            >
-              <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2} color="currentColor" />
+            </Button>
+            <Button disabled={!ready} onClick={advance}>
+              <Icon icon={Tick02Icon} size={14} />
               {action === "next" ? "Next" : count === 1 ? "Send answer" : "Send answers"}
-            </motion.button>
+            </Button>
           </motion.div>
         )}
       </AnimatePresence>

@@ -151,7 +151,7 @@ function Bar({ width, height = 6, strong = false }: { width: DimensionValue; hei
 }
 
 function Square({ color, size = 6 }: { color: string; size?: number }) {
-  return <View style={{ width: size, height: size, borderRadius: 2, backgroundColor: color }} />;
+  return <View style={{ width: size, height: size, borderRadius: radius.full, backgroundColor: color }} />;
 }
 
 /** One list: every Chat newest first, its Project on a small first line. */
@@ -212,11 +212,11 @@ function ReplyLine({ icon, text, open }: { icon: typeof BrainIcon; text: string;
   const s = useS();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-      <Icon icon={icon} tone="ink3" size={11} />
+      <Icon icon={icon} tone="ink3" size={12} />
       <Text numberOfLines={1} style={s.tiny}>
         {text}
       </Text>
-      {open !== undefined && <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={10} />}
+      {open !== undefined && <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />}
     </View>
   );
 }
@@ -248,7 +248,7 @@ export function ExpandedReasoningPreview() {
     <View style={{ gap: 9 }}>
       <ReplyLine icon={BrainIcon} text="Thinking" open />
       <View style={{ flexDirection: "row", gap: 6 }}>
-        <View style={{ width: 2, borderRadius: 1, backgroundColor: colors.lineStrong }} />
+        <View style={{ width: 2, borderRadius: radius.card, backgroundColor: colors.lineStrong }} />
         <View style={{ flex: 1, gap: 5 }}>
           <Bar width="88%" height={5} />
           <Bar width="76%" height={5} />
@@ -323,7 +323,7 @@ const useS = createStylesHook((colors: Palette) =>
       flex: 1,
       gap: 10,
       padding: 12,
-      borderRadius: 16,
+      borderRadius: radius.card,
       borderCurve: "continuous",
       backgroundColor: colors.surface,
       borderWidth: StyleSheet.hairlineWidth,
@@ -331,7 +331,7 @@ const useS = createStylesHook((colors: Palette) =>
     },
     preview: { minHeight: 104, padding: 10, borderRadius: 10, borderCurve: "continuous", backgroundColor: colors.page, overflow: "hidden" },
     name: { flexDirection: "row", alignItems: "center", gap: 6 },
-    mark: { width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+    mark: { width: 18, height: 18, borderRadius: radius.control, alignItems: "center", justifyContent: "center" },
     title: { flex: 1, color: colors.ink, fontSize: 15, fontWeight: "600" },
     description: { color: colors.ink3, fontSize: 12, lineHeight: 16 },
     tiny: { flexShrink: 1, color: colors.ink3, fontSize: 9 },

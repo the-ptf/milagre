@@ -1,3 +1,5 @@
+import { FieldGroup } from "../primitives/Field";
+import { IconButton } from "../primitives/Button";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
@@ -38,9 +40,23 @@ export function SettingsSearchField({
     return () => window.removeEventListener("keydown", focus, true);
   }, []);
   return (
-    <label className="mx-2 mb-1 flex h-[34px] shrink-0 items-center gap-2 rounded-control border border-line bg-field px-2.5 text-ink-3 focus-within:border-line-strong">
-      <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.8} color="currentColor" />
-      <input
+    <div className="mx-2 mb-1 shrink-0">
+      <FieldGroup
+        size={32}
+        leading={<HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.8} className="shrink-0 text-ink-3" />}
+        trailing={
+          query ? (
+            <IconButton
+              label="Clear search"
+              icon={Cancel01Icon}
+              size={24}
+              onClick={() => {
+                onQuery("");
+                input.current?.focus();
+              }}
+            />
+          ) : undefined
+        }
         ref={input}
         data-settings-search
         type="text"
@@ -62,22 +78,8 @@ export function SettingsSearchField({
         }}
         placeholder="Search settings"
         aria-label="Search settings"
-        className="min-w-0 flex-1 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
       />
-      {query && (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => {
-            onQuery("");
-            input.current?.focus();
-          }}
-          className="flex size-5 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink"
-        >
-          <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} color="currentColor" />
-        </button>
-      )}
-    </label>
+    </div>
   );
 }
 

@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { clampMatch, findLabel, locateOffset, matchOffsets, stepMatch } from "../lib/find-in-chat";
 import { isMac } from "../lib/shortcut-hints";
 import Tooltip from "./primitives/Tooltip";
+import { IconButton } from "./primitives/Button";
 
 const MATCH = "find-match";
 const ACTIVE = "find-active";
@@ -70,9 +70,6 @@ function clear() {
   CSS.highlights.delete(MATCH);
   CSS.highlights.delete(ACTIVE);
 }
-
-const iconButton =
-  "flex size-6 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 
 /** Find-in-page for the open chat, scoped to the message list under `rootRef` (highlights via the CSS Custom Highlight API). */
 export function FindBar({
@@ -170,8 +167,8 @@ export function FindBar({
     <div
       role="search"
       data-find-bar
-      className="absolute top-11 right-4 z-20 flex items-center gap-1 rounded-[10px] border border-line bg-surface py-1 pr-1 pl-2.5 shadow-raised [-webkit-app-region:no-drag]"
-      style={{ animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
+      className="absolute top-11 right-4 z-20 flex items-center gap-1 rounded-card bg-surface py-1 pr-1 pl-3 shadow-raised no-drag has-[input:focus]:ring-2 has-[input:focus]:ring-accent"
+      style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -193,25 +190,19 @@ export function FindBar({
         placeholder="Find in chat"
         spellCheck={false}
         autoComplete="off"
-        className="w-44 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-3"
+        className="w-44 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
       />
-      <span data-find-count aria-live="polite" className="min-w-[4.5rem] text-right text-[12px] whitespace-nowrap text-ink-3 tabular-nums">
+      <span data-find-count aria-live="polite" className="min-w-18 text-right text-12 whitespace-nowrap text-ink-3 tabular-nums">
         {findLabel(query, active, total)}
       </span>
       <Tooltip label="Previous match" side="bottom" align="end">
-        <button type="button" aria-label="Previous match" disabled={!total} onClick={() => step(-1)} className={iconButton}>
-          <HugeiconsIcon icon={ArrowUp01Icon} size={15} strokeWidth={1.8} />
-        </button>
+        <IconButton label="Previous match" icon={ArrowUp01Icon} size={24} disabled={!total} onClick={() => step(-1)} />
       </Tooltip>
       <Tooltip label="Next match" shortcut="⌘G" side="bottom" align="end">
-        <button type="button" aria-label="Next match" disabled={!total} onClick={() => step(1)} className={iconButton}>
-          <HugeiconsIcon icon={ArrowDown01Icon} size={15} strokeWidth={1.8} />
-        </button>
+        <IconButton label="Next match" icon={ArrowDown01Icon} size={24} disabled={!total} onClick={() => step(1)} />
       </Tooltip>
       <Tooltip label="Close" side="bottom" align="end">
-        <button type="button" aria-label="Close find" onClick={onClose} className={iconButton}>
-          <HugeiconsIcon icon={Cancel01Icon} size={15} strokeWidth={1.8} />
-        </button>
+        <IconButton label="Close find" icon={Cancel01Icon} size={24} onClick={onClose} />
       </Tooltip>
     </div>
   );

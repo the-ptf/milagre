@@ -1,9 +1,9 @@
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { DesignPageShareSheet } from "../design-page-share";
 import { shareAvailabilityChanged } from "../share-availability";
 import { useSession } from "../session";
-import { useStyles } from "../ui";
+import { SheetBody, useStyles } from "../ui";
 
 /** Share for a Chat's designs or its Artifact page, as a bottom sheet over them. */
 export default function DesignShareScreen() {
@@ -15,9 +15,9 @@ export default function DesignShareScreen() {
   const source = client && chatId && (kind === "artifacts" || designs.enabled === true) && (!hostId || hostId === client.url) ? client : null;
   if (!source || !chatId)
     return (
-      <View style={{ padding: 24 }}>
+      <SheetBody>
         <Text style={styles.muted}>Reconnect to this Mac to share this page.</Text>
-      </View>
+      </SheetBody>
     );
   return (
     <DesignPageShareSheet

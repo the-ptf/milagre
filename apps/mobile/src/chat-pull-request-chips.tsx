@@ -2,10 +2,11 @@ import { Pressable, Text, View } from "react-native";
 import type { ReactNode } from "react";
 import * as Linking from "expo-linking";
 import type { PullRequest } from "@milagre/shared/model";
-import { pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
+import { PR_TONE, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { issueChipLabel, type LinearIssue } from "@milagre/shared/linear";
 import { Icon, LinearLogo } from "./icons";
-import { PullDown } from "./ui";
+import { PullDown, pressStyle } from "./ui";
+import { lineHeight, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { PR_ICONS } from "./pr-look";
 
@@ -48,10 +49,10 @@ export function ChatPullRequestChips({
             event.stopPropagation();
             open(linearIssue.url);
           }}
-          style={({ pressed }) => ({ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.55 : 1 })}
+          style={({ pressed }) => [{ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 6 }, pressStyle({ pressed })]}
         >
-          <LinearLogo size={11} />
-          <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: 12 }}>
+          <LinearLogo size={12} />
+          <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
             {issueChipLabel(linearIssue)}
           </Text>
         </Pressable>
@@ -69,12 +70,12 @@ export function ChatPullRequestChips({
               event.stopPropagation();
               openPr(pr);
             }}
-            style={({ pressed }) => ({ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.55 : 1 })}
+            style={({ pressed }) => [{ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
           >
-            <Icon icon={PR_ICONS[icon]} tone={tone} size={12} />
-            <Text style={{ color: colors.ink2, fontSize: 12, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
+            <Icon icon={PR_ICONS[icon]} tone={PR_TONE[tone].icon} size={12} />
+            <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
             {pullRequests.length === 1 && !!label && (
-              <Text numberOfLines={1} style={{ flexShrink: 1, color: colors[tone], fontSize: 12 }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: colors[PR_TONE[tone].label], fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
                 {label}
               </Text>
             )}
@@ -84,6 +85,7 @@ export function ChatPullRequestChips({
       {ordered.length > ROW_PR_LIMIT && (
         <PullDown
           label={`${ordered.length - ROW_PR_LIMIT} more pull request${ordered.length - ROW_PR_LIMIT === 1 ? "" : "s"}`}
+          hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
           title="Pull requests"
           sections={[{ items: ordered.map((pr) => ({ id: pr.url, title: `#${pr.number} · ${pr.title}` })) }]}
           onSelect={(url) => {
@@ -92,7 +94,7 @@ export function ChatPullRequestChips({
           }}
         >
           <View style={{ minHeight: 24, justifyContent: "center" }}>
-            <Text style={{ color: colors.ink2, fontSize: 12 }}>+{ordered.length - ROW_PR_LIMIT}</Text>
+            <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>+{ordered.length - ROW_PR_LIMIT}</Text>
           </View>
         </PullDown>
       )}
@@ -110,16 +112,17 @@ export function InlinePullRequestLinks({
   pullRequests,
   linearIssue,
   separator,
-  fontSize = 14,
   onOpenPullRequest,
 }: {
   pullRequests: PullRequest[];
   linearIssue?: LinearIssue;
   separator: ReactNode;
-  fontSize?: number;
   onOpenPullRequest?: (pr: PullRequest) => void;
 }) {
   const { colors } = useTheme();
+  // The row's second line is footnote 13/18; each link reaches 44pt tall, overlapping only the row's own target.
+  const text = { fontSize: type.footnote, lineHeight: lineHeight.footnote } as const;
+  const slop = { top: 13, bottom: 13, left: 4, right: 4 };
   const open = (url: string) => {
     if (url.startsWith("https://")) void Linking.openURL(url).catch(() => {});
   };
@@ -133,15 +136,15 @@ export function InlinePullRequestLinks({
         accessibilityRole="link"
         accessibilityLabel={`Open Linear issue ${linearIssue.key}`}
         accessibilityHint={linearIssue.title}
-        hitSlop={8}
+        hitSlop={slop}
         onPress={(event) => {
           event.stopPropagation();
           open(linearIssue.url);
         }}
-        style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.55 : 1 })}
+        style={({ pressed }) => [{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
       >
-        <LinearLogo size={fontSize - 3} />
-        <Text style={{ color: colors.ink2, fontSize }}>{linearIssue.key}</Text>
+        <LinearLogo size={12} />
+        <Text style={{ color: colors.ink2, ...text }}>{linearIssue.key}</Text>
       </Pressable>,
     );
   for (const pr of ordered.slice(0, ROW_PR_LIMIT)) {
@@ -152,21 +155,21 @@ export function InlinePullRequestLinks({
         accessibilityRole={onOpenPullRequest ? "button" : "link"}
         accessibilityLabel={`Open ${spoken}`}
         accessibilityHint={pr.title}
-        hitSlop={8}
+        hitSlop={slop}
         onPress={(event) => {
           event.stopPropagation();
           openPr(pr);
         }}
-        style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, opacity: pressed ? 0.55 : 1 })}
+        style={({ pressed }) => [{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
       >
-        <Icon icon={PR_ICONS[icon]} tone={tone} size={fontSize - 1} />
-        <Text style={{ color: colors.ink2, fontSize, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
+        <Icon icon={PR_ICONS[icon]} tone={PR_TONE[tone].icon} size={12} />
+        <Text style={{ color: colors.ink2, ...text, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
       </Pressable>,
     );
   }
   if (ordered.length > ROW_PR_LIMIT)
     links.push(
-      <Text key="more" style={{ color: colors.ink3, fontSize }}>
+      <Text key="more" style={{ color: colors.ink3, ...text }}>
         +{ordered.length - ROW_PR_LIMIT}
       </Text>,
     );

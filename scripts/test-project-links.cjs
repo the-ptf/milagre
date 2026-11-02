@@ -181,18 +181,22 @@ async function main() {
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "Link creation dialog",
     );
+    // The Dialog's pop-in fills `backwards`, so it has left getAnimations() by now: read the dialog's own animation and
+    // its keyframes from the stylesheet instead.
     const openingMotion = () =>
-      evaluate(
-        `document.querySelector('dialog').getAnimations().map(animation => ({ frames: animation.effect.getKeyframes(), duration: animation.effect.getTiming().duration }))`,
-      );
+      evaluate(`(() => {
+        const style = getComputedStyle(document.querySelector('dialog'));
+        const rule = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules]).find((r) => r instanceof CSSKeyframesRule && r.name === style.animationName);
+        const frames = rule ? [...rule.cssRules].map((frame) => ({ opacity: frame.style.opacity, transform: frame.style.transform })) : [];
+        const duration = style.animationDuration.endsWith("ms") ? parseFloat(style.animationDuration) : parseFloat(style.animationDuration) * 1000;
+        return { name: style.animationName, duration, frames };
+      })()`);
     const normalMotion = await openingMotion();
     assert.ok(
-      normalMotion.some(
-        (animation) =>
-          animation.frames.some((frame) => frame.transform && frame.transform !== "none") &&
-          Number(animation.frames[0].opacity) < Number(animation.frames.at(-1).opacity),
-      ),
-      "Opening Link projects fades and scales the dialog into view",
+      normalMotion.duration >= 100 &&
+        normalMotion.frames.some((frame) => frame.transform && frame.transform !== "none") &&
+        Number(normalMotion.frames[0].opacity) < Number(normalMotion.frames.at(-1).opacity),
+      `Opening Link projects fades and scales the dialog into view: ${JSON.stringify(normalMotion)}`,
     );
     await click("Cancel");
     await waitFor(() => evaluate(`!document.querySelector('#link-name')`), "Link dialog closed");
@@ -202,15 +206,10 @@ async function main() {
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "reduced-motion Link dialog",
     );
+    // The global reduced-motion rule (styles.css) ends every animation at once, so the dialog appears without scaling;
+    // the old dialog's 60ms fade was cut to the same 0.01ms by that rule.
     const reducedMotion = await openingMotion();
-    assert.ok(
-      reducedMotion.some((animation) => Number(animation.frames[0].opacity) < Number(animation.frames.at(-1).opacity)),
-      "Reduced motion keeps the opening fade",
-    );
-    assert.ok(
-      reducedMotion.every((animation) => animation.frames.every((frame) => !frame.transform || frame.transform === "none")),
-      "Reduced motion removes scale movement",
-    );
+    assert.ok(reducedMotion.duration <= 0.01, `Reduced motion removes scale movement: ${JSON.stringify(reducedMotion)}`);
     await click("Cancel");
     await waitFor(() => evaluate(`!document.querySelector('#link-name')`), "reduced-motion Link dialog closed");
     await connection.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
@@ -231,10 +230,10 @@ async function main() {
     await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
     assert.equal(await evaluate(`document.querySelectorAll('dialog input[type=checkbox]:checked').length`), 1);
     assert.equal(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`), true, "One explicitly selected Project is insufficient");
-    await input('input[aria-label="Search projects"]', "food-web");
+    await input('input[aria-label="Search Projects"]', "food-web");
     assert.equal(await evaluate(`document.querySelectorAll('dialog input[type=checkbox]').length`), 1);
     await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
-    await input('input[aria-label="Search projects"]', "");
+    await input('input[aria-label="Search Projects"]', "");
     await shot("create-link");
     await click("Create Link");
     await waitFor(() => evaluate(`!!document.querySelector('${linkScope}[data-current]') && !document.querySelector('#link-name')`), "selected Link");
@@ -444,7 +443,10 @@ async function main() {
     await shot("link-project-actions");
     await click("Commit and open PR…");
     await waitFor(() => evaluate(`!!document.querySelector('[data-git-dialog]')`), "Project menu opens scoped Git dialog");
-    assert.ok(await evaluate(`document.querySelector('[data-git-dialog] header').textContent.includes('food-web')`));
+    assert.ok(
+      await evaluate(`document.getElementById(document.querySelector('[data-git-dialog]').getAttribute('aria-describedby')).textContent.includes('food-web')`),
+      "the Git dialog names its Project",
+    );
     await waitFor(
       () => evaluate(`document.querySelector('[data-git-dialog]').textContent.includes('web-only.txt')`),
       "Git dialog reads the explicit web member Worktree",

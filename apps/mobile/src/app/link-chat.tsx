@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { router } from "expo-router";
-import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { canLinkProjects, type LinkScope } from "@milagre/shared/chat-links";
 import { createLinkTitle, linkSummary, linkWorktree, projectsScopeSubtitle, type LinkChoice } from "../chat-links";
 import { currentLinkQuestion } from "../link-chat-store";
-import { Icon } from "../icons";
-import { Button, Field, PageScroll, Toggle, useStyles } from "../ui";
-import { useTheme } from "../theme";
+import { CheckRow, CircleButton, Field, Group, PageScroll, PillButton, SheetHeader, Toggle, useStyles } from "../ui";
 
 /**
  * The "Create Link" confirmation, desktop's dialog on the phone: which ends to link, whether the source Chat may make
@@ -15,7 +13,6 @@ import { useTheme } from "../theme";
  * confirmation sheet's does, so the notice it shows never fights the sheet's dismissal.
  */
 export default function LinkChat() {
-  const { colors } = useTheme();
   const styles = useStyles();
   const [entry] = useState(currentLinkQuestion);
   const [scope, setScope] = useState<LinkScope>("worktrees");
@@ -41,67 +38,34 @@ export default function LinkChat() {
     ...(projects ? [{ id: "projects" as const, title: "The whole Projects", subtitle: projectsScopeSubtitle(source, target) }] : []),
   ];
   return (
-    <PageScroll style={styles.screen} contentContainerStyle={{ gap: 20, padding: 20 }} automaticallyAdjustKeyboardInsets>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Pressable accessibilityRole="button" onPress={() => close(null)} style={{ minHeight: 44, minWidth: 64, justifyContent: "center" }}>
-          <Text style={[styles.text, { color: colors.ink2 }]}>Cancel</Text>
-        </Pressable>
-        <Text accessibilityRole="header" style={{ flex: 1, textAlign: "center", color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-          Create Link
+    <PageScroll style={styles.screen} contentContainerStyle={{ gap: 0, padding: 0 }} automaticallyAdjustKeyboardInsets>
+      <SheetHeader title="Create Link" leading={<CircleButton label="Cancel" icon={Cancel01Icon} onPress={() => close(null)} />} />
+      <View style={{ gap: 16, padding: 16, paddingTop: 8 }}>
+        <Text numberOfLines={2} style={[styles.text, { textAlign: "center", fontWeight: "500" }]}>
+          {linkSummary(source, target, projects ? scope : "worktrees")}
         </Text>
-        <View style={{ minWidth: 64 }} />
+        <Group role="radiogroup" accessibilityLabel="Link" inset={0}>
+          {scopes.map((item) => (
+            <CheckRow key={item.id} title={item.title} subtitle={item.subtitle} checked={scope === item.id} onPress={() => setScope(item.id)} />
+          ))}
+        </Group>
+        <View style={{ gap: 4 }}>
+          <Toggle title={`Always allow Delegations from “${source.title}”`} selected={grant} onPress={() => setGrant((value) => !value)} />
+          <Text style={styles.caption}>Same as “Always allow for this Link in this Chat” on the approval card.</Text>
+        </View>
+        <Field
+          label={`Ask “${source.title}” (optional)`}
+          value={text}
+          onChangeText={setText}
+          placeholder="What should it ask the other Chat to do?"
+          multiline
+          autoCapitalize="sentences"
+          autoCorrect
+          style={{ minHeight: 96, textAlignVertical: "top" }}
+        />
+        <Text style={styles.muted}>Every Chat on either side can read the other side and make Delegations to it.</Text>
+        <PillButton size="large" title={createLinkTitle(text)} onPress={() => close({ scope: projects ? scope : "worktrees", grant, text })} />
       </View>
-      <Text numberOfLines={2} style={[styles.text, { textAlign: "center", fontWeight: "500" }]}>
-        {linkSummary(source, target, projects ? scope : "worktrees")}
-      </Text>
-      <View accessibilityRole="radiogroup" style={{ borderRadius: 12, borderCurve: "continuous", backgroundColor: colors.surface, padding: 4 }}>
-        {scopes.map((item, index) => {
-          const selected = scope === item.id;
-          return (
-            <View key={item.id}>
-              {index > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: 12 }} />}
-              <Pressable
-                accessibilityRole="radio"
-                accessibilityLabel={item.subtitle ? `${item.title}. ${item.subtitle}` : item.title}
-                accessibilityState={{ checked: selected }}
-                onPress={() => setScope(item.id)}
-                style={({ pressed }) => ({
-                  minHeight: 52,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  borderRadius: 8,
-                  backgroundColor: pressed ? colors.hover : "transparent",
-                })}
-              >
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[styles.text, { fontSize: 15 }]}>{item.title}</Text>
-                  {item.subtitle && <Text style={styles.caption}>{item.subtitle}</Text>}
-                </View>
-                <View style={{ width: 18 }}>{selected && <Icon icon={Tick02Icon} tone="accent" size={18} />}</View>
-              </Pressable>
-            </View>
-          );
-        })}
-      </View>
-      <View style={{ gap: 4 }}>
-        <Toggle title={`Always allow Delegations from “${source.title}”`} selected={grant} onPress={() => setGrant((value) => !value)} />
-        <Text style={styles.caption}>Same as “Always allow for this Link in this chat” on the approval card.</Text>
-      </View>
-      <Field
-        label={`Ask “${source.title}” (optional)`}
-        value={text}
-        onChangeText={setText}
-        placeholder="What should it ask the other chat to do?"
-        multiline
-        autoCapitalize="sentences"
-        autoCorrect
-        style={{ minHeight: 96, textAlignVertical: "top" }}
-      />
-      <Text style={styles.muted}>Every Chat on either side can read the other side and make Delegations to it.</Text>
-      <Button title={createLinkTitle(text)} onPress={() => close({ scope: projects ? scope : "worktrees", grant, text })} />
     </PageScroll>
   );
 }

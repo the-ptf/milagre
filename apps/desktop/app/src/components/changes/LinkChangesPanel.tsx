@@ -1,6 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
@@ -30,7 +28,9 @@ import { useBridge } from "../../lib/computer-bridge";
 import type { DiffList } from "./useDiffFiles";
 import { ProjectAvatarStack } from "../ProjectAvatarStack";
 import { ScrollArea } from "../primitives/ScrollArea";
-import { PickerPanel, PickerRow } from "../primitives/Picker";
+import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
+import { MenuRow, Popover } from "../primitives/Popover";
 
 export function LinkChangesPanel({
   members,
@@ -133,10 +133,10 @@ export function LinkChangesPanel({
               >
                 <ProjectAvatarStack projects={[{ path: project.path, name: project.name }]} />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-[12px] font-medium" title={project.name}>
+                  <span className="truncate text-12 font-medium" title={project.name}>
                     {project.name}
                   </span>
-                  <span className="text-[10px] text-ink-3">{LINK_PENDING_WORKTREE_TEXT}</span>
+                  <span className="text-11 text-ink-3">{LINK_PENDING_WORKTREE_TEXT}</span>
                 </span>
               </section>
             ))}
@@ -186,16 +186,16 @@ function ProjectChanges({
           aria-label={`${collapsed ? "Expand" : "Collapse"} ${name} changes`}
           aria-expanded={!collapsed}
           onClick={() => setCollapsed((value) => !value)}
-          className={`flex w-full min-w-0 items-center gap-1.5 rounded-chip py-1 pl-1 text-left transition-[padding] duration-150 group-hover/project:pr-8 group-focus-within/project:pr-8 ${actionsOpen ? "pr-8" : "pr-1"}`}
+          className={`flex w-full min-w-0 items-center gap-1.5 rounded-chip py-1 pl-1 text-left transition-[padding] group-hover/project:pr-8 group-focus-within/project:pr-8 ${actionsOpen ? "pr-8" : "pr-1"}`}
         >
-          <HugeiconsIcon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={12} color="currentColor" />
+          <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={12} />
           <ProjectAvatarStack projects={[{ path: member.projectPath, name }]} />
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate text-[12px] font-medium" title={name}>
+            <span className="truncate text-12 font-medium" title={name}>
               {name}
             </span>
-            <span className="flex min-w-0 items-center gap-1 text-[10px] text-ink-3">
-              <HugeiconsIcon icon={GitBranchIcon} size={11} className="shrink-0" />
+            <span className="flex min-w-0 items-center gap-1 text-11 text-ink-3">
+              <Icon icon={GitBranchIcon} size={12} className="shrink-0" />
               <span className="truncate" title={member.branch}>
                 {member.branch}
               </span>
@@ -243,82 +243,40 @@ function ProjectActions({
   onOpenEditor?: () => void;
   onReveal?: () => void;
 }) {
-  const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
-  const trigger = useRef<HTMLButtonElement>(null),
-    panel = useRef<HTMLDivElement>(null);
-  function close(refocus = true) {
-    setPosition(null);
-    onOpenChange(false);
-    if (refocus) trigger.current?.focus();
-  }
-  useLayoutEffect(() => {
-    if (position) panel.current?.querySelector<HTMLButtonElement>("[data-picker-row]")?.focus();
-  }, [position]);
-  useEffect(() => {
-    if (!position) return;
-    const outside = (event: Event) => {
-      if (!panel.current?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) close(false);
-    };
-    const dismiss = () => close(false);
-    document.addEventListener("pointerdown", outside);
-    document.addEventListener("scroll", outside, true);
-    window.addEventListener("resize", dismiss);
-    window.addEventListener("blur", dismiss);
-    return () => {
-      document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("scroll", outside, true);
-      window.removeEventListener("resize", dismiss);
-      window.removeEventListener("blur", dismiss);
-    };
-  }, [position]);
-  function open() {
-    const rect = trigger.current!.getBoundingClientRect();
-    setPosition({
-      left: Math.max(12, rect.right - 230),
-      ...(window.innerHeight - rect.bottom > 150 ? { top: rect.bottom + 6 } : { bottom: window.innerHeight - rect.top + 6 }),
-    });
-    onOpenChange(true);
-  }
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    onOpenChange(next);
+  };
   const choose = (action: () => void) => () => {
-    close();
+    toggle(false);
     action();
   };
   return (
     <>
-      <button
-        ref={trigger}
-        type="button"
-        data-project-actions
-        aria-label={`${name} actions`}
-        aria-expanded={Boolean(position)}
-        onClick={() => (position ? close() : open())}
-        className={`absolute right-1 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-chip text-ink-3 transition-[opacity,background-color,color] duration-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100 ${position ? "bg-hover text-ink opacity-100" : "opacity-0"}`}
+      {/* Positioned by its wrapper (IconButton's own `relative` would beat `absolute`); shown on the row's hover or focus. */}
+      <span
+        className={`absolute top-1/2 right-1 z-10 -translate-y-1/2 transition-opacity focus-within:opacity-100 group-hover/project:opacity-100 ${open ? "opacity-100" : "opacity-0"}`}
       >
-        <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
-      </button>
-      {position &&
-        createPortal(
-          <div ref={panel} data-link-project-menu aria-label={`${name} actions`} className="fixed z-[70] w-[230px]" style={position}>
-            <PickerPanel
-              onKeyDown={(event) => {
-                if (event.key === "Escape" || event.key === "Tab") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  close();
-                }
-              }}
-            >
-              <PickerRow label="Commit and open PR…" icon={<HugeiconsIcon icon={GitPullRequestIcon} size={15} />} selected={false} onClick={choose(onCommit)} />
-              {onOpenEditor && (
-                <PickerRow label="Open in editor" icon={<HugeiconsIcon icon={SourceCodeIcon} size={15} />} selected={false} onClick={choose(onOpenEditor)} />
-              )}
-              {onReveal && (
-                <PickerRow label="Reveal Worktree" icon={<HugeiconsIcon icon={FolderOpenIcon} size={15} />} selected={false} onClick={choose(onReveal)} />
-              )}
-            </PickerPanel>
-          </div>,
-          document.body,
-        )}
+        <IconButton
+          ref={trigger}
+          label={`${name} actions`}
+          icon={MoreVerticalIcon}
+          size={24}
+          data-project-actions
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => toggle(!open)}
+        />
+      </span>
+      {open && (
+        <Popover anchor={trigger} width={230} label={`${name} actions`} onClose={() => toggle(false)} data-link-project-menu>
+          <MenuRow icon={GitPullRequestIcon} title="Commit and open PR…" onClick={choose(onCommit)} />
+          {onOpenEditor && <MenuRow icon={SourceCodeIcon} title="Open in editor" onClick={choose(onOpenEditor)} />}
+          {onReveal && <MenuRow icon={FolderOpenIcon} title="Reveal Worktree" onClick={choose(onReveal)} />}
+        </Popover>
+      )}
     </>
   );
 }

@@ -180,7 +180,7 @@ export default function FlowRunScreen() {
             {chip}
             {flow.dryRun ? <FlowChip text="Test run" icon={TestTube01Icon} /> : null}
           </View>
-          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: "700" }}>
+          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: "600" }}>
             {flowRunTitle(run, routine.name)}
           </Text>
           <Text style={[styles.caption, { fontSize: 13 }]}>
@@ -355,7 +355,7 @@ function StepRow({
   const asking = status === "waiting" && approval && !approval.decision;
   return (
     <TimelineRow
-      icon={look.icon ? <Icon icon={look.icon} tone={look.tone} size={20} /> : <SpinnerRing size={17} tone="accent" />}
+      icon={look.icon ? <Icon icon={look.icon} tone={look.tone} size={20} /> : <SpinnerRing size={16} tone="accent" />}
       title={stepTitle(step)}
       line={stepRunLine(row, now)}
       lineTone={status === "failed" ? colors.redInk : status === "running" ? colors.accentInk : undefined}
@@ -602,7 +602,7 @@ function FailedCard({
                     borderTopColor: colors.line,
                   }}
                 >
-                  <Icon icon={CancelCircleIcon} tone="red" size={15} />
+                  <Icon icon={CancelCircleIcon} tone="red" size={16} />
                   <Text numberOfLines={2} style={{ flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18 }}>
                     {[`Try ${index + 1}`, runDuration(item.endedAt - item.startedAt), firstLine(item.error)].filter(Boolean).join(", ")}
                   </Text>

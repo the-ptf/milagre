@@ -1,10 +1,12 @@
 import { useEffect, useId, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowRight01Icon, ArrowShrink02Icon, ListTodoIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { currentPhase, taskCounts } from "@milagre/shared/chat-plan";
 import type { ChatPlan, ChatTask } from "../../model";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
+import { SectionLabel } from "../primitives/SectionLabel";
 import { PillMorph } from "../motion/PillMorph";
 import { PHASE_LABELS, PhaseGraph } from "./PhaseGraph";
 
@@ -12,7 +14,7 @@ const statusLabels: Record<ChatTask["status"], string> = { pending: "Pending", i
 
 function TaskMarker({ status }: { status: ChatTask["status"] }) {
   if (status === "in_progress") return <SpinnerRing size={12} />;
-  if (status === "completed") return <HugeiconsIcon icon={Tick02Icon} size={14} aria-hidden />;
+  if (status === "completed") return <Icon icon={Tick02Icon} size={14} />;
   return <span aria-hidden className="size-3 rounded-full border-[1.5px] border-line-strong" />;
 }
 
@@ -26,8 +28,8 @@ function TaskRows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: 
           data-task-row
           data-depth={depth}
           data-status={task.status}
-          style={{ paddingLeft: 8 + depth * 18 }}
-          className={`flex items-start gap-2 rounded-md py-1.5 pr-2 text-[13px] ${
+          style={{ paddingLeft: 8 + depth * 16 }}
+          className={`flex items-start gap-2 rounded-control py-1.5 pr-2 text-13 ${
             task.status === "in_progress" && !parent ? "bg-hover ring-1 ring-accent/50" : ""
           }`}
         >
@@ -37,14 +39,14 @@ function TaskRows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: 
               aria-expanded={open}
               aria-label={open ? `Collapse ${task.title}` : `Expand ${task.title}`}
               onClick={() => toggle(task.id)}
-              className="mt-0.5 text-ink-3"
+              className="relative mt-0.5 rounded-inline text-ink-3 before:absolute before:-inset-1.5 hover:text-ink"
             >
-              <HugeiconsIcon icon={open ? ArrowDown01Icon : ArrowRight01Icon} size={12} aria-hidden />
+              <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} size={12} />
             </button>
           ) : (
             <span aria-hidden className="w-3" />
           )}
-          <span aria-hidden className="mt-0.5 min-w-4 rounded bg-hover px-1 text-center text-[11px] text-ink-3 tabular-nums">
+          <span aria-hidden className="mt-0.5 min-w-4 rounded-inline bg-hover px-1 text-center text-11 text-ink-3 tabular-nums">
             {index + 1}
           </span>
           <span className={`min-w-0 flex-1 break-words ${task.status === "completed" && !parent ? "text-ink-3" : ""}`}>
@@ -114,23 +116,16 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
       {(close) => {
         if (!plan) return null;
         const collapse = (
-          <button
-            type="button"
-            aria-label="Collapse tasks"
-            onClick={close}
-            className="-my-1 shrink-0 rounded-md p-1 text-ink-3 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
-          >
-            <HugeiconsIcon icon={ArrowShrink02Icon} size={14} aria-hidden />
-          </button>
+          <IconButton label="Collapse tasks" icon={ArrowShrink02Icon} size={24} onClick={close} className="-my-1 focus-visible:-outline-offset-2" />
         );
         return (
           <div className="flex min-h-0 flex-col gap-1 p-1">
             {plan.tasks.length > 0 && (
               <div className="flex shrink-0 items-center gap-2 px-2 pt-1">
-                <h3 id={`${panelId}-tasks`} className="flex flex-1 items-center justify-between text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
+                <SectionLabel as="h3" id={`${panelId}-tasks`} className="flex flex-1 items-center justify-between">
                   <span>Tasks</span>
                   <span className="tabular-nums">{total}</span>
-                </h3>
+                </SectionLabel>
                 {collapse}
               </div>
             )}

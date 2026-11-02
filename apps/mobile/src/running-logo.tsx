@@ -2,7 +2,9 @@ import { memo, useEffect, useMemo, useState, type ComponentType, type ReactEleme
 import { formatElapsed } from "@milagre/shared/display-clock";
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View, type EasingFunction, type TextStyle } from "react-native";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { lineHeight, type } from "./design-tokens";
 import { Icon } from "./icons";
+import { pressStyle } from "./primitives/press-style";
 import Svg, { Path } from "react-native-svg";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
@@ -125,11 +127,11 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
       accessible
       accessibilityRole="progressbar"
       accessibilityLabel={label}
-      style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4, paddingVertical: 4 }}
+      style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, paddingVertical: 4 }}
     >
       <RunningLogo />
       {showLabel && (
-        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12, flexShrink: 1 }}>
+        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}>
           {label}
         </Text>
       )}
@@ -149,19 +151,23 @@ export function BackgroundIndicator({ count, startedAt, mark, onPress }: { count
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${label}. Show background tasks`}
+      // 36 tall in the transcript; the slop makes up the 44pt touch.
+      hitSlop={4}
       onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 8,
-        minHeight: 36,
-        paddingHorizontal: 4,
-        paddingVertical: 4,
-        opacity: pressed ? 0.5 : 1,
-      })}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          minHeight: 36,
+          paddingHorizontal: 4,
+          paddingVertical: 4,
+        },
+        pressStyle({ pressed }),
+      ]}
     >
       {mark}
-      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
+      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}>
         {label}
       </Text>
       <Elapsed startedAt={startedAt} color={colors.ink2} />
@@ -173,7 +179,13 @@ export function BackgroundIndicator({ count, startedAt, mark, onPress }: { count
 /** Only this Text re-renders on each tick. */
 function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
   const { colors } = useTheme();
-  return <Text style={{ color: color ?? colors.ink3, fontSize: 12, fontFamily: fonts.mono, fontVariant: ["tabular-nums"] }}>{useElapsed(startedAt)}</Text>;
+  return (
+    <Text
+      style={{ color: color ?? colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono, fontVariant: ["tabular-nums"] }}
+    >
+      {useElapsed(startedAt)}
+    </Text>
+  );
 }
 
 // step-shimmer: a 320px tile (ink-3 to 110px, ink at 160px, ink-3 from 210px) slides one tile right every 1.2s.

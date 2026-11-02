@@ -1,3 +1,4 @@
+import { radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { compactionContext } from "@milagre/shared/compaction";
@@ -1193,7 +1194,7 @@ function ChatPane({
           opacity: compactBlocked ? 0.4 : pressed ? 0.6 : 1,
         })}
       >
-        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={14} />
+        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={12} />
         <Text style={{ fontSize: 12, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}>
           {compacting ? "Compacting…" : compactQueued ? "Queued" : run ? "After turn" : "Compact"}
         </Text>
@@ -1950,7 +1951,7 @@ function ChatPane({
       <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
         {title}
       </Text>
-      {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={13} />}
+      {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={12} />}
     </View>
   );
   const header = (
@@ -1984,7 +1985,7 @@ function ChatPane({
             )}
             {!project.link && !chatsHomeOpen && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
-                <Icon icon={GitBranchIcon} tone="ink3" size={11} />
+                <Icon icon={GitBranchIcon} tone="ink3" size={12} />
                 <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
                   {chatBranchLabel(chat, worktree?.name) ?? ""}
                 </Text>
@@ -2605,7 +2606,7 @@ function ChatPane({
                           {startTray && chatsHomeOpen ? (
                             // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
-                              <Icon icon={BubbleChatIcon} tone="ink2" size={14} />
+                              <Icon icon={BubbleChatIcon} tone="ink2" size={12} />
                               <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
                             </View>
                           ) : (
@@ -2660,7 +2661,7 @@ function ChatPane({
                                         opacity: targetDisabled ? 0.35 : 1,
                                       }}
                                     >
-                                      <Icon icon={ComputerIcon} tone="ink2" size={14} />
+                                      <Icon icon={ComputerIcon} tone="ink2" size={12} />
                                       <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                         {computerName}
                                       </Text>
@@ -2671,7 +2672,7 @@ function ChatPane({
                                 <PullDown
                                   label="Choose isolation"
                                   nativeTrigger={{
-                                    title: isolation === "local" ? "Local" : "New worktree",
+                                    title: isolation === "local" ? "Local" : "New Worktree",
                                     systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
                                     icon: isolation === "local" ? "laptop" : "fork",
                                     disabled: targetDisabled,
@@ -2690,7 +2691,7 @@ function ChatPane({
                                         },
                                         {
                                           id: "worktree",
-                                          title: "New worktree",
+                                          title: "New Worktree",
                                           systemImage: "arrow.triangle.branch",
                                           icon: "fork",
                                           checked: isolation === "worktree",
@@ -2714,9 +2715,9 @@ function ChatPane({
                                       opacity: targetDisabled ? 0.35 : 1,
                                     }}
                                   >
-                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
+                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={12} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                      {isolation === "local" ? "Local" : "New worktree"}
+                                      {isolation === "local" ? "Local" : "New Worktree"}
                                     </Text>
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
@@ -2725,13 +2726,13 @@ function ChatPane({
                                   label="Choose branch"
                                   style={{ flexShrink: 1 }}
                                   searchable={{
-                                    placeholder: newWorktree ? "Search branches" : "Search worktrees",
+                                    placeholder: newWorktree ? "Search branches" : "Search Worktrees",
                                     emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
                                   }}
                                   nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
                                   sections={[
                                     {
-                                      title: newWorktree ? "Branch from" : "Choose a worktree",
+                                      title: newWorktree ? "Branch from" : "Choose a Worktree",
                                       items: newWorktree
                                         ? (branches?.items || []).map((item) => ({
                                             id: item,
@@ -2769,7 +2770,7 @@ function ChatPane({
                                       opacity: branchDisabled ? 0.35 : 1,
                                     }}
                                   >
-                                    <Icon icon={GitBranchIcon} tone="ink2" size={14} />
+                                    <Icon icon={GitBranchIcon} tone="ink2" size={12} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                       {branchName}
                                     </Text>
@@ -2830,7 +2831,7 @@ function ChatPane({
                                       key={item.id}
                                       style={{
                                         backgroundColor: colors.field,
-                                        borderRadius: 12,
+                                        borderRadius: radius.card,
                                         borderCurve: "continuous",
                                         paddingLeft: item.image ? 4 : 10,
                                         flexDirection: "row",
@@ -2839,7 +2840,11 @@ function ChatPane({
                                       }}
                                     >
                                       {item.image ? (
-                                        <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
+                                        <Image
+                                          source={{ uri: item.uri }}
+                                          accessibilityLabel={item.name}
+                                          style={{ width: 44, height: 44, borderRadius: radius.control }}
+                                        />
                                       ) : (
                                         <Pressable
                                           accessibilityRole="button"
@@ -2963,7 +2968,7 @@ function ChatPane({
                                 onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
                               >
                                 <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
-                                  <Icon icon={Add01Icon} tone="ink2" size={21} />
+                                  <Icon icon={Add01Icon} tone="ink2" size={20} />
                                 </View>
                               </PullDown>
                               <AgentControls
@@ -3033,22 +3038,20 @@ function ChatPane({
                               )}
                               {run && !offline && !draft.trim() && !attachments.length && (
                                 <IconButton
-                                  label="Stop"
+                                  label="Stop agent"
                                   icon={StopIcon}
                                   filled
-                                  size={34}
+                                  size={36}
                                   disabled={actionBusy}
                                   onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
                                 />
                               )}
                               {(offline || !run || !!draft.trim() || !!attachments.length) && (
                                 <IconButton
-                                  label={
-                                    busy ? "Sending..." : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"
-                                  }
+                                  label={busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"}
                                   icon={ArrowUp01Icon}
                                   filled
-                                  size={34}
+                                  size={36}
                                   loading={busy}
                                   disabled={sendDisabled}
                                   onPress={() => void send()}

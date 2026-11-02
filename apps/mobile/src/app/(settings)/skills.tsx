@@ -4,10 +4,14 @@ import { Stack, router } from "expo-router";
 import type { SkillOption } from "@milagre/shared/model";
 import { SKILL_PROVIDERS, SKILL_SCOPES, filterSkills, groupSkills, shadowedBy, shortenHome, skillProviderLabel } from "@milagre/shared/skill-catalog";
 import type { SkillScope } from "@milagre/shared/skill-catalog";
-import { overrides, useSkillBadge, useSkillCatalog } from "../../use-skills";
-import { ErrorNotice, Field, PullDown, useStyles } from "../../ui";
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { overrides, useSkillCatalog } from "../../use-skills";
+import { EmptyState, ErrorNotice, Field, Group, PullDown, SectionLabel, Tag, pressStyle, useStyles } from "../../ui";
 import { SettingsScroll } from "../../settings-find";
+import { Icon } from "../../icons";
 import { useTheme } from "../../theme";
+import { useHover } from "../../primitives/hover";
+import { rowHover, rowMetrics } from "../../primitives/row-metrics";
 
 export default function SkillsScreen() {
   const styles = useStyles();
@@ -36,47 +40,37 @@ export default function SkillsScreen() {
                 : "Open a Project to see its skills too. Pull down to reload."}
             </Text>
             <Field label="Search skills" hideLabel placeholder="Search skills" value={query} onChangeText={setQuery} clearButtonMode="while-editing" />
-            <View style={[styles.card, { paddingVertical: 4, gap: 0 }]}>
+            <Group inset={0}>
               <FilterMenu
                 label="Scope"
                 value={scope}
                 onChange={(value) => setScope(value as SkillScope | "all")}
                 options={[{ value: "all", title: "All scopes" }, ...SKILL_SCOPES.map((item) => ({ value: item.scope, title: item.label }))]}
               />
-              <View style={styles.separator} />
               <FilterMenu
                 label="Source"
                 value={provider}
                 onChange={setProvider}
                 options={[{ value: "all", title: "All sources" }, ...SKILL_PROVIDERS.map((item) => ({ value: item.provider, title: item.label }))]}
               />
-            </View>
+            </Group>
             {groups.map((group) => (
-              <View key={group.scope} style={{ gap: 8 }}>
-                <Text accessibilityRole="header" style={styles.section}>
-                  {group.label} · {group.skills.length}
-                </Text>
-                <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-                  {group.skills.map((skill, index) => (
-                    <View key={skill.path || skill.name}>
-                      {index > 0 && <View style={styles.separator} />}
-                      <SkillRow
-                        skill={skill}
-                        hidden={shadowedBy(data.shadowed, skill).length}
-                        onPress={() => router.push({ pathname: "/skill", params: { name: skill.name } })}
-                      />
-                    </View>
-                  ))}
-                </View>
-              </View>
+              <Group key={group.scope} title={`${group.label} · ${group.skills.length}`} inset={0}>
+                {group.skills.map((skill) => (
+                  <SkillRow
+                    key={skill.path || skill.name}
+                    skill={skill}
+                    hidden={shadowedBy(data.shadowed, skill).length}
+                    onPress={() => router.push({ pathname: "/skill", params: { name: skill.name } })}
+                  />
+                ))}
+              </Group>
             ))}
-            {!groups.length && <Text style={styles.muted}>No skills found. Create one in .claude/skills/&lt;name&gt;/SKILL.md.</Text>}
+            {!groups.length && <EmptyState title="No skills found">Create one in .claude/skills/&lt;name&gt;/SKILL.md.</EmptyState>}
             {data.warnings.length > 0 && (
               <View style={{ gap: 8 }}>
-                <Text accessibilityRole="header" style={styles.section}>
-                  Warnings · {data.warnings.length}
-                </Text>
-                <View style={[styles.card, { gap: 10 }]}>
+                <SectionLabel>{`Warnings · ${data.warnings.length}`}</SectionLabel>
+                <View style={[styles.card, { gap: 12 }]}>
                   {data.warnings.map((warning) => (
                     <Text key={warning} selectable style={styles.caption}>
                       {shortenHome(warning)}
@@ -92,32 +86,38 @@ export default function SkillsScreen() {
   );
 }
 
+/** A skill on ListRow's two-line metrics, with its source as a Tag and its file path under the description. */
 function SkillRow({ skill, hidden, onPress }: { skill: SkillOption; hidden: number; onPress: () => void }) {
-  const skillBadge = useSkillBadge();
   const { colors } = useTheme();
   const styles = useStyles();
+  const { hovered, ...pointer } = useHover();
+  const metrics = rowMetrics({ subtitle: true });
   return (
     <Pressable
+      {...pointer}
       accessibilityRole="button"
       accessibilityLabel={`/${skill.name}. ${skill.description}`}
       onPress={onPress}
-      style={({ pressed }) => ({ paddingVertical: 12, gap: 3, opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => [metrics.box, hovered && rowHover(colors.hover), pressStyle({ pressed, kind: "row" })]}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text numberOfLines={1} style={[styles.text, { fontWeight: "500", flexShrink: 1 }]}>
-          /{skill.name}
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <Text numberOfLines={1} style={[styles.text, metrics.title, { flexShrink: 1 }]}>
+            /{skill.name}
+          </Text>
+          <Tag label={skillProviderLabel(skill.provider)} />
+          {hidden > 0 && <Tag tone="orange" label={overrides(hidden)} />}
+        </View>
+        <Text numberOfLines={2} style={styles.caption}>
+          {skill.description}
         </Text>
-        <Text style={skillBadge}>{skillProviderLabel(skill.provider)}</Text>
-        {hidden > 0 && <Text style={{ color: colors.orangeInk, fontSize: 11 }}>{overrides(hidden)}</Text>}
+        {!!skill.path && (
+          <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
+            {shortenHome(skill.path)}
+          </Text>
+        )}
       </View>
-      <Text numberOfLines={1} style={[styles.caption, { color: colors.ink2, fontSize: 13 }]}>
-        {skill.description}
-      </Text>
-      {!!skill.path && (
-        <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
-          {shortenHome(skill.path)}
-        </Text>
-      )}
+      <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
     </Pressable>
   );
 }
@@ -135,6 +135,7 @@ function FilterMenu({
   onChange: (value: string) => void;
 }) {
   const styles = useStyles();
+  const { colors } = useTheme();
   return (
     <PullDown
       label={label}
@@ -142,9 +143,9 @@ function FilterMenu({
       sections={[{ items: options.map((option) => ({ id: option.value, title: option.title, checked: option.value === value })) }]}
       onSelect={onChange}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 52 }}>
         <Text style={styles.text}>{label}</Text>
-        <Text style={styles.muted}>{options.find((option) => option.value === value)?.title}</Text>
+        <Text style={[styles.text, { color: colors.ink3 }]}>{options.find((option) => option.value === value)?.title}</Text>
       </View>
     </PullDown>
   );

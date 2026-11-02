@@ -1,12 +1,10 @@
 import { Children, useState } from "react";
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import {
   Add01Icon,
-  ArrowRight01Icon,
   Calendar01Icon,
   Cancel01Icon,
   Clock01Icon,
@@ -57,7 +55,24 @@ import { modelsFor } from "../turn-options";
 import { PlaceholderField } from "../placeholder-field";
 import { confirm } from "../confirm-store";
 import { Icon, type IconData } from "../icons";
-import { Button, CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, RowCheckbox, useStyles } from "../ui";
+import {
+  CircleButton,
+  ErrorNotice,
+  Field,
+  Group,
+  InlineError,
+  ListRow,
+  PageScroll,
+  PillButton,
+  PullDown,
+  RowCheckbox,
+  SectionLabel,
+  SheetHeader,
+  pressStyle,
+  useSheetBottomInset,
+  useStyles,
+} from "../ui";
+import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 type Targets = { projects: { path: string; name: string; chats: { chatId: string; title: string; lastAt?: number }[] }[] };
@@ -131,7 +146,7 @@ export default function RoutineFormSheet() {
   const params = useLocalSearchParams<{ id?: string }>();
   const styles = useStyles();
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
+  const bottomInset = useSheetBottomInset();
   const session = useSession();
   const { client } = session;
   const routines = useRoutines(client);
@@ -329,30 +344,9 @@ export default function RoutineFormSheet() {
         automaticallyAdjustKeyboardInsets
       >
         <View style={{ backgroundColor: colors.page }}>
-          <View style={{ flexDirection: "row", alignItems: "center", minHeight: 60, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 }}>
-            <Text
-              accessibilityRole="header"
-              pointerEvents="none"
-              numberOfLines={1}
-              style={{
-                position: "absolute",
-                left: 72,
-                right: 72,
-                top: 14,
-                bottom: 6,
-                textAlign: "center",
-                lineHeight: 40,
-                color: colors.ink,
-                fontSize: 17,
-                fontWeight: "600",
-              }}
-            >
-              {title}
-            </Text>
-            <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-          </View>
+          <SheetHeader title={title} leading={<CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />} />
         </View>
-        <View style={{ padding: 20, paddingTop: 8, gap: 12 }}>
+        <View style={{ padding: 16, paddingTop: 8, gap: 12 }}>
           {error ? <ErrorNotice message={error} /> : null}
           {routines.unavailable ? (
             <Text style={styles.muted}>
@@ -360,20 +354,17 @@ export default function RoutineFormSheet() {
             </Text>
           ) : null}
           {routines.enabled === false ? <Text style={styles.caption}>{"This Mac can't run Routines yet. Saving this one allows it."}</Text> : null}
-          <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 0 }]}>
-            <Icon icon={PencilEdit02Icon} tone="ink3" size={20} />
-            <View style={{ flex: 1 }}>
-              <Field
-                label="Name"
-                hideLabel
-                placeholder="Name this Routine"
-                autoCapitalize="sentences"
-                value={form.name}
-                onChangeText={(name) => change({ name })}
-                style={{ backgroundColor: "transparent", paddingHorizontal: 0, fontSize: 16, fontWeight: "500" }}
-              />
-            </View>
-          </View>
+          {/* The pencil sits inside the Field's edge, so focus outlines icon and text together. */}
+          <Field
+            label="Name"
+            hideLabel
+            leading={<Icon icon={PencilEdit02Icon} tone="ink3" size={20} />}
+            placeholder="Name this Routine"
+            autoCapitalize="sentences"
+            value={form.name}
+            onChangeText={(name) => change({ name })}
+            style={{ fontSize: type.callout, fontWeight: "500" }}
+          />
           <Problem text={problemFor("name")} />
 
           {editing ? null : <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Each Run</Text>}
@@ -420,7 +411,7 @@ export default function RoutineFormSheet() {
             </View>
           )}
 
-          {editing ? null : <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Starts</Text>}
+          {editing ? null : <SectionLabel flush>Starts</SectionLabel>}
           {/* A Routine's trigger kind can't change, so Edit shows only its rows. */}
           <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 8, display: editing ? "none" : "flex" }}>
             {TRIGGERS.map((item) => {
@@ -434,22 +425,34 @@ export default function RoutineFormSheet() {
                   accessibilityState={{ checked: selected, disabled: locked }}
                   disabled={locked}
                   onPress={() => change(item.id !== "schedule" && heartbeat ? { ...withRunIn(form, "worktree", now), trigger: item.id } : { trigger: item.id })}
-                  style={({ pressed }) => ({
-                    flex: 1,
-                    height: 56,
-                    gap: 4,
-                    borderRadius: 14,
-                    borderCurve: "continuous",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: selected ? colors.ink : "transparent",
-                    borderWidth: selected ? 0 : 1,
-                    borderColor: colors.lineStrong,
-                    opacity: locked ? 0.4 : pressed ? 0.7 : 1,
-                  })}
+                  style={({ pressed }) => [
+                    {
+                      flex: 1,
+                      minHeight: 56,
+                      gap: 4,
+                      paddingVertical: 8,
+                      borderRadius: radius.card,
+                      borderCurve: "continuous",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: selected ? colors.ink : "transparent",
+                      borderWidth: selected ? 0 : 1,
+                      borderColor: colors.lineStrong,
+                    },
+                    pressStyle({ pressed, disabled: locked, filled: selected }),
+                  ]}
                 >
                   <Icon icon={item.icon} tone={selected ? "onInk" : "ink2"} size={20} />
-                  <Text style={{ color: selected ? colors.onInk : colors.ink2, fontSize: 13, fontWeight: selected ? "600" : "500" }}>{item.label}</Text>
+                  <Text
+                    style={{
+                      color: selected ? colors.onInk : colors.ink2,
+                      fontSize: type.footnote,
+                      lineHeight: lineHeight.footnote,
+                      fontWeight: "500",
+                    }}
+                  >
+                    {item.label}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -506,6 +509,7 @@ export default function RoutineFormSheet() {
               {form.schedule.mode === "at" ? (
                 <FormRow icon={Clock01Icon} label="Time">
                   <Field
+                    bare
                     label="Time"
                     hideLabel
                     placeholder="09:00"
@@ -545,6 +549,7 @@ export default function RoutineFormSheet() {
               {form.schedule.mode === "cron" ? (
                 <FormRow icon={Clock01Icon} label="Cron">
                   <Field
+                    bare
                     label="Cron"
                     hideLabel
                     placeholder="*/15 * * * *"
@@ -655,13 +660,13 @@ export default function RoutineFormSheet() {
             <Card>
               <FormRow icon={WebhookIcon} label="URL" value={url ? "" : "After you create it"} />
               {url ? (
-                <View style={{ gap: 10, paddingBottom: 14 }}>
+                <View style={{ gap: 12, paddingBottom: 12 }}>
                   <Text selectable numberOfLines={2} style={[styles.code, { color: colors.ink2 }]}>
                     {url}
                   </Text>
                   <View style={{ flexDirection: "row", gap: 8 }}>
-                    <PillButton title="Copy" icon={Copy01Icon} secondary onPress={() => void Clipboard.setStringAsync(url)} style={{ flex: 1, height: 40 }} />
-                    <PillButton title="Rotate" icon={Refresh01Icon} secondary onPress={() => void rotate()} style={{ flex: 1, height: 40 }} />
+                    <PillButton title="Copy" icon={Copy01Icon} secondary onPress={() => void Clipboard.setStringAsync(url)} style={{ flex: 1 }} />
+                    <PillButton title="Rotate" icon={Refresh01Icon} secondary onPress={() => void rotate()} style={{ flex: 1 }} />
                   </View>
                 </View>
               ) : null}
@@ -675,6 +680,7 @@ export default function RoutineFormSheet() {
               {signed ? (
                 <FormRow icon={Shield01Icon} label="Signing header">
                   <Field
+                    bare
                     label="Signing header"
                     hideLabel
                     placeholder="sentry-hook-signature"
@@ -687,6 +693,7 @@ export default function RoutineFormSheet() {
               {signed ? (
                 <FormRow icon={Shield01Icon} label="Signing secret">
                   <Field
+                    bare
                     label="Signing secret"
                     hideLabel
                     secureTextEntry
@@ -702,7 +709,7 @@ export default function RoutineFormSheet() {
           ) : null}
           <Problem text={problemFor("trigger", "schedule", "timezone", "workspace", "label", "state", "signingSecret")} />
 
-          {commentRoutine ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>Comments go into the Chat linked to the issue.</Text> : null}
+          {commentRoutine ? <Text style={styles.caption}>Comments go into the Chat linked to the issue.</Text> : null}
           <Card>
             {commentRoutine ? null : (
               <PullDown
@@ -875,19 +882,19 @@ export default function RoutineFormSheet() {
             </Text>
           ) : (
             <>
-              <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Prompt</Text>
+              <SectionLabel flush>Prompt</SectionLabel>
               <PlaceholderField
                 value={form.prompt}
                 onChangeText={(prompt) => change({ prompt })}
                 placeholders={placeholders}
                 placeholder={PROMPT_PLACEHOLDER}
               />
-              <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{promptHint(form.trigger)}</Text>
+              <Text style={styles.caption}>{promptHint(form.trigger)}</Text>
               <Problem text={problemFor("prompt")} />
             </>
           )}
 
-          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Stop after</Text>
+          <SectionLabel>Stop after</SectionLabel>
           <Card>
             <PullDown
               label="Stop after"
@@ -921,6 +928,7 @@ export default function RoutineFormSheet() {
             {form.stop.kind === "runs" ? (
               <FormRow icon={RepeatIcon} label="Runs">
                 <Field
+                  bare
                   label="Runs"
                   hideLabel
                   keyboardType="number-pad"
@@ -944,9 +952,9 @@ export default function RoutineFormSheet() {
           <Problem text={problemFor("stop")} />
 
           {routine && !createdId ? (
-            <View style={[styles.card, { gap: 10, marginTop: 12 }]}>
-              <Text style={[styles.caption, { fontSize: 13, color: colors.ink2 }]}>{deleteWarning(routine)}</Text>
-              <Button title="Delete Routine" secondary destructive onPress={() => void remove()} />
+            <View style={[styles.card, { gap: 12, marginTop: 12 }]}>
+              <Text style={[styles.footnote, { color: colors.ink2 }]}>{deleteWarning(routine)}</Text>
+              <PillButton title="Delete Routine" secondary destructive onPress={() => void remove()} />
             </View>
           ) : null}
         </View>
@@ -961,8 +969,8 @@ export default function RoutineFormSheet() {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.line,
           backgroundColor: colors.page,
-          padding: 20,
-          paddingBottom: Math.max(insets.bottom, 20),
+          padding: 16,
+          paddingBottom: bottomInset,
         }}
       >
         <PillButton
@@ -983,25 +991,14 @@ function chatProject(chatId: string, projects: Targets["projects"]) {
 }
 
 const inlineField = (colors: ReturnType<typeof useTheme>["colors"]) =>
-  ({ backgroundColor: "transparent", color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 120, fontSize: 15 }) as const;
+  ({ color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 120, fontSize: type.body }) as const;
 
-/** A card of rows split by hairlines. */
+/** A card of rows split by hairlines: the shared Group, taking conditional children. */
 function Card({ children }: { children: React.ReactNode }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
-  return (
-    <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-      {Children.toArray(children).map((child, index) => (
-        <View key={(child as { key?: string }).key ?? String(index)}>
-          {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line }} /> : null}
-          {child}
-        </View>
-      ))}
-    </View>
-  );
+  return <Group>{Children.toArray(children)}</Group>;
 }
 
-/** One setting: its icon and name, then its value and a chevron, or an inline input in place of both. */
+/** One setting, a ListRow: its icon and name, then its value (ink3) and a chevron, or an inline input in place of both. */
 function FormRow({
   icon,
   label,
@@ -1016,36 +1013,18 @@ function FormRow({
   readOnly?: boolean;
   children?: React.ReactNode;
 }) {
-  const { colors } = useTheme();
   return (
-    <View
-      accessible={!children}
-      accessibilityLabel={children ? undefined : `${label}: ${value ?? ""}`}
-      style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: Platform.OS === "ios" ? 12 : 10 }}
-    >
-      <Icon icon={icon} tone="ink" size={20} />
-      <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>{label}</Text>
-      {children ? (
-        <View style={{ flex: 1, alignItems: "flex-end" }}>{children}</View>
-      ) : (
-        <>
-          <Text numberOfLines={1} style={{ flex: 1, textAlign: "right", color: colors.ink2, fontSize: 15 }}>
-            {value}
-          </Text>
-          {readOnly ? null : <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />}
-        </>
-      )}
-    </View>
+    <ListRow
+      title={label}
+      icon={icon}
+      value={value}
+      chevron={!readOnly}
+      trailing={children ? <View style={{ flex: 1, alignItems: "flex-end" }}>{children}</View> : undefined}
+    />
   );
 }
 
 /** A field's problem, under the card it belongs to. */
 function Problem({ text }: { text: string }) {
-  const { colors } = useTheme();
-  if (!text) return null;
-  return (
-    <Text accessibilityRole="alert" style={{ color: colors.error, fontSize: 13, paddingHorizontal: 4 }}>
-      {text}
-    </Text>
-  );
+  return <InlineError message={text} />;
 }

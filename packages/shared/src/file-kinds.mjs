@@ -14,6 +14,8 @@ const BADGES = {
 };
 const REACT = new Set(["tsx", "jsx"]);
 const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+/** Images' identity color, the same in every theme: an image file's icon and a pasted image's chip. */
+export const IMAGE_COLOR = "#8250df";
 
 /** Badge letters or an icon name for a path, with the tint to draw it in. */
 export function fileKind(path) {
@@ -22,7 +24,7 @@ export function fileKind(path) {
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
   if (REACT.has(ext)) return { badge: null, icon: "react", color: "#00a6c8" };
-  if (IMAGES.has(ext)) return { badge: null, icon: "image", color: "#8250df" };
+  if (IMAGES.has(ext)) return { badge: null, icon: "image", color: IMAGE_COLOR };
   const badge = Object.hasOwn(BADGES, ext) ? BADGES[ext] : null;
   if (badge) return { badge: badge[0], icon: null, color: badge[1] };
   return { badge: null, icon: "file", color: "#8a8f98" };

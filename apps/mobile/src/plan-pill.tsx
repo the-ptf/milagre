@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
   BackHandler,
@@ -7,7 +7,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
   type TextInstance,
@@ -26,7 +25,7 @@ import { PlanPhaseGraph, PlanTree } from "./plan-view";
 import { useMotionScale, useReducedMotion } from "./motion";
 import { STATUS_PILL, StatusPill, StatusPillFace } from "./status-pill";
 import { useTheme } from "./theme";
-import { IconButton, PageScroll } from "./ui";
+import { IconButton, PageScroll, SectionLabel } from "./ui";
 
 // Desktop's morph: 300 ms on this curve, the hidden face fading in 100 ms and the shown one in 180 ms after 60 ms.
 const EASE = Easing.bezier(0.16, 1, 0.3, 1);
@@ -185,19 +184,6 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
   );
 });
 
-function SectionLabel({ title, count, textRef }: { title: string; count?: number; textRef?: Ref<TextInstance> }) {
-  const { colors } = useTheme();
-  const text = { color: colors.ink3, fontSize: 11, fontWeight: "500", letterSpacing: 0.9, textTransform: "uppercase" } as const;
-  return (
-    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-      <Text ref={textRef} accessibilityRole="header" style={text}>
-        {title}
-      </Text>
-      {count !== undefined && <Text style={[text, { fontVariant: ["tabular-nums"] }]}>{count}</Text>}
-    </View>
-  );
-}
-
 /**
  * A status pill's panel (Tasks, Subchats): the pill's surface grown over the Chat, a fixed header with a count and a
  * collapse control above a body that scrolls. Both faces stay mounted and crossfade while the surface's frame and
@@ -348,7 +334,9 @@ export function PillPanel({
               onLayout={({ nativeEvent }) => setHeader(Math.ceil(nativeEvent.layout.height))}
               style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 16, paddingRight: 6, paddingTop: 6 }}
             >
-              <SectionLabel title={title} count={count} textRef={heading} />
+              <SectionLabel flush trailing={count} ref={heading}>
+                {title}
+              </SectionLabel>
               <IconButton label={`Collapse ${noun}`} icon={ArrowShrink02Icon} tone="ink3" size={36} onPress={close} />
             </View>
           </GestureDetector>
@@ -397,7 +385,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
         <View style={{ gap: 10 }}>
           {tasks && (
             <View style={{ flexDirection: "row", paddingHorizontal: 4 }}>
-              <SectionLabel title="Phase graph" />
+              <SectionLabel flush>Phase graph</SectionLabel>
             </View>
           )}
           <PlanPhaseGraph key={opening} plan={plan} />
