@@ -221,12 +221,15 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
 
   // Chat
+  { page: "chat", title: "Messages during a turn", keywords: "steer queue follow-up send now later while running" },
   {
     page: "chat",
-    title: "Context size beside Send",
-    description: "Click it for usage and Compact now.",
-    keywords: "context window tokens ring",
+    title: "While the agent works",
+    group: "Messages during a turn",
+    description: "Send now steers the running turn; Queue waits for it to end.",
+    keywords: "steer queue follow-up send now later",
   },
+  { page: "chat", title: "Context size beside Send", description: "Click it for usage and Compact now.", keywords: "context window tokens ring" },
   {
     page: "chat",
     title: "Auto compact quietly",

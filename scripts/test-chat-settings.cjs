@@ -13,7 +13,8 @@ import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
 import { ActivityBlock } from '/src/components/agents/ActivityBlock';
 import '/src/styles.css';
-let contextSettings = {buttonThreshold: 70, autoThreshold: 85, autoCompact: false};
+let contextSettings = {buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps: 'now'};
+window.readHostSettings = () => contextSettings;
 window.milagre = {
   readContextSettings: async () => contextSettings,
   saveContextSettings: async (patch) => (contextSettings = {...contextSettings, ...patch}),
@@ -131,6 +132,18 @@ async function browserChecks() {
     assert.equal((await saved()).dictationAction, "paste");
     await evaluate(`${card("When dictation finishes", "Paste text")}.scrollIntoView({ block: "center" })`);
     await screenshot("chat-settings-default");
+    // Messages during a turn: one host-kept choice instead of a picker beside Send.
+    const followUps = `document.querySelector('[aria-label="Messages during a turn"]')`;
+    await waitFor(`${followUps}?.disabled === false`);
+    assert.match(await evaluate(`${followUps}.textContent`), /Send now/, "follow-ups steer by default");
+    await evaluate(`${followUps}.scrollIntoView({ block: "center" })`);
+    await screenshot("chat-settings-follow-ups");
+    await evaluate(`${followUps}.click()`);
+    await waitFor(`!![...document.querySelectorAll('[role="option"]')].find((el) => el.textContent.includes("Queue"))`);
+    await evaluate(`[...document.querySelectorAll('[role="option"]')].find((el) => el.textContent.includes("Queue")).click()`);
+    await waitFor(`window.readHostSettings().followUps === "queue"`);
+    await waitFor(`/Queue/.test(${followUps}.textContent)`);
+    await screenshot("chat-settings-follow-ups-queue");
     const contextSwitch = 'document.querySelector(\'[role="checkbox"][aria-label="Show context size"]\')';
     assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "true");
     await evaluate(`${contextSwitch}.click()`);

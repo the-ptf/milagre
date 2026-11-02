@@ -124,7 +124,7 @@ import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
 import { QueuedMessages } from "../queued-messages";
-import { DEFAULT_MESSAGE_DELIVERY, deliveryOptions, type MessageDelivery } from "@milagre/shared/queued-messages";
+import { followUpDelivery } from "@milagre/shared/queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 import { Icon, LinearLogo } from "../icons";
@@ -458,7 +458,6 @@ function ChatPane({
   );
   const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
   const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
-  const [delivery, setDelivery] = useState<MessageDelivery>(DEFAULT_MESSAGE_DELIVERY);
   const targetHost = params.hostId || session.client?.url || "";
   const reachableHost = useReachableHost(session.client?.url);
   const targetProject = params.projectPath || session.snapshot?.project.path || "";
@@ -1169,8 +1168,9 @@ function ChatPane({
   const compactQueued = chat?.queued?.find((item) => compactionContext(item));
   const compacting = compactionContext(messages.findLast((item) => compactionContext(item)))?.status === "preparing";
   const canSteer = !compacting && providerCapabilities(chat?.provider ?? actualProvider).steer;
-  const followUpChoices = deliveryOptions(canSteer);
-  const followUpLabel = delivery === "queue" ? followUpChoices[0].label : followUpChoices[1].label;
+  // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
+  const delivery = followUpDelivery(contextSettings.followUps);
+  const queuesFollowUp = delivery === "queue" || !canSteer;
   const compactBlocked = compacting || busy || Boolean(session.error) || Boolean(chat?.archived) || unavailable;
   const compactButton =
     !quietContext && (compactState.visible || compactQueued || compacting) ? (
@@ -2926,9 +2926,9 @@ function ChatPane({
                                 offline
                                   ? `Queue a message for ${computerName || "this computer"}`
                                   : run
-                                    ? delivery === "queue"
+                                    ? queuesFollowUp
                                       ? "Queue a message for the next turn"
-                                      : "Send a message now"
+                                      : "Steer the agent"
                                     : chatsHomeOpen && !params.id
                                       ? CHATS_PLACEHOLDER
                                       : undefined
@@ -2951,28 +2951,6 @@ function ChatPane({
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
                             />
-                            {run && !offline && (
-                              <PullDown
-                                label="Follow-up delivery"
-                                nativeTrigger={{ title: followUpLabel, systemImage: "clock", disabled: busy, minHeight: 44, fontSize: 15 }}
-                                sections={[
-                                  {
-                                    items: followUpChoices.map((item) => ({
-                                      id: item.value,
-                                      title: item.label,
-                                      subtitle: item.description,
-                                      checked: item.value === delivery,
-                                    })),
-                                  },
-                                ]}
-                                onSelect={(id) => setDelivery(id as MessageDelivery)}
-                                style={{ alignSelf: "flex-end" }}
-                              >
-                                <View style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 10 }}>
-                                  <Text style={{ color: colors.ink2, fontSize: 15 }}>{followUpLabel}</Text>
-                                </View>
-                              </PullDown>
-                            )}
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                               <PullDown
                                 label="Add photos or files"
@@ -3070,17 +3048,7 @@ function ChatPane({
                               )}
                               {(offline || !run || !!draft.trim() || !!attachments.length) && (
                                 <IconButton
-                                  label={
-                                    busy
-                                      ? "Sending…"
-                                      : offline
-                                        ? "Queue message"
-                                        : run
-                                          ? delivery === "queue"
-                                            ? "Queue message"
-                                            : followUpChoices[1].label
-                                          : "Send message"
-                                  }
+                                  label={busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"}
                                   icon={ArrowUp01Icon}
                                   filled
                                   size={36}

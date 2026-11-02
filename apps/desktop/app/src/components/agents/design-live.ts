@@ -138,13 +138,22 @@ function render(chatId: string, draft: Draft) {
   const chat = chats.get(chatId);
   // Read once a view follows the Chat: until then the text only gathers (useLiveDesignFeed reads it on mount).
   if (chat?.drafts.get(draft.live.key) !== draft || !chat.watched) return;
-  // design_apply builds on the version it names; it's read once its id and version have streamed in.
-  if (draft.tool === "design_apply" && !draft.base) {
-    const value = parsePartialJson(draft.input) as { id?: unknown; expectedVersion?: unknown } | undefined;
-    if (typeof value?.id === "string" && Number.isInteger(value.expectedVersion)) {
-      const base: Draft["base"] = { key: `${value.id}:${value.expectedVersion}`, document: null };
+  // design_apply builds on the version it names, and a design_show variant on the design in its `from`; it's read once
+  // its id (and design_apply's version) have streamed in.
+  if (!draft.base) {
+    const value = parsePartialJson(draft.input) as { id?: unknown; expectedVersion?: unknown; from?: { id?: unknown; version?: unknown } } | undefined;
+    const source =
+      draft.tool === "design_apply"
+        ? typeof value?.id === "string" && Number.isInteger(value.expectedVersion)
+          ? { id: value.id, version: value.expectedVersion as number }
+          : null
+        : typeof value?.from?.id === "string" && /"from"\s*:\s*\{[^{}]*\}/.test(draft.input)
+          ? { id: value.from.id, version: Number.isInteger(value.from.version) ? (value.from.version as number) : null }
+          : null;
+    if (source) {
+      const base: Draft["base"] = { key: `${source.id}:${source.version ?? "latest"}`, document: null };
       draft.base = base;
-      readArtifact(chatId, value.id, value.expectedVersion as number)
+      readArtifact(chatId, source.id, source.version)
         .then((artifact) => {
           if (artifact.format !== "design" || !artifact.document) return false;
           base.document = artifact.document;

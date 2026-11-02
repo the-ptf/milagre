@@ -1,5 +1,7 @@
 import { permissionPresentation } from "@milagre/shared/model-copy";
 import { ContextSettings } from "./ContextSettings";
+import { useContextSettings } from "../lib/context-settings";
+import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messages";
 import { outbox, useOutbox } from "../lib/outbox";
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
@@ -800,6 +802,30 @@ function DoneRetentionSetting() {
   );
 }
 
+/** Host-kept: what a message sent while a turn runs does, on this computer's Chats from desktop and phone. */
+function FollowUpSetting() {
+  const host = useContextSettings();
+  const current = FOLLOW_UP_OPTIONS.find((option) => option.value === host.settings.followUps) ?? FOLLOW_UP_OPTIONS[0];
+  return (
+    <Group title="Messages during a turn">
+      <Row label="While the agent works" description={current.description}>
+        <Select<FollowUps>
+          label="Messages during a turn"
+          value={host.settings.followUps}
+          disabled={!host.ready || host.saving}
+          onChange={(followUps) => void host.save({ followUps })}
+          options={FOLLOW_UP_OPTIONS.map(({ value, label }) => ({ value, label }))}
+        />
+      </Row>
+      {host.error && (
+        <p role="alert" className="px-4 pb-4 text-12 text-red-ink">
+          {host.error}
+        </p>
+      )}
+    </Group>
+  );
+}
+
 function ChatSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }) {
   const settings = useSettings();
   const dictateKey = useShortcutLabel("dictation.toggle");
@@ -807,6 +833,7 @@ function ChatSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void })
   const englishOnly = speechModel.english;
   return (
     <>
+      <FollowUpSetting />
       <ContextSettings />
       <ChoiceGroup title="Chat list">
         <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />

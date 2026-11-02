@@ -3420,7 +3420,7 @@ function chatHost({
     return { ...props, value: props.draft };
   };
   const send = () =>
-    find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up", "Queue message"].includes(node.props.label)).props.onPress();
+    find(render(), (node) => node.type === "IconButton" && ["Send message", "Send now", "Queue message"].includes(node.props.label)).props.onPress();
   return { session, sending, params, field, send, render, router, calls, choices, panels, undo, beside };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -9156,24 +9156,22 @@ function ongoingChatHost(options = {}) {
 }
 
 for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
-  for (const delivery of ["queue", "now"]) {
-    test(`mobile ${provider} sends the chosen ${delivery} delivery`, async () => {
-      const screen = ongoingChatHost();
+  for (const followUps of ["now", "queue"]) {
+    test(`mobile ${provider} follows the ${followUps} follow-up setting`, async () => {
+      const screen = ongoingChatHost({ contextSettings: { buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps } });
       screen.session.snapshot.project.state.sessions[7].provider = provider;
       screen.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
-      const picker = find(screen.render(), (node) => node.props?.label === "Follow-up delivery");
-      assert.equal(picker.props.nativeTrigger.title, "After this turn");
-      assert.deepEqual(
-        Array.from(picker.props.sections[0].items, (item) => item.id),
-        ["queue", "now"],
+      assert.equal(
+        find(screen.render(), (node) => node.props?.label === "Follow-up delivery"),
+        undefined,
+        "no delivery picker in the composer",
       );
-      picker.props.onSelect(delivery);
-      const immediate = ["claude", "codex"].includes(provider) ? "Send now" : "Stop and send";
-      const send = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === (delivery === "queue" ? "Queue message" : immediate));
+      const label = followUps === "now" && ["claude", "codex"].includes(provider) ? "Send now" : "Queue message";
+      const send = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === label);
       assert.ok(send);
       void send.props.onPress();
       await settle();
-      assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].delivery, delivery);
+      assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].delivery, followUps === "queue" ? "queue" : undefined);
       screen.sending.resolve({ sessionId: 7 });
       await settle();
     });

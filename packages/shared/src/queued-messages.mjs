@@ -8,15 +8,21 @@ export function queueStatus({ count, held, running }) {
   return "starting next";
 }
 
-/** One composer choice on every provider; only the immediate action's effect differs. */
-export const DEFAULT_MESSAGE_DELIVERY = "queue";
-export function deliveryOptions(canSteer) {
-  return [
-    { value: "queue", label: "After this turn", description: "Keep this message in the queue until the current turn ends." },
-    {
-      value: "now",
-      label: canSteer ? "Send now" : "Stop and send",
-      description: canSteer ? "Send this message into the running turn." : "Stop the current turn and start this message next.",
-    },
-  ];
+/** Settings › Chat: what a message sent while a turn runs does. Host-kept in context settings as `followUps`. */
+export const FOLLOW_UP_OPTIONS = [
+  {
+    value: "now",
+    label: "Send now",
+    description: "Steers the running turn. Agents that can't steer get it when the turn ends.",
+  },
+  {
+    value: "queue",
+    label: "Queue",
+    description: "Waits for the turn to end. Send now on a queued message sends it right away.",
+  },
+];
+
+/** The delivery a composer send asks for while a turn runs: only Queue overrides the host's steer default. */
+export function followUpDelivery(followUps) {
+  return followUps === "queue" ? "queue" : undefined;
 }

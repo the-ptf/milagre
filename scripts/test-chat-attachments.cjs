@@ -437,8 +437,9 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector("[data-promptbar] [aria-label=Attachments]")`), false, "Mentioned files show as chips, not tiles");
     await screenshot("file-attachments-selected");
     await type(mentions + "Review these");
-    await waitFor(`!!document.querySelector('[data-composer-submit][aria-label="Queue message"]')`);
-    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`), false, "A nonempty draft offers the selected delivery");
+    // Settings › Chat › Messages during a turn defaults to steering, so a steerable agent's follow-up sends now.
+    await waitFor(`!!document.querySelector('[data-composer-submit][aria-label="Send now"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`), false, "A nonempty draft offers Send now, not Stop");
     // With a follow-up draft, the submit button sends it; Escape still stops without losing the draft or attachments.
     await key("Escape");
     assert.equal(await evaluate("window.interrupted"), "/fixture#3", "Stop targets the open chat");

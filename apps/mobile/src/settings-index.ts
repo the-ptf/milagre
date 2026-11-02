@@ -145,6 +145,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   // Chat
   {
     page: "chat-display",
+    title: "While the agent works",
+    group: "Messages during a turn",
+    keywords: "steer queue follow-up send now later",
+  },
+  {
+    page: "chat-display",
     title: "Show size beside Send",
     group: "Context size",
     description: "Tap for usage and Compact now.",

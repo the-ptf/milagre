@@ -511,16 +511,29 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         if (!existing && request.id && (await load(folder, id, { deleted: true }))) throw Error(`The design ${id} was deleted. Use a new id.`);
         editable(existing);
         checkVersion(request, existing, true);
+        // A variant starts from a copy of a saved design and changes it with operations, instead of drawing it again.
+        let source = null;
+        if (request.from !== undefined) {
+          if (request.document !== undefined) throw Error("Send document OR from, not both.");
+          const from = await load(folder, request.from?.id);
+          if (!from) throw Error(`The design ${request.from?.id} to start from is no longer available.`);
+          editable(from);
+          source = await readVersion(folder, from, request.from.version);
+        } else if (request.operations !== undefined) throw Error("operations go with from; to revise a design in place, use design_apply.");
         const inheritedConsistency = existing ? (await readVersion(folder, existing)).document?.consistency : undefined;
-        const document = validateDesignDocument({
-          ...request.document,
-          ...(!request.document?.consistency && inheritedConsistency ? { consistency: inheritedConsistency } : {}),
-        });
+        const document = source
+          ? request.operations?.length
+            ? applyDesignOperations(source.document, request.operations)
+            : validateDesignDocument(source.document)
+          : validateDesignDocument({
+              ...request.document,
+              ...(!request.document?.consistency && inheritedConsistency ? { consistency: inheritedConsistency } : {}),
+            });
         await verifyKit(request.chatId, document);
         validateDesignConsistency(document);
         const previous = existing?.versions ?? [];
-        // A revision stays in its group unless it names one; an empty group takes it out.
-        const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : previous.at(-1)?.group;
+        // A revision stays in its group unless it names one; an empty group takes it out. A variant joins its source's.
+        const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : (previous.at(-1)?.group ?? source?.group);
         const entry = {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
@@ -856,7 +869,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
   return [
     {
       name: "design_show",
-      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews and chooses. Create an editable design from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill (${DESIGN_SKILL}) for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.`,
+      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews and chooses. Create an editable design from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill (${DESIGN_SKILL}) for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations that differ, instead of a whole document: Milagre copies it and applies them. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.`,
       input: {
         title: z.string().min(1).max(120),
         group: z
@@ -866,15 +879,25 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
           .describe(
             "The part of the app this screen belongs to, such as Onboarding or Settings. The canvas lays out one row per group. A revision keeps its group unless you pass one; an empty string removes it.",
           ),
-        document: designDocumentInputSchema,
+        document: designDocumentInputSchema.optional().describe("The whole design. Leave it out when you send from."),
+        from: z
+          .object({ id: z.string().regex(ID), version: z.number().int().positive().optional() })
+          .optional()
+          .describe("A saved design to copy (its latest version unless you name one), for a variant. Send this OR document."),
+        operations: z
+          .array(designOperationInputSchema)
+          .max(1000)
+          .optional()
+          .describe("With from: the design_apply operations that turn the copy into the variant."),
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().nonnegative().optional(),
       },
       readOnly: false,
       run: async (args) => {
+        if ((args.document === undefined) === (args.from === undefined)) throw Error("Send document OR from (with operations).");
         const design = await api.showDesign({ chatId, ...args }, authorization);
         const document =
-          !args.document.consistency && design.consistency
+          args.from || (!args.document.consistency && design.consistency)
             ? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).document
             : validateDesignDocument(args.document);
         return designFeedback(design, document, feedback);

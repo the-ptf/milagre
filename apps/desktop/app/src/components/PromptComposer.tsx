@@ -3,8 +3,7 @@ import { useShortcutLabel } from "../lib/keybindings";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import { DEFAULT_MESSAGE_DELIVERY, deliveryOptions, type MessageDelivery } from "@milagre/shared/queued-messages";
-import { Select } from "./primitives/Select";
+import { followUpDelivery, type MessageDelivery } from "@milagre/shared/queued-messages";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -125,7 +124,7 @@ interface PromptComposerProps {
   onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   sendBlocked: boolean;
-  /** A turn is running in this chat; follow-ups offer queued or immediate delivery. */
+  /** A turn is running in this chat; a follow-up steers it or queues, per Settings › Chat › Messages during a turn. */
   running?: boolean;
   runningProvider?: ModelProvider;
   /** A predicted follow-up, offered only in an empty, idle composer. */
@@ -247,9 +246,6 @@ export function PromptComposer({
 }: PromptComposerProps) {
   const mentions = useChatMentions();
   const mentionComputers = useMentionComputers();
-  const [delivery, setDelivery] = useState<MessageDelivery>(DEFAULT_MESSAGE_DELIVERY);
-  const choices = deliveryOptions(!compacting && providerCapabilities(runningProvider ?? selectedModel.provider).steer);
-  const sendLabel = delivery === "queue" ? "Queue message" : choices[1].label;
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -258,6 +254,9 @@ export function PromptComposer({
   const [fatality, setFatality] = useState(0);
   const { ultracodeFatality, appearance, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
   const { settings: contextSettings } = useContextSettings();
+  // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
+  const delivery = followUpDelivery(contextSettings.followUps);
+  const queuesFollowUp = delivery === "queue" || compacting || !providerCapabilities(runningProvider ?? selectedModel.provider).steer;
   const quiet = contextSettings.autoCompact && Boolean(onCompact);
   const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
   const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
@@ -560,10 +559,12 @@ export function PromptComposer({
           imageDraft.attachPath(path);
         }
       });
-      onSendLatest.current(running ? delivery : undefined);
+      onSendLatest.current(delivery);
       return;
     }
-    onSend(running ? delivery : undefined);
+    // Sent whether or not \`running\` is set: a turn waiting on an approval or question still runs on the host, which
+    // applies the delivery only while a turn runs.
+    onSend(delivery);
   }
 
   // The picker stays open after a pick: effort, fast mode and Ultracode sit beside the models.
@@ -1154,9 +1155,9 @@ export function PromptComposer({
                   offlineName
                     ? offlinePlaceholder(offlineName)
                     : (running
-                        ? delivery === "queue"
+                        ? queuesFollowUp
                           ? "Queue a message for the next turn…"
-                          : "Send a message now…"
+                          : "Steer the agent…"
                         : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
@@ -1367,12 +1368,9 @@ export function PromptComposer({
                   </Tooltip>
                 )}
               </span>
-              {running && !offlineName && (
-                <Select label="Follow-up delivery" value={delivery} options={choices} onChange={setDelivery} variant="text" compact disabled={sendBlocked} />
-              )}
               <button
                 type="button"
-                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? sendLabel : "Send"}
+                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? (queuesFollowUp ? "Queue message" : "Send now") : "Send"}
                 data-composer-submit
                 disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}

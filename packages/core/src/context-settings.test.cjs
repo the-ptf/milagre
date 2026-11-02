@@ -15,8 +15,10 @@ test("context settings persist on the host and broadcast normalized patches", (t
   assert.deepEqual(settings.read(), CONTEXT_DEFAULTS);
   settings.save({ buttonThreshold: 80 });
   settings.save({ autoThreshold: 91.6, autoCompact: true });
-  assert.deepEqual(createContextSettings({ file }).read(), { buttonThreshold: 80, autoThreshold: 92, autoCompact: true });
+  assert.deepEqual(createContextSettings({ file }).read(), { buttonThreshold: 80, autoThreshold: 92, autoCompact: true, followUps: "now" });
   assert.deepEqual(events.at(-1), ["context:settings", settings.read()]);
+  assert.equal(settings.save({ followUps: "queue" }).followUps, "queue", "Messages during a turn is kept with the thresholds");
+  assert.equal(settings.save({ followUps: "later" }).followUps, "now", "an unknown choice falls back to steering");
   assert.throws(() => settings.save(null), /must be an object/);
   assert.throws(() => settings.save([]), /must be an object/);
   fs.writeFileSync(file, "broken JSON");
