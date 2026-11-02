@@ -2,7 +2,7 @@ import { useScreenActive } from "../display-clock";
 import { memo, useMemo, useState } from "react";
 import { FlatList, Text, View } from "react-native";
 import { Redirect, Stack, useLocalSearchParams } from "expo-router";
-import type { DiffFileEntry, DiffFileResult } from "@milagre/shared/git-diff";
+import { commitComparisonLabel, type DiffFileEntry, type DiffFileResult } from "@milagre/shared/git-diff";
 import { useSession } from "../session";
 import { memberForDiff } from "../chat-scope";
 import { useRpc } from "../use-rpc";
@@ -24,6 +24,9 @@ export type DiffTarget = {
   binary?: string;
   mode: string;
   base?: string;
+  commit?: string;
+  /** Empty string identifies a root commit; omission supports older hosts. */
+  commitParent?: string;
   status?: DiffFileEntry["status"];
   added?: string;
   removed?: string;
@@ -47,7 +50,7 @@ export function DiffView({ target }: { target: DiffTarget }) {
   const styles = useStyles();
   const session = useSession();
   const worktree = memberForDiff(session.snapshot?.project, Number(target.worktreeId), target.memberId);
-  const { path, oldPath, untracked, mode, base } = target;
+  const { path, oldPath, untracked, mode, base, commit } = target;
   const added = Number(target.added || 0);
   const removed = Number(target.removed || 0);
   const [forced, setForced] = useState(false);
@@ -61,7 +64,7 @@ export function DiffView({ target }: { target: DiffTarget }) {
   } = useRpc<DiffFileResult>(
     skip ? null : session.client,
     "git:diff-file",
-    [{ cwd: worktree?.path, path, oldPath, untracked: untracked === "1", mode, base }],
+    [{ cwd: worktree?.path, path, oldPath, untracked: untracked === "1", mode, base, commit }],
     active,
   );
   const patch = result?.patch;
@@ -79,6 +82,11 @@ export function DiffView({ target }: { target: DiffTarget }) {
             : "";
   const header = (
     <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, gap: 6 }}>
+      {commit && (
+        <Text style={styles.caption}>
+          Commit {commit.slice(0, 8)} · {commitComparisonLabel(target.commitParent === "" ? null : target.commitParent)}
+        </Text>
+      )}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         {target.status && <StatusBox status={target.status} />}
         <Text selectable numberOfLines={2} ellipsizeMode="middle" style={[styles.caption, { flex: 1 }]}>

@@ -6,6 +6,7 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { startTestMac, until } = require("../../daemon/src/relay-test-kit.cjs");
 const { createComputers } = require("./computers.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const keychain = {
   isEncryptionAvailable: () => true,
@@ -191,7 +192,7 @@ test("Deny, and a link whose window closed, turn the computer away and save noth
   adding.catch(() => {});
   const [request] = await until(() => heard.at(-1)?.length && heard.at(-1), "the request");
   await within(mac.client.call("devices:deny", [request.key]), "devices:deny");
-  await assert.rejects(within(adding, "Deny to turn the computer away"), { message: `${name} didn't allow this Mac.` });
+  await assert.rejects(within(adding, "Deny to turn the computer away"), { message: `${name} didn't allow ${thisComputer}.` });
   assert.deepEqual(computers.list(), []);
   assert.deepEqual(await within(mac.client.call("devices:list"), "devices:list"), []);
   mac.clock.now += 11 * 60_000;

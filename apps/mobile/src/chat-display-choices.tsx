@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import { Findable } from "./settings-find";
 import { Pressable, StyleSheet, Text, View, type DimensionValue } from "react-native";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
+  ArrowUp01Icon,
+  Mic01Icon,
   BrainIcon,
   File01Icon,
   GitPullRequestIcon,
@@ -12,64 +15,132 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
-import { lineHeight, radius, type } from "./design-tokens";
 import { Icon } from "./icons";
-import { pressStyle } from "./primitives/press-style";
 import { tap } from "./primitives/tap";
 import { createStylesHook, fonts, type Palette } from "./theme";
 import { useTheme } from "./theme";
+import { radius, type } from "./design-tokens";
 
 /** One choice of a setting shown as a card: a small sketch of what it looks like, its name and a line about it. */
 export type VisualChoice<T extends string> = { value: T; title: string; description: string; preview: ReactNode };
 
-/** Two or more settings choices side by side, each a card with its sketch; the chosen one is outlined in ink (accent is for focus and links). */
+/** Two or more settings choices side by side, each a card with its sketch; the chosen one is outlined in the accent. */
 export function ChoiceCards<T extends string>({
   label,
   value,
   options,
   onChange,
+  compact = false,
 }: {
   label: string;
   value: T;
   options: VisualChoice<T>[];
   onChange: (value: T) => void;
+  compact?: boolean;
 }) {
   const s = useS();
   const { colors } = useTheme();
   return (
-    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={s.cards}>
-      {options.map((option) => {
-        const selected = option.value === value;
-        return (
-          <Pressable
-            key={option.value}
-            accessibilityRole="radio"
-            accessibilityLabel={`${option.title}. ${option.description}`}
-            accessibilityState={{ checked: selected }}
-            onPress={() => {
-              if (selected) return;
-              tap();
-              onChange(option.value);
+    <Findable title={label}>
+      <View accessibilityRole="radiogroup" accessibilityLabel={label} style={[s.cards, compact && { gap: 8 }]}>
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              key={option.value}
+              accessibilityRole="radio"
+              accessibilityLabel={`${option.title}. ${option.description}`}
+              accessibilityState={{ checked: selected }}
+              onPress={() => {
+                if (selected) return;
+                tap();
+                onChange(option.value);
+              }}
+              style={({ pressed }) => [
+                s.card,
+                compact && { padding: 8, gap: 8, borderRadius: radius.card, borderWidth: 2, minWidth: 0 },
+                selected ? { borderColor: colors.accent, borderWidth: 2 } : null,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <View
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={[s.preview, compact && { minHeight: 64, height: 64, padding: 8, borderRadius: radius.chip }]}
+              >
+                {option.preview}
+              </View>
+              <View style={s.name}>
+                {selected ? (
+                  <View style={[s.mark, { backgroundColor: colors.accent }]}>
+                    <Icon icon={Tick02Icon} tone="onAccent" size={12} />
+                  </View>
+                ) : (
+                  <View style={[s.mark, { borderWidth: 1.5, borderColor: colors.ink3 }]} />
+                )}
+                <Text numberOfLines={compact ? undefined : 1} style={s.title}>
+                  {option.title}
+                </Text>
+              </View>
+              <Text style={[s.description, compact && { fontSize: type.footnote }]}>{option.description}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </Findable>
+  );
+}
+
+/** A transcript waiting at the caret, or already sent with an empty composer below it. */
+export function DictationPreview({ sent = false }: { sent?: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flex: 1, justifyContent: "center", gap: 4 }}>
+      <View style={{ alignSelf: "flex-end", width: "60%", height: 10, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.line }} />
+      {sent && (
+        <View style={{ alignSelf: "flex-end", width: "72%", height: 10, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.ink4 }} />
+      )}
+      <View
+        style={{
+          height: sent ? 18 : 26,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+          paddingHorizontal: 6,
+          borderRadius: radius.full,
+          borderCurve: "continuous",
+          borderWidth: 1,
+          borderColor: colors.lineStrong,
+          backgroundColor: colors.surface,
+        }}
+      >
+        {!sent && (
+          <>
+            <View style={{ flex: 1, height: 4, backgroundColor: colors.ink4, borderRadius: radius.full, borderCurve: "continuous" }} />
+            <View style={{ width: 2, height: 14, backgroundColor: colors.accent }} />
+          </>
+        )}
+        {sent ? (
+          <View style={{ marginLeft: "auto" }}>
+            <Icon icon={Mic01Icon} size={12} tone="ink3" />
+          </View>
+        ) : (
+          <View
+            style={{
+              marginLeft: 4,
+              width: 20,
+              height: 20,
+              borderRadius: radius.full,
+              borderCurve: "continuous",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.ink,
             }}
-            style={({ pressed }) => [s.card, selected ? { borderColor: colors.ink, borderWidth: 2 } : null, pressStyle({ pressed })]}
           >
-            <View style={s.preview}>{option.preview}</View>
-            <View style={s.name}>
-              {selected ? (
-                <View style={[s.mark, { backgroundColor: colors.ink }]}>
-                  <Icon icon={Tick02Icon} tone="onInk" size={12} />
-                </View>
-              ) : (
-                <View style={[s.mark, { borderWidth: 1.5, borderColor: colors.ink3 }]} />
-              )}
-              <Text numberOfLines={1} style={s.title}>
-                {option.title}
-              </Text>
-            </View>
-            <Text style={s.description}>{option.description}</Text>
-          </Pressable>
-        );
-      })}
+            <Icon icon={ArrowUp01Icon} size={12} tone="onInk" />
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -80,7 +151,7 @@ function Bar({ width, height = 6, strong = false }: { width: DimensionValue; hei
 }
 
 function Square({ color, size = 6 }: { color: string; size?: number }) {
-  return <View style={{ width: size, height: size, borderRadius: 2, backgroundColor: color }} />;
+  return <View style={{ width: size, height: size, borderRadius: radius.full, backgroundColor: color }} />;
 }
 
 /** One list: every Chat newest first, its Project on a small first line. */
@@ -141,11 +212,11 @@ function ReplyLine({ icon, text, open }: { icon: typeof BrainIcon; text: string;
   const s = useS();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-      <Icon icon={icon} tone="ink3" size={11} />
+      <Icon icon={icon} tone="ink3" size={12} />
       <Text numberOfLines={1} style={s.tiny}>
         {text}
       </Text>
-      {open !== undefined && <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={10} />}
+      {open !== undefined && <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />}
     </View>
   );
 }
@@ -177,7 +248,7 @@ export function ExpandedReasoningPreview() {
     <View style={{ gap: 9 }}>
       <ReplyLine icon={BrainIcon} text="Thinking" open />
       <View style={{ flexDirection: "row", gap: 6 }}>
-        <View style={{ width: 2, borderRadius: 1, backgroundColor: colors.lineStrong }} />
+        <View style={{ width: 2, borderRadius: radius.card, backgroundColor: colors.lineStrong }} />
         <View style={{ flex: 1, gap: 5 }}>
           <Bar width="88%" height={5} />
           <Bar width="76%" height={5} />
@@ -223,15 +294,15 @@ export function SampleChatRow({ show }: { show: ChatRowShow }) {
         <Text style={[s.small, { flex: 1, color: colors.ink2 }]}>milagre-ade</Text>
         {show.lastActivity && <Text style={[s.small, { color: colors.ink3, fontVariant: ["tabular-nums"] }]}>4m</Text>}
       </View>
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" }}>
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: "500" }}>
         App freezes when opening chats
       </Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         {show.branch && <Text style={[s.small, { color: colors.ink3, fontFamily: fonts.mono }]}>milagre/fix-chat</Text>}
         {show.pullRequests && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
             <Icon icon={GitPullRequestIcon} tone="purple" size={12} />
-            <Text style={[s.small, { color: colors.purpleInk }]}>#649</Text>
+            <Text style={[s.small, { color: colors.purple }]}>#649</Text>
           </View>
         )}
         {show.linearIssue && <Text style={[s.small, { color: colors.ink2 }]}>ENG-412</Text>}
@@ -250,7 +321,7 @@ const useS = createStylesHook((colors: Palette) =>
     cards: { flexDirection: "row", gap: 12 },
     card: {
       flex: 1,
-      gap: 12,
+      gap: 10,
       padding: 12,
       borderRadius: radius.card,
       borderCurve: "continuous",
@@ -258,13 +329,12 @@ const useS = createStylesHook((colors: Palette) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.line,
     },
-    preview: { minHeight: 104, padding: 12, borderRadius: radius.control, borderCurve: "continuous", backgroundColor: colors.page, overflow: "hidden" },
+    preview: { minHeight: 104, padding: 10, borderRadius: 10, borderCurve: "continuous", backgroundColor: colors.page, overflow: "hidden" },
     name: { flexDirection: "row", alignItems: "center", gap: 6 },
-    mark: { width: 18, height: 18, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
-    title: { flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" },
-    description: { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
-    // The sketches are drawn at miniature scale; their 9pt text and 10/11 icons are part of the drawing.
+    mark: { width: 18, height: 18, borderRadius: radius.control, alignItems: "center", justifyContent: "center" },
+    title: { flex: 1, color: colors.ink, fontSize: 15, fontWeight: "600" },
+    description: { color: colors.ink3, fontSize: 12, lineHeight: 16 },
     tiny: { flexShrink: 1, color: colors.ink3, fontSize: 9 },
-    small: { fontSize: type.caption1, lineHeight: lineHeight.caption1 },
+    small: { fontSize: 12 },
   }),
 );

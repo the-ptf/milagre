@@ -5,7 +5,7 @@ export { tap } from "./primitives/tap";
 export { PageScroll } from "./primitives/page-scroll";
 export { PillButton } from "./primitives/pill-button";
 export { Toggle } from "./primitives/toggle";
-export { RowSwitch } from "./primitives/row-switch";
+export { RowCheckbox } from "./primitives/row-checkbox";
 export { Field } from "./primitives/field";
 export { ErrorNotice } from "./primitives/error-notice";
 export { InlineError } from "./primitives/inline-error";
@@ -31,3 +31,5 @@ export { Tag } from "./primitives/tag";
 export { CheckboxBox } from "./primitives/checkbox";
 export { CheckRow } from "./primitives/check-row";
 export { Group } from "./primitives/group";
+
+export { Button } from "./primitives/button";

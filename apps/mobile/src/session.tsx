@@ -20,6 +20,7 @@ import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { createLinkOperations } from "./link-operations";
 import { noteChatProjectOpening, prefetchChatPage } from "./chat-pages";
+import { pullRequestsChanged } from "./pr-status";
 
 const hostOf = (url: string) =>
   // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- url comes from a pairing payload that is not validated here (see the String(url || '') fallback), so it may be empty or missing
@@ -646,6 +647,7 @@ function useSessionState() {
       },
       links: () => void refreshLinks(client),
       designs: () => void refreshDesigns(),
+      pulls: () => pullRequestsChanged(client),
       liveStatus: designsConnectionChanged,
       onError: (error) => setError(error.message),
       active: () => AppState.currentState === "active",

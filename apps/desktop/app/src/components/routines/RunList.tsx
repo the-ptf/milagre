@@ -6,14 +6,19 @@ import {
   CheckmarkCircle02Icon,
   Clock01Icon,
   Loading03Icon,
+  MinusSignCircleIcon,
   Moon02Icon,
   NextIcon,
+  PauseCircleIcon,
+  PauseIcon,
   UnavailableIcon,
   UnfoldLessIcon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
-import { clock, daySummary, foldText, foldTimes, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
+import { attemptText, clock, daySummary, foldText, foldTimes, retryNote, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
+import { flowRunText, needsAnswer } from "@milagre/shared/routine-flows";
+import { ThisComputer } from "../../lib/shortcut-hints";
 import { Button } from "../primitives/Button";
 import { Icon as Glyph } from "../primitives/Icon";
 import { SectionLabel } from "../primitives/SectionLabel";
@@ -37,20 +42,50 @@ const firstLine = (text: string | undefined) =>
 
 /** A Run that did something: its icon and color, and the words its row shows (a failed one says why, in red). */
 function runLook(run: RoutineRun, routineName: string): { icon: HugeIconData; spin?: boolean; tone: string; text: string; failed?: boolean } {
-  if (run.status === "running") return { icon: Loading03Icon, spin: true, tone: "text-ink-3", text: runTitle(run, routineName) };
+  // A flow Run says where it stands: "MIL-482 Retry webhooks · Waiting for you at Open pull request".
+  if (run.flow) {
+    const text = `${runTitle(run, routineName)} · ${flowRunText(run)}`;
+    switch (run.flow.status) {
+      case "running":
+        return { icon: Loading03Icon, spin: true, tone: "text-ink-3", text };
+      case "waiting":
+        return needsAnswer(run) ? { icon: PauseCircleIcon, tone: "text-orange-ink", text } : { icon: Clock01Icon, tone: "text-ink-3", text };
+      case "paused":
+        return { icon: PauseIcon, tone: "text-ink-3", text };
+      case "failed":
+        return { icon: Alert02Icon, tone: "text-red-ink", text, failed: true };
+      case "ended":
+        return { icon: MinusSignCircleIcon, tone: "text-ink-3", text };
+      default:
+        return { icon: CheckmarkCircle02Icon, tone: "text-ink-3", text };
+    }
+  }
+  // A Run that ran on its fallback says so after its words.
+  const note = retryNote(run);
+  const noted = (text: string) => (note ? `${text} · ${note}` : text);
+  // A Run that stopped without failing (a flow's approval rejected or expired, or ended by hand) reads as neutral.
+  if (run.status === "ended") {
+    const reason = firstLine(run.error);
+    return { icon: MinusSignCircleIcon, tone: "text-ink-3", text: noted(reason ? `Ended, ${reason}` : "Ended") };
+  }
+  if (run.status === "running") return { icon: Loading03Icon, spin: true, tone: "text-ink-3", text: noted(runTitle(run, routineName)) };
   if (run.status === "failed") {
     const error = firstLine(run.error);
-    return { icon: Alert02Icon, tone: "text-red-ink", text: error ? `Failed: ${error}` : "Failed", failed: true };
+    return { icon: Alert02Icon, tone: "text-red-ink", text: noted(error ? `Failed: ${error}` : "Failed"), failed: true };
   }
-  return { icon: CheckmarkCircle02Icon, tone: "text-ink-3", text: runTitle(run, routineName) };
+  return { icon: CheckmarkCircle02Icon, tone: "text-ink-3", text: noted(runTitle(run, routineName)) };
 }
 
 /** A folded Run as its line says it: a quiet one its summary, a skipped one that its Chat was busy, and so on. */
 function foldedLine(run: RoutineRun): { icon: HugeIconData; text: string } {
   if (run.rejected) return { icon: UnavailableIcon, text: firstLine(run.error) ?? "Refused" };
-  if (run.status === "quiet") return { icon: Moon02Icon, text: run.summary?.trim() || "Quiet" };
+  if (run.status === "quiet") {
+    const note = retryNote(run);
+    const text = run.summary?.trim() || "Quiet";
+    return { icon: Moon02Icon, text: note ? `${text} · ${note}` : text };
+  }
   if (run.status === "skipped-busy") return { icon: NextIcon, text: "Its Chat was busy" };
-  return { icon: Clock01Icon, text: "This Mac missed its time" };
+  return { icon: Clock01Icon, text: `${ThisComputer} missed its time` };
 }
 
 const Icon = ({ icon, spin = false, className }: { icon: HugeIconData; spin?: boolean; className: string }) => (
@@ -133,6 +168,7 @@ export function RunList({
   canOpen = noChat,
   selectedChat = null,
   onOpenChat,
+  onOpenFlowRun,
   now,
 }: {
   runs: RoutineRun[];
@@ -145,6 +181,8 @@ export function RunList({
   /** The Run Chat open beside the list: its row is highlighted. */
   selectedChat?: string | null;
   onOpenChat: (chatKey: string) => void;
+  /** Opens a flow Run in its flow's Run view; without it, a flow Run's row opens its Chat like any other. */
+  onOpenFlowRun?: (runId: string) => void;
 }) {
   const days = useMemo(() => runDays(runs, now), [runs, now]);
   const [shownDays, setShownDays] = useState(FIRST_DAYS);
@@ -158,14 +196,34 @@ export function RunList({
       return next;
     });
   const openable = (run: RoutineRun) => (run.chatId && canOpen(run.chatId) ? run.chatId : undefined);
+  // The attempts a Run retried after, each a muted line under it that opens its own Chat while it is there.
+  const attempts = (run: RoutineRun) =>
+    (run.attempts ?? []).map((attempt) => {
+      const chat = attempt.chatId && canOpen(attempt.chatId) ? attempt.chatId : undefined;
+      return (
+        <Row
+          key={`${run.id}:attempt:${attempt.endedAt}`}
+          data-routine-run-attempt={`${run.id}:${attempt.endedAt}`}
+          time=""
+          icon={<Icon icon={Alert02Icon} className="text-ink-3" />}
+          text={attemptText(attempt)}
+          title={attempt.error}
+          muted
+          selected={chat !== undefined && chat === selectedChat}
+          trailing={chat ? chevron : undefined}
+          onClick={chat ? () => onOpenChat(chat) : undefined}
+        />
+      );
+    });
 
   const entry = (item: RunEntry) => {
     if (item.kind === "run") {
       const { run } = item;
       const look = runLook(run, routineName);
-      // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
-      const chat = openable(run);
-      return (
+      // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has. A flow Run opens its Run view.
+      const flowRun = run.flow && onOpenFlowRun ? () => onOpenFlowRun(run.id) : undefined;
+      const chat = flowRun ? undefined : openable(run);
+      const row = (
         <Row
           key={run.id}
           data-routine-run={run.id}
@@ -177,9 +235,17 @@ export function RunList({
           title={look.failed ? run.error : undefined}
           unread={chat !== undefined && unreadChats.has(chat)}
           selected={chat !== undefined && chat === selectedChat}
-          trailing={chat ? chevron : undefined}
-          onClick={chat ? () => onOpenChat(chat) : undefined}
+          trailing={chat || flowRun ? chevron : undefined}
+          onClick={flowRun ?? (chat ? () => onOpenChat(chat) : undefined)}
         />
+      );
+      return run.attempts?.length ? (
+        <div key={run.id}>
+          {row}
+          {attempts(run)}
+        </div>
+      ) : (
+        row
       );
     }
     const key = `fold:${item.runs[item.runs.length - 1]!.id}`;
@@ -199,7 +265,7 @@ export function RunList({
           item.runs.map((run) => {
             const line = foldedLine(run);
             const chat = run.status === "quiet" && !run.rejected ? openable(run) : undefined;
-            return (
+            return [
               <Row
                 key={run.id}
                 data-routine-run={run.id}
@@ -212,8 +278,9 @@ export function RunList({
                 selected={chat !== undefined && chat === selectedChat}
                 trailing={chat ? chevron : undefined}
                 onClick={chat ? () => onOpenChat(chat) : undefined}
-              />
-            );
+              />,
+              ...attempts(run),
+            ];
           })}
       </div>
     );

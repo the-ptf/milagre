@@ -1,21 +1,25 @@
+import { useShortcutLabel } from "../lib/keybindings";
+import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import { DEFAULT_MESSAGE_DELIVERY, deliveryOptions, type MessageDelivery } from "@milagre/shared/queued-messages";
+import { Select } from "./primitives/Select";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
-import type { IconSvgElement } from "@hugeicons/react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  CleanIcon,
+  Cancel01Icon,
+  ArrowDown01Icon,
   ArrowUp01Icon,
   Attachment01Icon,
   ClipboardPasteIcon,
   FlashIcon,
   Mic01Icon,
   SecurityCheckIcon,
-  Shield01Icon,
-  ShieldAlertIcon,
 } from "@hugeicons/core-free-icons";
-import { permissionPresentation, UI_COPY } from "@milagre/shared/model-copy";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
@@ -38,37 +42,48 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
+import { compactButtonState } from "@milagre/shared/chat-display";
 import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
 import { useChatMentions } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
-import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
+import {
+  NOTICE_SECONDS,
+  provisionalRange,
+  correctTake,
+  takeRange,
+  revertTake,
+  startTake,
+  writeTake,
+  type DictationTake,
+  type Selection as TextRange,
+} from "@milagre/shared/voice-dictation";
+import { useDictationShortcut } from "../lib/dictation-shortcut";
 import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
-import { Button, IconButton } from "./primitives/Button";
-import { Chip } from "./primitives/Chip";
-import { Icon } from "./primitives/Icon";
-import { MenuLabel } from "./primitives/Popover";
-import { InlineError } from "./primitives/InlineError";
-import { SpinnerRing } from "./primitives/SpinnerRing";
+import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
+import { SpinnerRing } from "./primitives/SpinnerRing";
+
+type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
+
+function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
+  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
+}
 
 type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number };
 
-type Source = { key: string; name: string; desc: string; icon: IconSvgElement };
+type Source = { key: string; name: string; desc: string; icon: IconData };
 
 const SOURCES: Source[] = [
   { key: "attach", name: "Add files", desc: "Choose files from your computer", icon: Attachment01Icon },
   { key: "paste", name: "Paste image", desc: "Attach an image from the clipboard", icon: ClipboardPasteIcon },
 ];
 
-// permissionPresentation's semantic icon names, as Hugeicons. Full is the only orange mode.
-const PERMISSION_ICONS = { shield: Shield01Icon, "security-check": SecurityCheckIcon, "shield-alert": ShieldAlertIcon } as const;
-
 const UNDO_COMMAND = { key: "undo", name: "/undo", desc: "Undo a task's file changes" };
 
 const COMMANDS = [
   { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
-  { key: "blockers", name: "/blockers", desc: "Find blockers across Worktrees" },
+  { key: "blockers", name: "/blockers", desc: "Find blockers across worktrees" },
   { key: "plan", name: "/plan", desc: "Draft the next steps" },
   { key: "review", name: "/review", desc: "Review the current agent output" },
 ];
@@ -80,19 +95,26 @@ interface PromptComposerProps {
   reconnectingName?: string | null;
   imageDraft: ImageDraft;
   projectPath: string;
+  /** Account routing uses the canonical Project or Link, rather than a Link Chat's workspace folder. */
+  accountScope?: string;
   draft: string;
   onDraftChange: (draft: string) => void;
   /** Prompts sent in this chat, oldest first; Up and Down at the field's first or last line step through them. */
   history?: string[];
-  onSend: () => void;
+  onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   sendBlocked: boolean;
-  /** A turn is running in this chat; a message sent now steers it. */
+  /** A turn is running in this chat; follow-ups offer queued or immediate delivery. */
   running?: boolean;
+  runningProvider?: ModelProvider;
   /** A predicted follow-up, offered only in an empty, idle composer. */
   suggestion?: string;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
+  compactionFeedback?: { percent: number; freed: string } | null;
+  compacting?: boolean;
+  compactQueued?: boolean;
+  onCancelCompact?: () => void;
   /** The models each agent offers, or the maintained list until it reports them. */
   models: ModelOption[];
   /** How each agent's CLI stands; a problem is flagged on its tab and in a notice above the models. */
@@ -128,7 +150,7 @@ const NO_HISTORY: string[] = [];
 
 const DICTATION_LABELS = {
   idle: "Dictate",
-  preparing: "Starting dictation",
+  preparing: "Cancel dictation",
   recording: "Stop dictation",
   transcribing: "Transcribing",
 } as const;
@@ -162,6 +184,7 @@ export function PromptComposer({
   reconnectingName,
   imageDraft,
   projectPath,
+  accountScope = projectPath,
   draft,
   onDraftChange,
   history = NO_HISTORY,
@@ -169,8 +192,13 @@ export function PromptComposer({
   onStop,
   sendBlocked,
   running = false,
+  runningProvider,
   suggestion,
   onCompact,
+  compactionFeedback,
+  compacting = false,
+  compactQueued = false,
+  onCancelCompact,
   models,
   cliStatus,
   onModelPickerOpen,
@@ -194,22 +222,30 @@ export function PromptComposer({
   placeholder,
 }: PromptComposerProps) {
   const mentions = useChatMentions();
+  const [delivery, setDelivery] = useState<MessageDelivery>(DEFAULT_MESSAGE_DELIVERY);
+  const choices = deliveryOptions(!compacting && providerCapabilities(runningProvider ?? selectedModel.provider).steer);
+  const sendLabel = delivery === "queue" ? "Queue message" : choices[1].label;
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance } = useSettings();
+  const { ultracodeFatality, appearance, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
+  const { settings: contextSettings } = useContextSettings();
+  const quiet = contextSettings.autoCompact && Boolean(onCompact);
+  const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
+  const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
+  const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
   const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
   // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
-  const orchestrating = ultracode || effort === "ultra";
-  // With Ultracode on, the composer itself turns purple.
+  // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
   const ultracodeOn = capability.ultracode && ultracode;
-  const effortLabel = ultracode ? "Ultra" : effortName;
+  const orchestrating = ultracodeOn || effort === "ultra";
+  const effortLabel = ultracodeOn ? "Ultra" : effortName;
   const canUseFastMode = capability.fastMode;
   const [provider, setProvider] = useState<ModelProvider>(selectedModel.provider);
   // The provider tab follows the selected model, which follows the open chat.
@@ -333,7 +369,7 @@ export function PromptComposer({
   onSendLatest.current = onSend;
   const inputTextClass = expanded
     ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
-    : "min-h-7 px-1 py-1 text-[length:var(--chat-size)] leading-5";
+    : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
   const rows: MenuRow[] =
     menu === "at"
       ? plusOpen
@@ -356,9 +392,8 @@ export function PromptComposer({
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
-  const canStop = running && Boolean(onStop);
-  const permission = permissionPresentation(permissionMode);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const canStop = !offlineName && running && Boolean(onStop) && !canSend;
   const visibleSuggestion =
     suggestion &&
     !draft &&
@@ -407,7 +442,7 @@ export function PromptComposer({
     });
     overflowRef.current = next.overflow;
     if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize]);
+  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize, showContextSize, compactButton.visible]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
@@ -467,10 +502,10 @@ export function PromptComposer({
           imageDraft.attachPath(path);
         }
       });
-      onSendLatest.current();
+      onSendLatest.current(running ? delivery : undefined);
       return;
     }
-    onSend();
+    onSend(running ? delivery : undefined);
   }
 
   // The picker stays open after a pick: effort, fast mode and Ultracode sit beside the models.
@@ -481,15 +516,146 @@ export function PromptComposer({
 
   const draftLatest = useRef(draft);
   draftLatest.current = draft;
-
-  // The words land where the caret was when the mic was clicked, in the draft as it is when they arrive.
-  const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
-    const edit = insertDictation(draftLatest.current, anchor.selection, text);
-    if (!edit) return;
-    setCaret(edit.caret);
-    onDraftChange(edit.value);
-    inputRef.current?.setSelection(edit.caret);
+  const dictatedSend = useRef<{ value: string; scope: string } | null>(null);
+  // Wait for the parent's updated draft and attachments before using its ordinary send action.
+  useEffect(() => {
+    const pending = dictatedSend.current;
+    if (!pending) return;
+    dictatedSend.current = null;
+    if (pending.scope !== imageDraft.scope || pending.value !== draft || dictationAction !== "send") return;
+    if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
   });
+
+  // The take's words live in the field itself, rewritten in place as the recognizer revises them.
+  const take = useRef<DictationTake | null>(null);
+  const [provisional, setProvisional] = useState<TextRange | null>(null);
+  const write = (text: string, settled: number) => {
+    const current = take.current;
+    if (!current) return null;
+    const written = writeTake(current, draftLatest.current, text, settled);
+    if (!written) return null;
+    take.current = written.take;
+    setProvisional(provisionalRange(written.take));
+    setCaret(written.caret);
+    onDraftChange(written.value);
+    inputRef.current?.setSelection(written.caret);
+    return written;
+  };
+  const writeLatest = useRef(write);
+  writeLatest.current = write;
+  // A finished take whose fix-up hasn't answered: its words stay tinted and the status names the model until it does,
+  // and it rewrites them only if the draft is still exactly what the take left.
+  const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
+  const corrections = useRef(0);
+  useEffect(
+    () => () => {
+      correcting.current = null;
+    },
+    [],
+  );
+  const [fixing, setFixing] = useState<string | null>(null);
+  const endCorrection = useCallback(() => {
+    correcting.current = null;
+    setFixing(null);
+    if (!take.current) setProvisional(null);
+  }, []);
+  useEffect(() => {
+    endCorrection();
+  }, [imageDraft.scope, endCorrection]);
+  useEffect(() => {
+    const pending = correcting.current;
+    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
+    if (pending && draft !== pending.take.produced) endCorrection();
+  }, [draft, endCorrection]);
+
+  const dictation = useDictation(
+    projectPath,
+    imageDraft.scope,
+    (text, anchor, correction) => {
+      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
+      take.current ??= startTake(draftLatest.current, anchor.selection);
+      const written = writeLatest.current(text, text.length);
+      take.current = null;
+      const scope = imageDraft.scope;
+      const sendAfter = dictationAction === "send";
+      if (!written || !correction) {
+        setProvisional(null);
+        if (written && sendAfter) dictatedSend.current = { value: written.value, scope };
+        return;
+      }
+      const id = (corrections.current += 1);
+      correcting.current = { id, take: written.take };
+      setProvisional(takeRange(written.take));
+      setFixing(correction.model);
+      void correction.text.then((fixed) => {
+        const pending = correcting.current;
+        if (pending?.id !== id) return;
+        endCorrection();
+        const corrected = correctTake(pending.take, draftLatest.current, fixed);
+        if (corrected) {
+          setCaret(corrected.caret);
+          onDraftChange(corrected.value);
+          inputRef.current?.setSelection(corrected.caret);
+        }
+        // Send now waits for the fix-up, so what goes out is the corrected message.
+        if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, scope };
+      });
+    },
+    { scope: mentions.project, chatId: mentions.currentId, provider: selectedModel.provider },
+  );
+  const partialText = dictation.partial.text;
+  const partialSettled = dictation.partial.settled;
+  useEffect(() => {
+    if (take.current && partialText) writeLatest.current(partialText, partialSettled);
+  }, [partialText, partialSettled]);
+  const discardDictation = () => {
+    const current = take.current;
+    dictation.cancel();
+    take.current = null;
+    setProvisional(null);
+    if (!current) return;
+    const back = revertTake(current, draftLatest.current);
+    setCaret(back.selection.start);
+    onDraftChange(back.value);
+    inputRef.current?.setSelection(back.selection.start, back.selection.end);
+  };
+  const dictateShortcutLabel = useShortcutLabel("dictation.toggle");
+  const dictating = dictation.phase !== "idle";
+  const startDictation = () => {
+    endCorrection();
+    const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
+    take.current = startTake(draftLatest.current, selection);
+    setProvisional(null);
+    void dictation.start({ selection });
+  };
+  // The shortcut was let go before the microphone opened: the take finishes as soon as it records.
+  const finishWhenRecording = useRef(false);
+  const { phase: dictationPhase, stop: stopDictation } = dictation;
+  useEffect(() => {
+    if (dictationPhase === "idle") finishWhenRecording.current = false;
+    if (dictationPhase !== "recording" || !finishWhenRecording.current) return;
+    finishWhenRecording.current = false;
+    void stopDictation();
+  }, [dictationPhase, stopDictation]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useDictationShortcut({
+    root: () => rootRef.current,
+    dictating: () => dictationPhase !== "idle",
+    mode: () => dictationShortcutMode,
+    start: startDictation,
+    finish: () => {
+      if (dictationPhase === "recording") void stopDictation();
+      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
+      // Let go while the model was still downloading: there is nothing to finish yet.
+      else if (dictationPhase === "downloading") discardDictation();
+    },
+  });
+  // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
+  const discardLatest = useRef(discardDictation);
+  discardLatest.current = discardDictation;
+  useEffect(() => {
+    if (!dictating && take.current) discardLatest.current();
+  }, [dictating]);
   const { error: dictationError, dismiss: dismissDictationError } = dictation;
   useEffect(() => {
     // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
@@ -645,14 +811,14 @@ export function PromptComposer({
   }
 
   return (
-    <div data-promptbar className="w-full" onKeyDown={handleEscape}>
+    <div ref={rootRef} data-promptbar className="@container w-full" onKeyDown={handleEscape}>
       <div ref={popoverRootRef} className="relative">
         {menu && (
           <div
             data-picker-panel
             onMouseLeave={() => setEngaged(false)}
             className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-card bg-surface p-1.5 shadow-raised"
-            style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", transformOrigin: "bottom center" }}
+            style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "bottom center" }}
           >
             <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files and Chats"}>
               <span
@@ -662,8 +828,7 @@ export function PromptComposer({
                   top: rowBox?.top ?? 0,
                   height: rowBox?.height ?? 0,
                   opacity: rowBox && engaged ? 1 : 0,
-                  transition:
-                    "top var(--duration-base) var(--ease-slide), height var(--duration-base) var(--ease-slide), opacity var(--duration-fast) var(--ease-enter)",
+                  transition: "top 220ms cubic-bezier(0.23,1,0.32,1), height 220ms cubic-bezier(0.23,1,0.32,1), opacity 150ms ease",
                 }}
               />
               {rows.map((row, index) => {
@@ -673,8 +838,8 @@ export function PromptComposer({
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
-                      <div data-skill-group={row.group}>
-                        <MenuLabel>{row.group}</MenuLabel>
+                      <div data-skill-group={row.group} className="px-2 pt-2 pb-1 text-10 font-semibold uppercase tracking-wide text-ink-3">
+                        {row.group}
                       </div>
                     )}
                     <button
@@ -693,7 +858,7 @@ export function PromptComposer({
                     >
                       {source && (
                         <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                          <Icon icon={source.icon} size={16} />
+                          <Icon icon={source.icon} size={15} />
                         </span>
                       )}
                       <span className="max-w-[45%] shrink-0 truncate text-13 font-medium text-ink">{row.name}</span>
@@ -704,23 +869,20 @@ export function PromptComposer({
                 );
               })}
               {menu === "at" && !plusOpen && fileSearch.error && (
-                <InlineError size={12} className="px-2">
+                <div role="status" className="px-2 text-12 text-red-ink">
                   {fileSearch.error}
-                </InlineError>
+                </div>
               )}
               {rows.length === 0 && (
                 <div className="flex h-8 items-center px-2 text-12 text-ink-3">
-                  {fileSearch.loading && menu === "at" ? "Searching files…" : `No matches for “${tokenQuery}”`}
+                  {fileSearch.loading && menu === "at" ? "Searching files..." : `No matches for "${tokenQuery}"`}
                 </div>
               )}
             </ScrollArea>
             {menu === "slash" && skillWarnings.length > 0 && (
-              // Focusable, so the details open from the keyboard as well as on hover.
-              <Tooltip label={skillWarnings.join(" · ")} wrap className="px-2 py-1">
-                <div role="status" tabIndex={0} className="rounded-inline text-11 text-ink-3">
-                  {skillWarnings.length === 1 ? skillWarnings[0] : `${skillWarnings.length} skills could not be loaded. Hover for details.`}
-                </div>
-              </Tooltip>
+              <div role="status" title={skillWarnings.join("\n")} className="px-2 py-1 text-11 text-ink-3">
+                {skillWarnings.length === 1 ? skillWarnings[0] : `${skillWarnings.length} skills could not be loaded. Hover for details.`}
+              </div>
             )}
             <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-11 text-ink-3">
               {menu === "at" ? "Type to search files and Chats" : skillsLoading ? "Loading skills…" : "Type to search commands & skills"}
@@ -730,6 +892,7 @@ export function PromptComposer({
 
         {modelOpen && (
           <ModelPicker
+            scope={accountScope}
             style={anchorStyle}
             providers={providerTabs}
             provider={provider}
@@ -742,7 +905,7 @@ export function PromptComposer({
             notice={
               providerNotice ? (
                 <div role="status" className="mx-1 mb-1 flex flex-col gap-2 rounded-control bg-inset px-2.5 py-2 text-12 text-ink-2">
-                  <p>
+                  <p className="leading-snug">
                     {messageParts(providerNotice).map((part, index) =>
                       part.code ? (
                         <code key={index} className="rounded-chip bg-surface px-1 py-px font-mono text-11 text-ink">
@@ -757,10 +920,15 @@ export function PromptComposer({
                     (cliStatus?.[provider]?.state === "outdated" ||
                       (providerCapabilities(provider).managedInstall && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
                       <div className="flex items-center justify-end pt-0.5">
-                        <Button variant="secondary" size={28} disabled={updatingCli === provider} onClick={() => onUpdateCli(provider)}>
+                        <button
+                          type="button"
+                          disabled={updatingCli === provider}
+                          onClick={() => onUpdateCli(provider)}
+                          className="flex items-center gap-1.5 rounded-chip border border-line bg-surface px-2.5 py-1 text-12 font-semibold text-ink shadow-xs transition-colors hover:bg-hover active:scale-[0.98] disabled:opacity-50"
+                        >
                           {updatingCli === provider ? (
                             <>
-                              <SpinnerRing size={12} />
+                              <span className="size-3 animate-spin rounded-full border-2 border-ink border-t-transparent" />
                               <span>{cliStatus?.[provider]?.state === "outdated" ? "Updating…" : "Installing…"}</span>
                             </>
                           ) : (
@@ -769,7 +937,7 @@ export function PromptComposer({
                               {provider === "antigravity" ? cliName(provider) : providerName(provider)}
                             </span>
                           )}
-                        </Button>
+                        </button>
                       </div>
                     )}
                 </div>
@@ -797,8 +965,8 @@ export function PromptComposer({
               <PickerRow
                 key={mode.id}
                 icon={
-                  <span className={`flex shrink-0 ${permissionPresentation(mode.id).tone === "orange" ? "text-orange" : "text-ink-2"}`}>
-                    <Icon icon={PERMISSION_ICONS[permissionPresentation(mode.id).icon]} size={14} />
+                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
+                    <Icon icon={SecurityCheckIcon} size={14} />
                   </span>
                 }
                 label={mode.name}
@@ -816,7 +984,7 @@ export function PromptComposer({
 
         <div
           data-ultracode={ultracodeOn || undefined}
-          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast focus-within:border-accent ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
+          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast has-[[contenteditable]:focus]:border-accent ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
         >
           <input
             ref={fileInputRef}
@@ -846,20 +1014,28 @@ export function PromptComposer({
               Loading images…
             </div>
           )}
-          <InlineError size={12} className="px-2">
-            {imageDraft.error}
-          </InlineError>
-          {dictation.download && (
-            <div role="status" className="px-2 text-12 text-ink-3">
-              Downloading the speech model, once: {Math.round((dictation.download.received / dictation.download.total) * 100)}% of{" "}
-              {Math.round(dictation.download.total / 1e6)} MB
+          {imageDraft.error && (
+            <div role="alert" className="px-2 text-12 text-red-ink">
+              {imageDraft.error}
             </div>
           )}
+          {/* Status remains available to screen readers without inserting a row during the recording handoff. */}
+          {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
+            <p role="status" data-dictation-status className="sr-only">
+              {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
+            </p>
+          ) : fixing !== null ? (
+            <span role="status" className="sr-only">
+              {fixing ? `Correcting names · ${fixing}` : "Correcting names…"}
+            </span>
+          ) : null}
 
           <div
-            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
+            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} ${compactButton.visible ? "@max-[520px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : ""}`}
           >
-            <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
+            <div
+              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-span-full @max-[520px]:col-start-1 @max-[520px]:row-start-1" : ""}`}
+            >
               <PromptEditor
                 ref={inputRef}
                 resetKey={imageDraft.scope}
@@ -872,6 +1048,7 @@ export function PromptComposer({
                   const promise = imageDraft.onPaste(event);
                   if (event.defaultPrevented) insertImages(promise, selection);
                 }}
+                provisional={provisional}
                 onSelect={setCaret}
                 onChange={(value, position) => {
                   setCaret(position);
@@ -880,150 +1057,227 @@ export function PromptComposer({
                   setPlusOpen(false);
                 }}
                 onKeyDown={handleKeyDown}
-                disabled={Boolean(offlineName)}
+                disabled={false}
                 maxHeight={100}
                 suggestion={visibleSuggestion}
                 placeholder={
-                  (running
-                    ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
-                      providerCapabilities(provider).steer
-                      ? "Steer the agent…"
-                      : "Queue a message for the next turn…"
-                    : (placeholder ?? "Prompt or mention a file or Chat with @")) +
-                  (offlineName ? offlinePlaceholder(offlineName) : reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                  offlineName
+                    ? offlinePlaceholder(offlineName)
+                    : (running
+                        ? delivery === "queue"
+                          ? "Queue a message for the next turn…"
+                          : "Send a message now…"
+                        : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
               />
             </div>
-            <IconButton
-              label="Add attachments and sources"
-              icon={Add01Icon}
-              size={28}
+            <button
+              type="button"
+              aria-label="Add attachments and sources"
               aria-expanded={plusOpen}
               onClick={() => {
                 setModelOpen(false);
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              shape="pill"
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"}`}
-            />
-            <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
-              <Tooltip label={[selectedModel.name, effortLabel, canUseFastMode && fastMode ? "Fast mode" : ""].filter(Boolean).join(" · ")} asChild>
-                <Chip
-                  chevron
-                  aria-expanded={modelOpen}
-                  icon={<ProviderLogo provider={selectedModel.provider} size={14} />}
-                  onClick={(event) => {
-                    anchorTo(event.currentTarget, capability.efforts.length > 0 || capability.fastMode || capability.ultracode ? 580 : 300);
-                    setPlusOpen(false);
-                    setPermissionOpen(false);
-                    setModelOpen((current) => !current);
-                  }}
-                  className="shrink-0"
-                >
-                  <span data-model-name className="max-w-28 truncate">
-                    {selectedModel.name}
-                  </span>
-                  {effortLabel && (
-                    <span data-effort-label className={`flex items-center gap-1.5 ${orchestrating ? "text-purple-ink" : ""}`}>
-                      <span className="text-ink-3">·</span>
-                      <span className="hidden min-[900px]:inline">{effortLabel}</span>
-                      <span className="min-[900px]:hidden">
-                        <EffortMeter level={effortIndex} total={effortLevels.length} />
-                      </span>
-                    </span>
-                  )}
-                  {canUseFastMode && fastMode && (
-                    <span data-fast-mode className="text-orange-ink">
-                      <Icon icon={FlashIcon} size={14} />
-                    </span>
-                  )}
-                </Chip>
-              </Tooltip>
-            </div>
-            {/* The label hides below 900px; the Tooltip still names the mode. */}
-            <Tooltip label={`Permissions: ${PERMISSION_MODE_LABEL[permissionMode]}`} asChild>
-              <Chip
-                aria-label="Agent permissions"
-                aria-expanded={permissionOpen}
-                disabled={permissionLocked}
-                icon={<Icon icon={PERMISSION_ICONS[permission.icon]} size={14} className={`shrink-0 ${permission.tone === "orange" ? "text-orange" : ""}`} />}
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+            >
+              <Icon icon={Add01Icon} size={16} />
+            </button>
+            <div
+              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} ${compactButton.visible ? "@max-[520px]:contents" : ""}`}
+            >
+              <button
+                type="button"
+                aria-expanded={modelOpen}
+                title={[selectedModel.name, effortLabel, canUseFastMode && fastMode ? "Fast mode" : ""].filter(Boolean).join(" · ")}
                 onClick={(event) => {
-                  anchorTo(event.currentTarget, 340);
+                  anchorTo(event.currentTarget, capability.efforts.length > 0 || capability.fastMode || capability.ultracode ? 580 : 300);
                   setPlusOpen(false);
-                  setModelOpen(false);
-                  setPermissionOpen((current) => !current);
+                  setPermissionOpen(false);
+                  setModelOpen((current) => !current);
                 }}
-                className={`shrink-0 ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+                className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${compactButton.visible ? "@max-[520px]:col-start-2 @max-[520px]:row-start-2" : ""}`}
               >
-                <span className={`hidden min-[900px]:inline ${permission.ink === "orangeInk" ? "text-orange-ink" : ""}`}>
-                  {PERMISSION_MODE_LABEL[permissionMode]}
+                <ProviderLogo provider={selectedModel.provider} size={13} />
+                <span data-model-name className={`max-w-28 truncate ${compactButton.visible ? "@max-[520px]:max-w-20" : ""}`}>
+                  {selectedModel.name}
                 </span>
-              </Chip>
-            </Tooltip>
-            <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
-              {contextUsage && contextUsage.size > 0 && (
-                <ContextRing
-                  {...contextUsage}
-                  onCompact={onCompact}
-                  compactBlocked={running ? "Wait for the agent to finish." : sendBlocked ? "Not available right now." : null}
-                />
+                {effortLabel && (
+                  <span
+                    data-effort-label
+                    className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""} ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}
+                  >
+                    <span className="text-ink-3">·</span>
+                    <span className="hidden min-[900px]:inline">{effortLabel}</span>
+                    <span className="min-[900px]:hidden">
+                      <EffortMeter level={effortIndex} total={effortLevels.length} />
+                    </span>
+                  </span>
+                )}
+                {canUseFastMode && fastMode && (
+                  <span data-fast-mode className="text-orange-ink">
+                    <Icon icon={FlashIcon} size={13} />
+                  </span>
+                )}
+                <Icon icon={ArrowDown01Icon} size={12} />
+              </button>
+            </div>
+            <button
+              type="button"
+              aria-label="Agent permissions"
+              aria-expanded={permissionOpen}
+              disabled={permissionLocked}
+              title={permissionLocked ? PERMISSION_MODE_LABEL[permissionMode] : undefined}
+              onClick={(event) => {
+                anchorTo(event.currentTarget, 340);
+                setPlusOpen(false);
+                setModelOpen(false);
+                setPermissionOpen((current) => !current);
+              }}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
+            >
+              <Icon icon={SecurityCheckIcon} size={14} />
+              <span className={`hidden min-[900px]:inline ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}>{PERMISSION_MODE_LABEL[permissionMode]}</span>
+            </button>
+            <div
+              className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""}`}
+            >
+              {!quiet && compactionFeedback ? (
+                <span role="status" className="flex h-7 items-center gap-1 rounded-control bg-green/10 px-2 text-12 text-green-ink">
+                  ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
+                </span>
+              ) : (
+                !quiet &&
+                (compactButton.visible || compactQueued || compacting || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                  <div
+                    data-context-capsule
+                    className={`flex shrink-0 items-center overflow-hidden rounded-control ${compactButton.warning ? "bg-orange/15 text-orange-ink" : "text-ink-2"}`}
+                  >
+                    {(compactButton.visible || compactQueued || compacting) && (
+                      <button
+                        type="button"
+                        data-compact-context
+                        aria-label={compactQueued ? "Cancel queued compaction" : "Compact context"}
+                        disabled={Boolean(compactBlocked)}
+                        title={compactLabel}
+                        onClick={compactQueued ? onCancelCompact : onCompact}
+                        className="flex h-7 items-center gap-1 px-2 text-12 font-medium disabled:opacity-40"
+                      >
+                        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} size={14} />
+                        <span className="@max-[700px]:hidden">{compactLabel}</span>
+                      </button>
+                    )}
+                    {contextUsage && contextUsage.size > 0 && (
+                      <ContextRing
+                        {...contextUsage}
+                        onCompact={onCompact}
+                        compactBlocked={compactBlocked}
+                        compactLabel={running ? "Compact after turn" : "Compact now"}
+                        settings={contextSettings}
+                        showSize={showContextSize}
+                      />
+                    )}
+                  </div>
+                )
               )}
               <span className="relative flex shrink-0">
                 {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                <Tooltip label={DICTATION_LABELS[dictation.phase]} align="end">
-                  <button
-                    ref={(node) => {
-                      dictation.meter.current = node;
-                    }}
-                    type="button"
-                    aria-label={DICTATION_LABELS[dictation.phase]}
-                    aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                    disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                    onClick={() => {
-                      if (dictation.phase === "recording") return void dictation.stop();
-                      void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
-                    }}
-                    className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-fast disabled:cursor-default ${offlineName ? "disabled:opacity-40" : ""} ${dictation.phase === "recording" ? "text-on-red" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                {dictation.download ? (
+                  // The model downloads before the take records: an arrow dropping through a ring that fills with it.
+                  <Tooltip
+                    label={`Downloading speech model · ${Math.round((dictation.download.received / dictation.download.total) * 100)}% of ${Math.round(dictation.download.total / 1e6)} MB`}
+                    align="end"
                   >
-                    {(dictation.phase === "preparing" || dictation.phase === "transcribing") && (
-                      // An arc turning around the mic while dictation starts or the take is transcribed.
-                      <span aria-hidden className="pointer-events-none absolute -inset-0.5 flex">
-                        <SpinnerRing size={32} color="var(--ink-2)" />
-                      </span>
-                    )}
-                    {dictation.phase === "recording" && (
-                      <>
+                    <button
+                      type="button"
+                      data-dictation-download
+                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
+                      onClick={discardDictation}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink"
+                    >
+                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
+                        <DroppingArrow size={14} well={20} />
+                      </DownloadRing>
+                    </button>
+                  </Tooltip>
+                ) : dictating ? (
+                  // The mic grew into the capsule, in its own place: discard the take, or stop it. Nothing else moved.
+                  <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
+                    <button
+                      type="button"
+                      aria-label="Discard dictation"
+                      title="Discard dictation"
+                      onClick={discardDictation}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+                    >
+                      <Icon icon={Cancel01Icon} size={14} />
+                    </button>
+                    {dictation.phase === "recording" ? (
+                      <button
+                        ref={(node) => {
+                          dictation.meter.current = node;
+                        }}
+                        type="button"
+                        aria-label="Stop dictation"
+                        title="Stop dictation"
+                        onClick={() => void dictation.stop()}
+                        className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
+                      >
                         {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
                         <span
                           aria-hidden
-                          className="absolute inset-0 rounded-full bg-red/30 motion-safe:transition-transform motion-safe:duration-75"
-                          style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
+                          // 20px at rest and 27.6px at full voice, so it never bleeds past the 28px capsule.
+                          className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
+                          style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
                         />
-                        <span aria-hidden className="absolute inset-0.5 rounded-full bg-red" />
-                      </>
+                        <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
+                      </button>
+                    ) : (
+                      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
+                        <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+                      </span>
                     )}
-                    <span className="relative">
-                      {dictation.phase === "recording" ? (
-                        <span aria-hidden="true" className="block size-2.5 rounded-[2px] bg-current" />
-                      ) : (
-                        <Icon icon={Mic01Icon} size={16} />
+                  </span>
+                ) : (
+                  <Tooltip
+                    label={fixing !== null ? (fixing ? `Correcting names · ${fixing}` : "Correcting names…") : DICTATION_LABELS.idle}
+                    shortcut={dictateShortcutLabel}
+                    align="end"
+                  >
+                    <button
+                      type="button"
+                      data-dictation-processing={fixing !== null || undefined}
+                      aria-label={DICTATION_LABELS.idle}
+                      aria-busy={fixing !== null}
+                      aria-description={fixing !== null ? "Correcting names. Start a new dictation to replace the pending correction." : undefined}
+                      onClick={startDictation}
+                      className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors ${fixing !== null ? "bg-hover text-ink-4" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                    >
+                      {fixing !== null && (
+                        <span className="pointer-events-none absolute inset-0">
+                          <SpinnerRing size={28} stroke={1.5} color="var(--accent)" />
+                        </span>
                       )}
-                    </span>
-                  </button>
-                </Tooltip>
+                      <Icon icon={Mic01Icon} size={16} />
+                    </button>
+                  </Tooltip>
+                )}
               </span>
-              {/* Ink, or purple with Ultracode on; disabled is 40% of the same look. */}
+              {running && !offlineName && (
+                <Select label="Follow-up delivery" value={delivery} options={choices} onChange={setDelivery} variant="text" compact disabled={sendBlocked} />
+              )}
               <button
                 type="button"
-                aria-label={canStop ? UI_COPY.stop : UI_COPY.send}
-                disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
+                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? sendLabel : "Send"}
+                data-composer-submit
+                disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40 ${ultracodeOn ? "bg-purple" : "bg-ink"}`}
               >
-                {canStop ? <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
+                {canStop ? <span aria-hidden="true" className="size-2.5 rounded-inline bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
               </button>
             </div>
           </div>

@@ -551,7 +551,7 @@ export function DesignPageEditor({
                 )}
                 <div
                   data-pan-canvas
-                  className={`flex items-start ${grouped ? "rounded-[40px] bg-hover" : ""}`}
+                  className={`flex items-start ${grouped ? "rounded-card bg-hover" : ""}`}
                   style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}
                 >
                   {row.designs.map((item) => (

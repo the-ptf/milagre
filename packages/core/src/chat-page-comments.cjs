@@ -145,7 +145,7 @@ async function commentAtPoint(page, x, y) {
   const { pageDescribeAtScript } = await import("@milagre/shared/page-picker");
   const found = await page.send("Runtime.evaluate", { expression: pageDescribeAtScript(x, y), returnByValue: true });
   const element = pageElement(found.result?.value);
-  if (!element) throw new Error("There is nothing to comment on there. Tap an element of the page.");
+  if (!element) throw new Error("Could not place a comment pin. Reload the page and try again.");
   let shot = null;
   await page.send("Runtime.evaluate", { expression: "window.__milagrePins?.hide(true)" }).catch(() => {});
   try {

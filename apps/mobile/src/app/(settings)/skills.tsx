@@ -6,7 +6,8 @@ import { SKILL_PROVIDERS, SKILL_SCOPES, filterSkills, groupSkills, shadowedBy, s
 import type { SkillScope } from "@milagre/shared/skill-catalog";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { overrides, useSkillCatalog } from "../../use-skills";
-import { EmptyState, ErrorNotice, Field, Group, PageScroll, PullDown, SectionLabel, Tag, pressStyle, useStyles } from "../../ui";
+import { EmptyState, ErrorNotice, Field, Group, PullDown, SectionLabel, Tag, pressStyle, useStyles } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { Icon } from "../../icons";
 import { useTheme } from "../../theme";
 import { useHover } from "../../primitives/hover";
@@ -22,7 +23,7 @@ export default function SkillsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Skills" }} />
-      <PageScroll refreshControl={connected ? <RefreshControl refreshing={loading && !!data} onRefresh={refresh} /> : undefined}>
+      <SettingsScroll refreshControl={connected ? <RefreshControl refreshing={loading && !!data} onRefresh={refresh} /> : undefined}>
         {!connected ? (
           <Text style={styles.muted}>Connect to a computer to see its skills.</Text>
         ) : error ? (
@@ -80,7 +81,7 @@ export default function SkillsScreen() {
             )}
           </>
         )}
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

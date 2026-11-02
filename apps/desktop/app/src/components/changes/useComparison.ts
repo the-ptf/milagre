@@ -80,6 +80,8 @@ export function useComparison(
     setMissing({ cwd, bridge, name: selected.replace(/^refs\/(heads|remotes)\//, "") });
   }, [active, selected, data, select, cwd, bridge]);
   return {
+    cwd,
+    bridge,
     base: comparisonBase,
     selected,
     select: (value: string) => {

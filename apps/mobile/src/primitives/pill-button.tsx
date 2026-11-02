@@ -31,6 +31,7 @@ export function PillButton({
   disabled = false,
   loading = false,
   size = "regular",
+  tone = "ink",
   accessibilityLabel,
   style,
 }: {
@@ -46,6 +47,7 @@ export function PillButton({
   disabled?: boolean;
   loading?: boolean;
   size?: keyof typeof SIZES;
+  tone?: "ink" | "orange";
   /** What VoiceOver and TalkBack read, when the title alone doesn't say it ("Stop Heartbeat" for "Stop"). */
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
@@ -55,7 +57,18 @@ export function PillButton({
   const metrics = SIZES[size];
   const kind = variant ?? (secondary ? "secondary" : "primary");
   const filled = kind === "primary";
-  const ink = filled ? (destructive ? colors.onRedInk : colors.onInk) : destructive ? colors.redInk : muted ? colors.ink2 : colors.ink;
+  const ink =
+    tone === "orange"
+      ? colors.orangeInk
+      : filled
+        ? destructive
+          ? colors.onRedInk
+          : colors.onInk
+        : destructive
+          ? colors.redInk
+          : muted
+            ? colors.ink2
+            : colors.ink;
   const rest = { primary: destructive ? colors.redInk : colors.ink, secondary: colors.surface, tinted: colors.field, plain: "transparent" }[kind];
   // An iPad pointer darkens the quiet pills by the hover overlay; a filled one only reacts to the press.
   const fill = hovered && !filled && !disabled ? (kind === "plain" ? colors.hover : over(colors.hover, rest)) : rest;
@@ -83,7 +96,7 @@ export function PillButton({
           gap: metrics.gap,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: fill,
+          backgroundColor: tone === "orange" ? colors.orangeTint : fill,
           borderWidth: kind === "secondary" ? 1 : 0,
           borderColor: colors.lineStrong,
         },

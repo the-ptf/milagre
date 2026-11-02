@@ -109,6 +109,8 @@ on every screen, header and body alike; section gap 24; overlays under the chat 
 
 ## States
 
+- Switches are banned. Use checkboxes for independent on/off settings and checked lists or radio groups for mutually exclusive choices. No sliding track/thumb controls or switch accessibility roles on either platform.
+
 - Focus: one accent ring from `@layer base` in `styles.css`; components may restyle it with `focus-visible:` utilities
   but never recolour it (no ink, ink-3, green or tone outlines). Fields show focus with `focus:border-accent` (plus a
   ring where the field has no border). Menu and picker rows, inside a clipped panel, keep their fill and add the
@@ -125,8 +127,6 @@ on every screen, header and body alike; section gap 24; overlays under the chat 
 - Selection is ink on both platforms: a tick, a fill or a dot. Accent never marks a selection.
 - Toggles: a pressed or open toggle is `bg-hover-2` with an ink glyph (phone: `hover2` fill, ink icon). `accent-tint`
   with `accent-ink` only for an armed mode that changes what a click does (comment mode).
-- Switches are ink when on. The off track stays the pale macOS one, plus `contrast-more:bg-ink-4` (3:1) for Increase
-  Contrast.
 - A number or word on a coloured fill uses the -ink fill and its label: `bg-red-ink text-on-red`, `bg-green-ink
   text-on-green`. Badges like Recommended are neutral: field fill, ink-2 label.
 - Toasts are an ink capsule on both: `bg-ink`, `on-ink` 13/18, `rounded-card`, `shadow-raised`, an optional on-ink

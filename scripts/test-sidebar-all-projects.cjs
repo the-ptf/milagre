@@ -325,19 +325,18 @@ async function browserChecks() {
     await click('[data-sidebar-scope="/work/shop"] [data-chat-id] [data-row]');
     assert.equal(await evaluate("window.opened"), "/work/shop#7", "Another Project's chat opens through onOpenScopeChat");
 
-    // Another Project's chat archives from its row menu, against that Project: Archive enables once its check is back.
+    // Delete acts on one click against the row's Project, without a confirmation surface.
     await evaluate(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"] [aria-label="Chat actions"]').click()`);
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
-    const archiveRow = `[...document.querySelectorAll("[data-chat-menu] [data-menu-row]")].find((row) => row.textContent.trim() === "Archive")`;
-    await waitFor(`!!${archiveRow} && !${archiveRow}.disabled`);
+    const deleteRow = `[...document.querySelectorAll("[data-chat-menu] [data-menu-row]")].find((row) => row.textContent.trim() === "Delete")`;
+    await waitFor(`!!${deleteRow} && !${deleteRow}.disabled`);
     assert.deepEqual(await evaluate("window.archiveChecked"), ["/work/shop", "7"]);
-    await evaluate(`${archiveRow}.click()`);
-    await waitFor(`!!document.querySelector("[data-chat-menu] [data-archive-choice]")`);
-    await evaluate(`document.querySelector("[data-chat-menu] [data-archive-choice]").click()`);
+    await evaluate(`${deleteRow}.click()`);
     await waitFor(`!!window.archived`);
-    assert.deepEqual(await evaluate("window.archived.slice(0, 2)"), ["/work/shop", "7"]);
+    assert.deepEqual(await evaluate("window.archived"), ["/work/shop", "7", "hide"]);
     await waitFor(`!document.querySelector("[data-chat-menu]")`);
-    // While its archive is under way the row is gone, before the host's state says archived; it comes back if the archive fails.
+    assert.equal(await evaluate('!!document.querySelector("[data-archive-choice], [data-archive-reason]")'), false);
+    // While deletion is under way the row is gone; it comes back if deletion fails.
     await evaluate(`window.setArchiving(["/work/shop#7"])`);
     await waitFor(`!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"]')`);
     await evaluate(`window.setArchiving([])`);

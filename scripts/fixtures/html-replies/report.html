@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+  <head>
+    <style>
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+        gap: 16px;
+        margin: 0 0 14px;
+      }
+      .stat span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .stat strong {
+        display: block;
+        font-size: 20px;
+        line-height: 1.3;
+        font-variant-numeric: tabular-nums;
+      }
+      .up {
+        color: var(--green);
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 20px;
+        margin: 12px 0;
+      }
+      svg.chart {
+        display: block;
+        width: 100%;
+        height: 180px;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 150px;
+      }
+      table {
+        width: 100%;
+      }
+      td:last-child,
+      th:last-child {
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stats">
+      <div class="stat"><span>Receita</span><strong id="total">R$ 195 mil</strong></div>
+      <div class="stat"><span>Crescimento</span><strong class="up">+125%</strong></div>
+      <div class="stat"><span>Meta</span><strong id="goal">75%</strong></div>
+    </div>
+    <div class="controls">
+      <label
+        >Período
+        <select id="period">
+          <option value="1">1º trimestre</option>
+          <option value="2">2º trimestre</option>
+        </select></label
+      >
+      <label>Meta <input id="target" type="range" min="0" max="100" value="75" /><output id="target-value">75%</output></label>
+    </div>
+    <svg id="bars" class="chart" role="img" aria-label="Receita mensal em mil reais">
+      <g id="grid" stroke="var(--line)" stroke-width="1"></g>
+      <g id="bar-group" fill="var(--chart-1)"></g>
+      <g id="labels" font-size="12" text-anchor="middle"></g>
+    </svg>
+    <h3>Evolução semanal</h3>
+    <canvas id="trend" role="img" aria-label="Crescimento semanal: 20, 35, 30, 55, 80">Crescimento: 20, 35, 30, 55, 80.</canvas>
+    <table>
+      <thead>
+        <tr>
+          <th>Mês</th>
+          <th>Receita</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Janeiro</td>
+          <td id="revenue">40</td>
+        </tr>
+        <tr>
+          <td>Fevereiro</td>
+          <td>65</td>
+        </tr>
+        <tr>
+          <td>Março</td>
+          <td>90</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="controls">
+      <button id="count" type="submit">Registrar visita</button>
+      <span><output id="count-value">0</output> visitas registradas</span>
+    </div>
+    <details id="notes">
+      <summary>Como calculamos</summary>
+      <p id="details-text">Receita líquida por mês, já descontados reembolsos. O conteúdo cresce dentro da mensagem ao abrir os detalhes.</p>
+    </details>
+    <script>
+      window.checked = true;
+      const months = ["Jan", "Fev", "Mar"];
+      const data = { 1: [40, 65, 90], 2: [80, 65, 90] };
+      const svg = "http://www.w3.org/2000/svg";
+      let current = data[1];
+      const make = (name, attributes, text) => {
+        const node = document.createElementNS(svg, name);
+        Object.entries(attributes).forEach(([k, v]) => node.setAttribute(k, v));
+        if (text) node.textContent = text;
+        return node;
+      };
+      // Laid out in real pixels at the chart's width, so labels never stretch on a phone.
+      function bars(values = current) {
+        current = values;
+        const chart = document.querySelector("#bars");
+        const width = chart.clientWidth || 640;
+        const base = 156;
+        chart.setAttribute("viewBox", `0 0 ${width} 180`);
+        document
+          .querySelector("#grid")
+          .replaceChildren(
+            ...[16, 86].map((y) => make("line", { x1: 0, x2: width, y1: y + 0.5, y2: y + 0.5 })),
+            make("line", { x1: 0, x2: width, y1: base + 0.5, y2: base + 0.5, stroke: "var(--line-strong)" }),
+          );
+        const slot = width / values.length;
+        const barWidth = Math.min(96, slot * 0.56);
+        document.querySelector("#bar-group").replaceChildren(
+          ...values.map((value, i) => {
+            const height = value * 1.4;
+            return make("rect", { x: slot * i + (slot - barWidth) / 2, y: base - height, width: barWidth, height, rx: 4 });
+          }),
+        );
+        document
+          .querySelector("#labels")
+          .replaceChildren(
+            ...values.flatMap((value, i) => [
+              make("text", { x: slot * (i + 0.5), y: base - value * 1.4 - 6, fill: "var(--ink)" }, String(value)),
+              make("text", { x: slot * (i + 0.5), y: 174, fill: "var(--muted)" }, months[i]),
+            ]),
+          );
+        document.querySelector("#total").textContent = `R$ ${values.reduce((a, b) => a + b, 0)} mil`;
+      }
+      new ResizeObserver(() => bars()).observe(document.querySelector("#bars"));
+      bars(data[1]);
+      function trend() {
+        const canvas = document.querySelector("#trend");
+        const css = getComputedStyle(document.documentElement);
+        const scale = devicePixelRatio || 1;
+        const { width, height } = canvas.getBoundingClientRect();
+        canvas.width = Math.round(width * scale);
+        canvas.height = Math.round(height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.scale(scale, scale);
+        const values = [20, 35, 30, 55, 80];
+        const point = (v, i) => [16 + (i * (width - 32)) / (values.length - 1), height - 24 - (v / 100) * (height - 40)];
+        ctx.strokeStyle = css.getPropertyValue("--line").trim();
+        ctx.lineWidth = 1;
+        for (const v of [0, 50, 100]) {
+          const y = Math.round(point(v, 0)[1]) + 0.5;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = css.getPropertyValue("--chart-1").trim();
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        values.forEach((v, i) => (i ? ctx.lineTo(...point(v, i)) : ctx.moveTo(...point(v, i))));
+        ctx.stroke();
+        ctx.fillStyle = css.getPropertyValue("--muted").trim();
+        ctx.font = `12px ${css.getPropertyValue("--font")}`;
+        ctx.textAlign = "center";
+        values.forEach((v, i) => ctx.fillText(`S${i + 1}`, point(v, i)[0], height - 4));
+        ctx.fillStyle = css.getPropertyValue("--chart-1").trim();
+        values.forEach((v, i) => {
+          ctx.beginPath();
+          ctx.arc(...point(v, i), 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+      trend();
+      new ResizeObserver(trend).observe(document.querySelector("#trend"));
+      addEventListener("themechange", trend);
+      document.querySelector("#period").onchange = (e) => {
+        const values = data[e.target.value];
+        bars(values);
+        document.querySelector("#revenue").textContent = String(values[0]);
+      };
+      document.querySelector("#target").oninput = (e) => {
+        document.querySelector("#target-value").textContent = e.target.value + "%";
+        document.querySelector("#goal").textContent = e.target.value + "%";
+      };
+      document.querySelector("#count").onclick = () => {
+        const output = document.querySelector("#count-value");
+        output.textContent = String(Number(output.textContent) + 1);
+      };
+    </script>
+  </body>
+</html>

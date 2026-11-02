@@ -17,7 +17,6 @@ const LOCAL_ONLY = Object.freeze([
   "accounts:login",
   "accounts:cancel",
   "accounts:remove",
-  "accounts:assign",
   "chat:limit-switch",
   "agent:update-cli",
   "agent:provider-updates",
@@ -88,8 +87,18 @@ const withPath = (id, item) => field(id, item, "path", key);
 const withRemotePath = (id, item) => withoutHidden(withPath(id, item));
 const withChat = (id, item) => field(id, item, "chatId", key);
 const withLink = (id, item) => withoutHidden(field(id, item, "id", linkId));
-// A Routine's and a Run's ids are 8 hex characters per Mac, so they name their computer like a chat key does.
-const withRun = (id, run) => field(id, field(id, run, "routineId", key), "chatId", key);
+// A Routine's and a Run's ids are 8 hex characters per Mac, so they name their computer like a chat key does. A flow Run's
+// steps name the Chats they ran in.
+/** @param {string} id @param {any} state */
+const withFlowStep = (id, state) =>
+  isObject(state) ? { ...field(id, state, "chatId", key), ...(Array.isArray(state.tries) ? { tries: each(id, state.tries, withChat) } : {}) } : state;
+/** @param {string} id @param {any} flow */
+const withFlow = (id, flow) =>
+  isObject(flow) && isObject(flow.state)
+    ? { ...flow, state: Object.fromEntries(Object.entries(flow.state).map(([step, state]) => [step, withFlowStep(id, state)])) }
+    : flow;
+/** @param {string} id @param {any} run */
+const withRun = (id, run) => field(id, field(id, field(id, run, "routineId", key), "chatId", key), "flow", withFlow);
 /** @param {string} id @param {any} routine */
 const withRoutine = (id, routine) =>
   isObject(routine)
@@ -113,6 +122,7 @@ const EVENTS = {
   "worktree:renamed": (id, payload) => field(id, payload, "projectPath", key),
   "agent:ports": keyed,
   "main-sync:status": (id, payload) => field(id, payload, "projectPath", key),
+  "pull-requests:changed": (id, payload) => field(id, payload, "projectPath", key),
   "runtime:snapshot": (id, snapshot) =>
     isObject(snapshot)
       ? {
@@ -129,6 +139,8 @@ const OPEN_PROJECT = (id, result) => withPath(id, result);
 const PROJECT_LIST = (id, result) => each(id, result, withRemotePath);
 /** @type {Record<string, (id: string, result: any) => any>} */
 const RESULTS = {
+  "accounts:scope": (id, result) => field(id, result, "scopeKey", key),
+  "accounts:assign": (id, result) => field(id, result, "scopeKey", key),
   "project:open": OPEN_PROJECT,
   "project:current": OPEN_PROJECT,
   "project:switch": OPEN_PROJECT,
@@ -166,6 +178,8 @@ const RESULTS = {
   "routines:create": (id, result) => field(id, result, "routine", withRoutine),
   "routines:update": withRoutine,
   "routines:run-now": withRun,
+  "routines:flow-act": (id, result) => field(id, result, "run", withRun),
+  "routines:flow-test": (id, result) => field(id, result, "run", withRun),
   "routines:targets": (id, result) =>
     field(id, result, "projects", (id, list) =>
       each(id, list, (id, project) => field(id, withPath(id, project), "chats", (id, chats) => each(id, chats, withChat))),

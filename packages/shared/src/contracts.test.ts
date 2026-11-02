@@ -8,12 +8,14 @@ const require = createRequire(import.meta.url);
 
 test("provider names distinguish product and CLI while retaining picker order", async () => {
   const { PROVIDERS, providerName, cliName } = await import("./providers.mjs");
-  assert.deepEqual(PROVIDERS, ["codex", "claude", "antigravity"]);
+  assert.deepEqual(PROVIDERS, ["codex", "claude", "antigravity", "kiro"]);
   assert.equal(providerName("claude"), "Claude");
   assert.equal(cliName("claude"), "Claude Code");
   assert.equal(providerName("codex"), cliName("codex"));
   assert.equal(providerName("antigravity"), "Antigravity");
   assert.equal(cliName("antigravity"), "Antigravity");
+  assert.equal(providerName("kiro"), "Kiro");
+  assert.equal(cliName("kiro"), "Kiro CLI");
 });
 test("image limits and invalid image messages come from one contract", async () => {
   const { MAX_ATTACHMENT_BYTES, IMAGE_TYPES, IMAGE_ERRORS } = await import("./limits.mjs");

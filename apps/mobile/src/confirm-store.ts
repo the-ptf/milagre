@@ -1,4 +1,11 @@
-import type { AlertButton, ShowAlert } from "./archive";
+type AlertButton = { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void };
+/** React Native's Alert.alert, passed in so the dialog can be tested. */
+export type ShowAlert = (
+  title: string,
+  message: string | undefined,
+  buttons: AlertButton[],
+  options?: { cancelable?: boolean; onDismiss?: () => void },
+) => void;
 
 /** A question shown in the confirmation sheet; `choose` runs once, with the button picked or null when dismissed. */
 type Confirmation = { title: string; message?: string; buttons: AlertButton[]; choose: (index: number | null) => void };

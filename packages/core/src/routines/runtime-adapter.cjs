@@ -8,8 +8,11 @@ const { routineIssueContext } = require("@milagre/shared/linear-issue");
 const { routineRunOf } = require("@milagre/shared/routines");
 const { babysitStoppedText } = require("@milagre/shared/babysit");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
+const { z } = require("zod");
 const { createGit } = require("../git/client.cjs");
 const { createRoutineStore } = require("./store.cjs");
+const { createGitActions } = require("../git-actions.cjs");
+const { readPullRequestState } = require("../pull-request.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
@@ -128,6 +131,10 @@ function routineChats({
   hasRun = () => false,
   setRunTitle = () => false,
   generateRunTitle = async () => null,
+  // The model a failed Run retries on when its Routine names no fallback ({ provider, projectPath }), or null.
+  fallbackFor = async () => null,
+  // Stops a Chat's turn as the Stop button does (a flow Run ended by hand).
+  stopChat = async () => {},
 }) {
   // runId -> the webhook delivery its first message was worded from, deleted once that message is sent.
   const webhookRuns = new Map();
@@ -297,6 +304,33 @@ function routineChats({
       .catch(() => null);
   }
 
+  /**
+   * The Chat of a Run's retry, beside the failed attempt's `chatId`: in the same Worktree (or Project folder) while it is
+   * still in the Project, else in a new one as the Run's first Chat was made. Named and marked as the Run's, like it.
+   */
+  async function retryChat({ routine, run, chatId }) {
+    if (isClosing()) throw new Error("Milagre is closing.");
+    const { projectPath } = routine.target;
+    const issue = run.event?.kind === "linear" ? run.event.issue : null;
+    await startCheck(routine.target);
+    const state = await openState(projectPath, sessionIdFromKey(chatId));
+    const previous = state?.sessions?.[sessionIdFromKey(chatId)]?.worktree_id;
+    let worktreeId = previous;
+    let createdWorktree = false;
+    if (worktreeId === undefined || !state?.worktrees?.[worktreeId]) ({ worktreeId, createdWorktree } = await workspaceFor(routine, issue));
+    try {
+      const sessionId = await chats.emptyChat(projectPath, worktreeId, {
+        origin: { routineId: routine.id, runId: run.id },
+        ...(issue ? { title: `${issue.key} ${issue.title}` } : { generatedTitle: routine.name }),
+        fresh: true,
+      });
+      return { chatId: chatKey(projectPath, sessionId), worktreeId: String(worktreeId), createdWorktree };
+    } catch (error) {
+      if (createdWorktree) await dropWorktree(projectPath, worktreeId);
+      throw error;
+    }
+  }
+
   // Archives a Chat a Run started; with `removeWorktree`, its Worktree goes too when nothing in it is worth keeping.
   async function archive(chatId, { removeWorktree = false } = {}) {
     const projectPath = projectOfKey(chatId);
@@ -335,6 +369,8 @@ function routineChats({
         const settings = latest ?? {
           provider: target.provider ?? claimed?.provider ?? "claude",
           model: lastUserModel(state, sessionId) || claimed?.model,
+          // A retry names the fallback's effort; any other Run goes at the model's default.
+          ...(claimed?.effort ? { effort: claimed.effort } : {}),
         };
         sending = await chats.send({
           ...settings,
@@ -373,6 +409,13 @@ function routineChats({
     // Called on the turn's end, which is published after it was folded into the saved reply (ChatHost.receive).
     replyText: (chatId) => routineReply(cachedState(projectOfKey(chatId)), sessionIdFromKey(chatId)),
     startChat: (request) => startChat(request),
+    retryChat: (request) => retryChat(request),
+    // What the Chat's latest turn ran on: the provider, model and effort a failed attempt is recorded with.
+    ranOn(chatId) {
+      const latest = chats.turnSettings?.(chatId);
+      return latest ? { provider: latest.provider, model: latest.model, ...(latest.effort ? { effort: latest.effort } : {}) } : null;
+    },
+    fallbackFor: (request) => fallbackFor(request),
     /**
      * Titles a Run that has just ended from what it did, and its Chat with it when the Chat is the Run's own and still
      * unnamed by the user. `quietSummary` (a quiet Run's `(pass)` line) is the title as it is; otherwise the title comes
@@ -404,7 +447,42 @@ function routineChats({
       }
     },
     archive: (chatId, options) => archive(chatId, options),
+    // The Worktree a Run made, once the Run ended in `chatIds` (its Chats there): removed when it left nothing behind,
+    // the Chats kept archived (run-worktree.cjs). Resolves with { removed, reason? }.
+    async retireWorktree(chatIds) {
+      if (typeof worktrees.retire !== "function") return { removed: false, reason: "no Worktree" };
+      const groups = new Map();
+      for (const chatId of chatIds) {
+        const worktreeId = session(chatId)?.worktree_id;
+        if (worktreeId === undefined) continue;
+        groups.set(`${projectOfKey(chatId)}#${worktreeId}`, { projectPath: projectOfKey(chatId), worktreeId });
+      }
+      let result = { removed: false, reason: "no Worktree" };
+      for (const { projectPath, worktreeId } of groups.values()) {
+        result = await worktrees.retire(projectPath, worktreeId, chatIds);
+        if (!result.removed) console.info(`[routines] kept a Run's Worktree: ${result.reason}`);
+      }
+      return result;
+    },
     headBranch: (chatId) => headBranch(chatId),
+    // The folder a Chat works in: its Worktree's, or the Project folder's.
+    cwd(chatId) {
+      const state = cachedState(projectOfKey(chatId));
+      const target = session(chatId);
+      return target?.workspacePath ?? state?.worktrees?.[target?.worktree_id]?.path ?? null;
+    },
+    /** A flow step's Chat of its own, in the Run's Worktree, marked with the Run like the Run's Chat (flow-runner.cjs). */
+    async startStepChat({ routine, run, worktreeId, title }) {
+      if (isClosing()) throw new Error("Milagre is closing.");
+      const { projectPath } = routine.target;
+      const sessionId = await chats.emptyChat(projectPath, worktreeId, {
+        origin: { routineId: routine.id, runId: run.id },
+        generatedTitle: title,
+        fresh: true,
+      });
+      return { chatId: chatKey(projectPath, sessionId) };
+    },
+    stop: (chatId) => stopChat(chatId),
     linkedChat: (issue) => linkedChat(issue),
     // `session` patches the Chat in the same change (see ChatHost.patchMessageContext). A Linear Run's card keeps its
     // divider in `context.routine`, so the patch goes there.
@@ -515,6 +593,16 @@ function createRoutines({
   chatMessages = async () => [],
   markRunChats = async () => {},
   archiveRunChat = async () => {},
+  // The model a Run retries on when its Routine names no fallback ({ provider, projectPath }): see routineChats.
+  fallbackFor = async () => null,
+  // Flow steps (flow-runner.cjs): the Linear issues and edits (read lazily, like `linear`), the Stop button for a Run ended
+  // by hand, the "waits for you" notification, and the git and gh a pull request step runs.
+  linearIssues: getLinearIssues = () => null,
+  linearTools: getLinearTools = () => null,
+  stopChat = async () => {},
+  notifyWaiting = () => {},
+  gitActions = createGitActions(),
+  readPullRequest = readPullRequestState,
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
@@ -587,10 +675,23 @@ function createRoutines({
       return saved;
     },
     generateRunTitle: (request) => generateRunTitle(request),
+    fallbackFor: (request) => fallbackFor(request),
+    stopChat: (chatId) => stopChat(chatId),
+  });
+  const flowActions = createFlowActions({
+    cwd: (chatId) => routineChatsView.cwd(chatId),
+    headBranch: (chatId) => routineChatsView.headBranch(chatId),
+    git,
+    gitActions,
+    readPullRequest,
+    linearIssues: () => getLinearIssues(),
+    linearTools: () => getLinearTools(),
+    notifyWaiting: (notice) => notifyWaiting(notice),
   });
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,
+    flowActions,
     now,
     ...(timers.setInterval ? { setInterval: timers.setInterval } : {}),
     ...(timers.clearInterval ? { clearInterval: timers.clearInterval } : {}),
@@ -833,7 +934,7 @@ function createRoutines({
     // An agent's write through a tool says routines changed, like a command's. The definitions are new on each call. A Chat on a Named Link gets
     // none: heartbeats there are out of scope (see the spec's non-goals).
     definitions: (chatId) =>
-      (isLinkScopeKey(projectOfKey(chatId)) ? [] : tools.definitions(chatId))
+      [...(isLinkScopeKey(projectOfKey(chatId)) ? [] : tools.definitions(chatId)), ...(startedByRoutine(chatId) ? [flowOutputTool(chatId)] : [])]
         .filter((tool) => !startedByRoutine(chatId) || !WITHHELD.has(tool.name))
         .map((tool) => {
           const { run } = tool;
@@ -857,6 +958,7 @@ function createRoutines({
     },
     sweepRunChats,
     chatArchived: (chatId) => scheduler.chatArchived(chatId),
+    chatDone: (chatId) => scheduler.chatDone(chatId),
     // Recovery first, then the timer and polling.
     start() {
       scheduler.recover();
@@ -942,7 +1044,128 @@ function createRoutines({
       if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
       return scheduler.runNow(id);
     },
+    /** What the owner does to a flow Run: approve, reject, pause, resume, end or retry (flow-runner.cjs act). */
+    async flowAct(runId, action, options = {}) {
+      if (typeof runId !== "string" || !runId) throw new Error("Choose a Run.");
+      if (!FLOW_ACTIONS.has(action)) throw new Error("That isn't something a flow Run does.");
+      const clean = {};
+      if (typeof options?.reason === "string") clean.reason = options.reason.slice(0, 2000);
+      if (typeof options?.note === "string") clean.note = options.note.slice(0, 2000);
+      const run = await scheduler.flowAct(runId, action, clean);
+      changed();
+      return { run };
+    },
+    /** A Test run of a flow's draft (its published steps when it has none). */
+    async flowTest(id) {
+      if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
+      const run = await scheduler.flowTest(id);
+      changed();
+      return { run };
+    },
   };
+
+  // The tool a flow step's agent hands its fields back with. Offered in every Chat a Run started; it answers only while a
+  // step runs there.
+  function flowOutputTool(chatId) {
+    return {
+      name: "flow_step_output",
+      description:
+        "Hand back the fields this Routine flow step asks for, once, when the work is done. The step's message lists the fields and their types; send them as `fields`. A step with no fields takes an empty object.",
+      input: { fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).describe("Each field the step asks for, by name.") },
+      readOnly: false,
+      run: async ({ fields }) => {
+        const result = scheduler.flowOutput(chatId, fields ?? {});
+        if (!result.ok) throw new Error(result.error);
+        return result.text;
+      },
+    };
+  }
+}
+
+const FLOW_ACTIONS = new Set(["approve", "reject", "pause", "resume", "end", "retry"]);
+
+/**
+ * What flow steps do outside Milagre, for flow-runner.cjs: look for and open a pull request from a Run's Worktree (git and
+ * gh), comment on and read a Linear issue, read a review, and tell the owner a Run waits for them.
+ */
+function createFlowActions({ cwd, headBranch, git, gitActions, readPullRequest, linearIssues, linearTools, notifyWaiting }) {
+  const folder = (chatId) => {
+    const found = cwd(chatId);
+    if (!found) throw new Error("The Run's Worktree is no longer in the Project");
+    return found;
+  };
+  async function findPullRequest({ chatId, expected }) {
+    if (expected && (await headBranch(chatId)) !== expected.branch)
+      throw new Error("The branch changed since this action started. Restore it before retrying.");
+    const lookup = await readPullRequest(folder(chatId));
+    // Not knowing is not "no pull request": opening one now might open a second.
+    if (!lookup.known) throw new Error("Couldn't ask GitHub whether this branch has a pull request (is gh signed in?)");
+    if (!lookup.pr) return null;
+    return { url: lookup.pr.url, number: lookup.pr.number, branch: (await headBranch(chatId)) ?? "", draft: Boolean(lookup.pr.isDraft) };
+  }
+  async function pullRequestPreview({ chatId, base }) {
+    const dir = folder(chatId);
+    const branch = (await headBranch(chatId)) ?? "";
+    const read = (args) =>
+      git.read
+        .checked(dir, args)
+        .then(({ stdout }) => stdout.trim())
+        .catch(() => "");
+    const baseName = base || (await read(["rev-parse", "--abbrev-ref", "origin/HEAD"])).replace(/^origin\//, "") || "main";
+    const stat = (await read(["diff", "--shortstat", `origin/${baseName}...HEAD`])) || (await read(["diff", "--shortstat", `${baseName}...HEAD`]));
+    const remote = await read(["remote", "get-url", "origin"]);
+    const head = await read(["rev-parse", "HEAD"]);
+    if (!branch || !remote || !head) throw new Error("Could not read the branch, repository and commit for approval");
+    const repository = /[:/]([^/:]+\/[^/]+?)(?:\.git)?$/.exec(remote)?.[1];
+    return { branch, base: baseName, head, ...(repository ? { repository } : {}), ...(stat ? { changes: shortStat(stat) } : {}) };
+  }
+  async function openPullRequest({ chatId, base, title, body, draft, expected }) {
+    const dir = folder(chatId);
+    if (expected) {
+      const current = await pullRequestPreview({ chatId, base });
+      if (["branch", "base", "repository", "head"].some((field) => current[field] !== expected[field])) {
+        throw new Error("The branch or commit changed after approval. Review a fresh preview before opening the pull request.");
+      }
+      base = expected.base;
+    }
+    const pushed = await gitActions.push({ cwd: dir });
+    if (!pushed.ok) return { ok: false, message: pushed.message ?? "The push failed" };
+    const opened = await gitActions.openPr({ cwd: dir, base, title, body, draft });
+    return opened.ok ? { ...opened, branch: pushed.branch } : { ok: false, message: opened.message };
+  }
+  async function commentOnLinear({ issue, body }) {
+    const tools = linearTools();
+    if (!tools) throw new Error("Linear isn't connected on this Mac");
+    const text = await tools.comment({ issue: issue.key, body, workspace: issue.workspace });
+    return { url: /https?:\/\/\S+/.exec(String(text ?? ""))?.[0] };
+  }
+  async function issueState({ key, workspace }) {
+    const issues = linearIssues();
+    if (!issues) return null;
+    const issue = await issues.readIssue(key, workspace);
+    return issue?.state?.name ?? null;
+  }
+  async function reviewDecision({ chatId }) {
+    const lookup = await readPullRequest(folder(chatId));
+    return lookup.pr?.reviewDecision ?? null;
+  }
+  function notify(routine, run, text) {
+    if (!run.chatId) return;
+    try {
+      notifyWaiting({ chatId: run.chatId, requestId: `flow:${run.id}`, title: routine.name, body: text });
+    } catch (error) {
+      console.warn("[routines] couldn't notify", error);
+    }
+  }
+  return { findPullRequest, pullRequestPreview, openPullRequest, commentOnLinear, issueState, reviewDecision, notify };
+}
+
+// "6 files changed, 214 insertions(+), 38 deletions(-)" as "6 files, 214 added, 38 removed".
+function shortStat(stat) {
+  const files = /(\d+) files? changed/.exec(stat)?.[1];
+  const added = /(\d+) insertions?/.exec(stat)?.[1] ?? "0";
+  const removed = /(\d+) deletions?/.exec(stat)?.[1] ?? "0";
+  return files ? `${files} ${files === "1" ? "file" : "files"}, ${added} added, ${removed} removed` : stat;
 }
 
 // A Chat a Routine's Run opened (`session.routine`), hidden or not.

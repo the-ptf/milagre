@@ -1,4 +1,4 @@
-const { claudeModel, codexModel, antigravityModel } = require("./git-text.cjs");
+const { claudeModel, codexModel, antigravityModel, kiroModel } = require("./git-text.cjs");
 const { extractJson } = require("./agents/antigravity-text.cjs");
 
 const TITLE_SCHEMA = {
@@ -132,6 +132,7 @@ function createChatTitleModels({ cli, clientVersion }) {
     claude: claudeModel({ getCommand: getCommand("claude") }),
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: TITLE_SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: TITLE_SCHEMA }),
+    kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: TITLE_SCHEMA }),
   };
 }
 

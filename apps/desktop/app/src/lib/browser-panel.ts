@@ -106,6 +106,11 @@ export function setBrowserOpen(chatKey: string, open: boolean) {
   });
 }
 
+/** Shows the panel without adding a blank tab, for a Chat whose only pages are streamed ones (BrowserViewer.tsx). */
+export function showBrowserPanel(chatKey: string) {
+  update(chatKey, (chat) => (chat.open ? chat : { ...chat, open: true }));
+}
+
 const newTab = (url: string): BrowserTab => ({
   id: crypto.randomUUID(),
   url,

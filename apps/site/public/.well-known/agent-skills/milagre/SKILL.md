@@ -1,6 +1,6 @@
 ---
 name: milagre
-description: Install Milagre and run Claude Code, Codex or Antigravity agents in parallel Chats, each in its own Git worktree, then answer them from an iPhone or Android phone. Use when someone asks how to get Milagre, what it needs, or how to pair the phone app.
+description: Install Milagre and run Claude Code, Codex, Antigravity or Kiro agents in parallel Chats, each in its own Git worktree, then answer them from an iPhone or Android phone. Use when someone asks how to get Milagre, what it needs, or how to pair the phone app.
 ---
 
 # Milagre
@@ -10,7 +10,7 @@ Milagre is a free, open-source (MIT) desktop app for macOS and Linux. It runs co
 ## What it needs
 
 - A computer running macOS (Apple silicon or Intel) or Linux. Windows is in progress.
-- At least one coding agent installed and signed in on that computer: Claude Code, Codex or Antigravity. Milagre uses that agent's own login and subscription; there is no Milagre account.
+- At least one coding agent installed and signed in on that computer: Claude Code, Codex, Antigravity or Kiro. Milagre uses that agent's own login and subscription; there is no Milagre account.
 - For the phone app: an iPhone (TestFlight beta) or an Android phone (APK beta).
 
 ## Install

@@ -1,6 +1,8 @@
 import type { WebviewTag } from "electron";
 import { PAGE_PICK_CANCEL, pagePickScript, pagePinsHidden, pagePinsScript, type PagePin } from "@milagre/shared/page-picker";
 import type { PageElement } from "@milagre/shared/page-comments";
+import { ipcErrorMessage } from "@milagre/shared/result";
+import { isRemoteKey } from "./computer-bridge";
 import { changedThisLaunch, chatBrowser, closeBrowserTab, openBrowserTab, patchBrowserTab, takeNavigation, type ChatBrowser } from "./browser-panel.ts";
 
 /**
@@ -27,13 +29,16 @@ type Page = {
   shownAt: number;
   /** The comment pins this page shows, put back after every load. */
   pins: PagePin[];
-  /** Viewed from the phone or the pill: parked where it still paints. */
+  /** Viewed from the phone or another computer: parked where it still paints. */
   viewed: boolean;
+  /** The viewer's size, which the page takes while parked and viewed; null keeps the size it had. */
+  viewport: { width: number; height: number } | null;
 };
 
 const pages = new Map<string, Page>();
 let layer: HTMLDivElement | null = null;
-let shown: { tabId: string; slot: HTMLElement } | null = null;
+/** The page on screen, the slot it is laid over, and the bottom corners' radius of the panel's card it rounds to. */
+let shown: { tabId: string; slot: HTMLElement; radius: number } | null = null;
 
 function ensureLayer() {
   if (layer?.isConnected) return layer;
@@ -53,15 +58,18 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
   surface.dataset.browserPage = tabId;
   Object.assign(surface.style, { position: "absolute", width: "1280px", height: "800px", ...PARKED, pointerEvents: "none" });
   const webview = document.createElement("webview") as WebviewTag;
-  webview.setAttribute("partition", window.milagreBrowserPanel?.partition ?? "persist:milagre-browser");
+  // A Chat on another computer opens its pages in a session of its own that reaches the web from that computer (#832);
+  // the webview joins the page once main has routed it, below.
+  const remote = isRemoteKey(chatKey);
+  if (!remote) webview.setAttribute("partition", window.milagreBrowserPanel?.partition ?? "persist:milagre-browser");
   webview.setAttribute("allowpopups", "");
   webview.setAttribute("webpreferences", "disableHtmlFullscreenWindowResize=true");
-  webview.setAttribute("src", url);
+  if (!remote) webview.setAttribute("src", url);
   Object.assign(webview.style, { width: "100%", height: "100%", display: "flex", background: "white" });
   const overlay = document.createElement("div");
   overlay.dataset.browserOverlay = tabId;
   Object.assign(overlay.style, { position: "absolute", inset: "0", pointerEvents: "none" });
-  const page: Page = { chatKey, tabId, surface, webview, overlay, contentsId: null, shownAt: 0, pins: [], viewed: false };
+  const page: Page = { chatKey, tabId, surface, webview, overlay, contentsId: null, shownAt: 0, pins: [], viewed: false, viewport: null };
   const history = () => ({ canGoBack: safe(() => webview.canGoBack(), false), canGoForward: safe(() => webview.canGoForward(), false) });
   webview.addEventListener("dom-ready", () => {
     const before = page.contentsId;
@@ -82,24 +90,60 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
     applyPins(page);
   });
   webview.addEventListener("page-title-updated", (event) => patchBrowserTab(chatKey, tabId, { title: event.title }));
-  webview.addEventListener("page-favicon-updated", (event) => patchBrowserTab(chatKey, tabId, { favicon: event.favicons[0] }));
+  webview.addEventListener("page-favicon-updated", (event) => {
+    const favicon = event.favicons[0];
+    // The tab's <img> would fetch it from this Mac; a remote Chat's page reads it through its computer instead (#832).
+    if (!remote || !favicon) return patchBrowserTab(chatKey, tabId, { favicon });
+    void call(page, (webview) => webview.executeJavaScript(faviconScript(favicon))).then((data) => {
+      if (typeof data === "string" && data.startsWith("data:image/")) patchBrowserTab(chatKey, tabId, { favicon: data });
+    });
+  });
   webview.addEventListener("did-fail-load", (event) => {
     // -3 is a load the next one replaced (a redirect, a new address typed).
     if (!event.isMainFrame || event.errorCode === -3) return;
-    patchBrowserTab(chatKey, tabId, { loading: false, error: loadError(event.errorCode, event.errorDescription, event.validatedURL) });
+    patchBrowserTab(chatKey, tabId, { loading: false, error: loadError(event.errorCode, event.errorDescription, event.validatedURL, remote) });
   });
   webview.addEventListener("render-process-gone", () =>
     patchBrowserTab(chatKey, tabId, { loading: false, error: "The page stopped responding. Reload to try again." }),
   );
-  surface.append(webview, overlay);
+  surface.append(...(remote ? [overlay] : [webview, overlay]));
   ensureLayer().append(surface);
   pages.set(tabId, page);
+  if (remote) void attachRemote(page, url);
   return page;
 }
 
-function loadError(code: number, description: string, url: string) {
+/**
+ * Joins a remote Chat's webview to its page once its session goes through its computer. While the computer can't be
+ * reached the page goes and the tab says why; Try again makes a new one.
+ */
+async function attachRemote(page: Page, url: string) {
+  const { chatKey, tabId, webview, surface, overlay } = page;
+  patchBrowserTab(chatKey, tabId, { loading: true, error: undefined });
+  try {
+    const prepare = window.milagreBrowserPanel?.remotePartition;
+    if (!prepare) throw new Error("This Milagre can't open another computer's pages here. Update it, then try again.");
+    const partition = await prepare(chatKey);
+    if (pages.get(tabId) !== page) return;
+    webview.setAttribute("partition", partition);
+    webview.setAttribute("src", takeNavigation(tabId) ?? url);
+    surface.insertBefore(webview, overlay);
+  } catch (error) {
+    if (pages.get(tabId) !== page) return;
+    destroyPage(page);
+    patchBrowserTab(chatKey, tabId, { loading: false, error: `This page goes through its computer, which can't be reached: ${ipcErrorMessage(error)}` });
+  }
+}
+
+/** Run in a page: its favicon as a data URL, fetched by the page itself (so through its session), or null past 64 KB. */
+const faviconScript = (url: string) =>
+  `fetch(${JSON.stringify(url)}).then((r) => (r.ok ? r.blob() : null)).then((b) => !b || b.size > 65536 || !b.type.startsWith("image/") ? null : new Promise((done) => { const f = new FileReader(); f.onload = () => done(f.result); f.onerror = () => done(null); f.readAsDataURL(b); })).catch(() => null)`;
+
+function loadError(code: number, description: string, url: string, remote = false) {
   // The usual one: the Chat's dev server isn't running (yet).
   if (code === -102) return `Nothing is answering at ${hostOf(url)}. Is the server running?`;
+  // A remote Chat's page reaches the web from its computer (#832); Chromium names every way that fails this one code.
+  if (remote && code === -120) return `Its computer couldn't reach ${hostOf(url)}. Is the server running there?`;
   if (code === -105) return `${hostOf(url)} could not be found.`;
   return `The page didn't load (${description || code}).`;
 }
@@ -165,8 +209,13 @@ export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
  * and letting clicks through: off screen, Chromium stops painting it and the viewer would get no frames.
  */
 function park(page: Page) {
-  if (page.viewed) Object.assign(page.surface.style, { left: "0px", top: "0px", opacity: "0", pointerEvents: "none" });
-  else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none" });
+  if (page.viewed) {
+    // Only what is inside the window paints, so a viewer bigger than this window gets the window's size.
+    const size = page.viewport
+      ? { width: `${Math.min(page.viewport.width, window.innerWidth)}px`, height: `${Math.min(page.viewport.height, window.innerHeight)}px` }
+      : {};
+    Object.assign(page.surface.style, { left: "0px", top: "0px", ...size, opacity: "0", pointerEvents: "none", clipPath: "" });
+  } else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none", clipPath: "" });
 }
 
 function place() {
@@ -184,6 +233,12 @@ function place() {
   if (style.left !== next.left || style.top !== next.top || style.width !== next.width || style.height !== next.height) Object.assign(style, next);
   style.opacity = "1";
   style.pointerEvents = "auto";
+  // The page is outside the panel's card, so the card's clip misses it: it is cut at the dock's edges (sliding open or
+  // closed it would draw over the changes panel beside it) and takes the card's bottom corners.
+  const dock = shown.slot.closest("[data-slot=browser-dock]")?.getBoundingClientRect();
+  const cut = dock ? [Math.max(0, rect.right - dock.right), Math.max(0, dock.left - rect.left)] : [0, 0];
+  const clip = `inset(0 ${cut[0]}px 0 ${cut[1]}px round 0 0 ${shown.radius}px ${shown.radius}px)`;
+  if (style.clipPath !== clip) style.clipPath = clip;
 }
 
 // After anything that can move the slot (the panel springing open, a drag, the changes panel opening beside it), the
@@ -210,7 +265,9 @@ export function showBrowserPage(chatKey: string, tabId: string, slot: HTMLElemen
   if (!page) return () => {};
   page.shownAt = performance.now();
   for (const old of [...pages.values()].toSorted((a, b) => b.shownAt - a.shownAt).slice(LIVE_PAGES)) if (old !== page) destroyPage(old);
-  shown = { tabId, slot };
+  // The slot is the card's last child, so its bottom corners are the card's.
+  const radius = slot.parentElement ? parseFloat(getComputedStyle(slot.parentElement).borderBottomRightRadius) || 0 : 0;
+  shown = { tabId, slot, radius };
   place();
   settle();
   const resize = new ResizeObserver(settle);
@@ -248,19 +305,23 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     if (page) openBrowserTab(page.chatKey, url);
   });
   const offKey = bridge.onKey(({ from, key }) => {
-    const page = pageOfContents(from);
-    if (!page) return;
-    if (key === "r") safe(() => page.webview.reload(), undefined);
-    else if (key === "w") closeBrowserTab(page.chatKey, page.tabId);
-    else onKey(page.chatKey, page.tabId, key);
+    const sender = pageOfContents(from);
+    if (!sender) return;
+    // A page keeps the keyboard after another tab shows, so the key is for the tab on screen, not the one that sent it.
+    const tabId = chatBrowser(sender.chatKey).active ?? sender.tabId;
+    if (key === "r") safe(() => pages.get(tabId)?.webview.reload(), undefined);
+    else if (key === "w") closeBrowserTab(sender.chatKey, tabId);
+    else onKey(sender.chatKey, tabId, key);
   });
   const offOpen = bridge.onOpenUrl?.(({ chatKey, url }) => {
     if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url);
   });
-  const offViewed = bridge.onViewed?.(({ from, viewed }) => {
+  const offViewed = bridge.onViewed?.(({ from, viewed, viewport }) => {
     const page = pageOfContents(from);
     if (!page) return;
     page.viewed = viewed;
+    if (!viewed) page.viewport = null;
+    else if (viewport !== undefined) page.viewport = viewport;
     if (shown?.tabId !== page.tabId) park(page);
   });
   return () => {

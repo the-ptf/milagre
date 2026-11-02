@@ -1,11 +1,22 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useRef, useState } from "react";
-import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import {
+  BubbleChatIcon,
+  Delete02Icon,
+  LaptopIcon,
+  MoreHorizontalIcon,
+  PauseCircleIcon,
+  PencilEdit02Icon,
+  PlayIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import type { Routine } from "@milagre/shared/model";
 import { canEditRoutine, canRunNow } from "@milagre/shared/routines";
+import { needsAnswer } from "@milagre/shared/routine-flows";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { MenuRow, Popover } from "../primitives/Popover";
-import { Switch } from "../primitives/Switch";
+import { SettingCheckbox } from "../primitives/Checkbox";
 import Tooltip from "../primitives/Tooltip";
 import { isHeartbeat, routineDeleteQuestion, type RoutineWithRuns } from "../../lib/routines";
 import { routineIcon } from "./routine-icon";
@@ -124,6 +135,8 @@ export function RoutineRow({
   const chat = routineChat(routine);
   const heartbeat = isHeartbeat(routine);
   const problem = routineProblem(routine);
+  // A flow's Runs waiting on an approval: the row says so where its status goes.
+  const waiting = routine.flow ? routine.runs.filter((run) => needsAnswer(run)).length : 0;
   const entries: MenuEntry[] = [
     ...(canEditRoutine(routine) ? [{ key: "edit", label: "Edit", icon: PencilEdit02Icon, onSelect: onEdit }] : []),
     ...(canRunNow(routine) ? [{ key: "run", label: "Run now", icon: PlayIcon, onSelect: onRunNow }] : []),
@@ -146,6 +159,14 @@ export function RoutineRow({
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className={`truncate text-13 font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
+              {routine.flow && (
+                <span
+                  data-routine-flow-chip
+                  className="inline-flex h-5 shrink-0 items-center rounded-chip bg-accent-tint px-1.5 text-11 font-medium text-accent-ink"
+                >
+                  Flow
+                </span>
+              )}
               {unread && <span role="img" aria-label="Unread Runs" data-routine-unread className="size-2 shrink-0 rounded-full bg-accent" />}
             </span>
             <span data-routine-meta className="flex min-w-0 items-center gap-1 text-12 text-ink-3">
@@ -166,12 +187,19 @@ export function RoutineRow({
               </Tooltip>
             )}
           </span>
-          <span data-routine-status className={`shrink-0 text-right text-12 ${routine.enabled ? "text-ink-2" : "text-ink-3"}`}>
-            {status}
-          </span>
+          {waiting > 0 ? (
+            <span data-routine-status data-routine-waiting className="flex shrink-0 items-center gap-1 text-right text-12 font-medium text-orange-ink">
+              <HugeiconsIcon icon={PauseCircleIcon} size={14} strokeWidth={1.8} color="currentColor" />
+              {waiting === 1 ? "Waiting for you" : `${waiting} waiting for you`}
+            </span>
+          ) : (
+            <span data-routine-status className={`shrink-0 text-right text-12 ${routine.enabled ? "text-ink-2" : "text-ink-3"}`}>
+              {routine.flow?.revision === 0 ? "Not published" : status}
+            </span>
+          )}
         </button>
         <span className="flex shrink-0 items-center gap-3">
-          <Switch label={`${routine.name} on`} checked={routine.enabled} onChange={onToggle} />
+          <SettingCheckbox label={`${routine.name} on`} checked={routine.enabled} onChange={onToggle} />
           <RoutineMenu routine={routine} entries={entries} />
         </span>
       </div>

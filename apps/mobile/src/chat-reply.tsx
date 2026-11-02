@@ -6,8 +6,10 @@ import { ActivitySources } from "./activity-source";
 import { router } from "expo-router";
 import { Alert02Icon, ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model";
+import type { ChatMessage, ChatStep, LinkedContext, LimitResume } from "@milagre/shared/model";
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
+import { reportMarker } from "@milagre/shared/subchat-states";
+import { SubchatMarker } from "./subchat-marker";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
 import { onlyImageMentions, promptParts } from "@milagre/shared/prompt-parts";
@@ -33,6 +35,7 @@ import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { ComputerUseCard } from "./computer-use-card";
 import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
@@ -193,13 +196,26 @@ function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource })
   );
 }
 /** Desktop's activity header, with the pending call ahead of other parallel work. */
-function ActivityRow({ steps, live, waitingIds, onPress }: { steps: ChatStep[]; live: boolean; waitingIds: string[]; onPress: () => void }) {
+function ActivityRow({
+  steps,
+  live,
+  waitingIds,
+  onPress,
+  credits,
+}: {
+  steps: ChatStep[];
+  live: boolean;
+  waitingIds: string[];
+  onPress: () => void;
+  /** What the turn cost (Kiro's credits), shown at the end of the summary. */
+  credits?: number;
+}) {
   const { colors } = useTheme();
   const current = live
     ? (steps.find((step) => step.status === "running" && waitingIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
     : undefined;
   const waiting = !!current && waitingIds.includes(current.id);
-  const summary = activitySummary(steps);
+  const summary = activitySummary(steps, { credits });
   const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, live, now), live);
   const runningCount = steps.filter((step) => step.status === "running").length;
   const label = current ? stepDisplayTitle(current, !waiting) : live ? "Working" : summary.text || "Activity";
@@ -286,6 +302,9 @@ export const ChatReply = memo(function ChatReply({
   designChoice,
   designsMoved,
   limitProjectPath,
+  limitPending,
+  limitResumeBlocked,
+  limitResumeAvailable,
   highlighted = false,
   onOpenChat,
 }: {
@@ -307,6 +326,9 @@ export const ChatReply = memo(function ChatReply({
   designsMoved?: number;
   /** Set when a usage-limit reply is the Chat's last message with no turn running: its card then offers other accounts for this Project. */
   limitProjectPath?: string;
+  limitPending?: LimitResume;
+  limitResumeBlocked?: boolean;
+  limitResumeAvailable?: boolean;
 }) {
   const { colors, textPx } = useTheme();
   const styles = useStyles();
@@ -359,7 +381,7 @@ export const ChatReply = memo(function ChatReply({
       <View style={{ gap: 6, paddingVertical: 4 }}>
         <LinkedHeader context={linked} onOpenChat={onOpenChat} />
         <MessageActions text={text}>
-          {(openActions) => (
+          {(openActions, swap) => (
             <View
               style={{
                 borderWidth: 1,
@@ -371,13 +393,15 @@ export const ChatReply = memo(function ChatReply({
                 ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
               }}
             >
-              <Text
-                selectable={selectableMessageText}
-                style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}
-                {...messageActionProps(openActions)}
-              >
-                {text}
-              </Text>
+              {swap(
+                <Text
+                  selectable={selectableMessageText}
+                  style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}
+                  {...messageActionProps(openActions)}
+                >
+                  {text}
+                </Text>,
+              )}
             </View>
           )}
         </MessageActions>
@@ -413,7 +437,7 @@ export const ChatReply = memo(function ChatReply({
           !!text &&
           !onlyImageMentions(text, userImages) && (
             <MessageActions text={text}>
-              {(openActions) => (
+              {(openActions, swap) => (
                 <View
                   style={{
                     backgroundColor: colors.canvas,
@@ -424,34 +448,36 @@ export const ChatReply = memo(function ChatReply({
                     ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
                   }}
                 >
-                  <Text
-                    selectable={selectableMessageText}
-                    accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
-                    style={{ color: colors.ink, fontSize: textPx, lineHeight }}
-                    {...messageActionProps(openActions)}
-                  >
-                    {parts.map((part, index) =>
-                      part.kind === "skill" ? (
-                        <SkillChip key={index} name={part.name} />
-                      ) : part.kind === "file" ? (
-                        <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
-                      ) : part.kind === "chat" ? (
-                        <ChatMentionChip
-                          key={`chat:${part.id}:${part.start}`}
-                          title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
-                          onOpen={
-                            chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
-                              ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
-                              : undefined
-                          }
-                        />
-                      ) : part.kind === "image" ? (
-                        <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
-                      ) : (
-                        part.text
-                      ),
-                    )}
-                  </Text>
+                  {swap(
+                    <Text
+                      selectable={selectableMessageText}
+                      accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
+                      style={{ color: colors.ink, fontSize: textPx, lineHeight }}
+                      {...messageActionProps(openActions)}
+                    >
+                      {parts.map((part, index) =>
+                        part.kind === "skill" ? (
+                          <SkillChip key={index} name={part.name} />
+                        ) : part.kind === "file" ? (
+                          <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                        ) : part.kind === "chat" ? (
+                          <ChatMentionChip
+                            key={`chat:${part.id}:${part.start}`}
+                            title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
+                            onOpen={
+                              chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
+                                ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
+                                : undefined
+                            }
+                          />
+                        ) : part.kind === "image" ? (
+                          <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
+                        ) : (
+                          part.text
+                        ),
+                      )}
+                    </Text>,
+                  )}
                 </View>
               )}
             </MessageActions>
@@ -460,6 +486,10 @@ export const ChatReply = memo(function ChatReply({
       </View>
     );
   }
+  // A Subchat's report is one grey line that opens the report where it stands; a Negotiation round keeps its full text.
+  const marker = linked && message?.role === "assistant" && !run ? reportMarker(linked) : null;
+  if (marker && linked)
+    return <SubchatMarker marker={marker} chat={linkedHeading(linked).chat} body={text} onOpenChat={onOpenChat} media={savedMedia} basePath={basePath} />;
   return (
     <View style={{ gap: space.xl, paddingVertical: space.md }}>
       {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}
@@ -479,9 +509,9 @@ export const ChatReply = memo(function ChatReply({
             />
           ) : (
             <MessageActions key={`text-${index}`} text={entry.text} markdown>
-              {(openActions) => (
-                <Markdown text={entry.text} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
-              )}
+              {(openActions, swap) =>
+                swap(<Markdown text={entry.text} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)
+              }
             </MessageActions>
           ),
         )
@@ -500,6 +530,7 @@ export const ChatReply = memo(function ChatReply({
             live={!!run}
             waitingIds={waitingIds}
             onPress={() => openActivity()}
+            credits={message?.credits}
           />
         )
       )}
@@ -509,19 +540,22 @@ export const ChatReply = memo(function ChatReply({
           <GeneratedImage step={step} media={savedMedia} />
         </View>
       ))}
+      {reply.desktop.length > 0 && <ComputerUseCard steps={reply.desktop} chatId={chatId} />}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
       {!!reply.answer.trim() && (
         <MessageActions text={reply.answer} markdown>
-          {(openActions) => (
-            <Markdown
-              text={reply.answer}
-              streaming={!!run}
-              media={savedMedia}
-              basePath={basePath}
-              selectable={selectableMessageText}
-              onMessageAction={openActions}
-            />
-          )}
+          {(openActions, swap) =>
+            swap(
+              <Markdown
+                text={reply.answer}
+                streaming={!!run}
+                media={savedMedia}
+                basePath={basePath}
+                selectable={selectableMessageText}
+                onMessageAction={openActions}
+              />,
+            )
+          }
         </MessageActions>
       )}
       {/* The reply says what the Heartbeat is for; its card follows. */}
@@ -530,14 +564,26 @@ export const ChatReply = memo(function ChatReply({
       ))}
       {!!thought && (
         <MessageActions text={thought} markdown>
-          {(openActions) => (
+          {(openActions, swap) =>
             // Thinking reads a step quieter, in ink2 at full strength: code, links and images keep their own colours.
-            <Markdown text={thought} tone="ink2" media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
-          )}
+            swap(
+              <Markdown text={thought} tone="ink2" media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />,
+            )
+          }
         </MessageActions>
       )}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
-      {limit && message && <UsageLimitCard limit={limit} sessionId={message.session_id} projectPath={limitProjectPath} />}
+      {limit && message && (
+        <UsageLimitCard
+          limit={limit}
+          sessionId={message.session_id}
+          projectPath={limitProjectPath}
+          pending={limitPending}
+          sourceMessageId={message.id}
+          resumeAvailable={limitResumeAvailable}
+          resumeBlocked={limitResumeBlocked}
+        />
+      )}
       {!run && !limit && message?.outcome === "failed" && <InlineError message="The turn failed. Review the response before trying again." />}
       {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>

@@ -30,6 +30,11 @@ import {
   routineRunOf,
   routineRunText,
   runTitle,
+  attemptText,
+  fallbackText,
+  retryNote,
+  routineRetries,
+  chatBranchLabel,
   runWhen,
   triggerText,
   unreadRunChats,
@@ -698,4 +703,51 @@ test("routineEnd says how many Runs are left or when the Routine ends", () => {
 
 test("triggerText words a pull-request trigger", () => {
   assert.equal(triggerText({ kind: "pull-request", repo: "github.com/acme/app", number: 7 }), "PR #7");
+});
+
+test("quiet compactions leave no transcript or navigation entry, while failures and manual compactions remain visible", () => {
+  const messages = [
+    { id: 1, role: "user", body: "hello" },
+    ...["preparing", "done", "failed"].map((status, i) => ({ id: i + 2, role: "user", context: { kind: "compaction", quiet: true, status } })),
+    { id: 5, role: "user", context: { kind: "compaction", status: "done" } },
+  ];
+  assert.deepEqual(
+    groupQuietRuns(messages)
+      .filter((entry) => !entry.hidden)
+      .map((entry) => entry.message.id),
+    [1, 4, 5],
+  );
+});
+
+test("a retried Run's history names the first try, the model it retried on and what the Routine retries on", () => {
+  const attempt = {
+    startedAt: 1,
+    endedAt: 2,
+    provider: "codex",
+    model: "gpt-6.1-sol",
+    error: "Selected model is at capacity. Please try a different model.\nmore",
+  };
+  assert.equal(attemptText(attempt), "First try on gpt-6.1-sol failed: Selected model is at capacity. Please try a different model.");
+  assert.equal(attemptText({ startedAt: 1, endedAt: 2, error: "" }), "First try on its model failed");
+  const run = { id: "1", routineId: "r", startedAt: 1, status: "acted", fallback: { provider: "claude", model: "claude-opus-5-5", effort: "high" } };
+  assert.equal(retryNote(run), "retried on claude-opus-5-5 · high");
+  assert.equal(retryNote({ id: "1", routineId: "r", startedAt: 1, status: "acted" }), "");
+  const names = (provider, model) => (model === "claude-opus-5-5" ? "Opus 5.5" : undefined);
+  assert.equal(fallbackText({ fallback: run.fallback }, names), "Retry on Opus 5.5 · high");
+  assert.equal(fallbackText({ fallback: { provider: "codex", model: "gpt-6.1-sol" } }, names), "Retry on gpt-6.1-sol");
+  assert.equal(fallbackText({}), "Retry on another provider");
+  const target = { kind: "new-chat", projectPath: "/p", workspace: "worktree" };
+  assert.equal(routineRetries({ target, trigger: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }), true);
+  assert.equal(routineRetries({ target, trigger: { kind: "linear", workspace: "w", event: "comment" } }), false);
+  assert.equal(routineRetries({ target: { kind: "chat", chatId: "/p#1" }, trigger: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }), false);
+});
+
+test("a Run's Chat whose Worktree went names its old branch as removed; any other Chat names its Worktree's", () => {
+  assert.equal(
+    chatBranchLabel({ formerWorktree: { path: "/w/chat-ab12", name: "chat-ab12", branch: "milagre/chat-ab12" } }, "main"),
+    "milagre/chat-ab12 · removed",
+  );
+  assert.equal(chatBranchLabel({ formerWorktree: { path: "/w/chat-ab12", name: "chat-ab12" } }, "main"), "chat-ab12 · removed");
+  assert.equal(chatBranchLabel({}, "fix-login"), "fix-login");
+  assert.equal(chatBranchLabel(null, undefined), undefined);
 });

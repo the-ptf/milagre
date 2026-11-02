@@ -159,7 +159,7 @@ async function browserChecks() {
     await evaluate("window.__update({ status: 'downloaded', version: '1.2.4', progress: 100 })");
     await waitFor("document.body.innerText.includes('v1.2.4 is ready')");
     // Auto update: the switch in About saves on the host; with it on, the ready card says the update installs by itself.
-    const autoSwitch = `document.querySelector('[role=switch][aria-label="Auto update"]')`;
+    const autoSwitch = `document.querySelector('[role=checkbox][aria-label="Auto update"]')`;
     await waitFor(`${autoSwitch}?.getAttribute('aria-checked') === 'false'`);
     assert.match(await evaluate("document.body.innerText"), /nobody has used the Mac for 5 minutes/);
     await evaluate(`${autoSwitch}.click()`);

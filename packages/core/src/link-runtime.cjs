@@ -1,5 +1,7 @@
 const { scopeKey, validLinkId } = require("@milagre/shared/chat-scopes");
-function registerLinkRuntime({ commands, registry, store, workspaces, chats, broadcast, titles }) {
+const { chatKey } = require("@milagre/shared/agent-runs");
+const { createSentFromNotes } = require("./sent-from.cjs");
+function registerLinkRuntime({ commands, registry, store, workspaces, chats, sentFromNotes = createSentFromNotes(), broadcast, titles }) {
   const queues = new Map();
   async function definition(id) {
     if (!validLinkId(id)) throw new Error("Invalid Link ID");
@@ -111,7 +113,13 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, bro
           await store.flush(link.id);
         }
         const key = scopeKey({ kind: "link", linkId: link.id });
-        const sent = await chats.send({ ...request, projectPath: key, sessionId, operationId, context: undefined });
+        const sent = await chats.send(
+          sentFromNotes.message(
+            { ...request, projectPath: key, sessionId, operationId, context: undefined },
+            request.sessionId == null ? null : chatKey(key, sessionId),
+          ),
+        );
+        sentFromNotes.sent(chatKey(key, sent.sessionId), request.sentFrom);
         broadcast(key, await store.get(link.id));
         return { sessionId: sent.sessionId };
       });

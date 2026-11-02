@@ -1,6 +1,12 @@
+import type { MessageDelivery } from "@milagre/shared/queued-messages";
+import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../lib/outbox";
+import { OfflineTray, useOfflineTray } from "./OfflineTray";
+import { useDisplayNow } from "../lib/display-clock";
+import { computerOfKey } from "@milagre/shared/chat-scopes";
+import { computerNameOf, offlineBanner, useComputers } from "../lib/computers";
 import { archiveLinkChat } from "../lib/archive-flow";
 import { shortcutCommand } from "../lib/keybindings";
-import { prepareImageUploads } from "../lib/attachment-uploads";
+import { prepareImageUploads, prepareLocalFileUploads } from "../lib/attachment-uploads";
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
@@ -113,6 +119,7 @@ export function LinkWorkspace({
   onNewChat,
   archivingChats,
   onArchiving,
+  scopeChatActions,
 }: {
   opened: OpenLink;
   state: LinkState;
@@ -146,10 +153,14 @@ export function LinkWorkspace({
   archivingChats?: ReadonlySet<string>;
   /** A Chat's archive started; its row comes back if `work` fails. */
   onArchiving?: (key: string, work: Promise<unknown>) => void;
+  scopeChatActions?: ComponentProps<typeof SidebarNav>["scopeChatActions"];
 }) {
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
   const bridge = bridgeForKey(owner);
+  const computer = useComputers().computers.find((item) => item.id === computerOfKey(owner));
+  const offline = queueForComputer(owner);
+  const bannerNow = useDisplayNow(60_000, offline);
   // oxlint-disable-next-line react/use-memo -- one store per Link, made when the Link changes
   const draftStore = useMemo(createDraftStore, [owner]);
   const saved = drafts.read(scope);
@@ -159,6 +170,7 @@ export function LinkWorkspace({
   const [draftId, setDraftId] = useState(0);
   const sendKey = `${owner}#${sessionId ?? `new:${draftId}`}`;
   const session = sessionId == null ? undefined : state.sessions[sessionId];
+  const offlineTray = useOfflineTray(owner, sessionId, offline);
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
   // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
   const terminalPlaces: TerminalPlace[] | undefined = session?.worktrees.map((member) => ({
@@ -227,7 +239,10 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
-  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner);
+  // As a Project Chat's: Ultracode and Fast only count for a model that has them, so a Codex pick drops a Claude Ultracode.
+  const ultracode = Boolean(preferences.capability?.ultracode) && composerPrefs.ultracode;
+  const fastMode = Boolean(preferences.capability?.fastMode) && composerPrefs.fastMode;
+  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner, queueForComputer(owner));
   const [error, setError] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
@@ -419,7 +434,7 @@ export function LinkWorkspace({
       .catch(() => {});
   }, [owner, chatId, state.sessions]);
   // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
-  async function send(body = draftStore.get().trim(), preserve = false, attach = true) {
+  async function send(body = draftStore.get().trim(), preserve = false, attach = true, delivery?: MessageDelivery) {
     const images = attach ? imageDraft.images : [];
     const files = attach ? imageDraft.files : [];
     if (preparing || sendsInFlight.current.has(sendKey) || imageDraft.loading || (!body && !images.length && !files.length)) return false;
@@ -429,6 +444,51 @@ export function LinkWorkspace({
     setError(null);
     // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (queueForComputer(owner) || hasQueuedChat(owner, sessionId)) {
+      try {
+        const id = crypto.randomUUID();
+        await outbox.enqueue({
+          id,
+          computerId: computerOfKey(owner),
+          computerName: computerNameOf(computerOfKey(owner)),
+          owner,
+          conversation: sessionId == null ? id : `chat:${sessionId}`,
+          link: { linkId: opened.link.id, operationId: operation },
+          request: {
+            projectPath: owner,
+            delivery,
+            sessionId,
+            worktreeId: 0,
+            body,
+            images: [],
+            files: [],
+            prompt: body,
+            provider: model.provider,
+            model: model.id,
+            permissionMode: composerPrefs.permissionMode,
+            effort: preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort,
+            ultracode,
+            fastMode,
+            replies: getSettings().claudeReplies,
+            tldrEnabled: getSettings().tldrEnabled,
+          },
+          attachments: await outboxAttachments(images, files, imageDraft.localFiles),
+        });
+        if (!preserve && latest.current.active && latest.current.selection === selection) {
+          if (draftStore.get().trim() === body) draftStore.set("");
+          for (const image of images) imageDraft.remove(image.id);
+          for (const file of files) imageDraft.removeFile(file);
+        }
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setError(ipcErrorMessage(error));
+        return false;
+      } finally {
+        sendsInFlight.current.delete(sendKey);
+      }
+    }
     // A Link's state has no Worktrees (its Chats own theirs); the preview reads only its sessions and messages.
     const preview = createPendingChat({
       state: state as unknown as CoordinatorState,
@@ -449,21 +509,23 @@ export function LinkWorkspace({
       imageDraft.clear();
     }
     try {
+      const uploadedFiles = await prepareLocalFileUploads(owner, files, images, imageDraft.localFiles);
       const request = {
+        delivery,
         linkId: opened.link.id,
         sessionId,
         operationId: operation,
         clientMessageId: previewId,
         body,
-        prompt: attachmentPrompt(body, files),
+        prompt: attachmentPrompt(body, uploadedFiles),
         images: await prepareImageUploads(owner, images),
-        files,
+        files: uploadedFiles,
         provider: model.provider,
         model: model.id,
         permissionMode: composerPrefs.permissionMode,
         effort: preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort,
-        ultracode: composerPrefs.ultracode,
-        fastMode: composerPrefs.fastMode,
+        ultracode,
+        fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
       };
@@ -514,12 +576,7 @@ export function LinkWorkspace({
   }
   // The same rows the sidebar builds for this Link while a Project is open: its Chat order, pins and times, so the
   // one-list sidebar keeps every row where it was when the window switches between the Link and a Project.
-  const recents = scopeChats(owner, state, chatOrder, runMarks)
-    .filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))))
-    .map((row) => ({
-      ...row,
-      details: { ...row.details, path: state.sessions[Number(row.id)]?.workspacePath },
-    }));
+  const recents = scopeChats(owner, state, chatOrder, runMarks).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
@@ -566,6 +623,7 @@ export function LinkWorkspace({
           <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink">
             <div className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
               <SidebarNav
+                scopeChatActions={scopeChatActions}
                 fill
                 attentionPaths={attentionPaths}
                 workspaceName={opened.link.name}
@@ -635,7 +693,7 @@ export function LinkWorkspace({
                     const work = archiveLinkChat({
                       running: Boolean(agents.runs[key]),
                       stop: () => agents.interrupt(key),
-                      hide: () => bridge.patchChat(owner, chat, { archived: true }),
+                      hide: () => bridge.deleteChat(owner, chat),
                     });
                     onArchiving?.(key, work);
                     void work.catch((error) => setError(ipcErrorMessage(error)));
@@ -694,7 +752,7 @@ export function LinkWorkspace({
                         onModelChange={(model) => preferences.onModelChange(model, chatId)}
                         effort={preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort}
                         onEffortChange={composerPrefs.setEffort}
-                        ultracode={composerPrefs.ultracode}
+                        ultracode={ultracode}
                         onUltracodeChange={composerPrefs.setUltracode}
                         fastMode={composerPrefs.fastMode}
                         onFastModeChange={composerPrefs.setFastMode}
@@ -715,17 +773,33 @@ export function LinkWorkspace({
                           return true;
                         }}
                         earlier={earlierMessages}
+                        trimHistory={lean ? chatWindow.trim : undefined}
                         messages={shownMessages}
+                        limitPending={session?.limitResume}
+                        limitSourceMessageId={session?.limitTurn?.sourceMessageId}
+                        limitResumeBlocked={!!session?.queued?.length}
                         pendingMessageId={pendingHere ? pendingSend.message.id : undefined}
                         loading={lean && chatWindow.loading && !shownMessages.length && session !== undefined}
                         loadError={lean ? chatWindow.error : undefined}
                         onRetryLoad={() => void chatWindow.retry()}
                         imageDraft={imageDraft}
-                        onSend={() => void send()}
+                        onSend={(delivery) => void send(draftStore.get().trim(), false, true, delivery)}
                         onSendDesignMessage={(text) => send(text, true, false)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
                         sendBlocked={preparing}
+                        offlineName={offline ? computerNameOf(computerOfKey(owner)) : null}
+                        offlineTray={
+                          offlineTray.shown ? (
+                            <OfflineTray
+                              owner={owner}
+                              sessionId={sessionId}
+                              computerName={computerNameOf(computerOfKey(owner))}
+                              offline={offline}
+                              detail={computer ? offlineBanner(computer, bannerNow) : undefined}
+                            />
+                          ) : undefined
+                        }
                         streamingText={run?.text}
                         streamingSteps={run?.steps}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend.startedAt : undefined)}

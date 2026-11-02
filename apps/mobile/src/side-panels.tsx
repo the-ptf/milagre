@@ -1,24 +1,24 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { afterPaint } from "@milagre/shared/after-paint";
 import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { Easing, ReduceMotion, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import {
-  ArrowLeft01Icon,
-  Cancel01Icon,
-  CircleDotIcon,
-  File01Icon,
-  FileDiffIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
-  PaintBoardIcon,
-  SmartphoneIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, File01Icon, FileDiffIcon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
+import { ClosesLeftContext, hideRevealed } from "./chat-swipe-row";
 import { ChangesView } from "./app/changes";
 import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
@@ -37,7 +37,9 @@ import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, rightDocks, widthClass } fro
 import { SimulatorSheet } from "./simulator";
 import { DesignsSheet } from "./designs-sheet";
 import { ArtifactSheet } from "./artifact";
-import type { ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
+import { BrowserSheet } from "./browser";
+import type { BrowserTab, ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
+import { PR_ICONS } from "./pr-look";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
@@ -46,11 +48,11 @@ type Screen = { token: object; chatId?: number; worktreeId?: number; pullRequest
 type ScreenPullRequest = { number: number; chatKey: string; choices?: PrChoice[]; cwd?: string };
 /**
  * What the right panel shows: the Worktree's Changes, the Chat's PR (when it has one), or on an iPad the Chat's
- * simulators or designs, which open there instead of full screen.
+ * simulators, designs or browser, which open there instead of full screen.
  */
-type RightTab = "changes" | "pr" | "simulator" | "designs";
+type RightTab = "changes" | "pr" | "simulator" | "designs" | "browser";
 /** The tabs a Chat opened in the right panel itself. They belong to that Chat: another Chat on screen doesn't show them. */
-type ChatTabs = { token: object; chatId?: number; simulator?: SimulatorTab; designs?: DesignsTab };
+type ChatTabs = { token: object; chatId?: number; simulator?: SimulatorTab; designs?: DesignsTab; browser?: BrowserTab };
 type Panels = {
   screen: Screen | null;
   open: Side | null;
@@ -129,8 +131,9 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
   // While a Chat picked in the open navigation replaces the screen under it: the timer that slides the navigation away
-  // regardless, and the screen that took the panels, until its own transition ends.
+  // regardless, and the screen that took the panels, until it paints or its native transition ends.
   const handoff = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelArrival = useRef<(() => void) | null>(null);
   const arriving = useRef<object | null>(null);
   const reset = useCallback(() => {
     progress.set(0);
@@ -152,6 +155,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     [progress],
   );
   const endHandoff = useCallback(() => {
+    cancelArrival.current?.();
+    cancelArrival.current = null;
     if (handoff.current) clearTimeout(handoff.current);
     handoff.current = null;
     arriving.current = null;
@@ -180,13 +185,18 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
         current.current = next;
         setScreen(next);
         setMounted((previous) => (previous.right ? { ...previous, right: false } : previous));
+        // The replacement has animation: "none", so transitionEnd can be absent or arrive before its listener.
+        // Focus attaches after commit: let that screen paint, then reveal it without waiting for the 1 s watchdog.
+        cancelArrival.current = afterPaint(() => {
+          if (arriving.current === next.token) finishHandoff();
+        });
         return;
       }
       if (current.current?.token !== next.token) reset();
       current.current = next;
       setScreen(next);
     },
-    [reset],
+    [reset, finishHandoff],
   );
   const arrived = useCallback(
     (token: object) => {
@@ -386,6 +396,13 @@ export function usePanelNavigation() {
   return usePanels().navigate;
 }
 
+/** A sheet such as Ports can return to its Chat and open a tab beside it. Never take another Chat's panel. */
+export function useChatPanelTabs(hostId?: string, chatId?: string) {
+  const panels = usePanels();
+  const session = useSession();
+  return panels.docks && hostId === session.client?.url && chatId === `${session.snapshot?.project.path}#${panels.screen?.chatId}` ? panels.openTab : null;
+}
+
 /** The focused screen's Chat and Worktree, and the panels it offers, for the pinned sidebar and keyboard shortcuts. */
 export function usePanelScreen() {
   const { screen, open, show, docked, closeRight } = usePanels();
@@ -414,6 +431,7 @@ function rightTabs(screen: Screen, chatTabs: ChatTabs | null): RightTab[] {
   if (screen.pullRequest) tabs.push("pr");
   if (own?.simulator) tabs.push("simulator");
   if (own?.designs) tabs.push("designs");
+  if (own?.browser) tabs.push("browser");
   return tabs;
 }
 
@@ -507,7 +525,7 @@ export function useSidePanels({
     setTab("changes");
     show("right");
   }, [setTab, show]);
-  // On an iPad, this Chat's simulators and designs open in the docked right panel; null where they open full screen.
+  // On an iPad, this Chat's simulators, designs and Browser open in the docked right panel; null where they open full screen.
   const { docks, openTab } = panels;
   const openInPanel = useMemo(() => (docks && !passive ? openTab : null), [docks, passive, openTab]);
   return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges, openInPanel };
@@ -601,6 +619,12 @@ export function SidePanelsHost() {
       if (now !== null && now !== before) scheduleOnRN(setLeftAwake, now);
     },
   );
+  // The navigation's rows swipe only once it is all the way open.
+  const leftOpen = useDerivedValue(() => progress.get() >= 0.99);
+  // Closed, the navigation forgets a row left showing Done.
+  useEffect(() => {
+    if (!leftAwake) hideRevealed();
+  }, [leftAwake]);
   // Made once per change of what it shows, so opening or closing the panel doesn't render the list again on the slide's
   // first frame.
   const activeChatId = screen?.chatId;
@@ -661,7 +685,9 @@ export function SidePanelsHost() {
           <SafeAreaInsetsContext.Provider value={card ? NO_INSETS : insets}>
             {mounted.left && (
               <Animated.View {...hidden("left")} style={[frame("left"), left]}>
-                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>{navigation}</SafeAreaInsetsContext.Provider>
+                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>
+                  <ClosesLeftContext.Provider value={leftOpen}>{navigation}</ClosesLeftContext.Provider>
+                </SafeAreaInsetsContext.Provider>
               </Animated.View>
             )}
             {/* Wide enough, the right panel docks beside the Chat instead (RightDock in split-layout.tsx). */}
@@ -736,8 +762,8 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               <PanelTab
                 key={prChoiceKey(choice)}
                 label={`#${choice.number}`}
-                icon={TAB_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : "open")]}
-                tone={PR_TONE[choice.look?.tone ?? (choice.state === "MERGED" ? "purple" : "green")].icon}
+                icon={PR_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : choice.state === "CLOSED" ? "closed" : "open")]}
+                tone={PR_TONE[choice.look?.tone ?? (choice.state === "MERGED" ? "purple" : choice.state === "CLOSED" ? "ink3" : "green")].icon}
                 selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
                 onPress={() => {
                   onPick(prChoiceKey(choice));
@@ -748,6 +774,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           {own?.simulator && (
             <PanelTab label="Simulator" icon={SmartphoneIcon} tone="ink2" selected={shownTab === "simulator"} onPress={() => onTab("simulator")} />
           )}
+          {own?.browser && <PanelTab label="Browser" icon={BrowserIcon} tone="ink2" selected={shownTab === "browser"} onPress={() => onTab("browser")} />}
           {designs && (
             <PanelTab
               label={designs.html ? "Artifact" : "Designs"}
@@ -817,6 +844,17 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           />
         </View>
       )}
+      {/* Keep the Browser selection while hidden, but stop its live capture. */}
+      {own?.browser && (
+        <View style={{ flex: 1, display: shownTab === "browser" ? "flex" : "none" }}>
+          <BrowserSheet
+            key={`${own.browser.hostId}:${own.browser.chatId}`}
+            {...own.browser}
+            visible={visible && shownTab === "browser"}
+            onClose={() => closeTab("browser")}
+          />
+        </View>
+      )}
       {/* The designs canvas stays drawn under the other tabs, so a visit doesn't load it again. It is hidden by opacity:
       with display none the native WebView goes away and the canvas's messages to it fail. */}
       {designs && (
@@ -832,6 +870,9 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               hostId={designs.hostId}
               chatId={designs.chatId}
               id={designs.id}
+              tab={designs.tab}
+              comment={designs.comment}
+              requestId={designs.requestId}
               onClose={() => closeTab("designs")}
             />
           ) : (
@@ -853,8 +894,6 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
 
 /** The right panel's tab row, the chat header's height; the hidden designs canvas sits under it. */
 const TAB_BAR_HEIGHT = chrome.header;
-
-const TAB_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
 
 /** A tab of the right panel: Changes, one of the Chat's PRs with its state's icon, or the Chat's simulators or designs. */
 function PanelTab({ label, icon, tone, selected, onPress }: { label: string; icon: IconData; tone: Tone; selected: boolean; onPress: () => void }) {

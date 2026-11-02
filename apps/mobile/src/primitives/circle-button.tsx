@@ -16,6 +16,7 @@ import { pressStyle } from "./press-style";
 export function CircleButton({
   label,
   icon,
+  iconSize = 20,
   onPress,
   filled = false,
   selected,
@@ -25,6 +26,7 @@ export function CircleButton({
 }: {
   label: string;
   icon: IconData;
+  iconSize?: number;
   onPress?: () => void;
   filled?: boolean;
   selected?: boolean;
@@ -48,7 +50,7 @@ export function CircleButton({
         borderColor: colors.lineStrong,
       }}
     >
-      <Icon icon={icon} size={20} tone={filled ? "onInk" : "ink"} />
+      <Icon icon={icon} size={iconSize} tone={filled ? "onInk" : "ink"} />
       {badge ? (
         <View
           style={{

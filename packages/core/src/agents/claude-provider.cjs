@@ -234,7 +234,7 @@ class ClaudeSession {
     }
   }
 
-  async beginTurn({ prompt, images = [], model, permissionMode, effort, ultracode = false, fastMode = false, replies }) {
+  async beginTurn({ prompt, images = [], model, permissionMode, effort, ultracode = false, fastMode = false, replies, canStart }) {
     const turnId = randomUUID();
     Object.assign(this.state, { turnId, hasText: false, suggestionTurnId: null });
     this.permissions.setMode(permissionMode);
@@ -273,9 +273,13 @@ class ClaudeSession {
       this.finishTurn({ type: "turn-cancelled" });
       return { turnId: null, steered: false };
     }
+    if (canStart && !canStart()) {
+      this.finishTurn(null);
+      return { turnId: null, steered: false, cancelled: true };
+    }
     if (this.cancelRequested) {
       this.finishTurn({ type: "turn-cancelled" });
-      return { turnId: null, steered: false };
+      return { turnId: null, steered: false, cancelled: true };
     }
     this.inbox.push(userMessage(prompt, images));
     this.emit({ type: "turn-started", turnId });
@@ -638,7 +642,7 @@ class ClaudeSession {
 
   finishTurn(event) {
     if (!this.turnActive) return;
-    this.state.suggestionTurnId = event.type === "turn-completed" && !this.steeredTurn ? this.state.turnId : null;
+    this.state.suggestionTurnId = event?.type === "turn-completed" && !this.steeredTurn ? this.state.turnId : null;
     this.turnActive = false;
     this.lastTurnId = this.state.turnId;
     const markEnded = this.markEnded;
@@ -649,7 +653,7 @@ class ClaudeSession {
     this.state.tools?.clear();
     this.state.foregroundChildren?.clear();
     this.state.thinking = null;
-    this.emit(event);
+    if (event) this.emit(event);
     markEnded();
   }
 

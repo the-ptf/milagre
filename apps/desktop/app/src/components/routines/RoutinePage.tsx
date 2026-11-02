@@ -7,6 +7,7 @@ import {
   GitBranchIcon,
   PencilEdit02Icon,
   PlayIcon,
+  RefreshIcon,
   SecurityCheckIcon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
@@ -16,7 +17,9 @@ import {
   canEditRoutine,
   canRunNow,
   clock,
+  fallbackText,
   filterRuns,
+  routineRetries,
   routineTimes,
   routineWhereText,
   runFilterCounts,
@@ -25,7 +28,7 @@ import {
 } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
-import { Switch } from "../primitives/Switch";
+import { SettingCheckbox } from "../primitives/Checkbox";
 import Tooltip from "../primitives/Tooltip";
 import { Icon } from "../primitives/Icon";
 import { Button, IconButton } from "../primitives/Button";
@@ -39,6 +42,7 @@ import { routineIcon } from "./routine-icon";
 import { computerOfRoutine, refreshRoutines, type RoutineWithRuns } from "../../lib/routines";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { localZone } from "./use-routine-form";
+import { thisComputer } from "../../lib/shortcut-hints";
 
 /** "On" in green, or "Paused" in grey, beside the Routine's name. */
 function RoutineStatusPill({ on }: { on: boolean }) {
@@ -151,7 +155,7 @@ export function RoutinePage({
             <RoutineStatusPill on={routine.enabled} />
           </div>
           <div data-routine-toolbar className="flex h-8 shrink-0 items-center gap-1 rounded-card border border-line bg-surface pr-0.5 pl-2">
-            <Switch
+            <SettingCheckbox
               label={`${routine.name} on`}
               checked={routine.enabled}
               onChange={(on) => act(() => bridgeForKey(routine.id).updateRoutine(routine.id, { enabled: on }))}
@@ -186,6 +190,11 @@ export function RoutinePage({
           <Chip icon={SparklesIcon} data-routine-chip="model">
             {model}
           </Chip>
+          {routineRetries(routine) && (
+            <Chip icon={RefreshIcon} data-routine-chip="fallback">
+              {fallbackText(routine, (provider, id) => models.find((entry) => entry.provider === provider && entry.id === id)?.name)}
+            </Chip>
+          )}
           <Chip icon={SecurityCheckIcon} data-routine-chip="mode">
             {mode}
           </Chip>
@@ -205,7 +214,7 @@ export function RoutinePage({
           <div data-routine-created className="mt-4 space-y-2 rounded-card border border-line px-4 py-3">
             <div className="flex items-start gap-2">
               <p className="min-w-0 flex-1 text-12 text-ink-2">
-                Routine created. Send POST requests to this URL. While this Mac is away, the relay holds them for up to 24 hours.
+                Routine created. Send POST requests to this URL. While {thisComputer} is away, the relay holds them for up to 24 hours.
               </p>
               <IconButton label="Dismiss" icon={Cancel01Icon} size={24} onClick={onDismissHook} />
             </div>

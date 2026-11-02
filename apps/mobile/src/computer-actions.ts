@@ -1,3 +1,4 @@
+import { outbox } from "./outbox";
 import { Alert } from "react-native";
 import { createClient } from "./client";
 import { nativeActivity } from "./live-activity-native";
@@ -50,7 +51,11 @@ export function forgetComputer(
   host: SavedHost,
   { session, push, onForgotten, onError }: { session: Session; push: Push; onForgotten?: () => unknown; onError: (message: string) => void },
 ) {
-  confirmSheet(`Forget ${host.name}?`, "You will need to scan its code again to reconnect.", [
+  const waiting = outbox.getSnapshot().items.filter((item) => item.computerId === host.id && item.status !== "sent");
+  const discarded = waiting.length
+    ? ` ${waiting.length === 1 ? "1 message" : `${waiting.length} messages`} waiting on this device for it will be discarded.`
+    : "";
+  confirmSheet(`Forget ${host.name}?`, `You will need to scan its code again to reconnect.${discarded}`, [
     { text: "Cancel", style: "cancel" },
     {
       text: "Forget",
@@ -65,6 +70,7 @@ export function forgetComputer(
             await savedHosts.forget(host.id);
             if (host.relay) relayRuntime.forget(host.relay.hostId);
             lanRoutes.forget(host.id);
+            await Promise.allSettled(waiting.map((item) => outbox.remove(item.id)));
             await onForgotten?.();
           } catch (e) {
             onError((e as Error).message);

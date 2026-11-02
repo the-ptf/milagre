@@ -1,6 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { contractFor, argumentsFor, inputForFlags } = require("./command-input.cjs");
+test("artifact transport accepts held font keys and rejects malformed font inventories", () => {
+  const contract = contractFor("artifact:get");
+  const request = { chatId: "/p#1", id: "home", fonts: { have: ["a".repeat(64)] } };
+  assert.deepEqual(argumentsFor(contract, [request]), [request]);
+  assert.deepEqual(argumentsFor(contract, [{ chatId: "/p#1", id: "home" }]), [{ chatId: "/p#1", id: "home" }]);
+  assert.throws(() => argumentsFor(contract, [{ ...request, fonts: { have: [1] } }]), /Invalid arguments/);
+  assert.throws(() => argumentsFor(contract, [{ ...request, fonts: { typo: [] } }]), /Invalid arguments/);
+});
 test("UI object inputs produce named flags with required fields, unions and nested JSON", () => {
   const contract = contractFor("terminal:open");
   assert.ok(contract.inputSchema.properties.chatId);
@@ -40,4 +48,11 @@ test("nullable fields retain explicit null and reserved names do not change CLI 
   assert.deepEqual(argumentsFor(contract, input), ["/p", "claude", null]);
   const channel = contractFor("update:set-channel", { desktop: true });
   assert.deepEqual(argumentsFor(channel, inputForFlags(channel.inputSchema, [["arg-channel", "beta"]])), ["beta"]);
+});
+
+test("Git diff contracts accept a null commit as an omitted selection", () => {
+  for (const channel of ["git:diff-files", "git:diff-file"]) {
+    const request = { cwd: "/project", mode: "uncommitted", commit: null, ...(channel === "git:diff-file" ? { path: "file.txt" } : {}) };
+    assert.deepEqual(argumentsFor(contractFor(channel), request), [request]);
+  }
 });

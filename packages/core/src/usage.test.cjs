@@ -361,8 +361,10 @@ test("shares one in-flight read between concurrent callers", async () => {
   const snapshot = await first;
   assert.deepEqual(
     snapshot.providers.map((item) => item.provider),
-    ["claude", "codex", "antigravity"],
+    ["claude", "codex", "antigravity", "kiro"],
   );
+  // Kiro's credits aren't read yet: its row is unavailable and the sidebar leaves it out.
+  assert.equal(snapshot.providers.at(-1).status, "unavailable");
   assert.deepEqual([claudeReads, codexReads], [1, 1]);
 
   await readUsage();
@@ -654,4 +656,29 @@ test("without a signed-in profile the default Antigravity reader is unavailable"
   const antigravity = await readAntigravityUsage({ now: () => NOW });
   assert.equal(antigravity.status, "unavailable");
   assert.deepEqual(antigravity.windows, []);
+});
+
+test("provider check timestamps advance on errors and unavailable results without relabeling last-good quotas", async () => {
+  let clock = NOW;
+  const old = new Date(NOW - 3600000).toISOString();
+  const windows = [{ id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 42, resetsAt: null }];
+  const results = [
+    { provider: "claude", status: "ok", updatedAt: old, windows },
+    { provider: "claude", status: "error", updatedAt: new Date(NOW).toISOString(), windows: [] },
+    { provider: "claude", status: "unavailable", updatedAt: new Date(NOW).toISOString(), windows: [] },
+  ];
+  const reader = createUsageReader({ now: () => clock, readClaude: async () => results.shift() });
+  assert.equal(reader.checkedAt("claude"), undefined, "an unqueried account has no completed check timestamp");
+  await reader.provider("claude");
+  assert.equal(reader.checkedAt("claude"), new Date(clock).toISOString());
+  clock += 20000;
+  const failed = await reader.provider("claude");
+  assert.equal(reader.checkedAt("claude"), new Date(clock).toISOString());
+  assert.equal(failed.updatedAt, old);
+  assert.deepEqual(failed.windows, windows);
+  assert.equal(reader.cached("claude").updatedAt, old);
+  clock += 20000;
+  await reader.provider("claude");
+  assert.equal(reader.checkedAt("claude"), new Date(clock).toISOString());
+  assert.equal(reader.cached("claude").status, "unavailable");
 });

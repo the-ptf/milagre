@@ -10,7 +10,22 @@ export type Command = {
   keybinding?: KeybindingCommandId;
   /** The matched text inside `label`, bolded in the palette. */
   highlight?: [start: number, end: number];
-  icon: "chat" | "add" | "folder" | "settings" | "git" | "editor" | "copy" | "unread" | "search" | "message" | "reload" | "routines" | "newChat" | "triage";
+  icon:
+    | "chat"
+    | "add"
+    | "folder"
+    | "settings"
+    | "git"
+    | "editor"
+    | "copy"
+    | "unread"
+    | "search"
+    | "message"
+    | "reload"
+    | "routines"
+    | "usage"
+    | "newChat"
+    | "triage";
   run: () => void | Promise<unknown>;
 };
 

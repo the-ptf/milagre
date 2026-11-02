@@ -1,17 +1,15 @@
 // @ts-check
+const { createAgentCursor } = require("./agent-cursor.cjs");
 const { createQuitHandler } = require("./quit.cjs");
 const { createEditorOpener } = require("./editor-open.cjs");
 const {
   app,
-  BrowserWindow,
   clipboard,
   ClipboardItem,
-  dialog,
   ipcMain: electronIpcMain,
   Menu,
   nativeImage,
   Notification,
-  shell,
   protocol,
   safeStorage,
   powerMonitor,
@@ -31,20 +29,37 @@ const { revealFolder } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
-const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests } = require("./browser-guests.cjs");
+const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession } = require("./browser-guests.cjs");
+const { clearSignIns, computerPartition, createRemoteBrowserSessions, removeChatPartitions } = require("./browser-remote-sessions.cjs");
 const { createBrowserPanelPages } = require("./browser-panel-pages.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
 const { createComputersLane } = require("./computers-lane.cjs");
+const { createBackgroundMode, isBackground } = require("./background-mode.cjs");
+// MILAGRE_BACKGROUND=1 (agents' and checks' copies): nothing of the app comes on screen; CDP still sees every window.
+const electron = require("electron");
+const background = createBackgroundMode({
+  enabled: isBackground(process.env),
+  platform: process.platform,
+  app,
+  BrowserWindow: electron.BrowserWindow,
+  shell: electron.shell,
+  dialog: electron.dialog,
+});
+const { BrowserWindow, shell, dialog } = background;
+const notificationsSupported = () => background.notifications(Notification.isSupported());
 protocol.registerSchemesAsPrivileged([
-  { scheme: "milagre-artifact", privileges: { standard: true, secure: true } },
+  // stream: an Artifact page's videos and audio play from its preview's address.
+  { scheme: "milagre-artifact", privileges: { standard: true, secure: true, stream: true } },
   { scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 async function startDesktop() {
   /** @type {Electron.BrowserWindow | null} */
   let mainWindow = null;
+  // Computer use: the agent cursor, made on first use (agent-cursor.cjs).
+  let agentCursor = null;
   let runtime;
   let computerUnlock;
   /** @type {ReturnType<typeof createComputersLane> | null} */
@@ -71,6 +86,7 @@ async function startDesktop() {
   const indexFile = path.join(__dirname, "../dist/index.html");
   const appUrl = app.isPackaged ? pathToFileURL(indexFile).href : process.env.MILAGRE_DEV_SERVER_URL || "http://127.0.0.1:5173";
   const { createFloatingInbox } = require("./floating-inbox.cjs");
+  background.start();
   await app.whenReady();
   const preferences = require("./preferences.cjs").createPreferencesStore(path.join(app.getPath("userData"), "preferences.json"));
   // Synchronous writes finish before an updater can close the window.
@@ -139,9 +155,19 @@ async function startDesktop() {
     floating.close();
     openFromNotification("notification:open-experimental");
   });
-  const previews = require("./artifact-preview.cjs").createArtifactPreviews();
+  // An Artifact page's files come from the computer its Chat is on: this Mac's host, or a paired one's.
+  const { computerOfKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
+  const previews = require("./artifact-preview.cjs").createArtifactPreviews({
+    readAsset: (chatId, name, offset, length) => {
+      const request = { chatId, name, offset, length };
+      const computer = computerOfKey(chatId);
+      if (computer === LOCAL_COMPUTER) return runtime.invoke("artifact:asset", [request]);
+      if (!computersLane) throw new Error("This computer is not reachable.");
+      return computersLane.invoke("computers:invoke", [computer, "artifact:asset", [request]]);
+    },
+  });
   const previewOwners = new Set();
-  ipcMain.handle("artifact-preview:register", (event, html) => {
+  ipcMain.handle("artifact-preview:register", (event, html, source) => {
     if (event.senderFrame !== event.sender.mainFrame) throw new Error("Only the app can create a preview.");
     const owner = event.sender.id;
     if (!previewOwners.has(owner)) {
@@ -154,7 +180,7 @@ async function startDesktop() {
         if (mainFrame) previews.clear(owner);
       });
     }
-    return previews.register(owner, html);
+    return previews.register(owner, html, source);
   });
   ipcMain.handle("artifact-preview:release", (event, url) => {
     if (event.senderFrame === event.sender.mainFrame) previews.release(event.sender.id, url);
@@ -199,9 +225,49 @@ async function startDesktop() {
   // the agent. An older host has no such command; its pages simply stay in the panel.
   const panelPages = createBrowserPanelPages({
     fromId: (id) => require("electron").webContents.fromId(id),
-    publish: (request) => (runtime ? runtime.invoke("browser:panel-pages", [request]) : Promise.reject(new Error("No host"))),
+    // This Mac's Chats' pages go to its own host; a Chat on another computer's go to that computer's host, which reaches
+    // them back through this Mac (#832).
+    publish: async (request) => {
+      if (!runtime) throw new Error("No host");
+      const remote = request.pages.filter((page) => computerOfKey(page.chatId) !== LOCAL_COMPUTER);
+      const local = request.pages.filter((page) => computerOfKey(page.chatId) === LOCAL_COMPUTER);
+      await Promise.all([
+        runtime.invoke("browser:panel-pages", [local.length ? { ...request, pages: local } : { pages: [] }]),
+        runtime
+          .invoke("computers:browser-pages", [
+            {
+              port: request.port,
+              prefix: request.prefix,
+              pages: remote.map((page) => ({ id: page.id, chatKey: page.chatId, title: page.title, url: page.url })),
+            },
+          ])
+          .catch((error) => console.warn("Browser pages for other computers:", error.message)),
+      ]);
+    },
   });
   ipcMain.handle("browser-panel:pages", (event, list) => panelPages.setPages(event.sender, list));
+  // A Chat on another computer: its pages draw here and reach the web from that computer (#832).
+  const remoteBrowserSessions = createRemoteBrowserSessions({
+    fromPartition: (partition) => electronSession.fromPartition(partition),
+    proxyPort: async (computerId) => {
+      if (!runtime) throw new Error("Milagre's host isn't connected yet.");
+      return (await runtime.invoke("computers:browser-proxy", [computerId]))?.port;
+    },
+    harden: hardenBrowserSession,
+  });
+  ipcMain.handle("browser-panel:remote-partition", (_event, chatKey) => remoteBrowserSessions.prepare(chatKey));
+  // Signs this Mac's Chats' pages ("local"), or one computer's, out of every site; the host forwards the phone's here.
+  ipcMain.handle("browser-panel:clear-sign-ins", async (_event, computerId) => {
+    if (typeof computerId !== "string" || !computerId) throw new Error("Expected a computer.");
+    const partition = computerId === LOCAL_COMPUTER ? BROWSER_PARTITION : computerPartition(computerId);
+    const guests = require("electron")
+      .webContents.getAllWebContents()
+      .filter((contents) => contents.getType() === "webview");
+    await clearSignIns(electronSession.fromPartition(partition), guests);
+    return { cleared: true };
+  });
+  // Each remote Chat had a session of its own before its computer's Chats shared one; their sign-ins go with them.
+  void removeChatPartitions(app.getPath("userData")).catch((error) => console.warn("Browser sessions of single Chats:", error.message));
   // The keys caught from every frame follow this Mac's keybindings.json; an older host has none, so the defaults stay.
   const readKeybindings = () =>
     void runtime
@@ -243,14 +309,19 @@ async function startDesktop() {
       name,
     );
   // Dictation runs on this computer even when the window shows a paired one: the microphone is here.
-  // Its model download reports progress to the window that asked.
-  const dictation = createDictation({ dataDir: app.getPath("userData") });
-  ipcMain.handle("app:dictation-status", async () => ({ ready: await dictation.ready(), size: dictation.size }));
-  ipcMain.handle("app:dictation-transcribe", (event, request) =>
-    dictation.transcribe(request ?? {}, (received, total) => {
-      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
-    }),
-  );
+  // Every window hears each model's download progress, so Settings and the composer show the same ring.
+  const dictation = createDictation({
+    dataDir: app.getPath("userData"),
+    onChange: (state) => {
+      for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send("app:dictation-model", state);
+    },
+  });
+  ipcMain.handle("app:dictation-status", () => dictation.status());
+  ipcMain.handle("app:dictation-download", (_event, id) => dictation.download(id));
+  ipcMain.handle("app:dictation-cancel", (_event, id) => dictation.cancel(id));
+  ipcMain.handle("app:dictation-remove", (_event, id) => dictation.remove(id));
+  ipcMain.handle("app:dictation-prepare", (_event, id) => dictation.prepare(id));
+  ipcMain.handle("app:dictation-transcribe", (_event, request) => dictation.transcribe(request ?? {}));
   ipcMain.handle("app:dictation-open-settings", () =>
     shell.openExternal(
       process.platform === "win32" ? "ms-settings:privacy-microphone" : "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
@@ -259,6 +330,7 @@ async function startDesktop() {
   ipcMain.handle("image:copy", (_event, file) => copyImageFile(file));
   ipcMain.handle("image:save", (event, file, name) => saveImageFile(event, file, name));
   ipcMain.handle("image:menu", (event, file, name) => {
+    if (!background.menus) return;
     Menu.buildFromTemplate([
       { label: "Copy Image", click: () => void copyImageFile(file).catch(() => {}) },
       { label: "Save Image…", click: () => void saveImageFile(event, file, name).catch(() => {}) },
@@ -285,7 +357,7 @@ async function startDesktop() {
       return requireWorktreeRoot(root).catch(() => /** @type {Promise<string[]>} */ (runtime.invoke("project:plain-root", [root])));
     }
   }
-  const openEditor = createEditorOpener({ editors, open: openInEditor, checkRoot: checkEditorRoot });
+  const openEditor = createEditorOpener({ editors, open: background.editorOpener(openInEditor), checkRoot: checkEditorRoot });
   ipcMain.handle("editor:open", (_event, request) => openEditor(request));
   // Settings > Skills opens or reveals a SKILL.md wherever it lives (~/.claude/skills is no checkout), but only a file the
   // Project's skill catalog lists, so the renderer can't name any other file.
@@ -294,7 +366,7 @@ async function startDesktop() {
     if (typeof file !== "string" || ![...skills, ...shadowed].some((skill) => skill.path === file))
       throw new Error("That skill is no longer there. Reload the list.");
   }
-  const openSkillFile = createEditorOpener({ editors, open: openInEditor, checkRoot: async () => {} });
+  const openSkillFile = createEditorOpener({ editors, open: background.editorOpener(openInEditor), checkRoot: async () => {} });
   ipcMain.handle("skills:open", async (_event, { projectPath, file, editor } = {}) => {
     await checkSkillFile(projectPath, file);
     return openSkillFile({ root: path.dirname(file), path: path.basename(file), editor });
@@ -310,7 +382,7 @@ async function startDesktop() {
     if (!window) return;
     if (window.isMinimized()) window.restore();
     window.show();
-    if (process.platform === "darwin") app.focus({ steal: true });
+    background.focusApp();
     window.focus();
     window.webContents.send(channel, ...args);
   }
@@ -324,7 +396,7 @@ async function startDesktop() {
     playChime: (chime) => mainWindow?.webContents.send("notification:play-chime", chime),
     openChat: openChatFromNotification,
     openPhoneSettings: () => openFromNotification("notification:open-phone-settings"),
-    setBadge: (value) => app.dock?.setBadge(value),
+    setBadge: (value) => background.setBadge(value),
   });
 
   // The window reports the "Notify when waiting" setting, kept with its other settings.
@@ -338,19 +410,19 @@ async function startDesktop() {
   ipcMain.handle("settings:notification-schedule", (_event, schedule) => notifier.setSchedule(schedule));
 
   ipcMain.handle("notification:state", (_event, state) => notifier.sync(state));
-  ipcMain.handle("notification:completed", (_event, notice) => (Notification.isSupported() ? notifier.notifyCompletion(notice) : false));
+  ipcMain.handle("notification:completed", (_event, notice) => (notificationsSupported() ? notifier.notifyCompletion(notice) : false));
 
   // The theme's page color, pushed by the renderer whenever its theme resolves.
-  ipcMain.handle("settings:window-background", (event, background) => {
+  ipcMain.handle("settings:window-background", (event, color) => {
     const window = BrowserWindow.fromWebContents(event.sender);
-    if (window && !window.isDestroyed()) applyWindowBackground(window, background);
+    if (window && !window.isDestroyed()) applyWindowBackground(window, color);
   });
 
   let connectionState = { connected: true };
   ipcMain.handle("runtime:connection", () => connectionState);
   // Phones that paired while Milagre was closed are announced once it connects; the host keeps them until then.
   const deviceNotices = createDeviceNotices({
-    methods: () => (runtime && Notification.isSupported() ? runtime.hostMethods() : null),
+    methods: () => (runtime && notificationsSupported() ? runtime.hostMethods() : null),
     invoke: (method, args) => runtime.invoke(method, args),
     notifyPhones: (phones, options) => notifier.notifyPhonesPaired(phones, options),
     notifyDevice: (kind) => notifier.notifyDevicePaired(kind),
@@ -376,18 +448,24 @@ async function startDesktop() {
         }
         if (channel === "computers:event") {
           if (payload.channel === "agent:event") notifier.observe(payload.payload.chatId, payload.payload.event);
-          if (payload.channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload.payload);
+          if (payload.channel === "notification:waiting" && notifyWhenWaiting && notificationsSupported()) notifier.notify(payload.payload);
         }
         if (channel === "computers:forgotten") notifier.forgetComputer(payload.computerId);
         if (channel === "agent:event") notifier.observe(payload.chatId, payload.event);
-        if (channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload);
+        if (channel === "notification:waiting" && notifyWhenWaiting && notificationsSupported()) notifier.notify(payload);
         if (channel === "phone:paired") void deviceNotices.paired(payload);
         if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
         if (channel === "keybindings:changed" && payload?.rules) setForwardedRules(payload.rules);
         // The agent opened a page (browser_open): the window with the Chat's Browser panel opens it in a tab.
+        // Computer use: an agent acts on an app here; Milagre's agent cursor shows where (agent-cursor.cjs).
+        if (channel === "computer-use:cursor" && payload && typeof payload === "object") {
+          agentCursor ??= createAgentCursor({ BrowserWindow, screen });
+          if (payload.hide) agentCursor.hide();
+          else agentCursor.show({ bounds: payload.bounds ?? null, label: typeof payload.label === "string" ? payload.label : "" });
+        }
         if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
           mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
-        if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);
+        if (channel === "devices:pending" && notificationsSupported()) notifier.notifyComputerWaiting(payload?.requests);
         if (channel === "runtime:connection") {
           connectionState = payload;
           // A host started again after it went away can be newer, with more commands. (Not yet set during the first connect.)
@@ -398,6 +476,7 @@ async function startDesktop() {
             readAutoUpdate();
             readKeybindings();
             panelPages.republish();
+            void remoteBrowserSessions.refresh();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
           }
@@ -476,7 +555,7 @@ async function startDesktop() {
     if (!window || window.isDestroyed()) return;
     if (window.isMinimized()) window.restore();
     window.show();
-    if (process.platform === "darwin") app.focus({ steal: true });
+    background.focusApp();
     window.focus();
   }
   registerHostMethods();
@@ -573,6 +652,7 @@ async function startDesktop() {
     hardenBrowserGuests(window.webContents, {
       session: electronSession.fromPartition(BROWSER_PARTITION),
       openExternal: (url) => shell.openExternal(url).catch(() => {}),
+      remoteReady: remoteBrowserSessions.isReady,
     });
     forwardAppShortcuts(window.webContents, process.platform, electronIpcMain, () => void confirmQuit(window));
     // A reload keeps every turn running: the main process saves them, and the renderer takes the
@@ -592,7 +672,7 @@ async function startDesktop() {
     app.setName("Milagre");
     if (process.platform === "darwin" && app.dock) {
       const appIcon = nativeImage.createFromPath(appIconPath);
-      if (!appIcon.isEmpty()) app.dock.setIcon(appIcon);
+      if (!appIcon.isEmpty()) background.setDockIcon(appIcon);
     }
     createWindow();
     void runtime.resumeRecentProjects().catch((error) => console.warn(error.message));

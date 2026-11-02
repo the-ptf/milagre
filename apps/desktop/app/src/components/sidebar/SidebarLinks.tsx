@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Link04Icon, Tick02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
 import {
   canLinkProjects,
@@ -14,16 +15,9 @@ import {
 } from "@milagre/shared/chat-links";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { ProjectLink } from "@/electron";
-import { Button } from "../primitives/Button";
-import { Checkbox } from "../primitives/Checkbox";
-import { EmptyState } from "../primitives/EmptyState";
-import { FIELD_AREA, FIELD_LABEL, fieldClass } from "../primitives/Field";
-import { Icon } from "../primitives/Icon";
-import { menuRowClass } from "../primitives/Popover";
 import { ScrollArea } from "../primitives/ScrollArea";
-import { SectionLabel } from "../primitives/SectionLabel";
-import { showToast } from "../../lib/toast";
 import { useDismiss } from "../../lib/use-dismiss";
+import { undoHistory, type UndoAction } from "../../lib/undo-history";
 import type { SidebarRecent } from "./ChatRow";
 
 /* ─────────────────────────────────────────────────────────
@@ -32,7 +26,8 @@ import type { SidebarRecent } from "./ChatRow";
  * them: the Link icon and hover-card lines on linked rows, the
  * popover a drop or "Link with…" opens (scope, Always allow,
  * Link and ask), the chat list behind "Link with…", the list
- * behind "Remove Link with…", and the toast that undoes them.
+ * behind "Remove Link with…", and the undo history (the sidebar's
+ * toast) that takes them back.
  * One provider serves every Project's chat list, so a chat
  * dropped on another Project's chat links the two.
  * ───────────────────────────────────────────────────────── */
@@ -59,13 +54,15 @@ type SidebarLinksValue = {
   refresh: () => void;
   ask: (source: LinkChat, target: LinkChat, anchor: Anchor) => void;
   pick: (source: LinkChat, anchor: Anchor, mode: "link" | "remove") => void;
-  /** The app's toast (lib/toast), centred; `left` is ignored. */
-  toast: (text: string, options?: { undo?: () => void; left?: number }) => void;
+  toast: (text: string, options?: ToastOptions) => void;
   register: (handle: LinkListHandle) => () => void;
   lists: () => LinkListHandle[];
 };
 
 const NO_ENDS: LinkedEnd[] = [];
+/** With an `undo`, the toast's step joins the undo history, so ⌘Z takes it back too; without one it is a plain notice. */
+type ToastOptions = Partial<Omit<UndoAction, "text">>;
+
 const SidebarLinksContext = createContext<SidebarLinksValue>({
   links: [],
   projectIdOf: () => null,
@@ -82,6 +79,10 @@ export const useSidebarLinks = () => useContext(SidebarLinksContext);
 
 const worktreeOf = (projectId: string, item: SidebarRecent) => (item.details?.path ? { project_id: projectId, worktree_path: item.details.path } : null);
 const sideName = (item: SidebarRecent) => item.details?.branch ?? item.label;
+
+function HugeIcon({ icon, size = 16 }: { icon: Parameters<typeof HugeiconsIcon>[0]["icon"]; size?: number }) {
+  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
+}
 
 export function SidebarLinksProvider({
   scopes,
@@ -126,15 +127,10 @@ export function SidebarLinksProvider({
     return window.milagre?.onLinksChanged?.((next) => Array.isArray(next) && setLinks(next));
   }, [read]);
 
-  // The app's ink toast, with an Undo that stays 6s; the data attributes are the tests' hooks.
-  const toast = useCallback(
-    (text: string, { undo }: { undo?: () => void; left?: number } = {}) =>
-      showToast(text, {
-        attribute: "data-chat-toast",
-        ...(undo ? { action: { label: "Undo", onClick: undo, attribute: "data-chat-toast-undo" as const } } : {}),
-      }),
-    [],
-  );
+  const showToast = useCallback((text: string, { undo, ...options }: ToastOptions = {}) => {
+    if (undo) undoHistory.record({ ...options, text, undo });
+    else undoHistory.notify(text);
+  }, []);
 
   const scopeOf = useCallback((key: string) => scopes.find((scope) => scope.scopeKey === key), [scopes]);
   const projectName = useCallback(
@@ -192,21 +188,22 @@ export function SidebarLinksProvider({
       setLinks(next);
       created = findLink(next, first, second);
     } catch (error) {
-      toast(`Could not create the Link: ${ipcErrorMessage(error)}`);
+      showToast(`Could not create the Link: ${ipcErrorMessage(error)}`);
       return;
     }
     // A step after the Link that fails leaves the Link in place and says what didn't happen, in the phone's words.
     const undo = created && (() => void remove(created!, false));
+    const undone = { undoneText: "Link removed" };
     if (choice.allow && created) {
       try {
         await bridge.grantDelegations?.(`${ask.source.scopeKey}#${ask.source.item.id}`, created.id);
       } catch (error) {
-        toast(`Link created. Could not always allow Delegations: ${ipcErrorMessage(error)}`, { undo });
+        showToast(`Link created. Could not always allow Delegations: ${ipcErrorMessage(error)}`, { undo, ...undone });
         return;
       }
     }
     const text = choice.text.trim();
-    if (!text || !latest.current.onAskChat || !ask.target.item.details?.path) return toast("Link created", { undo });
+    if (!text || !latest.current.onAskChat || !ask.target.item.details?.path) return showToast("Link created", { undo, ...undone });
     const current = latest.current;
     const targetName = targetProject
       ? (current.scopes.find((scope) => scope.projectId === targetProject)?.projectName ??
@@ -222,10 +219,10 @@ export function SidebarLinksProvider({
     try {
       await latest.current.onAskChat(ask.source.scopeKey, ask.source.item.id, message);
     } catch (error) {
-      toast(`Link created. Could not ask “${ask.source.item.label}”: ${ipcErrorMessage(error)}`, { undo });
+      showToast(`Link created. Could not ask “${ask.source.item.label}”: ${ipcErrorMessage(error)}`, { undo, ...undone });
       return;
     }
-    toast(`Link created. Asked “${ask.source.item.label}”.`, { undo });
+    showToast(`Link created. Asked “${ask.source.item.label}”.`, { undo, ...undone });
   }
 
   async function remove(link: ProjectLink, offerUndo = true) {
@@ -234,15 +231,16 @@ export function SidebarLinksProvider({
     try {
       setLinks(await bridge.removeLink(link.id));
       if (offerUndo)
-        toast("Link removed", {
+        showToast("Link removed", {
+          undoneText: "Linked again",
           // The same Link comes back, id and all, so an Always allow grant on it holds again. A Mac before restore makes a new one.
           undo: () =>
             void (bridge.restoreLink ? bridge.restoreLink(link) : bridge.addLink(link.a, link.b)).then(setLinks, (error) =>
-              toast(`Could not link them again: ${ipcErrorMessage(error)}`),
+              showToast(`Could not link them again: ${ipcErrorMessage(error)}`),
             ),
         });
     } catch (error) {
-      toast(`Could not remove the Link: ${ipcErrorMessage(error)}`);
+      showToast(`Could not remove the Link: ${ipcErrorMessage(error)}`);
     }
   }
 
@@ -260,14 +258,14 @@ export function SidebarLinksProvider({
         setAsking(null);
         setPicking({ source, anchor, mode });
       },
-      toast,
+      toast: showToast,
       register: (handle) => {
         handles.current.add(handle);
         return () => void handles.current.delete(handle);
       },
       lists: () => [...handles.current],
     }),
-    [links, scopeOf, endsFor, read, toast],
+    [links, scopeOf, endsFor, read, showToast],
   );
 
   const focusRow = (chat: LinkChat) =>
@@ -429,25 +427,25 @@ function LinkPopover({
           confirm();
         }
       }}
-      className="fixed z-[70] rounded-card bg-surface p-3 shadow-raised"
+      className="fixed z-[70] rounded-card bg-surface p-3 shadow-overlay"
       style={{
         top,
         left: Math.min(anchor.left, window.innerWidth - POPOVER_WIDTH - 8),
         width: POPOVER_WIDTH,
-        animation: "pop-in var(--duration-base) var(--ease-enter) both",
+        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
         transformOrigin: "top left",
       }}
     >
       <p className="text-13 font-semibold text-ink">{wholeProjects ? "Link these Projects?" : "Link these Worktrees?"}</p>
-      <p data-link-sides className="mt-1.5 flex min-w-0 items-center gap-1.5 text-13 text-ink-2">
+      <p data-link-sides className="mt-1.5 flex min-w-0 items-center gap-1.5 text-12 text-ink-2">
         <span className="truncate">{wholeProjects ? sourceProject : sideName(source.item)}</span>
         <span className="shrink-0 text-ink-3">
-          <Icon icon={Link04Icon} size={14} />
+          <HugeIcon icon={Link04Icon} size={13} />
         </span>
         <span className="truncate">{wholeProjects ? targetProject : sideName(target.item)}</span>
       </p>
       {projects && (
-        <div role="radiogroup" aria-label="What the Link joins" data-link-scope className="mt-3 flex flex-col gap-px">
+        <div role="radiogroup" aria-label="What the Link joins" data-link-scope className="mt-2.5 flex flex-col gap-px">
           {choices.map((choice) => (
             <button
               key={choice.key}
@@ -456,49 +454,49 @@ function LinkPopover({
               aria-checked={scope === choice.key}
               data-link-scope-choice={choice.key}
               onClick={() => setScope(choice.key)}
-              className="flex w-full items-start gap-2 rounded-inline px-2 py-1.5 text-left transition-colors hover:bg-hover-2 focus-visible:bg-hover-2 focus-visible:-outline-offset-2 active:bg-hover-2"
+              className={`flex w-full items-start gap-2 rounded-control px-2 py-1.5 text-left outline-none focus-visible:bg-hover-2 ${scope === choice.key ? "bg-hover-2" : "hover:bg-hover"}`}
             >
               <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center ${scope === choice.key ? "text-ink" : "text-transparent"}`}>
-                <Icon icon={Tick02Icon} size={14} />
+                <HugeIcon icon={Tick02Icon} size={14} />
               </span>
               <span className="min-w-0">
-                <span className="block text-13 font-medium text-ink">{choice.label}</span>
-                <span className="block text-12 text-ink-3">{choice.detail}</span>
+                <span className="block text-13 text-ink">{choice.label}</span>
+                <span className="block text-11 leading-snug text-ink-3">{choice.detail}</span>
               </span>
             </button>
           ))}
         </div>
       )}
-      <p className="mt-2 text-13 text-ink-3">
+      <p className="mt-2 text-12 leading-snug text-ink-3">
         Every Chat on either side can read the other side and make Delegations to it, so “{source.item.label}” can ask “{target.item.label}” for changes.
       </p>
-      <label data-link-always-allow className="mt-3 flex cursor-pointer items-start gap-2 text-13 text-ink">
-        <Checkbox checked={allow} onCheckedChange={setAllow} className="mt-px" />
+      <label data-link-always-allow className="mt-2.5 flex cursor-pointer items-start gap-2 text-13 text-ink">
+        <input type="checkbox" checked={allow} onChange={(event) => setAllow(event.target.checked)} className="mt-0.5 accent-ink" />
         <span className="min-w-0">
           <span className="block">Always allow Delegations from “{source.item.label}”</span>
-          <span className="block text-12 text-ink-3">Same as “Always allow for this Link in this Chat” on the approval card.</span>
+          <span className="block text-11 leading-snug text-ink-3">Same as “Always allow for this Link in this chat” on the approval card.</span>
         </span>
       </label>
       {canAsk && (
-        <label className="mt-3 block">
-          <span className={`block ${FIELD_LABEL}`}>Ask “{source.item.label}” (optional)</span>
+        <label className="mt-2.5 block">
+          <span className="block text-12 font-medium text-ink-2">Ask “{source.item.label}” (optional)</span>
           <textarea
             data-link-ask
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={3}
             placeholder={`What should it ask “${target.item.label}” to do?`}
-            className={`${FIELD_AREA} mt-1 block max-h-40 resize-none outline-none`}
+            className="mt-1 block max-h-40 w-full resize-none rounded-control border border-line bg-field px-2 py-1.5 text-13 text-ink outline-none placeholder:text-ink-3 focus:border-accent"
           />
         </label>
       )}
       <div className="mt-3 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>
+        <button type="button" onClick={onCancel} className="rounded-control px-3 py-1.5 text-13 text-ink-2 hover:bg-hover-2">
           Cancel
-        </Button>
-        <Button data-link-confirm onClick={confirm}>
+        </button>
+        <button type="button" data-link-confirm onClick={confirm} className="rounded-control bg-ink px-3 py-1.5 text-13 font-medium text-surface">
           {text.trim() && canAsk ? "Create Link and ask" : "Create Link"}
-        </Button>
+        </button>
       </div>
     </div>,
     document.body,
@@ -570,29 +568,25 @@ function LinkPicker({
           pickActive();
         }
       }}
-      className="fixed z-[70] flex max-h-[360px] flex-col overflow-hidden rounded-card bg-surface p-1.5 shadow-raised"
+      className="fixed z-[70] flex max-h-[360px] flex-col overflow-hidden rounded-card bg-surface p-1.5 shadow-overlay"
       style={{
         top,
         left: Math.min(anchor.left, window.innerWidth - PICKER_WIDTH - 8),
         width: PICKER_WIDTH,
-        animation: "pop-in var(--duration-base) var(--ease-enter) both",
+        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
         transformOrigin: "top left",
       }}
     >
-      <SectionLabel as="p" variant="menu" className="truncate px-2 pt-1 pb-1">
-        {title}
-      </SectionLabel>
+      <p className="truncate px-2 pb-1 pt-1 text-12 font-medium text-ink-3">{title}</p>
       {mode === "link" && (
-        <div className="shrink-0 px-1 pb-1">
-          <input
-            data-link-search
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search Chats"
-            aria-label="Search Chats"
-            className={fieldClass({ size: 32 })}
-          />
-        </div>
+        <input
+          data-link-search
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search chats"
+          aria-label="Search chats"
+          className="mx-1 mb-1 h-8 shrink-0 rounded-control border border-line bg-field px-2 text-13 text-ink outline-none placeholder:text-ink-3 focus:border-accent"
+        />
       )}
       <ScrollArea as="ul" chainScroll className="flex min-h-0 flex-col gap-px">
         {shown.map((entry) => {
@@ -604,24 +598,22 @@ function LinkPicker({
                 data-link-entry={entry.key}
                 disabled={Boolean(entry.problem)}
                 onClick={() => onPick(entry.key)}
-                className={`${menuRowClass({ tall: !!entry.detail })} ${highlighted ? "bg-hover-2" : ""}`}
+                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-50 ${highlighted ? "bg-hover-2" : "enabled:hover:bg-hover-2"}`}
               >
                 <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                  <Icon icon={mode === "link" ? Link04Icon : Unlink04Icon} size={16} />
+                  <HugeIcon icon={mode === "link" ? Link04Icon : Unlink04Icon} size={15} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate">{entry.title}</span>
-                  {entry.detail && <span className="block truncate text-12 font-normal text-ink-3">{entry.detail}</span>}
+                  <span className="block truncate text-13 text-ink">{entry.title}</span>
+                  {entry.detail && <span className="block truncate text-11 text-ink-3">{entry.detail}</span>}
                 </span>
-                {entry.problem && <span className="shrink-0 text-11 font-normal text-ink-3">{entry.problem}</span>}
+                {entry.problem && <span className="shrink-0 text-11 text-ink-3">{entry.problem}</span>}
               </button>
             </li>
           );
         })}
         {!shown.length && (
-          <li>
-            <EmptyState size="compact" title={entries.length ? "No Chats match" : mode === "link" ? "No other Chats to link" : "No Links"} />
-          </li>
+          <li className="px-2 py-2 text-12 text-ink-3">{entries.length ? "No chats match." : mode === "link" ? "No other chats to link." : "No Links."}</li>
         )}
       </ScrollArea>
     </div>,

@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { LaptopIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { privatePairingLink } from "@milagre/shared/pairing-link";
-import { Switch } from "./primitives/Switch";
+import { SettingCheckbox } from "./primitives/Checkbox";
 import { Button } from "./primitives/Button";
 import { Dialog } from "./primitives/Dialog";
 import { FIELD, FIELD_LABEL, FieldGroup } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
+import { thisComputer } from "../lib/shortcut-hints";
 
 /**
  * Add computer (design add-computer v1): paste another Mac's pairing link, see the computer it names, and pair with it,
@@ -98,7 +99,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
     <Dialog
       data-add-computer
       title="Add computer"
-      description="See and drive another Mac's Chats from this window."
+      description="See and drive another computer's Chats from this window."
       onClose={close}
       // A press on the scrim closes it, unless a pairing is under way; Esc and the × cancel the pairing.
       dismissOnScrim={!adding}
@@ -107,7 +108,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
         waiting && preview ? (
           <>
             <p role="status" data-add-computer-waiting className="mr-auto self-center text-13 text-ink-2">
-              Waiting for {preview.name} to allow this Mac…
+              Waiting for {preview.name} to allow {thisComputer}…
             </p>
             <Button variant="ghost" onClick={() => void window.milagre.computers.cancelAdd()}>
               Cancel
@@ -126,7 +127,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       }
     >
       <ol className="mt-4 list-decimal space-y-1 pl-5 text-13 text-ink-2">
-        <li>On the other Mac, open Milagre Settings › Devices.</li>
+        <li>On the other computer, open Milagre Settings › Devices.</li>
         <li>Click Pair a device, then Copy link.</li>
         <li>Paste it here. The link works for 10 minutes.</li>
       </ol>
@@ -152,7 +153,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       />
       <div className="mt-3 flex items-center justify-between gap-3 text-13">
         <span>LAN or Tailscale only</span>
-        <Switch
+        <SettingCheckbox
           label="LAN or Tailscale only"
           checked={privateOnly}
           disabled={adding}

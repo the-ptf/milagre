@@ -11,6 +11,7 @@ import { fonts, useTheme } from "./theme";
 export function CompactionDivider({ context }: { context: CompactionContext }) {
   const { colors } = useTheme();
   const label = compactionLabel(context);
+  if (context.quiet && context.status !== "failed") return null;
   return (
     <TranscriptDivider
       label={compactionText(context)}

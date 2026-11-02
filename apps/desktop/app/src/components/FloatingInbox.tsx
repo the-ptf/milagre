@@ -1,3 +1,4 @@
+import { SecretCard } from "./agents/SecretCard";
 import { useEffect, useRef, useState, type SyntheticEvent, type PointerEvent, useEffectEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion, useIsPresent } from "motion/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, InboxIcon, Settings01Icon, SentIcon } from "@hugeicons/core-free-icons";
@@ -808,7 +809,13 @@ function InboxCard({
   );
 }
 
-function InboxQuestion({
+function InboxQuestion(props: Parameters<typeof OrdinaryInboxQuestion>[0]) {
+  if (props.request.secretRequest)
+    return <SecretCard key={props.request.requestId} variant="inline" request={props.request} busy={props.busy} onAnswer={props.send} />;
+  return <OrdinaryInboxQuestion {...props} />;
+}
+
+function OrdinaryInboxQuestion({
   request,
   busy,
   send,

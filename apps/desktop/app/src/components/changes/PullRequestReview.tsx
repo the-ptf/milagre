@@ -184,7 +184,7 @@ export function ReviewBar({
   const summary = pending ? `${pending} pending` : "Nothing pending";
   return (
     <div ref={root} data-pr-review-bar className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(440px,calc(100%-24px))] -translate-x-1/2">
-      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+      <div className="overflow-hidden rounded-window bg-surface shadow-card">
         {open && (
           <div data-pr-review-form className="flex flex-col gap-2 border-b border-line p-3">
             <textarea

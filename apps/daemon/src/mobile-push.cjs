@@ -145,6 +145,36 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     void task.finally(() => work.delete(task));
   }
   return {
+    /**
+     * A notice that no turn raised (a Routine flow Run waiting for its owner's approval), to every device that wants to
+     * hear when something waits. Tapping it opens `chatId`, the Run's Chat.
+     */
+    notice(chatId, { title, body }) {
+      if (closed || !devices.size) return;
+      const occurredAt = now();
+      const eventId = randomUUID();
+      for (const device of devices.values()) {
+        if (!device.notifyWhenWaiting || !notificationAllowed(device.schedule, occurredAt)) continue;
+        const isCurrent = () => current(device, chatId);
+        if (!isCurrent()) continue;
+        const sending = Promise.resolve(
+          send(
+            {
+              to: device.token,
+              title: capped(String(title ?? ""), 120),
+              body: capped(String(body ?? ""), 240),
+              sound: notificationChimeSound(device.chime),
+              channelId: notificationChimeChannel(device.chime),
+              ttl: 300,
+              data: { kind: "milagre-chat", hostId: device.hostId, projectPath: projectOfKey(chatId), sessionId: sessionIdFromKey(chatId), eventId },
+            },
+            isCurrent,
+          ),
+        ).catch(report);
+        work.add(sending);
+        void sending.finally(() => work.delete(sending));
+      }
+    },
     async load() {
       try {
         const values = JSON.parse(await fs.readFile(file, "utf8"));

@@ -25,6 +25,7 @@ import { FIELD } from "./primitives/Field";
 import { InlineError } from "./primitives/InlineError";
 import { SectionLabel } from "./primitives/SectionLabel";
 import Tooltip from "./primitives/Tooltip";
+import { fileManager } from "../lib/shortcut-hints";
 
 const badge = "shrink-0 rounded-full bg-field px-2 py-px text-11 font-medium text-ink-2";
 const scopeLabel = (scope: SkillScope) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
@@ -38,7 +39,7 @@ const others = (count: number) => `Overrides ${count} other${count === 1 ? "" : 
  * ───────────────────────────────────────────────────────── */
 export function SkillsSettings({ projectPath }: { projectPath: string }) {
   const [revision, setRevision] = useState(0);
-  const { skills, shadowed, warnings, loading } = useSkills(projectPath, true, revision);
+  const { skills, shadowed, warnings, loading } = useSkills(projectPath, true, revision, "project");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SkillScope | "all">("all");
   const [provider, setProvider] = useState("all");
@@ -239,7 +240,7 @@ function SkillDetail({
             ))}
           {skill.path && !isRemoteKey(projectPath) && (
             <Button variant="secondary" size={28} onClick={reveal}>
-              Show in Finder
+              Show in {fileManager}
             </Button>
           )}
           <Button variant="secondary" size={28} onClick={copy}>

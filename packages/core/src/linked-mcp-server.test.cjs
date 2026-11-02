@@ -41,6 +41,8 @@ test("the live MCP endpoint lists Designs tools and never exposes retired HTML t
   assert.deepEqual(names(await list()), [
     "design_show",
     "design_read",
+    "design_inspect",
+    "design_validate",
     "design_apply",
     "design_export",
     "design_delete",

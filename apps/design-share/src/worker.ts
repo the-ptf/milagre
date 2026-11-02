@@ -1,12 +1,26 @@
 import previewImage from "../assets/og.png";
 import { validateDesignPageSnapshot, renderDesignPage } from "@milagre/shared/design-page";
-import { createPageService, createQuotaService, quotaLimits, response, routeRequest, digest, type Storage, type PageQuota } from "./service.mjs";
+import {
+  createPageService,
+  createQuotaService,
+  fileKey,
+  quotaLimits,
+  response,
+  routeRequest,
+  serveFile,
+  digest,
+  type Storage,
+  type PageQuota,
+  type FileBucket,
+} from "./service.mjs";
 
 const hash = (value: string) => digest(new TextEncoder().encode(value));
 
 interface Env {
   PAGES: DurableObjectNamespace;
   QUOTA: DurableObjectNamespace;
+  /** Artifact pages' files: photos, videos, any file a page shows. */
+  FILES: R2Bucket;
   PUBLIC_ORIGIN: string;
   ALLOW_LOCALHOST?: string;
   MAX_TOTAL_BYTES?: string;
@@ -22,6 +36,31 @@ function adapter(storage: DurableObjectStorage): Storage {
     },
     keys: (prefix) => [...storage.kv.list({ prefix })].map(([key]) => key),
     transaction: (callback) => storage.transactionSync(callback),
+  };
+}
+
+/** The page files bucket, as the page service and the public file route use it. */
+function files(bucket: R2Bucket): FileBucket {
+  return {
+    head: async (key) => {
+      const object = await bucket.head(key);
+      return object && { size: object.size, type: object.httpMetadata?.contentType ?? "application/octet-stream", etag: object.httpEtag };
+    },
+    get: async (key, range) => {
+      const object = await bucket.get(key, range ? { range } : {});
+      return object && "body" in object ? { body: object.body } : null;
+    },
+    // A fixed-length stream tells R2 the size up front; it refuses bytes that don't match their SHA-256.
+    put: async (key, body, { size, sha256, type }) => {
+      if (!size || !body) {
+        await bucket.put(key, "", { sha256, httpMetadata: { contentType: type } });
+        return;
+      }
+      const { readable, writable } = new FixedLengthStream(size);
+      const piped = body.pipeTo(writable);
+      await Promise.all([bucket.put(key, readable, { sha256, httpMetadata: { contentType: type } }), piped]);
+    },
+    delete: (keys) => bucket.delete(keys),
   };
 }
 
@@ -55,6 +94,7 @@ export default {
         previewImage,
         ALLOW_LOCALHOST: env.ALLOW_LOCALHOST,
         page: (id, incoming) => env.PAGES.get(env.PAGES.idFromName(id)).fetch(incoming),
+        file: (id, hash, incoming) => serveFile(files(env.FILES), fileKey(id, hash), incoming),
       });
     } catch {
       return response("Sharing unavailable", 503);
@@ -90,6 +130,7 @@ export class DesignPage implements DurableObject {
       quotaId: state.id.toString(),
       setAlarm: (time) => state.storage.setAlarm(time),
       deleteAlarm: () => state.storage.deleteAlarm(),
+      bucket: files(env.FILES),
     });
   }
   alarm(): Promise<void> {
@@ -100,7 +141,9 @@ export class DesignPage implements DurableObject {
       await this.service.migrate();
       return response(null, 204);
     }
-    const id = new URL(request.url).pathname.split("/").at(-1)!;
+    // The page's id, from its public address or its write address (also a file's on the way up).
+    const id = /^\/(?:s|api\/pages)\/([A-Za-z0-9_-]{43})/.exec(new URL(request.url).pathname)?.[1];
+    if (!id) return response("Not found", 404);
     return this.service.fetch(request, id);
   }
 }

@@ -56,10 +56,27 @@ const PATHS = Object.freeze({
   "simulator:input": denySimulator,
   "simulator:repair": denySimulator,
   "simulator:close": denySimulator,
+  // The owner's Experimental switch for device notes.
+  "device-notes:read": denied,
+  "device-notes:save": denied,
+  // Computer use drives the owner's own desktop apps. A demo Project never reaches it.
+  "computer-use:settings:read": denied,
+  "computer-use:settings:save": denied,
+  "computer-use:status": denied,
+  "computer-use:guide": denied,
+  "computer-use:frame": denied,
+  // Simlock leases run on the owner's machines with the owner's token. A demo Project never reaches them.
+  "simlock:settings:read": denySimulator,
+  "simlock:settings:save": denySimulator,
+  "simlock:identity": denySimulator,
+  "simlock:models": denySimulator,
+  "simlock:lease": denySimulator,
+  "simlock:release": denySimulator,
   // Browsers on the host can hold the owner's signed-in sessions. A demo Project never reaches them.
   "browser:list": denied,
   "browser:attach": denied,
   "browser:open": denied,
+  "browser:open-page": denied,
   "browser:frame": denied,
   "browser:status": denied,
   "browser:control": denied,
@@ -76,6 +93,7 @@ const PATHS = Object.freeze({
   "terminal:close": denied,
   // A design is read through its Chat, which must be in the folder.
   "artifact:get": ([value]) => [chatProject(value?.chatId)],
+  "artifact:asset": ([value]) => [chatProject(value?.chatId)],
   "artifact:apply": denied,
   "artifact:delete": denied,
   "artifact:list": ([value]) => [chatProject(value?.chatId)],
@@ -141,9 +159,22 @@ const PATHS = Object.freeze({
   // Auto-switch after a usage limit names no folder and reaches every Project's accounts: a confined phone only reads it.
   "limits:auto-switch:read": none,
   "limits:auto-switch:save": denied,
+  "limits:resume-at-reset:read": none,
+  "limits:resume-at-reset:save": denied,
   // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
+  // Memory and disk totals name no folder.
+  "computer:resources:read": none,
   "app-update:auto:save": denied,
+  // The desktop app's update names no folder. A confined phone sees it; a check or an install restarts the whole Mac's
+  // Milagre, so it starts neither.
+  "app-update:state": none,
+  "app-update:check": denied,
+  "app-update:install": denied,
+  // The Browser panel's sign-ins name no folder. A confined phone sees whose there are; signing out reaches every
+  // Chat's pages on the Mac, so it can't.
+  "browser:sign-ins": none,
+  "browser:sign-ins:clear": denied,
   // Keybindings name no folder: a confined phone reads the rules of the Mac it is paired with and can't change them.
   "keybindings:read": none,
   "keybindings:set-command": denied,
@@ -151,8 +182,13 @@ const PATHS = Object.freeze({
   "keybindings:reset": denied,
   // Babysit PRs settings name no folder, but their level and instructions go into every future babysit Run in every Chat
   // on the Mac: a confined phone only reads them.
+  "context:settings:read": none,
+  "context:settings:save": denied,
   "babysit:settings:read": none,
   "babysit:settings:save": denied,
+  // How long Done Chats wait before archiving applies to every Project on the Mac: a confined phone only reads it.
+  "done:settings:read": none,
+  "done:settings:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,
@@ -164,6 +200,8 @@ const PATHS = Object.freeze({
   "routines:update": denied,
   "routines:delete": denied,
   "routines:run-now": denied,
+  "routines:flow-act": denied,
+  "routines:flow-test": denied,
   "routines:create": denied,
   // A webhook URL reaches this Mac from anywhere: a confined phone neither reads nor makes one.
   "routines:hook": denied,
@@ -187,6 +225,8 @@ const PATHS = Object.freeze({
   "chat:resume": ([projectPath]) => [projectPath],
   // Moves the Chat's Project to another account, like accounts:assign, then continues the Chat.
   "chat:limit-switch": ([projectPath]) => [projectPath],
+  "chat:limit-resume": ([projectPath]) => [projectPath],
+  "chat:limit-resume:cancel": ([projectPath]) => [projectPath],
   "advisor:stop": ([chatId]) => [chatProject(chatId)],
   "advisor:retry": ([chatId]) => [chatProject(chatId)],
   "agent:interrupt": ([chatId]) => [chatProject(chatId)],
@@ -218,7 +258,11 @@ const PATHS = Object.freeze({
   "local-mcp:enableClient": denied,
   "local-mcp:disableClient": denied,
   "usage:read": (args) => (args[0] == null ? [] : [args[0]]),
+  // Token usage names every Project and folder an agent ran in on the Mac.
+  "token-usage:read": denied,
   "usage:cached": (args) => (args[0] == null ? [] : [args[0]]),
+  "usage:accounts:read": denied,
+  "usage:accounts:cached": denied,
   "agent:answer-question": ([value]) => [chatProject(value?.chatId)],
   "agent:set-permission-mode": ([value]) => [chatProject(value?.chatId)],
   "agent:models": (args) => (args[0] == null ? [] : [args[0]]),
@@ -227,6 +271,7 @@ const PATHS = Object.freeze({
   "agent:cli-status": (args) => (args[0] == null ? [] : [args[0]]),
   "scope:retry-save": ([scope]) => [scope],
   "chat:patch": ([projectPath]) => [projectPath],
+  "chat:delete": ([projectPath]) => [projectPath],
   "chat:archive-subagent": ([projectPath]) => [projectPath],
   "chat:archive-finished-subagents": ([projectPath]) => [projectPath],
   "chat:subagent": ([projectPath]) => [projectPath],
@@ -241,8 +286,8 @@ const PATHS = Object.freeze({
   // The file search for the phone's @ menu: the root must be inside the folder; it names no other path.
   "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
-  "dictation:context": ([value]) => [value?.cwd],
-  "dictation:polish": ([value]) => [value?.cwd],
+  "dictation:context": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
+  "dictation:polish": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
   "worktree:create": ([value]) => [value?.projectPath],
   "worktree:link-issue": ([value]) => [value?.projectPath],
   "worktree:unlink-issue": ([value]) => [value?.projectPath],
@@ -310,8 +355,9 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     if (!paths || !Array.isArray(args)) throw refused();
     // No push device is ever registered, so there is nothing to unregister or focus, and no daemon state to grow.
     if (method === "accounts:list") return { result: { providers: [] } };
+    if (method === "usage:accounts:read" || method === "usage:accounts:cached") return { result: { providers: [] } };
     if (method === "accounts:scopes") return { result: [] };
-    if (method.startsWith("accounts:") || method === "chat:limit-switch" || method === "limits:auto-switch:save")
+    if (method.startsWith("accounts:") || method === "chat:limit-switch" || method === "limits:auto-switch:save" || method === "limits:resume-at-reset:save")
       throw failure(403, "Accounts cannot be changed on this demo computer.");
     if (method.startsWith("mcp:")) throw failure(403, MCP_REFUSED);
     if (method === "push:register") throw failure(403, NOTIFICATIONS_OFF);

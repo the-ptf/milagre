@@ -726,4 +726,4 @@ function createSimulatorAdapter(options = {}) {
     },
   };
 }
-module.exports = { createSimulatorHelper, createSimulatorAdapter, resolveHelperPath };
+module.exports = { createSimulatorHelper, createSimulatorAdapter, resolveHelperPath, packet };

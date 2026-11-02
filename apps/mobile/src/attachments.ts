@@ -1,8 +1,10 @@
+import type { OutboxAttachment } from "@milagre/shared/outbox";
 import type { ImageAttachment } from "@milagre/shared/model";
 import { formatImageMention, promptParts } from "@milagre/shared/prompt-parts";
 import type { Client } from "./client";
 
-export type Attachment = { id: string; name: string; uri: string; image?: ImageAttachment; base64?: string; path?: string };
+/** `video` marks a video from Photos, sent as a file; the composer shows it as one. */
+export type Attachment = { id: string; name: string; uri: string; image?: ImageAttachment; base64?: string; path?: string; video?: boolean };
 import { MAX_ATTACHMENT_BYTES } from "@milagre/shared/limits";
 export const MAX_PHOTO_BYTES = MAX_ATTACHMENT_BYTES;
 export const MAX_FILE_BYTES = MAX_ATTACHMENT_BYTES;
@@ -78,4 +80,16 @@ export function mentionAttachments(body: string, root: string, attached: Attachm
     next = result.next;
   }
   return { added: next.slice(attached.length) };
+}
+
+export function outboxAttachments(items: Attachment[]): OutboxAttachment[] {
+  return items.map((item) => {
+    const base64 = item.image?.dataUrl?.split(",")[1] ?? item.base64;
+    if (base64 === undefined && !item.path && !item.image?.path) throw new Error(`Attachment data is missing for ${item.name}. Attach it again.`);
+    return {
+      name: item.name,
+      ...(item.image ? { imageId: item.image.id } : {}),
+      ...(base64 !== undefined ? { base64 } : { path: item.path ?? item.image?.path }),
+    };
+  });
 }

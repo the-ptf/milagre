@@ -77,10 +77,10 @@ function DitherMark({ status, reduce }: { status: ImageGenerationStatus; reduce:
       transition={{ duration: reduce ? 1.2 : 2.4, ease: EASE_IN_OUT, repeat: Number.POSITIVE_INFINITY }}
       className="grid size-3.5 grid-cols-2 place-items-center gap-0.5"
     >
-      <span className="size-1 rounded-[1px] bg-current" />
-      <span className="size-1 rounded-[1px] bg-current opacity-55" />
-      <span className="size-1 rounded-[1px] bg-current opacity-55" />
-      <span className="size-1 rounded-[1px] bg-current" />
+      <span className="size-1 rounded-card bg-current" />
+      <span className="size-1 rounded-card bg-current opacity-55" />
+      <span className="size-1 rounded-card bg-current opacity-55" />
+      <span className="size-1 rounded-card bg-current" />
     </motion.span>
   );
 }

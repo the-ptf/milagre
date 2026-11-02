@@ -1,9 +1,21 @@
 import type { ReactNode } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AiBrain01Icon, ArrowDown01Icon, ArrowRight01Icon, CommandLineIcon, File01Icon, Search01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
+import {
+  AiBrain01Icon,
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  ArrowUp01Icon,
+  Mic01Icon,
+  CommandLineIcon,
+  File01Icon,
+  Search01Icon,
+  Wrench01Icon,
+} from "@hugeicons/core-free-icons";
 import { TOOL_CALL_DISPLAYS, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { CheckboxBox } from "../primitives/Checkbox";
+import { DICTATION_ACTION_OPTIONS, type DictationActionPreference } from "@milagre/shared/voice-dictation";
+import { DICTATION_SHORTCUT_MODES, type DictationShortcutMode } from "@milagre/shared/dictation";
 
 type Choice<T extends string> = { id: T; label: string; description: string; preview: ReactNode };
 
@@ -11,7 +23,19 @@ type Choice<T extends string> = { id: T; label: string; description: string; pre
  * Two side-by-side cards for one setting, each a small picture of what it does, its name and one line. A radio group:
  * arrow keys move between the cards, and the chosen one carries an ink ring and a filled radio (selection is ink).
  */
-function ChoiceCards<T extends string>({ label, value, onChange, choices }: { label: string; value: T; onChange: (value: T) => void; choices: Choice<T>[] }) {
+function ChoiceCards<T extends string>({
+  label,
+  value,
+  onChange,
+  choices,
+  compact = false,
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  choices: Choice<T>[];
+  compact?: boolean;
+}) {
   return (
     <RadioGroupPrimitive.Root
       aria-label={label}
@@ -30,7 +54,7 @@ function ChoiceCards<T extends string>({ label, value, onChange, choices }: { la
             data-choice-card={choice.id}
             className={`flex flex-col gap-2 rounded-card bg-surface p-3 text-left shadow-card transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "ring-2 ring-ink" : ""}`}
           >
-            <span aria-hidden className="flex h-[112px] w-full flex-col gap-2 overflow-hidden rounded-control bg-inset p-3">
+            <span aria-hidden className={`flex w-full flex-col overflow-hidden rounded-control bg-inset ${compact ? "h-16 gap-1 p-2" : "h-[112px] gap-2 p-3"}`}>
               {choice.preview}
             </span>
             <span className="flex items-center gap-2">
@@ -45,12 +69,51 @@ function ChoiceCards<T extends string>({ label, value, onChange, choices }: { la
   );
 }
 
+function DictationPreview({ sent }: { sent: boolean }) {
+  return (
+    <span className="mx-auto flex h-full w-full max-w-48 flex-col justify-center gap-1">
+      <span className="h-2.5 w-3/5 shrink-0 self-end rounded-chip bg-line" />
+      {sent && <span className="h-2.5 w-[72%] shrink-0 self-end rounded-chip bg-ink-4" />}
+      <span className={`flex shrink-0 items-center gap-1 rounded-full border border-line-strong bg-surface px-1.5 ${sent ? "h-[18px]" : "h-[26px]"}`}>
+        {sent ? (
+          <HugeiconsIcon icon={Mic01Icon} size={12} className="ml-auto text-ink-3" />
+        ) : (
+          <>
+            <span className="h-1 flex-1 rounded-full bg-ink-4" />
+            <span className="h-3.5 w-0.5 bg-accent" />
+            <span className="ml-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-ink text-surface">
+              <HugeiconsIcon icon={ArrowUp01Icon} size={12} />
+            </span>
+          </>
+        )}
+      </span>
+    </span>
+  );
+}
+
+export function DictationActionChoice({ value, onChange }: { value: DictationActionPreference; onChange: (value: DictationActionPreference) => void }) {
+  return (
+    <ChoiceCards
+      compact
+      label="When dictation finishes"
+      value={value}
+      onChange={onChange}
+      choices={DICTATION_ACTION_OPTIONS.map((option) => ({
+        id: option.value,
+        label: option.label,
+        description: option.description,
+        preview: <DictationPreview sent={option.value === "send"} />,
+      }))}
+    />
+  );
+}
+
 const Bar = ({ width, soft = false, thin = false }: { width: string; soft?: boolean; thin?: boolean }) => (
   <span className={`block shrink-0 rounded-full ${thin ? "h-1" : "h-1.5"} ${soft ? "bg-line" : "bg-line-strong"}`} style={{ width }} />
 );
 
 const Avatar = ({ color, size = 6 }: { color: string; size?: number }) => (
-  <span className="block shrink-0 rounded-[2px]" style={{ width: size, height: size, background: color }} />
+  <span className="block shrink-0 rounded-inline" style={{ width: size, height: size, background: color }} />
 );
 
 const AVATARS = ["#565f89", "#9e7b5a", "#bb9af7"];
@@ -208,4 +271,58 @@ export function ReasoningChoice({ expanded, onChange }: { expanded: boolean; onC
 
 export function ToolCallChoice({ value, onChange }: { value: ToolCallDisplay; onChange: (value: ToolCallDisplay) => void }) {
   return <ChoiceCards label="Tool calls" value={value} onChange={onChange} choices={TOOL_CALL_CHOICES} />;
+}
+
+/** How the Dictate shortcut works: held while talking, or pressed to start and again to stop. */
+export function DictationShortcutModeChoice({
+  value,
+  onChange,
+  shortcut,
+}: {
+  value: DictationShortcutMode;
+  onChange: (value: DictationShortcutMode) => void;
+  shortcut: string;
+}) {
+  return (
+    <ChoiceCards
+      compact
+      label="How the shortcut works"
+      value={value}
+      onChange={onChange}
+      choices={DICTATION_SHORTCUT_MODES.map((mode) => ({
+        id: mode.value,
+        label: mode.label,
+        description: mode.description,
+        preview: <ShortcutPreview hold={mode.value === "hold"} shortcut={shortcut} />,
+      }))}
+    />
+  );
+}
+
+/** A key cap held down under a long wave, or pressed twice around a short one. */
+function ShortcutPreview({ hold, shortcut }: { hold: boolean; shortcut: string }) {
+  const cap = (pressed: boolean) => (
+    <span
+      className={`flex h-6 w-12 shrink-0 items-center justify-center rounded-control border border-line-strong text-11 font-semibold text-ink-2 ${pressed ? "translate-y-px bg-line shadow-none" : "bg-surface shadow-xs"}`}
+    >
+      {shortcut}
+    </span>
+  );
+  const wave = (width: string) => <span className="h-1.5 shrink rounded-full bg-accent/50" style={{ width }} />;
+  return (
+    <span className="mx-auto flex h-full w-full max-w-56 items-center justify-center gap-2">
+      {hold ? (
+        <>
+          {cap(true)}
+          {wave("60%")}
+        </>
+      ) : (
+        <>
+          {cap(false)}
+          {wave("40%")}
+          {cap(false)}
+        </>
+      )}
+    </span>
+  );
 }

@@ -37,7 +37,9 @@ const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
 // It is set per thread, where an unknown feature is ignored; `--enable` would refuse to start instead.
-const THREAD_CONFIG = { features: { default_mode_request_user_input: true } };
+// Async questions are emitted as agent messages, with no pending RPC to answer. Keep the supported question
+// tool exposed instead: it waits on item/tool/requestUserInput and both clients can answer its native card.
+const THREAD_CONFIG = { features: { default_mode_request_user_input: true, send_message_to_user_async: false } };
 
 // Milagre permission mode -> Codex policy. Ask asks before any command Codex doesn't already trust,
 // Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks. Bot rules asks
@@ -86,11 +88,13 @@ function saveGeneratedImage(item, directory = path.join(os.tmpdir(), "milagre-ge
   }
 }
 
-// Tool image blocks are separate visible steps; their base64 never bloats the saved transcript. Milagre's design tools
-// return a render for the agent to look at; the design card already shows the design, so it is not repeated.
-const isDesignRender = (item) => item?.type === "mcpToolCall" && item.server === "milagre" && ["design_show", "design_apply"].includes(item.tool);
+// Tool image blocks are separate visible steps; their base64 never bloats the saved transcript. Milagre's design
+// renders and HTML previews are for the agent to inspect, not separate images to publish in the conversation.
+// Codex preserves this MCP provenance for nested calls from functions.exec too (their IDs start with "exec-").
+const isInternalRender = (item) =>
+  item?.type === "mcpToolCall" && item.server === "milagre" && ["design_show", "design_apply", "html_preview"].includes(item.tool);
 function toolImageEvents(item) {
-  if (isDesignRender(item)) return [];
+  if (isInternalRender(item)) return [];
   if (!["mcpToolCall", "dynamicToolCall"].includes(item?.type) || item.status !== "completed" || item.success === false || item.error) return [];
   const content = item.type === "mcpToolCall" ? item.result?.content : item.contentItems;
   if (!Array.isArray(content)) return [];
@@ -225,7 +229,7 @@ class CodexSession {
     this.turnActive = true;
     this.cancelRequested = false;
     this.guard = request.guard ?? null;
-    Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false });
+    Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false, asyncMessages: new Set() });
     let markReady;
     this.turnReady = new Promise((resolve) => {
       markReady = resolve;
@@ -240,7 +244,7 @@ class CodexSession {
     }
   }
 
-  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false }) {
+  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false, canStart }) {
     const policy = this.analysisOnly
       ? advisorPolicy("codex", this.linked?.tools ?? [])
       : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard) });
@@ -256,6 +260,10 @@ class CodexSession {
       }
       const files = images.length ? await writeImages(images) : null;
       if (files) this.imageSets.push(files);
+      if (canStart && !canStart()) {
+        await this.finishTurn([]);
+        return { turnId: null, steered: false, cancelled: true };
+      }
       const { turn } = await this.rpc.request(
         "turn/start",
         {

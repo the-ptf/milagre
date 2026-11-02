@@ -80,3 +80,28 @@ test("a failure ends the take with its message until it is dismissed or the next
   assert.deepEqual(dictationReducer(failed, { type: "dismiss" }), IDLE);
   assert.deepEqual(dictationReducer(failed, { type: "start" }), { phase: "preparing", error: null });
 });
+
+test("a take whose model is missing downloads it before it records", () => {
+  let state = dictationReducer(IDLE, { type: "start" });
+  state = dictationReducer(state, { type: "download" });
+  assert.equal(state.phase, "downloading");
+  // Nothing records while the model downloads.
+  assert.equal(dictationReducer(state, { type: "recording" }), state);
+  state = dictationReducer(state, { type: "downloaded" });
+  assert.equal(state.phase, "preparing");
+  assert.equal(dictationReducer(state, { type: "recording" }).phase, "recording");
+  assert.equal(dictationReducer(IDLE, { type: "download" }), IDLE);
+  assert.deepEqual(dictationReducer({ phase: "downloading", error: null }, { type: "done" }), IDLE);
+});
+
+test("a fix-up rewrites a finished take only while the draft is exactly what the take left", async () => {
+  const { correctTake, startTake, takeRange, writeTake } = await import("./voice-dictation.ts");
+  const written = writeTake(startTake("Hi ", { start: 3, end: 3 }), "Hi ", "ask code X", 10)!;
+  assert.deepEqual(takeRange(written.take), { start: 3, end: 13 });
+  const fixed = correctTake(written.take, written.value, "ask Codex")!;
+  assert.equal(fixed.value, "Hi ask Codex");
+  assert.equal(fixed.caret, fixed.value.length);
+  assert.equal(correctTake(written.take, `${written.value}!`, "ask Codex"), null, "an edit since wins");
+  assert.equal(correctTake(written.take, written.value, " ask code X "), null, "the same words change nothing");
+  assert.equal(correctTake(written.take, written.value, ""), null);
+});

@@ -1,4 +1,4 @@
-// Real Electron rendering of the Browser pill and viewer against real headless Chrome pages, through the real core
+// Real Electron rendering of the Browser panel's streamed pages against real headless Chrome pages, through the real core
 // service. Needs Google Chrome (or MILAGRE_TEST_CHROME). Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -25,6 +25,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { PanelToggles } from "/src/components/agents/PanelToggles";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 const noop = () => {};
@@ -35,6 +36,7 @@ function Fixture() {
   const messages = [{ id: 1, session_id: 1, context: null, role: "user", body: "Sign in on the staging site." }];
   const children = [{ id: "review", title: "Check the form", status: "running", startedAt: Date.now() - 5000, updatedAt: Date.now(), transcript: [] }];
   return <div style={{ height: "100%", padding: 12 }}>
+    <PanelToggles right={12} />
     <ChatComposer messages={messages} agentChatId="/fixture#1"
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={true} sendBlocked={false} tasks={[]} subagents={children} onArchiveFinishedSubagents={noop} onArchiveSubagent={noop} waitingForSubagents={false}
@@ -52,7 +54,7 @@ const PRELOAD = `
 const { contextBridge, ipcRenderer } = require('electron');
 const api = (prefix, names) => Object.fromEntries(names.map(name => [name, request => ipcRenderer.invoke(prefix + name, request)]));
 contextBridge.exposeInMainWorld('milagre', {
-  browsers: api('browser:', ['list', 'attach', 'open', 'frame', 'status', 'control', 'input', 'close']),
+  browsers: api('browser:', ['list', 'attach', 'detach', 'open', 'frame', 'status', 'control', 'input', 'close']),
   simulators: { list: async ({ chatId }) => ({ chatId, devices: [{ id: "sim-1", name: "iPhone 17", state: "Booted", runtime: "iOS 26" }], attached: [{ id: "sim-1", name: "iPhone 17", state: "Booted", runtime: "iOS 26" }], available: [], supported: true }) },
 });`;
 
@@ -168,38 +170,38 @@ async function browserChecks(url) {
     await delay(300);
   };
   const footerMatches =
-    '(()=>{const doc=document.querySelector("[data-slot=browser-frame]")?.contentDocument;return !!doc?.querySelector("footer") && getComputedStyle(doc.querySelector("footer")).backgroundColor===getComputedStyle(document.querySelector("[data-slot=browser-popover]")).backgroundColor})()';
+    '(()=>{const doc=document.querySelector("[data-slot=browser-frame]")?.contentDocument;return !!doc?.querySelector("footer") && getComputedStyle(doc.querySelector("footer")).backgroundColor===getComputedStyle(document.querySelector("[data-slot=browser-page]")).backgroundColor})()';
   const shownFrame = '!!document.querySelector("[data-slot=browser-frame]")?.contentDocument?.getElementById("frame")?.naturalWidth';
+  const toggle = "[data-panel-toggle=browser]";
+  const streamedTab = (text) => `[...document.querySelectorAll("[data-browser-target]")].find(node=>node.textContent.includes(${JSON.stringify(text)}))`;
+  const selectedTab = (text) => `${streamedTab(text)}?.querySelector("[role=tab]")?.getAttribute("aria-selected")==="true"`;
   try {
     await window.loadURL(url);
-    await waitFor('document.querySelector("[data-slot=browser-track]")?.textContent.includes("Browser 1")', "Browser pill with one page");
-    assert.equal(counts.open, 0, "the pill and its list start no capture");
-    assert.ok(
-      await evaluate(
-        '(()=>{const row=document.querySelector("[data-slot=browser-track]").parentElement;const order=[...row.children].map(node=>node.dataset.slot||node.querySelector("[data-slot]")?.dataset.slot);return order.indexOf("browser-track")<order.indexOf("simulator-track")&&order.indexOf("simulator-track")<order.indexOf("subagent-track")})()',
-      ),
-      "Browser, then Simulators, then Subagents rightmost",
-    );
+    await waitFor(`!!document.querySelector("${toggle}")`, "Browser button with the agent's page");
+    assert.equal(counts.open, 0, "the button and the list start no capture");
+    assert.ok(!(await evaluate('document.querySelector("[data-slot=browser-track]")')), "no Browser pill");
     await screenshot("composer-light");
 
-    await click("[data-slot=browser-track] [data-face=pill] button");
-    await waitFor(shownFrame, "the sole page opens directly with a live frame");
+    await click(toggle);
+    await waitFor(shownFrame, "the panel opens on the agent's page with a live frame");
     assert.equal(counts.open, 1);
-    await waitFor('document.querySelector("[data-slot=browser-popover] header")?.textContent.includes("Fixture login")', "page title in the header");
+    assert.equal(await evaluate('document.querySelectorAll("[data-browser-tab]").length'), 0, "no blank page is added for streamed pages");
+    await waitFor(selectedTab("Fixture login"), "the agent's page is a selected tab, titled");
     assert.ok(
-      await evaluate('!!document.querySelector("[aria-label=\\"Back to pages\\"]")'),
-      "Back returns to the picker because another browser can be attached",
+      (await evaluate('document.querySelector("[data-slot=browser-viewer-address]").textContent')).startsWith("data:text/html"),
+      "the page's address shows",
     );
-    assert.ok(
-      await evaluate(
-        'document.querySelector("[aria-label=\\"Back to pages\\"]").closest("header").firstElementChild.contains(document.querySelector("[aria-label=\\"Back to pages\\"]"))',
-      ),
-      "Back is the leftmost header control",
-    );
-    await waitFor(footerMatches, "controls strip matches the popover");
+    await waitFor(footerMatches, "controls strip matches the panel");
     await waitFor(
       'document.querySelector("[data-slot=browser-frame]").contentDocument.getElementById("live").textContent==="You control this page"',
       "first viewer takes free control",
+    );
+    // The page lays out at the viewer's size, not its 800x600 window's.
+    const stage = await inFrame('[doc.getElementById("stage").clientWidth, doc.getElementById("stage").clientHeight].map(Math.round).join("x")');
+    await waitUntil(async () => (await pageEval("Fixture", "innerWidth + 'x' + innerHeight")) === stage, `the page takes the viewer's size ${stage}`);
+    await waitFor(
+      `(()=>{const doc=document.querySelector("[data-slot=browser-frame]").contentDocument;const s=doc.getElementById("stage"),f=doc.getElementById("frame");return Math.abs(f.clientWidth-s.clientWidth)<2&&Math.abs(f.clientHeight-s.clientHeight)<2})()`,
+      "the frame fills the viewer with no letterbox",
     );
     await screenshot("viewer-light");
 
@@ -215,23 +217,16 @@ async function browserChecks(url) {
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Backspace" });
     await waitUntil(async () => (await pageEval("Fixture", 'document.getElementById("name").value')) === "milagr", "typed text and Backspace reach the input");
     await mouseClick(await pagePoint(100, 130, viewport));
-    await waitFor(
-      'document.querySelector("[data-slot=browser-popover] header")?.textContent.includes("Signed in")',
-      "button click changes the page title shown in the header",
-    );
+    await waitFor(selectedTab("Signed in"), "button click changes the page title shown on its tab");
     const wheelAt = await pagePoint(400, 300, viewport);
     window.webContents.sendInputEvent({ type: "mouseWheel", ...wheelAt, deltaX: 0, deltaY: -400 });
     await waitUntil(async () => (await pageEval("Signed in", "scrollY")) > 0, "wheel scrolls the page");
     await screenshot("viewer-after-input-light");
 
     await evaluate("window.setDark(true)");
-    await waitFor(footerMatches, "dark controls strip matches the popover");
+    await waitFor(footerMatches, "dark controls strip matches the panel");
     assert.equal(counts.open, 1, "theme changes keep the same viewer");
     await screenshot("viewer-dark");
-    await click('[aria-label="Expand browser"]');
-    await waitFor('document.querySelector("[data-slot=browser-popover]").dataset.expanded==="true"');
-    await screenshot("expanded-dark");
-    await click('[aria-label="Collapse browser"]');
 
     // Another viewer takes control (as a phone would); this one becomes view-only and can take it back.
     const list = await service.list({ chatId: "/fixture#1" });
@@ -247,34 +242,34 @@ async function browserChecks(url) {
     await waitFor('document.querySelector("[data-slot=browser-frame]").contentDocument.getElementById("control").hidden', "Take control returns control");
     await service.closeViewer({ viewerId: phone.viewerId }, "phone");
 
-    await click('[aria-label="Back to pages"]');
-    await waitFor('!!document.querySelector("[data-browser-other]")', "picker lists the other browser for explicit attach");
+    // A new page lists the other browser for an explicit attach.
+    await click('[aria-label="New page"]');
+    await waitFor('!!document.querySelector("[data-browser-other]")', "a blank page lists the other browser for explicit attach");
+    await waitUntil(() => counts.close >= 1, "a page of its own on show ends the stream");
     assert.equal(await evaluate('document.querySelectorAll("[data-browser-target]").length'), 1, "the other browser is not shown as this Chat's page");
-    await screenshot("picker-dark");
+    await screenshot("start-page-dark");
     // Other CDP browsers on the machine (another Milagre, a dev Chrome) may be listed too: attach the fixture's one.
     await evaluate(
       '[...document.querySelectorAll("[data-browser-other]")].find(node=>node.textContent.includes("Someone else")).querySelector("button").click()',
     );
     await waitFor('document.querySelectorAll("[data-browser-target]").length===2', "attached browser joins this Chat");
-    await screenshot("picker-attached-dark");
-    await evaluate('[...document.querySelectorAll("[data-browser-target]")].find(node=>node.textContent.includes("Attached")).click()');
+    await waitFor(selectedTab("Someone else"), "the attached page shows");
     await waitFor(shownFrame, "attached page streams");
-    await waitFor('document.querySelector("[data-slot=browser-popover] header")?.textContent.includes("Someone else")');
     await evaluate("window.setDark(false)");
     await waitFor(footerMatches);
     await screenshot("attached-light");
 
-    // Closing the viewer ends Milagre's capture only; both browsers keep running.
-    await click('[aria-label="Close browser"]');
-    await waitFor('document.querySelector("[data-slot=browser-popover]")?.dataset.state !== "open"');
-    await waitUntil(() => counts.close >= 1, "viewer close reaches the host");
+    // Hiding the panel ends Milagre's capture only; both browsers keep running.
+    const closed = counts.close;
+    await click('[aria-label="Hide Browser panel"]');
+    await waitFor('!document.querySelector("[data-slot=browser-dock]")');
+    await waitUntil(() => counts.close > closed, "viewer close reaches the host");
     process.kill(agentChrome.pid, 0);
     assert.ok((await pageEval("Someone else", "document.title")).includes("Someone else"), "the attached browser is still open");
 
     // A page that closes while viewed fails clearly and offers Retry.
-    await click("[data-slot=browser-track] [data-face=pill] button");
-    await waitFor('document.querySelectorAll("[data-browser-target]").length===2');
-    await evaluate('[...document.querySelectorAll("[data-browser-target]")].find(node=>node.textContent.includes("Attached")).click()');
+    await click(toggle);
+    await waitFor(selectedTab("Someone else"), "the panel opens where it was");
     await waitFor(shownFrame);
     const world = await adapter.discover();
     const other = world.browsers.find((browser) => browser.pages.some((page) => page.title.includes("Someone else")));
@@ -284,31 +279,33 @@ async function browserChecks(url) {
       "closed page shows its reason and Retry",
     );
     await screenshot("page-closed-light");
-    await click('[aria-label="Close browser"]');
 
-    // Detach ends only this Chat's attachment: the browser is offered again and keeps running.
-    await click("[data-slot=browser-track] [data-face=pill] button");
+    // Detach ends only this Chat's attachment: the browser is offered again.
     await waitFor('!!document.querySelector("[data-browser-detach]")', "attached pages offer Detach");
     await click("[data-browser-detach]");
-    await waitFor(
-      'document.querySelectorAll("[data-browser-target]").length===1 && !!document.querySelector("[data-browser-other]")',
-      "detached browser is offered again",
-    );
+    await waitFor('document.querySelectorAll("[data-browser-target]").length===1', "detached browser leaves the tabs");
     assert.ok(!(await evaluate('document.querySelector("[data-browser-detach]")')), "the agent's own browser has no Detach");
-    await screenshot("picker-detached-light");
-    await click('[aria-label="Close browser"]');
-    await waitFor('document.querySelector("[data-slot=browser-track]")?.textContent.includes("Browser 1")', "count back to the agent's page");
+    await click("[data-browser-tab] [role=tab]");
+    await waitFor('!!document.querySelector("[data-browser-other]")', "detached browser is offered again");
+    await screenshot("detached-light");
 
-    // No page in this Chat, no pill: an attachable browser alone does not show one.
+    // The last page of its own closing leaves the streamed one on show.
+    await evaluate('document.querySelector("[data-browser-tab] [aria-label^=Close]").click()');
+    await waitFor(`!document.querySelector("[data-browser-tab]") && ${selectedTab("Signed in")}`, "closing the blank page shows the agent's page");
+    await waitFor(shownFrame);
+    await click('[aria-label="Hide Browser panel"]');
+    await waitFor('!document.querySelector("[data-slot=browser-dock]")');
+
+    // No page in this Chat, no Browser button: an attachable browser alone does not promote it.
     process.kill(-agentChrome.pid, "SIGTERM");
     await waitUntil(async () => !(await service.list({ chatId: "/fixture#1" })).targets.length, "agent browser gone from the host");
     await evaluate('document.dispatchEvent(new Event("visibilitychange"))');
-    await waitFor('!document.querySelector("[data-slot=browser-track]")', "pill hides with no page even though another browser is attachable");
+    await waitFor(`!document.querySelector("${toggle}")`, "Browser button goes with the last page even though another browser is attachable");
     assert.ok((await service.list({ chatId: "/fixture#1" })).others.length >= 1, "the other browser is still attachable");
-    await screenshot("no-pill-light");
+    await screenshot("no-page-light");
     clearTimeout(watchdog);
     console.log(
-      "PASS: pill order and count, on-demand capture, direct open, live frame, header title/URL, click, typing, Backspace, wheel, live theme without reconnect, expand/collapse, takeover and retake, explicit attach, close keeps browsers running, closed-page failure, detach, no pill without a page",
+      "PASS: Browser button with a page, on-demand capture, panel opens on the streamed page, live frame at the viewer's size, tab title/address, click, typing, Backspace, wheel, live theme without reconnect, takeover and retake, attach from a blank page, hide keeps browsers running, closed-page failure, detach, last own tab closing keeps the stream, no button without a page",
     );
     await service.close();
     stopChrome();
@@ -316,7 +313,7 @@ async function browserChecks(url) {
   } catch (error) {
     console.error(error);
     await screenshot("failure").catch(() => {});
-    console.error("Visible text:", await evaluate('document.querySelector("[data-slot=browser-popover]")?.innerText').catch(() => ""));
+    console.error("Visible text:", await evaluate('document.querySelector("[data-slot=browser-dock]")?.innerText').catch(() => ""));
     await service.close().catch(() => {});
     stopChrome();
     app.exit(1);

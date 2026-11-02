@@ -9,7 +9,7 @@ import { phoneName } from "../../phone-name-native";
 import { statusLine, isDesktopComputer } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Icon } from "../../icons";
-import { EmptyState, ErrorNotice, Group, HeaderButton, ListRow, PageScroll, RowSwitch, pressStyle, useStyles } from "../../ui";
+import { EmptyState, ErrorNotice, Group, HeaderButton, ListRow, PageScroll, RowCheckbox, pressStyle, useStyles } from "../../ui";
 import { lineHeight, radius, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 
@@ -69,7 +69,7 @@ export default function ComputersScreen() {
                         {statusLine(host, state)}
                       </Text>
                     </View>
-                    <RowSwitch
+                    <RowCheckbox
                       label={`Show ${host.name} Chats`}
                       selected={shown}
                       onPress={() =>

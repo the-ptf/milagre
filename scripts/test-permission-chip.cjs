@@ -16,6 +16,7 @@ window.emitAgent = event => {
   window.listeners.forEach(fn => fn({ chatId: '/fixture#3', event, ...(ended ? { state: { ...state } } : {}) }));
 };
 window.milagre = new Proxy({
+  readContextSettings: async () => ({ buttonThreshold: 70, autoThreshold: 85, autoCompact: false }),
   simulators: { list: async () => ({ devices: [], supported: true }) },
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),

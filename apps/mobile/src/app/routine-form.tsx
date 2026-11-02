@@ -30,6 +30,7 @@ import {
   EVERY_HOURS,
   EVERY_MINUTES,
   emptyRoutineForm,
+  fallbackApplies,
   formFromRoutine,
   formToInput,
   formToUpdate,
@@ -64,7 +65,7 @@ import {
   PageScroll,
   PillButton,
   PullDown,
-  RowSwitch,
+  RowCheckbox,
   SectionLabel,
   SheetHeader,
   pressStyle,
@@ -100,6 +101,10 @@ const EVENTS: { id: RoutineLinearEvent; title: string }[] = [
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAYS = [1, 2, 3, 4, 5];
 const ENDS_IN = [1, 3, 7, 14, 30];
+const KINDS: { id: "prompt" | "flow"; label: string; hint: string }[] = [
+  { id: "prompt", label: "Single prompt", hint: "One turn on a prompt" },
+  { id: "flow", label: "Flow", hint: "Steps, checks and approvals" },
+];
 const RUN_IN: { id: RoutineFormState["runIn"]; title: string }[] = [
   { id: "worktree", title: "New Worktree" },
   { id: "project", title: "Project folder" },
@@ -160,6 +165,8 @@ export default function RoutineFormSheet() {
   // Whether the user changed anything (reads the sheet fills in itself don't count): closing it then asks to discard.
   const [dirty, setDirty] = useState(false);
   const [closing, setClosing] = useState(false);
+  // A new Routine runs one prompt or a flow of steps; an existing one keeps what it is.
+  const [kind, setKind] = useState<"prompt" | "flow">("prompt");
   usePreventRemove(dirty && !closing, ({ repeat }) =>
     Alert.alert("Discard changes?", "Your changes to this Routine will not be saved.", [
       { text: "Keep editing", style: "cancel" },
@@ -185,6 +192,8 @@ export default function RoutineFormSheet() {
     setForm(formFromRoutine(routine, deviceTimezone(), now));
   }
   const editing = !!routine;
+  // A flow's steps carry their prompts, models and modes: the form edits only how it starts and where it works.
+  const flow = routine ? !!routine.flow : kind === "flow";
   const targets = useRpc<Targets>(client, "routines:targets", []).data;
   const linearOptions = useRpc<LinearOptions>(form.trigger === "linear" ? client : null, "routines:linear-options", [
     { workspace: form.linear.workspace || undefined, team: form.linear.team || undefined },
@@ -221,7 +230,9 @@ export default function RoutineFormSheet() {
   async function save() {
     if (!client || saving) return;
     setError("");
-    const made = routine ? formToUpdate(resolved, routine, Date.now()) : formToInput(resolved, Date.now());
+    // A flow has no prompt of its own; the form's check for one is passed with a stand-in, and the stand-in is dropped.
+    const checked = flow ? { ...resolved, prompt: resolved.prompt.trim() || "Flow" } : resolved;
+    const made = routine ? formToUpdate(checked, routine, Date.now()) : formToInput(checked, Date.now());
     if (made.field) {
       setProblem({ field: made.field, error: made.error });
       return;
@@ -229,19 +240,27 @@ export default function RoutineFormSheet() {
     setSaving(true);
     try {
       if (routine && "patch" in made) {
-        await client.call("routines:update", [routine.id, made.patch]);
+        const { prompt: _prompt, ...rest } = made.patch;
+        await client.call("routines:update", [routine.id, flow ? rest : made.patch]);
         await routines.refresh();
         leave();
       } else if ("input" in made && made.input) {
-        const result = await client.call<{ routine?: { id: string }; id?: string; hookUrl?: string }>("routines:create", [made.input]);
+        // A flow starts as a draft with no steps: it stays off until its first revision is published.
+        const input = flow ? { ...made.input, prompt: "", flow: { steps: [], publish: false } } : made.input;
+        const result = await client.call<{ routine?: { id: string }; id?: string; hookUrl?: string }>("routines:create", [input]);
         await routines.refresh();
+        const createdFlow = flow ? (result?.routine?.id ?? result?.id ?? "") : "";
         if (result?.hookUrl) {
           setCreatedId(result.routine?.id ?? result.id ?? "");
           setLoadedFor(result.routine?.id ?? result.id ?? "");
           setHookUrl(result.hookUrl);
           // Saved: from here the sheet edits the new Routine, with nothing to discard yet.
           setDirty(false);
-        } else leave();
+        } else {
+          leave();
+          // A new flow opens on its empty Steps tab, once the sheet has gone.
+          if (createdFlow) setTimeout(() => router.push({ pathname: "/routine", params: { id: createdFlow, tab: "steps" } }), 400);
+        }
       }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not save this Routine.");
@@ -280,6 +299,11 @@ export default function RoutineFormSheet() {
   const models = providers.flatMap((provider) => modelsFor(provider, session.models).map((model) => ({ ...model, provider })));
   const model = models.find((item) => item.provider === form.provider && item.id === form.model);
   const mode = PERMISSION_MODES.find((item) => item.id === form.permissionMode);
+  // The model a failed Run retries on, and its effort; automatic when none is picked (see fallbackApplies).
+  const fallbackModel = models.find((item) => item.provider === form.fallbackProvider && item.id === form.fallbackModel);
+  const fallbackName = fallbackModel?.name ?? (form.fallbackModel || "Another provider");
+  const fallbackEfforts = fallbackModel?.efforts ?? [];
+  const effortName = (effort: string) => `${effort.charAt(0).toUpperCase()}${effort.slice(1)}`;
   const zones = timezones();
   const placeholders = placeholdersFor(
     (form.trigger === "linear"
@@ -294,7 +318,17 @@ export default function RoutineFormSheet() {
   const heartbeat = form.runIn === "chat";
   // A webhook checks an HMAC once signing is switched on (or a secret is typed); off clears the header and secret.
   const signed = form.webhook.signed === true || !!form.webhook.signingSecret.trim();
-  const title = editing ? (createdId ? "Webhook Routine" : "Edit Routine") : "New Routine";
+  const title = editing
+    ? createdId
+      ? flow
+        ? "Webhook flow"
+        : "Webhook Routine"
+      : flow
+        ? "Flow settings"
+        : "Edit Routine"
+    : flow
+      ? "New flow"
+      : "New Routine";
 
   return (
     // Keep the form and its footer inside one native view. Flattening this root makes iOS treat its background as a
@@ -332,6 +366,50 @@ export default function RoutineFormSheet() {
             style={{ fontSize: type.callout, fontWeight: "500" }}
           />
           <Problem text={problemFor("name")} />
+
+          {editing ? null : <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Each Run</Text>}
+          {editing ? null : (
+            <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 8 }}>
+              {KINDS.map((item) => {
+                const selected = kind === item.id;
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${item.label}. ${item.hint}`}
+                    accessibilityState={{ checked: selected }}
+                    onPress={() => {
+                      setDirty(true);
+                      setProblem(null);
+                      setKind(item.id);
+                      // A flow starts a Chat of its own for each Run, so it can't check back on an existing Chat.
+                      if (item.id === "flow" && form.runIn === "chat") setForm((current) => withRunIn(current, "worktree", Date.now()));
+                    }}
+                    style={({ pressed }) => ({
+                      flex: 1,
+                      minHeight: 56,
+                      gap: 2,
+                      paddingHorizontal: 10,
+                      paddingVertical: 8,
+                      borderRadius: 14,
+                      borderCurve: "continuous",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: selected ? colors.ink : "transparent",
+                      borderWidth: selected ? 0 : 1,
+                      borderColor: colors.lineStrong,
+                      opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Text style={{ color: selected ? colors.onInk : colors.ink, fontSize: 15, fontWeight: "600" }}>{item.label}</Text>
+                    <Text numberOfLines={1} style={{ color: selected ? colors.onInk : colors.ink3, fontSize: 12 }}>
+                      {item.hint}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
 
           {editing ? null : <SectionLabel flush>Starts</SectionLabel>}
           {/* A Routine's trigger kind can't change, so Edit shows only its rows. */}
@@ -593,7 +671,7 @@ export default function RoutineFormSheet() {
                 </View>
               ) : null}
               <FormRow icon={Shield01Icon} label="Check signature">
-                <RowSwitch
+                <RowCheckbox
                   label="Check signature"
                   selected={signed}
                   onPress={() => change({ webhook: signed ? { signed: false, signingHeader: "", signingSecret: "" } : { ...form.webhook, signed: true } })}
@@ -656,7 +734,7 @@ export default function RoutineFormSheet() {
                       title: item.title,
                       checked: item.id === form.runIn,
                       // Only a schedule checks back on a Chat; an edit can't move Runs between a Chat and new Chats.
-                      disabled: (item.id === "chat" && form.trigger !== "schedule") || (editing && (item.id === "chat") !== heartbeat),
+                      disabled: (item.id === "chat" && (form.trigger !== "schedule" || flow)) || (editing && (item.id === "chat") !== heartbeat),
                     })),
                   },
                 ]}
@@ -681,61 +759,140 @@ export default function RoutineFormSheet() {
                 <FormRow icon={BubbleChatIcon} label="Chat" value={chat?.title ?? "Choose"} />
               </PullDown>
             ) : null}
-            <PullDown
-              label="Model"
-              title="Model"
-              searchable={{ placeholder: "Search models", emptyLabel: "No matching models" }}
-              nativeTrigger={shows(model?.name ?? (form.model || "Default"))}
-              sections={[
-                {
-                  items: [
-                    { id: DEFAULT, title: "Default", subtitle: "The Mac's default model", checked: !form.model },
-                    ...models.map((item) => ({
-                      id: `${item.provider}:${item.id}`,
-                      title: item.name,
-                      subtitle: providerName(item.provider),
-                      checked: item === model,
-                    })),
-                  ],
-                },
-              ]}
-              onSelect={(choice) => {
-                if (choice === DEFAULT) change({ provider: "", model: "" });
-                else {
-                  const split = choice.indexOf(":");
-                  change({ provider: choice.slice(0, split) as ModelProvider, model: choice.slice(split + 1) });
-                }
-              }}
-            >
-              <FormRow icon={SparklesIcon} label="Model" value={model?.name ?? (form.model || "Default")} />
-            </PullDown>
-            <PullDown
-              label="Mode"
-              title="Permissions"
-              sections={[
-                {
-                  items: [
-                    { id: DEFAULT, title: "Default", checked: !form.permissionMode },
-                    ...PERMISSION_MODES.map((item) => ({
-                      id: item.id,
-                      title: item.name,
-                      subtitle: item.description,
-                      checked: item.id === form.permissionMode,
-                    })),
-                  ],
-                },
-              ]}
-              onSelect={(choice) => change({ permissionMode: choice === DEFAULT ? "" : choice })}
-            >
-              <FormRow icon={Shield01Icon} label="Mode" value={mode?.name ?? "Default"} />
-            </PullDown>
+            {flow ? null : (
+              <PullDown
+                label="Model"
+                title="Model"
+                searchable={{ placeholder: "Search models", emptyLabel: "No matching models" }}
+                nativeTrigger={shows(model?.name ?? (form.model || "Default"))}
+                sections={[
+                  {
+                    items: [
+                      { id: DEFAULT, title: "Default", subtitle: "The Mac's default model", checked: !form.model },
+                      ...models.map((item) => ({
+                        id: `${item.provider}:${item.id}`,
+                        title: item.name,
+                        subtitle: providerName(item.provider),
+                        checked: item === model,
+                      })),
+                    ],
+                  },
+                ]}
+                onSelect={(choice) => {
+                  if (choice === DEFAULT) change({ provider: "", model: "" });
+                  else {
+                    const split = choice.indexOf(":");
+                    change({ provider: choice.slice(0, split) as ModelProvider, model: choice.slice(split + 1) });
+                  }
+                }}
+              >
+                <FormRow icon={SparklesIcon} label="Model" value={model?.name ?? (form.model || "Default")} />
+              </PullDown>
+            )}
+            {fallbackApplies(form) && !flow ? (
+              <PullDown
+                label="Fallback"
+                title="Retry on"
+                searchable={{ placeholder: "Search models", emptyLabel: "No matching models" }}
+                nativeTrigger={shows(fallbackName)}
+                sections={[
+                  {
+                    items: [
+                      {
+                        id: DEFAULT,
+                        title: "Another provider",
+                        subtitle: "When a Run fails on its model, it retries once on another installed provider",
+                        checked: !form.fallbackModel,
+                      },
+                      ...models.map((item) => ({
+                        id: `${item.provider}:${item.id}`,
+                        title: item.name,
+                        subtitle: providerName(item.provider),
+                        checked: item === fallbackModel,
+                      })),
+                    ],
+                  },
+                ]}
+                onSelect={(choice) => {
+                  if (choice === DEFAULT) change({ fallbackProvider: "", fallbackModel: "", fallbackEffort: "" });
+                  else {
+                    const split = choice.indexOf(":");
+                    const provider = choice.slice(0, split) as ModelProvider;
+                    const modelId = choice.slice(split + 1);
+                    const efforts = models.find((item) => item.provider === provider && item.id === modelId)?.efforts ?? [];
+                    // Another model drops an effort it doesn't take.
+                    change({
+                      fallbackProvider: provider,
+                      fallbackModel: modelId,
+                      fallbackEffort: efforts.includes(form.fallbackEffort) ? form.fallbackEffort : "",
+                    });
+                  }
+                }}
+              >
+                <FormRow icon={Refresh01Icon} label="Fallback" value={fallbackName} />
+              </PullDown>
+            ) : null}
+            {fallbackApplies(form) && !flow && form.fallbackModel && (fallbackEfforts.length > 0 || form.fallbackEffort) ? (
+              <PullDown
+                label="Fallback effort"
+                title="Fallback effort"
+                sections={[
+                  {
+                    items: [
+                      { id: DEFAULT, title: "Default", subtitle: "The model's own default", checked: !form.fallbackEffort },
+                      ...fallbackEfforts.map((effort) => ({ id: effort, title: effortName(effort), checked: effort === form.fallbackEffort })),
+                    ],
+                  },
+                ]}
+                onSelect={(choice) => change({ fallbackEffort: choice === DEFAULT ? "" : choice })}
+              >
+                <FormRow icon={Refresh01Icon} label="Fallback effort" value={form.fallbackEffort ? effortName(form.fallbackEffort) : "Default"} />
+              </PullDown>
+            ) : null}
+            {flow ? null : (
+              <PullDown
+                label="Mode"
+                title="Permissions"
+                sections={[
+                  {
+                    items: [
+                      { id: DEFAULT, title: "Default", checked: !form.permissionMode },
+                      ...PERMISSION_MODES.map((item) => ({
+                        id: item.id,
+                        title: item.name,
+                        subtitle: item.description,
+                        checked: item.id === form.permissionMode,
+                      })),
+                    ],
+                  },
+                ]}
+                onSelect={(choice) => change({ permissionMode: choice === DEFAULT ? "" : choice })}
+              >
+                <FormRow icon={Shield01Icon} label="Mode" value={mode?.name ?? "Default"} />
+              </PullDown>
+            )}
           </Card>
           <Problem text={problemFor("project", "runIn", "chat")} />
 
-          <SectionLabel flush>Prompt</SectionLabel>
-          <PlaceholderField value={form.prompt} onChangeText={(prompt) => change({ prompt })} placeholders={placeholders} placeholder={PROMPT_PLACEHOLDER} />
-          <Text style={styles.caption}>{promptHint(form.trigger)}</Text>
-          <Problem text={problemFor("prompt")} />
+          {flow ? (
+            <Text style={[styles.caption, { paddingHorizontal: 4 }]}>
+              {editing
+                ? "Each step of the flow picks its own prompt, model and permissions. Edit them in the Steps tab."
+                : "Each step of the flow picks its own prompt, model and permissions. Add them next, then publish to turn it on."}
+            </Text>
+          ) : (
+            <>
+              <SectionLabel flush>Prompt</SectionLabel>
+              <PlaceholderField
+                value={form.prompt}
+                onChangeText={(prompt) => change({ prompt })}
+                placeholders={placeholders}
+                placeholder={PROMPT_PLACEHOLDER}
+              />
+              <Text style={styles.caption}>{promptHint(form.trigger)}</Text>
+              <Problem text={problemFor("prompt")} />
+            </>
+          )}
 
           <SectionLabel>Stop after</SectionLabel>
           <Card>
@@ -817,10 +974,10 @@ export default function RoutineFormSheet() {
         }}
       >
         <PillButton
-          title={editing ? "Save" : "Create Routine"}
+          title={editing ? "Save" : flow ? "Create flow" : "Create Routine"}
           icon={editing ? undefined : Add01Icon}
           loading={saving}
-          disabled={!client || !!routines.unavailable || (!editing && (!form.name.trim() || !form.prompt.trim()))}
+          disabled={!client || !!routines.unavailable || (!editing && (!form.name.trim() || (!flow && !form.prompt.trim())))}
           onPress={() => void save()}
         />
       </View>

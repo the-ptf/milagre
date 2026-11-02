@@ -6,8 +6,9 @@ import { createDesignPageSharing } from "./design-page-sharing";
 import type { Client } from "./client";
 import type { DesignPageShare } from "@milagre/shared/artifact";
 import { lineHeight, radius, space, type } from "./design-tokens";
-import { CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, SheetHeader, Toast, useStyles } from "./ui";
+import { CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, SheetHeader, useStyles } from "./ui";
 import { useTheme } from "./theme";
+import { ToastPill } from "./primitives/toast";
 
 const when = (share: DesignPageShare) =>
   `${share.updatedAt ? "Updated" : "Published"} ${new Date(share.updatedAt ?? share.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
@@ -230,7 +231,11 @@ export function DesignPageShareSheet({
           </>
         )}
       </PageScroll>
-      {toast && <Toast key={toast.key} text={toast.text} />}
+      {toast && (
+        <View key={toast.key} pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, bottom: 24, alignItems: "center" }}>
+          <ToastPill text={toast.text} />
+        </View>
+      )}
     </View>
   );
 }

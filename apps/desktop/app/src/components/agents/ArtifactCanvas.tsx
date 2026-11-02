@@ -1,14 +1,19 @@
-import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
   ARTIFACT_ESCAPE,
   ARTIFACT_PAGE,
+  artifactCsp,
   artifactDocument,
+  createDesignFontReader,
+  restoreDesignFonts,
   designGroups,
+  designKitLabel,
   readPageMessage,
   type Artifact,
+  type ArtifactAsset,
   type ArtifactPageMessage,
   type DesignArtifact,
   type PagePin,
@@ -20,13 +25,15 @@ import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
-import { bridgeForKey } from "../../lib/computer-bridge";
+import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
 import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
 import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
 import { useLiveDesign } from "./design-live";
+import { designPreviews, designPreviewKey, designLiveZoom, designPreviewScale } from "./design-preview-cache";
+import { createDesignVisibility, designDensity, subscribeDesignDensity } from "./design-visibility";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
 export type DesignPin = {
@@ -39,6 +46,8 @@ export type DesignPin = {
   /** On an Artifact page: the element it was pinned on (ARTIFACT_PAGE_SCRIPT's anchor) and the text near it. */
   anchor?: string;
   near?: string;
+  /** On an Artifact page split into tabs: the tab it was pinned on. */
+  tab?: { id: string; title: string };
   resolved?: string;
   /** A sent comment's id, as the host and the agent know it. */
   commentId?: string;
@@ -50,7 +59,13 @@ export type PinControls = {
   sent: DesignPin[];
   open: string | null;
   /** Pins a new comment, its bubble open; returns its key. */
-  onPin: (design: ArtifactRef, x: number, y: number, nodeId?: string, page?: { anchor?: string; near?: string }) => string | void;
+  onPin: (
+    design: ArtifactRef,
+    x: number,
+    y: number,
+    nodeId?: string,
+    page?: { anchor?: string; near?: string; tab?: { id: string; title: string } },
+  ) => string | void;
   onOpen: (key: string | null) => void;
   onText: (key: string, text: string) => void;
   onRemove: (key: string) => void;
@@ -97,13 +112,26 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 // showing it. The newest (no version asked) can change, so it is read each time. Kept for the last few dozen.
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();
+const fontReaders = new WeakMap<object, ReturnType<typeof createDesignFontReader<Artifact>>>();
 const KEEP = 48;
 export function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
-  if (version === null) return bridgeForKey(chatId).artifacts.get({ chatId, id });
+  const api = bridgeForKey(chatId).artifacts;
+  const request = { chatId, id, ...(version === null ? {} : { version }) };
+  const readDesign = () => {
+    if (!isRemoteKey(chatId)) return api.get(request);
+    let reader = fontReaders.get(api);
+    if (!reader) {
+      reader = createDesignFontReader((args) => api.get(args));
+      fontReaders.set(api, reader);
+      onComputerConnection(chatId, reader.reconnect, () => fontReaders.delete(api));
+    }
+    return reader(request).then(restoreDesignFonts);
+  };
+  if (version === null) return readDesign();
   const key = `${chatId}\n${id}\n${version}`;
   let read = versionsRead.get(key);
   if (!read) {
-    read = bridgeForKey(chatId).artifacts.get({ chatId, id, version });
+    read = readDesign();
     versionsRead.set(key, read);
     read.then(
       (artifact) => {
@@ -111,6 +139,7 @@ export function readArtifact(chatId: string, id: string, version: number | null)
         for (const old of versionsKept.keys()) {
           if (versionsKept.size <= KEEP) break;
           versionsKept.delete(old);
+          designPreviews.delete(old);
           versionsRead.delete(old);
         }
       },
@@ -161,6 +190,14 @@ export type PageState = {
   reveal?: { key: string; nonce: number };
 };
 
+/** An Artifact page's files, which its preview loads from the computer `chatId` is on (artifact:asset). */
+export type PageFiles = { chatId: string; assets: ArtifactAsset[] };
+/** The files an artifact shows, when it is an HTML page that has any. */
+export const pageFiles = (chatId: string | null | undefined, artifact: Artifact | null | undefined): PageFiles | undefined =>
+  chatId && artifact?.format === "html" && artifact.assets?.length ? { chatId, assets: artifact.assets } : undefined;
+// The policy an isolated preview runs under (artifact-preview.cjs): its files load from the preview scheme.
+const PREVIEW_CSP = artifactCsp("milagre-artifact:");
+
 /** Sends a command to an Artifact page's helper. */
 export function tellPage(frame: HTMLIFrameElement | null, command: Record<string, unknown> & { t: string }) {
   frame?.contentWindow?.postMessage({ ...command, milagre: ARTIFACT_PAGE }, "*");
@@ -179,14 +216,19 @@ export function ArtifactFrame({
   page,
   onPage,
   frameRef,
+  files,
+  onLoad,
 }: {
   html: string;
   title: string;
   preview?: boolean;
   format?: "design" | "html";
+  /** An Artifact page's files, which its `assets/<name>` references load. */
+  files?: PageFiles;
   page?: PageState;
   onPage?: (message: ArtifactPageMessage) => void;
   frameRef?: React.RefObject<HTMLIFrameElement | null>;
+  onLoad?: () => void;
 }) {
   const document = useMemo(() => artifactDocument(html, { page: format === "html" }), [html, format]);
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -238,18 +280,22 @@ export function ArtifactFrame({
     },
     [frameRef],
   );
-  const [registered, setRegistered] = useState<{ html: string; url: string } | null>(null);
+  const [registered, setRegistered] = useState<{ html: string; files: string; url: string } | null>(null);
   const [previewError, setPreviewError] = useState("");
+  // The same files keep the same preview; a file the page swaps registers it again.
+  const filesKey = files ? `${files.chatId}\n${files.assets.map((asset) => `${asset.name}:${asset.hash}`).join("\n")}` : "";
+  const filesRef = useRef(files);
+  filesRef.current = files;
   useEffect(() => {
     if (format !== "html" || !window.milagre?.createArtifactPreview) return;
     let live = true;
     let url: string | undefined;
     setPreviewError("");
     void window.milagre
-      .createArtifactPreview(html)
+      .createArtifactPreview(html, filesRef.current)
       .then((value) => {
         url = value;
-        if (live) setRegistered({ html, url });
+        if (live) setRegistered({ html, files: filesKey, url });
         else void window.milagre.releaseArtifactPreview(url);
       })
       .catch((cause) => {
@@ -259,9 +305,9 @@ export function ArtifactFrame({
       live = false;
       if (url) void window.milagre.releaseArtifactPreview(url);
     };
-  }, [html, format]);
+  }, [html, format, filesKey]);
   const isolated = format === "html" && !!window.milagre?.createArtifactPreview;
-  const url = registered?.html === html ? registered.url : undefined;
+  const url = registered?.html === html && registered.files === filesKey ? registered.url : undefined;
   if (isolated && !url)
     return (
       <div role={previewError ? "alert" : "status"} className={`grid size-full place-items-center text-12 ${previewError ? "text-red-ink" : "text-ink-3"}`}>
@@ -271,12 +317,13 @@ export function ArtifactFrame({
   return (
     <iframe
       ref={setFrame}
+      onLoad={onLoad}
       title={title}
       srcDoc={isolated ? undefined : document}
       src={isolated ? url : undefined}
       sandbox="allow-scripts"
       // The policy a second time, as the embedder's (Chromium holds the document to it), beside the <meta> inside.
-      {...{ csp: ARTIFACT_CSP }}
+      {...{ csp: isolated ? PREVIEW_CSP : ARTIFACT_CSP }}
       referrerPolicy="no-referrer"
       tabIndex={preview ? -1 : undefined}
       className={`block size-full border-0 bg-paper ${preview ? "pointer-events-none" : ""}`}
@@ -293,6 +340,8 @@ export const ArtifactCanvas = forwardRef<
   CanvasHandle,
   {
     chatId: string;
+    /** Images prepare during panel entry; full live frames wait for its animation. */
+    allowLive?: boolean;
     designs: ArtifactRef[];
     versions: Record<string, number | null>;
     onVersion: (id: string, version: number | null) => void;
@@ -303,9 +352,14 @@ export const ArtifactCanvas = forwardRef<
     choice: ChoiceControls;
     onView: (view: CanvasView) => void;
   }
->(function ArtifactCanvas({ chatId, designs, versions, onVersion, focus, commenting, comments, choice, onView }, handle) {
+>(function ArtifactCanvas({ chatId, allowLive = true, designs, versions, onVersion, focus, commenting, comments, choice, onView }, handle) {
   const viewport = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
+  const visibility = useMemo(() => createDesignVisibility(), []);
+  const pixelRatio = useSyncExternalStore(subscribeDesignDensity, designDensity);
+  useLayoutEffect(() => {
+    if (viewport.current) return visibility.connect(viewport.current);
+  }, [visibility]);
   const [view, setView] = useState<CanvasView>({ x: 40, y: 40, scale: 0.4 });
   // One block per group once any design has one; until then the frames stay in one row, numbered across the blocks.
   const rows = useMemo(() => designGroups(designs), [designs]);
@@ -576,10 +630,10 @@ export const ArtifactCanvas = forwardRef<
                 </div>
               </div>
             )}
-            <div className={`flex items-start ${grouped ? "rounded-[40px] bg-hover" : ""}`} style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}>
+            <div className={`flex items-start ${grouped ? "rounded-card bg-hover" : ""}`} style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}>
               {row.designs.map((design, offset) => (
                 <DesignFrame
-                  key={design.id}
+                  key={`${chatId}\n${design.id}`}
                   chatId={chatId}
                   design={design}
                   number={rows.slice(0, index).reduce((total, row) => total + row.designs.length, 0) + offset + 1}
@@ -591,6 +645,9 @@ export const ArtifactCanvas = forwardRef<
                   onSized={settled}
                   active={active === design.id}
                   scale={view.scale}
+                  allowLive={allowLive}
+                  visibility={visibility}
+                  pixelRatio={pixelRatio}
                 />
               ))}
               <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
@@ -625,6 +682,9 @@ const DesignFrame = memo(function DesignFrame({
   onSized,
   scale,
   active,
+  visibility,
+  allowLive,
+  pixelRatio,
 }: {
   chatId: string;
   design: ArtifactRef;
@@ -639,11 +699,26 @@ const DesignFrame = memo(function DesignFrame({
   active: boolean;
   /** The canvas zoom: a frame's title row stays this size on screen however far the canvas zooms. */
   scale: number;
+  visibility: ReturnType<typeof createDesignVisibility>;
+  allowLive: boolean;
+  pixelRatio: number;
 }) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState(false);
+  const [liveZoom, setLiveZoom] = useState(false);
+  useLayoutEffect(() => {
+    if (frame.current) return visibility.watch(frame.current, setInView);
+  }, [visibility]);
+  useEffect(() => {
+    const timer = setTimeout(() => setLiveZoom((previous) => designLiveZoom(previous, scale)), 150);
+    return () => clearTimeout(timer);
+  }, [scale]);
+  const [painted, setPainted] = useState<Artifact | null>(null);
   // Following the newest unless the user stepped back; a revision the agent shows replaces what is in the frame, after
   // the change plays back over it (`hold`, design-live.ts).
   const { live, hold } = useLiveDesign(chatId, design, version === null);
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
+  const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
   const [editing, setEditing] = useState<DesignArtifact | null>(null);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editError, setEditError] = useState("");
@@ -733,6 +808,11 @@ const DesignFrame = memo(function DesignFrame({
           </Tooltip>
           <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
             v{shown.version} of {last}
+            {artifact?.kit && (
+              <span className="ml-2" title={designKitLabel(artifact)}>
+                {designKitLabel(artifact)}
+              </span>
+            )}
           </span>
           <Tooltip label="Next version" asChild>
             <IconButton
@@ -802,7 +882,14 @@ const DesignFrame = memo(function DesignFrame({
     </>
   );
   return (
-    <div data-slot="artifact-frame" data-artifact={design.id} data-version={shown.version} className="group/frame flex shrink-0 flex-col" style={{ width }}>
+    <div
+      ref={frame}
+      data-slot="artifact-frame"
+      data-artifact={design.id}
+      data-version={shown.version}
+      className="group/frame flex shrink-0 flex-col"
+      style={{ width }}
+    >
       <div
         className={`relative shrink-0 ${compact ? "group-focus-within/frame:z-20 group-hover/frame:z-20" : ""}`}
         style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}
@@ -837,18 +924,38 @@ const DesignFrame = memo(function DesignFrame({
       <div className="relative" style={{ width, height }}>
         <div
           data-design-body
+          data-painted={(!!artifact && painted === artifact) || undefined}
           data-active={active || undefined}
           className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised ${active ? "border-accent" : isChosen ? "border-ink" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
         >
           {artifact ? (
-            <ArtifactFrame html={artifact.html} title={shown.title} format={artifact.format} />
+            <CanvasDesignBody
+              key={designPreviewKey(chatId, artifact.id, artifact.version)}
+              artifact={artifact}
+              files={pageFiles(chatId, artifact)}
+              title={shown.title ?? "Design"}
+              previewKey={designPreviewKey(chatId, artifact.id, artifact.version)}
+              pixelRatio={pixelRatio}
+              allowLive={allowLive}
+              scale={scale}
+              live={active || (liveZoom && inView) || artifact.format === "html"}
+              onPainted={markPainted}
+            />
           ) : (
             <div className="grid size-full place-items-center text-ink-3" style={{ fontSize: 24 }}>
               {error ?? "Loading…"}
             </div>
           )}
         </div>
-        <LiveDesignLayer chatId={chatId} live={live} shown={artifact?.version ?? null} width={width} height={height} scale={scale} />
+        <LiveDesignLayer
+          chatId={chatId}
+          live={live}
+          shown={artifact?.version ?? null}
+          savedPainted={!!artifact && painted === artifact}
+          width={width}
+          height={height}
+          scale={scale}
+        />
         {!active && !commenting && (
           // Over a design that doesn't have the mouse: wheel and drag reach the canvas, and a click (see endDrag) hands it the mouse.
           <div data-slot="artifact-shield" aria-label={`Interact with ${shown.title}`} className="absolute inset-0 cursor-grab" />
@@ -886,3 +993,150 @@ const DesignFrame = memo(function DesignFrame({
     </div>
   );
 });
+
+/** Keyed by the artifact actually shown, including a live edit's held version. Readiness never crosses versions. */
+function CanvasDesignBody({
+  artifact,
+  files,
+  title,
+  previewKey,
+  scale,
+  pixelRatio,
+  allowLive,
+  live,
+  onPainted,
+}: {
+  artifact: Artifact;
+  files?: PageFiles;
+  title: string;
+  previewKey: string;
+  scale: number;
+  pixelRatio: number;
+  allowLive: boolean;
+  live: boolean;
+  onPainted: (ready: boolean) => void;
+}) {
+  type Preview = { key: string; result: NonNullable<ReturnType<typeof designPreviews.get>> };
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [readyPreview, setReadyPreview] = useState<{ key: string; src: string } | null>(null);
+  const [settledScale, setSettledScale] = useState<number | null>(null);
+  // Initial Fit runs in a parent layout effect. Follow it before the first paint; later gestures keep the painted
+  // image while their resolution settles, rather than rasterizing every bucket crossed along the way.
+  const previewScale = readyPreview && settledScale !== null ? settledScale : designPreviewScale(scale);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledScale(designPreviewScale(scale)), 150);
+    return () => clearTimeout(timer);
+  }, [scale]);
+  const cacheKey = `${previewKey}\n${pixelRatio}\n${previewScale}`;
+  const [imageFailed, setImageFailed] = useState<string | null>(null);
+  const [framePainted, setFramePainted] = useState(false);
+  const [document] = useState(() => (artifact.format === "design" ? artifact.document : undefined));
+  const decoded = !!readyPreview;
+  const useFrame = (allowLive && (live || !document || (preview && "error" in preview.result) || imageFailed === cacheKey)) || (!decoded && framePainted);
+  useLayoutEffect(() => {
+    if (!document) return;
+    return designPreviews.request(
+      cacheKey,
+      document,
+      (result) => setPreview({ key: cacheKey, result }),
+      () => versionsKept.has(previewKey),
+      pixelRatio,
+      previewScale,
+      previewKey,
+    );
+  }, [cacheKey, document, previewKey, pixelRatio, previewScale]);
+  const painted = useFrame ? framePainted || decoded : decoded;
+  useEffect(() => {
+    onPainted(painted);
+  }, [painted, onPainted]);
+  if (artifact.format === "html")
+    return allowLive ? <ArtifactFrame html={artifact.html} title={title} format="html" files={files} onLoad={() => setFramePainted(true)} /> : null;
+  return (
+    <div className="relative size-full" data-painted={painted || undefined} data-slot="design-renderer">
+      {readyPreview && readyPreview.key !== preview?.key && <img src={readyPreview.src} alt="" aria-hidden draggable={false} className="block size-full" />}
+      {preview && "src" in preview.result && (
+        <DecodedPreviewImage
+          key={preview.key}
+          resourceKey={preview.key}
+          src={preview.result.src}
+          title={title}
+          hidden={framePainted}
+          painted={readyPreview?.key === preview.key}
+          onDecoded={setReadyPreview}
+          onFailed={setImageFailed}
+        />
+      )}
+      {useFrame && <PaintedFrame key={previewKey} artifact={artifact} title={title} onPainted={setFramePainted} />}
+    </div>
+  );
+}
+
+/** Request decode when src commits, so PNG loading and decoding overlap instead of waiting for load first. */
+const DecodedPreviewImage = memo(function DecodedPreviewImage({
+  resourceKey,
+  src,
+  title,
+  hidden,
+  painted,
+  onDecoded,
+  onFailed,
+}: {
+  resourceKey: string;
+  src: string;
+  title: string;
+  hidden: boolean;
+  painted: boolean;
+  onDecoded: (value: { key: string; src: string }) => void;
+  onFailed: (key: string) => void;
+}) {
+  const receive = useCallback(
+    (image: HTMLImageElement | null) => {
+      if (!image) return;
+      void image.decode().then(
+        () => {
+          if (image.isConnected) onDecoded({ key: resourceKey, src });
+          return null;
+        },
+        () => {
+          if (image.isConnected) onFailed(resourceKey);
+          return null;
+        },
+      );
+    },
+    [resourceKey, src, onDecoded, onFailed],
+  );
+  return (
+    <img
+      ref={receive}
+      src={src}
+      alt={title}
+      aria-hidden={hidden || undefined}
+      draggable={false}
+      decoding="async"
+      className="absolute inset-0 block size-full"
+      style={{ opacity: painted ? 1 : 0 }}
+      onError={(event) => {
+        if (event.currentTarget.isConnected) onFailed(resourceKey);
+      }}
+    />
+  );
+});
+
+/** Unmount on the way back to an image. Every new iframe starts hidden and fades over the decoded preview. */
+function PaintedFrame({ artifact, title, onPainted }: { artifact: Artifact; title: string; onPainted: (painted: boolean) => void }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    onPainted(ready);
+    return () => onPainted(false);
+  }, [ready, onPainted]);
+  return (
+    <div
+      inert={!ready}
+      aria-hidden={!ready || undefined}
+      className="absolute inset-0 transition-opacity duration-[120ms] motion-reduce:transition-none"
+      style={{ opacity: ready ? 1 : 0 }}
+    >
+      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} onLoad={() => setReady(true)} />
+    </div>
+  );
+}

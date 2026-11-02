@@ -97,7 +97,13 @@ export function PullDown({
         // A 44pt tall frame around the label (footnote, so it follows Dynamic Type), all of it tappable.
         modifiers={[
           padding({ horizontal: 12, vertical: 6 }),
-          frame({ minWidth: 0, maxWidth: nativeTrigger.maxWidth ?? 260, minHeight: 44 - slop.top - slop.bottom, alignment: "leading" }),
+          frame({
+            minWidth: 0,
+            maxWidth: nativeTrigger.maxWidth ?? 260,
+            minHeight: Math.max(nativeTrigger.minHeight ?? 0, 44 - slop.top - slop.bottom),
+            alignment: "leading",
+          }),
+          contentShape(shapes.rectangle()),
           grow,
           contentShape(shapes.rectangle()),
         ]}

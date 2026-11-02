@@ -7,12 +7,19 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
+import { applyRunEvent, startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
 document.documentElement.classList.add("dark");
 document.body.style.background = "var(--page)";
 window.milagre = { listEditors: async () => [] };
 const noop = () => {};
 const now = Date.now();
+let runs = startRun({}, '/fixture#1', 'gpt-6.1-sol');
+for (const event of [
+ { type: 'step-started', step: { id: 'public-summary', kind: 'thinking', title: 'Thinking' } },
+ { type: 'step-output', id: 'public-summary', text: Array.from({length: 50}, (_, i) => 'Public summary paragraph ' + (i + 1) + '.').join('\\n\\n') },
+ { type: 'step-completed', id: 'public-summary', status: 'done', title: 'Thought' }
+]) runs = applyRunEvent(runs, '/fixture#1', event);
 const calls = [
  { type: "step", step: { id: "linear", kind: "other", title: "Used \\u0060list_issues\\u0060 from linear", source: { server: "linear", name: "list_issues" }, input: JSON.stringify({ query: "Tool call UI" }, null, 2), summary: "2 results", detail: '[{"id":"ENG-12"},{"id":"ENG-13"}]', status: "done", startedAt: now - 8400, endedAt: now - 7200, durationMs: 1200 } },
  { type: "step", step: { id: "failed", kind: "shell", title: "Ran \\u0060npm test\\u0060", input: "npm test", summary: "Failed", error: "Error: missing Authorization header", detail: "$ npm test\\n" + Array.from({ length: 65 }, (_, i) => "line " + i).join("\\n") + "\\nError: missing Authorization header", status: "failed", startedAt: now - 7000, endedAt: now - 2800, durationMs: 4200 } },
@@ -24,7 +31,7 @@ function Fixture() {
   <ChatComposer messages={[{ id: 1, session_id: 1, role: "user", body: "Review the tool calls.", context: null }]} messageScope="/fixture" projectPath="/fixture"
    imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
    draft="" onDraftChange={noop} onSend={noop} isSending sendBlocked={false}
-   streamingText="I'll review the tool calls and run their checks." streamingSteps={calls.map(entry => entry.step)}
+   streamingText="I'll review the tool calls and run their checks." streamingSteps={[...calls.map(entry => entry.step), ...runs['/fixture#1'].steps]}
    waitingStepIds={waiting ? ["push"] : []}
    approval={waiting ? <button id="allow" onClick={() => setWaiting(false)}>Allow once</button> : null}
    models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
@@ -70,7 +77,7 @@ async function check() {
     );
     assert.ok(await run('!!document.querySelector("[data-slot=activity-sources] [data-linear-logo]")'));
     await run('document.querySelector("[data-slot=activity] > button").click()');
-    await wait('document.querySelectorAll("[data-slot=step]").length === 3');
+    await wait('document.querySelectorAll("[data-slot=step]").length === 4');
     assert.equal(await run('document.querySelectorAll("#allow").length'), 1);
     assert.equal(
       await run('!!document.getElementById("allow").closest("[data-slot=activity], [data-slot=step]")'),
@@ -99,6 +106,19 @@ async function check() {
       await run('document.querySelector("[data-slot=step] button[aria-expanded]").getAttribute("aria-expanded")'),
       "true",
       "resolving approval preserves open output",
+    );
+    await run('[...document.querySelectorAll("[data-slot=step] button[aria-expanded]")].find(b=>b.textContent.includes("Thought")).click()');
+    await wait('document.body.textContent.includes("Public summary paragraph 50.")');
+    assert.equal(
+      await run(`(() => {
+      const step = [...document.querySelectorAll('[data-slot=step]')].find(n=>n.textContent.includes('Public summary paragraph 1.'));
+      const scroll = step.querySelector('.scroll-fade');
+      if (!scroll) return false;
+      scroll.scrollTop = scroll.scrollHeight;
+      return scroll.scrollHeight > scroll.clientHeight && scroll.scrollTop > 0 && step.textContent.includes('Public summary paragraph 50.');
+    })()`),
+      true,
+      "long public summaries remain reachable in their bounded scroll area after completion",
     );
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       await delay(400);

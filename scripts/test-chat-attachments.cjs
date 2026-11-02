@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 const imageBytes = require("node:fs").readFileSync(path.join(__dirname, "fixtures/photo.png")).toString("base64");
 const fixture = `
 window.imageBytes = ${JSON.stringify(imageBytes)};
@@ -145,8 +146,7 @@ async function browserChecks() {
     await delay(100);
   };
   try {
-    await window.loadURL(process.argv[2]);
-    await waitFor(String.raw`!!document.querySelector("[data-prompt-editor]")`);
+    await openRenderer(window, process.argv[2], String.raw`!!document.querySelector("[data-prompt-editor]")`);
     await key("2", { metaKey: true });
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Attachment test")`);
     await waitFor(
@@ -155,6 +155,33 @@ async function browserChecks() {
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview legacy.png"] img').src.startsWith('data:image/png')`));
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview stored.png"] img').src.startsWith('milagre-media:')`));
     await screenshot("legacy-and-stored-images");
+
+    // A selected passage quotes into this Chat without sending or discarding its existing draft.
+    await type("My question");
+    const passage = await evaluate(`(() => {
+      const content = document.querySelector('[data-slot="message-content"]');
+      const range = document.createRange(); range.selectNodeContents(content);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      return selection.toString();
+    })()`);
+    await waitFor(`!!document.querySelector('[aria-label="Ask about selected text"]')`);
+    const askPoint = await evaluate(
+      `(() => { const rect=document.querySelector('[aria-label="Ask about selected text"]').getBoundingClientRect(); return {x: Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)}; })()`,
+    );
+    window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...askPoint });
+    window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...askPoint });
+    const quoted = `My question\n\n${passage
+      .split("\n")
+      .map((line) => (line.trim() ? `> ${line}` : ">"))
+      .join("\n")}\n\n`;
+    await waitFor(`document.querySelector('[data-prompt-editor]').value === ${JSON.stringify(quoted)}`);
+    await waitFor(`document.activeElement.matches('[data-prompt-editor]')`);
+    assert.equal(await evaluate("window.calls.length"), 0, "Ask fills the draft without sending it");
+    // Typing starts after the quote, even when the draft had a previous caret.
+    await evaluate(`document.activeElement.dispatchEvent(new InputEvent('beforeinput', {inputType:'insertText', data:'?', bubbles:true, cancelable:true}))`);
+    await waitFor(`document.querySelector('[data-prompt-editor]').value === ${JSON.stringify(quoted + "?")}`);
+    await screenshot("ask-selected-passage");
+    await type("");
 
     // A sent message shows its @file mention and /skill as chips; the mentioned file gets no second tile, an unmentioned one keeps its tile.
     await waitFor(`!!document.querySelector('article [data-chip="skill"]')`);
@@ -410,7 +437,10 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector("[data-promptbar] [aria-label=Attachments]")`), false, "Mentioned files show as chips, not tiles");
     await screenshot("file-attachments-selected");
     await type(mentions + "Review these");
-    await click('[aria-label="Stop agent"]');
+    await waitFor(`!!document.querySelector('[data-composer-submit][aria-label="Queue message"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`), false, "A nonempty draft offers the selected delivery");
+    // With a follow-up draft, the submit button sends it; Escape still stops without losing the draft or attachments.
+    await key("Escape");
     assert.equal(await evaluate("window.interrupted"), "/fixture#3", "Stop targets the open chat");
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions + "Review these", "Stopping preserves the draft");
     assert.equal(await evaluate("window.calls.length"), 1, "Stop does not send the draft");
@@ -499,11 +529,11 @@ async function browserChecks() {
     const notificationsNav = `[...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Notifications")`;
     await waitFor(`!!${notificationsNav}`);
     await evaluate(`${notificationsNav}.click()`);
-    await waitFor(String.raw`!!document.querySelector('[role=switch][aria-label="Notify when finished"]')`);
+    await waitFor(String.raw`!!document.querySelector('[role=checkbox][aria-label="Notify when finished"]')`);
     await screenshot("notification-settings");
-    await click('[role=switch][aria-label="Notify when finished"]');
+    await click('[role=checkbox][aria-label="Notify when finished"]');
     await waitFor("window.synced.at(-1)?.notifyOnCompletion === false");
-    await click('[role=switch][aria-label="Dock badge"]');
+    await click('[role=checkbox][aria-label="Dock badge"]');
     await waitFor("window.synced.at(-1)?.showDockBadge === false");
     assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).showDockBadge'), false, "Notification preferences persist");
     await evaluate('window.openNotification("/other#10")');
@@ -520,12 +550,14 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     console.error(errors);
-    console.error(await evaluate("document.body.innerText.slice(0, 2000)"));
-    console.error(
-      await evaluate(
-        `(() => { const v = document.querySelector('dialog video'); return v ? { src:v.src, error:v.error?.message, code:v.error?.code, ready:v.readyState, network:v.networkState } : null; })()`,
-      ),
-    );
+    if (error.code !== "ERR_RENDERER_READINESS") {
+      console.error(await evaluate("document.body.innerText.slice(0, 2000)"));
+      console.error(
+        await evaluate(
+          `(() => { const v = document.querySelector('dialog video'); return v ? { src:v.src, error:v.error?.message, code:v.error?.code, ready:v.readyState, network:v.networkState } : null; })()`,
+        ),
+      );
+    }
     app.exit(1);
   }
 }

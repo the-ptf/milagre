@@ -90,6 +90,17 @@ Compose both diffs into an integration checkout. In `runtime.cjs`, retain the De
 
 ## Operations and recovery
 
+`project_accounts({projectPath, refresh?})` returns the Project's public provider Account choices, effective IDs and computer defaults (`projects: read`). `project_set_account({projectPath, provider, accountId})` chooses one of those IDs, or `null` to follow the computer default (`projects: create`). These tools share the model picker's account routing: every Chat in that Project uses the selection on its next idle turn; running turns and background tasks keep their original Account. Named Links keep their independent selections. Both tools enforce Project grants and connection revocation. They never return credentials, sign in, send a prompt or restart a Chat.
+
+The CLI exposes the same scoped tools to other Chats:
+
+```sh
+milagre project accounts --chat /absolute/project#1 --project-path /absolute/project
+milagre project set account --chat /absolute/project#1 --project-path /absolute/project --provider codex --account-id ACCOUNT_ID
+```
+
+Owner CLI calls also support Link scope keys through `milagre accounts scope --scope-key KEY` and `milagre accounts assign --scope-key KEY --provider codex --account-id ACCOUNT_ID`. Use `--account-id null` to restore inheritance. These are the existing `accounts:scope` and `accounts:assign` daemon operations.
+
 Named tools are `project_list`, `project_add`, `worktree_list`, `worktree_create`, `worktree_remove`, `worktree_link`, `worktree_unlink`, `chat_list`, `chat_read`, `chat_search`, `chat_create`, `chat_start`, `chat_stop`, `chat_set_mode`, `chat_respond` and `chat_update`. Outside callers and Bot rules Chats see only allowed resources; non-bot Chat callers see all registered Projects in `project_list` with `inScope: boolean` and can request user approval to access out-of-scope Projects (`Allow once` for a single call, or `Always allow in this chat` to persist a per-Chat Project grant in `local-mcp/chat-grants.json` until either Project is forgotten, which also unlocks `delegate` to that Project's Worktrees without a canvas Link; Full permission mode approves out-of-scope management calls without persisting a grant across a return to Ask or Auto, while `project_add` persists the grant). `chat_read` returns a bounded number of recent messages and progress, plus the approvals and questions the Chat waits on with their `requestId`, and the messages queued behind its running turn. Worktree creation uses the existing host operation, including file copy, registration and setup before the first turn.
 
 `chat_start` switches the Chat's provider, model and effort when given, as the composer's pickers do; a new provider hands off. When an agent can't take a message mid-turn (Antigravity), `chat_start` adds it to the durable Chat queue and the answer's `note` says it will wait. The message runs after the current turn; Stop keeps it queued for Send now, including after a restart. `files` and `images` are absolute paths inside the Chat's Worktree. Without `permissionMode` it preserves the live Chat permission mode; a Chat without a live provider takes the mode of the Chat whose agent called `chat_start`, and Ask when the caller is an outside client.

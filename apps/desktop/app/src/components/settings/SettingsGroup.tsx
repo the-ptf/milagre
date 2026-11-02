@@ -5,13 +5,19 @@ import { SectionLabel } from "../primitives/SectionLabel";
  * A titled card of Settings rows. `action` sits at the right of the title (Babysit PRs' Reset all to defaults); `footer`
  * is a note under the card.
  */
-export function Group({ title, action, footer, children }: { title: string; action?: ReactNode; footer?: string; children: ReactNode }) {
+export function Group({ title, action, footer, children }: { title?: string; action?: ReactNode; footer?: string; children: ReactNode }) {
   return (
     <section className="mt-6">
-      <div className="mb-2 flex items-baseline justify-between gap-4 px-1">
-        <SectionLabel>{title}</SectionLabel>
-        {action}
-      </div>
+      {(title || action) && (
+        <div className="mb-2 flex items-baseline justify-between gap-4 px-1">
+          {title && (
+            <SectionLabel data-settings-row className="rounded-chip">
+              {title}
+            </SectionLabel>
+          )}
+          {action}
+        </div>
+      )}
       <div className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">{children}</div>
       {footer && <p className="mt-2 px-1 text-12 text-ink-3">{footer}</p>}
     </section>
@@ -32,6 +38,7 @@ export function Row({
 }) {
   return (
     <div
+      data-settings-row
       data-preview-row={preview ? "" : undefined}
       onPointerEnter={preview?.onEnter}
       onPointerLeave={preview?.onLeave}

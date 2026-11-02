@@ -46,6 +46,9 @@ function generate() {
     const properties = {},
       required = [];
     for (const prop of checker.getPropertiesOfType(type)) {
+      // Symbol properties cannot be represented in JSON. TypeScript appends unstable internal IDs
+      // (for example __@toStringTag@2221); they are neither wire fields nor portable contract names.
+      if (prop.name.startsWith("__@")) continue;
       const declaration = prop.valueDeclaration ?? prop.declarations?.[0];
       properties[prop.name] = schema(checker.getTypeOfSymbolAtLocation(prop, declaration));
       const description = ts.displayPartsToString(prop.getDocumentationComment(checker));

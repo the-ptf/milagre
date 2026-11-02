@@ -1,7 +1,12 @@
+import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
+import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
+import { MessageSelection } from "./MessageSelection";
+import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
+import { SubchatTrack } from "./agents/SubchatTrack";
+import { DelegationReportLine } from "./DelegationReportLine";
 import { UpdatePillSlot } from "./UpdateNotice";
-import { BrowserTrack } from "./agents/BrowserTrack";
 import { BrowserPanel } from "./agents/BrowserPanel";
 import { isPageCommentImage, PageCommentsCard } from "./agents/BrowserComments";
 import { parsePageComments } from "@milagre/shared/page-comments";
@@ -14,13 +19,16 @@ import { PullRequestActionCard } from "./agents/PullRequestActionCard";
 import { LinearIssueCard } from "./agents/LinearIssueCard";
 import { AdvisorResultCard } from "./agents/AdvisorResultCard";
 import { UsageLimitCard } from "./agents/UsageLimitCard";
-import { isAccountSwitch, usageLimitOf } from "@milagre/shared/usage-limit";
+import { isAccountSwitch, isLimitReset, limitResetText, usageLimitOf } from "@milagre/shared/usage-limit";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
+import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { chatHistory } from "@milagre/shared/chat-history";
-import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../model";
+import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, PermissionDecision, QuestionAnswers, Subagent } from "../model";
+import type { SubchatSource } from "../lib/subchat-track";
+import { latestReports, reportMarker } from "@milagre/shared/subchat-states";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -74,7 +82,7 @@ import { mediaUrl } from "../lib/media";
 import { useRemoteMedia } from "../lib/remote-media";
 import { MediaLightbox } from "./motion/LazyMediaLightbox";
 import { ScrollArea } from "./primitives/ScrollArea";
-import { Button, IconButton } from "./primitives/Button";
+import { Button } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { Chip } from "./primitives/Chip";
@@ -84,6 +92,7 @@ import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
+import { ComputerUseCard } from "./agents/ComputerUseCard";
 import { HeartbeatCard } from "./routines/HeartbeatCard";
 import { NextCheck } from "./routines/NextCheck";
 import type { QueueControls } from "./QueuedMessages";
@@ -91,6 +100,7 @@ import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
 import { NewChatHeading } from "./NewChatHeading";
 import Tooltip from "./primitives/Tooltip";
+import { CopyButton } from "./primitives/CopyButton";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -117,14 +127,16 @@ import { bridgeForKey } from "../lib/computer-bridge";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
 import { headingLayer, newChatLook } from "../lib/new-chat-look";
+import { WelcomeSky } from "./WelcomeSky";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
+import { linkedHeading } from "@milagre/shared/linked-message";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
 import { isWorktreeLinked } from "@milagre/shared/worktree-link";
-import { MessageScroller, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
+import { MessageFollowContext, MessageScroller, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
 import { RecommendationCard } from "./agents/recommendation-card";
 import { parseRecommendation } from "../lib/recommendation";
 import { StepRow } from "./agents/StepRow";
@@ -138,6 +150,7 @@ import { splitFences } from "../lib/message-fences";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
+import { ThisComputer } from "../lib/shortcut-hints";
 import { LoadingMark } from "./StartupSplash";
 
 const NO_WAITING_STEPS: string[] = [];
@@ -250,29 +263,44 @@ function ReplyContent({
   streaming,
   asking = false,
   waitingStepIds,
+  credits,
+  copyable = true,
 }: {
   body: string;
+  copyable?: boolean;
   steps: ChatStep[];
   streaming: boolean;
   asking?: boolean;
   waitingStepIds: string[];
+  credits?: number;
 }) {
-  const { setup, activity, images, artifacts, heartbeats, answer } = replyActivity(body, steps);
+  const { setup, activity, images, artifacts, heartbeats, desktop, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   return (
     <>
       {setup.map((step) => (
         <StepRow key={step.id} step={step} />
       ))}
-      <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} />
+      <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />
       {images.map((step) => (
         <GeneratedImage key={step.id} step={step} />
       ))}
+      {desktop.length > 0 && <ComputerUseCard steps={desktop} />}
       <ArtifactCards steps={artifacts} />
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
       {answer.trim() && <div data-slot="message-content">{streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}</div>}
+      {/* Reserve the footer while streaming so completion and hover keep the transcript still. */}
+      {copyable && answer.trim() && (
+        <div className="h-7" data-message-copy-footer>
+          {!streaming && (
+            <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+              <CopyButton text={answer} />
+            </div>
+          )}
+        </div>
+      )}
       {thought && (
         <div data-slot="message-thought" className="text-ink-2">
           <Markdown text={thought} />
@@ -288,6 +316,8 @@ function ReplyContent({
  */
 export const MessageCardContext = createContext<((message: AppChatMessage) => ReactNode) | null>(null);
 
+const NO_REPORTS: ReadonlyMap<string, string> = new Map();
+
 const MessageSection = memo(function MessageSection({
   message,
   isUser,
@@ -301,6 +331,9 @@ const MessageSection = memo(function MessageSection({
   animate = false,
   onOpenChat,
   limitInteractive = false,
+  limitPending,
+  limitSourceMessageId,
+  limitResumeBlocked,
   onOpenAccounts,
   models,
   merged,
@@ -342,6 +375,9 @@ const MessageSection = memo(function MessageSection({
   onOpenChat?: (chatKey: string) => void;
   /** The usage-limit card may offer account switches: this is the Chat's last message and no turn runs. */
   limitInteractive?: boolean;
+  limitPending?: LimitResume;
+  limitSourceMessageId?: number;
+  limitResumeBlocked?: boolean;
   /** Opens Settings > Accounts, from the limit card. */
   onOpenAccounts?: () => void;
 }) {
@@ -357,11 +393,27 @@ const MessageSection = memo(function MessageSection({
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
+  if (isLimitReset(message))
+    return (
+      <div data-limit-reset-divider role="group" aria-label={limitResetText()} className="flex w-full items-center gap-3 py-1 text-12 text-ink-3">
+        <span className="h-px flex-1 bg-line" />
+        {limitResetText()}
+        <span className="h-px flex-1 bg-line" />
+      </div>
+    );
   if (isChatReload(message)) return <ChatReloadDivider />;
   if (isBabysitStopped(message)) return <BabysitStoppedDivider context={message.context} />;
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   const linked = linkedContext(message);
+  // A Subchat's finished report is one line, its text opening on a tap.
+  const marker = linked ? reportMarker(linked) : null;
+  if (marker && linked)
+    return (
+      <article id={`message-${message.id}`} data-slot="message" data-linked={linked.kind} className="flex min-w-0 w-full flex-col">
+        <DelegationReportLine marker={marker} body={message.body} chat={linkedHeading(linked).chat} onOpenChat={onOpenChat} />
+      </article>
+    );
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.
   const prAction = isUser && isPullRequestAction(message.context) ? message.context : null;
@@ -381,6 +433,7 @@ const MessageSection = memo(function MessageSection({
   const showUpdateButton = Boolean(outdatedProvider && onUpdateCli && (isCurrentlyOutdated || updatingCli === outdatedProvider));
   const limit = !isUser && !streaming ? usageLimitOf(message) : null;
   const steps = message.steps ?? [];
+  const copyUser = (bubble || (isUser && linked)) && !advisor && Boolean(message.body.trim()) && !onlyImageMentions(message.body, message.images?.length ?? 0);
   return (
     <article
       id={`message-${message.id}`}
@@ -388,29 +441,44 @@ const MessageSection = memo(function MessageSection({
       data-from={messageSender(message)}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble || feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble ? (copyUser && undoId && onUndo ? "items-end pl-18" : "items-end pl-12") : feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
       style={animate ? { animation: "fade-up var(--duration-slow) var(--ease-enter) both" } : undefined}
     >
-      {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
+      {linked && (
+        <div className="flex min-w-0 max-w-full items-center gap-1.5">
+          <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />
+          {copyUser && (
+            <div className="shrink-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+              <CopyButton text={message.body} />
+            </div>
+          )}
+        </div>
+      )}
       <div
-        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-window" : bubble ? "relative rounded-card bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-card border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-window" : bubble ? "relative rounded-card bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "relative rounded-card border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
-        {bubble && undoId && onUndo && (
-          <div className="absolute top-0.5 right-full mr-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-            <Tooltip
-              label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
-              keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
-              align="end"
-            >
-              <IconButton
-                label="Undo this task's changes"
-                icon={Undo02Icon}
-                data-undo-message={message.id}
-                disabled={undoDisabled}
-                onClick={() => onUndo(undoId)}
-              />
-            </Tooltip>
+        {bubble && (copyUser || (undoId && onUndo)) && (
+          <div className="absolute top-[3px] right-full mr-1.5 flex opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+            {bubble && undoId && onUndo && (
+              <Tooltip
+                label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
+                keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
+                align="end"
+              >
+                <button
+                  type="button"
+                  data-undo-message={message.id}
+                  aria-label="Undo this task's changes"
+                  disabled={undoDisabled}
+                  onClick={() => onUndo(undoId)}
+                  className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+                >
+                  <Icon icon={Undo02Icon} size={16} />
+                </button>
+              </Tooltip>
+            )}
+            {copyUser && <CopyButton text={message.body} />}
           </div>
         )}
         <Attachments
@@ -450,7 +518,7 @@ const MessageSection = memo(function MessageSection({
         ) : recommendation ? (
           <>
             <StepDetailsMessage id={message.id}>
-              <ReplyContent body={recommendation.intro} steps={steps} streaming={false} waitingStepIds={waitingStepIds} />
+              <ReplyContent body={recommendation.intro} steps={steps} streaming={false} waitingStepIds={waitingStepIds} copyable={false} />
             </StepDetailsMessage>
             <div className={recommendation.intro ? "mt-2" : undefined}>
               <RecommendationCard
@@ -459,14 +527,30 @@ const MessageSection = memo(function MessageSection({
                 onSelect={(option) => onRecommendationSelect(option.label)}
               />
             </div>
+            <div className="h-7" data-message-copy-footer>
+              <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+                <CopyButton text={message.body} />
+              </div>
+            </div>
           </>
         ) : (
           <StepDetailsMessage id={message.id}>
-            <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} />
+            <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} credits={message.credits} />
           </StepDetailsMessage>
         )}
         {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-12 text-ink-3">Turn stopped</p>}
-        {limit && <UsageLimitCard limit={limit} sessionId={message.session_id} interactive={limitInteractive} onOpenAccounts={onOpenAccounts} />}
+        {limit && (
+          <UsageLimitCard
+            limit={limit}
+            sessionId={message.session_id}
+            interactive={limitInteractive}
+            pending={limitPending?.sourceMessageId === message.id ? limitPending : undefined}
+            sourceMessageId={message.id}
+            resumeAvailable={message.id === limitSourceMessageId}
+            resumeBlocked={limitResumeBlocked}
+            onOpenAccounts={onOpenAccounts}
+          />
+        )}
         {showUpdateButton && outdatedProvider && onUpdateCli && (
           <div className="mt-2 flex items-center gap-2">
             <Button variant="secondary" size={28} disabled={updatingCli === outdatedProvider} onClick={() => onUpdateCli(outdatedProvider)}>
@@ -489,6 +573,8 @@ const MessageSection = memo(function MessageSection({
 // A Chat's first render mounts only its last few messages, so the window paints them at once; the rest of the page
 // follows in a transition (TAIL_FIRST is enough to fill a tall window's viewport).
 const TAIL_FIRST = 6;
+// The messages a Chat mounts at first, and each Show earlier adds.
+const PAGE = 40;
 
 // Background turns and draft edits must not rebuild a long, unchanged transcript.
 const MessageTranscript = memo(function MessageTranscript({
@@ -505,10 +591,14 @@ const MessageTranscript = memo(function MessageTranscript({
   cliStatus,
   onOpenLinkedChat,
   onOpenAccounts,
+  limitPending,
+  limitSourceMessageId,
+  limitResumeBlocked,
   offlineName,
   findOpen,
   models,
   earlier,
+  trimHistory,
   undoable,
   undoBlocked = false,
   onUndo,
@@ -524,6 +614,7 @@ const MessageTranscript = memo(function MessageTranscript({
 } & Pick<
   ChatComposerProps,
   | "earlier"
+  | "trimHistory"
   | "messages"
   | "pendingMessageId"
   | "isSending"
@@ -537,6 +628,9 @@ const MessageTranscript = memo(function MessageTranscript({
   | "cliStatus"
   | "onOpenLinkedChat"
   | "onOpenAccounts"
+  | "limitPending"
+  | "limitSourceMessageId"
+  | "limitResumeBlocked"
   | "offlineName"
   | "reconnectingName"
   | "findOpen"
@@ -550,8 +644,8 @@ const MessageTranscript = memo(function MessageTranscript({
     openingMessages.current = { chat: chatId, ids: openingMessages.current.chat === "new" ? new Set() : new Set(messages.map((message) => message.id)) };
   }
   // Keep the same recent-history page size as mobile. New messages extend the page without dropping its first row.
-  const [page, setPage] = useState(() => ({ chat: chatId, firstId: messages[Math.max(0, messages.length - 40)]?.id }));
-  let firstId = page.chat === chatId ? page.firstId : messages[Math.max(0, messages.length - 40)]?.id;
+  const [page, setPage] = useState(() => ({ chat: chatId, firstId: messages[Math.max(0, messages.length - PAGE)]?.id }));
+  let firstId = page.chat === chatId ? page.firstId : messages[Math.max(0, messages.length - PAGE)]?.id;
   if (findOpen) firstId = messages[0]?.id;
   if (page.chat !== chatId || page.firstId !== firstId) setPage({ chat: chatId, firstId });
   const start = Math.max(
@@ -606,7 +700,7 @@ const MessageTranscript = memo(function MessageTranscript({
     if (element && viewport) anchor.current = { element, viewport, top: element.getBoundingClientRect().top };
     try {
       if (start > 0 || !earlier) {
-        setPage({ chat: chatId, firstId: messages[Math.max(0, start - 40)]?.id });
+        setPage({ chat: chatId, firstId: messages[Math.max(0, start - PAGE)]?.id });
         return;
       }
       await earlier.load();
@@ -624,6 +718,19 @@ const MessageTranscript = memo(function MessageTranscript({
   const loadOnScroll = useEvent(() => {
     if (!historyError) void showEarlier();
   });
+  // A Chat followed at its bottom as new messages arrive lets go of the history it showed, as on the phone: past twice a
+  // page its rows unmount back to one, and its window keeps its last turns (trimHistory), so a Chat open for hours costs
+  // what a fresh one does. Scrolling up reads them again. Not while Find searches the whole Chat or earlier messages load.
+  const following = useContext(MessageFollowContext);
+  const canTrim = useEvent(() => !findOpen && following?.current === true && !historyRead.current && !anchor.current);
+  const seen = useRef({ chat: chatId, count: messages.length });
+  useEffect(() => {
+    const grew = seen.current.chat === chatId && messages.length > seen.current.count;
+    seen.current = { chat: chatId, count: messages.length };
+    if (!grew || !canTrim()) return;
+    if (messages.length - start > PAGE * 2) setPage({ chat: chatId, firstId: messages[messages.length - PAGE]?.id });
+    trimHistory?.(canTrim);
+  }, [messages, chatId, start, canTrim, trimHistory]);
   useEffect(() => {
     const viewport = earlierButton.current?.closest<HTMLElement>('[aria-label="Conversation"]');
     if (!viewport || start + remote <= 0 || findOpen) return;
@@ -690,7 +797,7 @@ const MessageTranscript = memo(function MessageTranscript({
 
   const openingIds = openingMessages.current.ids;
   // Only the Chat's last message, once its turn is over, can still switch accounts.
-  const limitMessageId = isSending || offlineName ? undefined : messages.at(-1)?.id;
+  const limitMessageId = isSending || offlineName ? undefined : (limitSourceMessageId ?? messages.at(-1)?.id);
   return (
     <>
       {historyError && <InlineError size={12}>Could not load earlier messages: {historyError}. Use Show earlier messages to retry.</InlineError>}
@@ -720,6 +827,9 @@ const MessageTranscript = memo(function MessageTranscript({
               animate={!message.clientMessageId && !openingIds.has(message.id)}
               onOpenChat={onOpenLinkedChat}
               limitInteractive={message.id === limitMessageId}
+              limitPending={message.id === limitSourceMessageId ? limitPending : undefined}
+              limitSourceMessageId={message.id === limitSourceMessageId ? limitSourceMessageId : undefined}
+              limitResumeBlocked={message.id === limitSourceMessageId ? limitResumeBlocked : undefined}
               onOpenAccounts={onOpenAccounts}
               models={models}
               // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
@@ -738,11 +848,18 @@ const MessageTranscript = memo(function MessageTranscript({
 });
 
 interface ChatComposerProps {
+  limitPending?: LimitResume;
+  limitSourceMessageId?: number;
+  limitResumeBlocked?: boolean;
   mentionContext?: ChatMentionScope;
   /** The chat's computer is away: the composer is disabled and says so. */
   offlineName?: string | null;
   /** The connection to the chat's computer is coming back: the draft stays writable, and Send waits for it. */
   reconnectingName?: string | null;
+  /** Above the prompt, inside a tray like a new Chat's: messages waiting on this Mac and the offline computer's chip. */
+  offlineTray?: ReactNode;
+  /** The Chat is mounted but not on screen (Settings, the canvas, Routines): its Browser panel and button go away. */
+  offScreen?: boolean;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
   onSendDesignMessage?: (text: string) => Promise<boolean>;
   /** Sends the Browser panel's page comments, with their screenshots. */
@@ -763,6 +880,8 @@ interface ChatComposerProps {
   projectPath: string;
   /** Messages of the Chat the host holds before `messages` (chat-pages-v1): how many, and reading them. */
   earlier?: { count: number; load: () => Promise<void>; loadAll: (signal?: AbortSignal) => Promise<void> };
+  /** Drops the Chat's window back to its last turns once `canTrim` (asked again if a read is on its way) still says so. */
+  trimHistory?: (canTrim: () => boolean) => void;
   /** The Project or Link (scope key) the messages belong to, for step output the host keeps out of the state. */
   messageScope?: string;
   /** The open conversation keeps its scroll view when a draft gets its saved Chat id. */
@@ -776,7 +895,7 @@ interface ChatComposerProps {
   pendingMessageId?: number;
   draft: string;
   onDraftChange: (draft: string) => void;
-  onSend: () => void;
+  onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
@@ -797,6 +916,10 @@ interface ChatComposerProps {
   onArchiveSubagent?: (id: string, archived: boolean) => void;
   onStopAdvisor?: (id: string) => void;
   onRetryAdvisor?: (id: string) => void;
+  /** The Chat's Subchats, for the pill beside the composer's PR pills; absent when it has none. Opening one uses onOpenLinkedChat. */
+  subchats?: SubchatSource;
+  onAnswerSubchat?: (chatKey: string, requestId: string, answers: QuestionAnswers) => void;
+  onRespondSubchat?: (chatKey: string, requestId: string, decision: PermissionDecision) => void;
   waitingForSubagents?: boolean;
   /** The Chat's activity (chat-activity.mjs): a background one shows how many background agents still work. */
   activity?: ChatActivity;
@@ -1068,7 +1191,7 @@ function NewChatHeader({
                 <PickerRow
                   key={item.key}
                   icon={<Icon icon={ComputerIcon} size={14} />}
-                  label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · This Mac` : item.computer}
+                  label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · ${ThisComputer}` : item.computer}
                   // A Chats home's folder is Milagre's own, not a place the user picked.
                   description={chats ? undefined : shortPath(item.key)}
                   trailing={item.online ? undefined : "Offline"}
@@ -1159,12 +1282,15 @@ export function ChatComposer({
   mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
   reconnectingName,
+  offlineTray,
+  offScreen = false,
   scopeKind,
   imageDraft,
   projectPath,
   messageScope,
   scrollKey,
   earlier,
+  trimHistory,
   messages,
   loading = false,
   loadError,
@@ -1187,6 +1313,9 @@ export function ChatComposer({
   onArchiveSubagent,
   onStopAdvisor,
   onRetryAdvisor,
+  subchats,
+  onAnswerSubchat,
+  onRespondSubchat,
   waitingForSubagents = false,
   activity,
   plan,
@@ -1203,6 +1332,9 @@ export function ChatComposer({
   statusLabel,
   onOpenLinkedChat,
   onOpenAccounts,
+  limitPending,
+  limitSourceMessageId,
+  limitResumeBlocked,
   resume,
   queue,
   models,
@@ -1253,6 +1385,7 @@ export function ChatComposer({
   onOpenPullRequestLink,
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
+  const subchatReports = useMemo(() => (subchats ? latestReports(messages) : NO_REPORTS), [subchats, messages]);
   const chatWidth = useSettings().appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
@@ -1293,6 +1426,8 @@ export function ChatComposer({
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
   // Pages open on the viewing Mac, including pages linked from a Chat on another computer.
   const browserChat = !isNewChat ? runtimeChat : null;
+  // The panel docks outside the chat pane, so the pane hiding doesn't hide it.
+  const browserShown = browserChat && !offScreen ? browserChat : null;
   useEffect(() => {
     if (isNewChat) {
       setScrolled(false);
@@ -1337,8 +1472,18 @@ export function ChatComposer({
     setUndoIntent(action);
     void review.inspect(id);
   });
-  const focusPrompt = useCallback(() => {
-    requestAnimationFrame(() => root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
+  const focusPrompt = useCallback((atEnd = false) => {
+    requestAnimationFrame(() => {
+      const editor = root.current?.querySelector<HTMLElement>("[data-prompt-editor]");
+      editor?.focus();
+      if (atEnd && editor) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+      }
+    });
   }, []);
   // The prompt takes the keys at once after a pick, not the heading's button: what is typed while the draft moves to
   // the picked Project lands in the prompt, and goes along with it (App's moveNewChat).
@@ -1388,16 +1533,20 @@ export function ChatComposer({
     return () => window.removeEventListener("keydown", onEscape);
   }, [runtimeChat, offlineName, onEscape]);
   // `/undo` opens the same list instead of going to the agent.
-  const send = useEvent(() => {
+  const send = useEvent((delivery?: MessageDelivery) => {
     if (runtimeChat && draft.trim() === "/undo") {
       onDraftChange("");
       openUndo();
       return;
     }
-    onSend();
+    onSend(delivery);
   });
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
+  const compactionFeedback = useCompactionFeedback(
+    messages.findLast((item) => compactionContext(item)),
+    runtimeChat,
+  );
   const history = chatHistory(messages);
   const artifactSteps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
   const { userMessages, promptHistory } = history;
@@ -1438,7 +1587,7 @@ export function ChatComposer({
             event.stopPropagation();
           }
         }}
-        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
+        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "isolate justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
             event.preventDefault();
@@ -1458,6 +1607,7 @@ export function ChatComposer({
             <ProgressiveBlurLayers />
           </div>
         )}
+        {isNewChat && <WelcomeSky />}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
@@ -1508,6 +1658,13 @@ export function ChatComposer({
               </div>
             ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
+                <MessageSelection
+                  container={root}
+                  onAsk={(text) => {
+                    onDraftChange(quoteIntoDraft(draft, text));
+                    focusPrompt(true);
+                  }}
+                />
                 <MessageScroller
                   navigation="rail"
                   followOutput
@@ -1533,6 +1690,7 @@ export function ChatComposer({
                           <MessageTranscript
                             findOpen={findOpen}
                             earlier={earlier}
+                            trimHistory={trimHistory}
                             messages={messages}
                             pendingMessageId={pendingMessageId}
                             isSending={isSending}
@@ -1551,6 +1709,9 @@ export function ChatComposer({
                             cliStatus={cliStatus}
                             onOpenLinkedChat={onOpenLinkedChat}
                             onOpenAccounts={onOpenAccounts}
+                            limitPending={limitPending}
+                            limitSourceMessageId={limitSourceMessageId}
+                            limitResumeBlocked={limitResumeBlocked}
                             offlineName={offlineName}
                             models={models}
                           />
@@ -1604,6 +1765,18 @@ export function ChatComposer({
           {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
           <LayoutGroup>
+            {/* The Subchats lead the left side; the last pill there takes the free space to its right. */}
+            {!isNewChat && subchats && onOpenLinkedChat && onAnswerSubchat && onRespondSubchat && (
+              <SubchatTrack
+                key={`subchats-${subchats.parentKey}`}
+                source={subchats}
+                reports={subchatReports}
+                className={pullRequestAction || reviewPill ? "" : "mr-auto"}
+                onOpen={onOpenLinkedChat}
+                onAnswer={onAnswerSubchat}
+                onRespond={onRespondSubchat}
+              />
+            )}
             <AnimatePresence initial={false}>
               {!isNewChat && pullRequestAction && (
                 <PillSlot key="pr-action" slot="pr-action" className={reviewPill ? "flex" : "mr-auto flex"}>
@@ -1630,9 +1803,16 @@ export function ChatComposer({
               onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
             />
             <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
-            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
-            {browserChat && <BrowserPanel key={`browser-panel-${browserChat}`} chatKey={browserChat} ports={ports ?? []} onSendComments={onSendPageComments} />}
+            {browserShown && (
+              <BrowserPanel
+                key={`browser-panel-${browserShown}`}
+                chatKey={browserShown}
+                viewerChatId={agentChatId}
+                ports={ports ?? []}
+                onSendComments={onSendPageComments}
+              />
+            )}
             <SubagentTrack
               key={chatId}
               chatKey={runtimeChat}
@@ -1657,7 +1837,13 @@ export function ChatComposer({
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
-          <div data-composer-tray={projectNewChat || undefined} className={projectNewChat ? "rounded-[20px] border border-line bg-inset p-1.5 pt-1" : ""}>
+          <div
+            data-composer-tray={projectNewChat || undefined}
+            data-offline-composer={(!projectNewChat && offlineTray) || undefined}
+            className={
+              projectNewChat || offlineTray ? `rounded-window border bg-inset p-1.5 pt-1 ${projectNewChat ? "border-line" : "border-line-strong"}` : ""
+            }
+          >
             {projectNewChat && (
               <NewChatHeader
                 worktrees={worktrees}
@@ -1677,18 +1863,27 @@ export function ChatComposer({
                 onComputerChange={changeComputer}
               />
             )}
-            {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
+            {offlineTray}
+            {queue && !isNewChat && (
+              <QueuedMessages
+                {...queue}
+                canSteer={queue.canSteer && compactionContext(messages.findLast((message) => compactionContext(message)))?.status !== "preparing"}
+                items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))}
+                disabled={sendBlocked}
+              />
+            )}
             {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
             {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
             {review.view !== "closed" && !isNewChat && (
               <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
             )}
-            <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+            <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
               <PromptComposer
                 offlineName={offlineName}
                 reconnectingName={reconnectingName}
                 imageDraft={imageDraft}
                 projectPath={projectPath}
+                accountScope={messageScope ?? projectPath}
                 draft={draft}
                 onDraftChange={onDraftChange}
                 history={promptHistory}
@@ -1696,8 +1891,16 @@ export function ChatComposer({
                 canUndo={Boolean(runtimeChat)}
                 onStop={onStop}
                 onCompact={onCompact}
+                compactionFeedback={compactionFeedback}
+                compacting={Boolean(compactionContext(messages.findLast((message) => compactionContext(message)))?.status === "preparing")}
+                compactQueued={Boolean(queue?.items.some((item) => Boolean(compactionContext(item))))}
+                onCancelCompact={() => {
+                  const item = queue?.items.find((item) => Boolean(compactionContext(item)));
+                  if (item) queue?.onRemove(item.id);
+                }}
                 sendBlocked={sendBlocked}
                 running={isSending}
+                runningProvider={sessionProvider}
                 suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
                 models={models}
                 cliStatus={cliStatus}
@@ -1770,6 +1973,7 @@ export function ChatTranscript({
   messages,
   messageScope,
   earlier,
+  trimHistory,
   isSending,
   streamingText,
   streamingSteps,
@@ -1779,7 +1983,17 @@ export function ChatTranscript({
   models,
 }: { chatKey: string; mentionContext?: ChatMentionScope } & Pick<
   ChatComposerProps,
-  "messages" | "messageScope" | "earlier" | "isSending" | "streamingText" | "streamingSteps" | "asking" | "waitingStepIds" | "runStartedAt" | "models"
+  | "messages"
+  | "messageScope"
+  | "earlier"
+  | "trimHistory"
+  | "isSending"
+  | "streamingText"
+  | "streamingSteps"
+  | "asking"
+  | "waitingStepIds"
+  | "runStartedAt"
+  | "models"
 >) {
   const history = chatHistory(messages);
   const steps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
@@ -1799,6 +2013,7 @@ export function ChatTranscript({
           <StepDetailsScope scope={messageScope}>
             <MessageTranscript
               earlier={earlier}
+              trimHistory={trimHistory}
               messages={messages}
               isSending={isSending}
               streamingText={streamingText}

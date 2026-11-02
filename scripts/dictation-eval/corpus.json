@@ -1,0 +1,222 @@
+{
+  "about": "Messages someone dictates to a coding agent in Milagre. `spoken` is what the voice says (read by macOS text to speech, or by you for a recorded clip), `expected` what should land in the composer, `terms` the technical words that must come out spelled exactly. Cases with no terms are controls: ordinary speech the vocabulary must not rewrite.",
+  "cases": [
+    {
+      "id": "codex-review",
+      "language": "en",
+      "spoken": "Ask Codex to review the pull request before we merge it.",
+      "expected": "Ask Codex to review the pull request before we merge it.",
+      "terms": ["Codex"]
+    },
+    {
+      "id": "claude-opus",
+      "language": "en",
+      "spoken": "Switch this chat to Claude and use Opus for the plan.",
+      "expected": "Switch this chat to Claude and use Opus for the plan.",
+      "terms": ["Claude", "Opus"]
+    },
+    {
+      "id": "file-insert",
+      "language": "en",
+      "spoken": "Open voice dictation dot ts and check the insert dictation function.",
+      "expected": "Open voice-dictation.ts and check the insertDictation function.",
+      "terms": ["voice-dictation.ts", "insertDictation"]
+    },
+    {
+      "id": "use-dictation-bug",
+      "language": "en",
+      "spoken": "The bug is in the use dictation hook, the vocabulary arrives after the first partial.",
+      "expected": "The bug is in the useDictation hook, the vocabulary arrives after the first partial.",
+      "terms": ["useDictation"]
+    },
+    {
+      "id": "kiro-antigravity",
+      "language": "en",
+      "spoken": "Kiro and Antigravity both talk to Milagre over A C P.",
+      "expected": "Kiro and Antigravity both talk to Milagre over ACP.",
+      "terms": ["Kiro", "Antigravity", "Milagre", "ACP"]
+    },
+    {
+      "id": "cloudflare-wrangler",
+      "language": "en",
+      "spoken": "Deploy the relay worker to Cloudflare with wrangler.",
+      "expected": "Deploy the relay worker to Cloudflare with wrangler.",
+      "terms": ["Cloudflare", "wrangler"]
+    },
+    {
+      "id": "ota-eas",
+      "language": "en",
+      "spoken": "Ship an O T A update with E A S after the TestFlight build passes.",
+      "expected": "Ship an OTA update with EAS after the TestFlight build passes.",
+      "terms": ["OTA", "EAS", "TestFlight"]
+    },
+    {
+      "id": "routines-file",
+      "language": "en",
+      "spoken": "Move the heartbeat logic into routines dot mjs.",
+      "expected": "Move the heartbeat logic into routines.mjs.",
+      "terms": ["routines.mjs"]
+    },
+    {
+      "id": "milagre-worktree",
+      "language": "en",
+      "spoken": "Milagre should keep the worktree when the daemon restarts.",
+      "expected": "Milagre should keep the worktree when the daemon restarts.",
+      "terms": ["Milagre"]
+    },
+    {
+      "id": "supabase-vercel",
+      "language": "en",
+      "spoken": "Add a Supabase migration and update the Vercel environment.",
+      "expected": "Add a Supabase migration and update the Vercel environment.",
+      "terms": ["Supabase", "Vercel"]
+    },
+    {
+      "id": "prompt-composer",
+      "language": "en",
+      "spoken": "Prompt composer re-renders on every keystroke, can you profile it?",
+      "expected": "PromptComposer re-renders on every keystroke, can you profile it?",
+      "terms": ["PromptComposer"]
+    },
+    {
+      "id": "github-electron",
+      "language": "en",
+      "spoken": "Check the GitHub Actions logs, the Electron smoke job is flaky.",
+      "expected": "Check the GitHub Actions logs, the Electron smoke job is flaky.",
+      "terms": ["GitHub", "Electron"]
+    },
+    {
+      "id": "whisper-prompt",
+      "language": "en",
+      "spoken": "Whisper prompt cuts the vocabulary at six hundred characters.",
+      "expected": "whisperPrompt cuts the vocabulary at six hundred characters.",
+      "terms": ["whisperPrompt"]
+    },
+    {
+      "id": "mobile-bridge",
+      "language": "en",
+      "spoken": "Rename mobile bridge dot cjs and update the command contracts.",
+      "expected": "Rename mobile-bridge.cjs and update the command contracts.",
+      "terms": ["mobile-bridge.cjs"]
+    },
+    {
+      "id": "gemini-openai",
+      "language": "en",
+      "spoken": "Gemini and OpenAI models should show up in the model picker.",
+      "expected": "Gemini and OpenAI models should show up in the model picker.",
+      "terms": ["Gemini", "OpenAI"]
+    },
+    {
+      "id": "expo-ipad",
+      "language": "en",
+      "spoken": "Expo Router crashes when the iPad sidebar opens.",
+      "expected": "Expo Router crashes when the iPad sidebar opens.",
+      "terms": ["Expo Router", "iPad"]
+    },
+    {
+      "id": "claude-code-cli",
+      "language": "en",
+      "spoken": "The Claude Code C L I hides the task tools in headless mode.",
+      "expected": "The Claude Code CLI hides the task tools in headless mode.",
+      "terms": ["Claude Code", "CLI"]
+    },
+    {
+      "id": "npm-typecheck",
+      "language": "en",
+      "spoken": "Run N P M run typecheck in the desktop app.",
+      "expected": "Run npm run typecheck in the desktop app.",
+      "terms": ["npm"]
+    },
+    {
+      "id": "streaming-fn",
+      "language": "en",
+      "spoken": "The create streaming dictation function seals a segment on every pause.",
+      "expected": "The createStreamingDictation function seals a segment on every pause.",
+      "terms": ["createStreamingDictation"]
+    },
+    {
+      "id": "codex-timeout",
+      "language": "en",
+      "spoken": "Codex keeps timing out on thread start, check the M C P servers.",
+      "expected": "Codex keeps timing out on thread start, check the MCP servers.",
+      "terms": ["Codex", "MCP"]
+    },
+    {
+      "id": "kiro-test-file",
+      "language": "en",
+      "spoken": "Tell Kiro to fix the failing test in dictation dot test dot mjs.",
+      "expected": "Tell Kiro to fix the failing test in dictation.test.mjs.",
+      "terms": ["Kiro", "dictation.test.mjs"]
+    },
+    {
+      "id": "milagre-linear",
+      "language": "en",
+      "spoken": "Milagre needs the Linear issue card on the phone too.",
+      "expected": "Milagre needs the Linear issue card on the phone too.",
+      "terms": ["Milagre", "Linear"]
+    },
+    {
+      "id": "typescript-react",
+      "language": "en",
+      "spoken": "Convert this component to TypeScript and keep the React Native styles.",
+      "expected": "Convert this component to TypeScript and keep the React Native styles.",
+      "terms": ["TypeScript", "React Native"]
+    },
+    {
+      "id": "control-use",
+      "language": "en",
+      "spoken": "We use dictation a lot when we are away from the desk.",
+      "expected": "We use dictation a lot when we are away from the desk.",
+      "terms": []
+    },
+    {
+      "id": "control-prompt",
+      "language": "en",
+      "spoken": "The prompt editor feels slow, and the context bar is too tall.",
+      "expected": "The prompt editor feels slow, and the context bar is too tall.",
+      "terms": []
+    },
+    {
+      "id": "control-code",
+      "language": "en",
+      "spoken": "I think the code looks fine, let's merge it tomorrow morning.",
+      "expected": "I think the code looks fine, let's merge it tomorrow morning.",
+      "terms": []
+    },
+    {
+      "id": "control-cloud",
+      "language": "en",
+      "spoken": "Can you explain how the chat history is stored in the cloud?",
+      "expected": "Can you explain how the chat history is stored in the cloud?",
+      "terms": []
+    },
+    {
+      "id": "pt-composer",
+      "language": "pt",
+      "spoken": "Abre o prompt composer e corrige o bug do Codex.",
+      "expected": "Abre o PromptComposer e corrige o bug do Codex.",
+      "terms": ["PromptComposer", "Codex"]
+    },
+    {
+      "id": "pt-claude",
+      "language": "pt",
+      "spoken": "Pede pro Claude revisar o pull request do Milagre.",
+      "expected": "Pede pro Claude revisar o pull request do Milagre.",
+      "terms": ["Claude", "Milagre"]
+    },
+    {
+      "id": "pt-file",
+      "language": "pt",
+      "spoken": "O arquivo voice dictation ponto ts está quebrado no Android.",
+      "expected": "O arquivo voice-dictation.ts está quebrado no Android.",
+      "terms": ["voice-dictation.ts", "Android"]
+    },
+    {
+      "id": "pt-cloudflare",
+      "language": "pt",
+      "spoken": "Faz o deploy no Cloudflare e depois manda a atualização O T A.",
+      "expected": "Faz o deploy no Cloudflare e depois manda a atualização OTA.",
+      "terms": ["Cloudflare", "OTA"]
+    }
+  ]
+}

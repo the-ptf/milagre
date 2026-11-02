@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { KeybindingsSection } from "../../keybindings-section";
 
 export default function KeybindingsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Keybindings" }} />
-      <PageScroll>
+      <SettingsScroll>
         <KeybindingsSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

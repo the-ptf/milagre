@@ -1,4 +1,4 @@
-import type { ModelProvider, Routine, RoutineTarget, RoutineTrigger } from "./model.ts";
+import type { ModelProvider, Routine, RoutineFallback, RoutineTarget, RoutineTrigger } from "./model.ts";
 
 export const EVERY_MINUTES: number[];
 export const EVERY_HOURS: number[];
@@ -35,6 +35,11 @@ export type RoutineFormState = {
   provider: ModelProvider | "";
   model: string;
   permissionMode: string;
+  /** The model a failed Run retries on; both empty is the automatic pick (another installed provider's recommended model). */
+  fallbackProvider: ModelProvider | "";
+  fallbackModel: string;
+  /** The retry's effort; empty is the model's default. */
+  fallbackEffort: string;
   prompt: string;
   /** `runs` is used with kind "runs", `at` (epoch ms) with kind "date". */
   stop: { kind: "never" | "runs" | "date"; runs: number; at: number };
@@ -66,6 +71,7 @@ export type RoutineFormInput = {
   provider?: ModelProvider;
   model?: string;
   permissionMode?: string;
+  fallback?: RoutineFallback;
   maxRuns?: number;
   expiresAt?: number;
   signingSecret?: string;
@@ -82,6 +88,8 @@ export type RoutineFormPatch = {
   provider: ModelProvider | null;
   model: string | null;
   permissionMode: string | null;
+  /** Left out for a Routine whose Runs never retry (a Heartbeat, a comment Routine); null is the automatic pick. */
+  fallback?: RoutineFallback | null;
   maxRuns: number | null;
   expiresAt: number | null;
   signingSecret?: string;
@@ -102,6 +110,8 @@ export function formToInput(
   state: RoutineFormState,
   now?: number,
 ): { input: RoutineFormInput; field?: undefined } | (RoutineFormProblem & { input?: undefined });
+/** Whether the form's Routine retries a failed Run on a fallback model: only Runs in a Chat of their own do. */
+export function fallbackApplies(state: Pick<RoutineFormState, "runIn" | "trigger" | "linear">): boolean;
 /** A Linear Routine on new comments: it has no Each run, because comments go into the Chat linked to the issue. */
 export function isCommentRoutine(state: Pick<RoutineFormState, "trigger" | "linear">): boolean;
 /** The form for editing `routine`. A webhook's signing header is the Routine's own (blank for the default). */

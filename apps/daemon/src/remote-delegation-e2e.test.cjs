@@ -9,6 +9,7 @@ const { connect } = require("./client.cjs");
 const { startTestMac, until } = require("./relay-test-kit.cjs");
 const { runTool } = require("@milagre/core/linked-tools");
 const { PendingPermissions } = require("@milagre/core/agents/permissions");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const commit = (folder) =>
   execFileSync("git", ["-C", folder, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {
@@ -208,7 +209,7 @@ test("removing Studio from this Mac's computers cancels its open Delegation, wit
   await macs.owner.call("computers:remove", [macs.computerId]);
   const report = await macs.report();
   assert.equal(report.context.status, "cancelled");
-  assert.match(report.body, /^Studio was removed from this Mac's computers, so this Delegation was cancelled here/);
+  assert.match(report.body, new RegExp(`^Studio was removed from ${thisComputer}'s computers, so this Delegation was cancelled here`));
   assert.equal((await macs.owner.call("linked:snapshot")).delegations.length, 0);
 });
 

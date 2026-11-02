@@ -23,6 +23,7 @@ import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { SectionLabel } from "./primitives/SectionLabel";
 import { SpinnerRing } from "./primitives/SpinnerRing";
+import { thisComputer } from "../lib/shortcut-hints";
 
 const keyOf = (account: Pick<McpAccount, "provider" | "accountId">) => `${account.provider}:${account.accountId}`;
 const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
@@ -229,7 +230,8 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
   );
   const intro = (
     <p className="text-13 text-ink-2">
-      Tool servers your Chats load, for every account on {remote ? "that" : "this"} Mac.{checking ? " Checking…" : seconds ? ` Checked ${seconds} s ago.` : ""}
+      Tool servers your Chats load, for every account on {remote ? "that computer" : thisComputer}.
+      {checking ? " Checking…" : seconds ? ` Checked ${seconds} s ago.` : ""}
     </p>
   );
 

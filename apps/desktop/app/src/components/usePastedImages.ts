@@ -27,7 +27,7 @@ function readImage(file: File): Promise<ImageAttachment> {
 }
 
 /** Selected files travel as bytes to the owning computer; project mentions already name files on that computer. */
-export function usePastedImages(scope: string, owner?: string) {
+export function usePastedImages(scope: string, owner?: string, deferUploads = false) {
   const remote = isRemoteKey(owner);
   const [images, commitImages] = useState<ImageAttachment[]>([]);
   const currentImages = useRef(images);
@@ -179,7 +179,9 @@ export function usePastedImages(scope: string, owner?: string) {
       try {
         let path: string;
         if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name} is larger than 50 MiB.`);
-        if (remote) {
+        if (remote && deferUploads) {
+          path = `/.milagre-offline-attachments/${id}/${file.name}`;
+        } else if (remote) {
           const live = () => current === generation.current && !cancelled.current.has(id);
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();

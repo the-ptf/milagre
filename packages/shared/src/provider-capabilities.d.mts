@@ -11,6 +11,8 @@ export type ProviderCapabilities = Readonly<{
   advisor: boolean;
   /** Milagre installs the CLI itself. */
   managedInstall: boolean;
+  /** Milagre adds and signs in Accounts; without it the only one is the CLI's own sign-in. */
+  addAccounts: boolean;
 }>;
 export const DEFAULT_CAPABILITIES: ProviderCapabilities;
 export function providerCapabilities(provider: string | null | undefined): ProviderCapabilities;

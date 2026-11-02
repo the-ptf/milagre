@@ -1,3 +1,4 @@
+import { designError } from "./design-errors.mjs";
 /** Instances keep expanded layers so every renderer and export consumes the same ordinary scene tree. */
 export function designInstanceRoot(document, nodeId, byId = new Map(document.nodes.map((node) => [node.id, node]))) {
   let node = byId.get(nodeId);
@@ -41,6 +42,8 @@ export function synchronizeDesignComponents(document) {
   const children = indexChildren(document);
   const components = new Map(document.nodes.filter((node) => node.component).map((node) => [node.id, node]));
   for (const node of document.nodes) {
+    if (node.componentProperties && !node.component) throw Error("Only a main component can expose properties.");
+    if (node.componentValues && !node.componentId) throw Error("Only an instance can set componentValues.");
     if ((node.component || node.componentId) && node.type !== "frame") throw Error("A component or instance must be a frame.");
     if (node.component && node.componentId) throw Error("An instance cannot also be a main component.");
     if (node.componentId && !components.has(node.componentId))
@@ -53,10 +56,37 @@ export function synchronizeDesignComponents(document) {
     if (document.nodes.some((node) => node.id !== component.id && ids.has(node.id) && (node.component || node.componentId))) {
       throw Error("Nested components and instances are not supported inside a main component.");
     }
+    for (const [name, property] of Object.entries(component.componentProperties ?? {})) {
+      const target = byId.get(property.nodeId);
+      if (!ids.has(property.nodeId) || !target) throw Error(`Component property "${name}" must target a layer in its main component.`);
+      if ((property.field === "text" && target.type !== "text") || (property.field === "icon" && target.type !== "icon"))
+        throw Error(`Component property "${name}" targets an incompatible layer.`);
+    }
     if (designInstanceRoot(document, component.id, byId)) throw Error("A main component cannot live inside an instance.");
   }
   for (const instance of document.nodes.filter((node) => node.componentId)) {
     const master = components.get(instance.componentId);
+    const overrides = new Map();
+    for (const [name, value] of Object.entries(instance.componentValues ?? {})) {
+      const property = master.componentProperties?.[name];
+      if (!property || !Object.hasOwn(master.componentProperties, name))
+        throw designError(`Unknown component property "${name}" on "${instance.id}". Use a property exposed by its main component.`, [
+          "nodes",
+          document.nodes.indexOf(instance),
+          "componentValues",
+          name,
+        ]);
+      if (property.options && !property.options.includes(value))
+        throw designError(`Property "${name}" must be one of: ${property.options.join(", ")}.`, [
+          "nodes",
+          document.nodes.indexOf(instance),
+          "componentValues",
+          name,
+        ]);
+      const expected = property.field === "hidden" ? "boolean" : property.field === "opacity" ? "number" : "string";
+      if (typeof value !== expected) throw Error(`Property "${name}" needs a ${expected}.`);
+      overrides.set(property.nodeId, { ...overrides.get(property.nodeId), [property.field]: value });
+    }
     const sourceIds = descendantIds(document, master.id, children);
     const source = document.nodes.filter((node) => sourceIds.has(node.id));
     const ownedIds = descendantIds(document, instance.id, children);
@@ -87,19 +117,23 @@ export function synchronizeDesignComponents(document) {
       taken.add(unique);
     }
     const expanded = source.map((node) => {
-      const copy = { ...node, id: names.get(node.id) };
+      const copy = { ...node, ...overrides.get(node.id), id: names.get(node.id) };
       delete copy.component;
       delete copy.componentId;
       delete copy.componentSourceId;
+      delete copy.componentProperties;
+      delete copy.componentValues;
       if (node.id === master.id) {
         delete copy.parentId;
         copy.componentId = master.id;
+        if (instance.componentValues) copy.componentValues = { ...instance.componentValues };
         copy.name = instance.name ?? `${master.name ?? "Component"} instance`;
         copy.x = instance.x ?? 0;
         copy.y = instance.y ?? 0;
         if (instance.parentId) copy.parentId = instance.parentId;
         delete copy.hidden;
         delete copy.locked;
+        if (overrides.get(master.id)?.hidden !== undefined) copy.hidden = overrides.get(master.id).hidden;
         if (instance.hidden !== undefined) copy.hidden = instance.hidden;
         if (instance.locked !== undefined) copy.locked = instance.locked;
       } else {
@@ -154,6 +188,7 @@ export function detachDesignInstance(document, instanceId) {
           const copy = { ...node };
           delete copy.componentId;
           delete copy.componentSourceId;
+          delete copy.componentValues;
           return copy;
         }),
       },

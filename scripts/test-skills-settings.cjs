@@ -4,11 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { fileManager } = require("@milagre/shared/host-computer");
 
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsPanel } from '/src/components/Settings';
+import { BridgeContext } from '/src/lib/computer-bridge';
 import '/src/styles.css';
 const skill = (name, scope, provider, description, path) => ({ name, scope, provider, description, path });
 window.calls = { list: 0, read: [], open: [], reveal: [] };
@@ -29,7 +31,9 @@ window.milagre = {
   openSkill: async request => { window.calls.open.push(request); return { ok: true, value: null }; },
   revealSkill: async (_root, file) => { window.calls.reveal.push(file); },
 };
-createRoot(document.getElementById('root')).render(<div style={{ height: '100vh' }}><SettingsPanel section="skills" project={{ path: "/work/app", name: "app" }} models={[]} update={null} /></div>);
+// Settings picks a local Project while a remote Project remains open behind it.
+const remote = { ...window.milagre, listSkills: async () => { throw new Error('Local Settings reached the remote computer'); } };
+createRoot(document.getElementById('root')).render(<BridgeContext value={remote}><div style={{ height: '100vh' }}><SettingsPanel section="skills" project={{ path: "/work/app", name: "app" }} models={[]} update={null} /></div></BridgeContext>);
 `;
 
 async function browserChecks() {
@@ -118,7 +122,7 @@ async function browserChecks() {
     );
     await screenshot("detail");
     await click("Open in Cursor");
-    await click("Show in Finder");
+    await click(`Show in ${fileManager}`);
     await waitFor(`window.calls.reveal.length === 1`);
     assert.deepEqual(await evaluate("window.calls.open.map(r => r.file)"), ["/work/app/.claude/skills/review/SKILL.md"]);
     await click("All skills");

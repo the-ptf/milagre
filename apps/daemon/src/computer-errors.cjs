@@ -1,3 +1,5 @@
+const { thisComputer, ThisComputer } = require("@milagre/shared/host-computer");
+
 /**
  * What the window says when a computer turned this Mac away or can't be reached (spec "Errors"), by PeerError code
  * (peer-client.cjs). `name` is the computer's name; `pairing` is set during Add computer, before it was saved, where
@@ -6,7 +8,7 @@
 function computerProblem(code, { name, pairing = false }) {
   switch (code) {
     case "denied":
-      return `${name} didn't allow this Mac.`;
+      return `${name} didn't allow ${thisComputer}.`;
     case "unknown-phone":
       return pairing ? `This link expired. Copy a new one on ${name}.` : `Removed on ${name}. Pair again with a new link.`;
     case "busy":
@@ -24,11 +26,11 @@ function computerProblem(code, { name, pairing = false }) {
     case "offline":
       return pairing ? `${name} isn't reachable. Open Milagre on it and check Settings › Devices.` : `${name} is offline.`;
     case "bad-host":
-      return `This isn't the Mac the link was made on. Copy a new link on ${name}.`;
+      return `This isn't the computer the link was made on. Copy a new link on ${name}.`;
     case "bad-hello":
-      return `${name} couldn't read this Mac's hello. Copy a new link on it and try again.`;
+      return `${name} couldn't read ${thisComputer}'s hello. Copy a new link on it and try again.`;
     case "keys":
-      return `This Mac lost its keys for ${name}. Remove it and pair again.`;
+      return `${ThisComputer} lost its keys for ${name}. Remove it and pair again.`;
     default:
       return pairing ? `Couldn't reach ${name}. Check your connection and try again.` : `${name} is offline.`;
   }

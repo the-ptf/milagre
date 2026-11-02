@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { lineHeight, type } from "../design-tokens";
 import { useTheme } from "../theme";
 import { useStyles } from "./styles";
+import { Findable } from "../settings-find";
 import { SectionLabel } from "./section-label";
 
 /**
@@ -31,7 +32,11 @@ export function Group({
   const rows = Children.toArray(children);
   return (
     <View style={{ gap: 8 }}>
-      {title ? <SectionLabel>{title}</SectionLabel> : null}
+      {title ? (
+        <Findable title={title}>
+          <SectionLabel>{title}</SectionLabel>
+        </Findable>
+      ) : null}
       <View
         accessibilityRole={role}
         accessibilityLabel={role ? (accessibilityLabel ?? title) : undefined}

@@ -146,7 +146,7 @@ test("starts threads and turns with Milagre's identity, instructions and policy"
 
   assert.equal(find("initialize").clientInfo.name, "milagre");
   assert.equal(find("thread/start").developerInstructions, MILAGRE_INSTRUCTIONS);
-  assert.deepEqual(find("thread/start").config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(find("thread/start").config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } });
   assert.equal(find("turn/start").approvalPolicy, "never");
   assert.deepEqual(find("turn/start").sandboxPolicy, { type: "dangerFullAccess" });
   assert.deepEqual(find("turn/start").input, [{ type: "text", text: "Hi", text_elements: [] }]);
@@ -189,7 +189,7 @@ test("resumes a saved thread without announcing it again", async (t) => {
   await ended(events);
   const resume = (await received(session)).find((message) => message.method === "thread/resume").params;
   assert.equal(resume.threadId, "thread-9");
-  assert.deepEqual(resume.config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(resume.config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } });
   assert.equal(
     events.some((event) => event.type === "session-started"),
     false,
@@ -220,6 +220,22 @@ test("cancels before Codex has started the turn", async (t) => {
   await pending;
   await ended(events);
   assert.deepEqual(events.at(-1), { type: "turn-cancelled" });
+  assert.equal(
+    (await received(session)).some((message) => message.method === "turn/start"),
+    false,
+  );
+});
+
+test("a continuation cancelled while Codex initializes submits no turn", async (t) => {
+  const { session, events } = codex(t);
+  let allowed = true;
+  const turn = session.startTurn({ ...TURN, canStart: () => allowed });
+  allowed = false;
+  assert.equal((await turn).cancelled, true);
+  assert.equal(
+    events.some((event) => event.type === "turn-cancelled"),
+    false,
+  );
   assert.equal(
     (await received(session)).some((message) => message.method === "turn/start"),
     false,
@@ -934,7 +950,7 @@ test("a Chat's linked tools reach Codex as an MCP server in the thread config; a
   await ended(events);
   const start = (await received(session)).find((message) => message.method === "thread/start").params;
   assert.deepEqual(start.config, {
-    features: { default_mode_request_user_input: true },
+    features: { default_mode_request_user_input: true, send_message_to_user_async: false },
     mcp_servers: { milagre: { url: "http://127.0.0.1:1234/mcp/abc", tool_timeout_sec: 86400 } },
   });
   assert.deepEqual(reported, [true]);
@@ -944,7 +960,7 @@ test("a Chat's linked tools reach Codex as an MCP server in the thread config; a
   const attempts = (await received(rejecting.session)).filter((message) => message.method === "thread/start").map((message) => message.params.config);
   assert.deepEqual(
     attempts,
-    [start.config, { features: { default_mode_request_user_input: true } }, undefined],
+    [start.config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } }, undefined],
     "the MCP server goes first, the whole config last",
   );
   assert.deepEqual(reported, [true, false]);
@@ -1540,7 +1556,7 @@ test("Codex tool image blocks become visible image steps, including dynamic tool
   assert.ok(events.some((event) => event.type === "step-started" && event.step.kind === "image"));
 });
 
-test("a design tool's rendered PNG is not repeated as an image step, but another server's image still is", async (t) => {
+test("internal design renders and HTML previews stay out of image steps, including nested exec calls", async (t) => {
   const events = [];
   const session = new CodexSession({ emit: (event) => events.push(event) });
   session.state.threadId = "parent";
@@ -1554,10 +1570,16 @@ test("a design tool's rendered PNG is not repeated as an image step, but another
     });
   complete("show", "milagre", "design_show");
   complete("apply", "milagre", "design_apply");
+  complete("preview", "milagre", "html_preview");
+  // A real functions.exec call surfaces its nested tool with MCP provenance, not as a generic dynamic image.
+  complete("exec-a750cdfe-7781-4832-a7f7-bc4ad1d2e7fb", "milagre", "html_preview");
   assert.equal(events.filter((event) => event.step?.kind === "image").length, 0);
+  assert.ok(events.some((event) => event.type === "step-completed" && event.id === "preview" && event.status === "done"));
+  assert.deepEqual(content, [{ type: "image", data, mimeType: "image/png" }], "the model's original preview result is untouched");
   complete("other", "browser", "design_show");
+  complete("other-preview", "browser", "html_preview");
   complete("shot", "milagre", "screenshot");
-  assert.equal(events.filter((event) => event.step?.kind === "image").length, 2);
+  assert.equal(events.filter((event) => event.step?.kind === "image").length, 3);
 });
 
 test("Everywhere servers and the off list reach thread config", async (t) => {
@@ -1580,7 +1602,9 @@ test("a failing mcpExtras still starts the Codex thread and is logged once", asy
   });
   await session.startTurn(TURN);
   await ended(events);
-  assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, {
+    features: { default_mode_request_user_input: true, send_message_to_user_async: false },
+  });
   assert.equal(warn.mock.callCount(), 1);
   assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
 });

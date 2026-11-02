@@ -42,6 +42,23 @@ export function deleteWarning(routine) {
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 const fail = (field, error) => ({ field, error });
 
+/**
+ * Whether a Routine's Runs can retry on a fallback model: only a Run in a Chat of its own does. A Heartbeat's beat and a
+ * Linear comment go into a Chat that runs on its own model.
+ */
+export function fallbackApplies(state) {
+  return state.runIn !== "chat" && !isCommentRoutine(state);
+}
+
+// The fallback the form names ({ provider, model, effort? }), or null for the automatic pick.
+function fallbackOf(state) {
+  const provider = text(state.fallbackProvider);
+  const model = text(state.fallbackModel);
+  if (!provider || !model) return null;
+  const effort = text(state.fallbackEffort);
+  return { provider, model, ...(effort ? { effort } : {}) };
+}
+
 /** A new Routine's form: a schedule every hour in a new worktree, running until switched off. */
 export function emptyRoutineForm(timezone, now = Date.now()) {
   return {
@@ -56,6 +73,9 @@ export function emptyRoutineForm(timezone, now = Date.now()) {
     provider: "",
     model: "",
     permissionMode: "",
+    fallbackProvider: "",
+    fallbackModel: "",
+    fallbackEffort: "",
     prompt: "",
     stop: { kind: "never", runs: 10, at: now + HEARTBEAT_DAYS * DAY_MS },
   };
@@ -274,6 +294,8 @@ export function formToInput(state, now = Date.now()) {
     }
   }
   for (const key of ["provider", "model", "permissionMode"]) if (text(state[key])) input[key] = text(state[key]);
+  const fallback = fallbackOf(state);
+  if (fallback && fallbackApplies(state)) input.fallback = fallback;
   return { input: { ...input, ...made.end } };
 }
 
@@ -289,6 +311,9 @@ export function formFromRoutine(routine, timezone, now = Date.now()) {
     provider: routine.provider ?? "",
     model: routine.model ?? "",
     permissionMode: routine.permissionMode ?? "",
+    fallbackProvider: routine.fallback?.provider ?? "",
+    fallbackModel: routine.fallback?.model ?? "",
+    fallbackEffort: routine.fallback?.effort ?? "",
   };
   if (trigger.kind === "schedule") state.schedule = scheduleFromCron(trigger.cron, trigger.timezone);
   if (trigger.kind === "linear")
@@ -335,6 +360,8 @@ export function formToUpdate(state, routine, now = Date.now()) {
     if (signed) patch.signingHeader = text(state.webhook.signingHeader) || null;
   }
   for (const key of ["provider", "model", "permissionMode"]) patch[key] = text(state[key]) || null;
+  // A Routine whose Runs never retry (a Heartbeat, a comment Routine) keeps whatever it has.
+  if (fallbackApplies(state)) patch.fallback = fallbackOf(state);
   patch.maxRuns = made.end.maxRuns ?? null;
   patch.expiresAt = made.end.expiresAt ?? null;
   // A run cap picked over a stored expiry keeps that expiry: the form shows only one end.

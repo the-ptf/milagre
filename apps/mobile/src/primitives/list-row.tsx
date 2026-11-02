@@ -8,7 +8,8 @@ import { useStyles } from "./styles";
 import { tap } from "./tap";
 import { useHover } from "./hover";
 import { pressStyle } from "./press-style";
-import { RowSwitch } from "./row-switch";
+import { RowCheckbox } from "./row-checkbox";
+import { Findable } from "../settings-find";
 import { rowHover, rowMetrics } from "./row-metrics";
 
 /** From this text size the value no longer fits beside the title, so it moves under it. */
@@ -23,6 +24,7 @@ export function ListRow({
   title,
   subtitle,
   subtitleLines = 1,
+  inlineSubtitle = false,
   subtitleTone = "ink3",
   titleLines = 2,
   value,
@@ -40,6 +42,7 @@ export function ListRow({
   title: string;
   subtitle?: string;
   subtitleLines?: number;
+  inlineSubtitle?: boolean;
   /** The subtitle's ink: `redInk` for a failure. */
   subtitleTone?: Tone;
   titleLines?: number;
@@ -78,51 +81,64 @@ export function ListRow({
     </Text>
   ) : null;
   return (
-    <Pressable
-      {...(interactive ? pointer : {})}
-      accessible={interactive}
-      accessibilityRole={toggle ? "switch" : onPress ? "button" : undefined}
-      accessibilityLabel={[toggle?.label ?? title, subtitle, value].filter(Boolean).join(". ")}
-      accessibilityState={toggle ? { checked: toggle.value, disabled } : { disabled }}
-      disabled={disabled || !interactive}
-      onPress={
-        press &&
-        (() => {
-          tap();
-          press();
-        })
-      }
-      onLongPress={onLongPress}
-      accessibilityActions={onLongPress ? [{ name: "longpress", label: "Actions" }] : undefined}
-      onAccessibilityAction={onLongPress}
-      style={({ pressed }) => [metrics.box, hovered && interactive && !disabled && rowHover(colors.hover), pressStyle({ pressed, disabled, kind: "row" })]}
-    >
-      {leading ?? (icon ? <Icon icon={icon} tone={destructive ? "red" : "ink"} size={20} /> : null)}
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text numberOfLines={titleLines} style={[styles.text, metrics.title, destructive && { color: colors.redInk }]}>
-          {title}
-        </Text>
-        {/* Paths keep their start and end; descriptions can wrap. */}
-        {subtitle && (
-          <Text style={[styles.caption, { color: colors[subtitleTone] }]} numberOfLines={subtitleLines} ellipsizeMode={subtitleLines === 1 ? "middle" : "tail"}>
-            {subtitle}
+    <Findable title={title}>
+      <Pressable
+        {...(interactive ? pointer : {})}
+        accessible={interactive}
+        accessibilityRole={toggle ? "checkbox" : onPress ? "button" : undefined}
+        accessibilityLabel={[toggle?.label ?? title, subtitle, value].filter(Boolean).join(". ")}
+        accessibilityState={toggle ? { checked: toggle.value, disabled } : { disabled }}
+        disabled={disabled || !interactive}
+        onPress={
+          press &&
+          (() => {
+            tap();
+            press();
+          })
+        }
+        onLongPress={onLongPress}
+        accessibilityActions={onLongPress ? [{ name: "longpress", label: "Actions" }] : undefined}
+        onAccessibilityAction={onLongPress}
+        style={({ pressed }) => [metrics.box, hovered && interactive && !disabled && rowHover(colors.hover), pressStyle({ pressed, disabled, kind: "row" })]}
+      >
+        {leading ?? (icon ? <Icon icon={icon} tone={destructive ? "red" : "ink"} size={20} /> : null)}
+        <View
+          style={{
+            flex: 1,
+            gap: inlineSubtitle ? 8 : 4,
+            flexDirection: inlineSubtitle && !stacked ? "row" : "column",
+            alignItems: inlineSubtitle && !stacked ? "center" : undefined,
+          }}
+        >
+          <Text numberOfLines={titleLines} style={[styles.text, metrics.title, inlineSubtitle && { flex: 1 }, destructive && { color: colors.redInk }]}>
+            {title}
           </Text>
-        )}
-        {stacked ? valueText : null}
-      </View>
-      {toggle ? (
-        // The row is the control: its switch only shows the state, so a tap on it isn't counted twice.
-        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <RowSwitch selected={toggle.value} onPress={toggle.onChange} disabled={disabled} label={toggle.label ?? title} />
+          {/* Paths keep their start and end; descriptions can wrap. */}
+          {subtitle && (
+            <Text
+              style={[styles.caption, { color: colors[subtitleTone] }]}
+              numberOfLines={subtitleLines}
+              ellipsizeMode={subtitleLines === 1 ? "middle" : "tail"}
+            >
+              {subtitle}
+            </Text>
+          )}
+          {stacked ? valueText : null}
         </View>
-      ) : (
-        (trailing ?? (
-          <>
-            {stacked ? null : valueText}
-            {chevron ? <Icon icon={ArrowRight01Icon} tone="ink3" size={16} /> : null}
-          </>
-        ))
-      )}
-    </Pressable>
+        {toggle ? (
+          // The row is the control: its switch only shows the state, so a tap on it isn't counted twice.
+          <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <RowCheckbox selected={toggle.value} onPress={toggle.onChange} disabled={disabled} label={toggle.label ?? title} />
+          </View>
+        ) : (
+          (trailing ?? (
+            <>
+              {stacked ? null : valueText}
+              {chevron ? <Icon icon={ArrowRight01Icon} tone="ink3" size={16} /> : null}
+            </>
+          ))
+        )}
+      </Pressable>
+    </Findable>
   );
 }

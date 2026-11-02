@@ -1,8 +1,9 @@
 import type { ComputersSnapshot } from "../electron.d.ts";
+import { ThisComputer } from "./shortcut-hints.ts";
 
 // The window's list of computers, kept current from main (computers:changed). Apart from computers.ts so a module read
 // outside React (the Routines store) follows it without the window's settings.
-let snapshot: ComputersSnapshot = { thisMac: "This Mac", computers: [] };
+let snapshot: ComputersSnapshot = { thisMac: ThisComputer, computers: [] };
 const listeners = new Set<() => void>();
 let started = false;
 function store(next: ComputersSnapshot | null | undefined) {

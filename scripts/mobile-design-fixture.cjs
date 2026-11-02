@@ -194,7 +194,41 @@ async function startFixture({ port = 8794, metroPort = 8894, root: resumeRoot } 
           if (!shown) {
             const tool = options.linked.tools.find((entry) => entry.name === "design_show");
             if (!tool) throw new Error("The design_show tool was not installed in the fixture.");
-            const first = await runTool(tool, { id: "fieldnotes", title: "Fieldnotes", document: createReviewDesign() });
+            const original = createReviewDesign();
+            const kitTool = options.linked.tools.find((entry) => entry.name === "design_kit_save");
+            const savedKit = await runTool(kitTool, {
+              expectedVersion: 0,
+              kit: {
+                title: "Fieldnotes identity",
+                colors: { ...original.tokens, white: "#ffffff" },
+                textStyles: {
+                  ...Object.fromEntries(
+                    original.nodes
+                      .filter((n) => n.type === "text")
+                      .map((n, i) => [
+                        `style${i}`,
+                        {
+                          fontSize: n.fontSize ?? 16,
+                          fontFamily: n.fontFamily ?? "Inter, Arial, sans-serif",
+                          fontWeight: n.fontWeight ?? 400,
+                          lineHeight: n.lineHeight ?? 1.35,
+                        },
+                      ]),
+                  ),
+                  heading: { fontSize: 34, fontFamily: "Georgia, serif", lineHeight: 1.1 },
+                },
+                spacing: { section: 18, card: 20, inside: 10 },
+                radii: { card: 18, button: 10 },
+              },
+            });
+            if (savedKit.isError) throw Error(savedKit.text);
+            const document = applyDesignOperations({ ...original, kit: JSON.parse(savedKit.text), consistency: { mode: "strict" } }, [
+              { op: "update", id: "heading", patch: { textStyle: "heading" } },
+              { op: "update", id: "page", patch: { bindings: { gap: "section" } } },
+              { op: "update", id: "practice", patch: { componentProperties: { label: { nodeId: "practice-title", field: "text" } } } },
+              { op: "update", id: "tomorrow-practice", patch: { componentValues: { label: "Tomorrow's walk" } } },
+            ]);
+            const first = await runTool(tool, { id: "fieldnotes", title: "Fieldnotes", document });
             if (first.isError) throw new Error(first.text);
             const edit = options.linked.tools.find((entry) => entry.name === "design_apply");
             if (!edit) throw new Error("The design_apply tool was not installed in the fixture.");

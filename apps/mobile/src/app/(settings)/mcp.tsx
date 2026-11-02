@@ -1,7 +1,8 @@
 import { Platform } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
-import { HeaderButton, PageScroll } from "../../ui";
+import { HeaderButton } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { McpSection } from "../../mcp-section";
 import { useMcp } from "../../use-mcp";
 
@@ -30,9 +31,9 @@ export default function McpScreen() {
           </Stack.Toolbar.View>
         )}
       </Stack.Toolbar>
-      <PageScroll>
+      <SettingsScroll>
         <McpSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

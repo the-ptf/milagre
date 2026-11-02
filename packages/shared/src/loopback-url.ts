@@ -29,3 +29,19 @@ export function loopbackOnlyPorts(ports: ReadonlyArray<{ port: number; address: 
   const reachable = new Set(all.filter((entry) => listensBeyondLoopback(entry.address)).map((entry) => entry.port));
   return new Set(all.filter((entry) => !reachable.has(entry.port)).map((entry) => entry.port));
 }
+
+/**
+ * A page's address as this device opens it in its own browser. `remote`: the page runs on another computer, whose
+ * localhost is its own, so a loopback address goes through `host` (that computer's address here) as reply links do. With
+ * no host, or for a server on its loopback alone, it can't open here: `href` is null and `reason` says why.
+ */
+export function openablePageUrl(
+  url: string,
+  { remote, host, loopbackOnly }: { remote: boolean; host?: string | null; loopbackOnly?: ReadonlySet<number> },
+): { href: string | null; reason: string } {
+  if (!/^https?:\/\//i.test(url.trim())) return { href: null, reason: "Only web pages open in your browser" };
+  if (!remote || !isLoopbackUrl(url)) return { href: url, reason: "" };
+  if (!host) return { href: null, reason: "Its computer is reached through the relay only, so its localhost doesn't open here" };
+  const href = reachableUrl(url, host, loopbackOnly);
+  return isLoopbackUrl(href) ? { href: null, reason: "This server listens on its computer's localhost only" } : { href, reason: "" };
+}

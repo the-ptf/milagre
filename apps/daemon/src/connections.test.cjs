@@ -228,3 +228,49 @@ test("a paired desktop may call media:read, which refuses a file outside the sco
   const reply = await desktop.call("media:read", [{ scope: "/nowhere", path: "/etc/hosts.png" }]);
   assert.equal(reply.error?.code, "NOT_SERVED");
 });
+
+test("a paired desktop reads, checks and installs this Mac's desktop app update, never the desktop commands behind it", async (t) => {
+  const daemon = await daemonFixture(t);
+  const peer = virtualClient(daemon, { policy: peerPolicy });
+  const status = (await peer.call("daemon:status")).result;
+  for (const method of ["app-update:state", "app-update:check", "app-update:install"]) {
+    assert.ok(status.methods.includes(method), method);
+    assert.equal(peerPolicy.denies(method), false, method);
+  }
+  assert.equal((await peer.call("app-update:state")).result, null, "no desktop app is open on this Mac yet");
+  // This Mac's window registers its updater (main.cjs, through desktop-commands.cjs) and answers each request.
+  let state = { status: "downloaded", version: "0.233.0", progress: 100 };
+  const asked = [];
+  const answers = {
+    "update:state": () => state,
+    "update:check": () => state,
+    "update:install": () => {
+      state = { ...state, status: "installing" };
+      return null;
+    },
+    "app:version": () => "0.232.0",
+    "editor:list": () => [],
+  };
+  const window = virtualClient(daemon, {
+    send(message, json) {
+      const frame = JSON.parse(json ?? JSON.stringify(message));
+      if (frame.event?.channel === "desktop:request") {
+        const { id, method } = frame.event.payload;
+        asked.push(method);
+        window.receive({ v: 1, id: `answer-${id}`, method: "desktop:respond", args: [{ id, result: answers[method]() }] });
+      }
+      return true;
+    },
+  });
+  window.receive({ v: 1, id: "register", method: "desktop:register", args: [{ methods: Object.keys(answers) }] });
+  assert.deepEqual(await waitFor(async () => (await peer.call("app-update:state")).result), {
+    status: "downloaded",
+    version: "0.233.0",
+    progress: 100,
+    current: "0.232.0",
+  });
+  assert.equal((await peer.call("app-update:install")).result.status, "installing");
+  assert.ok(asked.includes("update:install"));
+  assert.equal(asked.includes("editor:list"), false);
+  assert.equal((await peer.call("desktop:invoke", [{ method: "editor:list", args: [] }])).error.code, "NOT_AVAILABLE_REMOTELY");
+});

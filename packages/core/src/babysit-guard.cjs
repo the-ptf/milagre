@@ -446,4 +446,4 @@ function babysitDenial(command, guard) {
   return `Babysit level ${title} doesn't allow ${ACTIONS[refused].text}. Change it in Settings › Experimental › Babysit PRs.`;
 }
 
-module.exports = { babysitDenial };
+module.exports = { babysitDenial, commandsOf };

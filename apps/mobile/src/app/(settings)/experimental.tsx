@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { ExperimentalSection } from "../../experimental-section";
 
 export default function ExperimentalScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Experimental" }} />
-      <PageScroll>
+      <SettingsScroll>
         <ExperimentalSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

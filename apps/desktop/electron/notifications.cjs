@@ -5,6 +5,7 @@ const { createActivityTracker } = require("@milagre/shared/chat-activity");
 const { parseNotificationChime } = require("@milagre/shared/notification-chimes");
 
 const { notificationAllowed, parseNotificationSchedule } = require("@milagre/shared/notification-schedule");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const MAX_TITLE = 120;
 
@@ -190,7 +191,7 @@ class AttentionNotifier {
     return this.showPaired({
       title: "New computer paired",
       subtitle: "",
-      body: "Another Mac can now drive your agents on this Mac. If it wasn't you, remove it in Settings → Devices.",
+      body: `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`,
     });
   }
 
@@ -209,7 +210,9 @@ class AttentionNotifier {
     return this.showPaired({
       title: list.length === 1 ? "New phone paired" : `${list.length} new phones paired`,
       subtitle: "",
-      body: away ? `${who} paired with this Mac while Milagre was closed. ${removeIt}` : `${who} can now reach your agents on this Mac. ${removeIt}`,
+      body: away
+        ? `${who} paired with ${thisComputer} while Milagre was closed. ${removeIt}`
+        : `${who} can now reach your agents on ${thisComputer}. ${removeIt}`,
     });
   }
 
@@ -241,7 +244,11 @@ class AttentionNotifier {
     for (const key of keys) this.computersAnnounced.add(key);
     if (!fresh || this.isAppFocused()) return false;
     const name = capped(fresh.name, MAX_TITLE) || "A computer";
-    const notification = this.createNotification({ title: `${name} wants to drive this Mac's chats`, subtitle: "", body: "Open Milagre to allow or deny it." });
+    const notification = this.createNotification({
+      title: `${name} wants to drive ${thisComputer}'s chats`,
+      subtitle: "",
+      body: "Open Milagre to allow or deny it.",
+    });
     this.computerWaiting?.close();
     this.computerWaiting = notification;
     notification.on("click", () => this.openPhoneSettings());

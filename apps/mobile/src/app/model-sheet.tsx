@@ -1,6 +1,7 @@
 import { pickerProviders, providerName } from "@milagre/shared/providers";
 import { contextWindowFor, effortFor } from "@milagre/shared/model-options";
 import { formatTokens } from "@milagre/shared/usage";
+import { formatCredits } from "@milagre/shared/kiro-models";
 import { effortCopy } from "@milagre/shared/model-copy";
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -23,6 +24,13 @@ import { useTheme } from "../theme";
 function contextLabel(model: { provider: ModelProvider; id: string }) {
   const size = contextWindowFor(model);
   return size ? formatTokens(size) : undefined;
+}
+
+/** A Kiro model's credit multiplier ("2×") and how a screen reader says it, else its context window. */
+function metaOf(model: { provider: ModelProvider; id: string; credits?: number }) {
+  if (model.credits) return { label: formatCredits(model.credits), spoken: `${formatCredits(model.credits)} the credits Auto would use` };
+  const label = contextLabel(model);
+  return label ? { label, spoken: `${label} context window` } : null;
 }
 
 /** Model, thinking effort, fast mode and Ultracode for one Chat: provider chips that scroll sideways as providers grow,
@@ -137,9 +145,9 @@ export default function ModelSheet() {
                 onPress={() => setDraft((current) => ({ ...current, model: item.id }))}
                 leading={<ProviderLogo provider={item.provider} size={16} />}
                 accessory={
-                  contextLabel(item) ? (
+                  metaOf(item) ? (
                     <Text
-                      accessibilityLabel={`${contextLabel(item)} context window`}
+                      accessibilityLabel={metaOf(item)?.spoken}
                       style={{
                         color: colors.ink3,
                         fontSize: type.caption2,
@@ -155,7 +163,7 @@ export default function ModelSheet() {
                         overflow: "hidden",
                       }}
                     >
-                      {contextLabel(item)}
+                      {metaOf(item)?.label}
                     </Text>
                   ) : undefined
                 }
@@ -270,7 +278,7 @@ function SettingTile({
   const ink = tone === "purple" ? colors.purpleInk : colors.orangeInk;
   return (
     <Pressable
-      accessibilityRole="switch"
+      accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityHint={detail}
       accessibilityState={{ checked: value }}

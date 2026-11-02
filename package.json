@@ -48,7 +48,10 @@
     "knip": "knip"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.288",
     "@babel/core": "7.29.7",
+    "@hugeicons/core-free-icons": "4.3.5",
+    "@resvg/resvg-wasm": "2.6.2",
     "babel-plugin-react-compiler": "1.0.0",
     "chrome-launcher": "^1.2.2",
     "electron": "^44.5.1",
@@ -85,6 +88,8 @@
     ],
     "asarUnpack": [
       "node_modules/@milagre/core/src/bundled-skills/**/*",
+      "node_modules/agent-device/**/*",
+      "node_modules/agent-desktop/**/*",
       "node_modules/expo-device-hub/**/*",
       "node_modules/node-datachannel/**/*",
       "node_modules/node-pty/**/*",
@@ -127,7 +132,8 @@
         "NSMicrophoneUsageDescription": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this computer."
       },
       "files": [
-        "!**/node_modules/node-pty/prebuilds/win32-*/**"
+        "!**/node_modules/node-pty/prebuilds/win32-*/**",
+        "!**/node_modules/agent-desktop/bin/agent-desktop-{linux,win32}-*"
       ],
       "notarize": true
     },
@@ -136,7 +142,8 @@
     },
     "win": {
       "files": [
-        "!**/node_modules/node-pty/prebuilds/darwin-*/**"
+        "!**/node_modules/node-pty/prebuilds/darwin-*/**",
+        "!**/node_modules/agent-desktop/bin/agent-desktop-{darwin,linux,macos}-*"
       ],
       "target": [
         "nsis"

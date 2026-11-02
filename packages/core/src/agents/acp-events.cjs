@@ -273,6 +273,14 @@ function mapAcpUpdate(update, state) {
     case "config_option_update":
       readConfigOptions(update.configOptions, state);
       return [];
+    case "session_info_update": {
+      // Kiro's turn summary, just before the turn ends: what its prompts cost, in credits.
+      const { _meta: meta } = update;
+      const summaries = meta?.kiro?.kind === "turn_completion" ? meta.kiro.promptTurnSummaries : null;
+      const credits = Array.isArray(summaries) ? summaries.filter((item) => item?.unit === "credit" && Number.isFinite(item.usage)) : [];
+      if (credits.length) state.turnCredits = credits.reduce((sum, item) => sum + item.usage, 0);
+      return [];
+    }
     default:
       return [];
   }
@@ -287,7 +295,11 @@ function readConfigOptions(options, state) {
       if (Array.isArray(option.options)) state.models = option.options.filter((item) => typeof item?.value === "string");
     }
     if ((option?.id === "mode" || option?.category === "mode") && typeof option.currentValue === "string") state.mode = option.currentValue;
+    // Kiro's permission mode, a switch of its own (see kiro-acp.cjs).
+    if (option?.id === "autopilot" && typeof option.currentValue === "string") state.autopilot = option.currentValue;
   }
+  // Kiro's effort follows the model: offered at the model's default after a switch, absent for a model without efforts.
+  if (options.some((option) => option?.id === "model")) state.effortLevel = options.find((option) => option?.id === "effortLevel")?.currentValue;
 }
 
 // session/prompt's stopReason -> the turn's end.

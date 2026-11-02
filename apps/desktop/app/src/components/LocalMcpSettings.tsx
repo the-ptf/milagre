@@ -22,7 +22,6 @@ import { RadioGroup, RadioGroupItem } from "./primitives/RadioGroup";
 import { Button } from "./primitives/Button";
 import { FIELD, FIELD_LABEL } from "./primitives/Field";
 import { InlineError } from "./primitives/InlineError";
-import { Switch } from "./primitives/Switch";
 
 const input = `${FIELD} mt-1`;
 
@@ -107,12 +106,12 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
                     Set up
                   </Button>
                 )}
-                <Switch
+                <McpCheckbox
                   label={`Enable ${client.label}`}
                   checked={client.enabled}
-                  aria-expanded={setup === client.id}
+                  expanded={setup === client.id}
                   disabled={local.busy || client.state === "unavailable"}
-                  onChange={() => {
+                  onClick={() => {
                     if (client.enabled) {
                       setSetup(null);
                       void local.disableClient(client.id);
@@ -138,13 +137,13 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
       <div className="space-y-3 border-t border-line pt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-13 font-medium text-ink">Custom MCP</h3>
-          <Switch
+          <McpCheckbox
             label="Custom MCP"
             checked={customOpen}
-            aria-expanded={customOpen}
+            expanded={customOpen}
             aria-controls="custom-mcp-settings"
             disabled={local.busy || !local.status}
-            onChange={() => {
+            onClick={() => {
               setCustomOpen(!customOpen);
               if (customOpen) {
                 if (setup === "custom") setSetup(null);
@@ -309,5 +308,33 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
         {draft.kind === "designs" ? "Allow design edits" : "Allow creating Worktrees and Chats and starting tasks"}
       </label>
     </>
+  );
+}
+
+function McpCheckbox({
+  label,
+  checked,
+  expanded,
+  controls,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  checked: boolean;
+  expanded: boolean;
+  controls?: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Checkbox
+      aria-label={label}
+      checked={checked}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      disabled={disabled}
+      onCheckedChange={onClick}
+      className="size-6"
+    />
   );
 }

@@ -21,7 +21,8 @@ test("the instructions always carry the Designs paragraph next to the explanator
   const instructions = milagreInstructions(true, "Project context");
   assert.match(instructions, /Designs: when the user asks to see a UI, screen, mockup or visual design, create an editable document with milagre design_show/);
   assert.match(instructions, /design_read|design_apply|bundled design skill/);
-  assert.match(instructions, /Artifacts: when the user wants a page explaining something/);
+  assert.match(instructions, /Artifacts: use milagre artifact_show for a standalone HTML page/);
+  assert.match(instructions, /Inline visuals in replies: check the HTML with html_preview at 720 and 340 widths, then show it with html_render/);
   assert.doesNotMatch(instructions, /Designs are off|when Designs is off/);
   assert.match(instructions, /Project context/);
 });
@@ -184,7 +185,10 @@ test("CLI failures name the fix", () => {
     missingCliMessage("claude"),
     "Milagre couldn't find Claude Code. Install it with `curl -fsSL https://claude.ai/install.sh | bash`, then send your message again.",
   );
-  assert.equal(missingCliMessage("codex"), "Milagre couldn't find Codex. Install it with `npm install -g @openai/codex`, then send your message again.");
+  assert.equal(
+    missingCliMessage("codex"),
+    "Milagre couldn't find Codex. Install it with `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, then send your message again.",
+  );
   assert.equal(
     cliTooOldMessage("claude", "2.1.200", "2.1.286"),
     "Milagre needs Claude Code 2.1.286 or later, and you have 2.1.200. Run `claude update` in a terminal, then send your message again.",
@@ -630,7 +634,10 @@ test("turning TLDR writing off in Settings drops the rules", () => {
 
 // A budget, so the prompt every Chat sends can't grow back without anyone noticing. Raise it on purpose, not by accident.
 test("a default Chat's system prompt stays under its size budget", () => {
-  assert.ok(MILAGRE_INSTRUCTIONS.length <= 11_000, `the default system prompt is ${MILAGRE_INSTRUCTIONS.length} characters`);
+  // Absolute skill paths vary with the checkout name; budget the instruction text independently of that path.
+  const { BUNDLED_SKILLS_DIRECTORY } = require("../bundled-skills.cjs");
+  const instructions = MILAGRE_INSTRUCTIONS.replaceAll(BUNDLED_SKILLS_DIRECTORY, "/milagre/bundled-skills");
+  assert.ok(instructions.length <= 11_000, `the default system prompt is ${instructions.length} characters`);
 });
 
 test("the instructions say Milagre's tools may be missing, and name the skills to read before attaching", () => {
@@ -853,4 +860,23 @@ test("Claude: a suggestion consumes only the completed parent turn's eligibility
   state.suggestionTurnId = "completed";
   mapClaudeMessage({ type: "system", subtype: "init", session_id: "s" }, state);
   assert.deepEqual(mapClaudeMessage(suggestion, state), [], "an implicit init invalidates the completed turn");
+});
+
+test("Codex: async public messages without deltas remain visible once, before the next reply", () => {
+  const state = { ...codexState(), turnId: "t-1" };
+  const message = {
+    type: "agentMessage",
+    id: "async-1",
+    delivery: "async",
+    text: "Issue 14?\n- Alta\n- Baixa",
+    questions: [{ title: "Issue 14?", options: ["Alta", "Baixa"] }],
+  };
+  assert.deepEqual(itemEvent("item/started", message, state), []);
+  assert.deepEqual(itemEvent("item/completed", message, state), [{ type: "text-delta", messageId: "t-1", text: message.text }]);
+  assert.deepEqual(itemEvent("item/completed", message, state), []);
+  assert.deepEqual(mapCodexNotification("item/agentMessage/delta", { threadId: "thread-1", turnId: "t-1", itemId: "reply", delta: "Waiting." }, state), [
+    { type: "text-delta", messageId: "t-1", text: "\n\n", startsMessage: true },
+    { type: "text-delta", messageId: "t-1", text: "Waiting." },
+  ]);
+  assert.deepEqual(itemEvent("item/completed", { ...message, id: "empty", text: "" }, state), []);
 });

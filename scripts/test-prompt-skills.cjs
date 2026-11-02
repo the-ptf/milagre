@@ -13,8 +13,12 @@ import { ChatMentionsContext } from '/src/components/ChatMentions';
 import { PromptText } from '/src/components/PromptText';
 import { MODEL_CATALOG, capabilityFor } from '/src/model';
 import '/src/styles.css';
+import { updateSettings } from '/src/lib/settings';
+window.updateSettings = updateSettings;
 const noop = () => {};
 window.sent = [];
+window.deliveries = [];
+window.stops = 0;
 window.milagre = { searchProjectFiles: async () => ['review.md'], listSkills: async root => ({ skills: root === '/other' ? [] : [
   { name: 'reorder', description: 'Gently put things in order', scope: 'bundled', provider: 'milagre', path: '/skills/reorder/SKILL.md' },
   { name: 'settle', description: 'Close out loose ends', scope: 'workspace', provider: 'claude', path: '/skills/settle/SKILL.md' },
@@ -36,7 +40,7 @@ function Fixture() {
   return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
     <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
-      onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={!!suggestOptions.blocked}
+      onSend={(delivery) => { window.deliveries.push(delivery); window.sent.push(draft); setDraft(''); }} onStop={() => { window.stops++; }} sendBlocked={!!suggestOptions.blocked}
       suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline} reconnectingName={suggestOptions.reconnecting}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
@@ -244,8 +248,8 @@ async function browserChecks() {
       await evaluate(`window.setSuggestOptions(${JSON.stringify({ provider: "claude", text: "Add tests", ...options })})`);
       await waitFor(`!${suggestion}`);
     }
-    // A computer reconnecting (a dropped socket, a LAN/relay switch) leaves the field writable and Send open: the send
-    // waits for the computer (computers.cjs invoke). One that is offline locks the field.
+    // Reconnecting and offline computers both leave the draft writable. Offline submits through Queue message;
+    // a separate pending-send lock blocks submission without preventing edits to the next draft.
     await type("");
     await evaluate(`window.setSuggestOptions({ provider: "claude", reconnecting: "QA Mac" })`);
     await waitFor(`document.body.textContent.includes("reconnecting to QA Mac")`);
@@ -254,9 +258,147 @@ async function browserChecks() {
     assert.equal(await evaluate(`${editor}.value`), "still here", "typing works while it reconnects");
     assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled ?? null`), false, "Send stays open: the send waits for the computer");
     await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", blocked: true })`);
-    await waitFor(`!${editor}.isContentEditable`);
+    await waitFor(`!!document.querySelector('[aria-label="Queue message"]')`);
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "offline drafts stay editable even while a send is pending");
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Queue message"]').disabled`), true, "a pending send still blocks another submission");
+    await type("save this while offline");
+    assert.equal(await evaluate(`${editor}.value`), "save this while offline");
+    await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", running: true })`);
+    await waitFor(`document.querySelector('[aria-label="Queue message"]')?.disabled === false`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`),
+      false,
+      "a cached running turn does not replace Queue message with Stop",
+    );
+    const sentBeforeQueue = await evaluate(`window.sent.length`);
+    await evaluate(`document.querySelector('[aria-label="Queue message"]').click()`);
+    await waitFor(`window.sent.length === ${sentBeforeQueue + 1} && ${editor}.value === ""`);
+    assert.equal(await evaluate(`window.sent.at(-1)`), "save this while offline", "Queue message submits the offline draft");
+    assert.equal(await evaluate(`window.stops`), 0, "queuing never tries to stop the offline agent");
     await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
     await type("");
+    for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+      await evaluate(`window.setSuggestOptions({ provider: ${JSON.stringify(provider)}, running: true })`);
+      await type("follow up");
+      await evaluate(`document.querySelector('[aria-label="Follow-up delivery"]').click()`);
+      await waitFor(`!![...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes('After this turn'))`);
+      await evaluate(`[...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes('After this turn')).click()`);
+      await waitFor(`!!document.querySelector('[aria-label="Queue message"]')`);
+      await evaluate(`document.querySelector('[aria-label="Queue message"]').click()`);
+      await waitFor(`window.deliveries.at(-1) === 'queue' && ${editor}.value === ''`);
+      await type("urgent follow up");
+      await evaluate(`document.querySelector('[aria-label="Follow-up delivery"]').click()`);
+      const immediate = ["claude", "codex"].includes(provider) ? "Send now" : "Stop and send";
+      await waitFor(`!![...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes(${JSON.stringify(immediate)}))`);
+      await evaluate(`[...document.querySelectorAll('[role="option"]')].find(el => el.textContent.includes(${JSON.stringify(immediate)})).click()`);
+      await waitFor(`!!document.querySelector('[aria-label="${immediate}"]')`);
+      await screenshot("follow-up-" + provider);
+      await evaluate(`document.querySelector('[aria-label="${immediate}"]').click()`);
+      await waitFor(`window.deliveries.at(-1) === 'now' && ${editor}.value === ''`);
+    }
+    await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
+    const beforeDictation = await evaluate("window.sent.length");
+    await evaluate(`window.deliverTranscript('review this', { selection: { start: 0, end: 0 } })`);
+    await waitFor(`${editor}.value === 'review this'`);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation, "default dictation only pastes");
+    await evaluate(`window.updateSettings({ dictationAction: 'send' })`);
+    await delay(100);
+    await evaluate(`window.deliverTranscript('please', { selection: { start: 11, end: 11 } })`);
+    await waitFor(`window.sent.length === ${beforeDictation + 1}`);
+    assert.equal(await evaluate("window.sent.at(-1)"), "review this please", "automatic send uses the completed draft");
+    await waitFor(`${editor}.value === ''`);
+    await evaluate(`window.deliverTranscript('   ', { selection: { start: 0, end: 0 } })`);
+    await delay(100);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "empty speech never sends");
+    await evaluate(`window.setSuggestOptions({ blocked: true })`);
+    await delay(100);
+    await evaluate(`window.deliverTranscript('keep this draft', { selection: { start: 0, end: 0 } })`);
+    await waitFor(`${editor}.value === 'keep this draft'`);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "blocked send preserves the transcript");
+    await evaluate(`window.setSuggestOptions({})`);
+    await delay(100);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "unblocking does not send an old transcript");
+    await evaluate("window.setSuggestOptions({}); window.updateSettings({dictationAction:'paste',dictationShortcutMode:'hold'});");
+    await delay(100);
+    const keyDown = "window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    const keyUp = "window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 1");
+    await evaluate(keyUp);
+    await evaluate("window.startRecording()");
+    await waitFor("window.micStops === 1");
+    assert.equal(await evaluate("window.micStarts"), 1, "hold starts exactly one composer and finishes after a pending microphone opens");
+    await evaluate("window.updateSettings({dictationShortcutMode:'toggle'})");
+    await delay(100);
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 2");
+    await evaluate("window.startRecording()");
+    await evaluate(keyUp);
+    await delay(50);
+    assert.equal(await evaluate("window.micStops"), 1, "toggle mode keeps recording after release");
+    await evaluate(keyDown);
+    await waitFor("window.micStops === 2");
+    await evaluate(keyUp);
+    await type("open miracle");
+    await evaluate("window.setDictationPhase('recording')");
+    await waitFor("!!document.querySelector('[data-dictation-capsule]')");
+    const recordingHeight = await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height");
+    await evaluate("window.setDictationPhase('transcribing')");
+    await waitFor("document.querySelector('[data-dictation-status]')?.textContent.includes('Finishing the last words')");
+    assert.equal(
+      await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height"),
+      recordingHeight,
+      "Stop never inserts a row or moves the text area",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('[data-dictation-status]').classList.contains('sr-only')"),
+      true,
+      "finishing remains announced without a visible flash",
+    );
+    await evaluate("window.setDictationPhase('idle')");
+    await type("");
+    await evaluate(
+      "window.deliverTranscript('open miracle', {selection:{start:0,end:0}}, {model:'GPT-6 Luna',text:new Promise(resolve=>{window.finishCorrection=resolve})})",
+    );
+    await waitFor("!!document.querySelector('[data-dictation-processing]')");
+    assert.equal(await evaluate("document.querySelector('[data-dictation-processing]').getAttribute('aria-busy')"), "true");
+    assert.equal(await evaluate("!!document.querySelector('[data-dictation-status]')"), false, "AI correction adds no status row");
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft remains editable during correction");
+    assert.equal(await evaluate("document.querySelector('[aria-label=Send]').disabled"), false, "Send stays available during correction");
+    assert.equal(
+      await evaluate("parseFloat(getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).width)"),
+      28,
+      "the loading arc follows the mic button's border",
+    );
+    await evaluate("document.querySelector('[data-dictation-processing]').scrollIntoView({block:'nearest'})");
+    await screenshot("dictation-processing-before-hover");
+    const micPoint = await evaluate(
+      "(() => {const r=document.querySelector('[data-dictation-processing]').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()",
+    );
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    window.webContents.sendInputEvent({ type: "mouseMove", ...micPoint });
+    await evaluate(
+      "document.querySelector('[data-dictation-processing]').dispatchEvent(new PointerEvent('pointerover',{bubbles:true,relatedTarget:document.body}))",
+    );
+    await waitFor("[...document.querySelectorAll('[role=tooltip]')].some(node=>node.textContent.includes('Correcting names · GPT-6 Luna'))");
+    await screenshot("dictation-processing-tooltip");
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    for (const dark of [false, true]) {
+      await evaluate(`document.documentElement.classList.toggle('dark', ${dark})`);
+      await screenshot(dark ? "dictation-processing-dark" : "dictation-processing-light");
+    }
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(
+      await evaluate("getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).animationName"),
+      "reduced-motion-loading",
+      "reduced motion keeps a fading cue without rotation",
+    );
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+    window.webContents.debugger.detach();
+    await evaluate("window.finishCorrection('open Milagre')");
+    await waitFor("!document.querySelector('[data-dictation-processing]')");
+    await waitFor(`${editor}.value === 'open Milagre'`);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",
@@ -281,6 +423,23 @@ async function main() {
     cacheDir: path.resolve(__dirname, "../node_modules/.vite-prompt-skills"),
     server: { host: "127.0.0.1", port: 0 },
     plugins: [
+      {
+        name: "dictation-delivery-fixture",
+        enforce: "pre",
+        resolveId(id) {
+          if (id === "./useDictation") return "\0dictation-fixture";
+        },
+        load(id) {
+          if (id !== "\0dictation-fixture") return;
+          return `import { useEffect, useState } from 'react';
+            export function useDictation(cwd, scope, deliver) {
+              const [phase, setPhase] = useState('idle');
+              window.startRecording = () => setPhase('recording'); window.setDictationPhase = setPhase;
+              useEffect(() => { window.deliverTranscript = (text, anchor, correction = null) => deliver(text, anchor, correction); });
+              return { phase, error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() { window.micStarts = (window.micStarts || 0) + 1; setPhase('preparing'); }, stop() { window.micStops = (window.micStops || 0) + 1; setPhase('idle'); }, cancel() { setPhase('idle'); }, dismiss() {}, openSettings() {} };
+            }`;
+        },
+      },
       {
         name: "prompt-skills-fixture",
         resolveId(id) {

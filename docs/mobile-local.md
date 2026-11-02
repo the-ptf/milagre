@@ -40,6 +40,16 @@ For iPhone Duo, hosts whose helper reports hinge support expose **Closed**, **Bo
 
 Older hosts still use direct WebRTC video. For that compatibility path, remote connections may need a TURN service configured with `MILAGRE_SIMULATOR_TURN_URLS` (comma-separated `turn:` or `turns:` URLs), `MILAGRE_SIMULATOR_TURN_USERNAME`, and `MILAGRE_SIMULATOR_TURN_CREDENTIAL`. Use issued, time-limited client credentials, not the service's administrative key. TURN is not needed by the relayed frame path. Physical-phone and separate-network verification remain release gates.
 
+## Lease a device from Simlock (Experimental)
+
+[Simlock](https://github.com/callstackincubator/simlock) leases one simulator or emulator per agent from a worker on your Mac or a gateway in front of several machines. Milagre doesn't install or run it. The integration follows T3 Code's Simlock host and needs simlock 0.4.0 or later with `capabilities.stream.enabled` and `capabilities.input.enabled` on the worker (and on the gateway, if there is one).
+
+1. In **Settings › Experimental**, turn on **Simlock devices**. Leave **Gateway** empty to use a worker on this Mac: Milagre reads its address and agent token from `~/.simlock/agent-device-profile.json`, or from `AGENT_DEVICE_DAEMON_BASE_URL` and `AGENT_DEVICE_DAEMON_AUTH_TOKEN`. For a gateway, enter its origin and an agent token from `simlock --gateway token create --role agent`, then **Save and check**.
+2. New Chats get `simulator_lease`, `simulator_lease_models` and `simulator_release`. A lease is opened through Milagre's pinned agent-device (`connect proxy`, then `open`), attached to the Chat, and handed to the agent as a launcher bound to that session. Installs are accepted only from the Chat's folder.
+3. Watch it from the **Simulators** pill on desktop or phone. **Attach simulator** also lists the pool's models to lease by hand, and the device's ✕ returns it to the pool, wiped.
+
+The host renews each lease every two minutes with a ten-minute TTL and ends it at **Return a device after**; a lease Milagre stops renewing (a crash, a quit or a host restart) ends on its own one TTL later and leaves its Chat. Returning a frozen device waits at most 20 seconds for agent-device before Milagre ends the lease over HTTP. **Devices at once** caps leases per Mac; Simlock separately caps leases per token (`lease.maxPerRequester`). The token stays in a private file in the host's data folder and goes only to its gateway; clients never receive it. Video is the lease's H.264 stream relayed as serve-sim envelopes and decoded with WebCodecs in the viewer, so it needs Electron or iOS 17+ WebKit. Hinge controls and input repair are not offered for Simlock devices. Milagre doesn't boot, slim or verify leased devices: slimming is the worker's `ios.defaultMode`, and simlock 0.4.0's slim step fails on the iOS 27.0 runtime, so those leases run full.
+
 ## View the agent's browser
 
 1. Have the Chat's agent open a Chromium browser with a DevTools port, for example `--remote-debugging-port=0`, or tools such as chrome-devtools-mcp or agent-browser configured with one.

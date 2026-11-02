@@ -31,3 +31,16 @@ test("per-turn usage subtracts cumulative prior usage", () => {
   });
   assert.deepEqual(turn.tokenUsageDelta, { inputTokens: 150, outputTokens: 30, cachedInputTokens: 50 });
 });
+
+test("evaluation approves only scoped kit/design requests from Claude's named tool", () => {
+  const event = {
+    kind: "other",
+    tool: "mcp__milagre__design_kit_save",
+    title: "Use design_kit_save from milagre?",
+    detail: JSON.stringify({ expectedVersion: 0, kit: { title: "Fixture" } }),
+  };
+  assert.equal(fixturePermission(event, { label: "create", evaluation: true }), true);
+  assert.equal(fixturePermission(event, { label: "create" }), false);
+  assert.equal(fixturePermission({ ...event, detail: JSON.stringify({ id: "other" }) }, { label: "create", evaluation: true }), false);
+  assert.equal(fixturePermission({ ...event, tool: "mcp__other__design_kit_save" }, { label: "create", evaluation: true }), false);
+});

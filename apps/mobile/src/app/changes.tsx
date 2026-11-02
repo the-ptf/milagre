@@ -60,8 +60,8 @@ function ProjectChangesView({ worktreeId, header, onOpen }: { worktreeId: number
         client={session.client}
         cwd={worktree.path}
         base={worktree.base}
-        onOpen={(file, mode, base) => {
-          const target = diffTarget(file, mode, base, { worktreeId: String(worktreeId) });
+        onOpen={(file, mode, base, commit, commitParent) => {
+          const target = diffTarget(file, mode, base, { worktreeId: String(worktreeId) }, commit, commitParent);
           if (onOpen) onOpen(target);
           else router.push({ pathname: "/diff", params: target });
         }}

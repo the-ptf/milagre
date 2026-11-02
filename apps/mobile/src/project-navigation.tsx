@@ -1,13 +1,20 @@
+import { EmptyState } from "./ui";
+import { radius } from "./design-tokens";
+import { type } from "./design-tokens";
+import { ChatSwipeRow, hideRevealed } from "./chat-swipe-row";
+import { retentionOf, useDoneRetention } from "./done-retention";
+import { doneCountdown } from "@milagre/shared/done";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
-import { withAlpha } from "@milagre/shared/themes";
 import { appVersionLine } from "./app-version";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
 import {
   Add01Icon,
   ArrowDown01Icon,
+  CheckmarkCircle02Icon,
+  HourglassIcon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
   Cancel01Icon,
@@ -43,15 +50,14 @@ import { useRoutinesAvailable } from "./use-routines";
 import { endNamer, linkMenuSection, linkWorktree, linkedAccessibilityLabel, linkedLabels, type LinkChat } from "./chat-links";
 import { linkWithChat, removeLinkFromChat } from "./link-actions";
 import { afterSend, selectedModel, sendOptions, turnTarget } from "./turn-options";
-import { chatMark, MARK_LABEL, type ChatMark } from "./indicators";
+import { chatMark, type ChatMark } from "./indicators";
 import { shownChat } from "./chat-list-filter";
 import { backgroundLabel, chatActivity } from "@milagre/shared/chat-activity";
 import { ChatMarkIcon } from "./status-indicators";
 import { Icon, SpinnerRing, type IconData } from "./icons";
 import { tap } from "./primitives/tap";
 import { LoadingLogo } from "./loading-logo";
-import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
-import { CircleButton, DISABLED_OPACITY, EmptyState, ErrorNotice, IconButton, pressStyle, PullDown, SectionLabel, Toast, useAnnounce, useStyles } from "./ui";
+import { ErrorNotice, IconButton, PullDown, useStyles } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./navigation-commands";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
@@ -62,15 +68,18 @@ import { canOpenBeside, openBeside, useBesideChat } from "./split-chats";
 import { confirm } from "./confirm-store";
 import { showChoiceSheet } from "./choice-store";
 import { ArchivingOverlay, useArchiveActivity } from "./archive-progress";
-import { clearArchiveNotice, showArchiveNotice } from "./archive";
+import { clearArchiveNotice, deletionKey, showArchiveNotice } from "./archive";
+import { ToastPill } from "./primitives/toast";
+import { undoHistory, useHistoryToast } from "./undo-history";
+import type { UndoAction } from "@milagre/shared/undo-history";
 import { AttentionDot, useAttention } from "./attention";
 import { lastUserModel, projectOfKey } from "@milagre/shared/agent-runs";
-import { useChatPullRequests } from "./use-chat-pull-requests";
+import { useComputerChatPullRequests, type ComputerPullRequestTargets } from "./use-chat-pull-requests";
 import { ChatPullRequestChips, InlinePullRequestLinks } from "./chat-pull-request-chips";
 import { requestPullRequest } from "./pr-chat";
 import { useLinear } from "./use-linear";
 import { useWorktreeLinearIssues } from "./use-worktree-linear-issues";
-import { createStylesHook, useTheme, type Palette } from "./theme";
+import { createStylesHook, inkFor, useTheme, type Palette } from "./theme";
 import { activityAgo, CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { saveChatRowShow, useActivityClock, useChatRowShow } from "./chat-row-store";
 import { useChatList } from "./chat-display-setting";
@@ -78,9 +87,11 @@ import { allComputers, chatsHomePath, useAllComputers, useFoldedProjects } from 
 import type { HostView, ProjectCopy, Reach } from "./all-computers-store";
 import { mergeChatLists } from "./chat-list-order";
 import { groupByOrigin } from "@milagre/shared/project-origin";
-import { UI_COPY } from "@milagre/shared/model-copy";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { isDesktopComputer } from "./computer-actions";
+import { WaitingLabel } from "./offline-tray";
+import { SENT_FROM } from "./sent-from";
+import { nestChatRows, type SubchatMarks } from "./subchat-rows";
 
 /** Secondary screens push over the current one; a sheet also leaves the sidebar open under it, as confirmations do. */
 type Destination = (href: Href, secondary?: boolean | "sheet") => void;
@@ -121,11 +132,16 @@ type Row = { key: string; path: string } & (
       home?: boolean;
       /** Grouped under a Project that several computers share: the row names its computer on its second line. */
       shared?: boolean;
-    } & HostTag)
+    } & SubchatMarks &
+      HostTag)
   | ({ kind: "message"; chat: AgentSession; title: string; project: string; many: boolean; snippet: string; highlight: [number, number] } & HostTag)
   | ({ kind: "notice"; message: string; failed?: boolean; retry?: "project" } & HostTag)
   /** The one quiet line for every computer that isn't answering; Retry reads those computers again. */
   | { kind: "offline"; hostIds: string[] }
+  /** The Done section's header at the bottom of the list: a tap folds it. */
+  | { kind: "doneHeader"; count: number; expanded: boolean }
+  /** A Done Chat: a tap opens it, a swipe right reopens it, and it counts down to its Mac's archive. `many`: name its computer. */
+  | ({ kind: "done"; chat: AgentSession; title: string; many: boolean; home?: boolean } & HostTag)
 );
 type ChatRow = Extract<Row, { kind: "chat" }>;
 /** One Project's Chats as the search reads them: its messages, or null when its computer searches them. */
@@ -157,6 +173,8 @@ type ProjectBuild = {
   /** The Project's Chats before the search filter, newest first. */
   all: ChatEntry[];
   chats: ChatEntry[];
+  /** Its Done Chats, for the Done section at the bottom of the list. */
+  done: ChatEntry[];
   failure?: string;
 };
 /** `home`: the computer's Chats without a Project, once its Chats home exists. */
@@ -167,9 +185,22 @@ type BuildContext = {
   snapshot: Snapshot | null;
   pendingChats: Record<string, MobilePendingChat>;
   archiving: (projectPath: string, chatId: number) => boolean;
+  /** Deleted from the phone and not back (an Undo or a failure brings it back): out of the list. */
+  hidden: (projectPath: string, chatId: number) => boolean;
+  /** Marked Done (a time) or reopened (null) from here, before its computer has answered: the row moves at once. */
+  doneMark: (projectPath: string, chatId: number) => DoneMark | undefined;
   fallback: (path: string) => ProjectCopy | undefined;
   show: Show;
 };
+
+/** A Done or Reopen asked from this list, shown until its computer answers (`doneAt` null: reopened). */
+type DoneMark = { doneAt: number | null };
+
+/** A Chat as a pending Done or Reopen shows it. */
+function withDoneMark(chat: AgentSession, mark: DoneMark | undefined): AgentSession {
+  if (!mark || Boolean(mark.doneAt) === Boolean(chat.done_at)) return chat;
+  return mark.doneAt ? { ...chat, done_at: mark.doneAt, unread: false } : { ...chat, done_at: undefined };
+}
 
 /** The Filters menu's Show choices: which Chats the list keeps. */
 type Show = "all" | "needs" | "running" | "archived";
@@ -188,6 +219,16 @@ const FIELD_SYMBOLS: Record<string, string> = {
   branch: "arrow.triangle.branch",
   diff: "plusminus",
   lastActivity: "clock",
+};
+const labels: Record<ChatMark, string> = {
+  idle: "",
+  running: "Running",
+  background: "In the background",
+  question: "Needs reply",
+  waiting: "Needs approval",
+  interrupted: "Interrupted",
+  failed: "Failed",
+  unread: "Unread",
 };
 
 const sameDeps = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((value, index) => value === b[index]);
@@ -222,46 +263,58 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     list.push(message);
     byChat.set(message.session_id, list);
   }
-  const all: ChatEntry[] = Object.values(copy?.project.state.sessions || {})
-    .map((chat) => {
-      const run = copy?.runs.runs[`${copy.project.path}#${chat.id}`];
-      const pending = pendingById.get(chat.id);
-      const messages = byChat.get(chat.id);
-      return {
-        chat,
-        run,
-        title: chatTitle(chat, messages),
-        sortId: chatSummary(chat, messages).firstId ?? chat.id,
-        pending,
-        mark: pending && !pending.accepted ? ("running" as const) : chatMark(chat, run, messages || []),
-        // How many background agents still work, for a background mark (chat-activity.mjs).
-        background: chatActivity(chat, run).background,
-        count: chatSummary(chat, messages).count,
-      };
-    })
+  const entries = Object.values(copy?.project.state.sessions || {}).map((saved) => {
+    const chat = withDoneMark(saved, ctx.doneMark(project.path, saved.id));
+    const run = copy?.runs.runs[`${copy.project.path}#${chat.id}`];
+    const pending = pendingById.get(chat.id);
+    const messages = byChat.get(chat.id);
+    return {
+      chat,
+      run,
+      title: chatTitle(chat, messages),
+      sortId: chatSummary(chat, messages).firstId ?? chat.id,
+      pending,
+      mark: pending && !pending.accepted ? ("running" as const) : chatMark(chat, run, messages || []),
+      // How many background agents still work, for a background mark (chat-activity.mjs).
+      background: chatActivity(chat, run).background,
+      count: chatSummary(chat, messages).count,
+    };
+  });
+  const toEntry = ({ chat, title, sortId, pending, mark, background }: (typeof entries)[number]): ChatEntry => ({
+    chat,
+    title,
+    sortId,
+    mark,
+    background,
+    pending,
+    worktree: pending?.newWorktree ? "New Worktree" : copy?.project.state.worktrees[chat.worktree_id]?.name || "Worktree",
+    prPath: !pending && !copy?.project.link && !home ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
+    prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
+  });
+  // Done Chats leave the list for the Done section at its bottom (only the Archived filter lists them, once archived).
+  const done =
+    ctx.show === "all"
+      ? entries
+          .filter(({ chat }) => chat.done_at && !chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id))
+          .filter(({ chat }) => !ctx.hidden(copy?.project.path ?? project.path, chat.id))
+          .map(toEntry)
+      : [];
+  const all: ChatEntry[] = entries
     // Like desktop's sidebar, a worktree's empty starter Chat stays out until it has a message or a turn is starting.
     // A Chat stays in its place while its archive runs, under the progress, until the archive ends.
     .filter(({ chat, run, count, mark }) => {
+      if (ctx.hidden(copy?.project.path ?? project.path, chat.id)) return false;
       if (ctx.show === "archived") return !!chat.archived && shownChat(chat, run, count, { archived: true });
       if (chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id)) return false;
       if (!shownChat(chat, run, count, { archived: false })) return false;
+      if (chat.done_at && !chat.archived) return false;
       if (ctx.show === "needs") return NEEDS.has(mark);
       if (ctx.show === "running") return mark === "running" || mark === "background";
       return true;
     })
     // Pinned Chats first in their order, then the newest Chat first, by when it was created, so rows don't jump around as agents reply.
     .sort((a, b) => comparePins(a.chat, b.chat) || b.sortId - a.sortId)
-    .map(({ chat, title, sortId, pending, mark, background }) => ({
-      chat,
-      title,
-      sortId,
-      mark,
-      background,
-      pending,
-      worktree: pending?.newWorktree ? UI_COPY.newWorktree : copy?.project.state.worktrees[chat.worktree_id]?.name || "Worktree",
-      prPath: !pending && !copy?.project.link && !home ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
-      prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
-    }));
+    .map(toEntry);
   const chats = ctx.needle
     ? all.filter(({ title, worktree }) => [name, title, worktree, view.name].some((text) => text?.toLowerCase().includes(ctx.needle)))
     : all;
@@ -274,6 +327,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     copy,
     all,
     chats,
+    done,
     failure: view.errors.get(project.path),
   };
 }
@@ -305,6 +359,9 @@ class Held<T> {
  * showed: the session's changes (a Project read, a turn's runs, a keystroke in the composer) reach it once it shows again,
  * which is when it wakes after sliding in (side-panels.tsx), so no render lands on the slide's frames.
  */
+/** A Done row's menu: it only leaves Done. */
+const DONE_MENU = [{ items: [{ id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }] }];
+
 export function ProjectNavigation(props: NavigationProps) {
   const session = useSession();
   // Only what the rows show of the turns: a streaming turn doesn't re-render the list, its start, question or end does.
@@ -361,13 +418,23 @@ const NavigationBody = memo(function NavigationBody({
   const folds = useFoldedProjects(views.map((view) => view.hostId));
   const rowShow = useChatRowShow();
   // Last activity reads "5m"; the clock ticks only while the rows show it, which a Chats group row always does.
-  const now = useActivityClock(rowShow.lastActivity || views.some((view) => view.home?.exists));
+  // The Done section starts folded and stays as the user left it while the app runs.
+  const [doneOpen, setDoneOpen] = useState(false);
+  // An open Done section counts down to each Chat's archive, so the clock ticks then too.
+  const now = useActivityClock(rowShow.lastActivity || doneOpen || views.some((view) => view.home?.exists));
   // The Chats group folds for as long as the app runs; it isn't one computer's, so the per-computer folds don't hold it.
   const [chatsFolded, setChatsFolded] = useState(false);
+  // Opened subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts): a family starts
+  // folded, its parent alone, until its count is tapped.
+  const [subchatOpen, setSubchatOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const subchatFolds = useMemo(() => ({ has: (key: string) => !subchatOpen.has(key) }), [subchatOpen]);
+  // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
+  const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
   const [addHostId, setAddHostId] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const archives = useArchiveActivity();
+  const historyToast = useHistoryToast("list");
   // The Chats this sidebar is archiving, by computer: another computer's Chat with the same path and id is not archiving.
   const [archiveRequests] = useState(() => new Set<string>());
   const [error, setError] = useState("");
@@ -376,8 +443,8 @@ const NavigationBody = memo(function NavigationBody({
   const bottomInset = useControlsBottomInset();
   const searchInput = useRef<TextInputInstance>(null);
   const background = surface ? colors.surface : colors.page;
-  // The open Chat's row takes the stronger tint on page and card alike; the pointer's hover is the lighter one.
-  const selectedFill = colors.hover2;
+  // On a card the open Chat's row takes the stronger tint, so a row under the pointer still reads apart from it.
+  const selectedFill = surface ? colors.hover2 : colors.hover;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -414,7 +481,18 @@ const NavigationBody = memo(function NavigationBody({
       archives.chats.has(`${projectPath}#${chatId}`) && (hostId === currentHostId || archiveRequests.has(`${hostId}|${projectPath}#${chatId}`));
     const next = views.map((view) => {
       const current = view.hostId === currentHostId;
-      const deps = [view, needle, show, pendingChats, archives.chats, current ? snapshot : null, current ? cachedProject : null, current];
+      const deps = [
+        view,
+        needle,
+        show,
+        pendingChats,
+        archives.chats,
+        archives.hidden,
+        doneMarks,
+        current ? snapshot : null,
+        current ? cachedProject : null,
+        current,
+      ];
       const held = cache.get(view.hostId);
       if (held && sameDeps(held.deps, deps)) return held.build;
       const build = buildHost(view, {
@@ -423,6 +501,8 @@ const NavigationBody = memo(function NavigationBody({
         snapshot,
         pendingChats,
         archiving: archiving(view.hostId),
+        hidden: (projectPath, chatId) => archives.hidden.has(deletionKey(view.hostId, `${projectPath}#${chatId}`)),
+        doneMark: (projectPath, chatId) => (doneMarks.size ? doneMarks.get(`${view.hostId}|${projectPath}#${chatId}`) : undefined),
         fallback: cachedProject,
         show,
       });
@@ -431,7 +511,7 @@ const NavigationBody = memo(function NavigationBody({
     });
     for (const id of cache.keys()) if (!views.some((view) => view.hostId === id)) cache.delete(id);
     return next;
-  }, [views, needle, show, pendingChats, archives.chats, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
+  }, [views, needle, show, pendingChats, archives.chats, archives.hidden, doneMarks, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
 
   const manyHosts = builds.length > 1;
   const { rows, searchable, projectHits } = useMemo(() => {
@@ -461,7 +541,7 @@ const NavigationBody = memo(function NavigationBody({
           hostId: build.hostId,
           hostName: build.hostName,
           reach: build.reach,
-          message: `Loading Chats from ${build.hostName}…`,
+          message: `Loading chats from ${build.hostName}...`,
         };
       return null;
     };
@@ -509,10 +589,10 @@ const NavigationBody = memo(function NavigationBody({
           listed.push({
             ...base,
             key: `${build.hostId}|${project.path}:error`,
-            message: `Could not ${project.copy ? "refresh" : "load"} Chats on ${build.hostName}. Tap to retry.`,
+            message: `Could not ${project.copy ? "refresh" : "load"} chats on ${build.hostName}. Tap to retry.`,
             failed: true,
           });
-        else if (!project.copy) listed.push({ ...base, key: `${build.hostId}|${project.path}:notice`, message: `Loading Chats from ${build.hostName}…` });
+        else if (!project.copy) listed.push({ ...base, key: `${build.hostId}|${project.path}:notice`, message: `Loading chats from ${build.hostName}...` });
       }
       if (listed.length === 1)
         listed.push({
@@ -522,7 +602,7 @@ const NavigationBody = memo(function NavigationBody({
           hostId: head.build.hostId,
           hostName: head.build.hostName,
           reach: head.build.reach,
-          message: show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
+          message: show !== "all" ? "No matching chats" : "No chats yet. Start one with +.",
         });
       return listed;
     };
@@ -632,14 +712,14 @@ const NavigationBody = memo(function NavigationBody({
             result.push({
               ...base,
               key: `${build.hostId}|${project.path}:error`,
-              message: project.copy ? "Could not refresh Chats. Tap to retry." : "Could not load Chats. Tap to retry.",
+              message: project.copy ? "Could not refresh chats. Tap to retry." : "Could not load chats. Tap to retry.",
               failed: true,
             });
           else if (!project.copy || !project.chats.length)
             result.push({
               ...base,
               key: `${build.hostId}|${project.path}:notice`,
-              message: !project.copy ? "Loading Chats…" : show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
+              message: !project.copy ? "Loading chats..." : show !== "all" ? "No matching chats" : "No chats yet. Start one with +.",
             });
         }
       }
@@ -663,11 +743,36 @@ const NavigationBody = memo(function NavigationBody({
             })),
         )
       : [];
+    // Every computer's Done Chats in one section under the list, most recently marked first.
+    if (!needle && show === "all") {
+      const done = builds
+        .flatMap((build) =>
+          build.projects.concat(build.home ? [build.home] : []).flatMap((project) =>
+            project.done.map((entry): Row => ({
+              key: `done:${build.hostId}|${project.path}#${entry.chat.id}`,
+              path: project.path,
+              kind: "done",
+              hostId: build.hostId,
+              hostName: build.hostName,
+              reach: build.reach,
+              chat: entry.chat,
+              title: entry.title,
+              many: manyHosts,
+              ...(project === build.home ? { home: true } : {}),
+            })),
+          ),
+        )
+        .sort((a, b) => ((b as { chat: AgentSession }).chat.done_at ?? 0) - ((a as { chat: AgentSession }).chat.done_at ?? 0));
+      if (done.length) {
+        result.push({ key: "done-header", path: "", kind: "doneHeader", count: done.length, expanded: doneOpen });
+        if (doneOpen) result.push(...done);
+      }
+    }
     // A Show filter that leaves nothing says so, above the offline line.
     if (!needle && show !== "all" && !result.some((row) => row.kind === "chat"))
-      result.unshift({ key: "filter-empty", path: "", kind: "section", name: "No Chats match this filter." });
-    return { rows: result, searchable: found, projectHits: hits };
-  }, [builds, chatList, needle, show, manyHosts, folds, chatsFolded]);
+      result.unshift({ key: "filter-empty", path: "", kind: "section", name: "No chats match this filter." });
+    return { rows: nestChatRows(result, subchatFolds), searchable: found, projectHits: hits };
+  }, [builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, subchatFolds]);
   // Projects held without their messages (a preview, or a host that keeps them by Chat) are searched on their own
   // computer's host.
   const [hostMatches, setHostMatches] = useState<{ query: string; matches: Record<string, ChatSearchMatch[]> }>({ query: "", matches: {} });
@@ -744,18 +849,24 @@ const NavigationBody = memo(function NavigationBody({
     return unreadRunRoutines(states).size > 0;
   }, [builds, currentHostId]);
 
-  // Pull requests and Linear issues are read from the open computer only.
+  // Every computer keeps its PR chips when the open Chat moves to another one.
   const prTargets = useMemo(() => {
-    const byPath = new Map<string, Set<string>>();
+    const byHost = new Map<string, Map<string, Set<string>>>();
     for (const row of listRows) {
-      if (row.kind !== "chat" || row.hostId !== currentHostId || !row.prPath) continue;
+      if (row.kind !== "chat" || !row.prPath || !visible) continue;
+      let byPath = byHost.get(row.hostId);
+      if (!byPath) byHost.set(row.hostId, (byPath = new Map()));
       const refs = byPath.get(row.prPath) || new Set<string>();
       for (const ref of row.prRefs || []) refs.add(ref);
       byPath.set(row.prPath, refs);
     }
-    return [...byPath].map(([path, refs]) => ({ path, refs: [...refs] }));
-  }, [listRows, currentHostId]);
-  const prStatus = useChatPullRequests(session.client, prTargets);
+    return [...byHost].map(([hostId, paths]): ComputerPullRequestTargets => ({
+      hostId,
+      client: hostId === currentHostId ? session.client : allComputers.clientFor(hostId),
+      targets: [...paths].map(([path, refs]) => ({ path, refs: [...refs] })),
+    }));
+  }, [listRows, currentHostId, session.client, visible]);
+  const prStatus = useComputerChatPullRequests(prTargets);
   // A Worktree's Linear issue shows its chip on the Chat row, with or without pull requests, while Linear is on.
   const { active: linearActive } = useLinear(session.client);
   const linearPaths = useMemo(
@@ -784,20 +895,30 @@ const NavigationBody = memo(function NavigationBody({
   const displayedRows = useMemo(
     () =>
       listRows.map((row) => {
-        if (row.kind !== "chat" || row.hostId !== currentHostId) return row;
-        const status = row.prPath ? prStatus[row.prPath] : undefined;
+        if (row.kind !== "chat") return row;
+        const status = row.prPath ? prStatus[row.hostId]?.[row.prPath] : undefined;
+        const current = row.hostId === currentHostId;
         return {
           ...row,
           pullRequests: chatPullRequests(row.prRefs || [], status?.found || {}, status?.branch),
-          linearIssue: row.prPath ? linearIssues[row.prPath] : undefined,
-          linked: linkedLabels(links.links, worktreeForLinks(row.path, row.prPath), endNames).map((end) => end.label),
+          linearIssue: current && row.prPath ? linearIssues[row.prPath] : undefined,
+          linked: current ? linkedLabels(links.links, worktreeForLinks(row.path, row.prPath), endNames).map((end) => end.label) : row.linked,
         };
       }),
     [listRows, currentHostId, prStatus, linearIssues, links.links, worktreeForLinks, endNames],
   );
 
   /** Where a Chat or a new Chat goes on the computer `hostId`, which is the connected one by now. */
-  function navigateTo(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
+  // A subchat on a wide iPad opens beside its family's top Chat, which the route shows (chat.tsx opens `beside`).
+  function enterSubchat(hostId: string, projectPath: string, chatId: number, root: number) {
+    if (hostId === currentHostId && projectPath === currentPath && activeChatId === root) {
+      openBeside({ hostId, projectPath, chatId });
+      onClose?.();
+      return;
+    }
+    void enter(hostId, projectPath, root, undefined, undefined, chatId);
+  }
+  function navigateTo(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string, beside?: number) {
     const params = { projectPath, hostId };
     if (chatId === undefined) onNavigate({ pathname: "/chat", params: prefill ? { ...params, prefill } : params });
     else if (hostId === currentHostId && projectPath === currentPath && chatId === activeChatId && onClose) onClose();
@@ -813,22 +934,22 @@ const NavigationBody = memo(function NavigationBody({
             : { worktreeId: String(pending.worktreeId), ...(pending.draft ? { draft: pending.draft } : {}) }),
         },
       });
-    else onNavigate({ pathname: "/chat", params: { ...params, id: String(chatId) } });
+    else onNavigate({ pathname: "/chat", params: { ...params, id: String(chatId), ...(beside !== undefined ? { beside: String(beside) } : {}) } });
   }
   // Revisited Chats adopt their full cached Project before routing, including on another computer. Only a cold
   // destination needs to wait for its computer; messages start reading during the route handoff.
-  async function enter(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
+  async function enter(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string, beside?: number) {
     if (busy) return;
     const host = hostId === currentHostId ? undefined : allComputers.hostFor(hostId);
     if (chatId !== undefined && !pending && (hostId === currentHostId || host)) {
       const cached = session.openCachedChat(projectPath, chatId, host);
       if (cached) {
-        navigateTo(hostId, projectPath, chatId);
+        navigateTo(hostId, projectPath, chatId, undefined, undefined, beside);
         return;
       }
     }
     if (hostId === currentHostId && session.client) {
-      navigateTo(hostId, projectPath, chatId, pending, prefill);
+      navigateTo(hostId, projectPath, chatId, pending, prefill, beside);
       return;
     }
     if (!host) {
@@ -841,17 +962,44 @@ const NavigationBody = memo(function NavigationBody({
       if (chatId !== undefined && !pending) {
         if (!(await session.openNotificationTarget(host, projectPath, chatId)) || !alive.current) return;
       } else if (!(await session.connect(host, false)) || !alive.current) return;
-      navigateTo(hostId, projectPath, chatId, pending, prefill);
+      navigateTo(hostId, projectPath, chatId, pending, prefill, beside);
     } catch (e) {
       if (alive.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
       if (alive.current) setBusy(false);
     }
   }
+  /** Done, Reopen, Pin and Unpin as steps in the undo history; undefined for the actions it doesn't take back. */
+  function undoStep(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string): UndoAction | undefined {
+    const run = (next: string) => () => void act(row, next, false);
+    if (action === "done")
+      return {
+        text: "Moved to Done",
+        kind: "done",
+        undoneText: "Back in Chats",
+        place: "list",
+        // Done also marked it read; Undo puts back the unread it had.
+        undo: () => void act(row, "reopen", false).then(() => (row.chat.unread ? act(row, "unread", false) : undefined)),
+        redo: run("done"),
+      };
+    if (action === "reopen")
+      return { text: "Back in Chats", kind: "undone", undoneText: "Moved to Done", undoneKind: "done", place: "list", undo: run("done"), redo: run("reopen") };
+    if (action === "pin" || action === "unpin") {
+      const other = action === "pin" ? "unpin" : "pin";
+      return {
+        text: action === "pin" ? "Pinned" : "Unpinned",
+        undoneText: other === "pin" ? "Pinned" : "Unpinned",
+        place: "list",
+        undo: run(other),
+        redo: run(action),
+      };
+    }
+    return undefined;
+  }
   // A Chat's ⋯ choice runs against its own computer's client and its own Project's copy, which is reread afterwards.
   // Archive stays in this sidebar, including when its Chat is open behind it, so the row's progress and the list's
   // scroll position stay in place.
-  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string) {
+  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string, record = true) {
     const { hostId, path: projectPath, chat } = row;
     if (action === "open-beside") {
       openBeside({ hostId, projectPath, chatId: chat.id });
@@ -867,7 +1015,23 @@ const NavigationBody = memo(function NavigationBody({
     }
     const archiveKey = `${hostId}|${projectPath}#${chat.id}`;
     if (archiveRequests.has(archiveKey)) return;
-    if (action === "archive" && !chat.archived) archiveRequests.add(archiveKey);
+    // Done and Reopen move the row now; the computer saves it meanwhile, and its copy takes over once read again.
+    const doneMark: DoneMark | undefined = action === "done" ? { doneAt: Date.now() } : action === "reopen" ? { doneAt: null } : undefined;
+    const settleDone = () =>
+      doneMark &&
+      alive.current &&
+      setDoneMarks((marks) => {
+        if (marks.get(archiveKey) !== doneMark) return marks;
+        const next = new Map(marks);
+        next.delete(archiveKey);
+        return next;
+      });
+    if (doneMark) setDoneMarks((marks) => new Map(marks).set(archiveKey, doneMark));
+    // Done, Reopen and pins join the undo history: the toast's Undo and Redo (and an iPad's ⌘Z / ⇧⌘Z) run their opposite
+    // through here again, unrecorded.
+    const step = record ? undoStep(row, action) : undefined;
+    if (step) undoHistory.record(step);
+    if (action === "archive") archiveRequests.add(archiveKey);
     let confirmed = false;
     setError("");
     clearArchiveNotice();
@@ -881,6 +1045,7 @@ const NavigationBody = memo(function NavigationBody({
         state: copy.project.state,
         link: copy.project.link,
         chatsHome: row.home,
+        hostId,
         onConfirm: () => {
           confirmed = true;
         },
@@ -892,11 +1057,17 @@ const NavigationBody = memo(function NavigationBody({
         expectActivity: session.expectActivity,
         notify: showArchiveNotice,
       });
+      // Done on the open Chat leaves it for a new Chat in its Project beside the pinned sidebar, as on the desktop.
+      // A phone stays on the sidebar.
+      if (action === "done" && docked && isCurrent && projectPath === currentPath && chat.id === activeChatId && alive.current)
+        onNavigate({ pathname: "/chat", params: { projectPath, hostId } });
     } catch (e) {
-      if (confirmed) showArchiveNotice(`Could not archive Chat: ${(e as Error).message}`);
+      if (step) undoHistory.drop(step);
+      if (confirmed) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else if (alive.current) setError((e as Error).message);
     } finally {
       archiveRequests.delete(archiveKey);
+      settleDone();
     }
   }
   /** A Chat as the Link picker names it, or undefined when it can't join a Link (no Worktree, not a local Project). */
@@ -947,7 +1118,7 @@ const NavigationBody = memo(function NavigationBody({
     const turn = turnTarget(composer.preferences[key], chat.provider, composer.defaults);
     const model = selectedModel(turn.provider, turn.model || (!turn.picked ? lastUserModel(copy.project.state, chat.id) : ""), session.models);
     await client.call("chat:send", [
-      { projectPath: copy.project.path, sessionId: chat.id, worktreeId: chat.worktree_id, ...message, ...sendOptions(model, preferences) },
+      { projectPath: copy.project.path, sessionId: chat.id, worktreeId: chat.worktree_id, ...message, ...sendOptions(model, preferences), sentFrom: SENT_FROM },
     ]);
     composer.setPreferences((current) => ({
       ...current,
@@ -1039,7 +1210,7 @@ const NavigationBody = memo(function NavigationBody({
     });
   }
   async function startAddProject() {
-    const hostId = await chooseComputer("Add Project to");
+    const hostId = await chooseComputer("Add project to");
     if (!hostId || busy) return;
     if (hostId !== currentHostId) {
       const host = allComputers.hostFor(hostId);
@@ -1069,7 +1240,7 @@ const NavigationBody = memo(function NavigationBody({
     if (!target) {
       // With no Project anywhere, a Chat without one is still there to start.
       if (noProjectChoice(views, null, currentHostId)) void startWithoutProject();
-      else setError("Add a Project from your computer to start a Chat.");
+      else setError("Add a project from your computer to start a Chat.");
       return;
     }
     void enter(target.hostId, target.path, undefined, undefined, prefill);
@@ -1102,7 +1273,7 @@ const NavigationBody = memo(function NavigationBody({
     );
     const client = target && clientOf(target.hostId);
     if (!target || !client) {
-      setError("Add a Project from your computer to triage an issue.");
+      setError("Add a project from your computer to triage an issue.");
       return;
     }
     try {
@@ -1122,7 +1293,7 @@ const NavigationBody = memo(function NavigationBody({
   }
   // Filters: which Projects, which Chats, and what each row shows, as desktop's Filters menu.
   const filterSections = [
-    { items: [{ id: "choose-projects", title: "Choose Projects…", systemImage: "checklist" }] },
+    { items: [{ id: "choose-projects", title: "Choose projects…", systemImage: "checklist" }] },
     { title: "Show", items: SHOW.map(([id, title, systemImage]) => ({ id, title, systemImage, checked: show === id })) },
     {
       title: "On Chats",
@@ -1140,8 +1311,29 @@ const NavigationBody = memo(function NavigationBody({
   // the list that changes nothing a row shows (a search keystroke elsewhere, a poll that found nothing new) skips them.
   const latestActions = useRef<RowActions | null>(null);
   useLayoutEffect(() => {
-    latestActions.current = { enter, act, projectAction, startNewChat, startWithoutProject, foldChats: () => setChatsFolded((folded) => !folded), load };
+    latestActions.current = {
+      enter,
+      act,
+      projectAction,
+      startNewChat,
+      startWithoutProject,
+      foldChats: () => setChatsFolded((folded) => !folded),
+      foldDone: () => setDoneOpen((open) => !open),
+      foldSubchats: (key) =>
+        setSubchatOpen((open) => {
+          const next = new Set(open);
+          if (!next.delete(key)) next.add(key);
+          return next;
+        }),
+      enterSubchat,
+      load,
+    };
   });
+  const doneHours = useDoneRetention(
+    views.map((view) => view.hostId),
+    clientOf,
+    visible,
+  );
   const actions = useMemo<RowActions>(
     () => ({
       enter: (...args) => latestActions.current!.enter(...args),
@@ -1150,6 +1342,9 @@ const NavigationBody = memo(function NavigationBody({
       startNewChat: (...args) => latestActions.current!.startNewChat(...args),
       startWithoutProject: () => latestActions.current!.startWithoutProject(),
       foldChats: () => latestActions.current!.foldChats(),
+      foldDone: () => latestActions.current!.foldDone(),
+      foldSubchats: (key) => latestActions.current!.foldSubchats(key),
+      enterSubchat: (...args) => latestActions.current!.enterSubchat(...args),
       load: (...args) => latestActions.current!.load(...args),
     }),
     [],
@@ -1174,9 +1369,13 @@ const NavigationBody = memo(function NavigationBody({
       copyOf,
       clientOf,
       worktreeForLinks,
+      doneHours,
+      background,
       actions,
     }),
     [
+      doneHours,
+      background,
       currentHostId,
       currentPath,
       activeChatId,
@@ -1215,7 +1414,6 @@ const NavigationBody = memo(function NavigationBody({
       }
     };
   });
-  useAnnounce(busy ? "Opening…" : "");
   useEffect(() => {
     if (!visible) return;
     const run = () => {
@@ -1228,24 +1426,20 @@ const NavigationBody = memo(function NavigationBody({
   if (page)
     return (
       <View style={[styles.screen, { backgroundColor: background }]}>
-        <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <CircleButton label={`Back to ${ALL_CHATS_LABEL}`} icon={ArrowLeft01Icon} onPress={() => setPage(null)} />
-          <Text
-            accessibilityRole="header"
-            numberOfLines={1}
-            style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}
-          >
-            Add Project
+        <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <IconButton label={`Back to ${ALL_CHATS_LABEL}`} icon={ArrowLeft01Icon} size={44} onPress={() => setPage(null)} />
+          <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+            Add project
           </Text>
-          {onClose && <CircleButton label="Close navigation" icon={Cancel01Icon} onPress={onClose} />}
+          {onClose && <IconButton label="Close navigation" icon={Cancel01Icon} size={44} onPress={onClose} />}
         </View>
         <ProjectSearch onOpen={addProject} />
       </View>
     );
   const emptyText = needle
-    ? "No Chats match your search."
+    ? "No chats match your search."
     : builds.length
-      ? "Add a Project from your computer to start a Chat."
+      ? "Add a project from your computer to start a Chat."
       : session.hosts.length
         ? "Every computer is hidden. Show one in Settings."
         : "Pair your computer. Open Settings → Devices in Milagre on your Mac, then scan its pairing code.";
@@ -1253,25 +1447,24 @@ const NavigationBody = memo(function NavigationBody({
     <View style={[styles.screen, { backgroundColor: background }]}>
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, gap: 8, paddingBottom: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
+          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 22, fontWeight: "600" }}>
             {ALL_CHATS_LABEL}
           </Text>
           {/* One glass capsule holds all three, as iOS groups toolbar buttons. Settings opens over the sidebar, which stays where it was under it. Routines is a page, so the sidebar closes first. */}
           <View style={s.headerGroup}>
             <HeaderGlass />
             <View>
-              <CapsuleButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
+              <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
               <UpdateSettingsBadge />
             </View>
             {routinesAvailable && (
               <View>
-                <CapsuleButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
+                <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
                 {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
               </View>
             )}
             <PullDown
               label="More"
-              hitSlop={hitSlopFor(40)}
               sections={[
                 {
                   items: [
@@ -1297,6 +1490,7 @@ const NavigationBody = memo(function NavigationBody({
         keyExtractor={(row) => row.key}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        onScrollBeginDrag={hideRevealed}
         onScroll={controls.onScroll}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: bottomInset }}
@@ -1313,7 +1507,7 @@ const NavigationBody = memo(function NavigationBody({
             }}
           />
         }
-        ListEmptyComponent={<Text style={[styles.muted, { padding: 16 }]}>{emptyText}</Text>}
+        ListEmptyComponent={<Text style={[styles.muted, { padding: 20 }]}>{emptyText}</Text>}
         extraData={rowView}
         renderItem={renderItem}
       />
@@ -1327,15 +1521,19 @@ const NavigationBody = memo(function NavigationBody({
         onNewChat={() => startNewChat()}
         visible={visible}
       />
-      {/* "Chat archived", like the Chat screen's toast, floating under the header without moving the list: the archive
-          finishes here, after that screen has gone. */}
-      {archives.done && !error && !archives.notice ? <Toast key={archives.done} text={archives.done} placement="top" /> : null}
+      {/* The undo history's toast for this list (Done, Reopen, pins, a deletion), floating over it without moving it. */}
+      {historyToast ? (
+        <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: bottomInset + 8, alignItems: "center" }}>
+          <ToastPill key={historyToast.id} {...historyToast} />
+        </View>
+      ) : null}
       {busy && (
         <View
           accessible
           accessibilityRole="progressbar"
-          accessibilityLabel="Opening…"
-          style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: withAlpha(colors.page, 0.9) }]}
+          accessibilityLabel="Opening..."
+          accessibilityLiveRegion="polite"
+          style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: `${colors.page}e6` }]}
         >
           <LoadingLogo size={64} />
         </View>
@@ -1351,6 +1549,11 @@ type RowActions = {
   startNewChat: (prefill?: string) => void;
   startWithoutProject: () => Promise<void>;
   foldChats: () => void;
+  foldDone: () => void;
+  /** Folds or unfolds the subchats under the parent row `key`. */
+  foldSubchats: (key: string) => void;
+  /** A subchat's row on a wide iPad: its family's top Chat routed, the subchat open beside it. */
+  enterSubchat: (hostId: string, projectPath: string, chatId: number, root: number) => void;
   load: (hostId: string, projectPath: string) => Promise<unknown>;
 };
 /** What every row reads besides its own item; a change re-renders the rows on screen. */
@@ -1373,6 +1576,10 @@ type RowView = {
   copyOf: (hostId: string, projectPath: string) => ProjectCopy | undefined;
   clientOf: (hostId: string) => Client | null;
   worktreeForLinks: (projectPath: string, worktreePath?: string) => { project_id: string; worktree_path: string } | undefined;
+  /** Each computer's Done retention in hours (done-retention.ts); a computer missing from it can't keep Done. */
+  doneHours: Record<string, number>;
+  /** The list's own color, under every row. */
+  background: string;
   actions: RowActions;
 };
 /** One row of the list; memoized, so only a row whose item or view changed renders again. */
@@ -1398,15 +1605,18 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     copyOf,
     clientOf,
     worktreeForLinks,
-    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, load },
+    doneHours,
+    background,
+    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, enterSubchat, load },
   } = view;
-  if (item.kind === "section") return <SectionLabel style={{ paddingTop: 16, paddingBottom: 8 }}>{item.name}</SectionLabel>;
+  if (item.kind === "section")
+    return <Text style={[s.detail, { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6, fontWeight: "500" }]}>{item.name}</Text>;
   if (item.kind === "offline") return <OfflineLine hostIds={item.hostIds} />;
   if (item.kind === "divider") return <View style={[s.divider, { backgroundColor: colors.line }]} />;
   if (item.kind === "chatsGroup")
     // Styled like a Project group: a tap folds it, a long press opens its menu, + starts a Chat without a Project.
     return (
-      <View style={[s.project, { opacity: item.offline ? DISABLED_OPACITY.row : 1 }]}>
+      <View style={[s.project, { opacity: item.offline ? 0.6 : 1 }]}>
         <PullDown
           label={`${item.expanded ? "Collapse" : "Expand"} ${CHATS_GROUP_LABEL}`}
           title={CHATS_GROUP_LABEL}
@@ -1422,7 +1632,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             </Text>
             {!item.expanded && (
               <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                {`${item.count} ${item.count === 1 ? "Chat" : "Chats"}`}
+                {`${item.count} ${item.count === 1 ? "chat" : "chats"}`}
               </Text>
             )}
             <View style={{ flex: 1 }} />
@@ -1433,6 +1643,65 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         <IconButton label="New Chat without a Project" icon={Add01Icon} size={44} disabled={busy} onPress={() => void startWithoutProject()} />
       </View>
     );
+  if (item.kind === "doneHeader")
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Done, ${item.count} ${item.count === 1 ? "chat" : "chats"}`}
+        accessibilityState={{ expanded: item.expanded }}
+        onPress={foldDone}
+        style={[s.project, { marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line }]}
+      >
+        <View style={s.projectTitle}>
+          <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
+          <Text style={[s.secondary, { fontWeight: "600", color: colors.ink2 }]}>Done</Text>
+          <Text style={[s.secondary, { color: colors.ink3, fontVariant: ["tabular-nums"] }]}>{item.count}</Text>
+        </View>
+      </Pressable>
+    );
+  if (item.kind === "done") {
+    const offline = item.reach === "offline";
+    const countdown = doneCountdown(item.chat, retentionOf(doneHours, item.hostId), now);
+    return (
+      <ChatSwipeRow done unread={false} disabled={offline || !copyOf(item.hostId, item.path)} background={background} onAction={(action) => act(item, action)}>
+        <View style={{ flexDirection: "row", alignItems: "center", opacity: offline ? 0.6 : 1 }}>
+          {/* A long press or the ⋯ button offers Reopen, so leaving Done needn't be found by swiping. */}
+          <PullDown
+            label={`${item.title}, Done${item.many ? `, on ${item.hostName}` : ""}${countdown ? `, archived in ${countdown}` : ""}`}
+            title={item.title}
+            sections={offline ? [] : DONE_MENU}
+            onSelect={(action) => void act(item, action)}
+            onPress={() => void enter(item.hostId, item.path, item.chat.id)}
+            style={{ flex: 1 }}
+          >
+            <View style={[s.doneRow, { paddingRight: 0 }]}>
+              <Icon icon={CheckmarkCircle02Icon} tone="ink4" size={18} />
+              {/* With two or more computers, the one the Chat lives on goes under its title, so both stay readable. */}
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Text numberOfLines={1} style={{ fontSize: 16, color: colors.ink3 }}>
+                  {item.title}
+                </Text>
+                {item.many && <ComputerTag name={item.hostName} offline={offline} />}
+              </View>
+              {countdown && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Icon icon={HourglassIcon} tone="ink3" size={12} />
+                  <Text style={[s.detail, { fontWeight: "500", fontVariant: ["tabular-nums"] }]}>{countdown}</Text>
+                </View>
+              )}
+            </View>
+          </PullDown>
+          {!offline && (
+            <PullDown label={`Actions for ${item.title}`} title={item.title} sections={DONE_MENU} onSelect={(action) => void act(item, action)}>
+              <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
+                <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
+              </View>
+            </PullDown>
+          )}
+        </View>
+      </ChatSwipeRow>
+    );
+  }
   if (item.kind === "start")
     return (
       <EmptyState
@@ -1449,7 +1718,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         accessibilityLabel={`New Chat in ${item.name}${item.many ? `, ${item.hostName}` : ""}`}
         disabled={busy || offline}
         onPress={() => void enter(item.hostId, item.path)}
-        style={({ pressed }) => [s.projectHit, pressStyle({ pressed, disabled: offline, kind: "row" })]}
+        style={({ pressed }) => [s.projectHit, { opacity: offline ? 0.6 : 1, backgroundColor: pressed ? colors.hover : "transparent" }]}
       >
         {item.members ? (
           <ProjectIcons client={clientOf(item.hostId)} projects={item.members} />
@@ -1479,7 +1748,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
     // A tap folds the group; a long press opens the Project's menu.
     return (
-      <View style={[s.project, { opacity: offline ? DISABLED_OPACITY.row : 1 }]}>
+      <View style={[s.project, { opacity: offline ? 0.6 : 1 }]}>
         <PullDown
           label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
           title={item.name}
@@ -1495,7 +1764,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             </Text>
             {(item.chip || !item.expanded) && (
               <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "Chat" : "Chats"}`]
+                {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
                   .filter(Boolean)
                   .join(" · ")}
               </Text>
@@ -1527,10 +1796,10 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         accessibilityRole="button"
         accessibilityLabel={`${item.snippet}, in ${item.title}, ${item.project}`}
         onPress={() => void enter(item.hostId, item.path, item.chat.id)}
-        style={({ pressed }) => [s.chat, pressStyle({ pressed, kind: "row" })]}
+        style={({ pressed }) => [s.chat, { backgroundColor: pressed ? colors.hover : "transparent" }]}
       >
         <View style={[s.chatBody, { flex: 1 }]}>
-          <View style={{ flex: 1, gap: 4 }}>
+          <View style={{ flex: 1, gap: 5 }}>
             <Text numberOfLines={2} style={s.chatTitle}>
               {item.snippet.slice(0, start)}
               <Text style={{ fontWeight: "600" }}>{item.snippet.slice(start, end)}</Text>
@@ -1588,9 +1857,10 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       <Icon icon={Link04Icon} tone="ink3" size={12} />
     </View>
   ) : null;
-  const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : MARK_LABEL[item.mark];
-  // Status words take the tone's -ink text shade (inkFor in theme.ts); icons keep the fill.
-  const markColor = tone === "ink3" ? colors.ink3 : colors[`${tone}Ink` as const];
+  const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
+  // A working Chat says so with its spinner alone, as on desktop; its words stay for VoiceOver.
+  const markWord = item.mark === "running" || item.mark === "background" ? "" : markLabel;
+  const markColor = inkFor(colors, tone);
   // A PR link opens the Chat and then its PR there, for a Chat of this computer with a Worktree of its own.
   const openPullRequest =
     item.hostId === currentHostId && !copy?.project.link && !item.pending
@@ -1599,6 +1869,50 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           void enter(item.hostId, item.path, item.chat.id);
         }
       : undefined;
+  // A Mac that keeps Done answers its retention (done-retention.ts); an older one ignores Done, so its rows archive instead.
+  const doneable = doneHours[item.hostId] !== undefined;
+  // A subchat opens beside its family's top Chat where a wide iPad shows two (subchat-rows.ts).
+  const openRow = () => {
+    if (archiving) return;
+    if (item.subchat && item.root !== undefined && wide && !item.pending) enterSubchat(item.hostId, item.path, item.chat.id, item.root);
+    else void enter(item.hostId, item.path, item.chat.id, item.pending);
+  };
+  const family = item.family;
+  const familyLabel = family
+    ? `${family.folded ? "Show" : "Hide"} ${family.count} subchat${family.count === 1 ? "" : "s"}${family.asking ? ", one needs you" : ""}`
+    : "";
+  const foldFamily = () => {
+    tap();
+    foldSubchats(item.key);
+  };
+  // Every layout uses the same count on the Project icon to fold its family.
+  const familyBadge = family ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={familyLabel}
+      accessibilityState={{ expanded: !family.folded }}
+      hitSlop={12}
+      onPress={foldFamily}
+      style={[
+        s.subchatBadge,
+        {
+          borderColor: selected ? selectedFill : colors.panel,
+          backgroundColor: colors.panel,
+        },
+      ]}
+    >
+      <View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          { borderRadius: 10, backgroundColor: family.asking ? colors.orange : family.folded ? colors.lineStrong : colors.accentTint },
+        ]}
+      />
+      <Text style={[s.subchatBadgeText, { color: family.asking ? "#1a1206" : family.folded ? colors.ink : colors.accentInk }]}>{family.count}</Text>
+    </Pressable>
+  ) : null;
+  // A subchat sits indented under its parent, with a line down to it.
+  const subchatGuide = item.subchat ? <View pointerEvents="none" style={[s.subchatGuide, { backgroundColor: colors.line }]} /> : null;
   const menu = chatMenu(
     item.chat,
     copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
@@ -1607,84 +1921,101 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       : null,
     offerBeside,
     !item.home,
+    doneable,
   );
   // While it archives, the row stays put under the progress and takes no taps.
   const archiving =
     archivingChats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&
     (item.hostId === currentHostId || archiveRequests.has(`${item.hostId}|${item.path}#${item.chat.id}`));
+  const rowProjectIcon = (
+    <View pointerEvents="box-none">
+      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <ProjectIcon client={clientOf(item.hostId)} path={item.members?.[0]?.path ?? item.path} size={32} />
+      </View>
+      {!archiving && familyBadge}
+    </View>
+  );
   // A Chat without a Project, in the Chats group or a search: its title, then its computer and age, never a branch or PR.
   if (item.home) {
     const detail = chatsRowDetail(item.hostName + (offline ? ", offline" : ""), item.chat.summary?.lastAt, now);
     return (
-      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? DISABLED_OPACITY.row : 1 }}>
-        <HoverView
-          style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
-          hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
-        >
-          <View
-            style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
-            accessibilityElementsHidden={archiving}
-            importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
+      <ChatSwipeRow
+        unread={!!item.chat.unread}
+        disabled={offline || !!item.pending || archiving || !!item.chat.archived || !copy}
+        doneable={doneable}
+        background={background}
+        onAction={(action) => act(item, action)}
+      >
+        <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.6 : 1 }}>
+          <HoverView
+            style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
+            hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
           >
-            <PullDown
-              label={`${title}${item.chat.pinned ? ", pinned" : ""}, ${NO_PROJECT_LABEL}, ${detail}${markLabel ? `, ${markLabel}` : ""}`}
-              title={title}
-              sections={item.pending || archiving ? [] : menu}
-              onSelect={(action) => {
-                if (!item.pending && !archiving) void act(item, action);
-              }}
-              onPress={() => {
-                if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
-              }}
-              style={{ flex: 1 }}
+            <View
+              style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
+              accessibilityElementsHidden={archiving}
+              importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
             >
-              <View style={s.chatBody}>
-                <ChatMarkIcon mark={item.mark} background={item.background} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text
-                    numberOfLines={2}
-                    style={[s.chatTitle, { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" }]}
-                  >
-                    {title}
-                  </Text>
-                  <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-                    {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                    <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, fontVariant: ["tabular-nums"] }]}>
-                      {detail}
+              <PullDown
+                label={`${title}${item.chat.pinned ? ", pinned" : ""}, ${NO_PROJECT_LABEL}, ${detail}${markLabel ? `, ${markLabel}` : ""}`}
+                title={title}
+                sections={item.pending || archiving ? [] : menu}
+                onSelect={(action) => {
+                  if (!item.pending && !archiving) void act(item, action);
+                }}
+                onPress={() => {
+                  if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
+                }}
+                style={{ flex: 1 }}
+              >
+                <View style={s.chatBody}>
+                  <ChatMarkIcon mark={item.mark} background={item.background} />
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text
+                      numberOfLines={2}
+                      style={[s.chatTitle, { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" }]}
+                    >
+                      {title}
                     </Text>
-                    {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
+                    <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
+                      {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                      <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, fontVariant: ["tabular-nums"] }]}>
+                        {detail}
+                      </Text>
+                      {!!markWord && <Text style={[s.detail, { color: markColor }]}>{markWord}</Text>}
+                      <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
+                    </View>
                   </View>
                 </View>
-              </View>
-            </PullDown>
-          </View>
-          {!item.pending && !archiving && (
-            <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
-              <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
-              </View>
-            </PullDown>
-          )}
-          {archiving && <ArchivingOverlay title={title} />}
-        </HoverView>
-      </View>
+              </PullDown>
+            </View>
+            {!item.pending && !archiving && (
+              <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
+                <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
+                  <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
+                </View>
+              </PullDown>
+            )}
+            {archiving && <ArchivingOverlay title={title} />}
+          </HoverView>
+        </View>
+      </ChatSwipeRow>
     );
   }
   const grouped = chatList === "grouped";
   const label = `${title}${item.chat.pinned ? ", pinned" : ""}, ${grouped ? item.worktree : `${item.project}, ${item.worktree}`}${markLabel ? `, ${markLabel}` : ""}${item.many ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`;
   // Under a Project several computers share, each row names its own computer first.
   const computerTag = grouped && item.shared ? <ComputerTag name={item.hostName} offline={offline} /> : null;
-  const secondLine = !!computerTag || !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
+  const secondLine = !!computerTag || !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markWord;
   // One list: inbox rows. The Project's icon, then the title with its time (a spinner while it runs, a dot when unread),
-  // then one line naming the Project, its pull requests and Linear issue, what the Chat is doing, the diff, and the
+  // then one line naming the Project, its pull requests and Linear issue, what the Chat waits on, the diff, and the
   // computer when it isn't the open one. A tap opens the Chat and a long press opens its menu: the menu covers the row,
   // under the pull request links, which keep their own taps.
   if (!grouped) {
     const running = item.mark === "running" || item.mark === "background";
     const word = item.mark === "unread" ? "" : markLabel;
     const unreadColor = colors[chatMarkTone("unread")];
-    const unreadInk = colors.accentInk;
-    const otherComputer = item.many && (item.hostId !== currentHostId || offline);
+    const otherComputer = item.many;
     const separator = <Text style={s.inboxSeparator}>·</Text>;
     // What VoiceOver reads for the row: what it shows, without the branch.
     const inboxLabel = [
@@ -1724,7 +2055,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             },
           ]
         : []),
-      ...(word
+      ...(word && markWord
         ? [
             {
               key: "mark",
@@ -1751,161 +2082,171 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       ...(otherComputer ? [{ key: "computer", node: <ComputerTag name={item.hostName} offline={offline} large /> }] : []),
     ];
     return (
-      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? DISABLED_OPACITY.row : 1 }}>
-        <HoverView
-          style={[s.inbox, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
-          hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
-        >
-          <PullDown
-            label={inboxLabel}
-            title={title}
-            sections={item.pending || archiving ? [] : menu}
-            onSelect={(action) => {
-              if (!item.pending && !archiving) void act(item, action);
-            }}
-            onPress={() => {
-              if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
-            }}
-            style={StyleSheet.absoluteFill}
-            fill
+      <ChatSwipeRow
+        unread={!!item.chat.unread}
+        disabled={offline || !!item.pending || archiving || !!item.chat.archived || !copy}
+        doneable={doneable}
+        background={background}
+        onAction={(action) => act(item, action)}
+      >
+        <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.6 : 1, ...(item.subchat ? s.subchat : null) }}>
+          {subchatGuide}
+          <HoverView
+            style={[s.inbox, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
+            hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
           >
-            <View style={{ flex: 1 }} />
-          </PullDown>
-          <View
-            pointerEvents="box-none"
-            style={[s.inboxContent, { opacity: archiving ? 0.3 : 1 }]}
-            accessibilityElementsHidden={archiving}
-            importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
-          >
-            <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              {item.members?.[0] ? (
-                <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
-              ) : (
-                <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
-              )}
-            </View>
-            <View pointerEvents="box-none" style={{ flex: 1, gap: 2 }}>
-              <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
-                {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                {linkedIcon}
-                <Text numberOfLines={1} style={[s.inboxTitle, { color: colors.ink, fontWeight: item.chat.unread ? "600" : "500" }]}>
-                  {title}
-                </Text>
-                {running ? (
-                  <SpinnerRing size={16} tone="accent" />
-                ) : (
-                  <>
-                    {lastAt !== undefined && (
-                      <Text style={[s.inboxTime, item.chat.unread && { color: unreadInk, fontWeight: "600" }]}>{activityAgo(lastAt, now)}</Text>
-                    )}
-                    {item.chat.unread && <View style={[s.unread, { backgroundColor: unreadColor }]} />}
-                  </>
-                )}
+            <PullDown
+              label={inboxLabel}
+              title={title}
+              sections={item.pending || archiving ? [] : menu}
+              onSelect={(action) => {
+                if (!item.pending && !archiving) void act(item, action);
+              }}
+              onPress={openRow}
+              style={StyleSheet.absoluteFill}
+              fill
+            >
+              <View style={{ flex: 1 }} />
+            </PullDown>
+            <View
+              pointerEvents="box-none"
+              style={[s.inboxContent, { opacity: archiving ? 0.3 : 1 }]}
+              accessibilityElementsHidden={archiving}
+              importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
+            >
+              {rowProjectIcon}
+              <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
+                <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
+                  {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                  {linkedIcon}
+                  <Text numberOfLines={1} style={[s.inboxTitle, { color: colors.ink, fontWeight: item.chat.unread ? "600" : "500" }]}>
+                    {title}
+                  </Text>
+                  {running ? (
+                    <SpinnerRing size={12} tone="accent" />
+                  ) : (
+                    <>
+                      {lastAt !== undefined && (
+                        <Text style={[s.inboxTime, item.chat.unread && { color: unreadColor, fontWeight: "600" }]}>{activityAgo(lastAt, now)}</Text>
+                      )}
+                      {item.chat.unread && <View style={[s.unread, { backgroundColor: unreadColor }]} />}
+                    </>
+                  )}
+                </View>
+                <View pointerEvents="box-none" style={s.inboxLine}>
+                  {parts.map((part, at) => (
+                    <View
+                      key={part.key}
+                      pointerEvents={part.links ? "box-none" : "none"}
+                      accessibilityElementsHidden={!part.links}
+                      importantForAccessibility={part.links ? "auto" : "no-hide-descendants"}
+                      style={[s.inboxPart, !part.links && { flexShrink: 1 }]}
+                    >
+                      {at > 0 && <View pointerEvents="none">{separator}</View>}
+                      {part.node}
+                    </View>
+                  ))}
+                </View>
               </View>
-              <View pointerEvents="box-none" style={s.inboxLine}>
-                {parts.map((part, at) => (
-                  <View
-                    key={part.key}
-                    pointerEvents={part.links ? "box-none" : "none"}
-                    accessibilityElementsHidden={!part.links}
-                    importantForAccessibility={part.links ? "auto" : "no-hide-descendants"}
-                    style={[s.inboxPart, !part.links && { flexShrink: 1 }]}
-                  >
-                    {at > 0 && <View pointerEvents="none">{separator}</View>}
-                    {part.node}
-                  </View>
-                ))}
-              </View>
             </View>
-          </View>
-          {archiving && <ArchivingOverlay title={title} />}
-        </HoverView>
-      </View>
+            {archiving && <ArchivingOverlay title={title} />}
+          </HoverView>
+        </View>
+      </ChatSwipeRow>
     );
   }
   // A tap opens the Chat and a long press opens its ⋯ menu, as on desktop's sidebar.
   return (
-    <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? DISABLED_OPACITY.row : 1 }}>
-      <HoverView
-        style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
-        hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
-      >
-        <View
-          style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
-          accessibilityElementsHidden={archiving}
-          importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
+    <ChatSwipeRow
+      unread={!!item.chat.unread}
+      disabled={offline || !!item.pending || archiving || !!item.chat.archived || !copy}
+      doneable={doneable}
+      background={background}
+      onAction={(action) => act(item, action)}
+    >
+      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.6 : 1, ...(item.subchat ? s.subchat : null) }}>
+        {subchatGuide}
+        <HoverView
+          style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
+          hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
         >
-          <PullDown
-            label={label}
-            title={title}
-            sections={item.pending || archiving ? [] : menu}
-            onSelect={(action) => {
-              if (!item.pending && !archiving) void act(item, action);
-            }}
-            onPress={() => {
-              if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
-            }}
-            style={{ flex: 1 }}
+          {family && <View style={{ marginLeft: 12, opacity: archiving ? 0.3 : 1 }}>{rowProjectIcon}</View>}
+          <View
+            style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
+            accessibilityElementsHidden={archiving}
+            importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
           >
-            <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
-              <ChatMarkIcon mark={item.mark} background={item.background} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text
-                  numberOfLines={hasChips ? 1 : 2}
-                  style={[s.chatTitle, { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" }]}
-                >
-                  {title}
-                </Text>
-                {!hasChips && secondLine && (
-                  <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-                    {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                    {linkedIcon}
-                    {computerTag}
-                    {!copy?.project.link && !!branchLine && <Icon icon={GitBranchIcon} tone="ink3" size={12} />}
-                    {!!branchLine && (
-                      <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                        {branchLine}
-                      </Text>
-                    )}
-                    {facts}
-                    {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
-                  </View>
-                )}
-              </View>
-            </View>
-          </PullDown>
-          {hasChips && (
-            <View>
-              <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue} onOpenPullRequest={openPullRequest}>
-                {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                {linkedIcon}
-                {computerTag}
-                {facts}
-                {!!markLabel && (
-                  <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: markColor }]}>
-                    {markLabel}
+            <PullDown
+              label={label}
+              title={title}
+              sections={item.pending || archiving ? [] : menu}
+              onSelect={(action) => {
+                if (!item.pending && !archiving) void act(item, action);
+              }}
+              onPress={openRow}
+              style={{ flex: 1 }}
+            >
+              <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
+                <ChatMarkIcon mark={item.mark} background={item.background} />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Text
+                    numberOfLines={hasChips ? 1 : 2}
+                    style={[s.chatTitle, { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" }]}
+                  >
+                    {title}
                   </Text>
-                )}
-              </ChatPullRequestChips>
-            </View>
+                  {!hasChips && secondLine && (
+                    <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
+                      {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                      {linkedIcon}
+                      {computerTag}
+                      {!copy?.project.link && !!branchLine && <Icon icon={GitBranchIcon} tone="ink3" size={12} />}
+                      {!!branchLine && (
+                        <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+                          {branchLine}
+                        </Text>
+                      )}
+                      {facts}
+                      {!!markWord && <Text style={[s.detail, { color: markColor }]}>{markWord}</Text>}
+                      <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
+                    </View>
+                  )}
+                </View>
+              </View>
+            </PullDown>
+            {hasChips && (
+              <View>
+                <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue} onOpenPullRequest={openPullRequest}>
+                  {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                  {linkedIcon}
+                  {computerTag}
+                  {facts}
+                  {!!markWord && (
+                    <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: markColor }]}>
+                      {markWord}
+                    </Text>
+                  )}
+                  <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
+                </ChatPullRequestChips>
+              </View>
+            )}
+          </View>
+          {!item.pending && !archiving && (
+            <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
+              <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
+                <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
+              </View>
+            </PullDown>
           )}
-        </View>
-        {!item.pending && !archiving && (
-          <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
-            <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-              <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
-            </View>
-          </PullDown>
-        )}
-        {archiving && <ArchivingOverlay title={title} />}
-      </HoverView>
-    </View>
+          {archiving && <ArchivingOverlay title={title} />}
+        </HoverView>
+      </View>
+    </ChatSwipeRow>
   );
 });
 
-/** A button in the list's header capsule; the capsule draws the glass behind them all. Not the HeaderButton primitive: a
- * press tints instead of fading (see below). */
-function CapsuleButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
+/** A button in the list's header capsule; the capsule draws the glass behind them all. */
+function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
   const s = useS();
   const { colors } = useTheme();
   // A press tints the glass instead of fading it: UIKit drops Liquid Glass for good when an ancestor's alpha changes.
@@ -1913,7 +2254,7 @@ function CapsuleButton({ label, icon, onPress }: { label: string; icon: IconData
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      hitSlop={hitSlopFor(40)}
+      hitSlop={4}
       onPress={() => {
         tap();
         onPress();
@@ -1922,7 +2263,7 @@ function CapsuleButton({ label, icon, onPress }: { label: string; icon: IconData
     >
       {({ pressed }) => (
         <>
-          {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.full, backgroundColor: colors.hover }]} />}
+          {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 20, backgroundColor: colors.hover }]} />}
           <Icon icon={icon} tone="ink" size={20} />
         </>
       )}
@@ -1939,7 +2280,7 @@ function HeaderGlass() {
       glassType="regular"
       isInteractive={false}
       reducedTransparencyFallbackColor={colors.surface}
-      style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
+      style={[StyleSheet.absoluteFill, { borderRadius: 20, borderCurve: "continuous" }]}
     />
   );
 }
@@ -1963,21 +2304,9 @@ function OfflineLine({ hostIds }: { hostIds: string[] }) {
   };
   return (
     <View style={s.offlineLine}>
-      <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-        {hostIds.length === 1 ? "1 computer offline" : `${hostIds.length} computers offline`}
-      </Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Retry offline computers"
-        accessibilityState={{ disabled: retrying, busy: retrying }}
-        disabled={retrying}
-        hitSlop={{ left: 8, right: 8 }}
-        onPress={retry}
-        style={({ pressed }) => [{ minHeight: 44, justifyContent: "center" }, pressStyle({ pressed, disabled: retrying })]}
-      >
-        <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>
-          {retrying ? "Retrying…" : "Retry"}
-        </Text>
+      <Text style={{ color: colors.ink3, fontSize: 13 }}>{hostIds.length === 1 ? "1 computer offline" : `${hostIds.length} computers offline`}</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="Retry offline computers" disabled={retrying} hitSlop={8} onPress={retry}>
+        <Text style={{ color: colors.ink3, fontSize: 13, fontWeight: "600", opacity: retrying ? 0.5 : 1 }}>{retrying ? "Retrying..." : "Retry"}</Text>
       </Pressable>
     </View>
   );
@@ -1989,7 +2318,7 @@ function ComputerTag({ name, offline, chip = false, large = false }: { name: str
   const { colors } = useTheme();
   return (
     <View style={[{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }, chip && s.chip]}>
-      <Icon icon={offline ? CloudOffIcon : isDesktopComputer(name) ? ComputerIcon : LaptopIcon} tone={offline ? "orange" : "ink3"} size={12} />
+      <Icon icon={offline ? CloudOffIcon : isDesktopComputer(name) ? ComputerIcon : LaptopIcon} tone={offline ? "orange" : "ink3"} size={large ? 14 : 13} />
       <Text numberOfLines={1} style={[large ? s.inboxText : s.detail, { flexShrink: 1 }, offline && { color: colors.orangeInk }]}>
         {offline ? `${name}, offline` : name}
       </Text>
@@ -1999,31 +2328,60 @@ function ComputerTag({ name, offline, chip = false, large = false }: { name: str
 
 const makeS = (colors: Palette) =>
   StyleSheet.create({
-    secondary: { color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
-    detail: { color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
-    headerGroup: { flexDirection: "row", alignItems: "center", height: 40, paddingHorizontal: 2, borderRadius: radius.full, borderCurve: "continuous" },
-    headerButton: { width: 40, height: 40, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
+    secondary: { color: colors.ink2, fontSize: 15 },
+    detail: { color: colors.ink2, fontSize: 12 },
+    headerGroup: { flexDirection: "row", alignItems: "center", height: 40, paddingHorizontal: 2, borderRadius: 20, borderCurve: "continuous" },
+    headerButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+    startEmpty: { alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 80 },
+    startTitle: { color: colors.ink, fontSize: 17, fontWeight: "600", textAlign: "center", marginBottom: 14 },
+    startCard: {
+      alignSelf: "stretch",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      padding: 16,
+      borderRadius: radius.sheet,
+      borderCurve: "continuous",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.line,
+    },
     projectHit: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingHorizontal: 16 },
     headerDot: { position: "absolute", right: 4, top: 4, width: 8, height: 8, borderRadius: radius.full },
-    chip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.field },
+    chip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderCurve: "continuous", backgroundColor: colors.field },
     project: { flexDirection: "row", alignItems: "center", marginTop: 12, paddingHorizontal: 8 },
+    doneRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, paddingHorizontal: 16 },
     divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16, marginTop: 12 },
     projectTitle: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8 },
     chat: { flexDirection: "row", alignItems: "center" },
+    subchat: { paddingLeft: 16 },
+    subchatGuide: { position: "absolute", left: 24, top: 0, bottom: 0, width: StyleSheet.hairlineWidth },
+    subchatBadge: {
+      position: "absolute",
+      right: -6,
+      bottom: -6,
+      minWidth: 20,
+      height: 20,
+      paddingHorizontal: 4,
+      borderRadius: 10,
+      borderWidth: 2,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    subchatBadgeText: { fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
     grouped: { marginVertical: 2, marginHorizontal: 8, borderRadius: radius.control, borderCurve: "continuous" },
-    chatBody: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingLeft: 12, paddingVertical: 8 },
+    chatBody: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 56, paddingLeft: 12, paddingVertical: 8 },
     line: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 },
     unread: { width: 8, height: 8, borderRadius: radius.full },
     inbox: { position: "relative" },
     inboxContent: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
     inboxLine: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 20, overflow: "hidden" },
-    inboxTitle: { flex: 1, fontSize: type.callout, lineHeight: lineHeight.callout },
-    inboxTime: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontVariant: ["tabular-nums"] },
-    inboxText: { color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote },
-    inboxSeparator: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote },
+    inboxTitle: { flex: 1, fontSize: 16, lineHeight: 21 },
+    inboxTime: { color: colors.ink3, fontSize: 13, fontVariant: ["tabular-nums"] },
+    inboxText: { color: colors.ink2, fontSize: type.subheadline },
+    inboxSeparator: { color: colors.ink3, fontSize: type.subheadline },
     inboxPart: { flexDirection: "row", alignItems: "center", gap: 6 },
-    chatTitle: { color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
+    chatTitle: { color: colors.ink, fontSize: 15, lineHeight: 20 },
     notice: { minHeight: 44, justifyContent: "center", paddingLeft: 42, paddingRight: 12 },
-    offlineLine: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16 },
+    offlineLine: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16 },
   });
 const useS = createStylesHook(makeS);

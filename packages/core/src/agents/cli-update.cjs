@@ -4,13 +4,35 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { inspectCli, parseVersion, isAtLeast, MIN_VERSIONS } = require("./cli.cjs");
-const { installDirs, mergePath, resolveExecutable } = require("./environment.cjs");
+const { lastLine } = require("./events.cjs");
+const { cliName } = require("@milagre/shared/providers");
+const { installDirs, mergePath, refreshInstallPath, resolveExecutable } = require("./environment.cjs");
+
+// The official installers download a whole release, which takes longer than an npm or self update.
+const UPDATE_TIMEOUT_MS = 120_000;
+const INSTALLER_TIMEOUT_MS = 300_000;
+// The official installers, for a computer that has no CLI yet. Neither needs Node. Codex's asks questions unless
+// CODEX_NON_INTERACTIVE is set; Claude's asks none.
+const UNIX_INSTALLERS = {
+  claude: "curl -fsSL https://claude.ai/install.sh | bash -s latest",
+  codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+};
+const WINDOWS_INSTALLERS = {
+  claude: "irm https://claude.ai/install.ps1 | iex",
+  codex: "irm https://chatgpt.com/codex/install.ps1 | iex",
+};
+const INSTALLER_ENV = { CODEX_NON_INTERACTIVE: "1" };
+
+// Windows PowerShell from System32, never one found on PATH: a Project must not supply the program that installs.
+function windowsPowerShell(env = process.env) {
+  return path.win32.join(env.SystemRoot || env.windir || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
 
 // `firstDirs` go ahead of PATH, so the update runs with the node and npm that sit beside the CLI being updated.
-function runCommand(cmd, execImpl = exec, firstDirs = []) {
+function runCommand(cmd, execImpl = exec, firstDirs = [], { timeout = UPDATE_TIMEOUT_MS, extraEnv = {} } = {}) {
   return new Promise((resolve) => {
-    const env = { ...process.env, PATH: mergePath(firstDirs, process.env.PATH, installDirs()) };
-    execImpl(cmd, { encoding: "utf8", timeout: 120_000, env }, (error, stdout, stderr) => {
+    const env = { ...process.env, ...extraEnv, PATH: mergePath(firstDirs, process.env.PATH, installDirs()) };
+    execImpl(cmd, { encoding: "utf8", timeout, env }, (error, stdout, stderr) => {
       resolve({
         code: error?.code ?? (error ? 1 : 0),
         error: error ? error.message || String(stderr || "") : null,
@@ -57,42 +79,42 @@ function linkNewestClaudeVersion(home = os.homedir()) {
   }
 }
 
-/**
- * Updates an agent CLI. For Claude:
- * 1. Checks if a compliant version already exists in ~/.local/share/claude/versions
- * 2. Tries `claude install --force latest`
- * 3. Falls back to `curl -fsSL https://claude.ai/install.sh | bash -s latest`
- * 4. Ensures the symlink points to the newest compliant version
- */
-async function runWindowsCliUpdate(name, { inspect = inspectCli, resolve = resolveExecutable, execFileImpl = execFile } = {}) {
+// Windows: each step runs a program by its absolute path, with its arguments kept out of any shell. A CLI that is
+// there updates itself first; one that isn't comes from the official PowerShell installer, then npm when Node is
+// set up. After each step PATH takes in the folders an installer made, so the new CLI is found without a restart.
+async function runWindowsCliUpdate(
+  name,
+  { inspect = inspectCli, resolve = resolveExecutable, execFileImpl = execFile, refresh = refreshInstallPath, env = process.env } = {},
+) {
   if (!["claude", "codex"].includes(name)) return { ok: false, error: `Unknown provider: ${name}` };
   let status = await inspect(name);
   if (name === "claude" && !status.problem) return { ok: true, version: status.version };
+  const installed = Boolean(await resolve(name));
+  const installer = [windowsPowerShell(env), ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_INSTALLERS[name]], INSTALLER_TIMEOUT_MS];
+  const npm = ["npm", ["install", "-g", name === "claude" ? "@anthropic-ai/claude-code@latest" : "@openai/codex@latest"]];
   const commands =
     name === "claude"
-      ? [
-          ["claude", ["install", "--force", "latest"]],
-          ["npm", ["install", "-g", "@anthropic-ai/claude-code@latest"]],
-          ["claude", ["update"]],
-        ]
-      : [
-          ["codex", ["update"]],
-          ["npm", ["install", "-g", "@openai/codex@latest"]],
-        ];
+      ? installed
+        ? [["claude", ["install", "--force", "latest"]], installer, npm, ["claude", ["update"]]]
+        : [installer, npm]
+      : installed
+        ? [["codex", ["update"]], npm, installer]
+        : [installer, npm];
   let failure;
-  for (const [program, args] of commands) {
-    const file = await resolve(program);
+  for (const [program, args, timeout = UPDATE_TIMEOUT_MS] of commands) {
+    const file = path.win32.isAbsolute(program) ? program : await resolve(program);
     if (file) {
       failure = await new Promise((done) =>
         execCommand(
           file,
           args,
-          { encoding: "utf8", timeout: 120000, windowsHide: true },
-          (error, _stdout, stderr) => done(error ? error.message || String(stderr) : null),
+          { encoding: "utf8", timeout, windowsHide: true, env: { ...env, ...INSTALLER_ENV } },
+          (error, _stdout, stderr) => done(error ? lastLine(stderr) || error.message : null),
           execFileImpl,
         ),
       );
     } else failure = `${program} is not installed on PATH.`;
+    refresh();
     status = await inspect(name);
     if (!status.problem) return { ok: true, version: status.version };
   }
@@ -170,69 +192,46 @@ async function upgradeRelease(name, deps) {
 
 async function runCliUpdate(name, deps = {}) {
   if (name === "antigravity") return updateAntigravity(deps);
+  // kiro-cli updates itself; Milagre doesn't install it (docs/adr/0007-kiro-over-acp.md).
+  if (name === "kiro")
+    return { ok: false, error: "Kiro CLI is installed and updated outside Milagre: `brew install --cask kiro-cli` installs it, `kiro-cli update` updates it." };
   if (deps.targetVersion) {
     if (!["claude", "codex"].includes(name) || !/^\d+\.\d+\.\d+$/.test(deps.targetVersion)) return { ok: false, error: "Invalid provider release." };
     return upgradeRelease(name, deps);
   }
   if ((deps.platform || process.platform) === "win32") return runWindowsCliUpdate(name, deps);
-  const { inspect = inspectCli, execImpl = exec, linkVersion = linkNewestClaudeVersion } = deps;
-
-  if (name === "claude") {
-    // 1. Check if a newer version is already on disk (e.g. downloaded by a previous install)
-    linkVersion();
-    let status = await inspect("claude");
-    if (!status.problem) {
-      return { ok: true, version: status.version };
-    }
-
-    // 2. Try claude install --force latest
-    await runCommand("claude install --force latest", execImpl);
-    linkVersion();
-    status = await inspect("claude");
-    if (!status.problem) {
-      return { ok: true, version: status.version };
-    }
-
-    // 3. Fallback to install.sh latest
-    const fallback = await runCommand(
-      process.platform === "win32" ? "npm install -g @anthropic-ai/claude-code@latest" : "curl -fsSL https://claude.ai/install.sh | bash -s latest",
-      execImpl,
-    );
-    linkVersion();
-    status = await inspect("claude");
-    if (!status.problem) {
-      return { ok: true, version: status.version };
-    }
-
-    // 4. Try standard claude update as last resort
-    await runCommand("claude update", execImpl);
-    linkVersion();
-    status = await inspect("claude");
-    if (!status.problem) {
-      return { ok: true, version: status.version };
-    }
-
-    return {
-      ok: false,
-      version: status.version,
-      error: status.problem || fallback.error || "Claude update did not meet the required version.",
-    };
+  const { inspect = inspectCli, execImpl = exec, linkVersion = linkNewestClaudeVersion, refresh = refreshInstallPath } = deps;
+  if (!["claude", "codex"].includes(name)) return { ok: false, error: `Unknown provider: ${name}` };
+  // A newer Claude may already be on disk, downloaded by an earlier install.
+  if (name === "claude") linkVersion();
+  let status = await inspect(name);
+  if (name === "claude" && !status.problem) return { ok: true, version: status.version };
+  // A CLI that is there updates itself; one that isn't comes from the official installer, then npm.
+  const installed = Boolean(status.command);
+  const installer = [UNIX_INSTALLERS[name], { timeout: INSTALLER_TIMEOUT_MS, extraEnv: INSTALLER_ENV }];
+  const commands =
+    name === "claude"
+      ? installed
+        ? [["claude install --force latest"], installer, ["claude update"]]
+        : [installer]
+      : installed
+        ? [["codex update"], ["npm install -g @openai/codex@latest"]]
+        : [installer, ["npm install -g @openai/codex@latest"]];
+  let failure;
+  for (const [command, options] of commands) {
+    const result = await runCommand(command, execImpl, [], options);
+    failure = result.error ? lastLine(result.stderr) || result.error : failure;
+    if (name === "claude") linkVersion();
+    // The installer may have made ~/.local/bin, which PATH didn't have when Milagre started.
+    refresh();
+    status = await inspect(name);
+    if (!status.problem) return { ok: true, version: status.version };
   }
-
-  if (name === "codex") {
-    const result = await runCommand("codex update", execImpl);
-    const status = await inspect("codex");
-    if (!status.problem) {
-      return { ok: true, version: status.version };
-    }
-    return {
-      ok: false,
-      version: status.version,
-      error: status.problem || result.error || "Codex update did not meet the required version.",
-    };
-  }
-
-  return { ok: false, error: `Unknown provider: ${name}` };
+  return {
+    ok: false,
+    version: status.version,
+    error: (status.command ? status.problem || failure : failure || status.problem) || `${cliName(name)} could not be installed.`,
+  };
 }
 
 module.exports = { runCliUpdate, linkNewestClaudeVersion };

@@ -42,6 +42,17 @@ class ProjectStates {
   worktreePaths() {
     return [...this.states.values()].flatMap((state) => Object.values(state.worktrees ?? {}).map((worktree) => worktree.path));
   }
+  /** The loaded Project a reconciled Worktree folder belongs to, or null; never starts a Git process. */
+  worktreeProject(folder) {
+    for (const [projectPath, state] of this.states) if (Object.values(state.worktrees ?? {}).some((worktree) => worktree.path === folder)) return projectPath;
+    return null;
+  }
+  /** The Worktree folder of a loaded Project's Chat, or null. */
+  chatWorktreePath(projectPath, sessionId) {
+    const state = this.states.get(projectPath);
+    const worktreeId = state?.sessions?.[sessionId]?.worktree_id;
+    return (worktreeId !== undefined && state.worktrees?.[worktreeId]?.path) || null;
+  }
   /** The latest state. It may leave out unloaded Chats' messages (see `messages`); read those with the methods below. */
   async get(projectPath) {
     return (await this.update(projectPath, (state) => state, { chats: [] })).state;

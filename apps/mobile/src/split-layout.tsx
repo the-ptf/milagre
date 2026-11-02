@@ -1,3 +1,4 @@
+import { toggleDictationShortcut } from "./dictation-shortcut";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { router, usePathname, type Href } from "expo-router";
@@ -17,6 +18,10 @@ import { isOpenChat, requestNavigation } from "./navigation-commands";
 import { useSession } from "./session";
 import { duration, easing, radius } from "./design-tokens";
 import { useTheme } from "./theme";
+import * as Haptics from "expo-haptics";
+import { ArrowHorizontalIcon } from "@hugeicons/core-free-icons";
+import { Icon } from "./icons";
+
 import { scaledTiming, useMotionScale } from "./motion";
 
 /**
@@ -143,18 +148,32 @@ function RightDock() {
       }),
     );
   }, [shown, progress, scale]);
-  // The width it was dragged to, within the room this window has; a drag moves it frame by frame and saves it at the end.
+  // Keep both content trees at their committed width during a drag. Reflowing the transcript, native blur and panel
+  // on every touch frame stalls the iPad; only the divider follows the finger, then the layout changes once on release.
   const target = clampPanelWidth(window.width, usePanelWidth());
   const max = clampPanelWidth(window.width, Infinity);
   const width = useSharedValue(target);
   const start = useSharedValue(target);
-  // A reset or a turn of the window eases to the new width; a drag already holds it there, so that ease has nothing to do.
+  const preview = useSharedValue(target);
+  const dragging = useSharedValue(false);
+  // Rotation, accessibility actions and reset also lay out once, without animating an expensive content width.
   useEffect(() => {
-    width.set(withTiming(target, scaledTiming(SLIDE, scale)));
-  }, [target, width, scale]);
-  const resize = useMemo(() => resizeGesture(width, start, max), [width, start, max]);
+    width.set(target);
+    preview.set(target);
+    dragging.set(false);
+  }, [target, width, preview, dragging]);
+  // Widths the drag settles into, as iPadOS's divider does: the panel's own default and half the window.
+  const detents = useMemo(() => [CHANGES_WIDTH, Math.round(window.width / 2)].filter((at) => at > PANEL_MIN_WIDTH && at < max), [window.width, max]);
+  const resize = useMemo(() => resizeGesture(width, preview, start, dragging, max, detents), [width, preview, start, dragging, max, detents]);
   const slot = useAnimatedStyle(() => ({ width: progress.get() * (DOCK_GUTTER + width.get() + CARD_MARGIN) }));
   const sized = useAnimatedStyle(() => ({ width: width.get() }));
+  const divider = useAnimatedStyle(() => ({ transform: [{ translateX: dragging.get() ? start.get() - preview.get() : 0 }] }));
+  // While dragging, as in iPadOS's Split View, the panel gives way to a plain card that follows the finger. The card holds
+  // only an icon, so sizing it every frame costs nothing; the panel itself lays out once, at the width it is let go at.
+  const standIn = useAnimatedStyle(() => ({ width: preview.get(), opacity: withTiming(dragging.get() ? 1 : 0, { duration: dragging.get() ? 100 : 200 }) }));
+  const real = useAnimatedStyle(() => ({ opacity: withTiming(dragging.get() ? 0 : 1, { duration: dragging.get() ? 100 : 200 }) }));
+  const grip = useAnimatedStyle(() => ({ transform: [{ scaleY: withTiming(dragging.get() ? 1.6 : 1, { duration: duration.base }) }] }));
+  const held = useAnimatedStyle(() => ({ opacity: withTiming(dragging.get() ? 1 : 0, { duration: duration.base }) }));
   if (!mounted || !kept) return null;
   const step = (by: number) => setPanelWidth(clampPanelWidth(window.width, target + by));
   return (
@@ -162,7 +181,7 @@ function RightDock() {
       pointerEvents={shown ? "auto" : "none"}
       accessibilityElementsHidden={!shown}
       importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
-      style={[s.slot, slot]}
+      style={[s.dockSlot, slot]}
     >
       {/* Held at the slot's left edge, the card rides it in from the window's edge while the slot widens. */}
       <Animated.View
@@ -176,6 +195,7 @@ function RightDock() {
             borderColor: colors.line,
           },
           sized,
+          real,
         ]}
       >
         {/* The card sits clear of the status bar already: what it holds lays out with no safe area of its own. */}
@@ -183,8 +203,16 @@ function RightDock() {
           <RightPanel screen={kept} card visible={shown} />
         </SafeAreaInsetsContext.Provider>
       </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={[s.standIn, { top: top.top, bottom: Math.max(insets.bottom, CARD_MARGIN), backgroundColor: colors.surface, borderColor: colors.line }, standIn]}
+      >
+        <View style={[s.standInBadge, { backgroundColor: colors.page }]}>
+          <Icon icon={ArrowHorizontalIcon} tone="ink3" size={20} />
+        </View>
+      </Animated.View>
       <GestureDetector gesture={resize}>
-        <View
+        <Animated.View
           accessible
           accessibilityRole="adjustable"
           accessibilityLabel="Panel width"
@@ -193,34 +221,68 @@ function RightDock() {
           accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
           onAccessibilityAction={({ nativeEvent }) => step(nativeEvent.actionName === "increment" ? 40 : -40)}
           hitSlop={{ left: 0, right: 12, top: 0, bottom: 0 }}
-          style={[s.grabber, { top: top.top, bottom: Math.max(insets.bottom, CARD_MARGIN) }]}
+          style={[s.grabber, { top: top.top, bottom: Math.max(insets.bottom, CARD_MARGIN) }, divider]}
         >
-          <View style={[s.grip, { backgroundColor: colors.lineStrong }]} />
-        </View>
+          <Animated.View style={[s.grip, { backgroundColor: colors.lineStrong }, grip]}>
+            <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: radius.full, backgroundColor: colors.ink2 }, held]} />
+          </Animated.View>
+        </Animated.View>
       </GestureDetector>
     </Animated.View>
   );
 }
 
 /** A drag on the panel's grabber: left makes it wider, right narrower, saved once the finger lifts; a double tap resets it. */
-function resizeGesture(width: SharedValue<number>, start: SharedValue<number>, max: number) {
+function resizeGesture(
+  width: SharedValue<number>,
+  preview: SharedValue<number>,
+  start: SharedValue<number>,
+  dragging: SharedValue<boolean>,
+  max: number,
+  detents: number[],
+) {
   const drag = Gesture.Pan()
     .activeOffsetX([-4, 4])
     .onStart(() => {
       start.set(width.get());
+      preview.set(width.get());
+      dragging.set(true);
+      scheduleOnRN(pickUp);
     })
     .onUpdate((event) => {
-      width.set(Math.min(max, Math.max(PANEL_MIN_WIDTH, start.get() - event.translationX)));
+      const raw = Math.round(Math.min(max, Math.max(PANEL_MIN_WIDTH, start.get() - event.translationX)));
+      const near = detents.find((at) => Math.abs(at - raw) <= SNAP);
+      const next = near ?? raw;
+      // A tick each time it settles into a width it holds: a detent, or either end of its range.
+      const holds = (at: number) => at === PANEL_MIN_WIDTH || at === max || detents.includes(at);
+      if (next !== preview.get() && holds(next)) scheduleOnRN(tick);
+      preview.set(next);
     })
     .onEnd(() => {
-      scheduleOnRN(setPanelWidth, Math.round(width.get()));
+      width.set(preview.get());
+      scheduleOnRN(setPanelWidth, preview.get());
+    })
+    .onFinalize(() => {
+      dragging.set(false);
+      preview.set(width.get());
     });
   const reset = Gesture.Tap()
     .numberOfTaps(2)
     .onEnd(() => {
+      scheduleOnRN(pickUp);
       scheduleOnRN(setPanelWidth, CHANGES_WIDTH);
     });
   return Gesture.Race(drag, reset);
+}
+
+/** How close a drag comes to a detent before it settles there. */
+const SNAP = 16;
+function tick() {
+  void Haptics.selectionAsync();
+}
+/** A light knock as the grabber is picked up, or as a double tap puts the panel back. */
+function pickUp() {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 }
 
 const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -232,6 +294,10 @@ export function HardwareShortcuts() {
   const keybindings = useHostKeybindings(useSession().client);
   const onShortcut = useCallback(
     (command: KeybindingCommandId) => {
+      if (command === "dictation.toggle") {
+        toggleDictationShortcut();
+        return;
+      }
       if (command === "settings.open") {
         router.push("/settings");
         return;
@@ -262,17 +328,29 @@ export function HardwareShortcuts() {
   return null;
 }
 
+/** The corners of the pinned sidebar's and the docked panel's cards, which the panel's stand-in matches while it is dragged. */
+const CARD_CORNERS = { borderRadius: radius.sheet, borderCurve: "continuous" } as const;
+
 const s = StyleSheet.create({
   slot: { overflow: "hidden" },
+  dockSlot: { zIndex: 1 },
   grabber: { position: "absolute", left: 0, width: DOCK_GUTTER, alignItems: "center", justifyContent: "center" },
+  standIn: {
+    position: "absolute",
+    right: CARD_MARGIN,
+    ...CARD_CORNERS,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+  },
+  standInBadge: { width: 56, height: 56, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
   grip: { width: 4, height: 44, borderRadius: radius.full },
   card: {
     flex: 1,
     width: SIDEBAR_WIDTH,
     marginLeft: CARD_MARGIN,
-    // The iPad panels float like sheets (side-panels uses the same radius).
-    borderRadius: radius.sheet,
-    borderCurve: "continuous",
+    ...CARD_CORNERS,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },

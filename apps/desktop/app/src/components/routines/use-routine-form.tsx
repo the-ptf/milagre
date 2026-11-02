@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ModelOption, Routine, RoutineTrigger } from "@milagre/shared/model";
+import type { ModelCapabilities, ModelOption, Routine, RoutineTrigger } from "@milagre/shared/model";
+import { capabilityFor } from "@milagre/shared/model-options";
 import { PERMISSION_MODES, UI_COPY } from "@milagre/shared/model-copy";
 import { PROVIDERS, providerName } from "@milagre/shared/providers";
 import { projectOfKey } from "@milagre/shared/agent-runs";
@@ -9,6 +10,7 @@ import {
   EVERY_HOURS,
   EVERY_MINUTES,
   emptyRoutineForm,
+  fallbackApplies,
   formFromRoutine,
   formToInput,
   formToUpdate,
@@ -82,7 +84,18 @@ const LINEAR_WHEN: SelectOption<RoutineFormState["linear"]["event"]>[] = [
  * of every computer with Routines on (only the edited Routine's own computer when editing) and Linear choices, a webhook's URL with Copy and Rotate, field errors, and the submit that sends
  * `routines:create` or `routines:update` (packages/shared/routine-form validates both).
  */
-export function useRoutineForm({ initial, models, defaultProjectPath }: { initial?: RoutineWithRuns; models: ModelOption[]; defaultProjectPath?: string }) {
+export function useRoutineForm({
+  initial,
+  models,
+  capabilities = null,
+  defaultProjectPath,
+}: {
+  initial?: RoutineWithRuns;
+  models: ModelOption[];
+  /** What each reported model accepts: the fallback's efforts come from here. */
+  capabilities?: ModelCapabilities | null;
+  defaultProjectPath?: string;
+}) {
   const [state, setState] = useState<RoutineFormState>(() => {
     const zone = localZone();
     if (!initial) return { ...emptyRoutineForm(zone), projectPath: defaultProjectPath ?? "" };
@@ -101,6 +114,8 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   const [copied, setCopied] = useState(false);
   // The date picker's range starts from when the form opened.
   const [openedAt] = useState(() => Date.now());
+  // A flow: its steps carry the prompts, so the form has none, and its Runs always start a Chat of their own.
+  const [flow, setFlowState] = useState(Boolean(initial?.flow));
   const editing = Boolean(initial);
   // Comments go into the Chat linked to their issue: no Project or Each Run to pick.
   const comment = isCommentRoutine(state);
@@ -196,12 +211,21 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   /** A new Routine's trigger kind. Only a schedule can check back on a Chat; another trigger starts new Chats. */
   const setTrigger = (trigger: RoutineFormState["trigger"]) =>
     update({ trigger, runIn: trigger !== "schedule" && state.runIn === "chat" ? "worktree" : state.runIn });
+  /** A new Routine as a single prompt or a flow. A flow can't check back on an existing Chat. */
+  const setFlow = (on: boolean) => {
+    setDirty(true);
+    setErrors({});
+    setFlowState(on);
+    if (on && state.runIn === "chat") setState((current) => withRunIn(current, "worktree"));
+  };
   const placeholders = useMemo(() => placeholdersFor(draftTrigger(state)), [state]);
   const project = targets?.projects.find((entry) => entry.path === state.projectPath);
 
   /** Saves the form; a problem shows under its field and resolves null. */
   const submit = async (): Promise<RoutineSaved | null> => {
-    const result = initial ? formToUpdate(state, initial) : formToInput(state);
+    // A flow has no prompt of its own (its steps have theirs): the checks get a stand-in, and the Mac gets none back.
+    const checked = flow && !state.prompt.trim() ? { ...state, prompt: "flow" } : state;
+    const result = initial ? formToUpdate(checked, initial) : formToInput(checked);
     if (result.field !== undefined) {
       // A comment Routine shows no Project or Each Run, so their problems show under the Linear fields.
       setErrors({ [comment && ["project", "runIn", "chat"].includes(result.field) ? "workspace" : result.field]: result.error });
@@ -211,12 +235,17 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     setTopError("");
     try {
       if (initial && "patch" in result) {
-        await bridgeForKey(initial.id).updateRoutine(initial.id, result.patch as RoutineUpdate);
+        const patch = { ...(result.patch as RoutineUpdate) };
+        if (flow) delete patch.prompt;
+        await bridgeForKey(initial.id).updateRoutine(initial.id, patch);
         return { kind: "saved" };
       }
       if ("input" in result) {
         // A webhook trigger goes without a hook id: the Mac mints the URL and answers with it. The target's computer runs it.
-        const input = result.input as RoutineCreate;
+        // A new flow starts as an empty draft and stays off until it is published.
+        const input: RoutineCreate = flow
+          ? { ...(result.input as RoutineCreate), prompt: state.prompt.trim(), flow: { steps: [], publish: false } }
+          : (result.input as RoutineCreate);
         const made = await bridgeForKey(input.target.kind === "chat" ? input.target.chatId : input.target.projectPath).createRoutine(input);
         return { kind: "created", routine: made.routine, ...(made.hookUrl ? { hookUrl: made.hookUrl } : {}) };
       }
@@ -258,6 +287,30 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
         .map((model) => ({ value: model.id, label: model.name, icon: <ProviderLogo provider={provider} size={14} />, group: providerName(provider) })),
     ),
   ];
+  // The model a failed Run retries on: automatic (another installed provider's recommended model) or one picked here.
+  const fallbackOptions: SelectOption<string>[] = [
+    { value: "", label: "Retry on another provider", description: "When a Run fails on its model, it retries once on another installed provider" },
+    ...PROVIDERS.flatMap((provider) =>
+      models
+        .filter((model) => model.provider === provider)
+        .map((model) => ({
+          value: `${provider}:${model.id}`,
+          label: `Retry on ${model.name}`,
+          icon: <ProviderLogo provider={provider} size={14} />,
+          group: providerName(provider),
+        })),
+    ),
+  ];
+  const fallbackModel = state.fallbackModel ? models.find((model) => model.provider === state.fallbackProvider && model.id === state.fallbackModel) : undefined;
+  if (state.fallbackModel && !fallbackModel)
+    fallbackOptions.push({ value: `${state.fallbackProvider}:${state.fallbackModel}`, label: `Retry on ${state.fallbackModel}` });
+  const fallbackEfforts = fallbackModel ? capabilityFor(fallbackModel, capabilities).efforts : [];
+  const fallbackEffortOptions: SelectOption<string>[] = [
+    { value: "", label: "Default effort" },
+    ...fallbackEfforts.map((effort) => ({ value: effort, label: `${effort[0]!.toUpperCase()}${effort.slice(1)} effort` })),
+  ];
+  if (state.fallbackEffort && !fallbackEfforts.includes(state.fallbackEffort))
+    fallbackEffortOptions.push({ value: state.fallbackEffort, label: `${state.fallbackEffort} effort` });
   const modeOptions: SelectOption<string>[] = [
     { value: "", label: "Default mode" },
     ...PERMISSION_MODES.map((mode) => ({ value: mode.id, label: mode.name, description: mode.description })),
@@ -279,8 +332,8 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     {
       value: "chat",
       label: "An existing Chat",
-      description: state.trigger === "schedule" ? "A Heartbeat that checks back on one Chat" : "Schedules only",
-      disabled: state.trigger !== "schedule" || (editing && !heartbeat),
+      description: flow ? "Not for a flow" : state.trigger === "schedule" ? "A Heartbeat that checks back on one Chat" : "Schedules only",
+      disabled: flow || state.trigger !== "schedule" || (editing && !heartbeat),
     },
   ];
   const stopOptions: SelectOption<RoutineFormState["stop"]["kind"]>[] = [
@@ -320,9 +373,25 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     placeholders,
     whereText,
     triggerText: draftTriggerText(state),
-    ready: state.name.trim().length > 0 && state.prompt.trim().length > 0,
+    // Only a Run in a Chat of its own retries; a Heartbeat's beat and a Linear comment run on their Chat's model.
+    fallback: fallbackApplies(state),
+    fallbackValue: state.fallbackModel ? `${state.fallbackProvider}:${state.fallbackModel}` : "",
+    // Picking another model drops an effort it doesn't take.
+    setFallback: (value: string) => {
+      const split = value.indexOf(":");
+      const provider = (split > 0 ? value.slice(0, split) : "") as RoutineFormState["fallbackProvider"];
+      const model = split > 0 ? value.slice(split + 1) : "";
+      const picked = models.find((item) => item.provider === provider && item.id === model);
+      const efforts = picked ? capabilityFor(picked, capabilities).efforts : [];
+      update({ fallbackProvider: provider, fallbackModel: model, fallbackEffort: efforts.includes(state.fallbackEffort) ? state.fallbackEffort : "" });
+    },
+    flow,
+    setFlow,
+    ready: state.name.trim().length > 0 && (flow || state.prompt.trim().length > 0),
     options: {
       model: modelOptions,
+      fallback: fallbackOptions,
+      fallbackEffort: fallbackEfforts.length > 0 || state.fallbackEffort ? fallbackEffortOptions : null,
       mode: modeOptions,
       project: projectOptions,
       chat: chatOptions,

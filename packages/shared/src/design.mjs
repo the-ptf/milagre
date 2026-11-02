@@ -1,9 +1,15 @@
+import { assertDesignEditIntent } from "./design-intent.mjs";
+export { designEditIntentSchema } from "./design-intent.mjs";
+import { designError } from "./design-errors.mjs";
+export { designErrorIssues, conciseDesignError } from "./design-errors.mjs";
+import { designKitSchema, designBindingsSchema, designConsistencySchema, resolveDesignKit } from "./design-kit.mjs";
+export { designKitSchema, designKitDataSchema, validateDesignConsistency } from "./design-kit.mjs";
+import { designPaint } from "./design-colors.mjs";
 import { z } from "zod";
 import { designFontFamily, designFontFaces, validDesignFontFamily } from "./design-fonts.mjs";
 export {
   DESIGN_CATALOG_FAMILIES,
   designCatalogFont,
-  designDrawnWeight,
   designFontBuffers,
   designFontFamily,
   designFontFaces,
@@ -18,24 +24,20 @@ import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { designIcons, designIconSuggestions } from "./design-icons.mjs";
 export { designIcons } from "./design-icons.mjs";
 export { DESIGN_INK, DESIGN_PLACEHOLDER, designDefaultFill } from "./design-paint.mjs";
-export { designInterFonts } from "./design-font-data.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
 import { designDefaultFill } from "./design-paint.mjs";
-import { synchronizeDesignComponents, designInstanceRoot } from "./design-components.mjs";
+import { synchronizeDesignComponents, designInstanceRoot, detachDesignInstance } from "./design-components.mjs";
 import { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 export { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 export { designLayout, designTextLayout } from "./design-layout.mjs";
-export { designWarnings, designWarningText } from "./design-lint.mjs";
+export { designWarnings, designWarningText, designDiagnostics } from "./design-lint.mjs";
 export { createDesignInstance, detachDesignInstance, designInstanceRoot } from "./design-components.mjs";
 
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/, "Use a stable layer id with letters, numbers, dots, underscores or dashes.");
 const literalColor = z
   .string()
   .max(100)
-  .regex(
-    /^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|[a-zA-Z]{1,24}|(?:rgb|rgba|hsl|hsla)\([\d.,%\s/+-]+\))$/,
-    "Use a CSS color or a $token reference.",
-  );
+  .refine((value) => designPaint(value) !== null, "Use a valid CSS color.");
 const color = z.union([literalColor, z.string().regex(/^\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/)]);
 const coordinate = z.number().finite().min(-32000).max(32000);
 const dimension = z.number().finite().min(1).max(16000);
@@ -96,6 +98,29 @@ const nodeSchema = z
     locked: z.boolean().optional(),
     component: z.boolean().optional().describe("Mark a frame as a reusable main component. Nested components are not supported."),
     componentId: id.optional().describe("Link an instance frame to a main component id. Its children are generated and follow the main component."),
+    textStyle: id.optional().describe("Text style name in the pinned design kit."),
+    bindings: designBindingsSchema.optional().describe("Bind spacing fields and radius to named tokens in the pinned kit."),
+    componentProperties: z
+      .record(
+        id,
+        z
+          .object({
+            nodeId: id,
+            field: z.enum(["text", "icon", "hidden", "fill", "opacity"]),
+            options: z
+              .array(z.union([z.string().max(20000), z.boolean(), z.number().finite()]))
+              .min(1)
+              .max(20)
+              .optional(),
+          })
+          .strict(),
+      )
+      .optional()
+      .describe("On a main component, expose named properties bound to a source layer field. options restricts allowed states."),
+    componentValues: z
+      .record(id, z.union([z.string().max(20000), z.boolean(), z.number().finite()]))
+      .optional()
+      .describe("On an instance, values for properties exposed by its main component, such as label or icon."),
     componentSourceId: id
       .optional()
       .describe("Generated reference from an instance descendant to its main layer. Edit the main component or detach the instance."),
@@ -108,6 +133,8 @@ export const designDocumentSchema = z
     width: z.number().int().min(240).max(3840),
     height: z.number().int().min(240).max(3840),
     background: color.optional(),
+    kit: designKitSchema.optional(),
+    consistency: designConsistencySchema.optional(),
     tokens: z
       .record(id, literalColor)
       .refine((value) => Object.keys(value).length <= 200, "Use at most 200 color tokens.")
@@ -129,11 +156,34 @@ export const designDocumentInputSchema = z
     width: z.number().int().min(240).max(3840),
     height: z.number().int().min(240).max(3840),
     background: plainColor.optional(),
+    consistency: designConsistencySchema
+      .optional()
+      .describe(
+        "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
+      ),
+    kit: designKitSchema.optional().describe("Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens."),
     tokens: z.record(z.string(), z.string()).optional().describe("Color tokens by name. A color field takes a CSS color or a $name token reference."),
     nodes: z.array(z.looseObject(wireNodeShape)).max(1000),
   })
   .strict();
+const documentPatchSchema = designDocumentSchema.omit({ nodes: true, schemaVersion: true }).partial();
+const extraOperations = [
+  z.object({ op: z.literal("document"), patch: documentPatchSchema }).strict(),
+  z.object({ op: z.literal("detach"), id }).strict(),
+  z.object({ op: z.literal("duplicate"), id, newId: id, x: coordinate.optional(), y: coordinate.optional() }).strict(),
+  z
+    .object({
+      op: z.literal("unset"),
+      id,
+      fields: z
+        .array(z.enum(["parentId", "textStyle", "bindings", "componentValues"]))
+        .min(1)
+        .max(4),
+    })
+    .strict(),
+];
 export const designOperationInputSchema = z.discriminatedUnion("op", [
+  ...extraOperations,
   z.object({ op: z.literal("update"), id, patch: z.looseObject({}).describe("The layer fields to change: any design_show node field except id.") }).strict(),
   z
     .object({
@@ -146,6 +196,7 @@ export const designOperationInputSchema = z.discriminatedUnion("op", [
 ]);
 
 export const designOperationSchema = z.discriminatedUnion("op", [
+  ...extraOperations,
   z.object({ op: z.literal("update"), id, patch: nodeSchema.omit({ id: true }).partial().strict() }).strict(),
   z.object({ op: z.literal("insert"), node: nodeSchema, index: z.number().int().min(0).max(1000).optional() }).strict(),
   z.object({ op: z.literal("delete"), id }).strict(),
@@ -153,20 +204,21 @@ export const designOperationSchema = z.discriminatedUnion("op", [
 ]);
 
 function checkedDesignDocument(value, synchronize = true) {
-  const document = designDocumentSchema.parse(value);
+  const document = resolveDesignKit(designDocumentSchema.parse(value));
   if (JSON.stringify(document).length > 1000000) throw new Error("A design document is limited to 1,000,000 characters.");
   const nodes = new Map();
   for (const node of document.nodes) {
     if (nodes.has(node.id)) throw new Error(`Layer id "${node.id}" is duplicated.`);
     nodes.set(node.id, node);
   }
-  const checkColor = (value) => {
-    if (value?.startsWith("$") && !Object.hasOwn(document.tokens ?? {}, value.slice(1))) throw new Error(`Color token "${value}" does not exist.`);
+  const checkColor = (value, path) => {
+    if (value?.startsWith("$") && !Object.hasOwn(document.tokens ?? {}, value.slice(1)))
+      throw designError(`Color token "${value}" does not exist. Add it to tokens or the pinned kit.`, path);
   };
-  checkColor(document.background);
+  checkColor(document.background, ["background"]);
   for (const node of document.nodes) {
-    checkColor(node.fill);
-    checkColor(node.stroke);
+    checkColor(node.fill, ["nodes", document.nodes.indexOf(node), "fill"]);
+    checkColor(node.stroke, ["nodes", document.nodes.indexOf(node), "stroke"]);
     if (node.type === "icon") {
       if (!node.icon) throw new Error(`Icon layer "${node.id}" needs an icon name.`);
       if (!Object.hasOwn(designIcons, node.icon))
@@ -192,6 +244,17 @@ function checkedDesignDocument(value, synchronize = true) {
 
 export function validateDesignDocument(value) {
   return checkedDesignDocument(value);
+}
+
+export function validateDesignKit(value) {
+  const kit = designKitSchema.parse(value);
+  if (JSON.stringify(kit).length > 250000) throw Error("A design kit is limited to 250,000 characters.");
+  for (const [id, nodes] of Object.entries(kit.components ?? {})) {
+    const checked = validateDesignDocument({ schemaVersion: 1, width: 390, height: 844, kit: { ...kit, components: {} }, nodes });
+    const roots = checked.nodes.filter((node) => !node.parentId);
+    if (roots.length !== 1 || roots[0].id !== id || !roots[0].component) throw Error(`Kit component "${id}" needs one root main component with the same id.`);
+  }
+  return kit;
 }
 
 function belongsToComponent(byId, sourceId, componentId) {
@@ -223,13 +286,75 @@ function generatedComponentSources(document) {
 }
 
 /** Validate only the final tree, so one batch can insert children before their parent. */
-export function applyDesignOperations(document, operations) {
+export function applyDesignOperations(document, operations, intent) {
+  const before = intent === undefined ? undefined : validateDesignDocument(document);
   let result = validateDesignDocument(document);
   let previousSources = generatedComponentSources(result);
   const parsed = z.array(designOperationSchema).min(1).max(1000).parse(operations);
   for (const operation of parsed) {
+    if (operation.op === "document") {
+      const patch = operation.patch;
+      // Updating the kit adopts its colors. Explicit token overrides in this batch remain possible.
+      const tokens = patch.kit ? { ...patch.kit.colors, ...patch.tokens } : patch.tokens ? { ...result.tokens, ...patch.tokens } : result.tokens;
+      Object.assign(result, patch);
+      if (tokens) result.tokens = tokens;
+      continue;
+    }
+    if (operation.op === "detach") {
+      result = detachDesignInstance(result, operation.id)[0].document;
+      continue;
+    }
+    if (operation.op === "duplicate") {
+      const root = result.nodes.find((node) => node.id === operation.id);
+      if (!root) throw Error(`Layer "${operation.id}" does not exist.`);
+      const instance = designInstanceRoot(result, root.id);
+      if (instance && instance.id !== root.id) throw Error("Duplicate the instance root, or detach it first.");
+      const ids = new Set([root.id]);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const node of result.nodes)
+          if (ids.has(node.parentId) && !ids.has(node.id)) {
+            ids.add(node.id);
+            changed = true;
+          }
+      }
+      const copies = result.nodes.filter((node) => ids.has(node.id));
+      let copyIndex = 0;
+      const names = new Map(copies.map((node) => [node.id, node.id === root.id ? operation.newId : `${operation.newId.slice(0, 80)}-${++copyIndex}`]));
+      names.set(root.id, operation.newId);
+      if (new Set(names.values()).size !== names.size || result.nodes.some((node) => [...names.values()].includes(node.id)))
+        throw Error("Duplicate layer ids already exist. Choose another newId.");
+      for (const node of copies) {
+        const copy = { ...node, id: names.get(node.id) };
+        if (ids.has(copy.parentId)) copy.parentId = names.get(copy.parentId);
+        if (ids.has(copy.componentId)) copy.componentId = names.get(copy.componentId);
+        if (ids.has(copy.componentSourceId)) copy.componentSourceId = names.get(copy.componentSourceId);
+        if (copy.componentProperties)
+          copy.componentProperties = Object.fromEntries(
+            Object.entries(copy.componentProperties).map(([name, prop]) => [name, { ...prop, nodeId: names.get(prop.nodeId) ?? prop.nodeId }]),
+          );
+        if (node.id === root.id) {
+          copy.x = operation.x ?? (node.x ?? 0) + 24;
+          copy.y = operation.y ?? (node.y ?? 0) + 24;
+        }
+        result.nodes.push(copy);
+      }
+      continue;
+    }
+    if (operation.op === "unset") {
+      const node = result.nodes.find((node) => node.id === operation.id);
+      if (!node) throw Error(`Layer "${operation.id}" does not exist.`);
+      const instance = designInstanceRoot(result, node.id);
+      if (instance && (instance.id !== node.id || operation.fields.some((field) => !["parentId", "componentValues"].includes(field))))
+        throw Error("Edit the main component or detach this instance.");
+      for (const field of operation.fields) delete node[field];
+      continue;
+    }
     if (operation.op === "replace") {
-      result = designDocumentSchema.parse(operation.document);
+      result = designDocumentSchema.parse({
+        ...operation.document,
+        ...(!operation.document.consistency && result.consistency ? { consistency: result.consistency } : {}),
+      });
       previousSources = generatedComponentSources(result);
       continue;
     }
@@ -248,14 +373,28 @@ export function applyDesignOperations(document, operations) {
     if (
       instance &&
       (instance.id !== operation.id ||
-        (operation.op === "update" && Object.keys(operation.patch).some((field) => !["x", "y", "parentId", "name", "hidden", "locked"].includes(field))))
+        (operation.op === "update" &&
+          Object.keys(operation.patch).some((field) => !["x", "y", "parentId", "name", "hidden", "locked", "componentValues"].includes(field))))
     ) {
       throw Error("Edit the main component or detach this instance before changing its layers.");
     }
     if (operation.op === "update") {
       if (operation.patch.parentId && designInstanceRoot(result, operation.patch.parentId))
         throw Error("Edit the main component or detach this instance before moving layers into it.");
-      result.nodes[index] = { ...result.nodes[index], ...operation.patch };
+      const next = { ...result.nodes[index], ...operation.patch };
+      // An explicit local edit must survive kit resolution, including edits from the inspector.
+      // Supplying a new binding in the same patch deliberately keeps that binding authoritative.
+      if (
+        !Object.hasOwn(operation.patch, "textStyle") &&
+        ["fontFamily", "fontSize", "fontWeight", "lineHeight"].some((field) => Object.hasOwn(operation.patch, field))
+      )
+        delete next.textStyle;
+      if (next.bindings && !Object.hasOwn(operation.patch, "bindings")) {
+        next.bindings = { ...next.bindings };
+        for (const field of Object.keys(next.bindings)) if (Object.hasOwn(operation.patch, field)) delete next.bindings[field];
+        if (!Object.keys(next.bindings).length) delete next.bindings;
+      }
+      result.nodes[index] = next;
     } else {
       const removed = new Set([operation.id]);
       for (let changed = true; changed;) {
@@ -278,7 +417,9 @@ export function applyDesignOperations(document, operations) {
     if (instance?.id !== previous.instanceId || instance.componentId !== previous.componentId || !byId.get(instance.componentId)?.component) return true;
     return belongsToComponent(byId, node.componentSourceId, instance.componentId);
   });
-  return validateDesignDocument(result);
+  const resolved = validateDesignDocument(result);
+  assertDesignEditIntent(before, resolved, intent);
+  return resolved;
 }
 
 export function diffDesignDocuments(before, after) {
@@ -313,7 +454,8 @@ export function diffDesignDocuments(before, after) {
     if (Object.keys(old).some((field) => !Object.hasOwn(node, field))) return replace();
     const patch = Object.fromEntries(
       Object.entries(node).filter(
-        ([field, value]) => field !== "id" && old[field] !== value && (!instance || ["x", "y", "parentId", "name", "hidden", "locked"].includes(field)),
+        ([field, value]) =>
+          field !== "id" && old[field] !== value && (!instance || ["x", "y", "parentId", "name", "hidden", "locked", "componentValues"].includes(field)),
       ),
     );
     if (Object.keys(patch).length) operations.push({ op: "update", id: node.id, patch });

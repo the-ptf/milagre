@@ -44,6 +44,11 @@ export interface PageCommentsApi {
   /** Records the comments the user is sending; returns them with their ids. */
   add(request: { chatId: string; comments: PageComment[] }): Promise<SavedPageComment[]>;
   list(request: { chatId: string }): Promise<SavedPageComment[]>;
+  /**
+   * A comment on a streamed Browser panel page, at a point given as fractions of the page: the host reads the element
+   * there, screenshots it, sends the comment to the Chat's agent as the user's message and records it.
+   */
+  sendFromPage?(request: { chatId: string; targetId: string; x: number; y: number; text: string }): Promise<{ id: string }>;
 }
 
 export function pageCommentId(): string;

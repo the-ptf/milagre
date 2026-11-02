@@ -1,14 +1,15 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { UsageSection } from "../../usage-section";
+import { UsageTabs } from "../../usage-tabs";
 
 export default function UsageScreen() {
   return (
     <>
-      <Stack.Screen options={{ title: "Plan usage" }} />
-      <PageScroll>
-        <UsageSection />
-      </PageScroll>
+      <Stack.Screen options={{ title: "Usage" }} />
+      <SettingsScroll>
+        <UsageSection header navigation={<UsageTabs value="plan" />} />
+      </SettingsScroll>
     </>
   );
 }

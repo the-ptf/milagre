@@ -63,7 +63,7 @@ export function createChatDefaultsStore(storage: Storage) {
       const saved = read(modelKey);
       if (
         !saved ||
-        !(["claude", "codex", "antigravity"] as ModelProvider[]).includes(saved.provider) ||
+        !(["claude", "codex", "antigravity", "kiro"] as ModelProvider[]).includes(saved.provider) ||
         typeof saved.model !== "string" ||
         typeof saved.effort !== "string"
       )

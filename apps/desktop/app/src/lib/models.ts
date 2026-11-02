@@ -10,12 +10,13 @@ export function mergeModels(reported: AgentModels | null, fallback: ModelOption[
   return PROVIDERS.flatMap((provider) => {
     const list = reported?.[provider];
     if (!list?.length) return fallback.filter((model) => model.provider === provider);
-    const options: ModelOption[] = list.map(({ id, name, description, recommended }) => ({
+    const options: ModelOption[] = list.map(({ id, name, description, recommended, credits }) => ({
       id,
       name,
       provider,
       description,
       ...(recommended ? { recommended: true } : {}),
+      ...(credits ? { credits } : {}),
     }));
     return [...options.filter((model) => model.recommended), ...options.filter((model) => !model.recommended)];
   });
@@ -31,7 +32,7 @@ export function capabilitiesFrom(reported: AgentModels | null): ModelCapabilitie
         { efforts, ...(defaultEffort ? { defaultEffort } : {}), ultracode, fastMode },
       ]),
     );
-  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity") };
+  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity"), kiro: byId("kiro") };
 }
 
 /** `wanted` when the list has it; otherwise the recommended model of `provider`, any model of it, or the first model. */
@@ -47,8 +48,9 @@ export function resolveModel(models: ModelOption[], wanted: string | undefined, 
   );
 }
 
-/** The provider of an id no list offers any more. Antigravity partner families carry a provider prefix. */
+/** The provider of an id no list offers any more. Antigravity partner families and every Kiro model carry a provider prefix. */
 export function providerForId(id: string | undefined): ModelProvider {
+  if (id?.startsWith("kiro:")) return "kiro";
   if (id?.startsWith("gemini") || id?.startsWith("antigravity:")) return "antigravity";
   return id?.startsWith("claude") ? "claude" : "codex";
 }

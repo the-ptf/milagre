@@ -9,6 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { panelMenuHelpers } = require("./panel-menu-test.cjs");
 
 const { designHtml } = require("@milagre/shared/design");
 
@@ -228,8 +229,8 @@ const designs = {
   open: { title: 'Chat open', width: 390, height: 844, format: 'design', document: ${JSON.stringify(designOpen())}, html: ${JSON.stringify(designHtml(designOpen()))} },
 };
 const replies = {
-  getCurrentProject: project, getRuns: {runs:{},seq:1}, getModels: {codex:null,claude:null,antigravity:null},
-  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'}},
+  getCurrentProject: project, getRuns: {runs:{},seq:1}, getModels: {codex:null,claude:null,antigravity:null,kiro:null},
+  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'},kiro:{state:'missing'}},
   getRuntimeConnection: {connected:true}, getLinkedWork: {delegations:[],negotiations:[],receiveOnly:[]},
   listRecentProjects: [{path:project.path,name:project.name}], listBranches: ['main'],
   getWorktreeRoots: [], getCachedUsage: {providers:[]}, readUsage: {providers:[]}, getAgentPorts: {},
@@ -338,6 +339,7 @@ async function browserChecks() {
     window.webContents.executeJavaScript(source).catch((error) => {
       throw new Error(`${error.message}\n  in: ${source.slice(0, 300)}`);
     });
+  const { evaluatePanel } = panelMenuHelpers(evaluate);
   const errors = [];
   window.webContents.on("console-message", (e) => {
     if (e.level === "error") errors.push(e.message);
@@ -393,7 +395,7 @@ async function browserChecks() {
   surfaces.diff = {
     title: CHAT_TITLES.shell,
     async ready() {
-      await evaluate(`document.querySelector('[data-changes-toggle]').click()`);
+      await evaluatePanel(`document.querySelector('[data-panel-toggle=changes]').click()`);
       await waitFor(`document.querySelectorAll('[data-diff-tree-file]').length === 3`);
       await evaluate(`document.querySelector('[data-diff-tree-file]').click()`);
       await waitFor(`document.querySelectorAll('[data-diff-file]').length === 3 && document.querySelectorAll('[data-diff-body] .code-token').length > 20`);
@@ -424,7 +426,7 @@ async function browserChecks() {
   surfaces.terminal = {
     title: CHAT_TITLES.shell,
     async ready() {
-      await evaluate(`document.querySelector('[data-panel-toggle=terminal]').click()`);
+      await evaluatePanel(`document.querySelector('[data-panel-toggle=terminal]').click()`);
       await waitFor(`!!document.querySelector('[data-terminal-panel] .xterm') && !document.querySelector('[data-terminal-slot][data-sliding]')`);
       await waitFor(
         `(() => { const t = window.__gallery.terminal(); return !!t && t.buffer.active.getLine(t.buffer.active.length - 1 - 0) !== undefined && [...Array(t.buffer.active.length).keys()].some((r) => t.buffer.active.getLine(r)?.translateToString(true).includes('Tests 2 passed')); })()`,

@@ -1,8 +1,9 @@
+const { computerNoun } = require("@milagre/shared/host-computer");
 // A scripted agent for demos (`npm run mobile:demo`, `npm run review:demo`). Never selected by the real daemon CLI:
 // a host passes `demoRuntimeOptions()` to startDaemon explicitly. It reads, runs and changes nothing.
 
 const DEFAULT_COPY = {
-  ack: "Demo agent: your message reached the daemon on your Mac. ",
+  ack: `Demo agent: your message reached the daemon on your ${computerNoun}. `,
   reply: "The reply made it back to your simulator. Your Chat is saved locally.",
 };
 
@@ -145,7 +146,12 @@ const demoSession = createDemoSession();
  */
 function demoRuntimeOptions({ cwd, worktreeRoot, copy } = {}) {
   const agentCliStatus = Object.assign(
-    async () => ({ codex: { state: "ready" }, claude: { state: "missing", message: DEMO_ONLY }, antigravity: { state: "missing", message: DEMO_ONLY } }),
+    async () => ({
+      codex: { state: "ready" },
+      claude: { state: "missing", message: DEMO_ONLY },
+      antigravity: { state: "missing", message: DEMO_ONLY },
+      kiro: { state: "missing", message: DEMO_ONLY },
+    }),
     { invalidate() {} },
   );
   return {
@@ -155,7 +161,7 @@ function demoRuntimeOptions({ cwd, worktreeRoot, copy } = {}) {
     titleModels: {},
     createSession: copy ? createDemoSession(copy) : demoSession,
     agentCli: Object.assign(async () => ({ command: "/nonexistent/milagre-demo-agent" }), { invalidate() {} }),
-    agentModels: async () => ({ codex: [{ ...DEMO_MODEL }], claude: null, antigravity: null }),
+    agentModels: async () => ({ codex: [{ ...DEMO_MODEL }], claude: null, antigravity: null, kiro: null }),
     agentCliStatus,
     readUsage: async () => ({ providers: [] }),
     // The owner's personal skills stay on the Mac: `/skill` reaches the agent as typed.

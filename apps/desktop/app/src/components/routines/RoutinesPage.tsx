@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LaptopIcon, PlusSignIcon, Pulse01Icon, RepeatIcon, ZapIcon } from "@hugeicons/core-free-icons";
-import type { ModelOption } from "@milagre/shared/model";
+import type { ModelCapabilities, ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button } from "../primitives/Button";
@@ -13,6 +13,7 @@ import { radioKeys } from "../primitives/Segmented";
 import { RoutineRow } from "./RoutineRow";
 import { RoutineEditor } from "./RoutineEditor";
 import { RoutinePage } from "./RoutinePage";
+import { FlowPage } from "./FlowPage";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { computerOfRoutine, groupRoutines, routineMeta, routineStatus, useRoutines, type RoutineWithRuns } from "../../lib/routines";
 import { bridgeFor, bridgeForKey } from "../../lib/computer-bridge";
@@ -20,7 +21,7 @@ import { isDimmed, useComputers } from "../../lib/computers";
 import type { ComputerView } from "../../electron.d.ts";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
-const HELP = "Routines run while the Mac they are on is awake. Closing the lid on battery pauses them.";
+const HELP = "Routines run while the computer they are on is awake. Closing the lid on battery pauses them.";
 const NOT_REMOTE = "Not available on a remote computer";
 
 /**
@@ -44,6 +45,7 @@ const NO_CHATS: ReadonlySet<string> = new Set();
  */
 export function RoutinesPage({
   models,
+  capabilities = null,
   projectPath,
   unreadRoutines,
   routineId = null,
@@ -57,6 +59,8 @@ export function RoutinesPage({
   onCloseRunChat,
 }: {
   models: ModelOption[];
+  /** What each reported model accepts (efforts), for the fallback's effort. */
+  capabilities?: ModelCapabilities | null;
   /** The open Project, where a new Routine runs unless another is picked. */
   projectPath?: string;
   /** The ids of Routines with a hidden Run Chat nobody opened: their rows show a dot. */
@@ -225,6 +229,7 @@ export function RoutinesPage({
       key={initial?.id ?? "new"}
       initial={initial}
       models={models}
+      capabilities={capabilities}
       defaultProjectPath={projectPath}
       onDirtyChange={setDirty}
       error={opening ? loadError : null}
@@ -263,6 +268,24 @@ export function RoutinesPage({
     if (editing === "new" || target) return editor(target);
   }
   if (enabled && selected && editing === selected.id) return editor(selected);
+  // A flow's page has its settings in a tab of its own, so it is never swapped for the form.
+  if (enabled && selected?.flow)
+    return (
+      <FlowPage
+        key={selected.id}
+        routine={selected}
+        models={models}
+        capabilities={capabilities}
+        unreadChats={unreadChats}
+        canOpen={canOpen}
+        selectedChat={runChat}
+        narrow={Boolean(runChat)}
+        createdHookUrl={created?.id === selected.id ? created.url : undefined}
+        onDismissHook={() => setCreated(null)}
+        onBack={() => onOpenRoutine?.(null)}
+        onOpenChat={onOpenRunChat ?? onOpenChat}
+      />
+    );
   if (enabled && selected)
     return (
       <RoutinePage

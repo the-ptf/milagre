@@ -8,7 +8,9 @@ const { claudeConfigNames, codexConfigNames, detailOf, fromClaudeConfig, fromCod
 // the off list in mcp.json, Claude and Codex user servers through their CLIs, and OAuth sign-in. Grouping for the
 // screens lives in @milagre/shared/mcp; Chat start asks forSession for the extra servers and the off list.
 
-const PROVIDERS = new Set(["claude", "codex", "antigravity"]);
+const PROVIDERS = new Set(["claude", "codex", "antigravity", "kiro"]);
+// Agents whose own MCP config Milagre doesn't read: a session gets only the Everywhere servers.
+const EVERYWHERE_ONLY = new Set(["antigravity", "kiro"]);
 // The caller waits longer than this cap (45 s): SLOW_METHODS in apps/daemon/src/client.cjs and MCP_CALLS in apps/mobile/src/client.ts.
 const TIMEOUT_PROBLEM = "Timed out after 30 s. Check the servers in a terminal.";
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
@@ -124,7 +126,7 @@ function createMcp({
       if (found.account.state === "signed-out") return answer("Not signed in. Sign in from Accounts.");
       const off = new Set(store.offFor(provider, accountId));
       const everywhere = store.read().everywhere;
-      if (provider === "antigravity")
+      if (EVERYWHERE_ONLY.has(provider))
         return answer(
           null,
           everywhere.map((def) => ({
@@ -224,7 +226,7 @@ function createMcp({
       const at = key.indexOf(":");
       const [provider, accountId] = [key.slice(0, at), key.slice(at + 1)];
       try {
-        const env = provider === "antigravity" ? {} : (await routing.forAccount(provider, accountId)).env;
+        const env = EVERYWHERE_ONLY.has(provider) ? {} : (await routing.forAccount(provider, accountId)).env;
         if (!everywhere && !configNames(provider, env).has(name)) store.setOff(provider, accountId, name, false);
       } catch {
         // An account that can't be looked up keeps its entry; it does no harm.
@@ -379,7 +381,7 @@ function createMcp({
   }
 
   async function forSession(provider, accountId) {
-    const cli = provider === "antigravity" ? { env: {} } : await routing.forAccount(provider, accountId);
+    const cli = EVERYWHERE_ONLY.has(provider) ? { env: {} } : await routing.forAccount(provider, accountId);
     return sessionPlan(provider, accountId, cli.env);
   }
 

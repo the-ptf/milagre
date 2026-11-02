@@ -1,4 +1,5 @@
 import { designSvg, validateDesignDocument } from "./design.mjs";
+import { ASSET_HASH, ASSET_NAME, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, rewriteAssetUrls } from "./artifact-assets.mjs";
 
 const validatedSnapshots = new WeakSet();
 function freeze(value) {
@@ -145,9 +146,10 @@ const LOGO_LINK = `<a class="logo" href="https://milagre.cloud" target="_blank" 
 const ZOOM_BAR = `<nav class="bar" aria-label="Canvas zoom"><button id="out" class="step" aria-label="Zoom out">${icon(14, ["M20 12L4 12"])}</button><button id="zoom" aria-label="Zoom to 100%"></button><button id="in" class="step" aria-label="Zoom in">${icon(14, ["M12 4V20M20 12H4"])}</button><i aria-hidden="true"></i><button id="fit" aria-label="Fit everything">${icon(13, ["M3 4V20", "M21 4V20", "M15.6216 9L16.5002 9.87868C17.5002 10.8787 18.0002 11.3787 18.0002 12C18.0002 12.6213 17.5002 13.1213 16.5002 14.1213L15.6216 15M8.37892 9L7.50024 9.87868C6.50024 10.8787 6.00024 11.3787 6.00024 12C6.00024 12.6213 6.50024 13.1213 7.50024 14.1213L8.37892 15M6.37892 12H17.6216"])}Fit</button></nav>`;
 
 /** Public output contains generated SVG images and a fixed controller, never source JSON or Chat metadata. */
-export function renderDesignPage(input) {
+/** `files` gives the public URL of an Artifact page's file; without it, its `assets/<name>` references stay as written. */
+export function renderDesignPage(input, { files } = {}) {
   const page = validatedSnapshots.has(input) ? input : validateDesignPageSnapshot(input);
-  if (page.kind === "artifacts") return renderArtifactPage(page);
+  if (page.kind === "artifacts") return renderArtifactPage(page, files);
   // Laid out as the desktop Canvas does: one row of frames, or once any design names a group, one block per group
   // (the groups and the designs in each in the order they first appear, designs without a group in a row of their own)
   // with the group's name above it. The name keeps its screen size, so the fit allows for it at the zoom it lands on.
@@ -193,19 +195,45 @@ function validateArtifactPageSnapshot(value) {
     if (!Number.isInteger(number) || number < 240 || number > 3840) throw Error("Invalid Artifact page dimensions.");
     return number;
   };
+  // The page's files travel separately (uploaded by hash before the snapshot); the snapshot names them.
+  const assets = item.assets === undefined ? [] : item.assets;
+  if (!Array.isArray(assets) || assets.length > MAX_PAGE_ASSETS) throw Error("An Artifact page has too many files.");
+  const names = new Set();
+  let total = 0;
+  const files = assets.map((asset) => {
+    const { name, hash, size, type } = asset ?? {};
+    if (typeof name !== "string" || !ASSET_NAME.test(name) || names.has(name)) throw Error("Invalid Artifact file name.");
+    if (typeof hash !== "string" || !ASSET_HASH.test(hash)) throw Error("Invalid Artifact file hash.");
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_ASSET_BYTES) throw Error("Invalid Artifact file size.");
+    if (typeof type !== "string" || !/^[a-z]+\/[a-z0-9.+-]{1,80}$/.test(type)) throw Error("Invalid Artifact file type.");
+    names.add(name);
+    total += size;
+    return { name, hash, size, type };
+  });
+  if (total > MAX_PAGE_ASSET_BYTES) throw Error("An Artifact page's files are too large.");
   const snapshot = {
     schemaVersion: 1,
     kind: "artifacts",
     title: title(value.title),
-    artifacts: [{ title: title(item.title), html: item.html, width: dimension(item.width), height: dimension(item.height) }],
+    artifacts: [
+      {
+        title: title(item.title),
+        html: item.html,
+        width: dimension(item.width),
+        height: dimension(item.height),
+        // Left out when there are none, so a page without files keeps the snapshot it always had.
+        ...(files.length ? { assets: files } : {}),
+      },
+    ],
   };
   freeze(snapshot);
   validatedSnapshots.add(snapshot);
   return snapshot;
 }
 
-function renderArtifactPage(page) {
-  const artifact = page.artifacts[0];
+function renderArtifactPage(page, files) {
+  const [first] = page.artifacts;
+  const artifact = files ? { ...first, html: rewriteAssetUrls(first.html, first.assets, files) } : first;
   // The HTTP policy is inherited by srcdoc, including blocked network and frame navigation.
   // The sandbox deliberately omits same-origin, forms, popups, downloads and top navigation.
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>${escape(page.title)} | Milagre Artifact</title>${descriptionMeta(artifactDescription(artifact, page.title))}<style>*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#111922;color:#e5edf3}body{display:flex;flex-direction:column}main{flex:1;min-height:0;background:white}iframe{display:block;width:100%;height:100%;border:0}${CHROME_STYLE}</style></head><body><h1 class="sr">${escape(page.title)}</h1><main><iframe title="${escape(artifact.title)}" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${escape(artifact.html)}"></iframe></main><div class="dock">${LOGO_LINK}</div></body></html>`;

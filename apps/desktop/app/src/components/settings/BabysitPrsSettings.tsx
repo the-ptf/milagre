@@ -31,7 +31,7 @@ import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
 import { Select } from "../primitives/Select";
-import { Switch } from "../primitives/Switch";
+import { SettingCheckbox } from "../primitives/Checkbox";
 import Tooltip from "../primitives/Tooltip";
 import { Group, Row } from "./SettingsGroup";
 
@@ -242,7 +242,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
           label="Babysit new PRs"
           description="Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done."
         >
-          <Switch label="Babysit new PRs" checked={settings.enabled} onChange={(enabled) => change({ enabled })} />
+          <SettingCheckbox label="Babysit new PRs" checked={settings.enabled} onChange={(enabled) => change({ enabled })} />
         </Row>
         <Row
           label="Check every"
@@ -304,7 +304,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
           })}
         </RadioGroup>
         <Row label="Resolve threads it answered" description="On by default. After replying on a thread, the agent marks it resolved.">
-          <Switch label="Resolve threads it answered" checked={settings.resolveThreads} onChange={(resolveThreads) => change({ resolveThreads })} />
+          <SettingCheckbox label="Resolve threads it answered" checked={settings.resolveThreads} onChange={(resolveThreads) => change({ resolveThreads })} />
         </Row>
       </Group>
       <Group title="Stop babysitting when">

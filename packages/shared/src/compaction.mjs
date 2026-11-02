@@ -29,3 +29,7 @@ export function compactionMessage(usage) {
   const known = usage && usage.size > 0 ? { before: usage.used, size: usage.size } : {};
   return { body: COMPACT_COMMAND, prompt: COMPACT_COMMAND, images: [], files: [], context: { kind: "compaction", status: "preparing", ...known } };
 }
+
+export function compactionContext(message) {
+  return message?.context?.kind === "compaction" ? message.context : null;
+}

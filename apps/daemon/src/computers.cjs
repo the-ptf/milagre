@@ -10,6 +10,7 @@ const { connectPeer, PeerError } = require("./peer-client.cjs");
 const { computerProblem } = require("./computer-errors.cjs");
 const { createComputersStore, lanRoutesFrom } = require("./computers-store.cjs");
 const { createComputerKeys } = require("./computer-keys.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 // Spec "Errors": amber ("Reconnecting…") while it comes back, grey ("Offline") once it has been gone this long.
 const OFFLINE_AFTER_MS = 30_000;
@@ -29,8 +30,8 @@ const RECONNECT_WAIT_MS = 15_000;
 const LAN_WAIT_MS = 500;
 // Problems worth a line under a computer while it keeps retrying; the rest read as Reconnecting… or Offline.
 const SHOWN = new Set(["full", "outdated", "kind", "bad-hello", "busy"]);
-const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac.";
-const TUNNEL_LINK = "This link reaches its Mac through a Cloudflare tunnel, which computers can't use yet.";
+const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other computer.";
+const TUNNEL_LINK = "This link reaches its computer through a Cloudflare tunnel, which computers can't use yet.";
 
 // A refusal retrying can't fix. A keychain that can't open this Mac's keys (an Error with code "keys", not a PeerError) is
 // final only while adding: a computer already here keeps retrying, as the keychain may be unlocked or allowed later.
@@ -156,7 +157,7 @@ async function stop(entry) {
  *   allowLocalRelay?: boolean; createSocket?: (url: string) => any; fetch?: typeof globalThis.fetch;
  *   now?: () => number; random?: (n: number) => Uint8Array; reconnectMs?: number; switchWaitMs?: number;
  *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[]; lanWaitMs?: number;
- *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void;
+ *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void; acceptStream?: (target: string, port: number) => import("node:net").Socket;
  * }} options
  */
 function createComputers({
@@ -182,6 +183,8 @@ function createComputers({
   networkSignature = defaultNetworkSignature,
   reconnectWaitMs = RECONNECT_WAIT_MS,
   log = () => {},
+  // A computer may open streams back to this Mac only where this lets it (peer-streams.cjs): the Browser pages' proxy.
+  acceptStream,
 }) {
   const store = createComputersStore({ file: path.join(dataDir, "computers.json"), now, allowLocalRelay });
   const keys = credentials ?? createComputerKeys({ file: path.join(dataDir, "computer-keys.json"), safeStorage, random });
@@ -196,7 +199,7 @@ function createComputers({
   let adding = null;
   let checkTimer = null;
   let networkTimer = null;
-  const socketOption = createSocket ? { createSocket } : {};
+  const socketOption = { ...(createSocket ? { createSocket } : {}), ...(acceptStream ? { acceptStream } : {}) };
 
   function view(computer) {
     const entry = entries.get(computer.id);
@@ -574,7 +577,7 @@ function createComputers({
     } catch {
       /* unknown: no check */
     }
-    if (relay.hostId === own) throw new Error("That's this Mac's own link. Copy the one on the other Mac.");
+    if (relay.hostId === own) throw new Error(`That's ${thisComputer}'s own link. Copy the one on the other computer.`);
     const existing = store.list().find((computer) => computer.hostId === relay.hostId);
     if (existing && !entries.get(existing.id)?.refused) throw new Error(`${existing.name} is already in your computers.`);
     return { pairing, relay, replaces: existing?.id ?? null };
@@ -701,6 +704,14 @@ function createComputers({
       if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
       if (!entry?.runtime || entry.state !== "online") throw new Error(`${store.get(id)?.name ?? "That computer"} is offline.`);
       return entry.runtime.invoke(method, args);
+    },
+    /** A TCP stream from computer `id` to `target:port` as it sees them, for its Chats' Browser pages (browser-proxy.cjs). */
+    async openStream(id, target, port) {
+      const entry = entries.get(id);
+      if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
+      if (!entry?.runtime || entry.state !== "online")
+        throw Object.assign(new Error(`${store.get(id)?.name ?? "That computer"} is offline.`), { code: "offline" });
+      return entry.runtime.openStream(target, port);
     },
     /** The window gained or lost focus: every connected computer's daemon is told, and a later connection is too. */
     setFocused(value) {

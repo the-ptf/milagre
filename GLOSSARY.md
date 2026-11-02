@@ -41,6 +41,7 @@ _Avoid_: ticket, task (Linear's own word is issue)
 **Chat**:
 One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project**. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
 A **Chat** started with No project is a **Chat** in the **Chats home**, on its own **Worktree**; it has no Git controls.
+Chats can be marked **Done**, reopened, or archived automatically after their Done retention period. **Delete** immediately removes the conversation. Starting another Chat leaves existing Chats and their menu actions available. See ADR-0012.
 An archived **Chat** stays readable from a linked side but is never chosen to receive a **Delegation**.
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 
@@ -99,6 +100,18 @@ What fires a **Routine**: a schedule, a Linear event or a webhook. Used loosely 
 
 **Run**:
 One firing of a **Routine**. It acts, is quiet, fails, or is skipped because its **Chat** was busy or the **Computer** missed its time.
+
+**Flow**:
+A **Routine** whose **Runs** go step by step instead of one turn on one prompt: agent steps (each a turn in a **Run Chat** that hands back typed fields), Ifs that pick a path, approvals, waits, and actions (open a pull request, comment on Linear). Edited as a draft and published as numbered revisions; a **Run** keeps the revision it started on (ADR-0014).
+
+**Step**:
+One part of a **Flow**. An agent step hands its fields back with `flow_step_output`; later steps read them as `{{step.field}}`.
+
+**Receipt**:
+What a **Flow**'s action step keeps once it acted (the pull request it opened or found, the comment it posted), so a restart or a retry never does it twice.
+
+**Test run**:
+A dry **Run** of a **Flow**'s draft on the last issue it ran on: actions are skipped, approvals pass by themselves, and it never counts.
 
 **Run Chat**:
 A **Chat** a **Run** opened. It lives in its **Routine**'s Runs list, out of the sidebar, until you send it a message, pin it or rename it.

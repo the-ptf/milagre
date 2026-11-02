@@ -18,24 +18,24 @@ export function ArchiveProgress() {
     <View
       accessible
       accessibilityRole="progressbar"
-      accessibilityLabel="Archiving Chat"
+      accessibilityLabel="Deleting Chat"
       style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
     >
       <SpinnerRing size={16} />
-      <Text style={styles.muted}>Archiving…</Text>
+      <Text style={styles.muted}>Deleting…</Text>
     </View>
   );
 }
 
-/** Desktop's archiving pill: a SpinnerRing and "Archiving…" over a Chat's row while it archives; the row itself fades and takes no taps until the archive ends. */
+/** Desktop's archiving pill: a SpinnerRing and "Deleting…" over a Chat's row while it archives; the row itself fades and takes no taps until the archive ends. */
 export function ArchivingOverlay({ title }: { title: string }) {
   const s = useS();
   useAnnounce(`Archiving ${title}`, { onMount: true });
   return (
-    <View accessible accessibilityRole="progressbar" accessibilityLabel={`Archiving ${title}`} style={[StyleSheet.absoluteFill, s.overlay]}>
+    <View accessible accessibilityRole="progressbar" accessibilityLabel={`Deleting ${title}`} style={[StyleSheet.absoluteFill, s.overlay]}>
       <View style={s.pill}>
         <SpinnerRing size={12} />
-        <Text style={s.label}>Archiving…</Text>
+        <Text style={s.label}>Deleting…</Text>
       </View>
     </View>
   );

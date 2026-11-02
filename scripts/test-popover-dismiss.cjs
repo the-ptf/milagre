@@ -13,7 +13,26 @@ import { Select } from '/src/components/primitives/Select';
 import { MODEL_CATALOG, capabilityFor } from '/src/model';
 import '/src/styles.css';
 const noop = () => {};
-window.milagre = { listSkills: async () => ({ skills: [], warnings: [] }) };
+const accounts = { scopeKey: '/fixture', providers: ['codex', 'claude', 'antigravity'].map(provider => ({
+  provider, accountId: null, effectiveId: 'personal', defaultId: 'personal', accounts: [
+    { id: 'personal', provider, label: 'Personal', email: 'personal@example.test', state: 'ready' },
+    { id: 'work', provider, label: 'Work', email: 'work@example.test', state: 'ready' },
+    { id: 'out', provider, label: 'Signed out', state: 'signed-out' },
+  ],
+})) };
+window.accountWrites = [];
+window.milagre = {
+  listSkills: async () => ({ skills: [], warnings: [] }),
+  getProjectAccounts: async () => structuredClone(accounts),
+  assignProjectAccount: async (scope, provider, id) => {
+    if (window.accountFailure) throw Error('Could not save account');
+    window.accountWrites.push({ scope, provider, id });
+    const group = accounts.providers.find(group => group.provider === provider);
+    group.accountId = id;
+    group.effectiveId = id ?? group.defaultId;
+    return structuredClone(accounts);
+  },
+};
 function Fixture() {
   const [draft, setDraft] = useState('');
   const [theme, setTheme] = useState('light');
@@ -64,11 +83,17 @@ async function browserChecks() {
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
   // A real mouse press and release at the centre of the first element matching the selector, or `inset` px from
-  // its left edge when the centre may sit under an open picker.
-  const click = async (selector, { inset } = {}) => {
+  // an edge when the centre may sit under an open picker. Confirm the edge is not obscured.
+  const click = async (selector, { inset, fromRight = false } = {}) => {
     const point = await evaluate(
-      `(() => { const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(${inset === undefined ? "rect.x + rect.width / 2" : `rect.x + ${Number(inset)}`}), y: Math.round(rect.y + rect.height / 2) }; })()`,
+      `(() => { const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(${inset === undefined ? "rect.x + rect.width / 2" : fromRight ? `rect.right - ${Number(inset)}` : `rect.x + ${Number(inset)}`}), y: Math.round(rect.y + rect.height / 2) }; })()`,
     );
+    if (inset !== undefined)
+      assert.equal(
+        await evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x}, ${point.y}))`),
+        true,
+        "The click lands on the intended outside surface",
+      );
     window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
     window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
     await delay(150);
@@ -82,32 +107,66 @@ async function browserChecks() {
 
     await click(model);
     await waitFor(`!!document.querySelector('[data-picker-panel] input')`);
+    const account = '[data-model-account] button[aria-haspopup="listbox"]';
+    await waitFor(`document.querySelector('${account}')?.textContent.includes('personal@example.test')`);
+    await click(account);
+    await waitFor(`!!document.querySelector('[role="listbox"]')`);
+    assert.equal(
+      await evaluate(`(() => {
+      const menu = document.querySelector('[role="listbox"]').getBoundingClientRect();
+      const trigger = document.querySelector('${account}').getBoundingClientRect();
+      return Math.min(Math.abs(menu.top - trigger.bottom), Math.abs(menu.bottom - trigger.top)) < 12;
+    })()`),
+      true,
+      "The account menu anchors beside its trigger",
+    );
+    assert.equal(await evaluate(`document.querySelector('[role="option"]:last-child').disabled`), true, "Signed-out accounts cannot be chosen");
+    await click('[role="option"]:nth-child(3)');
+    await waitFor(`document.querySelector('${account}')?.textContent.includes('work@example.test')`);
+    assert.deepEqual(await evaluate("window.accountWrites"), [{ scope: "/fixture", provider: "codex", id: "work" }]);
+    assert.equal(await evaluate(`!!document.querySelector('[data-model-picker]')`), true, "Picking an account keeps the model picker open");
+    await click(account);
+    await evaluate(`document.querySelector('[role="option"]').click()`);
+    await waitFor(`document.querySelector('${account}')?.textContent.includes('personal@example.test')`);
+    assert.equal(await evaluate("window.accountWrites.at(-1).id"), null, "Computer-default inheritance can be restored");
+    await screenshot("model-account-default");
+    await click(account);
+    await screenshot("model-account-options");
+    await click(account);
+    await evaluate("window.accountFailure = true");
+    await click(account);
+    await evaluate(`document.querySelectorAll('[role="option"]')[2].click()`);
+    await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('Could not save account')`);
+    await evaluate("window.accountFailure = false");
+    await evaluate(`document.querySelector('[role="alert"] button').click()`);
+    await waitFor(`!!document.querySelector('${account}')`);
     await screenshot("model-picker-open");
     assert.equal(
       await evaluate(`[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.disabled).join()`),
-      "false,false,false",
+      "false,false,false,false",
       "A provider tab stays clickable while its CLI needs an update",
     );
-    // Each provider's models, with its logo in color and each model's context window beside its name.
-    for (const index of [0, 1, 2]) {
+    // Each provider's models, with its logo in color and each model's context window (Kiro: its credit multiplier) beside its name.
+    // Antigravity last: its tab stays open for the missing-CLI check below.
+    for (const index of [0, 1, 3, 2]) {
       await click(`[data-picker-panel] [data-provider-tabs] > button:nth-child(${index + 1})`);
       assert.match(
         await evaluate(`document.querySelector('[data-picker-panel] [data-picker-row] [data-picker-meta]')?.textContent ?? ""`),
-        /^\d+(k|M)$/,
-        "A model row shows its context window beside the name",
+        /^(\d+(k|M)|[\d.]+×)$/,
+        "A model row shows its context window or credit multiplier beside the name",
       );
       await screenshot(`model-picker-tab-${index + 1}`);
     }
     const tabs = `[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.getAttribute('aria-label')).join()`;
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'missing', message: 'Antigravity is not installed.' } }))`);
     // The open tab stays until the picker reopens; then a missing CLI has no tab.
-    await waitFor(`${tabs} === "Codex,Claude,Antigravity"`);
+    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
     await click(model);
     await click(model);
-    await waitFor(`${tabs} === "Codex,Claude"`);
+    await waitFor(`${tabs} === "Codex,Claude,Kiro"`);
     await screenshot("model-picker-missing-hidden");
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'ready' } }))`);
-    await waitFor(`${tabs} === "Codex,Claude,Antigravity"`);
+    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
     await click("[data-picker-panel] input");
     assert.equal(await panels(), 1, "Pressing inside the picker keeps it open");
     await click("[data-prompt-editor]");
@@ -127,7 +186,7 @@ async function browserChecks() {
 
     await click(model);
     // The open picker covers the transcript's centre; press the transcript beside it, not a model row.
-    await click('[data-testid="transcript"]', { inset: 24 });
+    await click('[data-testid="transcript"]', { inset: 24, fromRight: true });
     assert.equal(await panels(), 0, "Pressing the transcript closes the picker");
 
     await click('button[aria-label="Theme"]');

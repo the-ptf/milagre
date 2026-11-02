@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
   AlertCircleIcon,
@@ -12,6 +13,8 @@ import {
   Comment01Icon,
   File01Icon,
   GitMergeIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestDraftIcon,
   LinkSquare02Icon,
   Loading03Icon,
   MinusSignCircleIcon,
@@ -30,7 +33,6 @@ import {
   type PullRequestFile,
   type PullRequestThread,
 } from "@milagre/shared/pull-request-review";
-import { AUTO_MERGE_LABEL, pullRequestStatePill } from "@milagre/shared/pr-blockers";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
 import { age, MERGE_METHODS, readMergeMethod, repoOf, saveMergeMethod } from "../../lib/pull-request-view";
 import { prImageLoader } from "../../lib/pr-images";
@@ -38,15 +40,8 @@ import { Markdown, type MarkdownImageLoader } from "../markdown/Markdown";
 import { PickerPanel, PickerRow } from "../primitives/Picker";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SpinnerRing } from "../primitives/SpinnerRing";
-import { Button, buttonClass } from "../primitives/Button";
-import { EmptyState } from "../primitives/EmptyState";
-import { Icon, type IconSize } from "../primitives/Icon";
-import { InlineError } from "../primitives/InlineError";
-import { MenuLabel, MenuSeparator } from "../primitives/Popover";
-import { Tabs as TabStrip } from "../primitives/Tabs";
-import Tooltip from "../primitives/Tooltip";
 import { ProjectAvatarStack } from "../ProjectAvatarStack";
-import { Counts } from "./ChangesPanel";
+import { Counts, moveTab } from "./ChangesPanel";
 import { PopoverButton } from "./pr/Popover";
 import { Avatar, LabelsRow, ReviewersRow, type PrSource } from "./pr/Properties";
 import type { PullRequestReview } from "./usePullRequest";
@@ -56,33 +51,36 @@ import type { PullRequestReview } from "./usePullRequest";
 
 export type { PrSource };
 
-// Status icons in the fill tone; words beside them use the -ink shade.
 const CHECK_ICON: Record<PullRequestCheck["outcome"], { icon: IconSvgElement; className: string }> = {
-  pass: { icon: CheckmarkCircle02Icon, className: "text-green" },
-  fail: { icon: CancelCircleIcon, className: "text-red" },
-  running: { icon: Loading03Icon, className: "text-orange" },
+  pass: { icon: CheckmarkCircle02Icon, className: "text-green-ink" },
+  fail: { icon: CancelCircleIcon, className: "text-red-ink" },
+  running: { icon: Loading03Icon, className: "text-orange-ink animate-spin" },
   skipped: { icon: MinusSignCircleIcon, className: "text-ink-3" },
   neutral: { icon: CircleIcon, className: "text-ink-3" },
 };
 // Failing checks first, then the ones still running.
 const CHECK_ORDER: Record<PullRequestCheck["outcome"], number> = { fail: 0, running: 1, pass: 2, neutral: 3, skipped: 4 };
 
-// pullRequestStatePill's palette keys (shared with the phone header).
-const PILL_CLASS = {
-  purpleTint: "bg-purple-tint",
-  redTint: "bg-red-tint",
-  hover: "bg-hover",
-  purpleInk: "text-purple-ink",
-  redInk: "text-red-ink",
-  ink2: "text-ink-2",
+/** Draft, Merged or Closed before the author, as GitHub shows it; the phone shows the same pill. An open PR has none. */
+const STATE_PILL = {
+  draft: { label: "Draft", icon: GitPullRequestDraftIcon, className: "bg-hover text-ink-2" },
+  MERGED: { label: "Merged", icon: GitMergeIcon, className: "bg-purple-tint text-purple-ink" },
+  CLOSED: { label: "Closed", icon: GitPullRequestClosedIcon, className: "bg-red-tint text-red-ink" },
 } as const;
 
-const icon = (glyph: IconSvgElement, size: IconSize = 14) => <Icon icon={glyph} size={size} />;
+/** The line under the branch: what stops an open PR, or how a merged or closed one ended. The phone words it the same. */
+const STATUS_LINE: Partial<Record<ReturnType<typeof mergeStatus>["tone"], { icon: IconSvgElement; ink: string; title: string }>> = {
+  blocked: { icon: AlertCircleIcon, ink: "text-red-ink", title: "text-red-ink" },
+  draft: { icon: GitPullRequestDraftIcon, ink: "text-ink-3", title: "text-ink" },
+  merged: { icon: GitMergeIcon, ink: "text-purple-ink", title: "text-purple-ink" },
+  closed: { icon: GitPullRequestClosedIcon, ink: "text-red-ink", title: "text-red-ink" },
+};
 
-const secondary = buttonClass({ variant: "secondary", size: 28 });
-// IconButton's 28 ghost look, for PopoverButton's own trigger: ink-3 at rest, hover-2 and ink while its menu is open.
-const iconButton =
-  "flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 transition-[color,background-color,scale] hover:bg-hover hover:text-ink active:scale-press aria-expanded:bg-hover-2 aria-expanded:text-ink";
+const icon = (glyph: IconSvgElement, size = 14) => <HugeiconsIcon icon={glyph} size={size} strokeWidth={1.8} color="currentColor" />;
+
+const secondary =
+  "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-control border border-line-strong px-2.5 text-12 font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40";
+const iconButton = "flex size-7 shrink-0 items-center justify-center rounded-control text-ink-2 transition-colors hover:bg-hover hover:text-ink";
 
 const ago = (iso: string) => {
   const text = age(iso);
@@ -110,30 +108,25 @@ export function PullRequestPanelBody({
   project?: { name: string; path: string };
 }) {
   const [tab, setTab] = useState<"summary" | "files">("summary");
-  const panel = useId();
   const { state, pr } = review;
   if (!pr) {
-    return state.status === "error" ? (
-      <InlineError data-pr-panel-notice size={12} className="px-4 py-6 text-center">
-        {state.message}
-      </InlineError>
-    ) : (
-      <EmptyState size="compact" title="Loading the PR…" className="px-4 py-6" data-pr-panel-notice />
+    return (
+      <p data-pr-panel-notice className="px-1 text-12 text-ink-3">
+        {state.status === "error" ? state.message : "Loading the PR…"}
+      </p>
     );
   }
   return (
     <ScrollArea data-pr-panel className="flex-1 pb-3">
       <Header key={pr.url} pr={pr} review={review} local={local} project={project} />
       <div className="h-px bg-line" />
-      <Tabs pr={pr} tab={tab} onTab={setTab} panel={panel} />
-      <div role="tabpanel" id={panel} aria-label={tab === "summary" ? "Summary" : "Files"}>
-        {tab === "summary" ? (
-          // A Link Chat's PR tabs share this panel: another repository's PR starts with fresh pickers.
-          <Summary key={`${pr.url}\0${source?.cwd ?? ""}`} pr={pr} review={review} source={source} onOpenFile={actions.openFile} />
-        ) : (
-          <Files pr={pr} activePath={activePath} onOpenFile={actions.openFile} />
-        )}
-      </div>
+      <Tabs pr={pr} tab={tab} onTab={setTab} />
+      {tab === "summary" ? (
+        // A Link Chat's PR tabs share this panel: another repository's PR starts with fresh pickers.
+        <Summary key={`${pr.url}\0${source?.cwd ?? ""}`} pr={pr} review={review} source={source} onOpenFile={actions.openFile} />
+      ) : (
+        <Files pr={pr} activePath={activePath} onOpenFile={actions.openFile} />
+      )}
     </ScrollArea>
   );
 }
@@ -158,9 +151,10 @@ function Header({
   }, [confirming]);
   const open = pr.state === "OPEN";
   const busy = review.busy !== null;
-  const pill = pullRequestStatePill(pr);
+  const pill = pr.state !== "OPEN" ? STATE_PILL[pr.state] : pr.isDraft ? STATE_PILL.draft : null;
   const notInPr = local && open ? notInPrLabel(local.count, pr.localCommits ?? 0) : "";
   const status = mergeStatus(pr);
+  const line = STATUS_LINE[status.tone];
   // GitHub can't merge a conflicting PR, not even later or as an admin.
   const conflicts = pr.mergeStateStatus === "DIRTY";
   const merge = (admin = false) => {
@@ -192,25 +186,29 @@ function Header({
         data-pr-merge
         disabled={busy}
         onClick={() => merge()}
-        // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the primary button.
-        className={status.tone === "ready" ? buttonClass({ size: 28 }) : secondary}
+        // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the green button.
+        className={
+          status.tone === "ready"
+            ? "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-control bg-green px-3 text-12 font-semibold text-page transition-opacity hover:opacity-90 disabled:opacity-50"
+            : secondary
+        }
       >
-        {icon(GitMergeIcon, 12)}
+        {icon(GitMergeIcon, 13)}
         {review.busy === "merge" ? "Merging…" : confirming === "merge" ? "Confirm merge" : "Merge"}
       </button>
     );
   } else if (open && pr.autoMerge) {
     primary = (
       <span data-pr-auto-merge className="inline-flex h-7 shrink-0 items-center gap-1.5 px-1 text-12 text-ink-2">
-        {icon(GitMergeIcon, 12)}
-        <span className="@max-[308px]:hidden">{AUTO_MERGE_LABEL}</span>
+        {icon(GitMergeIcon, 13)}
+        <span className="@max-[308px]:hidden">Merges when ready</span>
         <span className="hidden @max-[308px]:inline">Auto-merge on</span>
       </span>
     );
   } else if (open && !conflicts) {
     primary = (
       <button type="button" data-pr-auto disabled={busy} onClick={() => auto(true)} className={secondary}>
-        {icon(GitMergeIcon, 12)}
+        {icon(GitMergeIcon, 13)}
         <span className="@max-[308px]:hidden">Merge when ready</span>
         <span className="hidden @max-[308px]:inline">Auto-merge</span>
       </button>
@@ -236,11 +234,8 @@ function Header({
           {/* The first thing to go when the row is narrow; the number always shows. */}
           <span className="truncate @max-[264px]:hidden">{repoOf(pr.url) ?? project?.name}</span>
           <span className="shrink-0 text-accent-ink">#{pr.number}</span>
-          <span className="flex shrink-0 text-accent-ink">{icon(LinkSquare02Icon, 12)}</span>
+          <span className="flex shrink-0 text-accent-ink">{icon(LinkSquare02Icon, 11)}</span>
         </a>
-        {pill && (
-          <span className={`shrink-0 rounded-full px-2 py-px text-11 font-semibold ${PILL_CLASS[pill.fill]} ${PILL_CLASS[pill.ink]}`}>{pill.label}</span>
-        )}
         <span className="flex-1" />
         {primary}
         <PopoverButton
@@ -275,7 +270,7 @@ function Header({
               )}
               {open && !pr.isDraft && (
                 <>
-                  <MenuLabel>Merge method</MenuLabel>
+                  <div className="px-2 pt-2 pb-1 text-10 font-semibold tracking-wide text-ink-3 uppercase">Merge method</div>
                   {MERGE_METHODS.map((entry) => (
                     <PickerRow
                       key={entry.value}
@@ -288,7 +283,17 @@ function Header({
                       option
                     />
                   ))}
-                  <MenuSeparator />
+                  <div className="mx-2 my-1 h-px bg-line" />
+                  <PickerRow
+                    label="Convert to draft"
+                    selected={false}
+                    disabled={busy}
+                    onClick={() => {
+                      close();
+                      void review.write("ready", (bridge, cwd, number) => bridge.ready({ cwd, number, draft: true }));
+                    }}
+                  />
+                  <div className="mx-2 my-1 h-px bg-line" />
                 </>
               )}
               <PickerRow
@@ -299,6 +304,14 @@ function Header({
                   window.open(pr.url, "_blank", "noopener,noreferrer");
                 }}
               />
+              <PickerRow
+                label="Copy link"
+                selected={false}
+                onClick={() => {
+                  close();
+                  void navigator.clipboard.writeText(pr.url).catch(() => {});
+                }}
+              />
             </PickerPanel>
           )}
         >
@@ -307,28 +320,35 @@ function Header({
       </div>
       <h2 className="text-15 font-semibold text-ink">{pr.title}</h2>
       <div className="flex min-w-0 items-center gap-1.5 text-12">
+        {pill && (
+          <span
+            data-pr-state-pill={pill.label}
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-px text-11 font-semibold ${pill.className}`}
+          >
+            {icon(pill.icon, 11)}
+            {pill.label}
+          </span>
+        )}
         <Avatar login={pr.author} size={18} />
-        <span className="shrink-0 font-semibold text-ink">{pr.author}</span>
+        <span className="shrink-0 text-12 font-semibold text-ink">{pr.author}</span>
         <span className="min-w-0 truncate text-ink-3">· updated {ago(pr.updatedAt)}</span>
       </div>
       <div className="flex min-w-0 items-center gap-1.5 text-12">
-        <Tooltip label={`${pr.baseRefName} ← ${pr.headRefName}`} side="bottom" asChild>
-          <span className="min-w-0 truncate font-mono text-11 text-ink-3">
-            <span className="text-ink-2">{pr.baseRefName}</span> ← {pr.headRefName}
-          </span>
-        </Tooltip>
+        <span className="min-w-0 truncate font-mono text-11 text-ink-3" title={`${pr.baseRefName} ← ${pr.headRefName}`}>
+          <span className="text-ink-2">{pr.baseRefName}</span> ← {pr.headRefName}
+        </span>
         <span className="flex-1" />
         <span className="shrink-0 text-ink-2">
           {pr.changedFiles} file{pr.changedFiles === 1 ? "" : "s"}
         </span>
         <Counts added={pr.additions} removed={pr.deletions} />
       </div>
-      {open && (status.tone === "blocked" || status.tone === "draft") && (
-        <div data-pr-status={status.title} className="flex min-w-0 items-start gap-1.5 text-12">
-          <span className={`flex h-4 shrink-0 items-center ${status.tone === "blocked" ? "text-red" : "text-ink-3"}`}>{icon(AlertCircleIcon, 12)}</span>
+      {line && (
+        <div data-pr-status={status.title} className="flex min-w-0 items-start gap-1.5 text-12 leading-4">
+          <span className={`flex h-4 shrink-0 items-center ${line.ink}`}>{icon(line.icon, 13)}</span>
           {/* Wraps rather than cutting the base branch off in a narrow panel. */}
           <span className="line-clamp-2 min-w-0 text-ink-2">
-            <span className={`font-semibold ${status.tone === "blocked" ? "text-red-ink" : "text-ink"}`}>{status.title}</span> · {status.detail}
+            <span className={`font-semibold ${line.title}`}>{status.title}</span> · {status.detail}
           </span>
         </div>
       )}
@@ -339,56 +359,69 @@ function Header({
           onClick={local?.onOpen}
           className="relative -mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-12 text-orange-ink transition-colors before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-hover"
         >
-          <span className="flex shrink-0">{icon(CloudUploadIcon, 12)}</span>
+          <span className="flex shrink-0">{icon(CloudUploadIcon, 13)}</span>
           <span className="truncate">{notInPr.replace(" · ", " and ")} not in the PR yet</span>
           <span className="flex shrink-0">{icon(ArrowRight01Icon, 12)}</span>
         </button>
       )}
       {review.writeError && (
-        <InlineError data-pr-write-error size={12}>
+        <p data-pr-write-error className="text-12 leading-4 text-red-ink">
           {review.writeError}
-        </InlineError>
+        </p>
       )}
     </div>
   );
 }
 
-// Solid status tokens; skipped is the neutral track colour.
 const SEGMENTS = [
   { key: "passed", className: "bg-green" },
-  { key: "skipped", className: "bg-line-strong" },
+  { key: "skipped", className: "bg-ink-3/40" },
   { key: "failed", className: "bg-red" },
-  { key: "running", className: "bg-orange motion-safe:animate-pulse" },
+  { key: "running", className: "bg-orange/40 motion-safe:animate-pulse" },
 ] as const;
 
-function Tabs({ pr, tab, onTab, panel }: { pr: PullRequestDetail; tab: "summary" | "files"; onTab: (tab: "summary" | "files") => void; panel: string }) {
+const tabClass = (on: boolean) =>
+  `flex h-6 items-center gap-1.5 rounded-chip px-3 text-12 transition-colors ${on ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:text-ink"}`;
+
+function Tabs({ pr, tab, onTab }: { pr: PullRequestDetail; tab: "summary" | "files"; onTab: (tab: "summary" | "files") => void }) {
   const progress = checksProgress(pr.checks);
   return (
     <div className="flex flex-col gap-2 px-4 pt-3 pb-1">
       {/* The checks status wraps under the tabs when they don't fit side by side. */}
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-        <TabStrip
-          label="Pull request"
-          value={tab}
-          dataKey="pr-tab"
-          className="shrink-0"
-          options={[
-            { value: "summary", label: "Summary", controls: panel },
-            { value: "files", label: "Files", count: pr.changedFiles, controls: panel },
-          ]}
-          onChange={onTab}
-        />
+        <div role="tablist" aria-label="Pull request" onKeyDown={moveTab} className="flex shrink-0 items-center gap-0.5 rounded-control bg-inset p-[3px]">
+          <button
+            type="button"
+            role="tab"
+            data-pr-tab="summary"
+            aria-selected={tab === "summary"}
+            tabIndex={tab === "summary" ? 0 : -1}
+            onClick={() => onTab("summary")}
+            className={tabClass(tab === "summary")}
+          >
+            Summary
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-pr-tab="files"
+            aria-selected={tab === "files"}
+            tabIndex={tab === "files" ? 0 : -1}
+            onClick={() => onTab("files")}
+            className={tabClass(tab === "files")}
+          >
+            Files <span className="text-11 font-normal text-ink-3 tabular-nums">{pr.changedFiles}</span>
+          </button>
+        </div>
         {progress.label && (
           <span
             data-pr-checks-status={progress.tone}
             className={`ml-auto flex items-center gap-1.5 text-12 whitespace-nowrap ${progress.tone === "fail" ? "text-red-ink" : progress.tone === "pass" ? "text-green-ink" : "text-ink-2"}`}
           >
             {progress.tone === "running" ? (
-              <SpinnerRing size={12} color="var(--orange)" />
+              <SpinnerRing size={13} color="var(--orange)" />
             ) : (
-              <span className={`flex ${progress.tone === "fail" ? "text-red" : progress.tone === "pass" ? "text-green" : ""}`}>
-                {icon(progress.tone === "fail" ? CancelCircleIcon : CheckmarkCircle02Icon, 12)}
-              </span>
+              icon(progress.tone === "fail" ? CancelCircleIcon : CheckmarkCircle02Icon, 13)
             )}
             <span className="tabular-nums">{progress.label}</span>
           </span>
@@ -437,8 +470,8 @@ function Summary({
       <div className="h-px bg-line" />
       <div className="flex flex-col px-2 pt-1.5">
         <Section data-pr-description="" label="Description">
-          <div className="text-13 text-ink-2">
-            {pr.body.trim() ? <Markdown text={pr.body} html loadImage={loadImage} /> : <p className="text-12 text-ink-3">No description</p>}
+          <div className="text-12 text-ink-2">
+            {pr.body.trim() ? <Markdown text={pr.body} html loadImage={loadImage} /> : <p className="text-ink-3">No description.</p>}
           </div>
         </Section>
         <Section data-pr-checks="" label="Checks" meta={pr.checks.length ? undefined : "None"}>
@@ -452,14 +485,12 @@ function Summary({
                 rel="noopener noreferrer"
                 className="flex h-6 items-center gap-2 rounded-chip px-1 text-12 text-ink-2 no-underline transition-colors hover:bg-hover hover:text-ink"
               >
-                <span className={`flex shrink-0 ${CHECK_ICON[check.outcome].className}`}>
-                  {check.outcome === "running" ? <SpinnerRing size={12} color="var(--orange)" /> : icon(CHECK_ICON[check.outcome].icon, 12)}
-                </span>
+                <span className={`flex shrink-0 ${CHECK_ICON[check.outcome].className}`}>{icon(CHECK_ICON[check.outcome].icon, 13)}</span>
                 <span className="min-w-0 flex-1 truncate">
                   {check.workflow && <span className="text-ink-3">{check.workflow} / </span>}
                   {check.name}
                 </span>
-                {check.url && <span className="flex shrink-0 text-ink-3">{icon(LinkSquare02Icon, 12)}</span>}
+                {check.url && <span className="flex shrink-0 text-ink-3">{icon(LinkSquare02Icon, 11)}</span>}
               </a>
             ))}
           </div>
@@ -471,10 +502,15 @@ function Summary({
           defaultOpen
           action={
             comments.length > 1 && (
-              <Button variant="quiet" size={24} data-pr-comments-sort={newest ? "newest" : "oldest"} onClick={() => setNewest((value) => !value)}>
+              <button
+                type="button"
+                data-pr-comments-sort={newest ? "newest" : "oldest"}
+                onClick={() => setNewest((value) => !value)}
+                className="flex h-6 items-center gap-2 rounded-chip px-1 text-12 text-ink-2 no-underline transition-colors hover:bg-hover hover:text-ink"
+              >
                 {icon(ArrowUpDownIcon, 12)}
                 {newest ? "Newest first" : "Oldest first"}
-              </Button>
+              </button>
             )
           }
         >
@@ -489,7 +525,7 @@ function Summary({
               )}
             </div>
           ) : (
-            <p className="px-1 text-12 text-ink-3">No comments yet</p>
+            <p className="px-1 text-12 text-ink-3">No comments yet.</p>
           )}
         </Section>
       </div>
@@ -571,7 +607,7 @@ function CommentCard({
               </bdi>
             </button>
           )}
-          <div className="text-13 text-ink">
+          <div className="text-12 text-ink">
             <Markdown text={comment.body} html loadImage={loadImage} />
           </div>
         </div>
@@ -622,7 +658,7 @@ function FileNode({ node, depth, activePath, threads, onOpenFile }: { node: Diff
           style={indent}
           className="flex h-7 w-full items-center gap-1.5 pr-3 text-left text-12 transition-colors hover:bg-hover"
         >
-          <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">{icon(collapsed ? ArrowRight01Icon : ArrowDown01Icon, 12)}</span>
+          <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">{icon(collapsed ? ArrowRight01Icon : ArrowDown01Icon, 13)}</span>
           <span className="min-w-0 flex-1 truncate text-ink-3" dir="rtl">
             <bdi>{node.name}</bdi>
           </span>
@@ -640,7 +676,7 @@ function FileNode({ node, depth, activePath, threads, onOpenFile }: { node: Diff
       data-pr-file={file.path}
       aria-current={activePath === file.path}
       onClick={() => onOpenFile(file.path)}
-      className={`flex h-7 w-full items-center gap-1.5 pr-3 text-left text-12 transition-colors ${activePath === file.path ? "bg-hover-2" : "hover:bg-hover"}`}
+      className={`flex h-7 w-full items-center gap-1.5 pr-3 text-left text-12 hover:bg-hover ${activePath === file.path ? "bg-hover" : ""}`}
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">{icon(File01Icon, 14)}</span>
       <span className="min-w-0 flex-1 truncate text-ink">{node.name}</span>

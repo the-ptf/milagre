@@ -1,69 +1,33 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Comment01Icon,
   ArrowLeft01Icon,
   CloudIcon,
   GitBranchIcon,
   GitCommitIcon,
   Copy01Icon,
   Cancel01Icon,
-  File01Icon,
   FileDiffIcon,
-  GitMergeIcon,
-  GitPullRequestClosedIcon,
   GitPullRequestIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { branchName, commitInitials, comparisonOptions, commitStatsNotice } from "@milagre/shared/git-diff";
 import type { GitCommit } from "@milagre/shared/git-diff";
 import type { PullRequest } from "@milagre/shared/model";
-import { PR_TONE, pullRequestPresentation } from "@milagre/shared/pr-blockers";
-import { UI_COPY } from "@milagre/shared/model-copy";
-import type { DiffFileEntry, DiffMode } from "../../electron";
+import { prLook } from "../../lib/pr-look";
+import type { DiffMode } from "../../electron";
 import type { ChangesMode } from "../../lib/pull-request-view";
-import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
+import { buildDiffTree } from "../../lib/diff-tree";
 import { Select } from "../primitives/Select";
 import type { Comparison } from "./useComparison";
 import Tooltip from "../primitives/Tooltip";
 import type { DiffList } from "./useDiffFiles";
 import { useRefreshSpin } from "./useRefreshSpin";
+import { Tree, type TreeProps } from "./DiffTree";
+import { Counts } from "./DiffIndicators";
+export { Counts } from "./DiffIndicators";
+import { CommitFiles } from "./CommitFiles";
 import { ScrollArea } from "../primitives/ScrollArea";
-import { Icon } from "../primitives/Icon";
-import { Button, IconButton } from "../primitives/Button";
-import { EmptyState } from "../primitives/EmptyState";
-import { InlineError } from "../primitives/InlineError";
-import { Tabs } from "../primitives/Tabs";
-
-const STATUS = {
-  added: { letter: "A", label: "Added", className: "bg-green-tint text-diff-add" },
-  deleted: { letter: "D", label: "Deleted", className: "bg-red-tint text-diff-remove" },
-  modified: { letter: "M", label: "Modified", className: "bg-orange-tint text-orange-ink" },
-  renamed: { letter: "R", label: "Renamed", className: "bg-accent-tint text-accent-ink" },
-} as const;
-
-export function Counts({ added, removed, className = "", total = false }: { added: number; removed: number; className?: string; total?: boolean }) {
-  return (
-    <span data-diff-counts={total ? "total" : ""} className={`flex shrink-0 items-center gap-1.5 font-mono text-11 tabular-nums ${className}`}>
-      <span className="text-diff-add">+{added}</span>
-      <span className="text-diff-remove">−{removed}</span>
-    </span>
-  );
-}
-
-export function StatusBox({ status }: { status: DiffFileEntry["status"] }) {
-  const { letter, label, className } = STATUS[status];
-  return (
-    <span
-      aria-label={label}
-      data-status={letter}
-      className={`flex size-4 shrink-0 items-center justify-center rounded-inline font-mono text-10 font-semibold ${className}`}
-    >
-      {letter}
-    </span>
-  );
-}
 
 /** The Changes tab's lists: what isn't committed yet, and what the branch committed since its base. */
 export type ChangesLists = Record<DiffMode, DiffList>;
@@ -179,7 +143,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
   const data = c.data?.isRepo ? c.data : undefined;
   const base = branchName(data?.comparisonRef || c.selected || data?.base || "Automatic");
   const current = data?.branch ?? data?.head?.slice(0, 8) ?? (c.data ? "HEAD" : "…");
-  const icon = (remote: boolean) => <Icon icon={remote ? CloudIcon : GitBranchIcon} size={14} className="shrink-0 text-ink-3" />;
+  const icon = (remote: boolean) => <HugeiconsIcon icon={remote ? CloudIcon : GitBranchIcon} size={14} className="shrink-0 text-ink-3" />;
   const options = comparisonOptions(data).map((option) => ({
     ...option,
     wrapLabel: true,
@@ -200,51 +164,54 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
           variant="chip"
           triggerClassName="min-w-[64px] max-w-[50%] shrink"
         />
-        <Icon icon={ArrowLeft01Icon} size={14} className="hidden shrink-0 @[300px]:block" />
+        <HugeiconsIcon icon={ArrowLeft01Icon} size={14} className="hidden shrink-0 @[300px]:block" />
         <span className="flex min-w-0 flex-1 items-center gap-1.5" aria-label={`Current branch: ${data?.branch ?? `detached HEAD ${current}`}`}>
-          <Icon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
+          <HugeiconsIcon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
           <BranchLabel name={current} />
           {data && !data.branch && <span className="shrink-0 rounded-inline bg-field px-1 text-10 text-ink-2">detached</span>}
         </span>
       </div>
-      <Tabs
-        label="Changes view"
-        value={c.view}
-        options={[
-          { value: "files", label: "Files", count: fileCount },
-          { value: "commits", label: "Commits", count: data?.total },
-        ]}
-        onChange={c.setView}
-        dataKey="comparison-view"
-        className="px-3 pb-2"
-      />
+      <div className="flex gap-5 px-3" aria-label="Changes view" role="tablist" onKeyDown={moveTab}>
+        {(["files", "commits"] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={c.view === view}
+            tabIndex={c.view === view ? 0 : -1}
+            data-comparison-view={view}
+            onClick={() => c.setView(view)}
+            className={`flex items-center gap-1.5 border-b-2 py-2 text-12 ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
+          >
+            {view === "files" ? "Files" : "Commits"}
+            <span className="font-normal tabular-nums text-ink-3">{view === "files" ? fileCount : data?.total}</span>
+          </button>
+        ))}
+      </div>
       {c.missing && (
         <div role="status" className="flex items-start gap-2 px-3 py-2 text-11 text-ink-3">
           <p className="min-w-0 flex-1 break-words">
             {c.missing} no longer exists. {data?.base ? `Showing changes since ${data.base}.` : "Restoring the automatic base…"}
           </p>
-          <IconButton label="Dismiss missing branch notice" icon={Cancel01Icon} size={20} onClick={c.dismissMissing} />
+          <button type="button" aria-label="Dismiss missing branch notice" onClick={c.dismissMissing}>
+            <HugeiconsIcon icon={Cancel01Icon} size={13} />
+          </button>
         </div>
       )}
       {data?.message && (
         <div className="px-3 py-2 text-11 text-ink-3">
           <p>{data.message}</p>
           {fallback?.ref && fallback.ref !== data.comparisonRef && (
-            <Button variant="link" size={24} onClick={() => c.select(fallback.ref!)} className="mt-1 -ml-2">
+            <button type="button" onClick={() => c.select(fallback.ref!)} className="mt-1 text-accent-ink hover:underline">
               Compare with {fallback.name} instead
-            </Button>
+            </button>
           )}
         </div>
       )}
       {c.error && (
-        <div className="flex items-center gap-2 px-3 py-2">
-          <InlineError size={12} className="min-w-0 flex-1">
-            {c.error}.
-          </InlineError>
-          <Button variant="quiet" size={24} onClick={() => void c.refresh()}>
-            Retry
-          </Button>
-        </div>
+        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-11 text-ink-3">
+          {c.error}. Retry
+        </button>
       )}
     </div>
   );
@@ -259,19 +226,20 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
         <Notice>{c.loading ? "Reading commits…" : (c.data.message ?? "No commits since the comparison branch.")}</Notice>
       )}
       {c.data.commits.map((commit) => (
-        <CommitRow key={commit.sha} commit={commit} />
+        <CommitRow key={`${c.cwd}:${commit.sha}`} commit={commit} comparison={c} />
       ))}
       {c.data.hasMore && c.limit < 300 && (
-        <Button variant="quiet" size={28} onClick={c.more} disabled={c.loading} className="w-full">
+        <button type="button" onClick={c.more} disabled={c.loading} className="w-full rounded-control p-2 text-12 text-ink-2 hover:bg-hover">
           Show more commits
-        </Button>
+        </button>
       )}
       {c.data.hasMore && c.limit >= 300 && <Notice>Showing the latest 300 commits. Choose a closer comparison branch to narrow the history.</Notice>}
     </div>
   );
 }
 
-function CommitRow({ commit }: { commit: GitCommit }) {
+function CommitRow({ commit, comparison }: { commit: GitCommit; comparison: Comparison }) {
+  const [showFiles, setShowFiles] = useState(false);
   const [copy, setCopy] = useState("Copy SHA");
   return (
     <details className="py-3 text-12">
@@ -284,13 +252,13 @@ function CommitRow({ commit }: { commit: GitCommit }) {
           <span className="min-w-0 truncate" title={`${commit.author} <${commit.email}>`}>
             {commit.author}
           </span>
-          <Tooltip label={new Date(commit.date).toLocaleString()} className="shrink-0">
-            <time dateTime={commit.date}>{new Date(commit.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>
-          </Tooltip>
+          <time className="shrink-0" dateTime={commit.date} title={new Date(commit.date).toLocaleString()}>
+            {new Date(commit.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+          </time>
           {commit.statsUnavailable ? (
-            <Tooltip label={commitStatsNotice(commit.statsUnavailable)} align="end" wrap className="ml-auto">
-              <span>Totals unavailable</span>
-            </Tooltip>
+            <span className="ml-auto" title={commitStatsNotice(commit.statsUnavailable)}>
+              Totals unavailable
+            </span>
           ) : (
             <>
               <span className="ml-auto shrink-0">
@@ -307,23 +275,31 @@ function CommitRow({ commit }: { commit: GitCommit }) {
         <p className="mt-2 break-words text-11 text-ink-3">
           {commit.author} &lt;{commit.email}&gt; · {new Date(commit.date).toLocaleString()}
         </p>
-        <Tooltip label={commit.sha} className="mt-2">
-          <button
-            type="button"
-            aria-label={copy}
-            onClick={() =>
-              void navigator.clipboard.writeText(commit.sha).then(
-                () => setCopy("SHA copied"),
-                () => setCopy("Copy failed. Retry"),
-              )
-            }
-            className="flex h-6 items-center gap-1.5 rounded-control bg-field px-2 font-mono text-11 text-ink-2 transition-colors hover:text-ink"
-          >
-            {commit.sha.slice(0, 8)}
-            <Icon icon={Copy01Icon} size={12} />
-            <span className="sr-only">{copy}</span>
-          </button>
-        </Tooltip>
+        <button
+          type="button"
+          title={commit.sha}
+          aria-label={copy}
+          onClick={() =>
+            void navigator.clipboard.writeText(commit.sha).then(
+              () => setCopy("SHA copied"),
+              () => setCopy("Copy failed. Retry"),
+            )
+          }
+          className="flex h-6 items-center gap-1.5 rounded-control bg-field px-2 font-mono text-11 text-ink-2 transition-colors hover:text-ink"
+        >
+          {commit.sha.slice(0, 8)}
+          <HugeiconsIcon icon={Copy01Icon} size={12} />
+          <span className="sr-only">{copy}</span>
+        </button>
+        <button
+          type="button"
+          aria-expanded={showFiles}
+          onClick={() => setShowFiles((value) => !value)}
+          className="mt-2 min-h-6 rounded-control px-2 text-12 text-ink-2 transition-colors hover:bg-hover active:bg-hover-2"
+        >
+          {showFiles ? "Hide files in this commit" : "Show files in this commit"}
+        </button>
+        {showFiles && <CommitFiles cwd={comparison.cwd} sha={commit.sha} bridge={comparison.bridge} />}
       </div>
     </details>
   );
@@ -332,17 +308,11 @@ function CommitRow({ commit }: { commit: GitCommit }) {
 /** A PR's tab: `key` names it to the caller; `pr` colours its icon by state; `hint` says whose PR it is (a Link's Project). */
 export type PrTab = { key: string; number: number; pr?: PullRequest; hint?: string };
 
-// The icon in the fill colour (PR_TONE, as in the sidebar and on the phone); written out so Tailwind sees the classes.
-const ICON_TONE = { green: "text-green", orange: "text-orange", red: "text-red", purple: "text-purple" } as const;
-
-/** Merged purple, closed grey, otherwise the sidebar's tone: blocked red, checks running orange, open green. */
-function prLook(pr: PullRequest | undefined) {
-  if (!pr) return { icon: GitPullRequestIcon, tone: "text-ink-3", state: "" };
-  if (pr.state === "MERGED") return { icon: GitMergeIcon, tone: ICON_TONE[PR_TONE.purple.icon], state: "Merged" };
-  // ponytail: PullRequest has no CLOSED state today; a closed PR shows grey once it does.
-  if (pr.state !== "OPEN") return { icon: GitPullRequestClosedIcon, tone: "text-ink-3", state: "Closed" };
-  const look = pullRequestPresentation(pr);
-  return { icon: GitPullRequestIcon, tone: ICON_TONE[PR_TONE[look.tone].icon], state: look.label || "Open" };
+/** A PR tab's glyph, colour and state words; grey until its status is read. */
+function tabLook(pr: PullRequest | undefined) {
+  if (!pr) return { glyph: GitPullRequestIcon, toneClass: "text-ink-3", state: "" };
+  const look = prLook(pr);
+  return { glyph: look.glyph, toneClass: look.toneClass, state: look.label || "Open" };
 }
 
 /** Left and right arrows select the next tab, as a tab row does. */
@@ -424,12 +394,12 @@ export function ChangesTabs({
           }}
           data-changes-tab="changes"
         >
-          <Icon icon={FileDiffIcon} size={14} className="shrink-0" />
+          <HugeiconsIcon icon={FileDiffIcon} size={13} strokeWidth={1.8} color="currentColor" className="shrink-0" />
           Changes
-          {count > 0 && <span className="text-ink-3 tabular-nums">{count}</span>}
+          {count > 0 && <span className="text-11 font-normal text-ink-3 tabular-nums">{count}</span>}
         </PanelTab>
         {prs.map((tab) => {
-          const look = prLook(tab.pr);
+          const look = tabLook(tab.pr);
           const title = [tab.hint, tab.pr?.title, look.state].filter(Boolean).join(" · ");
           return (
             <PanelTab
@@ -438,10 +408,10 @@ export function ChangesTabs({
               onClick={() => {
                 if (selected !== tab.key) onSelect(tab.key);
               }}
-              tooltip={title || undefined}
+              title={title || undefined}
               data-changes-tab={tab.key}
             >
-              <Icon icon={look.icon} size={14} className={`shrink-0 ${look.tone}`} />#{tab.number}
+              <HugeiconsIcon icon={look.glyph} size={13} strokeWidth={1.8} color="currentColor" className={`shrink-0 ${look.toneClass}`} />#{tab.number}
             </PanelTab>
           );
         })}
@@ -454,34 +424,25 @@ export function ChangesTabs({
 function PanelTab({
   selected,
   children,
-  tooltip,
   ...props
 }: {
   selected: boolean;
   children: ReactNode;
   onClick: () => void;
-  tooltip?: string;
+  title?: string;
   "data-changes-tab": string;
 }) {
-  const tab = (
+  return (
     <button
       type="button"
       role="tab"
       aria-selected={selected}
       tabIndex={selected ? 0 : -1}
-      // The Tabs look (primitives/Tabs), kept by hand for the PR tabs' coloured icons and tooltips.
-      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-12 font-medium whitespace-nowrap transition-colors active:bg-hover-2 ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-12 whitespace-nowrap transition-colors ${selected ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
       {...props}
     >
       {children}
     </button>
-  );
-  return tooltip ? (
-    <Tooltip label={tooltip} side="bottom" wrap className="shrink-0">
-      {tab}
-    </Tooltip>
-  ) : (
-    tab
   );
 }
 
@@ -527,14 +488,8 @@ export function ChangesSections({
           commentCounts={commentCounts?.[section.mode]}
         />
       ))}
-      {problem?.state === "error" ? (
-        <InlineError size={12} className="px-4 py-6 text-center">
-          {problem.message}
-        </InlineError>
-      ) : (
-        problem && <Notice>{problem.message}</Notice>
-      )}
-      {!sections.length && !problem && <Notice>{all.some((list) => list.state !== "ready") ? "Loading changes…" : (message ?? UI_COPY.noChanges)}</Notice>}
+      {problem && <Notice>{problem.message}</Notice>}
+      {!sections.length && !problem && <Notice>{all.some((list) => list.state !== "ready") ? "Loading changes…" : (message ?? "No changes yet.")}</Notice>}
     </>
   );
 }
@@ -548,7 +503,7 @@ function ChangesSection({ label, list, compactComparison, ...treeProps }: { labe
       <h3 className="flex h-7 items-center gap-1.5 px-3 text-11 text-ink-3">
         <span className="font-medium text-ink-2">{label}</span>
         <span className="tabular-nums">{files.length}</span>
-        {label === "Not committed" && <span>vs HEAD</span>}
+        {label === "Not committed" && <span className="text-10">vs HEAD</span>}
         {base && !compactComparison && (
           <span data-diff-base className="min-w-0 truncate">
             since <span className="font-mono">{base}</span>
@@ -563,90 +518,26 @@ function ChangesSection({ label, list, compactComparison, ...treeProps }: { labe
 }
 
 function Notice({ children }: { children: string }) {
-  return <EmptyState size="compact" title={children} />;
-}
-
-type TreeProps = { onSelectFile: (path: string) => void; activePath?: string; commentCounts?: Record<string, number> };
-
-function Tree({ nodes, depth, ...rest }: { nodes: DiffTreeNode<DiffFileEntry>[]; depth: number } & TreeProps) {
-  return (
-    <>
-      {nodes.map((node) => (
-        <TreeRow key={node.path} node={node} depth={depth} {...rest} />
-      ))}
-    </>
-  );
-}
-
-function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { node: DiffTreeNode<DiffFileEntry>; depth: number } & TreeProps) {
-  const [collapsed, setCollapsed] = useState(false);
-  const indent = { paddingLeft: 8 + depth * 12 };
-  if (node.type === "file") {
-    return (
-      <button
-        type="button"
-        data-diff-tree-file={node.path}
-        aria-current={activePath === node.path}
-        onClick={() => onSelectFile(node.path)}
-        style={indent}
-        className={`flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors ${activePath === node.path ? "bg-hover-2" : "hover:bg-hover"}`}
-      >
-        <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
-          <Icon icon={File01Icon} size={14} />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-ink">{node.name}</span>
-        {commentCounts?.[node.path] ? (
-          <span
-            data-diff-tree-comments={commentCounts[node.path]}
-            aria-label={`${commentCounts[node.path]} comments`}
-            className="flex shrink-0 items-center gap-0.5 text-11 text-ink-3 tabular-nums"
-          >
-            <Icon icon={Comment01Icon} size={12} />
-            {commentCounts[node.path]}
-          </span>
-        ) : null}
-        {!node.file.binary && <Counts added={node.file.added} removed={node.file.removed} />}
-        <StatusBox status={node.file.status} />
-      </button>
-    );
-  }
-  return (
-    <>
-      <button
-        type="button"
-        data-diff-tree-folder={node.path}
-        aria-expanded={!collapsed}
-        onClick={() => setCollapsed((value) => !value)}
-        style={indent}
-        className="flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors hover:bg-hover"
-      >
-        <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
-          <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={12} />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-ink-2" dir="rtl">
-          <bdi>{node.name}</bdi>
-        </span>
-        <Counts added={node.added} removed={node.removed} />
-      </button>
-      {!collapsed && <Tree nodes={node.children} depth={depth + 1} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />}
-    </>
-  );
+  return <p className="px-3 py-2 text-11 text-ink-3">{children}</p>;
 }
 
 /** Spins from the click until the read is done; see useRefreshSpin. */
 function RefreshButton({ label, onRefresh, loading }: { label: string; onRefresh: () => void | Promise<unknown>; loading: boolean }) {
   const spin = useRefreshSpin(onRefresh, loading);
   return (
-    <Tooltip label={label} side="bottom" align="end" asChild>
-      <IconButton label={label} size={28} aria-busy={spin.busy || undefined} data-diff-refresh onClick={spin.refresh}>
-        <span
-          className={spin.spinning ? "refresh-spin animate-spin" : ""}
-          onAnimationIteration={spin.onAnimationIteration}
-          onAnimationEnd={spin.onAnimationEnd}
-        >
-          <Icon icon={RefreshIcon} size={14} />
+    <Tooltip label={label} side="bottom" align="end">
+      <button
+        type="button"
+        aria-label={label}
+        aria-busy={spin.busy || undefined}
+        data-diff-refresh
+        onClick={spin.refresh}
+        className="flex size-7 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+      >
+        <span className={spin.spinning ? "animate-spin" : ""} onAnimationIteration={spin.onAnimationIteration}>
+          <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" />
         </span>
-      </IconButton>
+      </button>
     </Tooltip>
   );
 }

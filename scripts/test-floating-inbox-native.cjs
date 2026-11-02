@@ -40,6 +40,10 @@ async function nativeChecks() {
     main = BrowserWindow.getAllWindows().find((window) => window.webContents.getURL() === process.env.MILAGRE_DEV_SERVER_URL);
     return main && (await main.webContents.executeJavaScript('document.body?.textContent.includes("Saved chat")'));
   }, "main app loaded");
+  // A background macOS app cannot focus its panel until the app itself is active.
+  if (process.platform === "darwin") app.focus({ steal: true });
+  main.focus();
+  await waitFor(() => main.isFocused(), "main app focused");
   main.hide();
   await main.webContents.executeJavaScript("window.milagre.setFloatingInbox(true)");
   await waitFor(
@@ -58,7 +62,7 @@ async function nativeChecks() {
   await waitFor(() => inbox.isVisible(), "inbox visible");
   assert.equal(main.isVisible(), false, "opening the panel leaves the main window hidden");
   inbox.focus();
-  await delay(100);
+  await waitFor(() => inbox.isFocused(), "inbox focused");
   assert.equal(main.isVisible(), false, "focusing the panel leaves the main window hidden");
   if (process.platform === "darwin") {
     app.emit("activate");
@@ -297,7 +301,7 @@ async function main() {
     }),
   );
   await fs.writeFile(path.join(profile, "recent-projects.json"), JSON.stringify([{ path: project, name: "project", openedAt: new Date().toISOString() }]));
-  const env = { ...process.env };
+  const env = { ...process.env, MILAGRE_CHATS_HOME: path.join(temporary, "chats-home") };
   delete env.ELECTRON_RUN_AS_NODE;
   try {
     const child = spawn(require("electron"), [__filename, profile, project], { cwd: project, env, stdio: "inherit" });

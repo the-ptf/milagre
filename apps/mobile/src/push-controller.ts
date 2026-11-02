@@ -47,7 +47,6 @@ export const SHEETS_OVER_CHAT = new Set([
   "background",
   "handoff-brief",
   "routine-form",
-  "select-text",
   "viewer",
 ]);
 // Every page inside the Settings sheet (app/(settings)): the group is one sheet in the layout, so its pages share the
@@ -74,7 +73,7 @@ const SETTINGS_SHEET_PAGES = new Set([
   "published-pages",
 ]);
 // Sheets the layout presents over a full-screen page (the designs), which already hides the Chat: they don't keep it viewed.
-export const SHEETS_OVER_PAGES = new Set(["design-share-sheet"]);
+export const SHEETS_OVER_PAGES = new Set(["design-share-sheet", "flow-step", "flow-add-step", "flow-publish"]);
 /** The Chat on screen: the one at /chat (`chat`), or the one a sheet opened over (`previous`), while its computer is connected. */
 export function viewedChat(path: string, chat: PushView, previous: PushView, connected: string | undefined): PushView {
   if (path === "/chat") return chat;

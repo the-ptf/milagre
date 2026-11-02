@@ -18,8 +18,9 @@ export function createQuotaService({ storage, limits }) {
       const page = storage.get(key(id));
       return page?.closed ? 0 : Math.max(0, limits.bytes - (storage.get("activeBytes") ?? 0) + held(page));
     },
+    // A page whose only files were removed before it was ever published settles at 0 bytes.
     reserve(id, operation, bytes) {
-      if (!valid(id) || !Number.isSafeInteger(Number(operation)) || Number(operation) < 1 || !Number.isSafeInteger(bytes) || bytes < 1 || !ready())
+      if (!valid(id) || !Number.isSafeInteger(Number(operation)) || Number(operation) < 1 || !Number.isSafeInteger(bytes) || bytes < 0 || !ready())
         return false;
       return storage.transaction(() => {
         const page = storage.get(key(id)) ?? { bytes: 0 };

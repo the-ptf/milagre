@@ -48,9 +48,9 @@ type MarkdownTheme = {
   codeSize: number;
   reachable?: ReachableHost | null;
   openChatLink?: ((url: string) => boolean) | null;
-  /** False where a long press on the message offers Select text instead (chat replies on iOS). */
+  /** False where a long press switches the message to an inline selection view (chat replies on iOS). */
   selectable: boolean;
-  /** Opens the message's Copy / Select text actions; set, it is also the VoiceOver action on each text block. */
+  /** Selects the message text in place; set, it is also the VoiceOver action on each text block. */
   onMessageAction?: () => void;
   tableHeader?: boolean;
   /** The paragraph, list and heading ink: ink2 for an agent's thoughts. Links, code and images keep their own colours. */
@@ -243,7 +243,9 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
     const file = href && !url ? localFileLink(href, t.basePath) : null;
     const onPress = url
       ? () => {
-          if (!t.openChatLink?.(url)) void Linking.openURL(url).catch(() => Alert.alert("Cannot open link", "Try opening this address in your browser."));
+          // The internal Browser runs on the computer, so preserve its original localhost address.
+          if (!t.openChatLink?.(safeLink(written) ?? url))
+            void Linking.openURL(url).catch(() => Alert.alert("Cannot open link", "Try opening this address in your browser."));
         }
       : file
         ? () => router.push({ pathname: "/file-preview", params: { path: file.path } })

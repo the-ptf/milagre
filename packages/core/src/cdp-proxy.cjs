@@ -12,6 +12,9 @@ const MAX_MESSAGE = 4 * 1024 * 1024;
 // The page's webContents.debugger can reach past the page: Target.* attaches to other targets (Milagre's own window
 // among them) and a sessionId addresses what it attached. A client gets the page's own domains only.
 const OUT_OF_PAGE = /^(Target|Browser|SystemInfo|Tethering|Storage)\./;
+// The session's cookies, httpOnly ones included, for every site: a page's session holds the sign-ins of every Chat that
+// shares it (this Mac's Chats, or one computer's), and no browser tool reads or writes them.
+const COOKIES = /^Network\.(getCookies|getAllCookies|setCookies?|deleteCookies|clearBrowserCookies)$/;
 
 /**
  * @param {{
@@ -26,13 +29,16 @@ function createCdpProxy({ product, pages, session }) {
   let port = 0;
   const sockets = new Set();
   const loopbackHost = () => `127.0.0.1:${port}`;
+  // A loopback IP, never a name (DNS rebinding). Any port: a paired computer reaches this proxy through its own loopback
+  // forwarder (panel-forwarders.cjs), so its Host names that forwarder's port.
+  const fromLoopback = (host) => typeof host === "string" && /^127\.0\.0\.1:\d{1,5}$/.test(host);
   const prefix = `/${token}`;
   const json = (response, status, value) => {
     response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     response.end(JSON.stringify(value));
   };
   const server = http.createServer((request, response) => {
-    if (request.headers.host !== loopbackHost() || request.method !== "GET") return json(response, 403, { error: "forbidden" });
+    if (!fromLoopback(request.headers.host) || request.method !== "GET") return json(response, 403, { error: "forbidden" });
     const url = request.url ?? "";
     if (url === `${prefix}/json/version`)
       return json(response, 200, {
@@ -58,7 +64,7 @@ function createCdpProxy({ product, pages, session }) {
   server.on("upgrade", (request, socket, head) => {
     const pageId = new RegExp(`^${prefix}/devtools/page/([A-F0-9]{32})$`).exec(request.url ?? "")?.[1] ?? "";
     const page = pageId && pages().some((item) => item.id === pageId) ? session(pageId) : null;
-    if (request.headers.host !== loopbackHost() || request.headers.origin || !page) {
+    if (!fromLoopback(request.headers.host) || request.headers.origin || !page) {
       page?.release();
       socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
       return;
@@ -85,7 +91,7 @@ function createCdpProxy({ product, pages, session }) {
       if (!Number.isSafeInteger(message?.id) || typeof message.method !== "string") return;
       const refuse = (reason) => send({ id: message.id, error: { code: -32601, message: reason } });
       if (message.sessionId !== undefined) return refuse("Sessions are not available on a Browser panel page.");
-      if (OUT_OF_PAGE.test(message.method)) return refuse(`${message.method} is not available on a Browser panel page.`);
+      if (OUT_OF_PAGE.test(message.method) || COOKIES.test(message.method)) return refuse(`${message.method} is not available on a Browser panel page.`);
       page.send(message.method, message.params && typeof message.params === "object" ? message.params : {}).then(
         (result) => send({ id: message.id, result: result ?? {} }),
         (error) => send({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } }),

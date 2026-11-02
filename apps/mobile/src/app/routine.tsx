@@ -1,7 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Platform, ScrollView, Text, View } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { BubbleChatIcon, Folder01Icon, GitBranchIcon, PencilEdit02Icon, PlayIcon, SecurityCheckIcon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+  BubbleChatIcon,
+  Folder01Icon,
+  GitBranchIcon,
+  PencilEdit02Icon,
+  PlayIcon,
+  Refresh01Icon,
+  SecurityCheckIcon,
+  SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
@@ -10,7 +19,9 @@ import {
   canOpenRunChat,
   canRunNow,
   clock,
+  fallbackText,
   filterRuns,
+  routineRetries,
   routineTimes,
   routineWhereText,
   runFilterCounts,
@@ -26,8 +37,9 @@ import { useActivityClock } from "../chat-row-store";
 import { modelsFor } from "../turn-options";
 import { routineIcon } from "../routine-rows";
 import { RunList } from "../run-list";
+import { FlowRoutineScreen } from "../flow-routine";
 import type { IconData } from "../icons";
-import { EmptyState, ErrorNotice, HeaderButton, InlineError, PageScroll, RowSwitch, SectionLabel, Segmented, Tag, useStyles } from "../ui";
+import { EmptyState, ErrorNotice, HeaderButton, InlineError, PageScroll, RowCheckbox, SectionLabel, Segmented, Tag, useStyles } from "../ui";
 
 type Targets = { projects: { path: string; chats: { chatId: string; title: string }[] }[] };
 
@@ -66,7 +78,7 @@ function StatePill({ on }: { on: boolean }) {
 const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export default function RoutineScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const styles = useStyles();
   const session = useSession();
   const { client } = session;
@@ -149,6 +161,9 @@ export default function RoutineScreen() {
       </>
     );
 
+  // A flow has a page of its own: its steps, its Runs step by step, and its settings (flow-routine.tsx).
+  if (routine.flow) return <FlowRoutineScreen routine={routine} initialTab={tab === "runs" || tab === "settings" ? tab : "steps"} />;
+
   const openChat = (key: string) =>
     router.push({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
   function flip() {
@@ -189,7 +204,7 @@ export default function RoutineScreen() {
           <View style={{ flex: 1, flexDirection: "row" }}>
             <StatePill on={routine.enabled} />
           </View>
-          <RowSwitch label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
+          <RowCheckbox label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
         </View>
         {/* The chips scroll sideways when they don't fit, edge to edge. */}
         <ScrollView
@@ -204,6 +219,12 @@ export default function RoutineScreen() {
             text={routineWhereText(target, chatTitle)}
           />
           <SettingChip icon={SparklesIcon} text={model} />
+          {routineRetries(routine) ? (
+            <SettingChip
+              icon={Refresh01Icon}
+              text={fallbackText(routine, (provider, modelId) => modelsFor(provider, session.models).find((item) => item.id === modelId)?.name)}
+            />
+          ) : null}
           <SettingChip icon={SecurityCheckIcon} text={mode} />
         </ScrollView>
         {times ? <Text style={styles.footnote}>{times}</Text> : null}

@@ -1,11 +1,13 @@
+import { ContextBar } from "../context-bar";
+import { useContextSettings } from "../context-settings";
 import { useEffect } from "react";
 import { Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { contextHint, contextSummary } from "@milagre/shared/usage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { contextSummary } from "@milagre/shared/usage";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useComposer, useSession } from "../session";
-import { PillButton, ProgressBar, SheetBody, useAnnounce, useStyles } from "../ui";
-import { lineHeight, type } from "../design-tokens";
+import { PillButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 /**
@@ -14,8 +16,10 @@ import { useTheme } from "../theme";
  */
 export default function ContextSheet() {
   const { colors } = useTheme();
+  const { settings } = useContextSettings();
   const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
   const session = useSession();
   const composer = useComposer();
   const project = session.snapshot?.project;
@@ -28,46 +32,34 @@ export default function ContextSheet() {
   useEffect(() => {
     if (missing) router.back();
   }, [missing]);
-  const blocked = run ? "Wait for the agent to finish." : null;
-  // The sheet can open already blocked; say why Compact now is off.
-  useAnnounce(missing ? null : blocked, { onMount: true });
   if (missing) return null;
   const { percent, tokens } = contextSummary(usage);
-  const hint = contextHint(percent);
   const canCompact = Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact;
+  const blocked = Boolean(session.error) || Boolean(chat?.archived);
   return (
-    <SheetBody style={{ gap: 16 }}>
-      <Text accessibilityRole="header" style={styles.sheetTitle}>
-        Context
+    <View style={{ paddingTop: 28, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: 16 }}>
+      <Text selectable style={{ color: colors.ink2, fontSize: 13, fontVariant: ["tabular-nums"] }}>
+        {tokens}
       </Text>
-      <View style={{ gap: 8 }}>
-        <ProgressBar value={percent / 100} accessibilityLabel="Context usage" valueText={`${percent}% used, ${tokens}`} />
-        <View style={[styles.row, { justifyContent: "space-between", gap: 4 }]}>
-          <Text
-            selectable
-            style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500", fontVariant: ["tabular-nums"] }}
-          >
-            {percent}% used
-          </Text>
-          <Text selectable style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontVariant: ["tabular-nums"] }}>
-            {tokens}
-          </Text>
-        </View>
-      </View>
-      {hint && <Text style={styles.muted}>{hint}</Text>}
+      <ContextBar percent={percent} settings={settings} />
       {canCompact && chatId && (
         <View style={{ gap: 8 }}>
           <PillButton
-            title="Compact now"
+            tone="orange"
+            title={run ? "Compact after turn" : "Compact now"}
             disabled={Boolean(blocked)}
             onPress={() => {
               composer.requestCompact(chatId);
               router.back();
             }}
           />
-          {blocked && <Text style={[styles.footnote, { textAlign: "center" }]}>{blocked}</Text>}
+          {blocked && (
+            <Text accessibilityLiveRegion="polite" style={[styles.muted, { textAlign: "center", fontSize: 13 }]}>
+              Chat unavailable.
+            </Text>
+          )}
         </View>
       )}
-    </SheetBody>
+    </View>
   );
 }

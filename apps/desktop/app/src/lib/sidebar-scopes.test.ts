@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { CoordinatorState } from "@milagre/shared/model";
+import type { CoordinatorState, LinkState } from "@milagre/shared/model";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import {
   chatsSidebarRows,
@@ -100,6 +100,18 @@ test("a remembered row of a chat whose Worktree changed is dropped", () => {
   rememberScopeRows("/code/shop", [{ id: "1", label: "Fix checkout", details: { path: "/code/shop-old", pullRequests: [pr as never] } }]);
   const rows = scopeChats("/code/shop", state, "created", marks);
   assert.equal(rows.find((row) => row.id === "1")!.details?.pullRequests, undefined);
+});
+
+test("Link rows keep the same workspace path and remembered facts when another scope opens", () => {
+  const key = "milagre-link:remembered-link";
+  const linked = {
+    sessions: { 1: { id: 1, workspacePath: "/link/chat-1", worktrees: [], summary: { count: 1, firstAt: 100, lastAt: 200 } } },
+    messages: [],
+  } as unknown as LinkState;
+  rememberScopeRows(key, [{ id: "1", label: "Link", details: { path: "/link/chat-1", pullRequests: [pr as never] } }]);
+  const row = scopeChats(key, linked, "created", marks)[0]!;
+  assert.equal(row.details?.path, "/link/chat-1");
+  assert.deepEqual(row.details?.pullRequests, [pr]);
 });
 
 test("another scope's memory doesn't leak", () => {

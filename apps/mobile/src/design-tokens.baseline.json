@@ -5,7 +5,6 @@
     "ultracode-fatality.tsx": 1
   },
   "radius": {
-    "chat-display-choices.tsx": 2,
     "viewer-chrome.tsx": 1
   },
   "computedFont": {
@@ -13,8 +12,7 @@
   },
   "swiftFont": {},
   "icon": {
-    "app/add-computer.tsx": 1,
-    "chat-display-choices.tsx": 2
+    "app/add-computer.tsx": 1
   },
   "duration": {
     "inbox-motion.tsx": 2,

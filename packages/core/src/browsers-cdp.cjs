@@ -143,7 +143,8 @@ function createBrowserAdapter(options = {}) {
       history = null,
       historyTimer = null,
       historyAt = 0,
-      pressed = "none";
+      pressed = "none",
+      emulated = false;
     let state = { ready: false, width: 0, height: 0, title: "", url: "", canGoBack: false, canGoForward: false };
     const fail = (message) => {
       if (state.error) return;
@@ -312,6 +313,11 @@ function createBrowserAdapter(options = {}) {
           );
         } else if (event.kind === "text") {
           quiet(call("Input.insertText", { text: event.text }));
+        } else if (event.kind === "viewport") {
+          // The page lays out at the viewer's size, not its window's. A Browser panel page resizes its own <webview> for
+          // this instead (browser-panel-pages.cjs): emulation there lays out the page but frames stay the guest's size.
+          emulated = true;
+          quiet(call("Emulation.setDeviceMetricsOverride", { width: event.width, height: event.height, deviceScaleFactor: 0, mobile: false }));
         } else if (event.action === "reload") {
           quiet(call("Page.reload"));
         } else {
@@ -321,9 +327,10 @@ function createBrowserAdapter(options = {}) {
       },
       async close() {
         if (localClosed) return;
-        // Stop Milagre's screencast only. Never Target.closeTarget or Browser.close.
+        // Stop Milagre's screencast and size only. Never Target.closeTarget or Browser.close.
         if (socket.readyState === Socket.OPEN && !state.error) {
           try {
+            if (emulated) socket.send(JSON.stringify({ id: ++nextId, method: "Emulation.clearDeviceMetricsOverride", params: {} }));
             socket.send(JSON.stringify({ id: ++nextId, method: "Page.stopScreencast", params: {} }));
           } catch {}
         }

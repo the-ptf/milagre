@@ -67,6 +67,22 @@ export class ChatWindowCache<T extends ChatWindow> {
     this.prune();
   }
 
+  /**
+   * A read window back to its last turns once it holds more than twice as many: a Chat open for hours, followed at its
+   * bottom, keeps every message since it opened otherwise. The trimmed window, or null when nothing changed.
+   */
+  trim(key: string): T | null {
+    const current = this.windows.get(key);
+    if (!current) return null;
+    let turns = 0;
+    for (const message of current.messages) if (message.role === "user") turns++;
+    if (turns <= this.options.turns * 2) return null;
+    const next = this.tail(current);
+    if (next === current) return null;
+    this.windows.set(key, next);
+    return next;
+  }
+
   private tail(value: T): T {
     let turns = 0;
     for (let i = value.messages.length - 1; i >= 0; i--) {

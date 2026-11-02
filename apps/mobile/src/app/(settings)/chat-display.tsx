@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { ChatDisplaySection } from "../../chat-display-section";
 
 export default function ChatDisplayScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Chat" }} />
-      <PageScroll>
+      <SettingsScroll>
         <ChatDisplaySection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

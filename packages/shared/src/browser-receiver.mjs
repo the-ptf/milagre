@@ -251,6 +251,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
   const $ = (id) => document.getElementById(id);
   const stage = $("stage"),
     image = $("frame"),
+    commentPin = $("comment-pin"),
     message = $("message"),
     live = $("live"),
     keys = $("keys");
@@ -272,7 +273,10 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     deadline = null,
     active = false,
     claiming = false,
-    mouse = null;
+    mouse = null,
+    sentSize = "",
+    sizeTimer = null,
+    poll = null;
   const pending = new Map(),
     heldKeys = new Set();
   const post = (data) => {
@@ -308,6 +312,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     }
   });
   const geometry = () => geometryFor(shown?.viewport, { width: stage.clientWidth, height: stage.clientHeight });
+  let commentPoint = null;
   const layout = () => {
     const g = geometry();
     if (!g) return;
@@ -315,8 +320,33 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     image.style.top = g.top + "px";
     image.style.width = g.width + "px";
     image.style.height = g.height + "px";
+    commentPin.hidden = !commentPoint;
+    if (commentPoint) {
+      commentPin.style.left = g.left + commentPoint.x * g.width + "px";
+      commentPin.style.top = g.top + commentPoint.y * g.height + "px";
+    }
   };
-  new ResizeObserver(layout).observe(stage);
+  window.browserCommentPoint = (point) => {
+    commentPoint = point && Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1 ? point : null;
+    commentPin.hidden = !commentPoint;
+    layout();
+  };
+  // The page lays out at the stage's size while this viewer controls it, whatever size its own window is.
+  const sendSize = () => {
+    // Older hosts reject unknown input events and may outlive an OTA update of the viewer.
+    // Without an explicit capability, keep their existing viewport and letterboxed input mapping.
+    if (!canInput() || status.supportsViewport !== true) return;
+    const width = Math.min(4096, Math.round(stage.clientWidth)),
+      height = Math.min(4096, Math.round(stage.clientHeight));
+    if (width < 100 || height < 100 || width + "x" + height === sentSize) return;
+    sentSize = width + "x" + height;
+    queue.push({ kind: "viewport", width, height });
+  };
+  new ResizeObserver(() => {
+    layout();
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(sendSize, 150);
+  }).observe(stage);
   const say = (text) => {
     message.textContent = text;
     message.hidden = !text;
@@ -339,6 +369,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       clearTimeout(deadline);
       deadline = null;
     }
+    if (!sentSize) sendSize();
     const next = status ? status.title + "\n" + status.url : "";
     if (next !== page) {
       page = next;
@@ -358,6 +389,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
   const clearInput = () => {
     queue?.dispose();
     queue = null;
+    sentSize = "";
     mouse = null;
     heldKeys.clear();
     gesture.cancel();
@@ -368,7 +400,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     clearInput();
     clearInterval(heartbeat);
     clearTimeout(deadline);
-    heartbeat = deadline = null;
+    clearTimeout(sizeTimer);
+    heartbeat = deadline = poll = null;
     const old = viewerId;
     viewerId = null;
     status = null;
@@ -621,6 +654,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       if (shown && (shown.viewport.width !== frame.viewport.width || shown.viewport.height !== frame.viewport.height)) releaseInput();
       shown = { viewport: frame.viewport, generation: frame.generation };
       render();
+      // A resized page (often by this viewer's own size) refuses input sent for the old one: catch up now, not at the next poll.
+      if (status && frame.generation > status.generation) void poll?.();
     }
   };
   const start = async () => {
@@ -645,7 +680,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       viewerId = opened.viewerId;
       let polling = false,
         triedControl = false;
-      const poll = async () => {
+      poll = async () => {
         if (polling || currentEpoch !== epoch) return;
         polling = true;
         try {
@@ -699,6 +734,6 @@ const button = (id, label, path, extra = "") => `<button id="${id}" aria-label="
 export function createBrowserReceiverHtml(config) {
   const escaped = JSON.stringify(config).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>
-:root{--surface:#ffffff;--ink:#1f2124;--ink2:#62656b;--line:#ecedef;--hover:#f4f5f6;--accent:#0285ff}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{font:13px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--surface);color:var(--ink);display:flex;flex-direction:column;color-scheme:inherit}#stage{position:relative;min-height:0;flex:1;background:var(--surface);touch-action:none;user-select:none;-webkit-user-select:none;overflow:hidden;outline:none}#frame{position:absolute;pointer-events:none;-webkit-user-drag:none}#frame[hidden]{display:none}#message{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--ink2);line-height:1.4}#message[hidden]{display:none}#keys{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;resize:none;font-size:16px;caret-color:transparent}#live{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}footer{padding:6px 12px;flex-shrink:0;border-top:1px solid var(--line);background:var(--surface)}nav{display:flex;gap:8px;align-items:center;justify-content:center}button{display:grid;place-items:center;width:44px;height:44px;padding:0;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink2);cursor:pointer}button:hover:not(:disabled){background:var(--hover);color:var(--ink)}button:disabled{opacity:.3;cursor:default}button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}button[hidden]{display:none}button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
-</style></head><body><div id="config" hidden data-config="${escaped}"></div><div id="stage" aria-label="Browser page"><img id="frame" alt="" hidden draggable="false"><div id="message" role="status">Connecting to the page...</div><textarea id="keys" aria-label="Type into the page" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="go"></textarea></div><footer><p id="live" aria-live="polite"></p><nav aria-label="Browser controls">${button("back", "Back", '<path d="m14 5-7 7 7 7"/>', " disabled")}${button("forward", "Forward", '<path d="m10 5 7 7-7 7"/>', " disabled")}${button("reload", "Reload", '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>', " disabled")}${button("keyboard", "Keyboard", '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>', " disabled")}${button("control", "Take control. The agent can still use this page.", '<path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-1c-2 0-3-1-4-2l-5-6a2 2 0 0 1 3-2l1 1Z"/>', " hidden disabled")}${button("retry", "Retry", '<path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/>', " hidden")}</nav></footer><script>${BROWSER_RECEIVER_SCRIPT}</script></body></html>`;
+:root{--surface:#ffffff;--ink:#1f2124;--ink2:#62656b;--line:#ecedef;--hover:#f4f5f6;--accent:#0285ff}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{font:13px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--surface);color:var(--ink);display:flex;flex-direction:column;color-scheme:inherit}#stage{position:relative;min-height:0;flex:1;background:var(--surface);touch-action:none;user-select:none;-webkit-user-select:none;overflow:hidden;outline:none}#frame{position:absolute;pointer-events:none;-webkit-user-drag:none}#frame[hidden]{display:none}#comment-pin{position:absolute;width:24px;height:24px;transform:translateY(-100%);border-radius:12px 12px 12px 0;background:var(--accent);color:white;box-shadow:0 0 0 2px white,0 2px 5px #0004;text-align:center;font:600 12px/24px -apple-system,system-ui,sans-serif;pointer-events:none}#comment-pin[hidden]{display:none}#message{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--ink2);line-height:1.4}#message[hidden]{display:none}#keys{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;resize:none;font-size:16px;caret-color:transparent}#live{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}footer{padding:6px 12px;flex-shrink:0;border-top:1px solid var(--line);background:var(--surface)}nav{display:flex;gap:8px;align-items:center;justify-content:center}button{display:grid;place-items:center;width:44px;height:44px;padding:0;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink2);cursor:pointer}button:hover:not(:disabled){background:var(--hover);color:var(--ink)}button:disabled{opacity:.3;cursor:default}button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}button[hidden]{display:none}button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+</style></head><body><div id="config" hidden data-config="${escaped}"></div><div id="stage" aria-label="Browser page"><img id="frame" alt="" hidden draggable="false"><div id="comment-pin" aria-label="Comment pin" hidden>1</div><div id="message" role="status">Connecting to the page...</div><textarea id="keys" aria-label="Type into the page" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="go"></textarea></div><footer><p id="live" aria-live="polite"></p><nav aria-label="Browser controls">${button("back", "Back", '<path d="m14 5-7 7 7 7"/>', " disabled")}${button("forward", "Forward", '<path d="m10 5 7 7-7 7"/>', " disabled")}${button("reload", "Reload", '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>', " disabled")}${button("keyboard", "Keyboard", '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>', " disabled")}${button("control", "Take control. The agent can still use this page.", '<path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-1c-2 0-3-1-4-2l-5-6a2 2 0 0 1 3-2l1 1Z"/>', " hidden disabled")}${button("retry", "Retry", '<path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/>', " hidden")}</nav></footer><script>${BROWSER_RECEIVER_SCRIPT}</script></body></html>`;
 }

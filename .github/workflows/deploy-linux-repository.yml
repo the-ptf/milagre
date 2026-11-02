@@ -41,7 +41,7 @@ jobs:
           ref: ${{ inputs.tag }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 26
       - name: Check deployment credentials and public release
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID" && test -n "$REPOSITORY_FINGERPRINT"

@@ -1,3 +1,4 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BubbleChatIcon,
@@ -9,11 +10,13 @@ import {
   RefreshIcon,
   SecurityCheckIcon,
   SparklesIcon,
+  SplitIcon,
   Tag01Icon,
+  TextIcon,
   Tick02Icon,
   WebhookIcon,
 } from "@hugeicons/core-free-icons";
-import type { ModelOption, Routine } from "@milagre/shared/model";
+import type { ModelCapabilities, ModelOption, Routine } from "@milagre/shared/model";
 import { clock } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { PROMPT_PLACEHOLDER, firstRunAt, promptHint, type RoutineFormState } from "@milagre/shared/routine-form";
@@ -398,14 +401,21 @@ function WebhookRows({ form, initial }: { form: RoutineFormApi; initial?: Routin
   );
 }
 
+/** The form's scroller, or none inside a page that scrolls already (a flow's Settings tab). */
+function Scroller({ embedded, children }: { embedded: boolean; children: ReactNode }) {
+  return embedded ? children : <ScrollArea className="flex h-full flex-col">{children}</ScrollArea>;
+}
+
 /**
- * New Routine, or Edit with `initial`, in place of the Routine's page: the name as a field with Cancel and Save, how it
- * starts (new only), the settings as chips that open their pickers, Prompt, Stop after, and Delete Routine (edit only).
- * Escape cancels; the form consumes it, so the page behind stays.
+ * New Routine, or Edit with `initial`, in place of the Routine's page: the name as a field with Cancel and Save, a single
+ * prompt or a flow and how it starts (new only), the settings as chips that open their pickers, Prompt (not for a flow,
+ * whose steps have theirs), Stop after, and Delete Routine (edit only). Escape cancels; the form consumes it, so the page
+ * behind stays. `embedded` is a flow's Settings tab: the form sits in the page's own scroller and takes no focus.
  */
 export function RoutineEditor({
   initial,
   models,
+  capabilities = null,
   defaultProjectPath,
   onCancel,
   onSaved,
@@ -414,9 +424,11 @@ export function RoutineEditor({
   onDirtyChange,
   leaving = null,
   error,
+  embedded = false,
 }: {
   initial?: RoutineWithRuns;
   models: ModelOption[];
+  capabilities?: ModelCapabilities | null;
   defaultProjectPath?: string;
   onCancel: () => void;
   onSaved: () => void;
@@ -429,8 +441,10 @@ export function RoutineEditor({
   leaving?: { onDiscard: () => void; onKeep: () => void } | null;
   /** A problem reading the Routines after a save, shown with the form's own. */
   error?: string | null;
+  /** Inside a flow's page (its Settings tab) rather than in place of it. */
+  embedded?: boolean;
 }) {
-  const form = useRoutineForm({ initial, models, defaultProjectPath });
+  const form = useRoutineForm({ initial, models, capabilities, defaultProjectPath });
   const { state, update, errors, editing, comment } = form;
   const nameInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState(false);
@@ -443,7 +457,7 @@ export function RoutineEditor({
   const dirty = form.dirty && !created;
 
   useEffect(() => {
-    nameInput.current?.focus();
+    if (!embedded) nameInput.current?.focus();
   }, []);
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -475,18 +489,19 @@ export function RoutineEditor({
       });
   };
   const modelIcon = <Icon icon={SparklesIcon} size={14} className="shrink-0" />;
+  const fallbackIcon = <HugeiconsIcon icon={RefreshIcon} size={14} className="shrink-0" />;
   const modeIcon = <Icon icon={SecurityCheckIcon} size={14} className="shrink-0" />;
   const whereIcon = form.heartbeat ? BubbleChatIcon : state.runIn === "worktree" ? GitBranchIcon : Folder01Icon;
   const triggerIcon = initial ? routineIcon(initial) : state.trigger === "linear" ? Tag01Icon : state.trigger === "webhook" ? WebhookIcon : Clock01Icon;
   const first = firstRunAt(state, now);
 
   return (
-    <ScrollArea className="flex h-full flex-col">
+    <Scroller embedded={embedded}>
       <form
         data-routine-form
         data-routine-editor={initial?.id ?? "new"}
         aria-label={editing ? "Edit Routine" : "New Routine"}
-        className="mx-auto flex w-full max-w-[680px] flex-1 flex-col px-6 pt-14 pb-10"
+        className={embedded ? "flex w-full max-w-[680px] flex-col pb-10" : "mx-auto flex w-full max-w-[680px] flex-1 flex-col px-6 pt-14 pb-10"}
         onSubmit={(event) => {
           event.preventDefault();
           void save();
@@ -512,7 +527,7 @@ export function RoutineEditor({
             Cancel
           </Button>
           <Button type="submit" data-routine-save disabled={form.busy || created || (!editing && !form.ready)}>
-            {form.busy ? "Saving…" : created ? "Created" : editing ? "Save" : "Create Routine"}
+            {form.busy ? "Saving…" : created ? "Created" : editing ? "Save" : form.flow ? "Create flow" : "Create Routine"}
           </Button>
         </div>
         <FieldError text={errors.name} />
@@ -541,6 +556,21 @@ export function RoutineEditor({
 
         {!editing && (
           <div className="mt-5 space-y-1.5">
+            <span className={labelClass}>Runs</span>
+            <Segmented<"prompt" | "flow">
+              label="Runs"
+              size="large"
+              value={form.flow ? "flow" : "prompt"}
+              options={[
+                { value: "prompt", label: "Single prompt", icon: TextIcon },
+                { value: "flow", label: "Flow", icon: SplitIcon },
+              ]}
+              onChange={(kind) => form.setFlow(kind === "flow")}
+            />
+          </div>
+        )}
+        {!editing && (
+          <div className="mt-4 space-y-1.5">
             <span className={labelClass}>Starts</span>
             <Segmented<RoutineFormState["trigger"]>
               label="Starts"
@@ -581,6 +611,28 @@ export function RoutineEditor({
             onChange={(model) => update({ model, provider: models.find((entry) => entry.id === model)?.provider ?? "" })}
             width={260}
           />
+          {form.fallback && (
+            <Select
+              label="Fallback"
+              variant="chip"
+              leading={fallbackIcon}
+              value={form.fallbackValue}
+              options={form.options.fallback}
+              onChange={form.setFallback}
+              width={300}
+            />
+          )}
+          {form.fallback && state.fallbackModel && form.options.fallbackEffort && (
+            <Select
+              label="Fallback effort"
+              variant="chip"
+              leading={fallbackIcon}
+              value={state.fallbackEffort}
+              options={form.options.fallbackEffort}
+              onChange={(fallbackEffort) => update({ fallbackEffort })}
+              width={200}
+            />
+          )}
           <Select
             label="Mode"
             variant="chip"
@@ -605,7 +657,12 @@ export function RoutineEditor({
           </p>
         )}
 
-        <div className="mt-6 space-y-1.5">
+        {form.flow && !editing && (
+          <p data-routine-flow-note className="mt-6 text-12 text-ink-2">
+            You add the steps after you create it: agents, conditions, approvals, waits and actions. A flow stays off until you publish it.
+          </p>
+        )}
+        <div className="mt-6 space-y-1.5" hidden={form.flow}>
           <span className={labelClass}>Prompt</span>
           <PlaceholderTextarea
             label="Prompt"
@@ -687,7 +744,7 @@ export function RoutineEditor({
         )}
         <FieldError text={deleteError} />
 
-        {!editing && (
+        {!editing && !form.flow && (
           <section data-routine-runs-placeholder className="mt-8 space-y-1.5">
             <SectionLabel>Runs</SectionLabel>
             <p className="text-12 text-ink-3">
@@ -697,6 +754,6 @@ export function RoutineEditor({
           </section>
         )}
       </form>
-    </ScrollArea>
+    </Scroller>
   );
 }

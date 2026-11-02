@@ -74,11 +74,11 @@ async function browserChecks() {
   async function send(body) {
     await type(body);
     await waitFor(
-      `(document.querySelector('[aria-label="Send"]') && !document.querySelector('[aria-label="Send"]').disabled) || !!document.querySelector('[aria-label="Stop agent"]')`,
+      `(document.querySelector('[data-composer-submit]') && !document.querySelector('[data-composer-submit]').disabled) || !!document.querySelector('[aria-label="Stop agent"]')`,
     );
     await evaluate(`document.querySelector(${JSON.stringify(prompt)}).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
   }
-  const acknowledged = `(document.querySelector('[aria-label="Send"]') && !document.querySelector('[aria-label="Send"]').disabled) || !!document.querySelector('[aria-label="Stop agent"]')`;
+  const acknowledged = `(document.querySelector('[data-composer-submit]') && !document.querySelector('[data-composer-submit]').disabled) || !!document.querySelector('[aria-label="Stop agent"]')`;
   const transcript = `document.querySelector('[aria-label="Conversation"]')`;
   async function immediate(body) {
     await waitFor(`${transcript}?.textContent.includes(${JSON.stringify(body)})`);
@@ -92,7 +92,7 @@ async function browserChecks() {
       "the send, or the running turn it steers, says what it waits on before the backend completes",
     );
     assert.equal(
-      await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled || !!document.querySelector('[aria-label="Stop agent"]')`),
+      await evaluate(`document.querySelector('[data-composer-submit]')?.disabled || !!document.querySelector('[aria-label="Stop agent"]')`),
       true,
       "preparation disables Send or keeps the live turn stoppable",
     );
@@ -118,7 +118,7 @@ async function browserChecks() {
     // Complete the other Chat first; it cannot clear this Chat's lock or steal its draft.
     await evaluate("window.pendingSends[1].save(); window.pendingSends[1].ack()");
     await waitFor(`document.querySelector('aside').textContent.includes('Second chat can send immediately')`);
-    assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled || !!document.querySelector('[aria-label="Stop agent"]')`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-composer-submit]')?.disabled || !!document.querySelector('[aria-label="Stop agent"]')`), true);
     await evaluate("window.pendingSends[0].fail('First computer refused the send')");
     await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('First computer refused the send')`);
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "First computer is still saving\n\nNext draft for the first Chat");
@@ -176,7 +176,7 @@ async function browserChecks() {
     await newChat("New Worktree");
     await type("Add a checkout page");
     await screenshot("before-send");
-    await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
+    await evaluate(`document.querySelector('[data-composer-submit]').click()`);
     await waitFor("window.calls.created === 1");
     await immediate("Add a checkout page");
     assert.equal(
@@ -273,7 +273,7 @@ async function browserChecks() {
     await waitFor("window.calls.sent.length === 5");
     await evaluate("window.saveSend(); window.ackSend()");
     await waitFor(
-      `document.querySelector('[data-new-chat-pickers]') && (document.querySelector('[aria-label="Send"]') && !document.querySelector('[aria-label="Send"]').disabled)`,
+      `document.querySelector('[data-new-chat-pickers]') && (document.querySelector('[data-composer-submit]') && !document.querySelector('[data-composer-submit]').disabled)`,
     );
     assert.equal(
       await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`),
@@ -295,7 +295,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);
     await type("Keep the current draft");
     await evaluate("window.failSend()");
-    await waitFor(`(document.querySelector('[aria-label="Send"]') && !document.querySelector('[aria-label="Send"]').disabled)`);
+    await waitFor(`(document.querySelector('[data-composer-submit]') && !document.querySelector('[data-composer-submit]').disabled)`);
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "Keep the current draft");
     const recoverable = await evaluate(
       `[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('Recover after leaving')) != null`,
@@ -325,7 +325,7 @@ async function browserChecks() {
     await evaluate(`[...document.querySelectorAll('button')].filter(el => el.textContent === 'Dismiss').forEach(el => el.click())`);
     await type("A follow-up message");
     await screenshot("follow-up-before-send");
-    await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
+    await evaluate(`document.querySelector('[data-composer-submit]').click()`);
     await waitFor("window.calls.sent.length === 9");
     await immediate("A follow-up message");
     assert.equal(await occurrences("Previous chat"), 1, "previous messages stay visible");
@@ -393,7 +393,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);
     await type("Keep this other draft");
     await evaluate("window.failSend()");
-    await waitFor(`document.querySelector('[aria-label="Send"]') && !document.querySelector('[aria-label="Send"]').disabled`);
+    await waitFor(`document.querySelector('[data-composer-submit]') && !document.querySelector('[data-composer-submit]').disabled`);
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "Keep this other draft");
     await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('Previous chat')).click()`);
     await waitFor(`document.querySelector(${JSON.stringify(prompt)}).value.includes('Retry the follow-up')`);

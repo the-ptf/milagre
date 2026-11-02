@@ -694,3 +694,171 @@ test("rejected uploads drain their input without decoding or reserving it", asyn
   assert.equal(request.bodyUsed, true);
   assert.equal(f.reservations.length, 0);
 });
+
+function memoryBucket() {
+  const objects = new Map();
+  const deleted = [];
+  return {
+    objects,
+    deleted,
+    head: async (key) => (objects.has(key) ? { size: objects.get(key).bytes.length, type: objects.get(key).type, etag: '"e"' } : null),
+    get: async (key, range) => {
+      const object = objects.get(key);
+      if (!object) return null;
+      const bytes = range ? object.bytes.subarray(range.offset, range.offset + range.length) : object.bytes;
+      return { body: new Blob([bytes]).stream() };
+    },
+    put: async (key, body, { size, sha256, type }) => {
+      const bytes = new Uint8Array(await new Response(body).arrayBuffer());
+      const { createHash } = await import("node:crypto");
+      if (bytes.length !== size || createHash("sha256").update(bytes).digest("hex") !== sha256) throw Error("mismatch");
+      objects.set(key, { bytes, type });
+    },
+    delete: async (keys) => {
+      for (const key of keys) {
+        objects.delete(key);
+        deleted.push(key);
+      }
+    },
+  };
+}
+
+async function filesFixture() {
+  const { createHash } = await import("node:crypto");
+  let clock = 1_000_000;
+  const quotaStorage = memory();
+  const quota = createQuotaService({ storage: quotaStorage, limits: { bytes: 1_000_000 } });
+  const bucket = memoryBucket();
+  const alarms = [];
+  const f = await fixture({
+    validate: validateDesignPageSnapshot,
+    render: renderDesignPage,
+    quota,
+    bucket,
+    now: () => clock,
+    setAlarm: async (time) => alarms.push(time),
+  });
+  const file = (bytes) => ({ bytes, hash: createHash("sha256").update(bytes).digest("hex") });
+  const upload = (item, headers = {}) =>
+    f.service.fetch(
+      new Request(`https://share.milagre.cloud/api/pages/${f.id}/files/${item.hash}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${f.secret}`, "Content-Type": "image/png", "Content-Length": String(item.bytes.length), ...headers },
+        body: item.bytes,
+      }),
+      f.id,
+    );
+  const snapshot = (assets) => ({
+    schemaVersion: 1,
+    kind: "artifacts",
+    title: "Media",
+    artifacts: [
+      {
+        title: "Media",
+        html: assets.map((asset) => `<img src="assets/${asset.name}">`).join(""),
+        width: 1280,
+        height: 800,
+        assets: assets.map((asset) => ({ name: asset.name, hash: asset.hash, size: asset.bytes.length, type: "image/png" })),
+      },
+    ],
+  });
+  return { ...f, quota, quotaStorage, bucket, alarms, file, upload, snapshot, tick: (ms) => (clock += ms), active: () => quotaStorage.get("activeBytes") };
+}
+
+test("an Artifact page's files upload before the snapshot that names them, count toward the quota and go with the page", async () => {
+  const f = await filesFixture();
+  const a = { name: "a.png", ...f.file(new Uint8Array(3000).fill(1)) };
+  const b = { name: "b.png", ...f.file(new Uint8Array(2000).fill(2)) };
+
+  // The snapshot can't name a file the service doesn't have.
+  const early = await f.send("PUT", f.snapshot([a]));
+  assert.equal(early.status, 409);
+  assert.deepEqual(await early.json(), { missing: [a.hash] });
+
+  assert.equal((await f.upload(a)).status, 201);
+  assert.equal((await f.upload(a)).status, 200, "an upload retried is kept once");
+  assert.equal(f.active(), 3000);
+  assert.equal((await f.send("PUT", f.snapshot([a]))).status, 201);
+  const charged = f.active();
+  assert.ok(charged > 3000, "the page's HTML is charged with its file");
+  const page = await f.send("GET", undefined, { Authorization: "" });
+  const html = await page.text();
+  assert.match(html, new RegExp(`/s/${f.id}/files/${a.hash}`), "the page points at its file");
+  assert.match(page.headers.get("content-security-policy"), /media-src https:\/\/share\.milagre\.cloud/);
+
+  // Sharing again with another file: the one it no longer names goes, and its bytes are refunded.
+  assert.equal((await f.upload(b)).status, 201);
+  assert.equal((await f.send("PUT", f.snapshot([b]))).status, 200);
+  assert.deepEqual(f.bucket.deleted, [`pages/${f.id}/${a.hash}`]);
+  assert.ok(f.active() < charged);
+  assert.deepEqual([...f.bucket.objects.keys()], [`pages/${f.id}/${b.hash}`]);
+
+  // Revoked: every file goes and the whole allocation returns.
+  assert.equal((await f.send("DELETE")).status, 204);
+  assert.equal(f.bucket.objects.size, 0);
+  assert.equal(f.active(), 0);
+  assert.equal((await f.upload(b)).status, 410, "a revoked page takes no more files");
+});
+
+test("a file uploaded for a publication that never came is removed after an hour, refunding its bytes", async () => {
+  const f = await filesFixture();
+  const a = { name: "a.png", ...f.file(new Uint8Array(500).fill(3)) };
+  assert.equal((await f.upload(a)).status, 201);
+  assert.equal(f.active(), 500);
+  assert.equal(f.alarms.at(-1), 1_000_000 + 60 * 60 * 1000, "the alarm is set for when it lapses");
+  await f.service.alarm();
+  assert.equal(f.bucket.objects.size, 1, "not before");
+  f.tick(60 * 60 * 1000);
+  await f.service.alarm();
+  assert.equal(f.bucket.objects.size, 0);
+  assert.equal(f.active(), 0);
+});
+
+test("an upload is refused without its length, over the size limit, past the quota or when its bytes don't match their hash", async () => {
+  const f = await filesFixture();
+  const a = { name: "a.png", ...f.file(new Uint8Array(10).fill(4)) };
+  const missingLength = new Request(`https://share.milagre.cloud/api/pages/${f.id}/files/${a.hash}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${f.secret}`, "Content-Type": "image/png" },
+    body: new Blob([a.bytes]).stream(),
+    duplex: "half",
+  });
+  assert.equal((await f.service.fetch(missingLength, f.id)).status, 411);
+  assert.equal((await f.upload(a, { "Content-Length": String(95 * 1024 * 1024 + 1) })).status, 413);
+  assert.equal((await f.upload(a, { "Content-Type": "text/html; charset=utf-8" })).status, 415);
+  const big = { name: "big.png", ...f.file(new Uint8Array(1_000_001)) };
+  assert.equal((await f.upload(big)).status, 429);
+  const forged = { bytes: a.bytes, hash: "0".repeat(64) };
+  assert.equal((await f.upload(forged)).status, 400);
+  assert.equal(f.bucket.objects.size, 0);
+  assert.equal(f.active(), 0, "a refused upload holds nothing");
+});
+
+test("a page's file is served whole or by byte range, never as a page of the share origin", async () => {
+  const { serveFile } = await import("./service.mjs");
+  const bucket = memoryBucket();
+  bucket.objects.set("k", { bytes: new TextEncoder().encode("0123456789"), type: "video/mp4" });
+  bucket.objects.set("doc", { bytes: new TextEncoder().encode("<script>"), type: "text/html" });
+  const get = (headers = {}, key = "k", method = "GET") => serveFile(bucket, key, new Request("https://share.milagre.cloud/x", { method, headers }));
+  const whole = await get();
+  assert.equal(whole.status, 200);
+  assert.equal(await whole.text(), "0123456789");
+  assert.equal(whole.headers.get("accept-ranges"), "bytes");
+  assert.equal(whole.headers.get("content-security-policy"), "default-src 'none'; sandbox");
+  assert.equal(whole.headers.get("content-disposition"), "inline");
+  const part = await get({ Range: "bytes=2-4" });
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get("content-range"), "bytes 2-4/10");
+  assert.equal(await part.text(), "234");
+  assert.equal(await (await get({ Range: "bytes=7-" })).text(), "789");
+  assert.equal(await (await get({ Range: "bytes=-3" })).text(), "789");
+  assert.equal((await get({ Range: "bytes=20-" })).status, 416);
+  assert.equal((await get({}, "doc")).headers.get("content-disposition"), "attachment");
+  assert.equal((await get({}, "k", "HEAD")).headers.get("content-length"), "10");
+  assert.equal((await get({}, "gone")).status, 404);
+  const routed = await routeRequest(new Request(`https://share.milagre.cloud/s/${"a".repeat(43)}/files/${"b".repeat(64)}`, { method: "POST" }), {
+    PUBLIC_ORIGIN: "https://share.milagre.cloud",
+    page: async () => new Response(),
+  });
+  assert.equal(routed.status, 405);
+});

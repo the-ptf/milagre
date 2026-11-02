@@ -22,8 +22,15 @@ const STYLES = [
   "border-radius",
 ];
 
+/** The page background covers the whole document, including blank space below a short body. */
+function bounds(el) {
+  return el === document.documentElement
+    ? { left: -scrollX, top: -scrollY, width: Math.max(innerWidth, el.scrollWidth), height: Math.max(innerHeight, el.scrollHeight) }
+    : el.getBoundingClientRect();
+}
+
 /** Reads an element into the shape PageElement describes. Runs in the page; kept as source for the scripts below. */
-function describe(el, styleNames) {
+function describe(el, styleNames, bounds) {
   const DEBUG_SOURCE = "_debugSource";
   const SECRET_NAME = /token|secret|password|passwd|api[-_]?key|auth|session|cookie|signature/i;
   const SECRET_VALUE = /^(?:[A-Za-z0-9+/_-]{32,}={0,2}|eyJ[\w-]+\.[\w-]+\.[\w-]+)$/;
@@ -49,7 +56,7 @@ function describe(el, styleNames) {
       }
       steps.unshift(step);
     }
-    return steps.join(" > ");
+    return steps.join(" > ") || "html";
   })();
   const implicitRole = {
     a: "link",
@@ -91,7 +98,10 @@ function describe(el, styleNames) {
     }
     if (names.length) components = names;
   }
-  const label = `${components ? `<${components.at(-1)}> ` : ""}${tag}${name ? ` "${clip(name, 40).replace(/"/g, "'")}"` : ""}`;
+  const label =
+    el === document.documentElement
+      ? "Page background"
+      : `${components ? `<${components.at(-1)}> ` : ""}${tag}${name ? ` "${clip(name, 40).replace(/"/g, "'")}"` : ""}`;
   // The HTML with values that look like secrets taken out, and form values never included.
   const copy = el.cloneNode(true);
   for (const node of [copy, ...copy.querySelectorAll("*")]) {
@@ -110,7 +120,7 @@ function describe(el, styleNames) {
     const value = computed.getPropertyValue(style);
     if (value && value !== "normal" && value !== "none" && value !== "0px" && value !== "rgba(0, 0, 0, 0)") styles[style] = value;
   }
-  const rect = el.getBoundingClientRect();
+  const rect = bounds(el);
   return {
     selector,
     tag,
@@ -134,6 +144,7 @@ function describe(el, styleNames) {
  */
 export function pagePickScript(accent = "#007df3") {
   return `(() => new Promise((resolve) => {
+  const bounds = ${bounds.toString()};
   const describe = ${describe.toString()};
   // A picker already on the page ends quietly: it was replaced, not cancelled.
   window.__milagrePick?.replace?.();
@@ -173,12 +184,12 @@ export function pagePickScript(accent = "#007df3") {
     }
     host.style.pointerEvents = "";
     if (pins) pins.style.visibility = "";
-    return el && !/^MILAGRE-/.test(el.tagName) && el !== document.documentElement && el !== document.body ? el : null;
+    return el && !/^MILAGRE-/.test(el.tagName) ? (el === document.body ? document.documentElement : el) : document.documentElement;
   };
   const show = (el) => {
     target = el;
     if (!el) { box.style.display = label.style.display = "none"; return; }
-    const r = el.getBoundingClientRect();
+    const r = bounds(el);
     Object.assign(box.style, { display: "block", left: r.left - 2 + "px", top: r.top - 2 + "px", width: r.width + 4 + "px", height: r.height + 4 + "px" });
     const fiberKey = Object.keys(el).find((key) => key.startsWith("__reactFiber$"));
     let component = "";
@@ -188,7 +199,7 @@ export function pagePickScript(accent = "#007df3") {
     }
     label.textContent = name(el) + (component ? "  ·  " + component : "");
     label.style.display = "block";
-    const top = r.top - 24 >= 0 ? r.top - 24 : Math.min(innerHeight - 22, r.bottom + 6);
+    const top = r.top - 24 >= 0 ? r.top - 24 : Math.min(innerHeight - 22, r.top + r.height + 6);
     Object.assign(label.style, { left: Math.max(4, Math.min(r.left - 2, innerWidth - 220)) + "px", top: top + "px" });
   };
   const finish = (value) => {
@@ -204,8 +215,8 @@ export function pagePickScript(accent = "#007df3") {
     if (!target) return;
     let value = null;
     try {
-      value = describe(target, ${JSON.stringify(STYLES)});
-      const r = target.getBoundingClientRect();
+      value = describe(target, ${JSON.stringify(STYLES)}, bounds);
+      const r = bounds(target);
       const at = (p, start, size) => size > 0 ? Math.round(Math.min(1, Math.max(0, (p - start) / size)) * 1000) / 1000 : 0.5;
       value.point = pointer ? { x: at(pointer.x, r.left, r.width), y: at(pointer.y, r.top, r.height) } : { x: 0.5, y: 0.5 };
     } catch (error) { value = null; }
@@ -237,6 +248,7 @@ export function pagePickScript(accent = "#007df3") {
 export function pageDescribeAtScript(x, y) {
   const fraction = (value) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5);
   return `(() => {
+  const bounds = ${bounds.toString()};
   const describe = ${describe.toString()};
   const px = ${fraction(x)} * innerWidth, py = ${fraction(y)} * innerHeight;
   const layers = [...document.querySelectorAll("milagre-pins, milagre-pick")];
@@ -248,9 +260,9 @@ export function pageDescribeAtScript(x, y) {
     el = inner;
   }
   for (const layer of layers) layer.style.visibility = "";
-  if (!el || /^MILAGRE-/.test(el.tagName) || el === document.documentElement || el === document.body) return null;
-  const value = describe(el, ${JSON.stringify(STYLES)});
-  const r = el.getBoundingClientRect();
+  if (!el || el === document.body || /^MILAGRE-/.test(el.tagName)) el = document.documentElement;
+  const value = describe(el, ${JSON.stringify(STYLES)}, bounds);
+  const r = bounds(el);
   const at = (p, start, size) => size > 0 ? Math.round(Math.min(1, Math.max(0, (p - start) / size)) * 1000) / 1000 : 0.5;
   value.point = { x: at(px, r.left, r.width), y: at(py, r.top, r.height) };
   return value;
@@ -269,6 +281,7 @@ export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
  */
 export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } = {}) {
   return `(() => {
+  const bounds = ${bounds.toString()};
   const pins = ${JSON.stringify(pins)};
   let layer = window.__milagrePins;
   if (!layer) {
@@ -294,16 +307,15 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
       for (const item of items) {
         let el = null;
         try { el = document.querySelector(item.pin.selector); } catch {}
-        const r = el?.getBoundingClientRect();
+        const r = el ? bounds(el) : null;
         if (!r || (!r.width && !r.height)) { item.node.style.display = "none"; continue; }
         item.node.style.display = "block";
         const point = item.pin.point;
-        const x = point ? r.left + point.x * r.width : r.right - 12;
+        const x = point ? r.left + point.x * r.width : r.left + r.width - 12;
         const y = point ? r.top + point.y * r.height : r.top - 4;
-        // The pin's point sits on the spot and its body above and right of it, off the text that was clicked. On a short
-        // element (a button, a line of text) the spot moves up to its top edge, so the pin never covers its label.
-        // Pins on the same element sit side by side.
-        const top = r.height <= 48 ? r.top : y;
+        // An explicit point stays exactly where it was placed. Older comments without a point sit above the element.
+        const top = !point && r.height <= 48 ? r.top : y;
+        if (point && (x < 0 || x > innerWidth || y < 0 || y > innerHeight)) { item.node.style.display = "none"; continue; }
         item.node.style.left = Math.min(innerWidth - 24, Math.max(2, x + item.offset * 24)) + "px";
         item.node.style.top = Math.min(innerHeight - 24, Math.max(2, top - 22)) + "px";
       }
@@ -318,7 +330,7 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
         for (const item of items) item.node.remove();
         const seen = new Map();
         items = next.map((pin) => {
-          const offset = seen.get(pin.selector) ?? 0;
+          const offset = pin.point ? 0 : (seen.get(pin.selector) ?? 0);
           seen.set(pin.selector, offset + 1);
           const node = document.createElement("div");
           node.className = "pin";

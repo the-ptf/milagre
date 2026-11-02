@@ -22,6 +22,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { LinearLogo } from "../ProviderLogo";
 import { useDismiss } from "../../lib/use-dismiss";
 import { bySection, type ComputerSection } from "../../lib/computer-scopes";
+import { ThisComputer } from "../../lib/shortcut-hints";
 
 type HugeIconData = IconSvgElement;
 
@@ -255,7 +256,7 @@ export function FiltersButton({
                               {computers && (
                                 <div data-project-section-header className={index > 0 ? "mt-1.5" : ""}>
                                   <MenuLabel>
-                                    <span className="block truncate">{section.local ? `${section.name} · This Mac` : section.name}</span>
+                                    <span className="block truncate">{section.local ? `${section.name} · ${ThisComputer}` : section.name}</span>
                                   </MenuLabel>
                                 </div>
                               )}

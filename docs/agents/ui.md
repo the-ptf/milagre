@@ -14,6 +14,8 @@ Every scrolling list or panel is a `ScrollArea` (`apps/desktop/app/src/component
 
 ## Choices
 
+Switch controls are banned on desktop and mobile. Use the shared Checkbox for independent boolean settings and checked lists or radio groups for mutually exclusive choices. Never add a sliding track/thumb, a native Switch, or a switch accessibility role. Native menu items that render checkmarks are allowed. Dictation languages live behind a labeled picker or submenu, not a long list on the Chat settings page.
+
 Every dropdown goes through `primitives/Select`; a native `<select>` opens macOS's own menu. `no-native-select.test.ts` enforces it.
 
 ## Popovers and menus

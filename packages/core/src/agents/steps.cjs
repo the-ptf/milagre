@@ -56,7 +56,7 @@ function blocksText(content) {
 // --- Artifacts ---
 
 // Milagre's design tools show their result as a card in the Chat.
-const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show"].includes(tool);
+const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show", "html_render"].includes(tool);
 const artifactTitle = (title, tool) =>
   `${tool === "design_apply" ? "Edited" : "Showed"} ${code(title || (tool === "artifact_show" ? "an artifact" : "a design"))}`;
 // The step names its tool: the Designs canvas opens when a design tool starts, not for an artifact page.
@@ -77,9 +77,16 @@ function routineTitle(server, tool, input = {}) {
 // The artifact a finished design tool made, from the first line of its result: the JSON summary. Attached images follow it.
 function artifactRef(text) {
   try {
-    const { id, version, title, format, group } = JSON.parse(String(text).split("\n", 1)[0]);
+    const { id, version, title, format, group, inline, height } = JSON.parse(String(text).split("\n", 1)[0]);
     return typeof id === "string" && Number.isInteger(version) && typeof title === "string"
-      ? { id, version, title, ...(["design", "html"].includes(format) ? { format } : {}), ...(typeof group === "string" && group ? { group } : {}) }
+      ? {
+          id,
+          version,
+          title,
+          ...(inline === true ? { inline: true, ...(Number.isInteger(height) && height >= 24 && height <= 2000 ? { height } : {}) } : {}),
+          ...(["design", "html"].includes(format) ? { format } : {}),
+          ...(typeof group === "string" && group ? { group } : {}),
+        }
       : undefined;
   } catch {
     return undefined;
@@ -163,7 +170,7 @@ function claudeStepResult(call, block, structured) {
     return end(Number.isSafeInteger(structured?.file?.numLines) && structured.file.numLines >= 0 ? { summary: `${structured.file.numLines} lines` } : {});
   if (name === "Grep" && Number.isSafeInteger(structured?.numMatches) && structured.numMatches >= 0)
     return end({ detail: text ? capText(text) : undefined, summary: `${structured.numMatches} matches` });
-  const designTool = /^mcp__milagre__(design_show|design_apply|artifact_show)$/.exec(name)?.[1];
+  const designTool = /^mcp__milagre__(design_show|design_apply|artifact_show|html_render)$/.exec(name)?.[1];
   if (designTool) {
     const artifact = artifactRef(text);
     return end({ artifact, title: artifact ? artifactTitle(artifact.title, designTool) : undefined });

@@ -9,6 +9,8 @@ import { forgetComputer, renameComputer, routeLabel } from "../../computer-actio
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Group, Row } from "../../settings-list";
 import { ErrorNotice, PageScroll } from "../../ui";
+import { ComputerResourcesGroup } from "../../computer-resources-group";
+import { RowCheckbox } from "../../ui";
 import { useTheme } from "../../theme";
 import { radius } from "../../design-tokens";
 import { presenceTone } from "@milagre/shared/chat-scopes";
@@ -76,20 +78,25 @@ export default function ComputerScreen() {
           />
           <Row
             title="Show its Chats"
-            toggle={{
-              value: shown,
-              label: `Show ${host.name} Chats`,
-              onChange: () =>
-                void savedHosts
-                  .setHidden(host.id, shown)
-                  .then(() => session.loadHosts())
-                  .then(
-                    () => setError(""),
-                    (e: Error) => setError(e.message),
-                  ),
-            }}
+            chevron={false}
+            trailing={
+              <RowCheckbox
+                label={`Show ${host.name} Chats`}
+                selected={shown}
+                onPress={() =>
+                  void savedHosts
+                    .setHidden(host.id, shown)
+                    .then(() => session.loadHosts())
+                    .then(
+                      () => setError(""),
+                      (e: Error) => setError(e.message),
+                    )
+                }
+              />
+            }
           />
         </Group>
+        <ComputerResourcesGroup host={host} online={state === "online"} />
         <Group title="Settings on this Mac" footer={connecting ? "Connecting…" : "Changes here apply to this Mac and every device paired with it."}>
           <Row title="General" icon={Settings01Icon} disabled={connecting} onPress={() => void open("general")} />
           <Row title="Accounts" icon={UserCircleIcon} disabled={connecting} onPress={() => void open("accounts")} />

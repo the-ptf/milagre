@@ -1,6 +1,7 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { FlashIcon, Search01Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { providerName } from "@milagre/shared/providers";
+import { formatCredits } from "@milagre/shared/kiro-models";
 import type { AgentCliStatus, EffortLevel, ModelCapability, ModelOption, ModelProvider } from "../model";
 import { effortCopy } from "../model";
 import { cliMessage, cliTabLabel } from "../lib/cli-status";
@@ -15,6 +16,9 @@ import { FieldGroup } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { SectionLabel } from "./primitives/SectionLabel";
 import Tooltip from "./primitives/Tooltip";
+import { projectAccountOptions, useProjectAccounts } from "./ProjectAccountsSettings";
+import { Select } from "./primitives/Select";
+import { bridgeForKey } from "../lib/computer-bridge";
 
 /** The model's context window as the picker shows it: "1M", "272k". */
 function contextLabel(model: ModelOption) {
@@ -22,9 +26,15 @@ function contextLabel(model: ModelOption) {
   return size ? formatTokens(size) : undefined;
 }
 
+/** A Kiro model's credit multiplier ("2×"), else its context window. */
+function metaLabel(model: ModelOption) {
+  return model.credits ? formatCredits(model.credits) : contextLabel(model);
+}
+
 /** Model, thinking effort, fast mode and Ultracode in one popover: a provider rail that scrolls as providers grow,
  * the provider's models, and the selected model's settings beside them. Picking a model keeps it open. */
 export function ModelPicker({
+  scope,
   style,
   providers,
   provider,
@@ -45,6 +55,7 @@ export function ModelPicker({
   ultracode,
   onUltracodeChange,
 }: {
+  scope?: string;
   style: CSSProperties;
   providers: ModelProvider[];
   provider: ModelProvider;
@@ -75,6 +86,10 @@ export function ModelPicker({
 
   // Arrow keys move through the model rows, Enter picks; the search field keeps typing.
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest('[role="listbox"]')) {
+      event.stopPropagation();
+      return;
+    }
     const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-picker-row]")];
     const at = rows.indexOf(document.activeElement as HTMLButtonElement);
     const searching = event.target instanceof HTMLInputElement;
@@ -132,23 +147,30 @@ export function ModelPicker({
             {totalModels} {totalModels === 1 ? "model" : "models"}
           </span>
         </div>
+        {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
         {/* PickerPanel's search field. */}
-        <FieldGroup
-          className="mr-2 mb-1 w-auto shrink-0"
-          leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search models…"
-          autoFocus
-        />
+        <div className="mr-2 mb-1 shrink-0">
+          <FieldGroup
+            leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Search models…"
+            autoFocus
+          />
+        </div>
         {notice}
-        <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-px pr-2 pb-2">
+        <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2">
           {models.map((model) => (
-            <ModelTip key={model.id} description={model.description}>
+            <ModelTip
+              key={model.id}
+              description={[model.description, model.credits ? `Uses ${formatCredits(model.credits)} the credits Auto would` : undefined]
+                .filter(Boolean)
+                .join(". ")}
+            >
               <PickerRow
                 icon={<ProviderLogo provider={model.provider} size={16} />}
                 label={model.name}
-                meta={contextLabel(model)}
+                meta={metaLabel(model)}
                 selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
                 onClick={() => onModelChange(model)}
               />
@@ -215,6 +237,41 @@ export function ModelPicker({
   );
 }
 
+function ModelAccountPicker({ scope, provider }: { scope: string; provider: ModelProvider }) {
+  const { shown, busy, error, load, act } = useProjectAccounts(scope);
+  const group = shown?.providers.find((item) => item.provider === provider);
+  if (error)
+    return (
+      <p role="alert" className="mr-2 mb-2 text-11 text-red-ink">
+        {error}{" "}
+        <button className="underline" onClick={() => void load(true)}>
+          Retry
+        </button>
+      </p>
+    );
+  if (!shown)
+    return (
+      <p role="status" className="mb-2 text-11 text-ink-3">
+        Checking accounts...
+      </p>
+    );
+  if (!group) return null;
+  return (
+    <div data-model-account className="mr-2 mb-2 flex min-w-0 flex-col gap-1">
+      <Select
+        label={`${providerName(provider)} account`}
+        value={group.accountId ?? ""}
+        width={340}
+        disabled={busy}
+        triggerClassName="w-full"
+        options={projectAccountOptions(group)}
+        onChange={(id) => void act(() => bridgeForKey(scope).assignProjectAccount(scope, provider, id || null))}
+      />
+      <p className="text-11 leading-snug text-ink-3">Applies to all Chats in this Project or Link. Running turns keep their account.</p>
+    </div>
+  );
+}
+
 function SettingRow({
   icon,
   label,
@@ -239,7 +296,7 @@ function SettingRow({
   return (
     <button
       type="button"
-      role="switch"
+      role="checkbox"
       aria-label={label}
       aria-checked={on}
       onClick={() => onChange(!on)}

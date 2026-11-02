@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Alert02Icon } from "@hugeicons/core-free-icons";
-import type { ProjectAccountsSnapshot, UsageLimitContext } from "@milagre/shared/model";
-import { limitChoices, limitHeadline, switchedText } from "@milagre/shared/usage-limit";
+import type { ProjectAccountsSnapshot, UsageLimitContext, LimitResume } from "@milagre/shared/model";
+import { limitChoices, limitHeadline, limitResumeLabel, switchedText } from "@milagre/shared/usage-limit";
 import { lineHeight, radius, type } from "./design-tokens";
 import { Icon, SpinnerRing } from "./icons";
 import { useSession } from "./session";
@@ -14,7 +14,23 @@ import { InlineError, PillButton, pressStyle, useAnnounce } from "./ui";
  * A reply the plan's usage limit stopped. It offers the Project's other accounts for the provider only while this is the
  * Chat's last message with no turn running (`projectPath` is set then); otherwise it is the headline alone.
  */
-export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: UsageLimitContext; sessionId: number; projectPath?: string }) {
+export function UsageLimitCard({
+  limit,
+  sessionId,
+  projectPath,
+  pending,
+  sourceMessageId,
+  resumeAvailable = false,
+  resumeBlocked = false,
+}: {
+  limit: UsageLimitContext;
+  sessionId: number;
+  projectPath?: string;
+  pending?: LimitResume;
+  sourceMessageId?: number;
+  resumeAvailable?: boolean;
+  resumeBlocked?: boolean;
+}) {
   const { colors } = useTheme();
   const session = useSession();
   const client = session.client;
@@ -22,8 +38,25 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
   const [switching, setSwitching] = useState<string | null>(null);
   const [switched, setSwitched] = useState("");
   const [error, setError] = useState("");
+  const [resumeSupported, setResumeSupported] = useState(false);
   const request = useRef(0);
   const interactive = !!client && !!projectPath && !switched;
+  useEffect(() => {
+    let stale = false;
+    if (interactive)
+      void client.call<{ resumeAtReset: boolean }>("limits:resume-at-reset:read", []).then(
+        (value) => {
+          if (!stale) setResumeSupported(typeof value?.resumeAtReset === "boolean");
+          return null;
+        },
+        () => {
+          if (!stale) setResumeSupported(false);
+        },
+      );
+    return () => {
+      stale = true;
+    };
+  }, [client, interactive]);
   const load = useCallback(async () => {
     if (!client || !projectPath) return;
     const version = ++request.current;
@@ -48,6 +81,24 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
   const { title, detail } = limitHeadline(limit);
   const choices = interactive ? limitChoices(snapshot, limit) : [];
   const loaded = interactive && snapshot !== null;
+  const resumeLabel = limitResumeLabel(pending, limit);
+  async function changeResume() {
+    if (!client || !projectPath || switching) return;
+    setSwitching("resume");
+    setError("");
+    try {
+      const changed = await client.call<boolean>(pending ? "chat:limit-resume:cancel" : "chat:limit-resume", [
+        projectPath,
+        sessionId,
+        pending ? pending.sendId : sourceMessageId,
+      ]);
+      if (!changed && !pending) setError("This Chat can no longer continue at this reset time.");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not change this continuation.");
+    } finally {
+      setSwitching(null);
+    }
+  }
   async function choose(accountId: string) {
     if (!client || !projectPath || switching) return;
     setSwitching(accountId);
@@ -85,6 +136,14 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
           <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{detail}</Text>
         </View>
       </View>
+      {resumeLabel && !switched && (
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          {pending && <Text style={{ color: colors.ink2, fontSize: 13 }}>{resumeLabel}</Text>}
+          {interactive && resumeSupported && resumeAvailable && !resumeBlocked && (
+            <PillButton title={pending ? "Cancel" : resumeLabel} disabled={!!switching} onPress={() => void changeResume()} />
+          )}
+        </View>
+      )}
       {switched ? (
         <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{switched}</Text>
       ) : (

@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
-import type { ArchivePlan, WorktreeStatus } from "@milagre/shared/archive";
-import {
-  archiveActivity,
-  archiveDialog,
-  archiveFromPhone,
-  checkArchive,
-  confirmArchive,
-  type AlertButton,
-  type ArchiveClient,
-  type ShowAlert,
-} from "./archive.ts";
+import type { WorktreeStatus } from "@milagre/shared/archive";
+import { archiveActivity, archiveFromPhone as archiveNow, checkArchive, type ArchiveClient, type ArchiveRequest } from "./archive.ts";
+import { archiveChoices, undoDelete } from "@milagre/shared/archive";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x-1", head: "abc", removable: true };
 const dirty: WorktreeStatus = { uncommitted: 2, unpushed: 1, branch: "milagre/x-1", head: "abc", removable: false };
@@ -36,6 +28,9 @@ const state = (): CoordinatorState =>
     conflicts: [],
   }) as unknown as CoordinatorState;
 
+// The deletions here don't wait out a toast's Undo; the tests that undo pass their own window.
+const archiveFromPhone = (request: ArchiveRequest) => archiveNow({ undoMs: 0, ...request });
+
 const refusedByOldDaemon = () => Promise.reject(new Error("Command is not available from mobile"));
 
 function fakeClient(answers: Record<string, (args: unknown[]) => unknown> = {}, current = state(), runs: Record<string, unknown> = {}) {
@@ -58,65 +53,6 @@ function fakeClient(answers: Record<string, (args: unknown[]) => unknown> = {}, 
   return { client, calls };
 }
 
-// An alert that presses the button whose text matches `press` (or reports what it was shown).
-function fakeAlert(press: string | null) {
-  const shown: { title: string; message?: string; buttons: AlertButton[] }[] = [];
-  const alert: ShowAlert = (title, message, buttons, options) => {
-    shown.push({ title, message, buttons });
-    if (press === null) options?.onDismiss?.();
-    else buttons.find((button) => button.text === press)?.onPress?.();
-  };
-  return { alert, shown };
-}
-
-test("the dialog shows the desktop choice for each plan, with Cancel, the danger one destructive", () => {
-  const plan = (patch: Partial<ArchivePlan>): ArchivePlan => ({ milagreOwned: true, shared: false, status: clean, ...patch });
-  assert.deepEqual(archiveDialog(plan({}), false), {
-    title: "Archive this Chat?",
-    choices: [{ mode: "remove", text: "Archive and remove worktree", style: "default" }],
-  });
-  assert.deepEqual(archiveDialog(plan({ status: dirty }), false), {
-    title: "Archive this Chat?",
-    message: "2 uncommitted files and 1 unpushed commit will be lost. Commit and push them first to keep them.",
-    choices: [{ mode: "delete", text: "Archive and delete worktree", style: "destructive" }],
-  });
-  for (const patch of [{ milagreOwned: false, status: null }, { shared: true, status: null }, { status: null }]) {
-    assert.deepEqual(archiveDialog(plan(patch), false).choices, [{ mode: "hide", text: "Confirm archive", style: "destructive" }]);
-  }
-  // A running Chat is stopped first, and the choices say so.
-  assert.deepEqual(
-    archiveDialog(plan({}), true).choices.map((choice) => choice.text),
-    ["Stop, archive and remove worktree"],
-  );
-  assert.deepEqual(
-    archiveDialog(plan({ status: dirty }), true).choices.map((choice) => choice.text),
-    ["Stop, archive and delete worktree"],
-  );
-  assert.deepEqual(
-    archiveDialog(plan({ shared: true, status: null }), true).choices.map((choice) => choice.text),
-    ["Stop and archive"],
-  );
-  // An older Mac: today's plain archive.
-  assert.deepEqual(archiveDialog(null, false), { title: "Archive this Chat?", choices: [{ mode: "hide", text: "Archive", style: "destructive" }] });
-});
-
-test("confirmArchive puts Cancel first and resolves to the pressed choice, or null", async () => {
-  const dialog = archiveDialog({ milagreOwned: true, shared: false, status: dirty }, false);
-  const pressed = fakeAlert("Archive and delete worktree");
-  assert.equal(await confirmArchive(pressed.alert, dialog), "delete");
-  assert.ok(pressed.shown[0] !== undefined);
-  assert.deepEqual(
-    pressed.shown[0].buttons.map((button) => [button.text, button.style]),
-    [
-      ["Cancel", "cancel"],
-      ["Archive and delete worktree", "destructive"],
-    ],
-  );
-  assert.equal(pressed.shown[0].message, dialog.message);
-  assert.equal(await confirmArchive(fakeAlert("Cancel").alert, dialog), null);
-  assert.equal(await confirmArchive(fakeAlert(null).alert, dialog), null);
-});
-
 test("checkArchive works out the plan as desktop does", async () => {
   assert.deepEqual(await checkArchive(fakeClient().client, state(), 2), { milagreOwned: true, shared: false, status: clean });
   // The project's own checkout is not Milagre's, so nothing about it is checked.
@@ -137,15 +73,13 @@ test("checkArchive works out the plan as desktop does", async () => {
   });
 });
 
-test("an older daemon that refuses the check falls back to the plain hide-only archive, without an error", async () => {
+test("an older daemon that refuses the check falls back to conversation deletion without removing files", async () => {
   const { client, calls } = fakeClient({ "worktree:roots": refusedByOldDaemon, "worktree:status": refusedByOldDaemon });
   assert.equal(await checkArchive(client, state(), 2), null);
   calls.length = 0;
-  const { alert, shown } = fakeAlert("Archive");
   const notices: string[] = [];
   const result = await archiveFromPhone({
     client,
-    alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -156,15 +90,9 @@ test("an older daemon that refuses the check falls back to the plain hide-only a
     refresh: async () => {},
   });
   assert.equal(result, "hidden");
-  assert.ok(shown[0] !== undefined);
-  assert.deepEqual(
-    shown[0].buttons.map((button) => button.text),
-    ["Cancel", "Archive"],
-  );
-  assert.equal(shown[0].message, undefined);
   assert.deepEqual(
     calls.map((call) => call.method),
-    ["worktree:roots", "snapshot", "chat:patch"],
+    ["worktree:roots", "snapshot", "chat:patch", "chat:delete"],
   );
   assert.ok(calls[2] !== undefined);
   assert.deepEqual(calls[2].args, ["/work/shop", 2, { archived: true, unread: false }]);
@@ -189,11 +117,9 @@ test("a running Chat is stopped, hidden, its worktree removed, then the Project 
     state(),
     { "/work/shop#2": {} },
   );
-  const { alert } = fakeAlert("Stop, archive and remove worktree");
   let confirmed = false;
   const result = await archiveFromPhone({
     client,
-    alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -216,13 +142,12 @@ test("a running Chat is stopped, hidden, its worktree removed, then the Project 
 
 test("a refused removal brings the Chat back with the desktop notice", async () => {
   const { client, calls } = fakeClient({
-    "worktree:status": () => dirty,
+    "worktree:status": () => clean,
     "worktree:remove": () => Promise.reject(new Error("WORKTREE_CHANGED: /wt/shop/x-1 changed after it was checked.")),
   });
   const notices: string[] = [];
   const result = await archiveFromPhone({
     client,
-    alert: fakeAlert("Archive and delete worktree").alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -238,7 +163,7 @@ test("a refused removal brings the Chat back with the desktop notice", async () 
     calls.filter((call) => call.method === "chat:patch").map((call) => call.args[2]),
     [{ archived: true, unread: false }, { archived: false }],
   );
-  assert.equal((calls.find((call) => call.method === "worktree:remove")!.args[1] as { force: boolean }).force, true);
+  assert.equal((calls.find((call) => call.method === "worktree:remove")!.args[1] as { force: boolean }).force, false);
   assert.equal(
     calls.some((call) => call.method === "agent:interrupt"),
     false,
@@ -252,7 +177,6 @@ test("a worktree another Chat took up after the check is only hidden from", asyn
   const { client, calls } = fakeClient({}, now);
   const result = await archiveFromPhone({
     client,
-    alert: fakeAlert("Archive and remove worktree").alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -267,102 +191,91 @@ test("a worktree another Chat took up after the check is only hidden from", asyn
   );
 });
 
-test("Cancel changes nothing", async () => {
-  const { client, calls } = fakeClient();
-  let refreshed = false;
-  const result = await archiveFromPhone({
+test("Chats delete immediately while preserving unsaved files in Project and project-less Chats", async () => {
+  for (const chatsHome of [false, true]) {
+    for (const status of [clean, dirty]) {
+      const { client, calls } = fakeClient({ "worktree:status": () => status });
+      const result = await archiveFromPhone({
+        client,
+        projectPath: "/work/shop",
+        state: state(),
+        chat: session(2, 2),
+        running: false,
+        chatsHome,
+        notify: () => {},
+        refresh: async () => {},
+      });
+      assert.equal(result, status.removable ? "removed" : "hidden");
+      assert.deepEqual(calls.find((call) => call.method === "chat:patch")?.args[2], { archived: true, unread: false });
+      const removal = calls.find((call) => call.method === "worktree:remove");
+      if (status.removable) {
+        assert.ok(removal);
+        assert.equal((removal.args[1] as { force: boolean }).force, false);
+      } else {
+        assert.equal(removal, undefined, "Unsaved files and unpushed commits stay on disk");
+        assert.deepEqual(calls.find((call) => call.method === "chat:delete")?.args, ["/work/shop", 2]);
+      }
+    }
+  }
+});
+
+test("an Undo on the toast calls the deletion off and brings the Chat back", async () => {
+  const { client, calls } = fakeClient({ "worktree:status": () => clean });
+  const work = archiveNow({
     client,
-    alert: fakeAlert("Cancel").alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
-    running: true,
+    running: false,
     notify: () => {},
-    refresh: async () => {
-      refreshed = true;
+    refresh: async () => {},
+    undoMs: 10_000,
+  });
+  // The row leaves the list and the toast offers the Undo at once.
+  assert.ok(archiveActivity().hidden.has("/work/shop#2"));
+  assert.equal(archiveActivity().deleted, "/work/shop#2");
+  assert.equal(undoDelete("/work/shop#2"), true);
+  assert.equal(await work, "undone");
+  assert.equal(
+    calls.some((call) => call.method === "worktree:remove" || call.method === "chat:delete" || call.method === "chat:patch"),
+    false,
+    "nothing was hidden or removed",
+  );
+  assert.equal(archiveActivity().deleted, "");
+  assert.equal(archiveActivity().hidden.size, 0);
+});
+
+test("an Undo after the hide brings the Chat back without removing its worktree", async () => {
+  let release = () => {};
+  const hidden = new Promise<void>((resolve) => (release = resolve));
+  const { client, calls } = fakeClient({
+    "worktree:status": () => clean,
+    "chat:patch": () => {
+      release();
+      return undefined;
     },
   });
-  assert.equal(result, "cancelled");
-  // Only the checks ran: nothing was hidden, removed or ended.
-  assert.deepEqual(
-    calls.map((call) => call.method),
-    ["worktree:roots", "worktree:status", "terminal:list"],
-  );
-  assert.equal(refreshed, false);
-});
-
-test("a Chat without a Project: a clean one archives at once, one with files asks to delete it in plain words", async () => {
-  const plan: ArchivePlan = { milagreOwned: true, shared: false, status: clean };
-  assert.deepEqual(archiveDialog(plan, false, true), {
-    title: "Archive this Chat?",
-    choices: [{ mode: "remove", text: "Archive", style: "default" }],
-    immediate: true,
-  });
-  assert.deepEqual(archiveDialog({ ...plan, status: dirty }, false, true), {
-    title: "Archive this Chat?",
-    message: "Its folder has 2 changed files that will be deleted.",
-    choices: [{ mode: "delete", text: "Delete chat and its files", style: "destructive" }],
-  });
-
-  // Tapping Archive on a clean one asks nothing: hidden, then its folder removed.
-  const { client, calls } = fakeClient({ "worktree:remove": () => ({ removed: true }) });
-  const { alert, shown } = fakeAlert(null);
-  const result = await archiveFromPhone({
+  const work = archiveNow({
     client,
-    alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
     running: false,
-    chatsHome: true,
     notify: () => {},
     refresh: async () => {},
+    undoMs: 10_000,
   });
-  assert.equal(result, "removed");
-  assert.equal(shown.length, 0);
-  // It says it went, since nothing lists it any more.
-  assert.equal(archiveActivity().done, "Chat archived");
-  const removal = calls.find((call) => call.method === "worktree:remove");
-  assert.equal((removal?.args[1] as { force: boolean } | undefined)?.force, false);
-
-  // One with files still asks, and Cancel keeps it.
-  const withFiles = fakeClient({ "worktree:status": () => dirty });
-  const asked = fakeAlert("Cancel");
+  await hidden;
+  undoDelete("/work/shop#2");
+  assert.equal(await work, "undone");
+  assert.deepEqual(
+    calls.filter((call) => call.method === "chat:patch").map((call) => call.args[2]),
+    [{ archived: true, unread: false }, { archived: false }],
+  );
   assert.equal(
-    await archiveFromPhone({
-      client: withFiles.client,
-      alert: asked.alert,
-      projectPath: "/work/shop",
-      state: state(),
-      chat: session(2, 2),
-      running: false,
-      chatsHome: true,
-      notify: () => {},
-      refresh: async () => {},
-    }),
-    "cancelled",
+    calls.some((call) => call.method === "worktree:remove"),
+    false,
   );
-  assert.deepEqual(
-    asked.shown[0]?.buttons.map((button) => button.text),
-    ["Cancel", "Delete chat and its files"],
-  );
-});
-
-test("a Project Chat's archive says nothing when it goes", async () => {
-  const { client } = fakeClient({ "worktree:remove": () => ({ removed: true }) });
-  const result = await archiveFromPhone({
-    client,
-    alert: fakeAlert("Archive and remove worktree").alert,
-    projectPath: "/work/shop",
-    state: state(),
-    chat: session(2, 2),
-    running: false,
-    notify: () => {},
-    refresh: async () => {},
-  });
-  assert.equal(result, "removed");
-  // The archive cleared any earlier confirmation and left none of its own.
-  assert.equal(archiveActivity().done, "");
 });
 
 test("whether to stop is read when the archive runs, not when Archive was tapped", async () => {
@@ -370,7 +283,6 @@ test("whether to stop is read when the archive runs, not when Archive was tapped
   const started = fakeClient({}, state(), { "/work/shop#2": {} });
   await archiveFromPhone({
     client: started.client,
-    alert: fakeAlert("Archive and remove worktree").alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -386,7 +298,6 @@ test("whether to stop is read when the archive runs, not when Archive was tapped
   const finished = fakeClient();
   await archiveFromPhone({
     client: finished.client,
-    alert: fakeAlert("Stop, archive and remove worktree").alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -400,25 +311,22 @@ test("whether to stop is read when the archive runs, not when Archive was tapped
   );
 });
 
-test("a second tap while a Chat is archiving asks nothing and removes nothing", async () => {
-  const { client, calls } = fakeClient();
-  let press: (() => void) | undefined;
-  let shown = 0;
-  const alert: ShowAlert = (_title, _message, buttons) => {
-    shown++;
-    press = () => buttons.find((button) => button.text === "Archive and remove worktree")!.onPress!();
-  };
-  const request = { client, alert, projectPath: "/work/shop", state: state(), chat: session(2, 2), running: false, notify: () => {}, refresh: async () => {} };
+test("a second tap during deletion does not repeat the operation", async () => {
+  let finish!: () => void;
+  const { client, calls } = fakeClient({
+    "worktree:remove": () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  });
+  const request = { client, projectPath: "/work/shop", state: state(), chat: session(2, 2), running: false, notify: () => {}, refresh: async () => {} };
   const first = archiveFromPhone(request);
-  // oxlint-disable-next-line no-unmodified-loop-condition -- the alert callback assigns press while the loop yields to the event loop
-  for (let i = 0; i < 5 && !press; i++) await new Promise((resolve) => setImmediate(resolve));
+  // Past the (empty) Undo window, a timer away, to the removal.
+  while (!calls.some((call) => call.method === "worktree:remove")) await new Promise((resolve) => setTimeout(resolve, 1));
   assert.equal(await archiveFromPhone(request), "busy");
-  press!();
+  finish();
   assert.equal(await first, "removed");
-  assert.equal(shown, 1);
   assert.equal(calls.filter((call) => call.method === "worktree:remove").length, 1);
-  // Once it is over, the Chat can be archived again.
-  assert.notEqual(await archiveFromPhone({ ...request, alert: fakeAlert("Cancel").alert }), "busy");
 });
 
 test("a dropped connection during the removal: a worktree that is gone counts as removed, one still there stays", async () => {
@@ -437,7 +345,6 @@ test("a dropped connection during the removal: a worktree that is gone counts as
   const notices: string[] = [];
   const result = await archiveFromPhone({
     client: finished.client,
-    alert: fakeAlert("Archive and remove worktree").alert,
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -459,7 +366,6 @@ test("a dropped connection during the removal: a worktree that is gone counts as
   assert.equal(
     await archiveFromPhone({
       client: kept.client,
-      alert: fakeAlert("Archive and remove worktree").alert,
       projectPath: "/work/shop",
       state: state(),
       chat: session(2, 2),
@@ -492,7 +398,6 @@ test("checkArchive names what the Chat's Terminals run, and leaves idle ones out
   };
   const plan = await checkArchive(fakeClient(terminals).client, state(), 2, "/repo#2");
   assert.deepEqual(plan, { milagreOwned: true, shared: false, status: clean, terminals: ["npm"] });
-  assert.equal(archiveDialog(plan, false).message, "Archiving ends the Terminal running npm.");
   // A Mac without Terminals answers with an error: the plan stays as it was.
   const old = { "terminal:list": () => Promise.reject(new Error("terminal:list is not available from mobile")) };
   assert.deepEqual(await checkArchive(fakeClient(old).client, state(), 2, "/repo#2"), { milagreOwned: true, shared: false, status: clean });
@@ -506,7 +411,7 @@ for (const method of ["worktree:roots", "worktree:status", "terminal:list"]) {
     t.mock.timers.tick(5_000);
     const plan = await checking;
     assert.deepEqual(
-      archiveDialog(plan, false).choices.map((choice) => choice.mode),
+      archiveChoices({ plan: plan!, running: false }).choices.map((choice) => choice.mode),
       ["hide"],
     );
   });

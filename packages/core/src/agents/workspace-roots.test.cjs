@@ -129,3 +129,16 @@ test("a Worktree made mid-session updates the running session without replacing 
   await manager.startTurn({ ...request, ...next });
   assert.equal(calls.length, 1);
 });
+
+test("Milagre's bundled skills are readable without a card, never editable", async (t) => {
+  const { WorkspaceAccess } = require("./permissions.cjs");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-roots-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const skills = path.join(root, "bundled-skills");
+  await fs.mkdir(path.join(skills, "desktop"), { recursive: true });
+  const access = new WorkspaceAccess({ cwd: path.join(root, "chat"), skillsDirectory: skills });
+  const file = path.join(skills, "desktop", "SKILL.md");
+  assert.deepEqual(access.answer({ kind: "read", files: [file] }, "ask"), { decision: "allow", learn: [] });
+  assert.equal(access.answer({ kind: "edit", files: [file] }, "ask"), null);
+  assert.equal(access.answer({ kind: "read", files: [file, path.join(root, "secret.txt")] }, "ask"), null);
+});

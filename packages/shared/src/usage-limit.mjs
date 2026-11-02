@@ -61,3 +61,19 @@ export function isAccountSwitch(message) {
 export function accountSwitchText(context) {
   return `Switched to ${context.label} after the usage limit`;
 }
+
+/** A continuation on the same Account after its plan's usage limit reset. */
+export function isLimitReset(message) {
+  return message?.context?.kind === "limit-reset";
+}
+
+export function limitResetText() {
+  return "Continued after the usage limit reset";
+}
+
+/** Pending schedules remain visible during the short allowance after the reported reset time. */
+export function limitResumeLabel(pending, limit, now = new Date()) {
+  if (pending) return resetTime(pending.at, now) ? `Continues at ${resetTime(pending.at, now)}` : "Continues shortly";
+  const time = resetTime(limit.resetsAt, now);
+  return time ? `Continue at ${time}` : null;
+}

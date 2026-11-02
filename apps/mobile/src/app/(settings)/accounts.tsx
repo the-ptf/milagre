@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { AccountsSection } from "../../accounts-section";
 import { LimitAutoSwitchSection } from "../../limit-switch-section";
 
@@ -7,10 +7,10 @@ export default function AccountsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Accounts" }} />
-      <PageScroll>
+      <SettingsScroll>
         <AccountsSection />
         <LimitAutoSwitchSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

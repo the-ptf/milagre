@@ -11,6 +11,7 @@ import { FIELD_LABEL } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { ScrollArea } from "./primitives/ScrollArea";
+import { ThisComputer, thisComputer } from "../lib/shortcut-hints";
 
 const THIS_MAC = "this-mac";
 
@@ -95,7 +96,7 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
       <p className={`mt-4 ${FIELD_LABEL}`}>On</p>
       <div className="mt-1 flex gap-1.5">
         {[
-          { id: THIS_MAC, name: thisMac, line: "This Mac", tone: "online" as const, away: false },
+          { id: THIS_MAC, name: thisMac, line: ThisComputer, tone: "online" as const, away: false },
           ...computers.map((item) => ({ id: item.id, name: item.name, line: routeLine(item, now), tone: computerTone(item), away: item.state !== "online" })),
         ].map((choice) => (
           <button
@@ -117,7 +118,7 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
       </div>
       {on === THIS_MAC ? (
         <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-13 text-ink-2">Choose a folder on this Mac.</p>
+          <p className="text-13 text-ink-2">Choose a folder on {thisComputer}.</p>
           <Button variant="secondary" onClick={() => void chooseHere()}>
             Choose folder…
           </Button>

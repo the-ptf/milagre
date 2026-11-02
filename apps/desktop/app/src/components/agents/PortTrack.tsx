@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { EthernetPortIcon, LinkSquare02Icon, StopCircleIcon } from "@hugeicons/core-free-icons";
 import type { AgentPort } from "../../model";
 import { portComputer, portUrl, unreachablePortReason } from "../../lib/ports";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
-import { Icon } from "../primitives/Icon";
-import { IconButton } from "../primitives/Button";
-import { menuRowClass } from "../primitives/Popover";
 import { PillMorph } from "../motion/PillMorph";
 import { opensInPanel } from "../../lib/link-target";
 
@@ -74,11 +72,9 @@ export function PortTrack({
                 data-port-stop-all
                 disabled={!onStop || ports.every((port) => stopping.has(port.pid))}
                 onClick={() => stop([...new Set(ports.map((port) => port.pid))])}
-                className={menuRowClass({ danger: true })}
+                className="flex w-full items-center gap-2 rounded-chip px-2 py-2 text-left text-13 text-ink-2 hover:bg-hover focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent"
               >
-                <span className="flex size-5 shrink-0 items-center justify-center">
-                  <Icon icon={StopCircleIcon} size={16} />
-                </span>
+                <HugeiconsIcon icon={StopCircleIcon} size={14} aria-hidden />
                 Stop all
               </button>
             </div>
@@ -94,47 +90,48 @@ export function PortTrack({
                 {(() => {
                   const computer = portComputer(port);
                   const url = portUrl(port);
-                  const rowClass =
-                    "flex h-8 w-full min-w-0 items-center gap-2 pl-2 text-13 text-ink no-underline focus-visible:outline-2 focus-visible:-outline-offset-2";
-                  // Another computer's port opens at its LAN or tailnet IP; one this Mac can't reach is shown, not linked.
-                  if (computer && !url)
+                  // In the Browser panel another computer's port opens at its own localhost: the Chat's pages reach the
+                  // web from that computer (#832), so a server on its loopback alone opens too.
+                  const panelUrl = computer ? `http://localhost:${port.port}` : url;
+                  const rowClass = "flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-13 text-ink no-underline focus-visible:outline-2";
+                  // Outside the panel another computer's port opens at its LAN or tailnet IP; one this Mac can't reach
+                  // that way is shown, not linked, unless the panel can open it.
+                  if (computer && !url && !onOpen)
                     return (
-                      <Tooltip label={unreachablePortReason(port, computer)} wrap className="min-w-0 flex-1">
-                        <span data-port-remote className={rowClass}>
-                          <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
-                          <span className="min-w-0 flex-1 truncate text-ink-3">
-                            {port.command} · on {computer}
-                            <span className="sr-only">, process {port.pid}</span>
-                          </span>
-                        </span>
-                      </Tooltip>
-                    );
-                  return (
-                    <Tooltip label={`Open ${url}`} className="min-w-0 flex-1">
-                      <a
-                        href={url ?? undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(event) => {
-                          if (!onOpen || computer || !url || !opensInPanel(event)) return;
-                          event.preventDefault();
-                          setOpened(false);
-                          onOpen(url);
-                        }}
-                        {...(computer ? { "data-port-remote": true } : {})}
-                        className={rowClass}
-                      >
+                      <span data-port-remote title={unreachablePortReason(port, computer)} className={rowClass}>
                         <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                         <span className="min-w-0 flex-1 truncate text-ink-3">
-                          {port.command}
-                          {computer ? ` · on ${computer}` : null}
+                          {port.command} · on {computer}
                           <span className="sr-only">, process {port.pid}</span>
                         </span>
-                        <span className="flex shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                          <Icon icon={LinkSquare02Icon} size={14} />
-                        </span>
-                      </a>
-                    </Tooltip>
+                      </span>
+                    );
+                  return (
+                    <a
+                      href={url ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={url ? `Open ${url}` : `Open in the Browser panel, through ${computer}. ${unreachablePortReason(port, computer ?? "")}`}
+                      onClick={(event) => {
+                        // With no address this Mac reaches, the row opens only in the panel.
+                        if (!onOpen || !panelUrl || (url && !opensInPanel(event))) return;
+                        event.preventDefault();
+                        setOpened(false);
+                        onOpen(panelUrl);
+                      }}
+                      {...(computer ? { "data-port-remote": true } : {})}
+                      className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-13 text-ink no-underline focus-visible:outline-2"
+                    >
+                      <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
+                      <span className="min-w-0 flex-1 truncate text-ink-3">
+                        {port.command}
+                        {computer ? ` · on ${computer}` : null}
+                        <span className="sr-only">, process {port.pid}</span>
+                      </span>
+                      <span className="flex shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                        <HugeiconsIcon icon={LinkSquare02Icon} size={14} aria-hidden />
+                      </span>
+                    </a>
                   );
                 })()}
                 <span
@@ -146,15 +143,16 @@ export function PortTrack({
                     </span>
                   ) : (
                     <Tooltip label="Stop">
-                      <IconButton
-                        label={`Stop port ${port.port}`}
-                        icon={StopCircleIcon}
-                        size={24}
-                        variant="danger-ghost"
+                      <button
+                        type="button"
                         data-port-stop
+                        aria-label={`Stop port ${port.port}`}
                         disabled={!onStop}
                         onClick={() => stop([port.pid])}
-                      />
+                        className="flex size-6 items-center justify-center rounded-control text-ink-3 hover:bg-hover hover:text-red-ink focus-visible:outline-2 disabled:opacity-40"
+                      >
+                        <HugeiconsIcon icon={StopCircleIcon} size={14} />
+                      </button>
                     </Tooltip>
                   )}
                 </span>

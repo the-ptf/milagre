@@ -95,7 +95,7 @@ const runs = {
   },
   seq: 1,
 };
-const models = { codex: null, claude: null, antigravity: null };
+const models = { codex: null, claude: null, antigravity: null, kiro: null };
 const linked = { delegations: [], negotiations: [], receiveOnly: [] };
 
 const fixture = `
@@ -107,7 +107,7 @@ window.addEventListener('error', e => console.error(e.error?.stack || e.message)
 const project = ${JSON.stringify(project)}, runs = ${JSON.stringify(runs)};
 const replies = {
   getCurrentProject: project, getRuns: runs, getModels: ${JSON.stringify(models)},
-  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'}},
+  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'},kiro:{state:'missing'}},
   getRuntimeConnection: {connected:true}, getLinkedWork: ${JSON.stringify(linked)},
   listRecentProjects: [{path:project.path,name:project.name}], listBranches: ['main'],
   getWorktreeRoots: [], getCachedUsage: {providers:[]}, readUsage: {providers:[]}, getAgentPorts: {},
@@ -124,6 +124,8 @@ window.milagre = new Proxy({}, {get(_, name) {
     return {number,title,url:'https://github.com/the-ptf/milagre-ade/pull/'+number,state:'OPEN',checks:index===0?'running':'passed',readyToMerge:index===5};
   };
   if (name === 'readPullRequests') return async (_, paths) => paths.map(() => null);
+  // As an older host: the sidebar reads each Worktree's PR from readPullRequest above.
+  if (name === 'readPullRequestSnapshot') return async () => { throw new Error('Unknown command: pull-requests:snapshot'); };
   return async () => name in replies ? replies[name] : null;
 }});
 localStorage.setItem('milagre-settings', JSON.stringify({theme:'light',defaultPermissionMode:'auto',notifyWhenWaiting:false,notifyOnCompletion:false,showDockBadge:false,showUsageInSidebar:false}));
@@ -230,7 +232,7 @@ async function main() {
         "project:recent": [{ path: projectPath, name: "Milagre" }],
         "project:open": project,
         "agent:models": models,
-        "agent:cli-status": { codex: { state: "ready" }, claude: { state: "ready" }, antigravity: { state: "ready" } },
+        "agent:cli-status": { codex: { state: "ready" }, claude: { state: "ready" }, antigravity: { state: "ready" }, kiro: { state: "missing" } },
         "chat:runs": runs,
         "usage:read": { providers: [] },
         "git:branches": ["main"],

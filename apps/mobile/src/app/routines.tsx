@@ -12,7 +12,7 @@ import { isHeartbeat, routineDeleteMessage, routineIcon, routineMeta } from "../
 import { ChatMarkIcon } from "../status-indicators";
 import { confirm } from "../confirm-store";
 import { Icon } from "../icons";
-import { Chip, EmptyState, ErrorNotice, Group, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
+import { Chip, EmptyState, ErrorNotice, Group, HeaderButton, PageScroll, PullDown, RowCheckbox, useStyles } from "../ui";
 import { lineHeight, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
@@ -242,7 +242,7 @@ function RoutineRow({
           </View>
         </View>
       </PullDown>
-      <RowSwitch label={routine.name} selected={routine.enabled} onPress={onFlip} />
+      <RowCheckbox label={routine.name} selected={routine.enabled} onPress={onFlip} />
     </View>
   );
 }

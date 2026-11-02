@@ -12,6 +12,7 @@ const { startDaemon } = require("@milagre/daemon/server");
 const { connect } = require("@milagre/daemon/client");
 const { compatibleClient } = require("@milagre/daemon/bootstrap");
 const { connectDesktopRuntime } = require("./daemon-runtime.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 async function waitFor(read, attempts = 200) {
   for (let i = 0; i < attempts; i++) {
@@ -796,8 +797,8 @@ test("a runtime given `connect` reconnects through it alone, and never starts, f
     events.some((event) => event.channel === "runtime:snapshot"),
     "and read the state again",
   );
-  await assert.rejects(remote.restartHost(), /Only this Mac's own host/);
-  await assert.rejects(remote.close({ stopHost: true }), /Only this Mac's own host/);
+  await assert.rejects(remote.restartHost(), new RegExp(`Only ${thisComputer}'s own host`));
+  await assert.rejects(remote.close({ stopHost: true }), new RegExp(`Only ${thisComputer}'s own host`));
   await remote.close();
   assert.equal(calls.includes("daemon:flush"), false);
   assert.equal(calls.includes("daemon:stop"), false);

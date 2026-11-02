@@ -1,9 +1,11 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { DURATION, EASE_OUT } from "../../lib/ease";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
-import type { SimulatorApi, SimulatorDevice, SimulatorList } from "@milagre/shared/simulator";
+import { SIMLOCK_DEVICE_PREFIX, type SimlockModel, type SimulatorApi, type SimulatorDevice, type SimulatorList } from "@milagre/shared/simulator";
+import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   createSimulatorBridge,
   createSimulatorReceiverHtml,
@@ -26,12 +28,17 @@ import { ResizableDockSlide } from "./DockSlide";
 import { usePanelWidth } from "./panel-width";
 import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
+import { thisComputer } from "../../lib/shortcut-hints";
 
 /** The host owns persistent associations; discovery never attaches a device. */
 export function SimulatorTrack({ chatId }: { chatId: string }) {
   // Read once: the polling effect depends on it, and a bridge that hands out a new object per read would restart it every render.
   const bridge = useBridge();
   const [api] = useState(() => bridge?.simulators);
+  const [simlock] = useState(() => bridge?.simlock);
+  // Experimental: models the Simlock pool can lease, read when the attach list opens; null when it is off.
+  const [pool, setPool] = useState<{ models: SimlockModel[]; error?: string } | null>(null);
+  const [leasing, setLeasing] = useState<string | null>(null);
   const trigger = useRef<HTMLButtonElement>(null),
     panel = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -80,7 +87,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
       const started = revision.current;
       try {
         const result = await api.list({ chatId });
-        if (result.chatId !== chatId) throw new Error("Update Milagre on this Mac to attach simulators to Chats.");
+        if (result.chatId !== chatId) throw new Error(`Update Milagre on ${thisComputer} to attach simulators to Chats.`);
         if (!disposed && started === revision.current) {
           setList(result);
           if (!result.attached?.length) close();
@@ -137,6 +144,54 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
       setBusy(false);
     }
   };
+  useEffect(() => {
+    if (!attaching || !simlock) return;
+    let live = true;
+    void (async () => {
+      try {
+        if (!(await simlock.readSettings()).enabled) return live && setPool(null);
+        const { models } = await simlock.models();
+        if (live) setPool({ models });
+      } catch (error) {
+        if (live) setPool({ models: [], error: ipcErrorMessage(error) });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [attaching, simlock]);
+  const lease = async (model: SimlockModel) => {
+    if (!simlock || busy) return;
+    setBusy(true);
+    setLeasing(`${model.platform}:${model.model}`);
+    revision.current++;
+    try {
+      const leased = await simlock.lease({ chatId, platform: model.platform, model: model.model });
+      setAttaching(false);
+      await refreshList.current();
+      setSelected({ id: leased.deviceId, name: `${leased.name} (Simlock)`, platform: leased.platform, version: leased.version });
+    } catch (error) {
+      setPool((current) => ({ models: current?.models ?? [], error: ipcErrorMessage(error) }));
+    } finally {
+      revision.current++;
+      setLeasing(null);
+      setBusy(false);
+    }
+  };
+  const release = async (device: SimulatorDevice) => {
+    if (!simlock || busy) return;
+    setBusy(true);
+    revision.current++;
+    try {
+      await simlock.release({ deviceId: device.id });
+    } catch {
+      // An ended lease only needs its attachment removed.
+    } finally {
+      revision.current++;
+      setBusy(false);
+    }
+    await mutate("detach", device);
+  };
   const attachedCount = list.attached?.length ?? 0;
   // While a device is attached, or the panel is open to attach one, the list is polled: devices come and go on their own.
   const polling = Boolean(api && (attachedCount > 0 || opened));
@@ -178,7 +233,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
           )}
           <div className="min-w-0 flex-1">
             <div className="truncate text-13">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
-            {!selected && <div className="text-11 text-ink-3">{attaching ? "Other devices on this Mac" : "This Chat"}</div>}
+            {!selected && <div className="text-11 text-ink-3">{attaching ? `Other devices on ${thisComputer}` : "This Chat"}</div>}
           </div>
           <Tooltip label="Close simulator">
             <IconButton label="Close simulator" icon={Cancel01Icon} size={24} onClick={close} />
@@ -200,6 +255,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
               </button>
               <div className="mt-1 text-11 text-ink-3">
                 {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
+                {selected.id.startsWith(SIMLOCK_DEVICE_PREFIX) && " · Leased from Simlock"}
               </div>
             </div>
             <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-11 text-ink-2">
@@ -222,7 +278,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             {list.error}
           </InlineError>
           {!loading && !list.error && !(attaching ? list.available : list.attached)?.length && (
-            <EmptyState size="compact" title={attaching ? "No other devices are running on this Mac" : "No simulators attached to this Chat"} />
+            <EmptyState size="compact" title={attaching ? `No other devices are running on ${thisComputer}` : "No simulators attached to this Chat"} />
           )}
           {(attaching ? (list.available ?? []) : (list.attached ?? [])).map((device) => {
             const running = attaching || list.devices.some((d) => d.id === device.id);
@@ -239,11 +295,32 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
                   <span className="text-11 text-ink-3">{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</span>
                 </button>
-                {!attaching && (
-                  <Tooltip label="Detach from Chat">
-                    <IconButton label={`Detach ${device.name} from Chat`} icon={Cancel01Icon} disabled={busy} onClick={() => void mutate("detach", device)} />
-                  </Tooltip>
-                )}
+                {!attaching &&
+                  (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
+                    <Tooltip label="Return to the Simlock pool">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Return ${device.name} to the Simlock pool`}
+                        onClick={() => void release(device)}
+                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+                      </button>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip label="Detach from Chat">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Detach ${device.name} from Chat`}
+                        onClick={() => void mutate("detach", device)}
+                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+                      </button>
+                    </Tooltip>
+                  ))}
               </div>
             );
           })}
@@ -255,6 +332,37 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             >
               Attach simulator
             </button>
+          )}
+          {attaching && pool && (
+            <section aria-label="Lease from Simlock" data-slot="simlock-models" className="mt-1 border-t border-line pt-1">
+              <div className="px-3 pb-1 pt-2 text-11 text-ink-3">Lease from Simlock: a fresh device of its own, returned wiped</div>
+              {pool.error && (
+                <p role="alert" className="px-3 py-2 text-13 text-red-ink">
+                  {pool.error}
+                </p>
+              )}
+              {leasing && (
+                <p role="status" className="px-3 py-2 text-13 text-ink-2">
+                  Leasing... Simlock boots the device and may queue behind other agents.
+                </p>
+              )}
+              {pool.models.map((model) => (
+                <button
+                  key={`${model.platform}:${model.model}`}
+                  type="button"
+                  disabled={busy}
+                  data-simlock-model={model.model}
+                  onClick={() => void lease(model)}
+                  className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-left hover:bg-hover disabled:opacity-50"
+                >
+                  <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
+                  <span className="min-w-0 flex-1 truncate text-13">{model.model}</span>
+                  <span className="text-11 text-ink-3">
+                    {model.platform === "android" ? "Android" : "iOS"} {model.version}
+                  </span>
+                </button>
+              ))}
+            </section>
           )}
         </ScrollArea>
       )}

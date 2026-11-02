@@ -1,10 +1,17 @@
+import { radius } from "../design-tokens";
+import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
+import { useContextSettings } from "../context-settings";
+import { compactionContext } from "@milagre/shared/compaction";
+import { CleanIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
+import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
+import { ComposerTray, OfflineTray } from "../offline-tray";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -14,20 +21,23 @@ import {
   ArrowDown01Icon,
   ArrowUp01Icon,
   BubbleChatIcon,
+  Globe02Icon,
+  GitPullRequestIcon,
   Cancel01Icon,
   File01Icon,
   GitBranchIcon,
   GitForkIcon,
   ComputerIcon,
   LaptopIcon,
-  Pulse01Icon,
   MoreHorizontalIcon,
-  RepeatIcon,
   SidebarLeftIcon,
+  StopIcon,
+  Video01Icon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import { UI_COPY } from "@milagre/shared/model-copy";
+import { compactButtonState } from "@milagre/shared/chat-display";
+import { useCompactButtonDisplay, useShowContextSize } from "../chat-display-setting";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
@@ -46,11 +56,12 @@ import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { pullRequestAction, pullRequestBlockers, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
+import { pullRequestAction, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ChatLinkProvider } from "../chat-link-context";
+import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
@@ -67,19 +78,21 @@ import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
-import { BrowserChip } from "../browser";
+import { useBrowserShortcut } from "../browser";
+import { useInternalBrowser } from "../browser-setting";
+import { openBrowserLink } from "../browser-link";
 import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { ChatReply } from "../chat-reply";
-import { designMessageSent, onSendDesignMessageNow, peekDesignMessage } from "../design-outbox";
+import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
 import { chosenDesign, designActivity } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
-import { AccountSwitchDivider } from "../account-switch-divider";
+import { AccountSwitchDivider, LimitResetDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
 import { BabysitStoppedDivider } from "../babysit-stopped-divider";
 import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
@@ -90,22 +103,31 @@ import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
-import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
+import {
+  chatBranchLabel,
+  RUN_WORKTREE_REMOVED_NOTE,
+  chatRoutine,
+  clock,
+  groupQuietRuns,
+  isRoutineRun,
+  mergedRoutineRunText,
+  routineRunOf,
+  routineRunText,
+} from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
-import { accountSwitchText, isAccountSwitch } from "@milagre/shared/usage-limit";
+import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
 import { QueuedMessages } from "../queued-messages";
+import { DEFAULT_MESSAGE_DELIVERY, deliveryOptions, type MessageDelivery } from "@milagre/shared/queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
-// Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
-import LINEAR_MARK from "../../assets/linear-mark.png";
-import { Icon, LinearLogo, type IconData } from "../icons";
+import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplit, useSplitLayout } from "../split-context";
 import { chatAreaWidth, READING_WIDTH } from "../split-width";
@@ -113,30 +135,18 @@ import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
-import {
-  DISABLED_OPACITY,
-  ErrorNotice,
-  GlassIconButton,
-  HeaderButton,
-  IconButton,
-  PageScroll,
-  PillButton,
-  PullDown,
-  Toast,
-  pressStyle,
-  useStyles,
-  type MenuSection,
-} from "../ui";
-import { Counts } from "../diff-ui";
-import { chrome, lineHeight, radius, type } from "../design-tokens";
+import { HeaderAction, HeaderActionGroup } from "../primitives/header-action-group";
+import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
+import { SubchatPanel, SubchatPill, useSubchatPanel } from "../subchat-pill";
 import { useTheme } from "../theme";
+import { ToastPill } from "../primitives/toast";
+import { undoHistory, useHistoryToast } from "../undo-history";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
-import { confirmSheet } from "../confirm-store";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
 import { useChatPage } from "../chat-pages";
@@ -162,11 +172,11 @@ import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new
 import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
+import { chatFamily } from "@milagre/shared/subchats";
 import { BesideSession, touchPane } from "../beside-session";
+import { SENT_FROM } from "../sent-from";
 
 const PAGE = 40;
-/** Stop as desktop draws it: a filled 10pt square with 2pt corners (14 of the 24-unit box, plus the glyph's stroke). */
-const STOP_SQUARE: IconData = [["rect", { x: 5, y: 5, width: 14, height: 14, rx: 2.5, fill: "currentColor", key: "0" }]];
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
 
@@ -196,24 +206,24 @@ const NO_CHECKPOINTS: CheckpointApi = {
 
 // The native header lays its title out between the sidebar button and the toolbar group, and lets a title wider than that run
 // under the group. These are the pieces of that room, in points: the header's inset from the screen edge, one round button,
-// the Routine and ⋯ buttons sharing a pill, and the clear space kept beside the title. The title is never wider than 230.
+// the Browser, PR and ⋯ buttons sharing a pill, and the clear space beside the title. The title is never wider than 230.
 const HEADER_EDGE = 16;
 const HEADER_BUTTON = 44;
-const HEADER_PILL = 104;
+const HEADER_BUTTON_PITCH = 44;
 const HEADER_GAP = 12;
 const HEADER_TITLE_MAX = 230;
 /** The widest the header title may be on a screen `screenWidth` wide: what is left between the sidebar button and the toolbar group. */
-function headerTitleWidth(screenWidth: number, routineButton: boolean) {
+function headerTitleWidth(screenWidth: number, actionCount: number) {
   const left = HEADER_EDGE + HEADER_BUTTON + HEADER_GAP;
-  const right = HEADER_EDGE + (routineButton ? HEADER_PILL : HEADER_BUTTON) + HEADER_GAP;
+  const right = HEADER_EDGE + (HEADER_BUTTON + (actionCount - 1) * HEADER_BUTTON_PITCH) + HEADER_GAP;
   return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
 }
 
 /** The header title's box, as wide as the room the pinned sidebar leaves. */
-function HeaderTitleBox({ routineButton, children }: { routineButton: boolean; children: ReactNode }) {
+function HeaderTitleBox({ actionCount, children }: { actionCount: number; children: ReactNode }) {
   const window = useWindowDimensions();
   const { pinned } = useSplit();
-  return <View style={{ alignItems: "center", maxWidth: headerTitleWidth(chatAreaWidth(window.width, pinned), routineButton) }}>{children}</View>;
+  return <View style={{ alignItems: "center", width: "100%", maxWidth: headerTitleWidth(chatAreaWidth(window.width, pinned), actionCount) }}>{children}</View>;
 }
 
 /** The native header's sidebar button: shows or hides the pinned sidebar, or slides the navigation over on a narrower window. */
@@ -237,13 +247,15 @@ function SidebarButton() {
 }
 
 // `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
-type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
+// `beside`: a subchat to open beside this one on a wide iPad (the list's subchat rows route to their family's top Chat).
+type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string; beside?: string };
 
 /**
  * The routed Chat, and on a wide iPad a second Chat beside it, of any Project on any computer, opened from a sidebar
  * row's "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
  */
 const NO_MEMBERS: WorktreeBinding[] = [];
+const NO_MESSAGES: ChatMessage[] = [];
 const NO_REFS: string[] = [];
 
 export default function ChatScreen() {
@@ -264,6 +276,15 @@ export default function ChatScreen() {
   useEffect(() => {
     if (state === "ended") closeBeside();
   }, [state]);
+  // A subchat row routed here to open beside this Chat: it opens once, and the route forgets it.
+  const besideParam = params.beside;
+  const routedHost = params.hostId || session.client?.url;
+  const routedPath = params.projectPath || session.snapshot?.project.path;
+  useEffect(() => {
+    if (!besideParam || !routedHost || !routedPath) return;
+    openBeside({ hostId: routedHost, projectPath: routedPath, chatId: Number(besideParam) });
+    router.setParams({ beside: undefined });
+  }, [besideParam, routedHost, routedPath]);
   const shown = state === "shown" && beside ? beside : null;
   // Closing the routed Chat leaves the one beside it in its place.
   const promote = useCallback(() => {
@@ -271,8 +292,7 @@ export default function ChatScreen() {
     router.setParams({ id: String(shown.chatId), worktreeId: undefined, draft: undefined, prefill: undefined });
     closeBeside();
   }, [shown]);
-  // The pane whose composer has focus owns the keyboard: only its composer rides it and only its transcript makes room, so
-  // the other pane does no keyboard-driven layout work on every frame of the animation.
+  // Focus identifies the pane whose terminal can own the keyboard. Both composers and transcripts make room for it.
   const [typing, setTyping] = useState<"routed" | "beside">("routed");
   const besideTyping = Boolean(shown) && typing === "beside";
   const routedTypes = useCallback(() => setTyping("routed"), []);
@@ -340,8 +360,12 @@ function ChatPane({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const [showContextSize] = useShowContextSize();
+  const { settings: contextSettings } = useContextSettings();
+  const [compactButtonDisplay] = useCompactButtonDisplay();
   // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
   // params, so the new snapshot never renders against the old route and briefly unmounts the composer.
+  const [internalBrowser] = useInternalBrowser();
   const [arriving, setArriving] = useState<ChatParams | null>(null);
   const params = arriving ?? routeParams;
   useEffect(() => {
@@ -366,8 +390,6 @@ function ChatPane({
   const composer = useComposer();
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
-  // Where the floating header ends: overlays sit 8 under it, message navigation 20, the transcript 32.
-  const headerBottom = insets.top + chrome.header;
   const window = useWindowDimensions();
   // Only the pieces that read whether the sidebar is pinned (SidebarToolbar, SidebarButton, HeaderTitleBox) re-render as it
   // shows or hides; the Chat itself doesn't.
@@ -396,10 +418,24 @@ function ChatPane({
   const [terminalCount, setTerminalCount] = useState<number | undefined>(undefined);
   // The composer has the keyboard; without it, a keyboard up over the docked Terminal is the Terminal's.
   const [composerFocused, setComposerFocused] = useState(false);
+  // Ask in a message's selection menu: the passage goes into the draft as a quote and the composer takes the keyboard.
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  const askChatId = `${session.snapshot?.project.path ?? ""}#${params.id ?? `new:${params.worktreeId}`}`;
+  const askTarget = useRef({ chatId: "", setDrafts: composer.setDrafts });
+  useEffect(() => {
+    askTarget.current = { chatId: askChatId, setDrafts: composer.setDrafts };
+  });
+  // One identity for the pane's life, so the messages that read it don't render again with each keystroke.
+  const askAboutPassage = useCallback((passage: string) => {
+    const { chatId: target, setDrafts } = askTarget.current;
+    setDrafts((current) => ({ ...current, [target]: quoteIntoDraft(current[target] || "", passage) }));
+    setComposerFocusRequest((value) => value + 1);
+  }, []);
   const [error, setError] = useState("");
   // Bumped after a link or unlink so the Linear issues of the Worktrees are read again.
   const [linkVersion, setLinkVersion] = useState(0);
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<{ text: string } | null>(null);
+  const historyToast = useHistoryToast("chat");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -422,6 +458,7 @@ function ChatPane({
   );
   const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
   const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
+  const [delivery, setDelivery] = useState<MessageDelivery>(DEFAULT_MESSAGE_DELIVERY);
   const targetHost = params.hostId || session.client?.url || "";
   const reachableHost = useReachableHost(session.client?.url);
   const targetProject = params.projectPath || session.snapshot?.project.path || "";
@@ -624,6 +661,10 @@ function ChatPane({
   // A summary can acknowledge a send before its message page arrives. Keep what is already on screen during that read.
   const [transcript, setTranscript] = useState({ key: scrollKey, messages: loadedMessages });
   const messages = lean && historyPage.loading && !loadedMessages.length && transcript.key === scrollKey ? transcript.messages : loadedMessages;
+  const compactionFeedback = useCompactionFeedback(
+    messages.findLast((item) => compactionContext(item)),
+    scrollKey,
+  );
   if (transcript.key !== scrollKey || transcript.messages !== messages) setTranscript({ key: scrollKey, messages });
   // A saved Chat whose page is still on its way shows nothing yet, not the new-chat welcome.
   const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
@@ -688,6 +729,17 @@ function ChatPane({
   // Long Chats mount their newest messages first; earlier ones load on request.
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
   const visible = shown.key === scrollKey ? shown.count : PAGE;
+  // A Chat followed at its bottom as new messages arrive lets go of the history it showed: its earlier messages unmount
+  // and its window keeps its last turns, so a Chat open for hours costs what a fresh one does. Scrolling up reads them again.
+  const { trim: trimHistory } = historyPage;
+  const seenCount = useRef(messages.length);
+  useEffect(() => {
+    const grew = messages.length > seenCount.current;
+    seenCount.current = messages.length;
+    if (!grew || !following.current || historyRead.current || historyAnchor.current) return;
+    if (visible > PAGE) setShown({ key: scrollKey, count: PAGE });
+    trimHistory(() => following.current && !historyRead.current && !historyAnchor.current);
+  }, [messages.length, visible, scrollKey, trimHistory]);
   // Quiet heartbeats fold into one line and their replies drop out.
   const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
   async function showEarlier() {
@@ -735,15 +787,17 @@ function ChatPane({
                 ? `Go to ${compactionText(message.context)}, ${position}.`
                 : isAccountSwitch(message)
                   ? `Go to ${accountSwitchText(message.context)}, ${position}.`
-                  : isChatReload(message)
-                    ? `Go to ${RELOAD_TEXT}, ${position}.`
-                    : isBabysitStopped(message)
-                      ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
-                      : run
-                        ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
-                        : isCheckpointRestore(message)
-                          ? `Go to ${message.body}, ${position}.`
-                          : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+                  : isLimitReset(message)
+                    ? `Go to ${limitResetText()}, ${position}.`
+                    : isChatReload(message)
+                      ? `Go to ${RELOAD_TEXT}, ${position}.`
+                      : isBabysitStopped(message)
+                        ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
+                        : run
+                          ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
+                          : isCheckpointRestore(message)
+                            ? `Go to ${message.body}, ${position}.`
+                            : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
         };
       }),
     [shownEntries, handoffModels],
@@ -775,7 +829,7 @@ function ChatPane({
       const y = messagePositions.current.get(id);
       if (y !== undefined) {
         navigationTarget.current = null;
-        scroll.current?.scrollTo({ y: Math.max(0, y - headerBottom - 20), animated: true });
+        scroll.current?.scrollTo({ y: Math.max(0, y - insets.top - 72), animated: true });
       }
     }
   };
@@ -834,6 +888,10 @@ function ChatPane({
       unsubscribe();
     };
   }, [savedChatKey]);
+  const browserShortcut = useBrowserShortcut({
+    chatId: savedChatKey ?? undefined,
+    openInPanel: panels.openInPanel,
+  });
   // Only the routed Chat clears its Unread mark: the one beside is read when it is opened on its own.
   useReadOpenChat(
     connected,
@@ -873,7 +931,7 @@ function ChatPane({
   const restingKeyboard = useKeyboardState((state) => (state.isVisible ? state.height : 0));
   const startLift = Math.max(insets.bottom, 12) - 8;
   const startLineStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: ownsKeyboard ? Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 : 0 }],
+    transform: [{ translateY: Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 }],
   }));
   const sidebar = <SidebarToolbar onOpenNavigation={panels.show} />;
   // A comment or a choice from the design sheet is sent from here when the Chat comes back into view. Sent while the
@@ -884,6 +942,7 @@ function ChatPane({
   const sendGenui = useRef<(text: string) => Promise<boolean | "busy">>(async () => false);
   const genuiSend = useCallback((text: string) => sendGenui.current(text), []);
   const designDeferred = useRef(false);
+  const designSending = useRef<DesignMessage | null>(null);
   const designKey = session.client && session.snapshot ? `${session.client.url}|${session.snapshot.project.path}#${params.id}` : null;
   useFocusEffect(
     useCallback(() => {
@@ -948,6 +1007,21 @@ function ChatPane({
     params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
     `${session.snapshot?.project?.path}#${params.id}`,
   );
+  // The Subchats pill, the same way: the Chats this Chat's Delegations made, in a panel over the transcript.
+  const subchatPanel = useSubchatPanel(
+    params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined,
+    `${session.snapshot?.project?.path}#${params.id}`,
+  );
+  // Both pill panels grow to the composer's column: beside an iPad's sidebar or docked panel, never under them.
+  const { attachRoom: attachPlanRoom } = planPanel;
+  const { attachRoom: attachSubchatRoom } = subchatPanel;
+  const attachPanelRooms = useCallback(
+    (node: Parameters<typeof attachPlanRoom>[0]) => {
+      attachPlanRoom(node);
+      attachSubchatRoom(node);
+    },
+    [attachPlanRoom, attachSubchatRoom],
+  );
   // Polled here, not in the chip: a command serving one of these ports leaves the background line.
   const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
   const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
@@ -995,6 +1069,7 @@ function ChatPane({
   }
   const client = session.client;
   const { project } = session.snapshot;
+  const offline = !!session.error || allComputers.viewOf?.(client.url)?.state === "offline";
   const chat = params.id ? project.state.sessions[Number(params.id)] : null;
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
   const draft = composer.drafts[chatId] || "";
@@ -1049,7 +1124,8 @@ function ChatPane({
   }
   function openChatLink(url: string) {
     const entry = associatedPullRequest(url, rowPrs);
-    return entry ? openPr(entry.number, undefined, placeOf(entry)?.cwd) : false;
+    if (entry && openPr(entry.number, undefined, placeOf(entry)?.cwd)) return true;
+    return internalBrowser && openBrowserLink(client.url, chatId, url, panels.openInPanel);
   }
   prChat.current = {
     send: (body) => send(body, false),
@@ -1077,6 +1153,43 @@ function ChatPane({
   const branchDisabled = targetDisabled || (newWorktree && !branches?.items.length);
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
+  const supportsCompact = Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact;
+  const quietContext = supportsCompact && contextSettings.autoCompact;
+  const compactState = compactButtonState(compactButtonDisplay, contextUsage, supportsCompact, contextSettings.buttonThreshold, quietContext);
+  const compactQueued = chat?.queued?.find((item) => compactionContext(item));
+  const compacting = compactionContext(messages.findLast((item) => compactionContext(item)))?.status === "preparing";
+  const canSteer = !compacting && providerCapabilities(chat?.provider ?? actualProvider).steer;
+  const followUpChoices = deliveryOptions(canSteer);
+  const followUpLabel = delivery === "queue" ? followUpChoices[0].label : followUpChoices[1].label;
+  const compactBlocked = compacting || busy || Boolean(session.error) || Boolean(chat?.archived) || unavailable;
+  const compactButton =
+    !quietContext && (compactState.visible || compactQueued || compacting) ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={compactQueued ? "Cancel queued compaction" : "Compact context"}
+        accessibilityHint={run ? "Compact after the current turn." : "Summarize this Chat to free up context."}
+        accessibilityState={{ disabled: compactBlocked }}
+        disabled={compactBlocked}
+        onPress={() =>
+          compactQueued ? void action(() => client.call("chat:queue-remove", [chatId, compactQueued.id]), true) : composer.requestCompact(chatId)
+        }
+        style={({ pressed }) => ({
+          minHeight: 44,
+          minWidth: 44,
+          flexDirection: "row",
+          gap: 4,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 8,
+          opacity: compactBlocked ? 0.4 : pressed ? 0.6 : 1,
+        })}
+      >
+        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={12} />
+        <Text style={{ fontSize: 12, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}>
+          {compacting ? "Compacting…" : compactQueued ? "Queued" : run ? "After turn" : "Compact"}
+        </Text>
+      </Pressable>
+    ) : null;
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
   // A new Chat before its first message: "Start building in <Computer / Project>" in the middle of the screen picks its Project.
   const startingChat = !params.id && !pending && !messages.length;
@@ -1090,6 +1203,14 @@ function ChatPane({
   const onSeveralComputers = projectCopies.length > 1;
   const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
   const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
+  // Messages waiting on this device for this Chat (or its New Chat) sit in the composer's tray (offline-tray.tsx).
+  const trayTarget = {
+    computerId: client.url,
+    owner: project.path,
+    sessionId: params.id ? Number(params.id) : null,
+    computerName: computerName || "This computer",
+    offline,
+  };
   // The computer chip's rows: every copy of the Project, or the open one alone before the lists have found it.
   const computerCopies: NewChatProject[] = projectCopies.length
     ? projectCopies
@@ -1131,8 +1252,8 @@ function ChatPane({
     if (busy) return;
     showChoiceSheet({
       title: "Start building in",
-      placeholder: "Search Projects",
-      emptyLabel: UI_COPY.noProjects,
+      placeholder: "Search projects",
+      emptyLabel: "No projects",
       items: [
         // First, above every Project: a Chat with no repository, in its own empty folder.
         ...(noProject
@@ -1281,11 +1402,21 @@ function ChatPane({
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref for design messages.
   sendDesign.current = () => {
     const message = designKey ? peekDesignMessage(designKey) : null;
-    if (!message || !designKey || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
-    void send(message.text, false).then((sent) => {
-      designDeferred.current = sent === "busy";
-      if (sent === true) designMessageSent(designKey, message);
-    });
+    // One batch at a time, oldest first: a batch handed over while one is on its way goes after it.
+    if (!message || !designKey || designSending.current === message || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
+    designSending.current = message;
+    void send(message.text, false)
+      .then((sent) => {
+        designSending.current = null;
+        designDeferred.current = sent === "busy";
+        if (sent !== true) return;
+        designMessageSent(designKey, message);
+        // The next batch goes now, or waits for the turn this one started like any message sent to a busy Chat.
+        sendDesign.current();
+      })
+      .catch(() => {
+        designSending.current = null;
+      });
   };
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref, read only when an issue is picked in the choice sheet.
   startIssue.current = (issue) => void send(issueFirstMessage(issue, draft), true, undefined, issue);
@@ -1339,6 +1470,7 @@ function ChatPane({
   }
   /** Whether the message went: "busy" when it wasn't tried, the Chat being busy. An issue key starts the Chat in its own new worktree. */
   async function send(body = draft, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+    const messageDelivery = run && !prAction && !issue ? delivery : undefined;
     // `/undo` opens Undo changes instead of reaching the agent, even mid-turn; its preview waits for the turn to end.
     if (chat && withAttachments && body.trim() === "/undo") {
       composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
@@ -1347,13 +1479,70 @@ function ChatPane({
       return false;
     }
     const issueKey = issue?.key;
-    // A turn running now takes this message as a steer, on the provider it already runs.
-    const steered = Boolean(run);
+    // Only immediate delivery into a steerable turn keeps a model pick for later.
+    const steered = Boolean(run) && messageDelivery !== "queue" && canSteer;
     if (!body && !(withAttachments && attachments.length)) return false;
     if (busy || sendingRef.current.has(sendingKey) || picking) return "busy";
     sendingRef.current.add(sendingKey);
     setSendingKeys((current) => [...current, sendingKey]);
     setError("");
+    // A restored queue must be read before an online send can bypass it.
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (offline || hasQueuedChat(client.url, project.path, params.id ? Number(params.id) : null)) {
+      try {
+        if (!project.link && (newWorktree || issue) && !base) throw new Error("Choose a base branch before queuing this message.");
+        const id = randomUUID();
+        const mentioned =
+          withAttachments && worktree?.path
+            ? mentionAttachments(body, worktree.path, attachments, (path) => knownFiles.current.has(worktree.path, path)).added
+            : [];
+        const picked = withAttachments ? [...attachments, ...mentioned] : [];
+        await outbox.enqueue({
+          id,
+          computerId: client.url,
+          computerName: computerName || "Computer",
+          owner: project.path,
+          conversation: params.id ? `chat:${params.id}` : id,
+          request: {
+            projectPath: project.path,
+            sessionId: params.id ? Number(params.id) : null,
+            worktreeId,
+            body,
+            images: [],
+            files: [],
+            prompt: prAction ? pullRequestActionPrompt(prAction) : body,
+            ...sendOptions(model, preferences),
+            delivery: messageDelivery,
+            ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
+          },
+          ...(project.link ? { link: { linkId: project.link.link.id, operationId: id } } : {}),
+          ...(!project.link && (newWorktree || issue)
+            ? {
+                createWorktree: {
+                  projectPath: project.path,
+                  baseBranch: base!,
+                  prompt: body,
+                  ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
+                },
+              }
+            : {}),
+          attachments: outboxAttachments(picked),
+        });
+        if (body === draft || issue) composer.setDrafts((current) => clearSentDraft(current, chatId, body, !!issue));
+        const ids = new Set(picked.map((item) => item.id));
+        composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !ids.has(item.id)) }));
+        Keyboard.dismiss();
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setError((error as Error).message);
+        return false;
+      } finally {
+        sendingRef.current.delete(sendingKey);
+        setSendingKeys((current) => current.filter((key) => key !== sendingKey));
+      }
+    }
     // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
     // against the Project (the one just typed) is asked about now, for up to a second.
     const mentionRoot = worktree?.path;
@@ -1412,7 +1601,7 @@ function ChatPane({
     composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !sentIds.has(item.id)) }));
     following.current = true;
     Keyboard.dismiss();
-    const options = sendOptions(model, preferences);
+    const options = { ...sendOptions(model, preferences), delivery: messageDelivery };
     // A busy or unreachable Mac gets the send again until it takes it; the message shows as sending meanwhile. The host
     // recognises a resend by its clientMessageId (or a Link's operationId), so only a new Worktree, which has no such
     // id, waits for a Mac that never read the request.
@@ -1437,7 +1626,7 @@ function ChatPane({
             ]),
           );
           const chat = sessionForWorktree(created.project.state, created.worktreeId);
-          if (!chat) throw new Error("No Chat was created for the new Worktree.");
+          if (!chat) throw new Error("No Chat was created for the new worktree.");
           ready = { client, path: sendingProjectPath, base, issueKey, worktreeId: created.worktreeId, sessionId: chat.id };
           preparedTarget.current = ready;
         }
@@ -1459,6 +1648,7 @@ function ChatPane({
                 ...media,
                 prompt: attachmentPrompt(sent, media.files),
                 ...options,
+                sentFrom: SENT_FROM,
               },
             ])
           : client.call<{ sessionId: number }>("chat:send", [
@@ -1471,6 +1661,7 @@ function ChatPane({
                 // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
                 prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files),
                 ...options,
+                sentFrom: SENT_FROM,
                 ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
                 // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
                 ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
@@ -1564,6 +1755,7 @@ function ChatPane({
     touchPane(secondary ? "beside" : "routed");
     if (id === "changes" && secondary) router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } });
     else if (id === "changes") panels.showChanges();
+    else if (id === "routine") openRoutine();
     else if (id === "linear" && linearIssue) openLinearIssue(linearIssue.url);
     else if (id === "link-issue") linkIssue();
     else if (id === "unlink-issue") void unlinkWorktreeIssue();
@@ -1590,11 +1782,24 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
+    else if (id === "done" && chat) void markDone(chat);
+    else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
-  // Archive asks first, as desktop does, with what removing the worktree would lose; a running turn is stopped. Once
-  // confirmed the sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
+  // Done leaves the finished Chat for a new one in the same Project (the Chat beside just closes); the toast's Undo
+  // brings it back to the list.
+  async function markDone(finished: NonNullable<typeof chat>) {
+    const ok = await action(() => client.call("chat:patch", [project.path, finished.id, { done: true, unread: false }]));
+    if (!ok) return;
+    if (secondary) closeBeside();
+    else router.setParams({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined });
+    const patch = (done: boolean) => () =>
+      void action(() => client.call("chat:patch", [project.path, finished.id, { done, ...(done ? { unread: false } : {}) }]));
+    undoHistory.record({ text: "Moved to Done", kind: "done", undoneText: "Back in Chats", place: "chat", undo: patch(false), redo: patch(true) });
+  }
+  // Archive starts immediately, preserves unsaved work, and stops a running turn.
+  // The sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
   // preserves its scroll and avoids a second screen transition. Completion never moves the phone again.
   async function archive(target: NonNullable<typeof chat>) {
     if (busy || archiveRequest.current) return;
@@ -1629,12 +1834,12 @@ function ChatPane({
       else
         await archiveFromPhone({
           client,
-          alert: confirmSheet,
           projectPath: project.path,
           state: project.state,
           chat: target,
           running: !!run,
           chatsHome: chatsHomeOpen,
+          hostId: params.hostId || session.client?.url,
           onConfirm: () => {
             session.expectActivity();
             leave();
@@ -1643,13 +1848,12 @@ function ChatPane({
           refresh,
         });
     } catch (e) {
-      if (left) showArchiveNotice(`Could not archive Chat: ${(e as Error).message}`);
+      if (left) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else setError((e as Error).message);
     } finally {
       archiveRequest.current = false;
     }
   }
-  const blockers = pullRequestBlockers(pr);
   const prAction = pullRequestAction(chatPrs);
   // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
   const prActionRequest = prAction ? pullRequestActionContext({ action: prAction.blocker, pr: prAction.pr.number, url: prAction.pr.url }) : null;
@@ -1667,11 +1871,11 @@ function ChatPane({
   const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
   const linkHint = storedIssue && !(worktree?.name ?? "").toLowerCase().includes(storedIssue.toLowerCase()) ? LINK_PR_HINT(storedIssue) : null;
   /** Picks an issue from the list and links it to this Chat's Worktree. */
-  /** A short confirmation over the transcript that goes away on its own, for results that need no answer. */
-  function showToast(message: string) {
+  /** A short confirmation over the transcript that goes away on its own. Steps that can be undone go in the undo history. */
+  function showToast(text: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = setTimeout(() => setToast(""), 3000);
+    setToast({ text });
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
   function linkIssue() {
     if (!worktree) return;
@@ -1702,42 +1906,84 @@ function ChatPane({
       setError((e as Error).message);
     }
   }
+  // A Chat with subchats, or a subchat: its title opens a menu of the family, its top Chat first (subchats.ts).
+  const family = chat && !secondary ? chatFamily(project.state.sessions, `${project.path}#${chat.id}`) : null;
+  // Transcript links and the title picker share family navigation. A secondary pane keeps its own slot.
+  function openFamilyChat(key: string) {
+    if (key === `${project.path}#${chat?.id}`) return;
+    const targetFamily = !secondary && split.widthClass === "wide" && projectOfKey(key) === project.path ? chatFamily(project.state.sessions, key) : null;
+    if (targetFamily && targetFamily.root !== key) {
+      if (chat?.id === sessionIdFromKey(targetFamily.root)) openBeside({ hostId: targetHost, projectPath: project.path, chatId: sessionIdFromKey(key) });
+      else
+        router.replace({
+          pathname: "/chat",
+          params: { projectPath: project.path, hostId: targetHost, id: String(sessionIdFromKey(targetFamily.root)), beside: String(sessionIdFromKey(key)) },
+        });
+    } else openOtherChat(key);
+  }
+  const familyMenu: MenuSection[] = family
+    ? [
+        { items: [familyItem(family.root, "Parent")] },
+        { title: family.children.length === 1 ? "1 subchat" : `${family.children.length} subchats`, items: family.children.map((key) => familyItem(key)) },
+      ]
+    : [];
+  function familyItem(key: string, subtitle?: string) {
+    const member = project.state.sessions[sessionIdFromKey(key)];
+    return {
+      id: key,
+      title: member ? chatTitle(member, NO_MESSAGES) : "Chat",
+      ...(subtitle ? { subtitle } : {}),
+      checked: chat?.id === sessionIdFromKey(key),
+    };
+  }
+  const titleRow = (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+      <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
+        {title}
+      </Text>
+      {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={12} />}
+    </View>
+  );
   const header = (
     <>
-      <HeaderTitleBox routineButton={!!ownRoutine}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-          <Text
-            numberOfLines={1}
-            ellipsizeMode="tail"
-            style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600", flexShrink: 1 }}
+      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr)}>
+        {family ? (
+          <PullDown
+            label={`${title}, ${family.children.length} subchat${family.children.length === 1 ? "" : "s"} in this family`}
+            title={title}
+            sections={familyMenu}
+            onSelect={openFamilyChat}
+            style={{ maxWidth: "100%" }}
           >
-            {title}
-          </Text>
-        </View>
+            {titleRow}
+          </PullDown>
+        ) : (
+          titleRow
+        )}
         {(paired || (!project.link && !chatsHomeOpen) || (!!pr && !!chat && !chatsHomeOpen)) && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }}>
             {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
             {paired && (
               <Text
                 numberOfLines={1}
                 ellipsizeMode="tail"
                 accessibilityLabel={otherComputer ? `${projectName} on ${hostName}` : projectName}
-                style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "500", flexShrink: 1 }}
+                style={{ color: colors.ink2, fontSize: 12, fontWeight: "500", flexShrink: 1 }}
               >
                 {otherComputer ? `${projectName} · ${hostName}` : projectName}
               </Text>
             )}
             {!project.link && !chatsHomeOpen && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
                 <Icon icon={GitBranchIcon} tone="ink3" size={12} />
-                <Text
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                  style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}
-                >
-                  {worktree?.name ?? ""}
+                <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
+                  {chatBranchLabel(chat, worktree?.name) ?? ""}
                 </Text>
-                {diff && (diff.added > 0 || diff.removed > 0) ? <Counts added={diff.added} removed={diff.removed} /> : null}
+                <Text style={{ fontSize: 12 }}>
+                  <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
+                  {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
+                  <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
+                </Text>
                 {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
               </View>
             )}
@@ -1748,97 +1994,7 @@ function ChatPane({
       </HeaderTitleBox>
     </>
   );
-  const prSubtitle = pr
-    ? blockers.length
-      ? blockers.join(", ").replace(/-/g, " ")
-      : pr.state === "MERGED"
-        ? "Merged"
-        : pr.readyToMerge
-          ? "Ready to merge"
-          : "Open"
-    : undefined;
-  const more = (
-    <Stack.Toolbar placement="right">
-      {/* Shown for a Run Chat and while this Chat has a Heartbeat on; it opens that Routine's page. */}
-      {ownRoutine ? (
-        Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button
-            icon={ownHeartbeat ? "waveform.path.ecg" : "repeat"}
-            accessibilityLabel={ownHeartbeat ? "Heartbeat" : "Routine"}
-            onPress={openRoutine}
-          />
-        ) : (
-          <Stack.Toolbar.View>
-            <HeaderButton label={ownHeartbeat ? "Heartbeat" : "Routine"} icon={ownHeartbeat ? Pulse01Icon : RepeatIcon} onPress={openRoutine} />
-          </Stack.Toolbar.View>
-        )
-      ) : null}
-      <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
-        {/* A Chat without a Project has no Git changes to review, as on desktop. */}
-        {!chatsHomeOpen && (
-          <Stack.Toolbar.MenuAction
-            icon="doc.text.magnifyingglass"
-            subtitle={diff ? `+${diff.added} −${diff.removed}` : undefined}
-            onPress={() => headerAction("changes")}
-          >
-            View changes
-          </Stack.Toolbar.MenuAction>
-        )}
-        {chat && (
-          <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={!!run} onPress={() => headerAction("undo")}>
-            Undo changes
-          </Stack.Toolbar.MenuAction>
-        )}
-        {pr && (
-          <Stack.Toolbar.MenuAction
-            icon="arrow.triangle.pull"
-            subtitle={prSubtitle}
-            onPress={() => headerAction("pr")}
-          >{`Pull request #${pr.number}`}</Stack.Toolbar.MenuAction>
-        )}
-        {linearIssue && (
-          <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" onPress={() => openLinearIssue(linearIssue.url)}>
-            {issueChipLabel(linearIssue)}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {linkHint && (
-          <Stack.Toolbar.MenuAction icon="info.circle" disabled>
-            {linkHint}
-          </Stack.Toolbar.MenuAction>
-        )}
-        {agents.length > 0 && (
-          <Stack.Toolbar.MenuAction icon="person.2" subtitle={String(agents.length)} onPress={() => headerAction("agents")}>
-            Subagents
-          </Stack.Toolbar.MenuAction>
-        )}
-        {chat && (
-          <Stack.Toolbar.Menu inline>
-            <Stack.Toolbar.MenuAction icon="pencil" onPress={() => headerAction("rename")}>
-              Rename
-            </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.MenuAction icon="arrow.clockwise" disabled={busy} onPress={() => headerAction("reload")}>
-              Reload chat
-            </Stack.Toolbar.MenuAction>
-            {canLink &&
-              (storedIssue ? (
-                <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" disabled={busy} onPress={() => void unlinkWorktreeIssue()}>
-                  Unlink issue
-                </Stack.Toolbar.MenuAction>
-              ) : (
-                <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" disabled={busy} onPress={linkIssue}>
-                  Link issue…
-                </Stack.Toolbar.MenuAction>
-              ))}
-            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "archivebox"} disabled={busy} onPress={() => headerAction("archive")}>
-              {chat.archived ? "Restore" : "Archive"}
-            </Stack.Toolbar.MenuAction>
-          </Stack.Toolbar.Menu>
-        )}
-      </Stack.Toolbar.Menu>
-    </Stack.Toolbar>
-  );
-  // Two Chats side by side share one native header, so each draws its own: title, the ⋯ menu (the header's, as a
-  // pull-down) and a close button. The routed one keeps the sidebar button at its left.
+  // Both header layouts use the same actions and one glass capsule.
   const paneMenu: MenuSection[] = [
     {
       items: [
@@ -1848,8 +2004,9 @@ function ChatPane({
               { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
             ]),
         ...(chat ? [{ id: "undo", title: "Undo changes", systemImage: "arrow.uturn.backward", disabled: !!run }] : []),
-        ...(pr ? [{ id: "pr", title: `Pull request #${pr.number}`, systemImage: "arrow.triangle.pull", subtitle: prSubtitle }] : []),
+        ...(ownRoutine ? [{ id: "routine", title: ownHeartbeat ? "Heartbeat" : "Routine", systemImage: ownHeartbeat ? "waveform.path.ecg" : "repeat" }] : []),
         ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
+        ...(linkHint ? [{ id: "link-hint", title: linkHint, systemImage: "info.circle", disabled: true }] : []),
         ...(agents.length > 0 ? [{ id: "agents", title: "Subagents", systemImage: "person.2", subtitle: String(agents.length) }] : []),
       ],
     },
@@ -1858,7 +2015,7 @@ function ChatPane({
           {
             items: [
               { id: "rename", title: "Rename", systemImage: "pencil" },
-              { id: "reload", title: "Reload Chat", systemImage: "arrow.clockwise", disabled: busy },
+              { id: "reload", title: "Reload chat", systemImage: "arrow.clockwise", disabled: busy },
               ...(canLink
                 ? [
                     {
@@ -1871,8 +2028,9 @@ function ChatPane({
                 : []),
               {
                 id: "archive",
-                title: chat.archived ? "Restore" : "Archive",
-                systemImage: chat.archived ? "tray.and.arrow.up" : "archivebox",
+                title: chat.archived ? "Restore" : "Delete",
+                systemImage: chat.archived ? "tray.and.arrow.up" : "trash",
+                destructive: !chat.archived,
                 disabled: busy,
               },
             ],
@@ -1880,6 +2038,29 @@ function ChatPane({
         ]
       : []),
   ];
+  const headerActions = (
+    <HeaderActionGroup>
+      {browserShortcut && (
+        <HeaderAction
+          label={browserShortcut.accessibilityLabel}
+          icon={Globe02Icon}
+          onPress={() => {
+            touchPane(secondary ? "beside" : "routed");
+            browserShortcut.onPress();
+          }}
+        />
+      )}
+      {pr && <HeaderAction label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={24} onPress={() => headerAction("pr")} />}
+      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
+        <HeaderAction label="Chat actions" icon={MoreHorizontalIcon} />
+      </PullDown>
+    </HeaderActionGroup>
+  );
+  const more = (
+    <Stack.Toolbar placement="right">
+      <Stack.Toolbar.View hidesSharedBackground>{headerActions}</Stack.Toolbar.View>
+    </Stack.Toolbar>
+  );
   const paneHeader = paired ? (
     <View
       pointerEvents="box-none"
@@ -1896,12 +2077,10 @@ function ChatPane({
       }}
     >
       {!secondary && <SidebarButton />}
-      <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center" }}>
+      <View pointerEvents="box-none" style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
         {startingChat ? null : header}
       </View>
-      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
-        <GlassIconButton label="Chat actions" systemImage="ellipsis" icon={MoreHorizontalIcon} onPress={() => {}} />
-      </PullDown>
+      {headerActions}
       <GlassIconButton label="Close Chat" systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
     </View>
   ) : null;
@@ -1936,7 +2115,13 @@ function ChatPane({
     />
   ) : null;
   const sendDisabled =
-    busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!session.error || !!chat?.archived || unavailable;
+    busy ||
+    picking ||
+    (newWorktree && !base) ||
+    (!draft.trim() && !attachments.length) ||
+    !!chat?.archived ||
+    !!chat?.formerWorktree ||
+    (!offline && unavailable);
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
@@ -1950,7 +2135,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ChatLinkProvider reachable={reachable} openLink={openChatLink}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
@@ -1969,12 +2154,14 @@ function ChatPane({
             {!paired && sidebar}
             {!paired && more}
             <View style={{ flex: 1 }}>
-              <PanelSwipe panels={panels} covered={planPanel.phase !== "closed"}>
+              <PanelSwipe panels={panels} covered={planPanel.phase !== "closed" || subchatPanel.phase !== "closed"}>
                 {/* The header clearance is in paddingTop; an automatic iOS inset would add it a second time. */}
                 <KeyboardChatScrollView
                   key={scrollKey}
                   ref={scroll}
-                  freeze={!ownsKeyboard || terminalTyping}
+                  // The keyboard covers both panes. Both must observe its full animation, including when focus moves
+                  // between composers while it is open; unfreezing after focus misses the opening scroll adjustment.
+                  freeze={terminalTyping}
                   offset={lift}
                   keyboardLiftBehavior="whenAtEnd"
                   onEndVisible={onEndVisible}
@@ -1987,7 +2174,7 @@ function ChatPane({
                   contentContainerStyle={[
                     styles.content,
                     column,
-                    { paddingTop: headerBottom + 32, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
+                    { paddingTop: insets.top + 84, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
                   ]}
                   scrollEventThrottle={32}
                   onScrollBeginDrag={() => {
@@ -1998,7 +2185,7 @@ function ChatPane({
                     scrollOffset.current = e.contentOffset.y;
                     const under = e.contentOffset.y > 4;
                     setUnderHeader((current) => (current === under ? current : under));
-                    const distance = e.contentSize.height - e.contentOffset.y - e.layoutMeasurement.height;
+                    const distance = e.contentSize.height + (e.contentInset?.bottom ?? 0) - e.contentOffset.y - e.layoutMeasurement.height;
                     if (!placed && distance <= 1) setPlacedKey(scrollKey);
                     // Native scroll events can arrive before the jump catches up with image layout.
                     if (scrollingToBottom.current) {
@@ -2024,16 +2211,22 @@ function ChatPane({
                     <Text style={styles.caption}>Demo agent. Send tools, approval, question, or slow to try the controls.</Text>
                   )}
                   {session.providerError ? <Text style={styles.caption}>{session.providerError}</Text> : null}
-                  {chat?.archived && (
+                  {chat?.formerWorktree ? (
                     <View style={styles.card}>
-                      <Text style={styles.muted}>This Chat is archived. Restore it to send a message.</Text>
-                      <PillButton
-                        title="Restore Chat"
-                        disabled={busy}
-                        onPress={() => void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]))}
-                        style={{ alignSelf: "flex-start" }}
-                      />
+                      <Text style={styles.muted}>{RUN_WORKTREE_REMOVED_NOTE}</Text>
                     </View>
+                  ) : (
+                    chat?.archived && (
+                      <View style={styles.card}>
+                        <Text style={styles.muted}>This Chat is archived. Restore it to send a message.</Text>
+                        <PillButton
+                          title="Restore Chat"
+                          disabled={busy}
+                          onPress={() => void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]))}
+                          style={{ alignSelf: "flex-start" }}
+                        />
+                      </View>
+                    )
                   )}
                   {/* A new Chat's empty state is the centred "Start building in" line instead. */}
                   {!messages.length && !run && !pageLoading && !historyPage.error && !startingChat && (
@@ -2043,7 +2236,7 @@ function ChatPane({
                         {project.link
                           ? LINK_CHAT_WORKTREES_TEXT
                           : newWorktree
-                            ? `Your agent starts in a new Worktree from ${base || "the selected branch"} on your computer.`
+                            ? `Your agent starts in a new worktree from ${base || "the selected branch"} on your computer.`
                             : `Your agent runs in ${worktree?.name || "this Worktree"} on your computer.`}
                       </Text>
                     </View>
@@ -2058,7 +2251,7 @@ function ChatPane({
                     <PillButton
                       title={
                         historyState.key === scrollKey && historyState.loading
-                          ? "Loading earlier messages…"
+                          ? "Loading earlier messages..."
                           : `Show earlier messages (${messages.length + remote - visible})`
                       }
                       secondary
@@ -2087,7 +2280,7 @@ function ChatPane({
                               }
                               if (navigationTarget.current === message.id) {
                                 navigationTarget.current = null;
-                                scroll.current?.scrollTo({ y: Math.max(0, layout.y - headerBottom - 20), animated: true });
+                                scroll.current?.scrollTo({ y: Math.max(0, layout.y - insets.top - 72), animated: true });
                               }
                             }}
                           >
@@ -2099,6 +2292,8 @@ function ChatPane({
                               <CompactionDivider context={message.context} />
                             ) : isAccountSwitch(message) ? (
                               <AccountSwitchDivider context={message.context} />
+                            ) : isLimitReset(message) ? (
+                              <LimitResetDivider />
                             ) : isChatReload(message) ? (
                               <ChatReloadDivider />
                             ) : isBabysitStopped(message) ? (
@@ -2130,10 +2325,17 @@ function ChatPane({
                                   designChoice={designChoice}
                                   designsMoved={designsMoved}
                                   // A limit card offers other accounts only on the Chat's last message, with no turn running.
-                                  limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
+                                  limitPending={message.id === chat?.limitResume?.sourceMessageId ? chat.limitResume : undefined}
+                                  limitResumeAvailable={message.id === chat?.limitTurn?.sourceMessageId}
+                                  limitResumeBlocked={message.id === chat?.limitTurn?.sourceMessageId ? !!chat?.queued?.length : undefined}
+                                  limitProjectPath={
+                                    !run && !pending && message.id === (chat?.limitTurn?.sourceMessageId ?? messages[messages.length - 1]?.id)
+                                      ? project.path
+                                      : undefined
+                                  }
                                   onActivity={openActivity}
                                   highlighted={message.id === undoHighlight}
-                                  onOpenChat={openOtherChat}
+                                  onOpenChat={openFamilyChat}
                                 />
                               </>
                             )}
@@ -2158,9 +2360,7 @@ function ChatPane({
                     />
                   )}
                   {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" && heartbeat.nextRunAt > now ? (
-                    <Text
-                      style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, textAlign: "center" }}
-                    >{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
+                    <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
                   ) : null}
                   {chat?.resumeTurn && !run && (
                     <PillButton
@@ -2172,13 +2372,13 @@ function ChatPane({
                     />
                   )}
                   {error ? <ErrorNotice message={error} /> : null}
-                  {session.error ? <ErrorNotice message={session.error} retry={() => router.dismissTo("/")} /> : null}
+                  {session.error && !offline ? <ErrorNotice message={session.error} retry={() => router.dismissTo("/")} /> : null}
                 </KeyboardChatScrollView>
                 {/* The transcript blurs and fades under the transparent header, as under the composer. iOS's own soft edge can't
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
         transcript's top padding does and gradually strengthens toward the status bar. It shows only while the transcript
         is under the header, so the dots run edge to edge otherwise. */}
-                {underHeader && <EdgeFade edge="top" height={headerBottom + 32} width={window.width} />}
+                {underHeader && <EdgeFade edge="top" height={insets.top + 84} width={window.width} />}
                 {paneHeader}
                 {startingChat && (
                   <Animated.View
@@ -2188,7 +2388,7 @@ function ChatPane({
                         position: "absolute",
                         left: 24,
                         right: 24,
-                        top: headerBottom + 8,
+                        top: insets.top + 56,
                         bottom: dockHeight,
                         alignItems: "center",
                         justifyContent: "center",
@@ -2205,19 +2405,18 @@ function ChatPane({
                           accessibilityLabel={`${JUST_CHAT_HEADING} on ${chatsComputer}. Change computer`}
                           disabled={busy}
                           onPress={chooseChatsComputer}
-                          style={({ pressed }) => [
-                            { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", columnGap: 6 },
-                            pressStyle({ pressed, disabled: busy }),
-                          ]}
+                          style={({ pressed }) => ({
+                            flexDirection: "row",
+                            flexWrap: "wrap",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            columnGap: 6,
+                            opacity: pressed ? 0.6 : 1,
+                          })}
                         >
-                          <Text style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.ink }}>
-                            {JUST_CHAT_HEADING} on
-                          </Text>
+                          <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>{JUST_CHAT_HEADING} on</Text>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                            <Text
-                              numberOfLines={1}
-                              style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}
-                            >
+                            <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
                               {chatsComputer}
                             </Text>
                             <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2228,12 +2427,10 @@ function ChatPane({
                           accessibilityLabel={`${NO_PROJECT_LABEL}, ${NO_PROJECT_FOLDER.toLowerCase()}. Change project`}
                           disabled={busy}
                           onPress={chooseProject}
-                          hitSlop={12}
-                          style={({ pressed }) => pressStyle({ pressed, disabled: busy })}
+                          hitSlop={8}
+                          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                         >
-                          <Text style={{ fontSize: type.subheadline, lineHeight: lineHeight.subheadline, color: colors.ink3, textAlign: "center" }}>
-                            {NO_PROJECT_LINE}
-                          </Text>
+                          <Text style={{ fontSize: 15, color: colors.ink3, textAlign: "center" }}>{NO_PROJECT_LINE}</Text>
                         </Pressable>
                       </>
                     ) : (
@@ -2242,17 +2439,18 @@ function ChatPane({
                         accessibilityLabel={`Start building in ${projectName}. Change project`}
                         disabled={busy}
                         onPress={chooseProject}
-                        style={({ pressed }) => [
-                          { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", columnGap: 6 },
-                          pressStyle({ pressed, disabled: busy }),
-                        ]}
+                        style={({ pressed }) => ({
+                          flexDirection: "row",
+                          flexWrap: "wrap",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          columnGap: 6,
+                          opacity: pressed ? 0.6 : 1,
+                        })}
                       >
-                        <Text style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.ink }}>Start building in</Text>
+                        <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                          <Text
-                            numberOfLines={1}
-                            style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}
-                          >
+                          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
                             {projectName}
                           </Text>
                           <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2262,26 +2460,35 @@ function ChatPane({
                   </Animated.View>
                 )}
                 {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
-                {toast ? <Toast key={toast} text={toast} placement="top" /> : null}
+                {toast ? (
+                  <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
+                    <ToastPill text={toast.text} />
+                  </View>
+                ) : null}
+                {historyToast && !secondary ? (
+                  <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
+                    <ToastPill key={historyToast.id} {...historyToast} />
+                  </View>
+                ) : null}
                 <MessageNavigation
                   items={navigationItems}
                   onSelect={navigateToMessage}
-                  top={headerBottom + 20}
+                  top={insets.top + 72}
                   bottom={dockHeight + 12}
                   keyboardOffset={lift}
-                  followKeyboard={ownsKeyboard && !terminalTyping}
+                  followKeyboard={!terminalTyping}
                 />
                 <KeyboardStickyView
-                  enabled={ownsKeyboard && !terminalTyping}
+                  enabled={!terminalTyping}
                   pointerEvents="box-none"
-                  // The other pane's composer jumps clear of the open keyboard once, so a tap can move the keyboard to it. A
-                  // disabled sticky view sits at its `closed` offset, which overrides any transform in `style`.
-                  offset={{ closed: ownsKeyboard ? 0 : Math.min(0, lift - restingKeyboard), opened: lift }}
+                  offset={{ closed: 0, opened: lift }}
                   style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
                 >
                   {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
                   {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
                   <View
+                    ref={attachPanelRooms}
+                    collapsable={false}
                     onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                     style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
                   >
@@ -2295,20 +2502,14 @@ function ChatPane({
                     />
                     {(!question || answering) && (
                       // More pills than fit scroll sideways; the spacer still right-aligns them when they fit.
-                      <PageScroll
+                      <ScrollView
                         horizontal
                         showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
                         style={{ marginHorizontal: -12, flexGrow: 0 }}
-                        contentContainerStyle={{
-                          flexGrow: 1,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          padding: 0,
-                          paddingBottom: 0,
-                          paddingHorizontal: 16,
-                          gap: 8,
-                        }}
+                        contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
                       >
+                        {chat && !chatsHomeOpen && <SubchatPill panel={subchatPanel} messages={messages} />}
                         {prAction && prActionRequest && chat && !chatsHomeOpen && (
                           <PullRequestAction
                             pr={prAction.pr}
@@ -2323,7 +2524,6 @@ function ChatPane({
                           <PullRequestReview count={prOpenThreads} onOpen={() => openPr(pr.number, "threads")} />
                         )}
                         <View style={{ flex: 1 }} />
-                        <BrowserChip chatId={params.id ? chatId : undefined} />
                         {params.id && Number(params.id) > 0 && chat && !chat.archived && (
                           <TerminalChip
                             key={`terminal-${chatId}`}
@@ -2335,15 +2535,17 @@ function ChatPane({
                           />
                         )}
                         {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
+                        <PlanPill panel={planPanel} />
                         {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
                         {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
-                      </PageScroll>
+                      </ScrollView>
                     )}
                     {chat?.queued?.length ? (
                       <QueuedMessages
-                        items={chat.queued}
+                        items={chat.queued.filter((item) => !compactionContext(item) || chat.queueHeld)}
                         held={Boolean(chat.queueHeld)}
                         running={Boolean(run)}
+                        canSteer={canSteer}
                         disabled={actionBusy}
                         onSendNow={(id) => void action(() => client.call("chat:queue-send", [chatId, id]), true)}
                         onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
@@ -2390,24 +2592,11 @@ function ChatPane({
                     ) : (
                       (!question || answering) && (
                         // A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece, as on desktop.
-                        <View
-                          style={
-                            startTray
-                              ? {
-                                  backgroundColor: colors.inset,
-                                  borderRadius: radius.composer + 4,
-                                  borderCurve: "continuous",
-                                  padding: 4,
-                                  gap: 2,
-                                  boxShadow: colors.shadowRaised,
-                                }
-                              : undefined
-                          }
-                        >
+                        <ComposerTray start={startTray} target={trayTarget}>
                           {startTray && chatsHomeOpen ? (
                             // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, minHeight: 32 }}>
-                              <Icon icon={BubbleChatIcon} tone="ink2" size={16} />
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
+                              <Icon icon={BubbleChatIcon} tone="ink2" size={12} />
                               <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
                             </View>
                           ) : (
@@ -2422,7 +2611,6 @@ function ChatPane({
                                   <PullDown
                                     label="Choose computer"
                                     style={{ flexShrink: 1 }}
-                                    hitSlop={{ top: 6, bottom: 6 }}
                                     nativeTrigger={{
                                       title: computerName,
                                       systemImage: "desktopcomputer",
@@ -2458,13 +2646,12 @@ function ChatPane({
                                         flexDirection: "row",
                                         alignItems: "center",
                                         gap: 6,
-                                        paddingHorizontal: 12,
+                                        paddingHorizontal: 10,
                                         paddingVertical: 6,
-                                        minHeight: 32,
-                                        opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
+                                        opacity: targetDisabled ? 0.35 : 1,
                                       }}
                                     >
-                                      <Icon icon={ComputerIcon} tone="ink2" size={16} />
+                                      <Icon icon={ComputerIcon} tone="ink2" size={12} />
                                       <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                         {computerName}
                                       </Text>
@@ -2474,9 +2661,8 @@ function ChatPane({
                                 }
                                 <PullDown
                                   label="Choose isolation"
-                                  hitSlop={{ top: 6, bottom: 6 }}
                                   nativeTrigger={{
-                                    title: isolation === "local" ? "Local" : UI_COPY.newWorktree,
+                                    title: isolation === "local" ? "Local" : "New Worktree",
                                     systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
                                     icon: isolation === "local" ? "laptop" : "fork",
                                     disabled: targetDisabled,
@@ -2495,7 +2681,7 @@ function ChatPane({
                                         },
                                         {
                                           id: "worktree",
-                                          title: UI_COPY.newWorktree,
+                                          title: "New Worktree",
                                           systemImage: "arrow.triangle.branch",
                                           icon: "fork",
                                           checked: isolation === "worktree",
@@ -2514,15 +2700,14 @@ function ChatPane({
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
-                                      paddingHorizontal: 12,
+                                      paddingHorizontal: 10,
                                       paddingVertical: 6,
-                                      minHeight: 32,
-                                      opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
+                                      opacity: targetDisabled ? 0.35 : 1,
                                     }}
                                   >
-                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={16} />
+                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={12} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                      {isolation === "local" ? "Local" : UI_COPY.newWorktree}
+                                      {isolation === "local" ? "Local" : "New Worktree"}
                                     </Text>
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
@@ -2530,10 +2715,9 @@ function ChatPane({
                                 <PullDown
                                   label="Choose branch"
                                   style={{ flexShrink: 1 }}
-                                  hitSlop={{ top: 6, bottom: 6 }}
                                   searchable={{
                                     placeholder: newWorktree ? "Search branches" : "Search Worktrees",
-                                    emptyLabel: newWorktree ? "No branches found." : "No Worktrees found.",
+                                    emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
                                   }}
                                   nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
                                   sections={[
@@ -2571,13 +2755,12 @@ function ChatPane({
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
-                                      paddingHorizontal: 12,
+                                      paddingHorizontal: 10,
                                       paddingVertical: 6,
-                                      minHeight: 32,
-                                      opacity: branchDisabled ? DISABLED_OPACITY.control : 1,
+                                      opacity: branchDisabled ? 0.35 : 1,
                                     }}
                                   >
-                                    <Icon icon={GitBranchIcon} tone="ink2" size={16} />
+                                    <Icon icon={GitBranchIcon} tone="ink2" size={12} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                       {branchName}
                                     </Text>
@@ -2588,40 +2771,47 @@ function ChatPane({
                                   <Pressable
                                     accessibilityRole="button"
                                     accessibilityLabel="Start from a Linear issue"
-                                    accessibilityState={{ disabled: targetDisabled }}
                                     disabled={targetDisabled}
-                                    hitSlop={6}
                                     onPress={() => void chooseIssue()}
-                                    style={({ pressed }) => [
-                                      { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, minHeight: 32 },
-                                      pressStyle({ pressed, disabled: targetDisabled }),
-                                    ]}
+                                    style={({ pressed }) => ({
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 6,
+                                      opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
+                                    })}
                                   >
-                                    <LinearLogo size={16} />
+                                    <LinearLogo size={13} />
                                     {trayRowWidth >= COMPACT_TRAY_ROW_WIDTH && <Text style={styles.label}>Linear issue</Text>}
                                   </Pressable>
                                 )}
                               </View>
                             )
                           )}
+                          <OfflineTray target={trayTarget} chip={!startTray} />
                           <View
                             style={{
                               backgroundColor: colors.surface,
-                              // A floating composer is elevated: its shadow token paints the ring. Inside the new-Chat tray it stays bordered.
-                              borderWidth: startTray || ultracodeOn ? 1 : 0,
+                              borderWidth: 1,
                               borderColor: colors.lineStrong,
-                              borderRadius: radius.composer,
+                              borderRadius: startTray || offline ? 23 : 24,
                               borderCurve: "continuous",
                               // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
                               paddingHorizontal: 8,
                               paddingBottom: 6,
                               gap: 4,
-                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : colors.shadowRaised,
+                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : "0 4px 20px #0000000f",
                             }}
                           >
                             {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
-                            {ultracodeOn && <UltracodeGlow radius={radius.composer} />}
+                            {ultracodeOn && <UltracodeGlow radius={startTray ? 23 : 24} />}
+                            {picking && (
+                              <Text accessibilityRole="progressbar" accessibilityLabel="Preparing attachment" style={styles.caption}>
+                                Preparing attachment...
+                              </Text>
+                            )}
                             {!!attachments.length && (
                               <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
                                 {attachments.map((item) => {
@@ -2631,12 +2821,11 @@ function ChatPane({
                                       key={item.id}
                                       style={{
                                         backgroundColor: colors.field,
-                                        borderRadius: radius.control,
+                                        borderRadius: radius.card,
                                         borderCurve: "continuous",
-                                        paddingLeft: item.image ? 4 : 12,
+                                        paddingLeft: item.image ? 4 : 10,
                                         flexDirection: "row",
                                         alignItems: "center",
-                                        minHeight: 44,
                                         maxWidth: 220,
                                       }}
                                     >
@@ -2644,7 +2833,7 @@ function ChatPane({
                                         <Image
                                           source={{ uri: item.uri }}
                                           accessibilityLabel={item.name}
-                                          style={{ width: 44, height: 44, borderRadius: radius.chip }}
+                                          style={{ width: 44, height: 44, borderRadius: radius.control }}
                                         />
                                       ) : (
                                         <Pressable
@@ -2656,10 +2845,9 @@ function ChatPane({
                                               params: item.path ? { path: item.path } : { uri: item.uri, name: item.name },
                                             })
                                           }
-                                          // The whole name up to Remove opens it, at the tile's full height.
-                                          style={{ flexDirection: "row", alignItems: "center", alignSelf: "stretch", flexShrink: 1, paddingRight: 4 }}
+                                          style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
                                         >
-                                          <Icon icon={File01Icon} tone="ink2" size={18} />
+                                          <Icon icon={item.video ? Video01Icon : File01Icon} tone="ink2" size={18} />
                                           <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
                                             {item.name}
                                           </Text>
@@ -2724,11 +2912,15 @@ function ChatPane({
                               commands={chat ? UNDO_COMMANDS : undefined}
                               // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
-                                run && !providerCapabilities(chat?.provider ?? actualProvider).steer
-                                  ? "Queue a message for the next turn"
-                                  : chatsHomeOpen && !params.id
-                                    ? CHATS_PLACEHOLDER
-                                    : undefined
+                                offline
+                                  ? `Queue a message for ${computerName || "this computer"}`
+                                  : run
+                                    ? delivery === "queue"
+                                      ? "Queue a message for the next turn"
+                                      : "Send a message now"
+                                    : chatsHomeOpen && !params.id
+                                      ? CHATS_PLACEHOLDER
+                                      : undefined
                               }
                               // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
                               onSubmit={() => {
@@ -2739,15 +2931,40 @@ function ChatPane({
                                 onTyping();
                               }}
                               onBlur={() => setComposerFocused(false)}
+                              focusRequest={composerFocusRequest}
+                              // In a split the pane takes the keyboard on touch-down: by focus its animation has begun, and
+                              // the pane would miss the lift that keeps its transcript's end above the keyboard.
+                              onTouchStart={onTyping}
                               onChangeText={(value) => {
                                 // Clearing the composer also clears the limit error that its mentions caused.
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
                             />
+                            {run && !offline && (
+                              <PullDown
+                                label="Follow-up delivery"
+                                nativeTrigger={{ title: followUpLabel, systemImage: "clock", disabled: busy, minHeight: 44, fontSize: 15 }}
+                                sections={[
+                                  {
+                                    items: followUpChoices.map((item) => ({
+                                      id: item.value,
+                                      title: item.label,
+                                      subtitle: item.description,
+                                      checked: item.value === delivery,
+                                    })),
+                                  },
+                                ]}
+                                onSelect={(id) => setDelivery(id as MessageDelivery)}
+                                style={{ alignSelf: "flex-end" }}
+                              >
+                                <View style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 10 }}>
+                                  <Text style={{ color: colors.ink2, fontSize: 15 }}>{followUpLabel}</Text>
+                                </View>
+                              </PullDown>
+                            )}
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                               <PullDown
                                 label="Add photos or files"
-                                hitSlop={{ top: 4, bottom: 4 }}
                                 nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
                                 sections={[
                                   {
@@ -2761,19 +2978,12 @@ function ChatPane({
                                 ]}
                                 onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
                               >
-                                <View
-                                  style={{
-                                    width: 36,
-                                    height: 36,
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    opacity: attachmentDisabled ? DISABLED_OPACITY.control : 1,
-                                  }}
-                                >
+                                <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
                                   <Icon icon={Add01Icon} tone="ink2" size={20} />
                                 </View>
                               </PullDown>
                               <AgentControls
+                                compact={Boolean(compactButton)}
                                 model={model}
                                 effort={preferences.effort}
                                 fastMode={preferences.fastMode}
@@ -2796,40 +3006,73 @@ function ChatPane({
                                 onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                               />
                               <View style={{ flex: 1 }} />
-                              <PlanPill panel={planPanel} />
-                              {contextUsage && contextUsage.size > 0 && params.id && (
-                                <ContextRing
-                                  {...contextUsage}
-                                  canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
-                                  onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
-                                />
+                              {!quietContext && compactionFeedback ? (
+                                <Text
+                                  accessibilityRole="text"
+                                  accessibilityLiveRegion="polite"
+                                  style={{ fontSize: 12, color: colors.greenInk, paddingHorizontal: 8 }}
+                                >
+                                  ✓ {compactionFeedback.percent}% · {compactionFeedback.freed} freed
+                                </Text>
+                              ) : (
+                                !quietContext &&
+                                (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                    {/* The tint is the send button's 34pt height; the buttons keep their 44pt touch targets. */}
+                                    {compactState.warning && (
+                                      <View
+                                        pointerEvents="none"
+                                        style={{
+                                          position: "absolute",
+                                          left: 0,
+                                          right: 0,
+                                          top: "50%",
+                                          height: 34,
+                                          marginTop: -17,
+                                          borderRadius: 999,
+                                          backgroundColor: colors.orangeTint,
+                                        }}
+                                      />
+                                    )}
+                                    {compactButton}
+                                    {contextUsage && contextUsage.size > 0 && params.id && (
+                                      <ContextRing
+                                        {...contextUsage}
+                                        canCompact={supportsCompact}
+                                        threshold={contextSettings.buttonThreshold}
+                                        showSize={showContextSize}
+                                        onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                                      />
+                                    )}
+                                  </View>
+                                )
                               )}
-                              {run && !draft.trim() && !attachments.length && (
+                              {run && !offline && !draft.trim() && !attachments.length && (
                                 <IconButton
-                                  label={UI_COPY.stop}
-                                  icon={STOP_SQUARE}
+                                  label="Stop agent"
+                                  icon={StopIcon}
                                   filled
-                                  fill={ultracodeOn ? colors.purple : undefined}
-                                  size={32}
+                                  size={36}
                                   disabled={actionBusy}
                                   onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
                                 />
                               )}
-                              {(!run || !!draft.trim() || !!attachments.length) && (
+                              {(offline || !run || !!draft.trim() || !!attachments.length) && (
                                 <IconButton
                                   label={
                                     busy
                                       ? "Sending…"
-                                      : run
-                                        ? providerCapabilities(chat?.provider ?? actualProvider).steer
-                                          ? UI_COPY.sendFollowUp
-                                          : UI_COPY.queue
-                                        : UI_COPY.send
+                                      : offline
+                                        ? "Queue message"
+                                        : run
+                                          ? delivery === "queue"
+                                            ? "Queue message"
+                                            : followUpChoices[1].label
+                                          : "Send message"
                                   }
                                   icon={ArrowUp01Icon}
                                   filled
-                                  fill={ultracodeOn ? colors.purple : undefined}
-                                  size={32}
+                                  size={36}
                                   loading={busy}
                                   disabled={sendDisabled}
                                   onPress={() => void send()}
@@ -2837,7 +3080,7 @@ function ChatPane({
                               )}
                             </View>
                           </View>
-                        </View>
+                        </ComposerTray>
                       )
                     )}
                   </View>
@@ -2865,6 +3108,7 @@ function ChatPane({
               />
             )}
             <PlanPanel panel={planPanel} />
+            <SubchatPanel panel={subchatPanel} messages={messages} onOpenChat={openFamilyChat} />
           </View>
         </PanelTabsContext>
       </ChatLinkProvider>

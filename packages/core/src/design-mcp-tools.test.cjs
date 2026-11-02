@@ -206,3 +206,22 @@ test("the slim design tool schemas still reject bad colors, unknown fields and r
   await assert.rejects(show({ ...box, shadow: 4 }), /Unrecognized key/);
   assert.equal(JSON.parse(await tools.design_read.run({ id: "allowed" })).version, 2, "nothing rejected was saved");
 });
+
+test("inspection and preflight never create versions and retain connection scope", async (t) => {
+  const { tools, artifacts, scope } = await fixture(t);
+  const inspected = await tools.design_inspect.run({ id: "allowed" });
+  assert.equal(firstLine(inspected).version, 1);
+  assert.equal(inspected.images.length, 1);
+  assert.match(inspected.text, /"inspection"/);
+  await assert.rejects(tools.design_inspect.run({ id: "outside" }), /outside/);
+  await assert.rejects(tools.design_inspect.run({ id: "allowed", nodeId: "missing" }), /missing or hidden/);
+  const operations = [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }];
+  assert.equal(JSON.parse(await tools.design_validate.run({ id: "allowed", expectedVersion: 1, operations })).valid, true);
+  assert.equal(JSON.parse(await tools.design_validate.run({ id: "allowed", expectedVersion: 2, operations })).valid, false);
+  assert.equal((await artifacts.get({ chatId: scope.chatId, id: "allowed" })).version, 1);
+  assert.deepEqual((await artifacts.get({ chatId: scope.chatId, id: "allowed" })).document.nodes, []);
+  await assert.rejects(tools.design_validate.run({ id: "outside", expectedVersion: 1, operations }), /outside/);
+  const invalid = JSON.parse(await tools.design_validate.run({ document: { ...document, nodes: [{ ...operations[0].node, fill: "banana" }] } }));
+  assert.equal(invalid.valid, false);
+  assert.deepEqual(invalid.errors[0].path, ["nodes", 0, "fill"]);
+});

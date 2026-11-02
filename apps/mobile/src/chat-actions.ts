@@ -6,7 +6,6 @@ import type { MenuSection } from "./ui";
 import { archiveFromPhone, startArchiving, type ArchiveRequest } from "./archive";
 import { archiveLinkChat } from "@milagre/shared/archive";
 import { UI_COPY } from "@milagre/shared/model-copy";
-import { confirm, confirmSheet } from "./confirm-store";
 import { pinPatch } from "./pins";
 
 /**
@@ -24,6 +23,8 @@ export function chatMenu(
   links?: MenuSection | null,
   beside = false,
   project = true,
+  /** The Chat's Mac keeps Done; an older one gets no Mark Done or Reopen. */
+  doneable = true,
 ): MenuSection[] {
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
@@ -56,17 +57,21 @@ export function chatMenu(
     ...(links ? [links] : []),
     {
       items: [
+        ...(chat.archived || !doneable
+          ? []
+          : chat.done_at
+            ? [{ id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }]
+            : [{ id: "done", title: "Mark Done", systemImage: "checkmark.circle" }]),
         chat.archived
           ? { id: "archive", title: "Restore", systemImage: "tray.and.arrow.up" }
-          : { id: "archive", title: "Archive", systemImage: "archivebox", destructive: true },
+          : { id: "archive", title: "Delete", systemImage: "trash", destructive: true },
       ],
     },
   ];
 }
 
 /**
- * Runs a choice from `chatMenu` against the Chat's Project. Archive asks first, as desktop does, with what removing the
- * Chat's worktree would lose, and stops a running Chat. `onConfirm` runs once the archive goes ahead: a screen showing
+ * Runs a choice from `chatMenu` against the Chat's Project. Delete acts immediately and stops a running Chat. `onConfirm` runs once the archive goes ahead: a screen showing
  * the Chat leaves then, not when the archive ends, by which time the phone may be somewhere else.
  */
 export async function runChatAction({
@@ -78,6 +83,7 @@ export async function runChatAction({
   state,
   link,
   chatsHome,
+  hostId,
   refresh,
   expectActivity,
   notify,
@@ -90,8 +96,10 @@ export async function runChatAction({
   projectPath: string;
   state: ArchiveRequest["state"];
   link?: OpenLink;
-  /** The Chat has no Project: archive asks in plain words, and not at all when its folder is clean. */
+  /** The Chat has no Project. */
   chatsHome?: boolean;
+  /** The Computer the Chat is on, so its deletion hides and undoes only its own row. */
+  hostId?: string;
   onConfirm?: () => void;
   refresh: () => Promise<unknown>;
   expectActivity: () => void;
@@ -99,14 +107,6 @@ export async function runChatAction({
 }) {
   if (action === "archive" && !chat.archived) {
     if (link) {
-      if (
-        !(await confirm(
-          "Archive this shared Chat?",
-          "The Chat leaves the list. Its Worktrees and changes stay on your computer.",
-          running ? "Stop and archive" : "Archive",
-        ))
-      )
-        return;
       const done = startArchiving(`${projectPath}#${chat.id}`);
       try {
         onConfirm?.();
@@ -114,7 +114,7 @@ export async function runChatAction({
         await archiveLinkChat({
           running,
           stop: () => client.call("agent:interrupt", [`${projectPath}#${chat.id}`]),
-          hide: () => client.call("chat:patch", [projectPath, chat.id, { archived: true }]),
+          hide: () => client.call("chat:delete", [projectPath, chat.id]),
         });
         await refresh();
       } finally {
@@ -124,12 +124,12 @@ export async function runChatAction({
     }
     return archiveFromPhone({
       client,
-      alert: confirmSheet,
       projectPath,
       state,
       chat,
       running,
       chatsHome,
+      hostId,
       onConfirm: () => {
         onConfirm?.();
         expectActivity();
@@ -146,6 +146,9 @@ export async function runChatAction({
     if (patch) await client.call("chat:patch", [projectPath, chat.id, patch]);
   }
   if (action === "read" || action === "unread") await client.call("chat:patch", [projectPath, chat.id, { unread: action === "unread" }]);
+  // The Mac stamps when it went Done, so the countdown follows its clock, not the phone's.
+  if (action === "done") await client.call("chat:patch", [projectPath, chat.id, { done: true, unread: false }]);
+  if (action === "reopen") await client.call("chat:patch", [projectPath, chat.id, { done: false }]);
   const worktree = state.worktrees[chat.worktree_id];
   if (action === "copy-path" && worktree) await Clipboard.setStringAsync(worktree.path);
   if (action === "copy-branch" && worktree) await Clipboard.setStringAsync(worktree.name);

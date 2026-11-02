@@ -12,8 +12,6 @@ export const MERGE_METHODS: { value: MergeMethod; title: string }[] = [
   { value: "rebase", title: "Rebase and merge" },
 ];
 
-export const mergeLabel = (method: MergeMethod) => (method === "merge" ? "Merge" : (MERGE_METHODS.find((entry) => entry.value === method)?.title ?? "Merge"));
-
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** Long branch names lose their middle, not their end: the end tells Worktree branches apart. */

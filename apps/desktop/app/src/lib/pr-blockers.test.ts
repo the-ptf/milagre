@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isBlockerDismissed, pullRequestAction, pullRequestBlockers, updateBlockerDismissals } from "./pr-blockers.ts";
+import {
+  isBlockerDismissed,
+  pullRequestAction,
+  pullRequestBlockers,
+  pullRequestPresentation,
+  rowPullRequests,
+  updateBlockerDismissals,
+} from "./pr-blockers.ts";
 
 const pr = { number: 77, url: "https://github.com/example/repo/pull/77", state: "OPEN", hasConflicts: true };
 
@@ -81,4 +88,41 @@ test("the composer's action comes from any of the chat's PRs, skipping blockers 
   const failing = { ...reviewed, checks: "failed" as const };
   assert.deepEqual(pullRequestAction([other, failing], dismissed), { pr: failing, blocker: "checks-failed" });
   assert.equal(pullRequestAction([]), null);
+});
+
+test("every PR state has its own badge: merged, closed, draft, blocked, ready, running, open", () => {
+  const base = { number: 5, url: "https://github.com/example/repo/pull/5", state: "OPEN" };
+  const look = (extra: object) => {
+    const { tone, icon, label } = pullRequestPresentation({ ...base, ...extra });
+    return [tone, icon, label];
+  };
+  assert.deepEqual(look({ state: "MERGED" }), ["purple", "merged", "Merged"]);
+  assert.deepEqual(look({ state: "CLOSED" }), ["ink3", "closed", "Closed"]);
+  assert.deepEqual(look({ isDraft: true, checks: "running" }), ["ink3", "draft", "Draft"]);
+  // A blocker still outranks draft: a draft's failing CI is the thing to fix.
+  assert.deepEqual(look({ isDraft: true, checks: "failed" }), ["red", "open", "CI failed"]);
+  assert.deepEqual(look({ readyToMerge: true }), ["green", "ready", "Ready"]);
+  assert.deepEqual(look({ checks: "running" }), ["orange", "checking", "CI running"]);
+  assert.deepEqual(look({}), ["green", "open", ""]);
+  assert.equal(pullRequestPresentation({ ...base, isDraft: true }).description, "Draft pull request #5");
+  assert.equal(pullRequestPresentation({ ...base, isDraft: true }).spoken, "draft pull request #5");
+  assert.equal(pullRequestPresentation({ ...base, readyToMerge: true }).spoken, "pull request #5, ready to merge");
+  assert.equal(pullRequestPresentation({ ...base, state: "CLOSED" }).spoken, "closed pull request #5");
+});
+
+test("a Chat's row lists blocked, open, merged, then closed PRs", () => {
+  const make = (number: number, extra: object) => ({
+    number,
+    title: "",
+    url: `https://github.com/example/repo/pull/${number}`,
+    state: "OPEN" as const,
+    readyToMerge: false,
+    hasConflicts: false,
+    ...extra,
+  });
+  const ordered = rowPullRequests([make(1, { state: "CLOSED" }), make(2, { state: "MERGED" }), make(3, {}), make(4, { hasConflicts: true })]);
+  assert.deepEqual(
+    ordered.map((entry) => entry.number),
+    [4, 3, 2, 1],
+  );
 });

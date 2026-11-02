@@ -3,6 +3,7 @@ const { CodexRpc } = require("./codex-rpc.cjs");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { hasToken } = require("./antigravity-install.cjs");
 const { loginMessage } = require("./events.cjs");
+const { kiroLoggedOut } = require("../kiro-account.cjs");
 
 // What the model picker shows about each agent's CLI: { state, message? }, where state is
 //   ready      nothing to flag
@@ -12,6 +13,7 @@ const { loginMessage } = require("./events.cjs");
 //   logged-out Claude: `claude auth status` says "loggedIn": false
 //              Codex: account/read answers { account: null, requiresOpenaiAuth: true }
 //              Antigravity: the account's GEMINI_HOME has no antigravity-acp/acp_token.json (nothing is spawned)
+//              Kiro: `kiro-cli whoami` says "Not logged in"
 // `message` is the same text a turn fails with. The login check never blocks anything: a check that fails
 // in any other way counts as ready. A ready status is kept for READY_TTL_MS; a problem is looked at again
 // on every call, so fixing it needs neither a restart nor waiting.
@@ -101,7 +103,7 @@ function createCliStatus({
   clientVersion,
   now = Date.now,
   ttlMs = READY_TTL_MS,
-  loggedOut = { claude: claudeLoggedOut, codex: codexLoggedOut, antigravity: antigravityLoggedOut },
+  loggedOut = { claude: claudeLoggedOut, codex: codexLoggedOut, antigravity: antigravityLoggedOut, kiro: kiroLoggedOut },
 }) {
   const cache = new Map();
   function lookup(name) {

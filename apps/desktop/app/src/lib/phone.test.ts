@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "./phone.ts";
+import { ThisComputer } from "./shortcut-hints.ts";
 
 test("the status line says what is happening and where the phone can reach this Mac", () => {
   assert.equal(phoneStatusLine(null), "Checking…");
@@ -11,7 +12,7 @@ test("the status line says what is happening and where the phone can reach this 
     phoneStatusLine({ enabled: true, state: "on", remote: "cloudflare", localUrl: "http://127.0.0.1:8797", publicUrl: "https://mac.example.com" }),
     "Reachable at mac.example.com",
   );
-  assert.equal(phoneStatusLine({ enabled: true, state: "on", remote: "none", localUrl: "http://127.0.0.1:8797" }), "This Mac only — 127.0.0.1");
+  assert.equal(phoneStatusLine({ enabled: true, state: "on", remote: "none", localUrl: "http://127.0.0.1:8797" }), `${ThisComputer} only — 127.0.0.1`);
   assert.equal(
     phoneStatusLine({ enabled: true, state: "on", remote: "relay", relay: "online", localUrl: "http://127.0.0.1:8797" }),
     "On, reachable from any network",

@@ -1,0 +1,1309 @@
+{
+  "date": "2026-11-02T01:17:01.498Z",
+  "brief": "Create an editable phone screen daily-notes titled Daily notes, 390 by 844, for a calm walking journal. Read the project kit first. If missing, save the default project kit with title Fieldnotes, colors paper #f6f4ef, ink #16261f, accent #27634b, textStyles title {fontSize:34,fontWeight:700} and body {fontSize:17,fontWeight:400}, spacing md 16 and sm 8, radii button 12. Pin that exact kit on the screen. Include heading text A quieter day, subtitle text One step at a time, meaningful real content and two linked button instances with distinct labels Start a walk and View history via componentProperties/componentValues. Give the title layer id heading and subtitle layer id subtitle. Use bound typography and spacing. Inspect the returned image and fix clipped text, overflow and low contrast before replying. Preserve this identity. Use design tools only, no HTML, research or other apps. The bundled design skill is available; read it if needed. Do not use extra process skills. Reply in one short sentence.",
+  "runs": 2,
+  "settings": [
+    {
+      "provider": "codex",
+      "command": "codex",
+      "model": "gpt-6.1-sol",
+      "effort": "low",
+      "fastMode": false,
+      "designSkillSha256": "4cf9e60762a48579da1e33383eb7da2aa9fe21428b236939e804dfffb8609bfe",
+      "allowedSkillReads": [],
+      "cliVersion": "codex-cli 0.166.0",
+      "evaluation": true
+    },
+    {
+      "provider": "claude",
+      "command": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "fastMode": false,
+      "designSkillSha256": "4cf9e60762a48579da1e33383eb7da2aa9fe21428b236939e804dfffb8609bfe",
+      "allowedSkillReads": [],
+      "cliVersion": "2.1.316 (Claude Code)",
+      "evaluation": true
+    }
+  ],
+  "samples": [
+    {
+      "provider": "codex",
+      "model": "gpt-6.1-sol",
+      "run": 1,
+      "contractStatus": "passed",
+      "checks": [
+        "Pinned project kit and component property instances",
+        "Inspection does not save",
+        "Revision preserves user edit and every unrelated property",
+        "Stale write rejected",
+        "Takeover by claude preserves all unrelated fields"
+      ],
+      "vision": {
+        "answer": "I'll inspect the image for the marker.\n\n\nA bright pink-red circle.",
+        "inspected": true,
+        "readSource": false
+      },
+      "creationDiagnostics": {
+        "warnings": [
+          {
+            "id": "brand",
+            "kind": "kit-drift",
+            "message": "Text \"brand\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "journal",
+            "kind": "kit-drift",
+            "message": "journal.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "date",
+            "kind": "kit-drift",
+            "message": "Text \"date\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "entry-title",
+            "kind": "kit-drift",
+            "message": "Text \"entry-title\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "walk-detail",
+            "kind": "kit-drift",
+            "message": "Text \"walk-detail\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "prompt",
+            "kind": "kit-drift",
+            "message": "Text \"prompt\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "home-indicator",
+            "kind": "kit-drift",
+            "message": "home-indicator.radius is outside kit project v1. Bind an existing token or document the deliberate variation."
+          }
+        ],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "brand",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 5.9576844740134
+          },
+          {
+            "id": "entry-title",
+            "status": "checked",
+            "ratio": 13.3042015548737
+          },
+          {
+            "id": "entry",
+            "status": "checked",
+            "ratio": 13.3042015548737
+          },
+          {
+            "id": "walk-detail",
+            "status": "checked",
+            "ratio": 5.9576844740134
+          },
+          {
+            "id": "prompt",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "reflection",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "start-walk-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "view-history-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          }
+        ]
+      },
+      "recheckedCreationDiagnostics": {
+        "warnings": [
+          {
+            "id": "brand",
+            "kind": "kit-drift",
+            "message": "Text \"brand\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "journal",
+            "kind": "kit-drift",
+            "message": "journal.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "date",
+            "kind": "kit-drift",
+            "message": "Text \"date\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "entry-title",
+            "kind": "kit-drift",
+            "message": "Text \"entry-title\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "walk-detail",
+            "kind": "kit-drift",
+            "message": "Text \"walk-detail\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "prompt",
+            "kind": "kit-drift",
+            "message": "Text \"prompt\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "home-indicator",
+            "kind": "kit-drift",
+            "message": "home-indicator.radius is outside kit project v1. Bind an existing token or document the deliberate variation."
+          }
+        ],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "brand",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 5.9576844740134
+          },
+          {
+            "id": "entry-title",
+            "status": "checked",
+            "ratio": 13.3042015548737
+          },
+          {
+            "id": "entry",
+            "status": "checked",
+            "ratio": 13.3042015548737
+          },
+          {
+            "id": "walk-detail",
+            "status": "checked",
+            "ratio": 5.9576844740134
+          },
+          {
+            "id": "prompt",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "reflection",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "start-walk-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "view-history-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          }
+        ]
+      },
+      "turns": [
+        {
+          "label": "create",
+          "durationMs": 38981.7,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 179914,
+            "inputTokens": 178794,
+            "cachedInputTokens": 140672,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1120,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_kit_read", "design_kit_save", "design_show"],
+          "assistantText": "I'll read the project kit and bundled design instructions, then create and inspect the editable screen.\n\n\nCreated the editable Daily notes screen with the pinned Fieldnotes kit, linked buttons, and verified readable text without clipping or overflow."
+        },
+        {
+          "label": "vision",
+          "durationMs": 6929.7,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 79645,
+            "inputTokens": 79547,
+            "cachedInputTokens": 77184,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 98,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_inspect"],
+          "assistantText": "I'll inspect the image for the marker.\n\n\nA bright pink-red circle."
+        },
+        {
+          "label": "revise",
+          "durationMs": 10473.8,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 128045,
+            "inputTokens": 127831,
+            "cachedInputTokens": 124672,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 214,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_inspect", "design_read", "design_apply"],
+          "assistantText": "I'll inspect and read the latest screen, then change only heading.text.\n\n\nChanged only heading.text to \"A better morning\"; your subtitle and all other design properties remain unchanged."
+        },
+        {
+          "label": "takeover",
+          "durationMs": 12750.5,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 6,
+            "outputTokens": 460,
+            "cachedInputTokens": 108366,
+            "cacheCreationInputTokens": 14776
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_read", "design_kit_read", "design_apply"],
+          "assistantText": "I changed the `daily-notes` heading text to \"Tomorrow starts here\" (now version 4). No other layer changed, and I didn't create a new design.\n\n**Clipping problem:** the new text needs two lines, but the heading layer is only 48px tall, so \"here\" is cut off. You asked me to change only the text, so I left the height alone. It needs 92px, and making it taller would also mean moving the subtitle down so they don't overlap. Or a shorter heading would fit on one line.\n\nThe other layout warnings come from your existing layers (styles and colors that differ from the kit, and the red review marker). I didn't touch them."
+        }
+      ]
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "run": 1,
+      "contractStatus": "passed",
+      "checks": [
+        "Pinned project kit and component property instances",
+        "Inspection does not save",
+        "Revision preserves user edit and every unrelated property",
+        "Stale write rejected",
+        "Takeover by codex preserves all unrelated fields"
+      ],
+      "vision": {
+        "answer": "The marker is a solid crimson-red circle (pinkish red, about 30 px across) that sits partly over the wifi and battery icons in the top-right corner.",
+        "inspected": true,
+        "readSource": false
+      },
+      "creationDiagnostics": {
+        "warnings": [
+          {
+            "id": "time",
+            "kind": "kit-drift",
+            "message": "Text \"time\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "date",
+            "kind": "kit-drift",
+            "message": "Text \"date\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s1v",
+            "kind": "kit-drift",
+            "message": "Text \"s1v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s1l",
+            "kind": "kit-drift",
+            "message": "Text \"s1l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2v",
+            "kind": "kit-drift",
+            "message": "Text \"s2v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2l",
+            "kind": "kit-drift",
+            "message": "Text \"s2l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3v",
+            "kind": "kit-drift",
+            "message": "Text \"s3v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3l",
+            "kind": "kit-drift",
+            "message": "Text \"s3l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "n1t",
+            "kind": "kit-drift",
+            "message": "Text \"n1t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "n2t",
+            "kind": "kit-drift",
+            "message": "Text \"n2t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          }
+        ],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 6.644204512600916
+          },
+          {
+            "id": "s1v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s1l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s2v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s2l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s3v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s3l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "n1t",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "n1b",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "n2t",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "n2b",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "btn-start-4e8a7424",
+            "status": "checked",
+            "ratio": 7.06451544703936
+          },
+          {
+            "id": "btn-history-4e8a7424",
+            "status": "checked",
+            "ratio": 7.06451544703936
+          }
+        ]
+      },
+      "recheckedCreationDiagnostics": {
+        "warnings": [
+          {
+            "id": "time",
+            "kind": "kit-drift",
+            "message": "Text \"time\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "date",
+            "kind": "kit-drift",
+            "message": "Text \"date\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "subtitle",
+            "kind": "kit-drift",
+            "message": "subtitle.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s1",
+            "kind": "kit-drift",
+            "message": "s1.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s1v",
+            "kind": "kit-drift",
+            "message": "Text \"s1v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s1l",
+            "kind": "kit-drift",
+            "message": "s1l.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s1l",
+            "kind": "kit-drift",
+            "message": "Text \"s1l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2",
+            "kind": "kit-drift",
+            "message": "s2.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s2v",
+            "kind": "kit-drift",
+            "message": "Text \"s2v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2l",
+            "kind": "kit-drift",
+            "message": "s2l.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s2l",
+            "kind": "kit-drift",
+            "message": "Text \"s2l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3",
+            "kind": "kit-drift",
+            "message": "s3.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s3v",
+            "kind": "kit-drift",
+            "message": "Text \"s3v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3l",
+            "kind": "kit-drift",
+            "message": "s3l.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s3l",
+            "kind": "kit-drift",
+            "message": "Text \"s3l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "note1",
+            "kind": "kit-drift",
+            "message": "note1.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "n1t",
+            "kind": "kit-drift",
+            "message": "Text \"n1t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "note2",
+            "kind": "kit-drift",
+            "message": "note2.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "n2t",
+            "kind": "kit-drift",
+            "message": "Text \"n2t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          }
+        ],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 6.644204512600916
+          },
+          {
+            "id": "s1v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s1l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s2v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s2l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s3v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s3l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "n1t",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "n1b",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "n2t",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "n2b",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "btn-start-4e8a7424",
+            "status": "checked",
+            "ratio": 7.06451544703936
+          },
+          {
+            "id": "btn-history-4e8a7424",
+            "status": "checked",
+            "ratio": 7.06451544703936
+          }
+        ]
+      },
+      "turns": [
+        {
+          "label": "create",
+          "durationMs": 30910.4,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 3841,
+            "cachedInputTokens": 207823,
+            "cacheCreationInputTokens": 24634
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_kit_read", "design_kit_save", "design_show", "design_apply"],
+          "assistantText": "I saved the Fieldnotes kit and created the Daily notes screen pinned to it, with no clipping, overflow or contrast warnings (the small labels and card titles keep their own sizes rather than kit text styles)."
+        },
+        {
+          "label": "vision",
+          "durationMs": 2306.2,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 6,
+            "outputTokens": 114,
+            "cachedInputTokens": 105841,
+            "cacheCreationInputTokens": 4094
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_inspect"],
+          "assistantText": "The marker is a solid crimson-red circle (pinkish red, about 30 px across) that sits partly over the wifi and battery icons in the top-right corner."
+        },
+        {
+          "label": "revise",
+          "durationMs": 3756.3,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 7,
+            "outputTokens": 317,
+            "cachedInputTokens": 178661,
+            "cacheCreationInputTokens": 9490
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_inspect", "design_read", "design_apply"],
+          "assistantText": "The heading now reads \"A better morning\" (version 4), and that is the only change. Your subtitle \"My own words\", the Fieldnotes kit, both button labels and your red marker are as you left them."
+        },
+        {
+          "label": "takeover",
+          "durationMs": 27153.7,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 188039,
+            "inputTokens": 187695,
+            "cachedInputTokens": 145280,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 344,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_kit_read", "design_read", "design_inspect", "design_apply"],
+          "assistantText": "I'll read the pinned kit and current screen, then change only the heading text using the design skill.\n\n\nChanged only heading.text to \"Tomorrow starts here\" in daily-notes. All other layers and user edits are preserved."
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "model": "gpt-6.1-sol",
+      "run": 2,
+      "contractStatus": "passed",
+      "checks": [
+        "Pinned project kit and component property instances",
+        "Inspection does not save",
+        "Revision preserves user edit and every unrelated property",
+        "Stale write rejected",
+        "Takeover by claude preserves all unrelated fields"
+      ],
+      "vision": {
+        "answer": "I’ll inspect the image for the marker.\n\n\nA bright pink-red circle.",
+        "inspected": true,
+        "readSource": false
+      },
+      "creationDiagnostics": {
+        "warnings": [],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "brand",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "entry-title",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "entry",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "meta",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "start-walk-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "view-history-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          }
+        ]
+      },
+      "recheckedCreationDiagnostics": {
+        "warnings": [],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "brand",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "entry-title",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "entry",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "meta",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "start-walk-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "view-history-ced21a52",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          }
+        ]
+      },
+      "turns": [
+        {
+          "label": "create",
+          "durationMs": 32055.9,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 215037,
+            "inputTokens": 213725,
+            "cachedInputTokens": 188672,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1312,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_kit_read", "design_kit_save", "design_show", "design_apply"],
+          "assistantText": "I’ll read the project kit, then create and check the editable screen.\n\n\nCreated the editable Daily notes screen with the pinned Fieldnotes kit, linked buttons, and no layout or contrast warnings."
+        },
+        {
+          "label": "vision",
+          "durationMs": 9105.1,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 117727,
+            "inputTokens": 117624,
+            "cachedInputTokens": 116736,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 103,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_inspect"],
+          "assistantText": "I’ll inspect the image for the marker.\n\n\nA bright pink-red circle."
+        },
+        {
+          "label": "revise",
+          "durationMs": 7540.5,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 125238,
+            "inputTokens": 125013,
+            "cachedInputTokens": 121600,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 225,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_read", "design_inspect", "design_apply"],
+          "assistantText": "I’ll inspect and read the latest screen, then change only the heading text.\n\n\nChanged only heading.text to \"A better morning\"; your subtitle and everything else remain unchanged."
+        },
+        {
+          "label": "takeover",
+          "durationMs": 13830.4,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 6,
+            "outputTokens": 583,
+            "cachedInputTokens": 110190,
+            "cacheCreationInputTokens": 15901
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_read", "design_kit_read", "design_inspect", "design_apply"],
+          "assistantText": "I set `heading.text` to \"Tomorrow starts here\" in daily-notes, now at version 5. Every other layer and your edits are unchanged, including the subtitle \"My own words\".\n\nTwo problems I left alone, since you asked for only this change:\n1. **The heading is cut off.** The new text wraps onto two lines, but the layer is only 46px tall, so the render shows just \"Tomorrow starts\". Setting `heightMode: \"hug\"` on the heading would fix it. The intro frame is 100px tall, so the content below would also need to move down.\n2. **The review marker uses a color outside the kit.** Its fill `#e11d48` isn't one of the Fieldnotes colors. It was like this before my edit.\n\nTo fix the clipping, I'd set the heading to hug and move the content below it down."
+        }
+      ]
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "run": 2,
+      "contractStatus": "passed",
+      "checks": [
+        "Pinned project kit and component property instances",
+        "Inspection does not save",
+        "Revision preserves user edit and every unrelated property",
+        "Stale write rejected",
+        "Takeover by codex preserves all unrelated fields"
+      ],
+      "vision": {
+        "answer": "The marker is a solid crimson-red circle.",
+        "inspected": true,
+        "readSource": false
+      },
+      "creationDiagnostics": {
+        "warnings": [
+          {
+            "id": "time",
+            "kind": "kit-drift",
+            "message": "Text \"time\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "date",
+            "kind": "kit-drift",
+            "message": "Text \"date\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s1v",
+            "kind": "kit-drift",
+            "message": "Text \"s1v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s1l",
+            "kind": "kit-drift",
+            "message": "Text \"s1l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2v",
+            "kind": "kit-drift",
+            "message": "Text \"s2v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2l",
+            "kind": "kit-drift",
+            "message": "Text \"s2l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3v",
+            "kind": "kit-drift",
+            "message": "Text \"s3v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3l",
+            "kind": "kit-drift",
+            "message": "Text \"s3l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "note-t",
+            "kind": "kit-drift",
+            "message": "Text \"note-t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "note-meta",
+            "kind": "kit-drift",
+            "message": "Text \"note-meta\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "prompt-t",
+            "kind": "kit-drift",
+            "message": "Text \"prompt-t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          }
+        ],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 6.644204512600916
+          },
+          {
+            "id": "s1v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s1l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s2v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s2l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s3v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s3l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "note-t",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "note-body",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "note-meta",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "prompt-t",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "btn-start-4e8a7424",
+            "status": "checked",
+            "ratio": 7.06451544703936
+          },
+          {
+            "id": "btn-history-4e8a7424",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          }
+        ]
+      },
+      "recheckedCreationDiagnostics": {
+        "warnings": [
+          {
+            "id": "time",
+            "kind": "kit-drift",
+            "message": "Text \"time\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "date",
+            "kind": "kit-drift",
+            "message": "Text \"date\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "subtitle",
+            "kind": "kit-drift",
+            "message": "subtitle.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s1",
+            "kind": "kit-drift",
+            "message": "s1.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s1v",
+            "kind": "kit-drift",
+            "message": "Text \"s1v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s1l",
+            "kind": "kit-drift",
+            "message": "s1l.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s1l",
+            "kind": "kit-drift",
+            "message": "Text \"s1l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2",
+            "kind": "kit-drift",
+            "message": "s2.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s2v",
+            "kind": "kit-drift",
+            "message": "Text \"s2v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s2l",
+            "kind": "kit-drift",
+            "message": "s2l.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s2l",
+            "kind": "kit-drift",
+            "message": "Text \"s2l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3",
+            "kind": "kit-drift",
+            "message": "s3.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s3v",
+            "kind": "kit-drift",
+            "message": "Text \"s3v\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "s3l",
+            "kind": "kit-drift",
+            "message": "s3l.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "s3l",
+            "kind": "kit-drift",
+            "message": "Text \"s3l\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "note",
+            "kind": "kit-drift",
+            "message": "note.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "note-t",
+            "kind": "kit-drift",
+            "message": "Text \"note-t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "note-meta",
+            "kind": "kit-drift",
+            "message": "note-meta.fill uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "note-meta",
+            "kind": "kit-drift",
+            "message": "Text \"note-meta\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          },
+          {
+            "id": "prompt",
+            "kind": "kit-drift",
+            "message": "prompt.stroke uses a color outside kit project v1. Use a palette token or document the deliberate variation."
+          },
+          {
+            "id": "prompt-t",
+            "kind": "kit-drift",
+            "message": "Text \"prompt-t\" does not use a text style from kit project v1. Set textStyle or document the deliberate variation."
+          }
+        ],
+        "contrastChecks": [
+          {
+            "id": "time",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "date",
+            "status": "checked",
+            "ratio": 6.427107264589549
+          },
+          {
+            "id": "heading",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "subtitle",
+            "status": "checked",
+            "ratio": 6.644204512600916
+          },
+          {
+            "id": "s1v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s1l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s2v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s2l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "s3v",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "s3l",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "note-t",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "note-body",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          },
+          {
+            "id": "note-meta",
+            "status": "checked",
+            "ratio": 7.303143308524722
+          },
+          {
+            "id": "prompt-t",
+            "status": "checked",
+            "ratio": 14.352477180667156
+          },
+          {
+            "id": "btn-start-4e8a7424",
+            "status": "checked",
+            "ratio": 7.06451544703936
+          },
+          {
+            "id": "btn-history-4e8a7424",
+            "status": "checked",
+            "ratio": 15.77588370194694
+          }
+        ]
+      },
+      "turns": [
+        {
+          "label": "create",
+          "durationMs": 33519.8,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 4040,
+            "cachedInputTokens": 207964,
+            "cacheCreationInputTokens": 24862
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_kit_read", "design_kit_save", "design_show", "design_apply"],
+          "assistantText": "I saved the Fieldnotes kit, since the project had none, and pinned it on the \"Daily notes\" screen, which has a walk recap and two linked buttons, \"Start a walk\" and \"View history\"; there's no clipping, overflow or contrast warning, but I left the smaller captions and stat numbers outside the kit's two text styles on purpose."
+        },
+        {
+          "label": "vision",
+          "durationMs": 2143.2,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 6,
+            "outputTokens": 78,
+            "cachedInputTokens": 106339,
+            "cacheCreationInputTokens": 4390
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_inspect"],
+          "assistantText": "The marker is a solid crimson-red circle."
+        },
+        {
+          "label": "revise",
+          "durationMs": 4221.7,
+          "status": "turn-completed",
+          "usage": {
+            "inputTokens": 7,
+            "outputTokens": 314,
+            "cachedInputTokens": 180711,
+            "cacheCreationInputTokens": 10112
+          },
+          "resolvedModels": ["claude-haiku-5-5", "claude-opus-5-5"],
+          "toolCalls": ["design_inspect", "design_read", "design_apply"],
+          "assistantText": "The heading now reads \"A better morning\" (version 4). I changed nothing else, so your subtitle \"My own words\", both buttons, the pinned kit and the red marker are unchanged."
+        },
+        {
+          "label": "takeover",
+          "durationMs": 28388.1,
+          "status": "turn-completed",
+          "usage": {
+            "totalTokens": 150589,
+            "inputTokens": 150211,
+            "cachedInputTokens": 120832,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 378,
+            "reasoningOutputTokens": 0
+          },
+          "toolCalls": ["design_read", "design_inspect", "design_kit_read", "design_apply"],
+          "assistantText": "I’ll read the design skill, pinned kit, and current screen, then change only the heading text.\n\nChanged only `heading.text` to \"Tomorrow starts here\" in daily-notes, version 5. All other properties, layers, and user edits are preserved."
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Small sample; not a statistical model ranking.",
+    "Deterministic criteria and manual visual review are separate.",
+    "Claude token accounting includes cache fields; provider accounting is not assumed identical."
+  ]
+}

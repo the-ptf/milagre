@@ -3,9 +3,10 @@ import { Text, View } from "react-native";
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSession } from "../session";
 import { ArchiveProgress } from "../archive-progress";
+import { runChatAction } from "../chat-actions";
 import { useLinks } from "../use-links";
 import { endNamer, linkedLabels } from "../chat-links";
-import { ErrorNotice, Field, PageScroll, PillButton, SectionLabel, useStyles } from "../ui";
+import { PillButton, ErrorNotice, Field, PageScroll, useStyles } from "../ui";
 
 export default function ChatDetails() {
   const styles = useStyles();
@@ -41,12 +42,11 @@ export default function ChatDetails() {
       return Object.values(copy?.project.state.worktrees ?? {}).find((item) => item.path === worktree)?.name;
     }),
   );
-  async function save(patch: { title?: string; archived?: boolean }) {
+  async function save(patch: { title: string }) {
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
     if (busy) return;
     setBusy(true);
-    setArchiving(patch.archived === true);
     setError("");
     try {
       await session.client!.call("chat:patch", [project.path, Number(id), patch]);
@@ -60,16 +60,45 @@ export default function ChatDetails() {
       setArchiving(false);
     }
   }
+  async function deleteChat() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await runChatAction({
+        action: "archive",
+        chat: chat!,
+        running,
+        client: session.client!,
+        projectPath: project.path,
+        state: project.state,
+        link: project.link,
+        chatsHome: project.kind === "chats",
+        refresh: session.refresh,
+        expectActivity: session.expectActivity,
+        notify: setError,
+        onConfirm: () => {
+          setArchiving(true);
+          router.replace("/projects");
+        },
+      });
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+      setArchiving(false);
+    }
+  }
   return (
     <PageScroll>
-      <Text accessibilityRole="header" style={styles.title}>
-        Manage Chat
-      </Text>
+      <Text style={styles.title}>Manage Chat</Text>
       <Field label="Chat name" value={title} onChangeText={setTitle} placeholder="Give this Chat a name" />
       <PillButton title="Save name" disabled={busy || !title.trim()} onPress={() => void save({ title: title.trim() })} />
       {linked.length > 0 && (
         <View style={{ gap: 6 }}>
-          <SectionLabel flush>Linked</SectionLabel>
+          <Text accessibilityRole="header" style={styles.label}>
+            Linked
+          </Text>
           {linked.map(({ link, label }) => (
             <Text key={link.id} style={styles.text}>
               {label}
@@ -77,16 +106,7 @@ export default function ChatDetails() {
           ))}
         </View>
       )}
-      <Text style={styles.muted}>
-        {chat.archived ? "Restoring brings this Chat back to its Worktree list." : "Archiving hides this Chat from the active list. Its messages stay saved."}
-      </Text>
-      {running && <Text style={styles.muted}>Stop the running turn before archiving this Chat.</Text>}
-      <PillButton
-        title={chat.archived ? "Restore Chat" : "Archive Chat"}
-        secondary
-        disabled={busy || running}
-        onPress={() => void save({ archived: !chat.archived })}
-      />
+      <PillButton title="Delete Chat" secondary disabled={busy} onPress={() => void deleteChat()} />
       {archiving && <ArchiveProgress />}
       {error ? <ErrorNotice message={error} /> : null}
     </PageScroll>

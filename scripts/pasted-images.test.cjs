@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const path = require("node:path");
 const { transformSync } = require("esbuild");
 
-function imageDraft({ owner, upload = async () => ({ file: { id: "uploaded", path: "/remote/uploads/note.txt" } }) } = {}) {
+function imageDraft({ owner, deferUploads = false, upload = async () => ({ file: { id: "uploaded", path: "/remote/uploads/note.txt" } }) } = {}) {
   const slots = [];
   let cursor = 0;
   const react = {
@@ -74,11 +74,22 @@ function imageDraft({ owner, upload = async () => ({ file: { id: "uploaded", pat
   vm.runInNewContext(code, context);
   const render = () => {
     cursor = 0;
-    return context.module.exports.usePastedImages("review", owner);
+    return context.module.exports.usePastedImages("review", owner, deferUploads);
   };
   const file = (name) => ({ name, size: 1, type: "image/png" });
   return { render, file, uploads, finish: () => pending.shift()() };
 }
+
+test("files chosen offline retain their bytes locally without contacting the computer", async () => {
+  const { render, uploads } = imageDraft({ owner: "computer|/project", deferUploads: true });
+  const file = { name: "note.txt", size: 3, type: "text/plain" };
+  await render().attachFiles([file]);
+  const hook = render();
+  assert.equal(uploads.length, 0);
+  assert.match(hook.files[0], /^\/\.milagre-offline-attachments\//);
+  assert.equal(hook.localFiles.get(hook.files[0]), file);
+  assert.equal(hook.loading, false);
+});
 
 for (const method of ["addFiles", "attachFiles"]) {
   test(`${method} numbers an image against the attachments remaining when its read finishes`, async () => {

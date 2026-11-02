@@ -67,6 +67,8 @@ async function main() {
     cwd: projects[0],
     registryRoots: [],
     worktreeRoot,
+    // Its own Chats home: the default ~/.milagre/chats belongs to the Milagre running on this Mac.
+    chatsHome: path.join(dir, "chats-home"),
     environmentReady: Promise.resolve(),
     titleModels: {},
     agentCli: async () => ({ command: "/fake" }),
@@ -104,7 +106,8 @@ async function main() {
     for (const project of projects) await client.call("project:open", [project]);
     await client.call("project:open", [projects[0]]);
     const rendererUrl = process.env.MILAGRE_TEST_DEV_SERVER_URL || pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
-    const env = { ...process.env, MILAGRE_DEV_SERVER_URL: rendererUrl, MILAGRE_WORKTREE_ROOT: worktreeRoot };
+    // Off screen: no Dock icon, window or focus change on the Mac running it. MILAGRE_BACKGROUND=0 shows the app.
+    const env = { MILAGRE_BACKGROUND: "1", ...process.env, MILAGRE_DEV_SERVER_URL: rendererUrl, MILAGRE_WORKTREE_ROOT: worktreeRoot };
     delete env.ELECTRON_RUN_AS_NODE;
     // Other windows on a busy machine cover this one; macOS then pauses its animation frames and the canvas and panels never finish.
     const unthrottled = ["--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"];
@@ -575,28 +578,28 @@ async function main() {
     await waitFor(() => evaluate(`!document.querySelector('[data-host-disconnected]')`), "Link reconnect");
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft survives missing Project");
     assert.deepEqual((await client.call("link:snapshot", [link.id])).state.sessions[session.id].worktrees, session.worktrees);
-    // Archiving a Link Chat: the row goes at once, with no progress, while the host's save is still held, and stays gone
+    // Deleting a Link Chat: the row goes at once, with no progress, while the host's save is still held, and stays gone
     // from the Project's sidebar the window moves to. A save that fails brings the row back with the error.
     const rowNamed = (title) => `[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes(${JSON.stringify(title)}))`;
-    const archiveRow = async (title) => {
+    const deleteRow = async (title) => {
       await evaluate(`${rowNamed(title)}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 140, clientY: 200 }))`);
       await waitFor(
-        () => evaluate(`!![...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent === 'Archive' && !button.disabled)`),
-        "Archive checked",
+        () => evaluate(`!![...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent.trim() === 'Delete' && !button.disabled)`),
+        "Delete available",
       );
-      await evaluate(`[...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent === 'Archive').click()`);
-      await waitFor(() => evaluate(`!!document.querySelector('[data-archive-choice]')`), "archive choice");
-      await evaluate(`document.querySelector('[data-archive-choice]').click()`);
+      await evaluate(`[...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent.trim() === 'Delete').click()`);
+      await waitFor(() => evaluate(`!document.querySelector('[data-chat-menu]')`), "Delete closes the menu");
+      assert.equal(await evaluate(`!!document.querySelector('[data-archive-choice], [data-archive-reason]')`), false);
     };
-    // A slow host: hold the window's next chat:patch in the main process, then send it on or fail it.
+    // A slow host: hold the window's next chat:delete in the main process, then send it on or fail it.
     main = await cdp(output.match(/Debugger listening on (ws:\/\/\S+)/)[1]);
     const inMain = async (expression) => (await main.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
     const holdSaves = (outcome) =>
       inMain(`(() => {
         const handlers = process.mainModule.require("electron").ipcMain._invokeHandlers;
-        const real = (globalThis.realPatch ??= handlers.get("chat:patch"));
+        const real = (globalThis.realDelete ??= handlers.get("chat:delete"));
         globalThis.held = [];
-        handlers.set("chat:patch", (...args) => new Promise((resolve, reject) => globalThis.held.push(${
+        handlers.set("chat:delete", (...args) => new Promise((resolve, reject) => globalThis.held.push(${
           outcome === "fail" ? `() => reject(new Error("Disk full"))` : `() => Promise.resolve(real(...args)).then(resolve, reject)`
         })));
         return typeof real === "function";
@@ -604,33 +607,42 @@ async function main() {
     const heldCount = () => inMain(`globalThis.held.length`);
     const releaseSaves = () =>
       inMain(
-        `process.mainModule.require("electron").ipcMain._invokeHandlers.set("chat:patch", globalThis.realPatch); globalThis.held.forEach((release) => release()); true`,
+        `process.mainModule.require("electron").ipcMain._invokeHandlers.set("chat:delete", globalThis.realDelete); globalThis.held.forEach((release) => release()); true`,
       );
-    const archivedOnHost = async (id) => Boolean((await client.call("link:snapshot", [link.id])).state.sessions[id]?.archived);
-    const archivedCount = async () => Object.values((await client.call("link:snapshot", [link.id])).state.sessions).filter((chat) => chat.archived).length;
-    const before = await archivedCount();
-    assert.ok(await holdSaves("fail"), "the test holds chat:patch");
-    await archiveRow("Send then switch");
-    await waitFor(async () => (await heldCount()) > 0, "the archive's chat:patch is held");
+    const chatOnHost = async (id) => (await client.call("link:snapshot", [link.id])).state.sessions[id];
+    const chatCount = async () => Object.keys((await client.call("link:snapshot", [link.id])).state.sessions).length;
+    const before = await chatCount();
+    assert.ok(await holdSaves("fail"), "the test holds chat:delete");
+    await deleteRow("Send then switch");
+    await waitFor(async () => (await heldCount()) > 0, "the chat:delete is held");
     assert.equal(await evaluate(`!!${rowNamed("Send then switch")}`), false, "row gone while the save is held");
     await releaseSaves();
     await waitFor(() => evaluate(`!!${rowNamed("Send then switch")}`), "row back after a failed save");
-    await waitFor(() => evaluate(`document.body.textContent.includes('Disk full')`), "failed archive's error");
-    assert.equal(await archivedCount(), before, "nothing archived on the host");
+    await waitFor(() => evaluate(`document.body.textContent.includes('Disk full')`), "failed deletion's error");
+    assert.equal(await chatCount(), before, "nothing deleted on the host");
     await holdSaves("land");
-    await archiveRow("Update status.txt");
-    await waitFor(async () => (await heldCount()) > 0, "the archive's chat:patch is held");
+    await deleteRow("Update status.txt");
+    await waitFor(async () => (await heldCount()) > 0, "the chat:delete is held");
     assert.equal(await evaluate(`!!${rowNamed("Update status.txt")}`), false, "the row goes before the host answers");
-    assert.equal(await evaluate(`[...document.querySelectorAll('[role=status]')].some(node => node.textContent.includes('Archiving'))`), false);
-    await waitFor(() => isCurrent(scopeOf("food-api")), "archiving the open Link Chat lands on this Mac's new-chat screen");
-    assert.equal(await archivedOnHost(session.id), false, "the host hasn't archived it yet");
-    await shot("link-archive-held");
+    assert.equal(await evaluate(`[...document.querySelectorAll('[role=status]')].some(node => /Archiving|Deleting/.test(node.textContent))`), false);
+    await waitFor(() => isCurrent(scopeOf("food-api")), "deleting the open Link Chat lands on this Mac's new-chat screen");
+    assert.ok(await chatOnHost(session.id), "the host hasn't deleted it yet");
+    await shot("link-delete-held");
     assert.equal(await evaluate(`!!${rowNamed("Update status.txt")}`), false, "the Project's sidebar doesn't list it meanwhile");
     await releaseSaves();
-    await waitFor(() => archivedOnHost(session.id), "host archives the Chat");
+    await waitFor(async () => !(await chatOnHost(session.id)), "host deletes the Chat");
+    assert.equal(await chatCount(), before - 1, "only the chosen Chat is deleted");
     assert.equal(await evaluate(`!!${rowNamed("Update status.txt")}`), false);
+    for (const member of session.worktrees) await fs.access(member.worktreePath);
+    client.close();
+    client = null;
+    await daemon.close();
+    daemon = await startDaemon({ dataDir: profile, version: "0.1.0", runtimeOptions: options });
+    client = await connectHost({ dataDir: profile });
+    assert.equal(await chatOnHost(session.id), undefined, "deletion survives a host restart");
+    assert.equal(await chatCount(), before - 1);
     console.log(
-      "PASS: real desktop creates a named Link, owns two Worktrees in one Chat, chooses Git scope, preserves scoped drafts, reconnects without new Worktrees, and archives a Link Chat at once.",
+      "PASS: real desktop creates a named Link, owns two Worktrees in one Chat, chooses Git scope, preserves scoped drafts, reconnects without new Worktrees, and deletes a Link Chat on one click with failure recovery and persistence.",
     );
   } catch (error) {
     console.error(output);

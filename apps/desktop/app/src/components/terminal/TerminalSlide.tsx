@@ -38,7 +38,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
     }
     if (!isPresent && element.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
     const room = (element.parentElement?.clientHeight ?? window.innerHeight) * 0.75;
-    // Fractional, as CSS laid it out: a rounded height would refit the Terminal by a pixel as it starts to close.
+    // Fractional, as CSS laid it out: a rounded-control height would refit the Terminal by a pixel as it starts to close.
     const resting = element.getBoundingClientRect().height;
     const cardHeight = isPresent ? Math.min(latestHeight.current, room) : resting - GAP;
     // At rest the slot is laid out by CSS: start from the height it has (turned around mid-slide, it is already there).

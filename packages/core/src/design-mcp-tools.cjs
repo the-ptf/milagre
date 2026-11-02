@@ -43,7 +43,7 @@ function createDesignToolGroup({ artifacts }) {
               const comment = comments.find((item) => item.id === args.id && (!ids || ids.has(item.design.id)));
               if (!comment) throw Error("This comment is outside the connection's scope or is unavailable.");
               await active(capability);
-            } else permit(args.id);
+            } else if (!(tool.name === "design_validate" && args.document && !args.id)) permit(args.id);
             const result = await tool.run(args);
             if (tool.readOnly) await active(capability);
             return result;

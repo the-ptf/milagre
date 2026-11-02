@@ -1,6 +1,7 @@
 const { createGit, GitError } = require("./git/client.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { isFolderChatsHome, folderChatWorktrees } = require("./chats-home-folders.cjs");
 const client = createGit().read;
 
 const listedWorktrees = (cwd) => client.worktreeList(cwd);
@@ -17,10 +18,26 @@ async function isDirectory(folder) {
 // there directly. Any other Git failure stays a failure: a broken repository is not a plain folder.
 async function outsideGit(folder) {
   const result = await client.run(folder, ["rev-parse", "--show-toplevel"]);
-  return !result.ok && result.code === 128 && /not a git repository/i.test(result.stderr);
+  return isPlainResult(folder, result);
+}
+
+// A missing executable says nothing about a repository's files. Never open a Git checkout as a plain folder.
+async function isPlainResult(folder, result) {
+  if (result.ok) return false;
+  if (!result.missing) return result.code === 128 && /not a git repository/i.test(result.stderr);
+  for (let current = path.resolve(folder); ; current = path.dirname(current)) {
+    try {
+      await fs.lstat(path.join(current, ".git"));
+      return false;
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+    }
+    if (path.dirname(current) === current) return true;
+  }
 }
 
 async function activeWorktrees(projectPath) {
+  if (await isFolderChatsHome(projectPath)) return folderChatWorktrees(projectPath);
   if (await outsideGit(projectPath)) return (await isDirectory(projectPath)) ? [{ path: projectPath, name: path.basename(projectPath), plain: true }] : [];
   return present(await listedWorktrees(projectPath));
 }
@@ -50,9 +67,11 @@ async function identify(openedPath) {
   if (typeof openedPath !== "string" || !path.isAbsolute(openedPath)) throw new Error("Choose a folder.");
   const opened = await fs.realpath(openedPath);
   if (!(await isDirectory(opened))) throw new Error(`${path.basename(opened)} isn't a folder.`);
+  if (await isFolderChatsHome(opened))
+    return { identity: { id: opened, path: opened, name: path.basename(opened), git: false }, listed: await folderChatWorktrees(opened) };
   const toplevel = await client.run(opened, ["rev-parse", "--show-toplevel"]);
   if (!toplevel.ok) {
-    if (toplevel.code === 128 && /not a git repository/i.test(toplevel.stderr)) {
+    if (await isPlainResult(opened, toplevel)) {
       if (opened === path.parse(opened).root) throw new Error("Choose a folder, not the whole disk.");
       return { identity: { id: opened, path: opened, name: path.basename(opened), git: false }, listed: null };
     }

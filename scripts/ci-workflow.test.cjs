@@ -26,10 +26,14 @@ test("every CI job has a timeout", () => {
   for (const [name, job] of Object.entries(ci.jobs)) assert.ok(Number.isInteger(job["timeout-minutes"]), `${name} needs timeout-minutes`);
 });
 
-test("a PR run is at most 20 jobs, the account's concurrency: every slot for under two minutes", () => {
+test("a PR run is at most 20 jobs, the account's concurrency", () => {
   // Jobs that only run on a push to main (Next beta draft, macOS smoke) never take a PR run's slots.
   const jobs = Object.values(ci.jobs).filter((job) => !/github\.event_name (== 'push'|!= 'pull_request')/.test(job.if ?? ""));
-  const total = jobs.reduce((sum, job) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
+  const total = jobs.reduce((sum, job) => {
+    const matrix = job.strategy?.matrix ?? {};
+    assert.ok(!("include" in matrix) && !("exclude" in matrix), "update the counter before using matrix include/exclude");
+    return sum + Object.values(matrix).reduce((legs, values) => legs * values.length, 1);
+  }, 0);
   assert.ok(total <= 20, `${total} jobs per PR run`);
 });
 
@@ -64,16 +68,23 @@ test("the Next beta draft waits for the required checks, not the change filter o
   assert.ok(!needs.has("changes"));
 });
 
-test("CI runs the unit suite through the single test command, one shard per matrix leg on a runner of its own", () => {
+test("CI tests both supported Node runtimes on separate runners and gates on both", () => {
   const job = ci.jobs.unit;
-  const shards = job.strategy.matrix.shard;
-  assert.deepEqual(
-    shards,
-    Array.from({ length: shards.length }, (_, i) => i + 1),
+  assert.deepEqual(job.strategy.matrix, { node: [24, 26] });
+  const install = job.steps.find((step) => step.uses === `./${installAction}`);
+  assert.equal(install.with["node-version"], "${{ matrix.node }}");
+  assert.ok(runs(job).includes("npm test -- --unit"), "each runtime runs the entire suite");
+  const cli = job.steps.find((step) => step.run === "node scripts/test-cli-package.cjs");
+  assert.equal(cli.if, "matrix.node == 24", "Node 26 already runs the installed CLI in the Electron shards");
+  assert.ok(ci.jobs.javascript.needs.includes("unit"), "both versions gate JavaScript CI");
+  const action = YAML.parse(fs.readFileSync(path.join(__dirname, "../.github/actions/install-dependencies/action.yml"), "utf8"));
+  assert.equal(action.inputs["node-version"].default, "26");
+  assert.equal(action.runs.steps[0].with["node-version"], "${{ inputs.node-version }}");
+  assert.ok(
+    action.runs.steps.find((step) => step.id === "cache").with.key.includes("node${{ inputs.node-version }}-"),
+    "native caches are isolated by Node version",
   );
-  // The shard count comes from the matrix itself, so the two cannot drift apart.
-  assert.ok(runs(job).includes("npm test -- --unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}"));
-  // Beside the quick checks a shard took 100 s instead of 60: node --test wants the whole runner.
+  // Beside the quick checks the suite took longer: node --test wants the whole runner.
   assert.ok(!runs(ci.jobs["quick-checks"]).some((run) => /--unit/.test(run)), "no unit tests among the quick checks");
   const every = Object.values(ci.jobs).flatMap((job) => runs(job));
   assert.ok(!every.some((run) => /npm run test:/.test(run)), "no per-suite scripts left in CI");
@@ -120,7 +131,7 @@ test("package signatures are verified once per lockfile: a cached marker keyed o
   assert.match(verify, /npm audit signatures && touch "\$RUNNER_TEMP\/signatures-verified"/);
 });
 
-test("the required javascript check passes only when the quick checks and every unit shard passed", () => {
+test("the required javascript check passes only when the quick checks and both runtime suites passed", () => {
   const gate = ci.jobs.javascript;
   assert.equal(gate.if, "always()");
   assert.deepEqual(gate.needs, ["quick-checks", "unit"]);
@@ -271,7 +282,7 @@ test("PR titles must be Conventional Commits", () => {
   assert.deepEqual(workflow.on.pull_request.types, ["opened", "edited", "synchronize", "reopened"]);
   const [setup, check] = workflow.jobs.conventional.steps;
   assert.match(setup.uses, /^actions\/setup-node@/);
-  assert.equal(setup.with["node-version"], 24);
+  assert.equal(setup.with["node-version"], 26);
   const run = check.run;
   assert.ok(run.includes(regex), "workflow carries the expected regex");
   const title = new Function(`return ${regex}`)();

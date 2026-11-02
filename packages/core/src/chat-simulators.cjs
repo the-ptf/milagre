@@ -6,7 +6,7 @@ const { z } = require("zod");
 // Associations live in the host profile: a device on another Mac cannot inherit them.
 // Android serials are reusable, so match the AVD name as well as its serial.
 const matches = (a, b) => a.id === b.id && a.platform === b.platform && (a.platform !== "android" || a.name === b.name);
-function createChatSimulators({ simulators, file, validateChat }) {
+function createChatSimulators({ simulators, file, validateChat, ended = () => false }) {
   let saved,
     queue = Promise.resolve(),
     stopped = false;
@@ -59,10 +59,13 @@ function createChatSimulators({ simulators, file, validateChat }) {
   // The window asks every 5 s for each Chat on screen (`attachedOnly`): a Chat with nothing attached shows nothing, so it
   // is answered from its saved attachments without listing devices, which starts a process each time.
   async function listing(chatId, { attachedOnly = false } = {}) {
-    const attached = await records(chatId);
+    let attached = await records(chatId);
     if (attachedOnly && !attached.length) return { chatId, attached: [], devices: [], available: [], supported };
     const list = await simulators.list();
     supported = list.supported !== false;
+    // A device that cannot come back once gone (a Simlock lease) leaves the Chat with it, instead of showing as stopped.
+    const gone = attached.filter((a) => ended(a) && !list.devices.some((d) => matches(a, d)));
+    if (gone.length) await save(chatId, (attached = attached.filter((a) => !gone.includes(a))));
     return {
       ...list,
       chatId,
@@ -167,4 +170,44 @@ function simulatorToolDefinitions(chatId, api) {
     },
   ];
 }
-module.exports = { createChatSimulators, simulatorToolDefinitions };
+/** Experimental: leasing devices from the Simlock pool set up in Settings. Offered only while it is turned on. */
+function simlockToolDefinitions(chatId, simlock) {
+  const usage = (lease) => ({
+    ...lease,
+    guidance: [
+      `Drive this device only with its launcher, ${lease.launcher}, which is the agent-device CLI bound to this lease: run \`${lease.launcher} --help\` for every command.`,
+      `Common steps: \`${lease.launcher} install <bundle-or-package> <path>\`, \`${lease.launcher} open <bundle-or-package> --foreground\` (returns a snapshot with @refs), \`${lease.launcher} press @e12 --settle\`, \`${lease.launcher} screenshot <file.png>\`. Ignore the CLI's advice to close: this launcher refuses close.`,
+      `Installs are accepted only from ${lease.installDirectory} and below. The device may be on another computer: it cannot reach development servers on this Mac through localhost, and simctl, adb, argent and Xcode cannot see it.`,
+      "It is attached to this Chat so the user can watch it. Call simulator_release when you are done; Simlock wipes it for the next agent.",
+    ].join(" "),
+  });
+  return [
+    {
+      name: "simulator_lease",
+      description:
+        "Lease an iOS simulator or Android emulator of its own for this Chat from the Simlock pool (Settings › Experimental). The device is booted, attached to this Chat for the user to watch, and returned with a command bound to it. Omit model for the pool's default phone; simulator_lease_models lists the rest. Waits in Simlock's queue when every device is busy.",
+      input: { platform: z.enum(["ios", "android"]), model: z.string().min(1).max(200).optional() },
+      readOnly: false,
+      run: async ({ platform, model }) => JSON.stringify(usage(await simlock.lease({ platform, model }))),
+    },
+    {
+      name: "simulator_lease_models",
+      description: "List the device models the Simlock pool can lease, with each one's newest OS.",
+      input: {},
+      readOnly: true,
+      run: async () => JSON.stringify({ models: await simlock.models() }),
+    },
+    {
+      name: "simulator_release",
+      description: "Return a device this Chat leased from Simlock. Simlock wipes it for the next agent, and it is detached from this Chat.",
+      input: { deviceId: z.string().min(1).max(256) },
+      readOnly: false,
+      run: async ({ deviceId }) => {
+        const lease = simlock.get(deviceId);
+        if (!lease || lease.chatId !== chatId) throw Error("This Chat holds no Simlock lease with that device id.");
+        return JSON.stringify(await simlock.release({ deviceId }));
+      },
+    },
+  ];
+}
+module.exports = { createChatSimulators, simulatorToolDefinitions, simlockToolDefinitions };

@@ -43,7 +43,7 @@ const NOTICE = "flex shrink-0 items-center gap-3 rounded-card bg-surface px-3 py
 // A choice holds a label over a value that may wrap, so it sizes to its content; the picked one is ink-ringed (selection is ink).
 const choiceClass = "rounded-control border px-2.5 py-1.5 text-12 text-ink transition-colors hover:bg-hover disabled:opacity-40";
 const fingerprint = (document: DesignDocument) => JSON.stringify(document);
-const rounded = (value: number) => Math.round(value * 100) / 100;
+const roundCoordinate = (value: number) => Math.round(value * 100) / 100;
 const DraftFields = createContext({ pending: (_value: boolean) => {}, fields: new Map<string, DesignFieldDraft>(), scope: "" });
 
 function designError(cause: unknown): string {
@@ -647,7 +647,7 @@ export function DesignDocumentEditor({
     (x: number, y: number) => {
       const roots = selectionRoots(document, selectedIds);
       if (!roots.every((node) => movable(document, node))) return;
-      change(roots.map((node) => ({ op: "update", id: node.id, patch: { x: rounded((node.x ?? 0) + x), y: rounded((node.y ?? 0) + y) } })));
+      change(roots.map((node) => ({ op: "update", id: node.id, patch: { x: roundCoordinate((node.x ?? 0) + x), y: roundCoordinate((node.y ?? 0) + y) } })));
     },
     [document, selectedIds, change],
   );
@@ -941,6 +941,12 @@ export function DesignDocumentEditor({
           className={`mb-2 max-w-full truncate text-left text-13 ${active ? "text-ink" : "text-ink-3"}`}
         >
           {saved.title}
+          {document.kit && (
+            <span className="ml-2 text-ink-3">
+              {document.consistency?.mode === "strict" ? "Strict · " : ""}
+              {document.kit.title} · kit v{document.kit.version}
+            </span>
+          )}
         </button>
         <div
           data-slot="design-editor-preview"
@@ -982,8 +988,8 @@ export function DesignDocumentEditor({
                   <>
                     <div className="rounded-control bg-field p-2 text-11 text-ink-3">Linked instance. Edit the main component to update every instance.</div>
                     <div className="grid grid-cols-2 gap-2">
-                      <Field label="X" value={rounded(selectedNode.x ?? 0)} number disabled={saving} onCommit={(x) => patch({ x: Number(x) })} />
-                      <Field label="Y" value={rounded(selectedNode.y ?? 0)} number disabled={saving} onCommit={(y) => patch({ y: Number(y) })} />
+                      <Field label="X" value={roundCoordinate(selectedNode.x ?? 0)} number disabled={saving} onCommit={(x) => patch({ x: Number(x) })} />
+                      <Field label="Y" value={roundCoordinate(selectedNode.y ?? 0)} number disabled={saving} onCommit={(y) => patch({ y: Number(y) })} />
                     </div>
                     <div className="flex gap-2">
                       <button type="button" className={buttonClass} onClick={() => setSelection([selectedInstance.componentId!])}>
@@ -1043,7 +1049,7 @@ export function DesignDocumentEditor({
                         <Field
                           key={key}
                           label={label}
-                          value={rounded(value)}
+                          value={roundCoordinate(value)}
                           number
                           min={key === "width" || key === "height" ? 1 : undefined}
                           disabled={saving}
@@ -1287,14 +1293,14 @@ export function DesignDocumentEditor({
                   <div className="grid grid-cols-2 gap-2">
                     <Field
                       label="Selection X"
-                      value={rounded(groupPosition.x)}
+                      value={roundCoordinate(groupPosition.x)}
                       number
                       disabled={saving || !canMoveSelection}
                       onCommit={(x) => move(Number(x) - groupPosition.x, 0)}
                     />
                     <Field
                       label="Selection Y"
-                      value={rounded(groupPosition.y)}
+                      value={roundCoordinate(groupPosition.y)}
                       number
                       disabled={saving || !canMoveSelection}
                       onCommit={(y) => move(0, Number(y) - groupPosition.y)}

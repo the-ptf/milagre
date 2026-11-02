@@ -12,7 +12,7 @@ import { IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { useRefreshSpin } from "../changes/useRefreshSpin";
-import { bridgeForKey, isRemoteKey } from "../../lib/computer-bridge";
+import { bridgeForKey } from "../../lib/computer-bridge";
 
 export const USAGE_CARD_WIDTH = 288;
 
@@ -137,8 +137,8 @@ export function UsageCard({
           <ProviderLogo provider={usage.provider} size={16} />
         </span>
         <div className="min-w-0 flex-1">
-          {scope && !isRemoteKey(scope) ? (
-            <AccountPicker scope={scope} chatsHome={chatsHome} provider={usage.provider} account={account} onOpenChange={onPickerOpenChange} />
+          {scope ? (
+            <AccountPicker key={scope} scope={scope} chatsHome={chatsHome} provider={usage.provider} account={account} onOpenChange={onPickerOpenChange} />
           ) : (
             <AccountText account={account} />
           )}
@@ -168,7 +168,10 @@ export function UsageCard({
         <div className="flex flex-col gap-3 border-t border-line px-4 pb-4 pt-3">
           {usage.windows.map((item) => (
             <div key={item.id} className="flex flex-col gap-1.5">
-              <p className="text-13 font-medium">{item.label}</p>
+              <p className="flex items-baseline justify-between gap-2 text-13 font-medium">
+                {item.label}
+                {item.detail && <span className="text-12 font-normal tabular-nums text-ink-3">{item.detail}</span>}
+              </p>
               <UsageBar usedPercent={item.usedPercent} display={usageDisplay} className="h-1.5 w-full" />
               <div className="flex items-center justify-between text-12 tabular-nums text-ink-2">
                 <span>

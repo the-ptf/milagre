@@ -1,5 +1,5 @@
-// Real Codex + production daemon/MCP/artifact storage in a disposable Project/profile.
-// No credential files are read or copied here. Codex uses its existing sign-in, with ephemeral threads.
+// Real Codex/Claude + production daemon/MCP/artifact storage in a disposable Project/profile.
+// No credential files are read or copied here. Providers use their existing sign-ins, with ephemeral sessions.
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -8,34 +8,51 @@ const { performance } = require("node:perf_hooks");
 const { createHash } = require("node:crypto");
 const { startDaemon } = require("../apps/daemon/src/server.cjs");
 const { connect } = require("../apps/daemon/src/client.cjs");
+const { ClaudeSession } = require("../packages/core/src/agents/claude-provider.cjs");
+const { listClaudeModels } = require("../packages/core/src/agents/models.cjs");
 const { CodexSession } = require("../packages/core/src/agents/codex-provider.cjs");
 const { CodexRpc } = require("../packages/core/src/agents/codex-rpc.cjs");
 const { createLinkedMcpServer } = require("../packages/core/src/linked-mcp-server.cjs");
 
-const DESIGN_TOOLS = new Set(["design_show", "design_read", "design_apply", "design_export"]);
+const DESIGN_TOOLS = new Set([
+  "design_show",
+  "design_read",
+  "design_apply",
+  "design_export",
+  "design_inspect",
+  "design_validate",
+  "design_kit_read",
+  "design_kit_save",
+]);
 const READ_DESIGN_SKILL = `cat ${path.resolve(__dirname, "../packages/core/src/bundled-skills/design/SKILL.md")}`;
 const bytes = (value) => Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value));
 const milliseconds = (start) => Math.round((performance.now() - start) * 10) / 10;
 
 function fixturePermission(event, turn, allowedSkillReads = []) {
+  if (event.kind === "read") return event.files?.length === 1 && [READ_DESIGN_SKILL.slice(4), ...allowedSkillReads].includes(event.files[0]);
   if (event.kind === "command") {
     if (event.command === READ_DESIGN_SKILL) return true;
     const file = /^cat (\/[a-zA-Z0-9_./-]+)$/.exec(event.command)?.[1];
     return Boolean(file && allowedSkillReads.some((allowed) => path.resolve(file) === allowed));
   }
-  if (event.tool !== "MCP: milagre") return false;
-  const name = /^Allow the milagre MCP server to run tool "([a-z_]+)"\?$/.exec(event.title)?.[1];
-  const allowed = turn.label === "create" ? ["design_show"] : ["design_read", "design_apply"];
+  const claudeName = /^mcp__milagre__([a-z_]+)$/.exec(event.toolName ?? event.tool)?.[1];
+  if (!claudeName && event.tool !== "MCP: milagre") return false;
+  const name = claudeName ?? /^Allow the milagre MCP server to run tool "([a-z_]+)"\?$/.exec(event.title)?.[1];
+  const allowed = turn.evaluation ? [...DESIGN_TOOLS] : turn.label === "create" ? ["design_show"] : ["design_read", "design_apply"];
   if (!allowed.includes(name)) return false;
   try {
     const args = JSON.parse(event.detail);
-    return args.id === "daily-notes";
+    return (
+      args.id === "daily-notes" ||
+      (Boolean(turn.evaluation) && (name === "design_kit_read" || name === "design_kit_save") && (!args.id || args.id === "project"))
+    );
   } catch {
     return false;
   }
 }
 
-async function providerSettings({ command = "codex", model, effort, allowedSkillReads = [] } = {}) {
+async function providerSettings({ provider = "codex", command = provider, model, effort, allowedSkillReads = [] } = {}) {
+  if (!["codex", "claude"].includes(provider)) throw Error("Choose codex or claude.");
   const designSkillSha256 = createHash("sha256")
     .update(await fs.readFile(READ_DESIGN_SKILL.slice(4)))
     .digest("hex");
@@ -46,6 +63,31 @@ async function providerSettings({ command = "codex", model, effort, allowedSkill
     if (!absolute.endsWith(".md") || !roots.some((root) => absolute.startsWith(root + path.sep)))
       throw new Error("Extra reads must name an installed skill Markdown file.");
     approvedReads.push(absolute);
+  }
+  if (provider === "claude") {
+    let signedIn = false;
+    try {
+      signedIn = JSON.parse(execFileSync(command, ["auth", "status"], { encoding: "utf8" })).loggedIn === true;
+    } catch {}
+    if (!signedIn)
+      throw Error(
+        "Claude is not signed in for this CLI profile. Select the existing signed-in CLAUDE_CONFIG_DIR before running; this check never signs in or copies credentials.",
+      );
+    const available = await listClaudeModels({ command });
+    const selected = model ? available.find((entry) => entry.id === model) : (available.find((entry) => entry.recommended) ?? available[0]);
+    if (!selected) throw Error("The requested Claude model is not in the provider model list.");
+    const chosenEffort = effort ?? selected.defaultEffort ?? "low";
+    if (selected.efforts?.length && !selected.efforts.includes(chosenEffort)) throw Error("The Claude model does not support this effort.");
+    return {
+      provider,
+      command,
+      model: selected.id,
+      effort: chosenEffort,
+      fastMode: false,
+      designSkillSha256,
+      allowedSkillReads: approvedReads,
+      cliVersion: execFileSync(command, ["--version"], { encoding: "utf8" }).trim(),
+    };
   }
   const rpc = new CodexRpc({ command, cwd: os.tmpdir() });
   rpc.start();
@@ -61,6 +103,7 @@ async function providerSettings({ command = "codex", model, effort, allowedSkill
     if (!selected.supportedReasoningEfforts?.some((entry) => entry.reasoningEffort === chosenEffort))
       throw new Error("The model does not support this effort.");
     return {
+      provider,
       command,
       model: selected.model ?? selected.id,
       effort: chosenEffort,
@@ -74,7 +117,8 @@ async function providerSettings({ command = "codex", model, effort, allowedSkill
   }
 }
 
-async function startHarness(settings) {
+async function startHarness(settings, alternatives = []) {
+  const providers = new Map([settings, ...alternatives].map((value) => [value.provider ?? "codex", value]));
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-design-live-")));
   const project = path.join(root, "Project");
   const dataDir = path.join(root, "profile");
@@ -95,8 +139,14 @@ async function startHarness(settings) {
     titleModels: {},
     readUsage: async () => ({ providers: [] }),
     expandSkills: false,
-    agentCli: Object.assign(async (provider) => ({ command: provider === "codex" ? settings.command : null, env: process.env }), { invalidate() {} }),
-    agentModels: async () => ({ codex: [{ id: settings.model, name: settings.model, efforts: [] }], claude: null, antigravity: null }),
+    agentCli: Object.assign(async (provider) => ({ command: providers.get(provider)?.command ?? null, env: process.env }), { invalidate() {} }),
+    agentModels: async () =>
+      Object.fromEntries(
+        ["codex", "claude", "antigravity", "kiro"].map((provider) => [
+          provider,
+          providers.has(provider) ? [{ id: providers.get(provider).model, name: providers.get(provider).model, efforts: [] }] : null,
+        ]),
+      ),
     readPullRequest: async () => null,
     readPullRequests: async () => [],
     observeAgentEvent(chatId, event) {
@@ -125,7 +175,7 @@ async function startHarness(settings) {
       }
     },
     createSession(provider, options) {
-      if (provider !== "codex") throw new Error("This opt-in check only runs Codex.");
+      if (!providers.has(provider)) throw new Error("This provider is not part of this evaluation.");
       const sessionKey = String(sessions.length + 1);
       const tools = options.linked.tools
         .filter((tool) => DESIGN_TOOLS.has(tool.name))
@@ -150,9 +200,47 @@ async function startHarness(settings) {
           },
         }));
       toolsBySession.set(sessionKey, tools);
-      const session = new CodexSession({
+      const Session = provider === "claude" ? ClaudeSession : CodexSession;
+      const session = new Session({
         ...options,
         clientVersion: "design-live-check",
+        ...(provider === "claude"
+          ? {
+              loadSdk: async () => {
+                const sdk = await import("@anthropic-ai/claude-agent-sdk");
+                return {
+                  ...sdk,
+                  query: (input) => {
+                    const query = sdk.query({ ...input, options: { ...input.options, settingSources: [], persistSession: false, strictMcpConfig: true } });
+                    return new Proxy(query, {
+                      get(target, property) {
+                        if (property === Symbol.asyncIterator)
+                          return async function* () {
+                            for await (const message of target) {
+                              if (activeTurn && message.type === "result" && message.usage) {
+                                activeTurn.usageBefore = {};
+                                activeTurn.usage = {
+                                  total: {
+                                    inputTokens: message.usage.input_tokens,
+                                    outputTokens: message.usage.output_tokens,
+                                    cachedInputTokens: message.usage.cache_read_input_tokens ?? 0,
+                                    cacheCreationInputTokens: message.usage.cache_creation_input_tokens ?? 0,
+                                  },
+                                };
+                                activeTurn.resolvedModels = Object.keys(message.modelUsage ?? {});
+                              }
+                              yield message;
+                            }
+                          };
+                        const value = Reflect.get(target, property, target);
+                        return typeof value === "function" ? value.bind(target) : value;
+                      },
+                    });
+                  },
+                };
+              },
+            }
+          : {}),
         linked: {
           tools,
           url: () => mcp.url(sessionKey),
@@ -230,11 +318,12 @@ async function startHarness(settings) {
       chatId,
       client,
       close,
-      async turn(label, prompt, timeoutMs = 300000) {
+      async turn(label, prompt, timeoutMs = 300000, turnSettings = settings) {
         if (activeTurn) throw new Error("Run live samples sequentially.");
         let timer;
         const turn = {
           label,
+          evaluation: Boolean(settings.evaluation),
           chatId,
           prompt,
           started: performance.now(),
@@ -260,9 +349,9 @@ async function startHarness(settings) {
               projectPath: project,
               sessionId,
               body: prompt,
-              provider: "codex",
-              model: settings.model,
-              effort: settings.effort,
+              provider: turnSettings.provider ?? "codex",
+              model: turnSettings.model,
+              effort: turnSettings.effort,
               fastMode: false,
               permissionMode: "ask",
             },
@@ -303,6 +392,7 @@ function summarizedTurn(turn) {
     durationMs: turn.durationMs,
     status: turn.status,
     usage: turn.usage,
+    resolvedModels: turn.resolvedModels,
     tokenUsageDelta,
     cards: turn.cards,
     assistantText: turn.assistantText,
