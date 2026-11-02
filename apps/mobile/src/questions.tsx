@@ -23,7 +23,7 @@ const RECOMMENDED = /\s*\((recommended)\)\s*$/i;
 
 /**
  * The agent's questions, Claude-style: the card takes the composer's place, one question at a time.
- * A single-choice pick answers and moves on; multi-select gets a Send button; the last row types an answer.
+ * A single-choice pick moves on; a batch's last question waits for Send, matching desktop.
  */
 export function Questions({
   request,
@@ -68,6 +68,7 @@ export function Questions({
   };
   const inline = variant === "inline";
   const questions = request.questions;
+  const confirmLast = confirmSingle || questions.length > 1;
   const question = questions[Math.max(0, Math.min(page, questions.length - 1))];
   if (request.secretRequest) return <SecretQuestion key={request.requestId} variant={variant} request={request} busy={busy} submit={submit} />;
   if (!question) return null;
@@ -110,7 +111,7 @@ export function Questions({
       typed: nextTyped,
       page: page < questions.length - 1 ? page + 1 : page,
     });
-    if (page === questions.length - 1 && !confirmSingle) finish(next, nextTyped);
+    if (page === questions.length - 1 && !confirmLast) finish(next, nextTyped);
   }
   function sendTyped() {
     if (!question || !typed[question.id]?.trim()) return;
@@ -282,9 +283,17 @@ export function Questions({
           </View>
         )}
       </View>
-      {(question.multiSelect || (confirmSingle && page === questions.length - 1)) && (
+      {(question.multiSelect || (confirmLast && page === questions.length - 1)) && (
         <PillButton
-          title={confirmSingle ? "Send answer" : count ? `Send ${count} answer${count === 1 ? "" : "s"}` : "Pick at least one"}
+          title={
+            confirmLast
+              ? questions.length > 1
+                ? "Send answers"
+                : "Send answer"
+              : count
+                ? `Send ${count} answer${count === 1 ? "" : "s"}`
+                : "Pick at least one"
+          }
           disabled={busy || !count}
           loading={busy}
           onPress={() => finish(picked)}

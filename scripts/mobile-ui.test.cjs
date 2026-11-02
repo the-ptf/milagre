@@ -410,8 +410,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   return exports;
 }
 // The long-press wrapper gives its children no `open`; elements built through `jsx` show them in its place, so a test reads the message.
-const messageActionsStub = ({ children }) => children(undefined);
-const jsx = (type, props, key) => (type === messageActionsStub ? props.children(undefined) : { type, props, key });
+const messageActionsStub = ({ children }) => children(undefined, (formatted) => formatted);
+const jsx = (type, props, key) => (type === messageActionsStub ? messageActionsStub(props) : { type, props, key });
 
 // The compiler's per-component cache uses a hook slot, just like a manual memo.
 const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
@@ -1254,7 +1254,7 @@ test("beside an iPad's sidebar the Tasks panel keeps to the composer's column", 
   assert.deepEqual([screen.box.left, screen.box.width], [225 + 12, 736]);
 });
 
-test("inbox single-choice questions require Send and typed answers replace the choice", () => {
+function questionHost(request, { confirmSingle = false } = {}) {
   const react = hookHost();
   const sent = [];
   const { Questions } = load("questions.tsx", {
@@ -1275,6 +1275,14 @@ test("inbox single-choice questions require Send and typed answers replace the c
     "./icons": { Icon: "Icon" },
     "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
   });
+  const render = () => {
+    react.begin();
+    return Questions({ request, busy: false, confirmSingle, submit: (...args) => sent.push(args) });
+  };
+  return { render, sent };
+}
+
+test("inbox single-choice questions require Send and typed answers replace the choice", () => {
   const request = {
     requestId: "q",
     questions: [
@@ -1286,15 +1294,7 @@ test("inbox single-choice questions require Send and typed answers replace the c
       },
     ],
   };
-  const render = () => {
-    react.begin();
-    return Questions({
-      request,
-      busy: false,
-      confirmSingle: true,
-      submit: (...args) => sent.push(args),
-    });
-  };
+  const { render, sent } = questionHost(request, { confirmSingle: true });
   let tree = render();
   assert.equal(
     find(tree, (n) => n.props?.label === "Dismiss questions"),
@@ -1311,6 +1311,40 @@ test("inbox single-choice questions require Send and typed answers replace the c
   assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), {
     next: ["Write instead"],
   });
+});
+
+test("a Chat question batch waits for Send after the last pick, including repeated taps", () => {
+  const { render, sent } = questionHost({
+    requestId: "batch",
+    questions: [
+      { id: "complexity", header: "Complexidade", question: "Complexidade?", options: [{ label: "Baixa" }] },
+      { id: "validation", header: "Validação", question: "Validação?", options: [{ label: "Pendente" }] },
+    ],
+  });
+  let tree = render();
+  find(tree, (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  tree = render();
+  const lastPick = find(tree, (n) => n.props?.accessibilityRole === "radio");
+  lastPick.props.onPress();
+  lastPick.props.onPress();
+  tree = render();
+  assert.equal(sent.length, 0, "the final choice remains editable rather than sending the whole batch");
+  assert.equal(find(tree, (n) => n.type === "PillButton").props.title, "Send answers");
+  find(tree, (n) => n.props?.label === "Previous question").props.onPress();
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "radio").props.accessibilityState.checked, true);
+  find(tree, (n) => n.props?.label === "Next question").props.onPress();
+  tree = render();
+  find(tree, (n) => n.type === "PillButton").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { complexity: ["Baixa"], validation: ["Pendente"] });
+});
+
+test("a standalone single-choice Chat question still sends on its pick", () => {
+  const { render, sent } = questionHost({ requestId: "single", questions: [{ id: "choice", question: "Choice?", options: [{ label: "Read" }] }] });
+  find(render(), (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { choice: ["Read"] });
 });
 
 test("inbox approval shows the entire action inline, including folders, files and delegation", () => {
@@ -5740,10 +5774,15 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
   assert.ok(menu(), "attachments must use a pull-down anchored to the +");
   menu().props.onSelect("photos");
   assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
+  assert.ok(find(screen.render(), (node) => node.props.accessibilityLabel === "Preparing attachment"));
   menu().props.onSelect("files");
   assert.deepEqual(kinds, ["photos"]);
   picking.resolve([]);
   await settle();
+  assert.equal(
+    find(screen.render(), (node) => node.props.accessibilityLabel === "Preparing attachment"),
+    undefined,
+  );
   menu().props.onSelect("camera");
   await settle();
   assert.deepEqual(kinds, ["photos", "camera"]);
@@ -9329,6 +9368,65 @@ test("clipboard screenshots use the same compressed image payload as picked phot
   const [photo] = await pickAttachments("paste");
   assert.equal(photo.image.dataUrl, "data:image/jpeg;base64,YQ==");
   assert.equal(photo.uri, "file:///compressed.jpg");
+});
+
+test("photo library includes videos, keeps their exported format and rejects oversized bytes before reading them", async () => {
+  let options,
+    cancelled = false,
+    oversized = false,
+    reads = 0;
+  const deleted = [];
+  const { pickAttachments } = load("attachment-picker.ts", {
+    "expo-document-picker": {},
+    "expo-image-picker": {
+      VideoExportPreset: { H264_1280x720: 6 },
+      launchImageLibraryAsync: async (value) => {
+        options = value;
+        return {
+          canceled: cancelled,
+          assets: [
+            { type: "video", uri: "file:///export.mp4", fileName: "Original.MOV" },
+            { type: "video", uri: "file:///android.webm", fileName: "Android.webm" },
+          ],
+        };
+      },
+    },
+    "expo-file-system": {
+      File: class {
+        constructor(uri) {
+          this.uri = uri;
+          this.size = oversized ? 51 * 1024 * 1024 : 1000;
+        }
+        async base64() {
+          reads++;
+          return "dmlkZW8=";
+        }
+        delete() {
+          deleted.push(this.uri);
+        }
+      },
+    },
+    "expo-image-manipulator": {},
+    "expo-clipboard": {},
+    "./attachments": require("../apps/mobile/src/attachments.ts"),
+  });
+  const files = await pickAttachments("photos");
+  assert.deepEqual([...options.mediaTypes], ["images", "videos"]);
+  assert.equal(options.videoExportPreset, 6);
+  assert.equal(options.allowsMultipleSelection, true);
+  assert.deepEqual(
+    Array.from(files, (file) => file.name),
+    ["Original.mp4", "Android.webm"],
+  );
+  assert.ok(files.every((file) => file.video && file.base64 && !file.image));
+  cancelled = true;
+  assert.equal((await pickAttachments("photos")).length, 0);
+  assert.equal(reads, 2);
+  cancelled = false;
+  oversized = true;
+  await assert.rejects(pickAttachments("photos"), /larger than 50 MiB.*Trim/);
+  assert.equal(reads, 2);
+  assert.equal(deleted.length, 2);
 });
 
 test("an empty or denied clipboard gives a useful error without adding an attachment", async () => {
@@ -17092,7 +17190,9 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   const { MessageActions, messageActionProps } = load("message-actions.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Platform: platform, Pressable: "Pressable", TextInput: "TextInput", View: "View" },
+    "react-native": { Platform: platform, Pressable: "Pressable", TextInput: "TextInput", View: "View", processColor: (value) => value },
+    "expo-modules-core": { requireOptionalNativeModule: () => null },
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
     "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
     "./plain-text": { markdownPlainText: (value) => value.replaceAll("**", "") },
     "./ui": { PillButton: "PillButton" },
@@ -17101,7 +17201,14 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   let text = "Some **selected** words";
   const render = () => {
     react.begin();
-    return MessageActions({ text, markdown: true, children: (open) => jsx("Message", { ...messageActionProps(open), text }) });
+    const tree = MessageActions({ text, markdown: true, children: (open, swap) => swap(jsx("Message", { ...messageActionProps(open), text })) });
+    const expand = (node) => {
+      if (!node || typeof node !== "object") return node;
+      if (Array.isArray(node)) return node.map(expand);
+      if (typeof node.type === "function") return expand(node.type(node.props));
+      return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
+    };
+    return expand(tree);
   };
   const original = render();
   assert.equal(original.type, "Pressable");
@@ -17126,6 +17233,57 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   );
   platform.OS = "android";
   assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
+});
+
+test("native selection freezes the passage, preserves the formatted view and asks with only the chosen text", () => {
+  const react = hookHost({ effects: true });
+  const asked = [];
+  const { MessageActions, MessageAskContext } = load("message-actions.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Platform: { OS: "ios" },
+      Pressable: "Pressable",
+      View: "View",
+      processColor: (value) => value,
+      StyleSheet: { absoluteFill: { position: "absolute" } },
+    },
+    "expo-modules-core": { requireOptionalNativeModule: () => ({}), requireNativeViewManager: () => "NativeSelectableText" },
+    "expo-clipboard": {},
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
+    "./plain-text": {},
+    "./ui": {},
+    "./primitives/tap": { tap() {} },
+  });
+  MessageAskContext.defaultValue = (text) => asked.push(text);
+  let text = "A **selected** passage.";
+  const render = () => {
+    react.begin();
+    const tree = MessageActions({ text, markdown: true, children: (_open, swap) => swap(jsx("Formatted", { text })) });
+    const slot = tree.props.children;
+    return { tree, slot: slot.type(slot.props) };
+  };
+  render().tree.props.onLongPress({ nativeEvent: { pageX: 42, pageY: 180 } });
+  let current = render();
+  let native = find(current.slot, (node) => node.type === "NativeSelectableText");
+  assert.deepEqual({ ...native.props.start }, { x: 42, y: 180 });
+  assert.equal(native.props.askTitle, "Ask");
+  assert.equal(find(current.slot, (node) => node.props.pointerEvents === "none").props.style.opacity, 0, "the original stays mounted in its measured place");
+  native.props.onContentHeight({ nativeEvent: { height: 120 } });
+  text += " New streamed text.";
+  current = render();
+  native = find(current.slot, (node) => node.type === "NativeSelectableText");
+  assert.equal(native.props.paragraphs[0].spans.map((span) => span.text).join(""), "A selected passage.");
+  assert.equal(native.props.style.height, 120);
+  native.props.onAsk({ nativeEvent: { text: "selected" } });
+  assert.deepEqual(asked, ["selected"]);
+  native.props.onEnd();
+  current = render();
+  assert.equal(
+    find(current.slot, (node) => node.type === "NativeSelectableText"),
+    undefined,
+  );
+  assert.equal(find(current.slot, (node) => node.type === "Formatted").props.text, text);
 });
 
 test("an iPad's on-screen return key sends; a hardware keyboard's shortcut bar and an iPhone keep new lines", () => {
