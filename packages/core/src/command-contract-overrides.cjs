@@ -50,8 +50,8 @@ module.exports = {
   "peer:routes": [],
   // Another computer's daemon delegating to this Mac's Projects (spec 2026-10-23).
   "delegation:targets": [],
-  "delegation:prepare": request({ worktree: s, chat: s, mode: s }, ["worktree", "chat"]),
-  "delegation:receive": request({ id: s, worktree: s, chat: s, message: s, mode: s, from: object({ label: s, computer: s }, []) }, [
+  "delegation:prepare": request({ worktree: s, chat: s, mode: s, newWorktree: b }, ["worktree", "chat"]),
+  "delegation:receive": request({ id: s, worktree: s, chat: s, message: s, mode: s, newWorktree: b, from: object({ label: s, computer: s }, []) }, [
     "id",
     "worktree",
     "chat",

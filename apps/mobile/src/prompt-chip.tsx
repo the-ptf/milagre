@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { BubbleChatIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, ComputerIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
@@ -110,6 +110,19 @@ export function ChatMentionChip({ title, onOpen }: { title: string; onOpen?: () 
       <Icon icon={BubbleChatIcon} size={chipIcon(textPx)} color={colors.ink2} />
       <Text numberOfLines={1} style={{ color: colors.ink, ...chipLabel(textPx), flexShrink: 1 }}>
         {title}
+      </Text>
+    </Box>
+  );
+}
+
+/** A computer the message names: the agent is told about it and can hand work there. */
+export function ComputerMentionChip({ name }: { name: string }) {
+  const { colors, textPx } = useTheme();
+  return (
+    <Box px={textPx} color={colors.lineStrong} fill={colors.hover} label={`computer ${name}`}>
+      <Icon icon={ComputerIcon} size={chipIcon(textPx)} color={colors.ink2} />
+      <Text numberOfLines={1} style={{ color: colors.ink, ...chipLabel(textPx), flexShrink: 1 }}>
+        {name}
       </Text>
     </Box>
   );

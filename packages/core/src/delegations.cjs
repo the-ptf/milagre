@@ -127,7 +127,9 @@ class Delegations {
    *     computer(name or id) -> { id, name, online }, invoke(computerId, method, args) -> that computer's daemon answer,
    *     thisMac() -> this Mac's name
    *   hostTarget(worktreePath) -> { projectPath, projectName, branch } | null, on the Mac that runs the turn: an active
-   *     Worktree of any of its Projects; remoteReport({ id, status, report, chat }) tells the computers listening
+   *     Worktree of any of its Projects; remoteReport({ id, status, report, chat }) tells the computers listening;
+   *     hostProject(projectPath) -> { projectPath, projectName } | null and newWorktree(projectPath, prompt) ->
+   *     { path, branch }, for a Delegation that starts in a new Worktree
    */
   constructor({ store, ports, id = randomUUID, now = () => new Date() }) {
     Object.assign(this, { store, ports, id, now });
@@ -217,11 +219,12 @@ class Delegations {
   }
 
   /** The `delegate` tool. Resolves to what the requesting agent is told; refusals throw. */
-  async delegate(fromChat, { worktree, chat, message, negotiation = false, computer }) {
+  async delegate(fromChat, { worktree, chat, message, negotiation = false, computer, newWorktree = false }) {
     await this.ready;
     // A Worktree or Chat ref another computer's (`${computerId}|…`) names that computer, as `computer` does.
     const named = [worktree, chat].map(computerOfKey).find((id) => id !== LOCAL_COMPUTER);
-    if (computer || named) return this.delegateRemote(fromChat, { computer: computer || named, worktree, chat, message, negotiation });
+    if (computer || named) return this.delegateRemote(fromChat, { computer: computer || named, worktree, chat, message, negotiation, newWorktree });
+    if (newWorktree) throw new Error("newWorktree is for another computer. On this one, make the Worktree with worktree_create, then delegate to it.");
     const current = this.data.negotiations.find((item) => item.status === "running" && item.chats.includes(fromChat) && item.chats.includes(chat));
     if (current) return this.nextRound(fromChat, current, message);
     if (negotiation && this.holding(fromChat, ({ item }) => item.kind === "delegation"))
@@ -302,10 +305,11 @@ class Delegations {
    * own Chat, so it stays the only writer of its Projects (ADR-0003); this Mac keeps the record, and the report comes
    * back through that computer (`remoteFinished`). Nothing queues here: a computer that is away fails the call at once.
    */
-  async delegateRemote(fromChat, { computer, worktree, chat, message, negotiation }) {
+  async delegateRemote(fromChat, { computer, worktree, chat, message, negotiation, newWorktree = false }) {
     const remote = this.ports.remote;
     if (!remote?.enabled()) throw new Error(REMOTE_OFF);
     if (negotiation) throw new Error("Negotiations stay on one computer. Send a Delegation instead.");
+    if (newWorktree && chat !== "new") throw new Error('A new Worktree starts with a new Chat: set chat to "new".');
     if (this.holding(fromChat, ({ item }) => item.kind === "delegation")) throw new Error(HANDLING);
     const target = remote.computer(computer);
     if (!target)
@@ -321,7 +325,8 @@ class Delegations {
       if (owner !== LOCAL_COMPUTER && owner !== target.id) throw new Error(`That ref belongs to another computer than ${target.name}.`);
       return unqualifyKey(value);
     };
-    const place = { worktree: bare(worktree), chat: chat === "new" ? "new" : bare(chat) };
+    // Only sent when set, so a computer on an older version, which doesn't know it, still takes the rest.
+    const place = { worktree: bare(worktree), chat: chat === "new" ? "new" : bare(chat), ...(newWorktree ? { newWorktree: true } : {}) };
     const mode = callerMode(this.ports.permissionMode(fromChat));
     const from = await this.ports.chat(fromChat);
     let prepared;
@@ -344,7 +349,8 @@ class Delegations {
       from_worktree: from.worktreePath,
       to_chat: null,
       to_label: toLabel,
-      to_worktree: qualifyKey(target.id, place.worktree),
+      // A new Worktree's path is learned from that computer's answer.
+      to_worktree: newWorktree ? null : qualifyKey(target.id, place.worktree),
       message,
       remote: { computerId: target.id, computerName: target.name },
     });
@@ -378,6 +384,10 @@ class Delegations {
       received = { chat: known.chat };
     }
     delegation.to_chat = qualifyKey(target.id, received.chat);
+    if (!delegation.to_worktree && typeof received.worktree === "string") {
+      delegation.to_worktree = qualifyKey(target.id, received.worktree);
+      if (typeof received.label === "string" && received.label) delegation.to_label = `${received.label} on ${target.name}`;
+    }
     // Its report may already be here (a turn that ended at once): it settled the record, which stays settled.
     if (delegation.status === "queued") delegation.status = "running";
     await this.persist();
@@ -464,9 +474,15 @@ class Delegations {
    * On the computer that runs it: where a Delegation from another computer would go, without sending it. `label` names
    * the Chat as the asking Mac shows it; `raisedMode` is the Chat's mode when it is more than the caller's `mode`.
    */
-  async prepareHosted({ worktree, chat, mode } = {}) {
+  async prepareHosted({ worktree, chat, mode, newWorktree = false } = {}) {
     await this.ready;
     if (typeof worktree !== "string" || typeof chat !== "string") throw new Error("Name a Worktree and a Chat.");
+    if (newWorktree) {
+      if (chat !== "new") throw new Error('A new Worktree starts with a new Chat: set chat to "new".');
+      const project = await this.ports.hostProject?.(worktree);
+      if (!project) throw new Error("That path isn't a Project on this computer.");
+      return { label: `${project.projectName} / a new Worktree / a new Chat`, raisedMode: null, target: { ...project, newWorktree: true } };
+    }
     const target = await this.ports.hostTarget?.(worktree);
     if (!target) throw new Error("That Worktree isn't an active Worktree of a Project on this computer.");
     if (chat === "new") return { label: `${target.projectName} / ${target.branch} / a new Chat`, raisedMode: null, target };
@@ -480,12 +496,18 @@ class Delegations {
    * agent carries it out as any Delegation; the report goes back with `remoteReport` and waits for `collectedHosted`.
    * The same id again starts nothing more.
    */
-  async receiveHosted({ id, worktree, chat, message, mode, from } = {}) {
+  async receiveHosted({ id, worktree, chat, message, mode, from, newWorktree = false } = {}) {
     await this.ready;
     if (typeof id !== "string" || !id || typeof message !== "string" || !message.trim()) throw new Error("A Delegation needs an id and a message.");
     const existing = this.data.delegations.find((item) => item.hosted && item.remote_id === id);
-    if (existing) return { chat: existing.to_chat, label: existing.to_label };
-    const { label, target } = await this.prepareHosted({ worktree, chat, mode });
+    if (existing) return { chat: existing.to_chat, label: existing.to_label, worktree: existing.to_worktree };
+    let { label, target } = await this.prepareHosted({ worktree, chat, mode, newWorktree });
+    if (target.newWorktree) {
+      // Made before anything is recorded: a failed creation fails the call, and the asking computer says so.
+      const made = await this.ports.newWorktree(target.projectPath, message);
+      worktree = made.path;
+      label = `${target.projectName} / ${made.branch} / a new Chat`;
+    }
     const computer = clip(typeof from?.computer === "string" && from.computer.trim() ? from.computer.trim() : "another computer", 80);
     const fromLabel = clip(typeof from?.label === "string" && from.label.trim() ? from.label.trim() : "a Chat", 200);
     const toChat = chat === "new" ? await this.ports.openChat(target.projectPath, worktree) : chat;
@@ -503,7 +525,7 @@ class Delegations {
       mode: callerMode(mode),
     });
     await this.enqueue(toChat, this.delegationItem(delegation));
-    return { chat: toChat, label };
+    return { chat: toChat, label, worktree };
   }
 
   /** On the computer that ran them: where the asking computer's Delegations are; "unknown" for an id it never took. */
