@@ -578,7 +578,7 @@ export function PromptField({
                 onStop={() => void dictation.stop()}
               />
             ) : (
-              <VoiceMicButton onPress={startDictation} />
+              <VoiceMicButton onPress={startDictation} processing={fixing} />
             )}
           </View>
         ) : null}
@@ -588,10 +588,6 @@ export function PromptField({
       {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
         <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
           {dictation.phase === "preparing" ? "Preparing the microphone\u2026" : "Finishing the last words\u2026"}
-        </Text>
-      ) : fixing !== null ? (
-        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
-          {fixing ? `Fixing names · ${fixing}` : "Fixing names…"}
         </Text>
       ) : null}
       {skill && !query ? (

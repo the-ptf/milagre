@@ -60,6 +60,7 @@ import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
 import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
+import { SpinnerRing } from "./primitives/SpinnerRing";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -1018,10 +1019,9 @@ export function PromptComposer({
               {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
             </p>
           ) : fixing !== null ? (
-            <p role="status" data-dictation-status className="flex items-center gap-1.5 px-2 py-1 text-12 text-ink-2">
-              <span aria-hidden className="block size-3 shrink-0 rounded-full border-[1.5px] border-line border-t-accent motion-safe:animate-spin" />
-              {fixing ? `Fixing names · ${fixing}` : "Fixing names…"}
-            </p>
+            <span role="status" className="sr-only">
+              {fixing ? `Correcting names · ${fixing}` : "Correcting names…"}
+            </span>
           ) : null}
 
           <div
@@ -1237,15 +1237,28 @@ export function PromptComposer({
                     )}
                   </span>
                 ) : (
-                  <button
-                    type="button"
-                    aria-label={DICTATION_LABELS.idle}
-                    title={dictateShortcutLabel ? `${DICTATION_LABELS.idle} (${dictateShortcutLabel})` : DICTATION_LABELS.idle}
-                    onClick={startDictation}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+                  <Tooltip
+                    label={fixing !== null ? (fixing ? `Correcting names · ${fixing}` : "Correcting names…") : DICTATION_LABELS.idle}
+                    shortcut={dictateShortcutLabel}
+                    align="end"
                   >
-                    <Icon icon={Mic01Icon} size={16} />
-                  </button>
+                    <button
+                      type="button"
+                      data-dictation-processing={fixing !== null || undefined}
+                      aria-label={DICTATION_LABELS.idle}
+                      aria-busy={fixing !== null}
+                      aria-description={fixing !== null ? "Correcting names. Start a new dictation to replace the pending correction." : undefined}
+                      onClick={startDictation}
+                      className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors ${fixing !== null ? "bg-hover text-ink-4" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                    >
+                      {fixing !== null && (
+                        <span className="pointer-events-none absolute inset-0">
+                          <SpinnerRing size={28} stroke={1.5} color="var(--accent)" />
+                        </span>
+                      )}
+                      <Icon icon={Mic01Icon} size={16} />
+                    </button>
+                  </Tooltip>
                 )}
               </span>
               <button

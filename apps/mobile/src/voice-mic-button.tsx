@@ -42,16 +42,32 @@ const HALO = 22;
 const HALO_SWELL = 0.6;
 
 /** The mic at the trailing edge of the composer: tap to record. While a take runs the capsule stands in its place. */
-export function VoiceMicButton({ onPress }: { onPress: () => void }) {
+export function VoiceMicButton({ onPress, processing = null }: { onPress: () => void; processing?: string | null }) {
+  const { colors } = useTheme();
+  const busy = processing !== null;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Dictate"
+      accessibilityState={{ busy }}
+      accessibilityValue={busy ? { text: processing ? `Correcting names · ${processing}` : "Correcting names" } : undefined}
+      accessibilityHint={busy ? "Starts a new dictation and drops the pending correction" : undefined}
+      accessibilityLiveRegion="polite"
       onPress={onPress}
       style={({ pressed }) => ({ width: MIC_SIZE, height: MIC_SIZE, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
     >
-      <View style={{ width: SIZE - 6, height: SIZE - 6, alignItems: "center", justifyContent: "center" }}>
-        <Icon icon={Mic01Icon} size={20} tone="ink2" />
+      <View
+        style={{
+          width: busy ? 36 : SIZE - 6,
+          height: busy ? 36 : SIZE - 6,
+          borderRadius: radius.full,
+          backgroundColor: busy ? colors.hover : undefined,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {busy && <MicLoadingRing size={36} stroke={1.5} color={colors.accent} />}
+        <Icon icon={Mic01Icon} size={20} tone={busy ? "ink4" : "ink2"} />
       </View>
     </Pressable>
   );
@@ -224,22 +240,39 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
   );
 }
 
-/** An arc turning while dictation starts or the take is finished; with motion off it holds still. */
-function MicLoadingRing() {
+/** A loading border. Reduced motion keeps a stepped fade without rotation. */
+function MicLoadingRing({ size = 20, stroke = 2, color }: { size?: number; stroke?: number; color?: string }) {
   const { colors, motionScale } = useTheme();
   const turn = useSharedValue(0);
+  const opacity = useSharedValue(1);
   useEffect(() => {
-    if (motionScale <= 0) return;
-    turn.set(withRepeat(withTiming(1, { duration: 900, easing: Easing.linear, reduceMotion: ReduceMotion.System }), -1, false));
-    return () => cancelAnimation(turn);
-  }, [motionScale, turn]);
-  const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.get() * 360}deg` }] }));
-  const RING = 20;
+    turn.set(0);
+    opacity.set(1);
+    if (motionScale <= 0) {
+      const timing = { duration: 800, easing: Easing.steps(2), reduceMotion: ReduceMotion.Never };
+      opacity.set(withRepeat(withSequence(withTiming(0.45, timing), withTiming(1, timing)), -1, false, undefined, ReduceMotion.Never));
+    } else {
+      turn.set(withRepeat(withTiming(1, { duration: 900, easing: Easing.linear, reduceMotion: ReduceMotion.System }), -1, false));
+    }
+    return () => {
+      cancelAnimation(turn);
+      cancelAnimation(opacity);
+    };
+  }, [motionScale, opacity, turn]);
+  const spin = useAnimatedStyle(() => ({ opacity: opacity.get(), transform: [{ rotate: `${turn.get() * 360}deg` }] }));
+  const RING = size;
   return (
     <>
       <Animated.View
         pointerEvents="none"
-        style={{ position: "absolute", width: RING, height: RING, borderRadius: RING / 2, borderWidth: 2, borderColor: withAlpha(colors.ink3, 0.25) }}
+        style={{
+          position: "absolute",
+          width: RING,
+          height: RING,
+          borderRadius: RING / 2,
+          borderWidth: stroke,
+          borderColor: color ? colors.lineStrong : withAlpha(colors.ink3, 0.25),
+        }}
       />
       <Animated.View
         pointerEvents="none"
@@ -249,10 +282,10 @@ function MicLoadingRing() {
             width: RING,
             height: RING,
             borderRadius: RING / 2,
-            borderWidth: 2,
+            borderWidth: stroke,
             borderColor: "transparent",
-            borderTopColor: colors.ink2,
-            borderRightColor: colors.ink2,
+            borderTopColor: color ?? colors.ink2,
+            borderRightColor: color ?? colors.ink2,
           },
           spin,
         ]}

@@ -18243,6 +18243,15 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   assert.equal(idle.props.accessibilityLabel, "Dictate");
   idle.props.onPress();
   assert.equal(starts, 1);
+  const processing = VoiceMicButton({ onPress: () => starts++, processing: "GPT-6 Luna" });
+  assert.equal(processing.props.accessibilityState.busy, true);
+  assert.equal(processing.props.accessibilityValue.text, "Correcting names · GPT-6 Luna");
+  assert.equal(processing.props.style({ pressed: false }).width, 44, "processing keeps the mic's touch target");
+  assert.equal(find(processing, (node) => node.type === "Icon").props.tone, "ink4", "the busy mic is gray");
+  const border = find(processing, (node) => typeof node.type === "function" && node.type.name === "MicLoadingRing");
+  assert.equal(border.props.size, 36, "the loading arc is on the visual button's border");
+  processing.props.onPress();
+  assert.equal(starts, 2, "starting a new take stays available while the previous correction is pending");
 
   let discards = 0;
   let stops = 0;
@@ -18492,12 +18501,17 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   deliver("open miracle", { draft, selection: { start: 0, end: 0 } }, correction);
   let fixing = render();
   assert.equal(draft, "open miracle", "the heard words land before AI answers");
-  assert.ok(find(fixing, (node) => node.type === "Text" && node.props.children === "Fixing names · GPT-6 Luna"));
+  assert.equal(find(fixing, (node) => node.type === "VoiceMicButton").props.processing, "GPT-6 Luna");
+  assert.ok(
+    !find(fixing, (node) => node.type === "Text" && String(node.props.children).startsWith("Fixing names")),
+    "processing stays in the mic, with no status row",
+  );
   resolveCorrection("open Milagre");
   await correction.text;
   render();
   fixing = render();
   assert.equal(draft, "open Milagre", "the answer updates the dictated words in place");
+  assert.equal(find(fixing, (node) => node.type === "VoiceMicButton").props.processing, null, "the indicator clears after correction");
   assert.ok(!find(fixing, (node) => node.type === "Text" && String(node.props.children).startsWith("Fixing names")));
 
   const late = {
@@ -18510,6 +18524,8 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   render();
   draft += " after my edit";
   render();
+  const editedTree = render();
+  assert.equal(find(editedTree, (node) => node.type === "VoiceMicButton").props.processing, null, "editing clears the indicator before the AI answers");
   const edited = draft;
   resolveCorrection("PLEASE");
   await late.text;

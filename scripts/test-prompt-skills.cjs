@@ -318,6 +318,49 @@ async function browserChecks() {
     await evaluate(keyDown);
     await waitFor("window.micStops === 2");
     await evaluate(keyUp);
+    await type("");
+    await evaluate(
+      "window.deliverTranscript('open miracle', {selection:{start:0,end:0}}, {model:'GPT-6 Luna',text:new Promise(resolve=>{window.finishCorrection=resolve})})",
+    );
+    await waitFor("!!document.querySelector('[data-dictation-processing]')");
+    assert.equal(await evaluate("document.querySelector('[data-dictation-processing]').getAttribute('aria-busy')"), "true");
+    assert.equal(await evaluate("!!document.querySelector('[data-dictation-status]')"), false, "AI correction adds no status row");
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft remains editable during correction");
+    assert.equal(await evaluate("document.querySelector('[aria-label=Send]').disabled"), false, "Send stays available during correction");
+    assert.equal(
+      await evaluate("parseFloat(getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).width)"),
+      28,
+      "the loading arc follows the mic button's border",
+    );
+    await evaluate("document.querySelector('[data-dictation-processing]').scrollIntoView({block:'nearest'})");
+    await screenshot("dictation-processing-before-hover");
+    const micPoint = await evaluate(
+      "(() => {const r=document.querySelector('[data-dictation-processing]').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()",
+    );
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    window.webContents.sendInputEvent({ type: "mouseMove", ...micPoint });
+    await evaluate(
+      "document.querySelector('[data-dictation-processing]').dispatchEvent(new PointerEvent('pointerover',{bubbles:true,relatedTarget:document.body}))",
+    );
+    await waitFor("[...document.querySelectorAll('[role=tooltip]')].some(node=>node.textContent.includes('Correcting names · GPT-6 Luna'))");
+    await screenshot("dictation-processing-tooltip");
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    for (const dark of [false, true]) {
+      await evaluate(`document.documentElement.classList.toggle('dark', ${dark})`);
+      await screenshot(dark ? "dictation-processing-dark" : "dictation-processing-light");
+    }
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(
+      await evaluate("getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).animationName"),
+      "reduced-motion-loading",
+      "reduced motion keeps a fading cue without rotation",
+    );
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+    window.webContents.debugger.detach();
+    await evaluate("window.finishCorrection('open Milagre')");
+    await waitFor("!document.querySelector('[data-dictation-processing]')");
+    await waitFor(`${editor}.value === 'open Milagre'`);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",
