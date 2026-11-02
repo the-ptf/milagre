@@ -157,6 +157,9 @@ const METHODS = new Set([
   "link:list",
   "link:create",
   "link:update",
+  // Deleting a Link from the phone: what it would close, then the delete, which the daemon checks again.
+  "link:delete-check",
+  "link:delete",
   "link:open",
   "link:send",
   "chat:send",

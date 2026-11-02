@@ -7,8 +7,21 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { bridgeForKey } from "../lib/computer-bridge";
 type Project = { id: string; name: string; path: string };
-/** Creates a Link, or edits `link`'s name and member Projects. Chats already started keep their Worktrees. */
-export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedProjectLink; onClose: () => void; onCreated: (link: NamedProjectLink) => void }) {
+/**
+ * Creates a Link, or edits `link`'s name and member Projects. Chats already started keep their Worktrees. Editing, it
+ * offers Delete Link…, which `onDelete` takes to its confirmation.
+ */
+export function LinkProjectDialog({
+  link,
+  onClose,
+  onCreated,
+  onDelete,
+}: {
+  link?: NamedProjectLink;
+  onClose: () => void;
+  onCreated: (link: NamedProjectLink) => void;
+  onDelete?: (link: NamedProjectLink) => void;
+}) {
   const bridge = bridgeForKey(link ? `milagre-link:${link.id}` : null);
   const dialog = useRef<HTMLDialogElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -145,6 +158,17 @@ export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedPr
           </p>
         )}
         <div className="mt-5 flex justify-end gap-2">
+          {link && onDelete && (
+            <button
+              type="button"
+              data-link-delete
+              disabled={saving}
+              onClick={() => onDelete(link)}
+              className="mr-auto rounded-control px-3 py-2 text-13 text-red-ink hover:bg-hover-2 disabled:opacity-40"
+            >
+              Delete Link…
+            </button>
+          )}
           <button type="button" disabled={saving} onClick={onClose} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
             Cancel
           </button>

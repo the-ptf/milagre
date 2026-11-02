@@ -331,6 +331,12 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   assert.equal((await request("/runs?projectPath=" + encodeURIComponent(owner))).status, 200);
   assert.equal((await rpc("chat:patch", [owner, id, { title: "From phone" }])).status, 200);
   assert.equal((await (await request(snapshotRoute)).json()).result.link.state.sessions[id].title, "From phone");
+  // The phone deletes the Link as the desktop does: the screenshots above leave both Worktrees changed, so both stay.
+  assert.deepEqual((await (await rpc("link:delete-check", [link.id])).json()).result, { chats: 1, running: [] });
+  const deleted = (await (await rpc("link:delete", [link.id])).json()).result;
+  assert.deepEqual(deleted.removed, []);
+  assert.equal(deleted.kept.length, 2);
+  assert.deepEqual((await (await rpc("link:list")).json()).result, []);
 });
 
 test("mobile archives finished subagents through the shared owner and restores their output", async (t) => {

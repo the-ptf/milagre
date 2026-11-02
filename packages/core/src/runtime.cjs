@@ -75,7 +75,7 @@ const { createPullRequestReader, readPullRequestState, readPullRequests } = requ
 const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
 const { createPullRequestWatch } = require("./pull-request-watch.cjs");
-const { emptyState, reconcileState, markDisconnectedSubagents } = require("./project-state.cjs");
+const { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases } = require("./project-state.cjs");
 const { migrateWorktreeChats } = require("./worktree-chats.cjs");
 const { createLinear } = require("./linear/index.cjs");
 const { createLinearIssues } = require("./linear/issues.cjs");
@@ -2798,6 +2798,30 @@ function createRuntime(options) {
     sentFromNotes,
     broadcast: broadcastProjectState,
     titles: chatTitles,
+    // A deleted Link's Chat is archived like any other (its Terminals, advisors and Heartbeats stop), then its setup and
+    // agent close, so nothing keeps running in the Worktrees about to go.
+    retire: async (scope, sessionId) => {
+      const chatId = chatKey(scope, sessionId);
+      await archiveChat(scope, sessionId);
+      await worktreeSetups.cancel(chatId);
+      await agents.closeChat(chatId);
+    },
+    // Its member Projects are read again: a removed Worktree leaves them, and a kept one becomes theirs with the base it was
+    // made from, so deleting its Chat there can remove it later through the usual checks.
+    released: async ({ removed, kept }) => {
+      for (const member of removed) await worktreeSetups.forget(member.worktreePath);
+      for (const projectPath of new Set([...removed, ...kept].map((member) => member.projectPath))) {
+        const bases = new Map(kept.filter((member) => member.projectPath === projectPath && member.base).map((member) => [member.worktreePath, member.base]));
+        if (!bases.size && !states.has(projectPath)) continue;
+        try {
+          await readProject(projectPath);
+          if (bases.size) await updateProject(projectPath, (state) => withWorktreeBases(state, bases), { chats: [] });
+        } catch (error) {
+          console.warn(`Milagre couldn't read ${projectName(projectPath)} again after deleting a Link:`, error.message);
+        }
+      }
+      await pruneLinks();
+    },
   });
   commands.handle("linked:snapshot", () => linked.snapshot());
   commands.handle("linked:remote-enabled:read", () => ({ enabled: remoteDelegation.enabled() }));

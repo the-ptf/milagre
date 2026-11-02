@@ -47,7 +47,8 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   for (const discovered of discoveredWorktrees) {
     const folder = nativePath(discovered.path);
     const previous = existingByPath.get(folder);
-    const worktree = previous ?? { id: allocateId(), project_id: 1, path: folder, name: discovered.name };
+    // A Worktree a shared Chat owned last time and no longer does (its Link was deleted) is the Project's again.
+    const { sharedChat: _owner, ...worktree } = previous ?? { id: allocateId(), project_id: 1, path: folder, name: discovered.name };
     worktrees[worktree.id] = { ...worktree, project_id: 1, path: folder, name: discovered.name };
     const sharedChat = ownedWorktrees.get(discovered.path) ?? ownedWorktrees.get(folder);
     if (sharedChat) {
@@ -117,4 +118,17 @@ function markDisconnectedSubagents(state, liveSessionIds) {
   return { ...state, sessions };
 }
 
-module.exports = { emptyState, reconcileState, markDisconnectedSubagents };
+/** The state with `bases` (Worktree path -> base ref) given to the Worktrees that have none; unchanged when none take one. */
+function withWorktreeBases(state, bases) {
+  const worktrees = { ...state.worktrees };
+  let changed = false;
+  for (const worktree of Object.values(state.worktrees ?? {})) {
+    const base = bases.get(worktree.path);
+    if (!base || worktree.base) continue;
+    worktrees[worktree.id] = { ...worktree, base };
+    changed = true;
+  }
+  return changed ? { ...state, worktrees } : state;
+}
+
+module.exports = { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases };

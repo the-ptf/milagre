@@ -8,7 +8,8 @@ const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 const { scopeKey, chatKeyForScope } = require("@milagre/shared/chat-scopes");
 // `approvals`: sessions keep their turn's permission mode and hold Milagre's approval cards in it, as real ones do.
-async function fixture(t, { approvals = null } = {}) {
+// `hold`: each turn stays running until the promise it returns settles.
+async function fixture(t, { approvals = null, hold = null } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-link-runtime-")));
   const events = [],
     created = [],
@@ -49,6 +50,7 @@ async function fixture(t, { approvals = null } = {}) {
             context.emit({ type: "session-started", nativeId: "native" });
             context.emit({ type: "turn-started", turnId });
             context.emit({ type: "text-delta", messageId: "reply", text: "Changed both" });
+            if (hold) await hold();
             context.emit({ type: "turn-completed" });
             return { turnId };
           })();
@@ -390,4 +392,71 @@ test("a shared Chat in Ask asks before its delegate or chat_start reaches a memb
   approvals[1].answer("deny");
   await assert.rejects(starting, /declined/);
   assert.deepEqual(await received(), [], "nothing reached the Full Chat");
+});
+
+test("deleting a Link archives its Chats, removes untouched Worktrees and gives changed ones back to their Projects", async (t) => {
+  const { dir, runtime, projects, settle } = await fixture(t);
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const sent = await runtime.invoke("link:send", [
+    { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Edit both", provider: "codex", model: "test", permissionMode: "auto" },
+  ]);
+  await settle(1);
+  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const [api, web] = ["api", "web"].map((name) => session.worktrees.find((member) => path.basename(member.projectPath) === name));
+  await fs.writeFile(path.join(web.worktreePath, "notes.txt"), "unsaved");
+  assert.ok(runtime.methods.includes("link:delete"));
+  assert.deepEqual(await runtime.invoke("link:delete-check", [link.id]), { chats: 1, running: [] });
+
+  assert.deepEqual(await runtime.invoke("link:delete", [link.id]), { removed: [api.worktreePath], kept: [web.worktreePath] });
+  assert.deepEqual(await runtime.invoke("link:list"), []);
+  await assert.rejects(runtime.invoke("link:open", [link.id]), /no longer exists/);
+  await assert.rejects(runtime.invoke("link:delete", [link.id]), /no longer exists/);
+  // The untouched Worktree went with its branch; the changed one kept both.
+  const git = (folder, ...args) =>
+    execFileSync("git", ["-C", folder, ...args])
+      .toString()
+      .trim();
+  assert.equal(git(api.projectPath, "worktree", "list").split("\n").length, 1);
+  assert.equal(git(api.projectPath, "branch", "--list", api.branch), "");
+  assert.equal(await fs.readFile(path.join(web.worktreePath, "notes.txt"), "utf8"), "unsaved");
+  assert.notEqual(git(web.projectPath, "branch", "--list", web.branch), "");
+  // The transcript stays on disk, its Chat archived.
+  await runtime.flush();
+  const saved = JSON.parse(await fs.readFile(path.join(dir, "profile", "links", link.id, ".milagre", "coordination.json"), "utf8"));
+  assert.equal(saved.sessions[sent.sessionId].archived, true);
+  assert.ok(saved.deletedAt);
+  // The kept Worktree is web's own now: no shared Chat, a Chat of its own, and the base its removal checks against.
+  const view = await runtime.openProject(web.projectPath);
+  const worktree = Object.values(view.state.worktrees).find((item) => item.path === web.worktreePath);
+  assert.equal(worktree.sharedChat, undefined);
+  assert.equal(worktree.base, web.base);
+  assert.ok(Object.values(view.state.sessions).some((item) => item.worktree_id === worktree.id && !item.archived));
+});
+
+test("a Link with a running Chat is not deleted until that Chat stops", async (t) => {
+  let release;
+  const running = new Promise((resolve) => (release = resolve));
+  const { runtime, projects, settle } = await fixture(t, { hold: () => running });
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  await runtime.invoke("link:send", [
+    { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Edit both", provider: "codex", model: "test", permissionMode: "auto" },
+  ]);
+  let check;
+  for (let i = 0; i < 200; i++) {
+    check = await runtime.invoke("link:delete-check", [link.id]);
+    if (check.running.length) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.deepEqual(check, { chats: 1, running: ["Edit both"] });
+  await assert.rejects(runtime.invoke("link:delete", [link.id]), /^Error: Edit both is running\. Stop it before deleting the Link\.$/);
+  assert.equal((await runtime.invoke("link:list")).length, 1);
+  release();
+  await settle(1);
+  for (let i = 0; i < 200 && (await runtime.invoke("link:delete-check", [link.id])).running.length; i++)
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  const result = await runtime.invoke("link:delete", [link.id]);
+  assert.equal(result.removed.length, 2);
+  assert.deepEqual(await runtime.invoke("link:list"), []);
 });

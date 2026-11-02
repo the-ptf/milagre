@@ -13,7 +13,8 @@ import { useDesigns } from "./use-designs";
 import { readPermission, savedChatDefaults, savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
 import type { ChatLocation } from "./navigation-store";
 import type { SavedHost } from "./hosts-store";
-import type { AgentCliStatus, AgentModels, ModelProvider, PermissionMode } from "@milagre/shared/model";
+import type { AgentCliStatus, AgentModels, ModelProvider, NamedLinkDeleted, PermissionMode } from "@milagre/shared/model";
+import { scopeKey as keyOfScope } from "@milagre/shared/chat-scopes";
 import type { Attachment } from "./attachments";
 import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
@@ -546,6 +547,18 @@ function useSessionState() {
     if (!client) throw new Error("Connect to your computer first.");
     const removingGeneration = generation.current;
     await client.call("project:forget", [path]);
+    return dropScope(client.url, path, removingGeneration);
+  };
+  // A deleted Link leaves this phone as a removed Project does. Resolves to what link:delete did, and whether this
+  // navigation is still the one the delete started from.
+  const deleteLink = async (linkId: string) => {
+    if (!client) throw new Error("Connect to your computer first.");
+    const removingGeneration = generation.current;
+    const result = await client.call<NamedLinkDeleted>("link:delete", [linkId]);
+    return { result, sameNavigation: await dropScope(client.url, keyOfScope({ kind: "link", linkId }), removingGeneration) };
+  };
+  // The Project or Link at `path` is gone from computer `hostId`: its open, saved location and list row go too.
+  const dropScope = async (hostId: string, path: string, removingGeneration: number) => {
     const sameNavigation = generation.current === removingGeneration;
     // Invalidate an in-flight open before it can put the removed Project back on screen.
     if (sameNavigation && (selection.current?.path === path || snapshot?.project.path === path || opening?.path === path)) {
@@ -555,10 +568,10 @@ function useSessionState() {
       setOpening(null);
     }
     const completionGeneration = generation.current;
-    setLastLocation((current) => (current?.hostId === client.url && current.projectPath === path ? null : current));
-    await savedNavigation.forgetProject(client.url, path);
-    seen.current.delete(`${client.url}|${path}`);
-    listed.current.delete(`${client.url}|${path}`);
+    setLastLocation((current) => (current?.hostId === hostId && current.projectPath === path ? null : current));
+    await savedNavigation.forgetProject(hostId, path);
+    seen.current.delete(`${hostId}|${path}`);
+    listed.current.delete(`${hostId}|${path}`);
     // A removed Project's saved location/cache belongs to its computer; the visible list and navigation belong to
     // the current selection. Neither an RPC nor a keychain write may replace a newer computer or Chat.
     if (!sameNavigation || generation.current !== completionGeneration) return false;
@@ -682,6 +695,7 @@ function useSessionState() {
     seedPreview,
     reloadProjects,
     forgetProject,
+    deleteLink,
     setProjectHidden,
     claimAutoOpen,
     opening,

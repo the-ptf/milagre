@@ -3,6 +3,7 @@ const path = require("node:path");
 const { createGit } = require("./git/client.cjs");
 const { createWorktree: create, slugify, DEFAULT_WORKTREE_ROOT } = require("./worktrees.cjs");
 const { resolveSetupCommand, runSetupCommand } = require("./worktree-setup.cjs");
+const { removeWorktree: removeChecked } = require("./worktree-cleanup.cjs");
 const { validLinkId } = require("@milagre/shared/chat-scopes");
 
 /**
@@ -19,6 +20,7 @@ function createLinkWorkspaces({
   createWorktree = create,
   runSetup = runSetupCommand,
   deferSetup,
+  removeWorktree = removeChecked,
   git = createGit(),
 }) {
   const queues = new Map();
@@ -244,8 +246,36 @@ function createLinkWorkspaces({
     }
     return { member: await materialize(link, prep, member), created: true };
   }
+  // A deleted Link's Worktrees. One git says holds nothing unsaved goes with its milagre/ branch, through the same checked
+  // removal as an archived Chat's (worktree-cleanup.cjs). One with changes or unpushed commits stays, as does one whose
+  // setup was cut short, that was never verified, or that can't be checked. Each comes back with its member record.
+  async function release(linkId) {
+    const state = await store.get(linkId);
+    const members = new Map();
+    for (const prep of Object.values(state.preparations)) for (const member of prep.members) members.set(member.worktreePath, member);
+    for (const session of Object.values(state.sessions)) for (const member of session.worktrees ?? []) members.set(member.worktreePath, member);
+    const removed = [],
+      kept = [];
+    for (const member of members.values()) {
+      const exists = await fs.lstat(member.worktreePath).then(
+        () => true,
+        () => false,
+      );
+      if (!exists) continue;
+      try {
+        if ((!member.created && !isReady(member)) || (member.setupStarted && !member.setupDone)) throw new Error("Unverified Worktree");
+        await removeWorktree({ path: member.worktreePath, root, projectPath: member.projectPath, base: member.base ?? member.initialCommit });
+        removed.push(member);
+      } catch {
+        kept.push(member);
+      }
+    }
+    return { removed, kept };
+  }
   return {
     membersAvailable,
+    /** Removes a deleted Link's untouched Worktrees and resolves to `{ removed, kept }` member records. */
+    releaseLinkWorktrees: (linkId) => queued(linkId, () => release(linkId)),
     prepareLinkChat: (request) => queued(request.link.id, () => prepare(request)),
     /** Gives a Link Chat its Worktree in one Project, or the one it has. Resolves to `{ member, created }`. */
     addLinkWorktree: (request) => queued(request.link.id, () => addMember(request)),

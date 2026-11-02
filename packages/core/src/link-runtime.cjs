@@ -1,7 +1,24 @@
 const { scopeKey, validLinkId } = require("@milagre/shared/chat-scopes");
 const { chatKey } = require("@milagre/shared/agent-runs");
+const { chatTitle } = require("@milagre/shared/chats");
+const { linkRunningText } = require("@milagre/shared/worktree-link");
 const { createSentFromNotes } = require("./sent-from.cjs");
-function registerLinkRuntime({ commands, registry, store, workspaces, chats, sentFromNotes = createSentFromNotes(), broadcast, titles }) {
+/**
+ * `retire(scope, sessionId)` archives one Chat of a Link being deleted and closes what runs for it. `released({ removed,
+ * kept })` then hears which of the Link's Worktrees went and which stayed, as member records (link-workspaces.cjs).
+ */
+function registerLinkRuntime({
+  commands,
+  registry,
+  store,
+  workspaces,
+  chats,
+  sentFromNotes = createSentFromNotes(),
+  broadcast,
+  titles,
+  retire = async () => {},
+  released = async () => {},
+}) {
   const queues = new Map();
   async function definition(id) {
     if (!validLinkId(id)) throw new Error("Invalid Link ID");
@@ -73,6 +90,50 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, sen
     const id = request?.id;
     if (!validLinkId(id)) throw new Error("Invalid Link ID");
     const run = (queues.get(id) ?? Promise.resolve()).catch(() => {}).then(() => registry().updateProjectGroup(request));
+    queues.set(id, run);
+    run
+      .finally(() => {
+        if (queues.get(id) === run) queues.delete(id);
+      })
+      .catch(() => {});
+    return run;
+  });
+  // What deleting a Link would close: its Chats not archived yet, and the titles of those with a turn running or on its
+  // way (what a restart would cut short). The confirmation on desktop and phone shows both.
+  async function deletion(link) {
+    const key = scopeKey({ kind: "link", linkId: link.id });
+    const sessions = Object.values((await store.get(link.id)).sessions);
+    const busy = chats.busyChats();
+    return {
+      sessions,
+      chats: sessions.filter((session) => !session.archived).length,
+      running: sessions.filter((session) => busy.has(chatKey(key, session.id))).map((session) => chatTitle(session)),
+    };
+  }
+  commands.handle("link:delete-check", async (_event, id) => {
+    const { chats: count, running } = await deletion(await definition(id));
+    return { chats: count, running };
+  });
+  // Deleting a Link never deletes work (#200): refused while one of its Chats runs; its Chats are archived and their
+  // transcripts stay in its folder; a Worktree with changes or unpushed commits stays and goes back to its Project.
+  // The state is marked first and the registry entry goes last, so a failure on the way leaves a Link to delete again.
+  commands.handle("link:delete", (_event, id) => {
+    if (!validLinkId(id)) throw new Error("Invalid Link ID");
+    const run = (queues.get(id) ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        const link = await definition(id);
+        const { sessions, running } = await deletion(link);
+        if (running.length) throw new Error(linkRunningText(running));
+        const key = scopeKey({ kind: "link", linkId: link.id });
+        for (const session of sessions) await retire(key, session.id);
+        const result = await workspaces.releaseLinkWorktrees(link.id);
+        await store.update(link.id, (latest) => ({ ...latest, deletedAt: new Date().toISOString() }), { chats: [] });
+        await store.flush(link.id);
+        await registry().deleteProjectGroup(link.id);
+        await released(result);
+        return { removed: result.removed.map((member) => member.worktreePath), kept: result.kept.map((member) => member.worktreePath) };
+      });
     queues.set(id, run);
     run
       .finally(() => {

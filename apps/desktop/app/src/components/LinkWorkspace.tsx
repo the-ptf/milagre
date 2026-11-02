@@ -99,6 +99,7 @@ export function LinkWorkspace({
   onAddComputer,
   onOpenComputerSettings,
   onEditLink,
+  onDeleteLink,
   onOpenProject,
   onSettings,
   onOpenAccounts,
@@ -135,6 +136,7 @@ export function LinkWorkspace({
   onAddComputer?: () => void;
   onOpenComputerSettings?: (id: string | null) => void;
   onEditLink: (id: string) => void;
+  onDeleteLink?: (id: string) => void;
   onOpenProject: () => void;
   onSettings: () => void;
   /** Settings > Accounts, from a Chat's usage-limit card. */
@@ -637,6 +639,7 @@ export function LinkWorkspace({
                 onAddComputer={onAddComputer}
                 onOpenComputerSettings={onOpenComputerSettings}
                 onEditLink={onEditLink}
+                onDeleteLink={onDeleteLink}
                 onSwitchProject={onSwitchProject}
                 onOpenProject={onOpenProject}
                 onOpenCommands={() => setCommandsOpen(true)}

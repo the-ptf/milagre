@@ -2605,6 +2605,7 @@ function sessionHost(
       react,
       "@milagre/shared/reconcile": require("@milagre/shared/reconcile"),
       "@milagre/shared/stable-order": require("@milagre/shared/stable-order"),
+      "@milagre/shared/chat-scopes": require("@milagre/shared/chat-scopes"),
       "react/jsx-runtime": { jsx },
       "react-native": { AppState },
       "./client": {
@@ -3974,6 +3975,8 @@ function navigationHost(
       "./confirm-store": confirmStore,
     }),
     "@milagre/shared/chat-scopes": require("@milagre/shared/chat-scopes"),
+    "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
+    "./link-delete": load("link-delete.ts", { "./confirm-store.ts": confirmStore, "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link") }),
     "./accounts-section": { AccountsSection: "AccountsSection" },
     "./confirm-store": confirmStore,
     "./app/settings": { SettingsView: "SettingsView" },
@@ -4981,6 +4984,61 @@ test("a sidebar Project can be removed from the list after confirming", async ()
     ]),
   );
   assert.equal(JSON.stringify(nav.calls), JSON.stringify([["project:forget", ["/last"]], ["reload"]]));
+  assert.deepEqual(nav.routes, ["/projects"]);
+  assert.ok(nav.storeCalls.some(([name]) => name === "refreshAll"));
+});
+
+test("a sidebar Link is deleted after confirming its Chat count, and the open one leaves for the Projects list", async () => {
+  const alerts = [];
+  // A Link id is a UUID: the phone tells a Link row from a Project row by it (isLinkScopeKey).
+  const id = "3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+  const scope = `milagre-link:${id}`;
+  const link = { id, name: "Food", projectIds: ["api", "web"] };
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger(alerts),
+    session: {
+      recent: [{ path: "/last" }, { path: scope, name: "Food", link, projects: [] }],
+      deleteLink: async (linkId) => {
+        nav.calls.push(["deleteLink", linkId]);
+        return { result: { removed: ["/wt/api"], kept: ["/wt/web"] }, sameNavigation: true };
+      },
+    },
+  });
+  nav.session.client.call = async (...args) => {
+    nav.calls.push(args);
+    return args[0] === "link:delete-check" ? { chats: 2, running: [] } : undefined;
+  };
+  nav.session.snapshot = snapshot(scope);
+  const row = nav.rows().props.data.findIndex((item) => item.kind === "project" && item.path === scope);
+  assert.notEqual(row, -1);
+  const menu = nav.open(nav.rows().props.renderItem({ item: nav.rows().props.data[row] }));
+  assert.equal(
+    JSON.stringify(menu.props.sections.flatMap((section) => section.items.map((item) => [item.id, item.destructive === true]))),
+    JSON.stringify([
+      ["new", false],
+      ["copy", false],
+      ["edit", false],
+      ["delete", true],
+    ]),
+  );
+  menu.props.onSelect("delete");
+  await settleAll();
+  assert.equal(alerts[0].title, "Delete Food?");
+  assert.match(alerts[0].message, /^Its 2 Chats are archived/);
+  assert.equal(
+    JSON.stringify(alerts[0].buttons),
+    JSON.stringify([
+      ["Delete Link", "destructive"],
+      ["Cancel", "cancel"],
+    ]),
+  );
+  assert.equal(
+    JSON.stringify(nav.calls),
+    JSON.stringify([
+      ["link:delete-check", [id]],
+      ["deleteLink", id],
+    ]),
+  );
   assert.deepEqual(nav.routes, ["/projects"]);
   assert.ok(nav.storeCalls.some(([name]) => name === "refreshAll"));
 });

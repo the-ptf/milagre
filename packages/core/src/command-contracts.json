@@ -2395,6 +2395,28 @@
         }
       ]
     },
+    "link:delete-check": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "link:delete": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "link:open": {
       "parameters": [
         {

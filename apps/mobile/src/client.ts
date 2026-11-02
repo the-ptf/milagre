@@ -105,6 +105,7 @@ const LONG_CALLS = new Set([
   "worktree:remove",
   "link:send",
   "link:open",
+  "link:delete",
   "agent:update-cli",
   // PR reads and writes go through gh to GitHub (paged GraphQL, a fetch for missing commits, a merge).
   "pr:detail",

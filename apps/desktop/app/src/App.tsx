@@ -12,8 +12,10 @@ import { LinkWorkspace } from "./components/LinkWorkspace";
 import { AddComputerDialog } from "./components/AddComputerDialog";
 import { AddProjectDialog } from "./components/AddProjectDialog";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
+import { DeleteLinkDialog } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
-import type { LinkState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
+import type { LinkState, NamedLinkDeleted, NamedProjectLink, OpenLink } from "@milagre/shared/model";
+import { deletedLinkText } from "@milagre/shared/worktree-link";
 import { scopeKey, isLinkScopeKey, scopeFromKey, LOCAL_COMPUTER, computerOfKey, qualifyKey } from "@milagre/shared/chat-scopes";
 import { isChatsHomeProject, type ChatsHome } from "@milagre/shared/chats-home";
 import { projectSurfaces } from "./lib/project-surfaces";
@@ -266,6 +268,8 @@ function App() {
   const [linkInitialSession, setLinkInitialSession] = useState<number | undefined>();
   // `true` creates a Link; a Link edits that one.
   const [linkDialogOpen, setLinkDialogOpen] = useState<boolean | NamedProjectLink>(false);
+  // The Link whose deletion is being confirmed.
+  const [deletingLink, setDeletingLink] = useState<NamedProjectLink | null>(null);
   // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const scopeDrafts = useMemo(createScopeDrafts, []);
   const [linkStates, setLinkStates] = useState<Record<string, LinkState>>({});
@@ -2881,6 +2885,7 @@ function App() {
   const linkProjectFromSidebar = useEvent(() => setLinkDialogOpen(true));
   const addComputerFromSidebar = useEvent(() => setAddComputerOpen(true));
   const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
+  const deleteLinkFromSidebar = useEvent((id: string) => void deleteLink(id));
   // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
   // at once instead of waiting on the host, or on another computer's network.
   const hoverChat = useEvent((scopeKey: string, id: string) => {
@@ -3088,14 +3093,44 @@ function App() {
     );
   }
 
+  async function findLink(id: string) {
+    const link = (await bridgeForKey(`milagre-link:${id}`).listNamedLinks()).find((item) => item.id === id);
+    if (!link) throw new Error("Link no longer exists");
+    return link;
+  }
   async function editLink(id: string) {
     try {
-      const link = (await bridgeForKey(`milagre-link:${id}`).listNamedLinks()).find((item) => item.id === id);
-      if (!link) throw new Error("Link no longer exists");
-      setLinkDialogOpen(link);
+      setLinkDialogOpen(await findLink(id));
     } catch (error) {
       setNotice(ipcErrorMessage(error));
     }
+  }
+  async function deleteLink(id: string) {
+    try {
+      setDeletingLink(await findLink(id));
+    } catch (error) {
+      setNotice(ipcErrorMessage(error));
+    }
+  }
+  // A deleted Link leaves the chooser; the window showing it goes to the last opened Project, as a removed Project's does.
+  function linkDeleted(link: NamedProjectLink, result: NamedLinkDeleted) {
+    setDeletingLink(null);
+    window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+    const kept = deletedLinkText(link.name, result.kept);
+    if (kept) setNotice(kept);
+    setLastLink((current) => (current?.link.id === link.id ? null : current));
+    if (selectedLinkRef.current?.link.id !== link.id) return;
+    const navigation = ++projectNavigation.current;
+    setSelectedLink(null);
+    setView("chat");
+    void window.milagre
+      .listRecentProjects()
+      .then((list) => {
+        const next = list.find((entry) => !entry.hidden);
+        if (!next || navigation !== projectNavigation.current || selectedLinkRef.current || next.path === projectRef.current?.path) return undefined;
+        return switchProject(next.path);
+      })
+      .catch(() => {});
   }
   // An edited Link that is open reloads in place, so its header and member Projects follow.
   async function linkEdited(link: NamedProjectLink) {
@@ -3139,17 +3174,26 @@ function App() {
     (entry) => view !== "chat" || (!selectedLink && diffPresence.occupied && !runPaneOpen) || entry.scope !== openSaveScope,
   );
   const saveNotices = <PersistenceNotices scopes={globalUnsavedScopes} />;
-  const linkDialog = linkDialogOpen ? (
-    <LinkProjectDialog
-      link={typeof linkDialogOpen === "object" ? linkDialogOpen : undefined}
-      onClose={() => setLinkDialogOpen(false)}
-      onCreated={(link) => {
-        const edited = typeof linkDialogOpen === "object";
-        setLinkDialogOpen(false);
-        void (edited ? linkEdited(link) : selectLink(link.id));
-      }}
-    />
-  ) : null;
+  const linkDialog = (
+    <>
+      {linkDialogOpen ? (
+        <LinkProjectDialog
+          link={typeof linkDialogOpen === "object" ? linkDialogOpen : undefined}
+          onClose={() => setLinkDialogOpen(false)}
+          onCreated={(link) => {
+            const edited = typeof linkDialogOpen === "object";
+            setLinkDialogOpen(false);
+            void (edited ? linkEdited(link) : selectLink(link.id));
+          }}
+          onDelete={(link) => {
+            setLinkDialogOpen(false);
+            setDeletingLink(link);
+          }}
+        />
+      ) : null}
+      {deletingLink ? <DeleteLinkDialog link={deletingLink} onClose={() => setDeletingLink(null)} onDeleted={linkDeleted} /> : null}
+    </>
+  );
   const addComputerDialog = addComputerOpen ? <AddComputerDialog onClose={() => setAddComputerOpen(false)} onAdded={() => setAddComputerOpen(false)} /> : null;
   const addProjectDialog = addProjectOpen ? (
     <AddProjectDialog
@@ -3232,6 +3276,7 @@ function App() {
       onAddComputer={() => setAddComputerOpen(true)}
       onOpenComputerSettings={openComputerSettings}
       onEditLink={(id) => void editLink(id)}
+      onDeleteLink={deleteLinkFromSidebar}
       onOpenProject={() => void openProject()}
       onSettings={() => {
         setSettingsSection("project-accounts");
@@ -3280,6 +3325,7 @@ function App() {
               onSwitchLink={(id) => void selectLink(id)}
               onLinkProject={() => setLinkDialogOpen(true)}
               onEditLink={(id) => void editLink(id)}
+              onDeleteLink={deleteLinkFromSidebar}
               onAddComputer={() => setAddComputerOpen(true)}
               onOpenComputerSettings={openComputerSettings}
               onOpenProjectSettings={openProjectSettings}
@@ -3691,6 +3737,7 @@ function App() {
                     onAddComputer={addComputerFromSidebar}
                     onOpenComputerSettings={openComputerSettings}
                     onEditLink={editLinkFromSidebar}
+                    onDeleteLink={deleteLinkFromSidebar}
                     onOpenProject={openProjectFromSidebar}
                     recents={chats}
                     activeId={

@@ -63,6 +63,8 @@ import { chatMenu, runChatAction } from "./chat-actions";
 import { useSplitLayout } from "./split-context";
 import { canOpenBeside, openBeside, useBesideChat } from "./split-chats";
 import { confirm } from "./confirm-store";
+import { confirmLinkDelete, linkDeleteError } from "./link-delete";
+import { deletedLinkText } from "@milagre/shared/worktree-link";
 import { showChoiceSheet } from "./choice-store";
 import { ArchivingOverlay, useArchiveActivity } from "./archive-progress";
 import { clearArchiveNotice, deletionKey, showArchiveNotice } from "./archive";
@@ -1150,8 +1152,10 @@ const NavigationBody = memo(function NavigationBody({
     }
     const isCurrent = hostId === currentHostId;
     if (isLinkScopeKey(projectPath)) {
+      const linkId = projectPath.slice("milagre-link:".length);
       if (action === "copy") await Clipboard.setStringAsync(name);
-      if (action === "edit" && isCurrent) onNavigate({ pathname: "/link-projects", params: { linkId: projectPath.slice("milagre-link:".length) } }, true);
+      if (action === "edit" && isCurrent) onNavigate({ pathname: "/link-projects", params: { linkId } }, true);
+      if (action === "delete" && isCurrent) await deleteLink(linkId, projectPath, name);
       return;
     }
     if (action === "copy") {
@@ -1176,6 +1180,22 @@ const NavigationBody = memo(function NavigationBody({
     } catch (e) {
       const message = (e as Error).message;
       if (alive.current) setError(/not available from mobile/i.test(message) ? "Update Milagre on your Mac to remove Projects from your phone." : message);
+    }
+  }
+  // Deleting a Link asks first, as desktop does; the open one leaves for this list, and Worktrees it kept are named.
+  async function deleteLink(linkId: string, projectPath: string, name: string) {
+    const client = session.client;
+    if (!client) return;
+    setError("");
+    try {
+      if (!(await confirmLinkDelete(client.call, linkId, name))) return;
+      const { result, sameNavigation } = await session.deleteLink(linkId);
+      if (sameNavigation && projectPath === currentPath) onNavigate("/projects");
+      const kept = deletedLinkText(name, result.kept);
+      if (kept) showArchiveNotice(kept);
+      await allComputers.refreshAll();
+    } catch (e) {
+      if (alive.current) setError(linkDeleteError(e));
     }
   }
   // A typed path opens like any Project: the Chat loads it behind the splash mark and shows a wrong path with Retry.
@@ -1760,6 +1780,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           ...(linked && item.hostId === currentHostId ? [{ id: "edit", title: "Edit Link", systemImage: "pencil" }] : []),
         ],
       },
+      ...(linked && item.hostId === currentHostId ? [{ items: [{ id: "delete", title: "Delete Link", systemImage: "trash", destructive: true }] }] : []),
       ...(!linked ? [{ items: [{ id: "remove", title: "Remove Project", systemImage: "minus.circle", destructive: true }] }] : []),
     ];
     const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);

@@ -537,19 +537,39 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       );
       console.log("PASS: removing the last local Project keeps its Named Link accessible and opens it");
       // The packaged and ownership passes below share this profile and expect it as it was: the Project back, open and
-      // current, and no Link (a collapsed sidebar lists Chats only while this Mac has a single scope).
+      // current, and no Link (a collapsed sidebar lists Chats only while this Mac has a single scope). The open Link is
+      // deleted from its ⋯ menu, which takes the window to the last opened Project: the one added back here.
+      // Grouped, the sidebar shows each scope's header and its ⋯ menu; One list, set above, shows none.
+      const chatList = (value) =>
+        evaluate(`(() => {
+          window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: ${JSON.stringify(value)} }));
+          window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
+        })()`);
       await evaluate(`(async () => {
         await window.milagre.openProjectAt(${JSON.stringify(project)});
-        const link = (await window.milagre.listNamedLinks()).find((entry) => entry.id === ${JSON.stringify(linkId)});
-        await window.milagre.updateNamedLink({ id: link.id, name: link.name, projectIds: link.projectIds, hidden: true });
+        window.dispatchEvent(new Event("milagre:recent-projects-changed"));
       })()`);
+      await chatList("grouped");
+      await expandSidebar();
+      await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"] [data-scope-menu]')`), "Link menu button");
+      await evaluate(`document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"] [data-scope-menu]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-scope-menu-item="delete"]')`), "Link delete menu");
+      await evaluate(`document.querySelector('[data-scope-menu-item="delete"]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-link-delete-confirm]:not(:disabled)')`), "Link delete confirmation");
+      assert.equal(await evaluate(`document.querySelector('#delete-link-title').textContent`), "Delete Removal regression Link?");
+      assert.match(await evaluate(`document.querySelector('#delete-link-description').textContent`), /^It has no Chats\. /);
+      await evaluate(`document.querySelector('[data-link-delete-confirm]').click()`);
       await waitFor(
         () =>
           evaluate(
-            `window.milagre.getCurrentProject().then((current) => current?.path === ${JSON.stringify(project)} && !!document.querySelector('[data-chat-pane] [data-prompt-editor]'))`,
+            `window.milagre.getCurrentProject().then((current) => current?.path === ${JSON.stringify(project)} && !document.querySelector('[data-link-delete-dialog]') && !document.querySelector('[data-project-chooser]') && !!document.querySelector('[data-chat-pane] [data-prompt-editor]'))`,
           ),
-        "Project opened again after its removal",
+        "the last opened Project after deleting the open Link",
       );
+      assert.deepEqual(await evaluate(`window.milagre.listNamedLinks()`), []);
+      await waitFor(() => evaluate(`!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"]')`), "deleted Link leaves the sidebar");
+      await chatList("list");
+      console.log("PASS: deleting the open Named Link from its menu removes it and opens the last opened Project");
     }
     console.log(
       `PASS: ${expectTheme ? "packaged" : "source"} desktop opens existing Chats, provider IDs, Project settings, bundled skills and saved UI preferences`,
