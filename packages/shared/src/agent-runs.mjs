@@ -6,7 +6,7 @@ import { hasTranscriptTail } from "./subagent-transcript.mjs";
 import { qualifyKey } from "./chat-scopes.mjs";
 import { nativePlan } from "./chat-plan.mjs";
 
-export { LOCAL_COMPUTER, computerOfKey, qualifyKey, unqualifyKey } from "./chat-scopes.mjs";
+export { computerOfKey } from "./chat-scopes.mjs";
 
 export const MAX_OUTPUT = 20_000;
 

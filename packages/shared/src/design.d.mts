@@ -2,7 +2,6 @@ import type { z } from "zod";
 export { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 /** Lucide icon name to SVG inner markup. */
 export const designIcons: Record<string, string>;
-export const designInterFonts: Record<"400" | "500" | "600" | "700", string>;
 /** The color text and icons draw in when they name no fill. */
 export const DESIGN_INK: "#202720";
 /** The grey a shape, or an image still to add, paints when it names no fill. */
@@ -154,8 +153,6 @@ export function designFontFaces(document: DesignDocument): string;
 export const DESIGN_CATALOG_FAMILIES: string[];
 /** The catalog entry for the first family of a font-family list, if it is in the catalog. */
 export function designCatalogFont(fontFamily?: string): { family: string; weights: number[]; advances: Record<string, number[]> } | undefined;
-/** The weight a text layer draws with: the nearest measured face in Inter or a catalog family, as requested otherwise. */
-export function designDrawnWeight(fontFamily?: string, fontWeight?: number): number;
 /** Loads the catalog families a document names, so designHtml, designSvg and designFontBuffers can embed them. */
 export function loadDesignFonts(document: DesignDocument): Promise<void>;
 /** Whether every catalog family a document names is loaded. */

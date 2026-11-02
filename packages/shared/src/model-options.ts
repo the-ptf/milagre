@@ -54,13 +54,11 @@ export function effortFor(capability: ModelCapability, effort: EffortLevel): Eff
 export {
   ANTIGRAVITY_AGENT_OPTIONS,
   ANTIGRAVITY_FAMILY_COPY,
-  ANTIGRAVITY_TEXT_FAMILY,
   antigravityFamilies,
   familySlug,
   resolveAntigravityModel,
   splitModelName,
 } from "./antigravity-models.mjs";
-export type { AgentModelOption, AntigravityFamily } from "./antigravity-models.mjs";
 import { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } from "./antigravity-models.mjs";
 import { KIRO_AGENT_OPTIONS, kiroModels } from "./kiro-models.mjs";
 
