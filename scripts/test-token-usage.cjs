@@ -100,6 +100,17 @@ async function check() {
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
     await waitFor(`document.querySelectorAll("[data-usage-project]").length === 2`);
     assert.equal(await evaluate(`document.querySelector('[aria-label="Usage view"] [aria-selected=true]').textContent`), "Analytics");
+    assert.equal(
+      await evaluate(`(() => {
+        const tabs = document.querySelector('[aria-label="Usage view"]').getBoundingClientRect();
+        return ['Show', 'Period'].every(label => {
+          const filter = document.querySelector('[aria-label="' + label + '"]').getBoundingClientRect();
+          return Math.abs(tabs.y + tabs.height / 2 - filter.y - filter.height / 2) < 1;
+        });
+      })()`),
+      true,
+      "analytics filters share the navigation row",
+    );
     assert.equal(await evaluate(`document.querySelector('[data-account-usage]')`), null, "analytics is separate from account limits");
     assert.equal(await evaluate(`document.querySelectorAll("[data-usage-model]").length`), 1, "Activity model details stay visible");
     assert.equal(await evaluate(`document.querySelectorAll("[data-usage-day]").length > 0`), true, "Activity calendar stays visible");

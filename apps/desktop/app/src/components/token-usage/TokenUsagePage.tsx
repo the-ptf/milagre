@@ -636,7 +636,30 @@ export function TokenUsagePage({
               </button>
             ))}
           </div>
-          {tab === "plan" ? <div ref={setPlanControlsTarget} className="shrink-0" /> : null}
+          {tab === "plan" ? (
+            <div ref={setPlanControlsTarget} className="shrink-0" />
+          ) : (
+            <div className="flex shrink-0 items-center gap-2">
+              <Tabs
+                label="Show"
+                value={metric}
+                options={[
+                  { value: "cost", label: "Cost" },
+                  { value: "tokens", label: "Tokens" },
+                ]}
+                onChange={(value) => update({ metric: value })}
+              />
+              <Tabs
+                label="Period"
+                value={days ? null : prefs.range}
+                options={TOKEN_USAGE_RANGES.map((range) => ({ value: range.value, label: range.short }))}
+                onChange={(value) => {
+                  setDays(null);
+                  update({ range: value });
+                }}
+              />
+            </div>
+          )}
         </div>
         <div role="tabpanel" id={`${tabId}-plan-panel`} aria-labelledby={`${tabId}-plan`} hidden={tab !== "plan"}>
           {tab === "plan" ? (
@@ -652,26 +675,6 @@ export function TokenUsagePage({
         <div role="tabpanel" id={`${tabId}-analytics-panel`} aria-labelledby={`${tabId}-analytics`} hidden={tab !== "analytics"}>
           {tab === "analytics" ? (
             <div className="flex min-w-0 flex-col gap-4">
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Tabs
-                  label="Show"
-                  value={metric}
-                  options={[
-                    { value: "cost", label: "Cost" },
-                    { value: "tokens", label: "Tokens" },
-                  ]}
-                  onChange={(value) => update({ metric: value })}
-                />
-                <Tabs
-                  label="Period"
-                  value={days ? null : prefs.range}
-                  options={TOKEN_USAGE_RANGES.map((range) => ({ value: range.value, label: range.short }))}
-                  onChange={(value) => {
-                    setDays(null);
-                    update({ range: value });
-                  }}
-                />
-              </div>
               {error && (
                 <p role="alert" className="text-13 break-words text-red-ink">
                   Couldn't read token usage: {error}

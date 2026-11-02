@@ -11659,6 +11659,39 @@ test("phone Usage tabs replace the route and keep the current tab selected", () 
   assert.deepEqual(replaced, ["/(settings)/token-usage", "/(settings)/usage"]);
 });
 
+test("phone Analytics menus preserve metric and period choices beside navigation", () => {
+  const react = hookHost();
+  const { TokenUsageSection } = load("token-usage-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", AppState: {} },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/token-usage": require("@milagre/shared/token-usage"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "./theme": themeHooks,
+    "./ui": { ...uiHooks, PullDown: "PullDown" },
+    "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+    "./primitives/error-notice": { ErrorNotice: "ErrorNotice" },
+    "./settings-find": { Findable: "Findable" },
+    "./session": { useSession: () => ({ client: {} }) },
+  });
+  const render = () => {
+    react.begin();
+    return TokenUsageSection({ navigation: jsx("UsageTabs", { value: "analytics" }) });
+  };
+  const menu = (tree, label) => find(tree, (node) => node.type === "PullDown" && node.props.label === label);
+  let tree = render();
+  assert.ok(find(tree, (node) => node.type === "UsageTabs"));
+  assert.equal(menu(tree, "Show").props.children.props.style.minHeight, 44);
+  assert.equal(menu(tree, "Period").props.children.props.style.minHeight, 44);
+  menu(tree, "Show").props.onSelect("tokens");
+  menu(tree, "Period").props.onSelect("30d");
+  tree = render();
+  assert.equal(menu(tree, "Show").props.sections[0].items.find((item) => item.checked).id, "tokens");
+  assert.equal(menu(tree, "Period").props.sections[0].items.find((item) => item.checked).id, "30d");
+});
+
 function planUsageHost() {
   const react = hookHost();
   let snapshot = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);

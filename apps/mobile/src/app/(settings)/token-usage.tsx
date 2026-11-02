@@ -8,8 +8,7 @@ export default function TokenUsageScreen() {
     <>
       <Stack.Screen options={{ title: "Usage" }} />
       <SettingsScroll>
-        <UsageTabs value="analytics" />
-        <TokenUsageSection />
+        <TokenUsageSection navigation={<UsageTabs value="analytics" />} />
       </SettingsScroll>
     </>
   );
