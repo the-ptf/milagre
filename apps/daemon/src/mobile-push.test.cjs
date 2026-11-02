@@ -560,7 +560,7 @@ test("a Routine flow notice reaches devices that want waiting notices, never one
   await push.settled();
   assert.equal(messages.length, 1);
   assert.equal(messages[0].title, "Issue to PR");
-  assert.equal(messages[0].data.sessionId, "1");
+  assert.equal(messages[0].data.sessionId, 1);
   push.focus({ deviceId, chatId });
   push.notice(chatId, { title: "Issue to PR", body: "again" });
   await push.settled();
