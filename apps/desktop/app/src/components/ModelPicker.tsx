@@ -274,7 +274,6 @@ function ModelAccountPicker({ scope, provider }: { scope: string; provider: Mode
         options={projectAccountOptions(group)}
         onChange={(id) => void act(() => bridgeForKey(scope).assignProjectAccount(scope, provider, id || null))}
       />
-      <p className="text-11 leading-snug text-ink-3">Applies to all Chats in this Project or Link. Running turns keep their account.</p>
     </div>
   );
 }
