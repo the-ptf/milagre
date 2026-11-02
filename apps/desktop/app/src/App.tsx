@@ -12,10 +12,10 @@ import { LinkWorkspace } from "./components/LinkWorkspace";
 import { AddComputerDialog } from "./components/AddComputerDialog";
 import { AddProjectDialog } from "./components/AddProjectDialog";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
-import { DeleteLinkDialog } from "./components/DeleteLinkDialog";
+import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
 import type { LinkState, NamedLinkDeleted, NamedProjectLink, OpenLink } from "@milagre/shared/model";
-import { deletedLinkText } from "@milagre/shared/worktree-link";
+import { deletedLinkText, isDeletedLinkState, isLinkGone, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { scopeKey, isLinkScopeKey, scopeFromKey, LOCAL_COMPUTER, computerOfKey, qualifyKey } from "@milagre/shared/chat-scopes";
 import { isChatsHomeProject, type ChatsHome } from "@milagre/shared/chats-home";
 import { projectSurfaces } from "./lib/project-surfaces";
@@ -667,7 +667,23 @@ function App() {
   const away = Boolean(openComputer && isDimmed(openComputer));
   const bannerNow = useDisplayNow(60_000, away);
   const awayBanner = openComputer && away ? offlineBanner(openComputer, bannerNow) : null;
-  useEffect(() => stateEvents.onLinkState((update) => setLinkStates((previous) => ({ ...previous, [update.linkId]: update.state }))), []);
+  // A Link deleted on another device (or the phone) leaves the sidebar, and the window showing it leaves it as a local
+  // delete does. One this window is deleting leaves when link:delete answers, with the Worktrees it kept.
+  const linkGone = useEvent((id: string) => {
+    if (linkDeletesInFlight.has(id)) return false;
+    const open = selectedLinkRef.current?.link.id === id ? selectedLinkRef.current.link : null;
+    const left = leaveDeletedLink(id);
+    if (left && open) setNotice(linkDeletedElsewhereText(open.name));
+    return left;
+  });
+  useEffect(
+    () =>
+      stateEvents.onLinkState((update) => {
+        setLinkStates((previous) => ({ ...previous, [update.linkId]: update.state }));
+        if (isDeletedLinkState(update.state)) linkGone(update.linkId);
+      }),
+    [linkGone],
+  );
 
   useEffect(() => {
     let updated = false;
@@ -2046,7 +2062,8 @@ function App() {
       setSelectedLink(refresh);
       setLastLink(refresh);
     } catch (error) {
-      if (navigation === projectNavigation.current) setNotice(ipcErrorMessage(error));
+      // Deleted elsewhere: the copy shown from what this window held goes, and so does its sidebar row.
+      if (navigation === projectNavigation.current) linkMissing(id, error);
     }
   }
   // Another computer's Project opened from a copy that lacks the Chat being opened lists none of its Chats ("No chats
@@ -3098,29 +3115,41 @@ function App() {
     if (!link) throw new Error("Link no longer exists");
     return link;
   }
+  // A Link that is gone from its computer's list leaves the sidebar too (and the window, when it shows it).
+  function linkMissing(id: string, error: unknown) {
+    const message = ipcErrorMessage(error);
+    if (!(isLinkGone(message) && linkGone(id))) setNotice(message);
+  }
   async function editLink(id: string) {
     try {
       setLinkDialogOpen(await findLink(id));
     } catch (error) {
-      setNotice(ipcErrorMessage(error));
+      linkMissing(id, error);
     }
   }
   async function deleteLink(id: string) {
     try {
       setDeletingLink(await findLink(id));
     } catch (error) {
-      setNotice(ipcErrorMessage(error));
+      linkMissing(id, error);
     }
   }
-  // A deleted Link leaves the chooser; the window showing it goes to the last opened Project, as a removed Project's does.
+  // This window deleted the Link: the Worktrees it kept are named.
   function linkDeleted(link: NamedProjectLink, result: NamedLinkDeleted) {
     setDeletingLink(null);
-    window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
     const kept = deletedLinkText(link.name, result.kept);
     if (kept) setNotice(kept);
-    setLastLink((current) => (current?.link.id === link.id ? null : current));
-    if (selectedLinkRef.current?.link.id !== link.id) return;
+    leaveDeletedLink(link.id);
+  }
+  // A deleted Link, here or on another device, leaves the chooser; the window showing it goes to the last opened
+  // Project, as a removed Project's does. Returns whether this window was showing it.
+  function leaveDeletedLink(id: string) {
+    window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+    setLastLink((current) => (current?.link.id === id ? null : current));
+    if (selectedLinkRef.current?.link.id !== id) return false;
     const navigation = ++projectNavigation.current;
+    // Both of link:delete's link:state events can land before the next render: the second finds nothing to leave.
+    selectedLinkRef.current = null;
     setSelectedLink(null);
     setView("chat");
     void window.milagre
@@ -3131,6 +3160,7 @@ function App() {
         return switchProject(next.path);
       })
       .catch(() => {});
+    return true;
   }
   // An edited Link that is open reloads in place, so its header and member Projects follow.
   async function linkEdited(link: NamedProjectLink) {
@@ -3140,7 +3170,7 @@ function App() {
       const next = await bridgeForKey(`milagre-link:${link.id}`).openNamedLink(link.id);
       if (selectedLinkRef.current?.link.id === link.id) setSelectedLink(next);
     } catch (error) {
-      setNotice(ipcErrorMessage(error));
+      linkMissing(link.id, error);
     }
   }
   const unsavedScopes: UnsavedScope[] = Object.entries({

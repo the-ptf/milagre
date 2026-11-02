@@ -99,13 +99,14 @@ function pause(ms: number, signal: AbortSignal) {
   });
 }
 const MEDIA_AT_ONCE = 4;
+// Deleting a Link removes its untouched Worktrees one after another: the desktop daemon client waits as long.
+const LINK_DELETE_MS = 30 * 60 * 1000;
 // Creating a worktree can fetch and copy files; removing one with big ignored folders can take minutes.
 const LONG_CALLS = new Set([
   "worktree:create",
   "worktree:remove",
   "link:send",
   "link:open",
-  "link:delete",
   "agent:update-cli",
   // PR reads and writes go through gh to GitHub (paged GraphQL, a fetch for missing commits, a merge).
   "pr:detail",
@@ -449,13 +450,15 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       return request<T>(
         "/rpc",
         { v: 1, method, args },
-        LONG_CALLS.has(method)
-          ? Math.max(timeoutMs, 330000)
-          : DESIGN_SHARE_CALLS.has(method)
-            ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
-            : MCP_CALLS.has(method)
-              ? Math.max(timeoutMs, 45000)
-              : timeoutMs,
+        method === "link:delete"
+          ? Math.max(timeoutMs, LINK_DELETE_MS)
+          : LONG_CALLS.has(method)
+            ? Math.max(timeoutMs, 330000)
+            : DESIGN_SHARE_CALLS.has(method)
+              ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
+              : MCP_CALLS.has(method)
+                ? Math.max(timeoutMs, 45000)
+                : timeoutMs,
       );
     },
     media,

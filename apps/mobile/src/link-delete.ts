@@ -1,5 +1,5 @@
 import type { NamedLinkDeleteCheck } from "@milagre/shared/model";
-import { deleteLinkText, linkRunningText } from "@milagre/shared/worktree-link";
+import { deleteLinkText, linkDeleteFailure, linkRunningText } from "@milagre/shared/worktree-link";
 import { confirm } from "./confirm-store.ts";
 
 type Call = <T>(method: string, args?: unknown[]) => Promise<T>;
@@ -15,8 +15,7 @@ export async function confirmLinkDelete(call: Call, linkId: string, name: string
   return ask(text.title, text.message, text.action);
 }
 
-/** A failed delete as the phone says it. A Mac too old to delete Links from a phone is asked to update. */
+/** A failed delete as the phone says it. A Mac too old to delete Links from a phone is asked to update, as on desktop. */
 export function linkDeleteError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /not available from mobile/i.test(message) ? "Update Milagre on your Mac to delete Links from your phone." : message;
+  return linkDeleteFailure(error instanceof Error ? error.message : String(error));
 }

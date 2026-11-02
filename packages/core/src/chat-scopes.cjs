@@ -14,6 +14,12 @@ function linkWorkspaceInstructions(worktrees, pending) {
 }
 
 function createChatScopes({ projects, links, validateLink }) {
+  // The loaded Links' states, without those a delete marked.
+  const liveLinks = () =>
+    links
+      .ids()
+      .map((id) => links.cached(id))
+      .filter((state) => state && !state.deletedAt);
   const target = (key) => {
     const scope = scopeFromKey(key);
     return scope.kind === "link" ? [links, scope.linkId] : [projects, scope.projectPath];
@@ -24,13 +30,12 @@ function createChatScopes({ projects, links, validateLink }) {
       return store.has(id);
     },
     projects: () => [...projects.projects(), ...links.ids().map((linkId) => scopeKey({ kind: "link", linkId }))],
+    // A deleted Link's sessions name no folder any more: its kept Worktrees are their Projects' (link:delete).
     worktreePaths: () => [
       ...projects.worktreePaths(),
-      ...links
-        .ids()
-        .flatMap((id) => Object.values(links.cached(id)?.sessions ?? {}).flatMap((session) => session.worktrees.map((member) => member.worktreePath))),
+      ...liveLinks().flatMap((state) => Object.values(state.sessions ?? {}).flatMap((session) => session.worktrees.map((member) => member.worktreePath))),
     ],
-    workspacePaths: () => links.ids().flatMap((id) => Object.values(links.cached(id)?.sessions ?? {}).map((session) => session.workspacePath)),
+    workspacePaths: () => liveLinks().flatMap((state) => Object.values(state.sessions ?? {}).map((session) => session.workspacePath)),
     withPersistence(key, state) {
       const [store, id] = target(key);
       return store.withPersistence(id, state);

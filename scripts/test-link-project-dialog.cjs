@@ -28,7 +28,7 @@ window.milagre = {
   createNamedLink: async request => ({ ...request, id: 'preview-link', createdAt: new Date().toISOString() }),
   updateNamedLink: async request => { window.updated = request; return { ...request, createdAt: new Date().toISOString() }; },
   checkDeleteNamedLink: async id => { window.deleteChecked = id; return window.deleteCheck ?? { chats: 3, running: [] }; },
-  deleteNamedLink: async id => { window.deleted = id; return { removed: ['/Users/victor/.milagre/worktrees/food-api/fix-header-1'], kept: ['/Users/victor/.milagre/worktrees/food-web/fix-header-2'] }; },
+  deleteNamedLink: async id => { if (window.deleteFailure) throw new Error(window.deleteFailure); window.deleted = id; return { removed: ['/Users/victor/.milagre/worktrees/food-api/fix-header-1'], kept: ['/Users/victor/.milagre/worktrees/food-web/fix-header-2'] }; },
 };
 function Fixture() {
   const [open, setOpen] = useState(true);
@@ -155,9 +155,20 @@ async function browserChecks() {
     );
     assert.equal(await evaluate(`document.querySelector('[data-link-delete-confirm]').disabled`), true);
     await screenshot("link-delete-running");
-    await evaluate(`document.activeElement.click()`);
+    // The Chat stops: the dialog asks again on its own, and Delete enables without reopening it.
+    await evaluate("window.deleteCheck = { chats: 2, running: [] }");
+    await waitFor(`!document.querySelector('[data-link-delete-confirm]').disabled && !document.querySelector('[data-link-delete-dialog] [role="alert"]')`);
+    assert.match(await evaluate(`document.querySelector('#delete-link-description').textContent`), /^Its 2 Chats are archived/);
+    // A computer too old to delete Links is asked to update, not shown its refusal.
+    await evaluate(`window.deleteFailure = 'Unknown command: link:delete'; document.querySelector('[data-link-delete-confirm]').click()`);
+    await waitFor(`document.querySelector('[data-link-delete-dialog] [role="alert"]')?.textContent === 'Update Milagre on this Mac to delete its Links.'`);
+    assert.equal(await evaluate(`document.querySelector('[data-link-delete-confirm]').disabled`), false, "Delete can be tried again");
+    await screenshot("link-delete-old-computer");
+    const cancel = `[...document.querySelectorAll('[data-link-delete-dialog] button')].find(button => button.textContent === 'Cancel').click()`;
+    await evaluate(cancel);
     await waitFor(`!document.querySelector('[data-link-delete-dialog]')`);
     assert.equal(await evaluate("window.deleted ?? null"), null);
+    await evaluate("window.deleteFailure = null");
 
     // Edit Link offers Delete Link…, which asks first with the Link's Chat count, Cancel focused.
     await evaluate(`window.deleteCheck = null; window.editLinkDialog(${JSON.stringify(food)})`);
@@ -181,7 +192,7 @@ async function browserChecks() {
     );
     await screenshot("link-deleted");
     console.log(
-      "PASS: loading skeleton, no false empty state, four-row limit, scroll access to all eight Projects, editing a Link's members, and deleting a Link (held by a running Chat, confirmed with its Chat count, kept Worktrees named).",
+      "PASS: loading skeleton, no false empty state, four-row limit, scroll access to all eight Projects, editing a Link's members, and deleting a Link (held by a running Chat until it stops, an old computer asked to update, confirmed with its Chat count, kept Worktrees named).",
     );
     app.exit(0);
   } catch (error) {

@@ -34,5 +34,7 @@ test("a running Chat holds the delete before anything is asked", async () => {
 
 test("an older Mac that can't delete Links from a phone is asked to update", () => {
   assert.equal(linkDeleteError(new Error("Command is not available from mobile")), "Update Milagre on your Mac to delete Links from your phone.");
+  // A Mac routing the phone's call to another computer that lacks it.
+  assert.equal(linkDeleteError(new Error("Unknown command: link:delete")), "Update Milagre on your Mac to delete Links from your phone.");
   assert.equal(linkDeleteError(new Error("Link no longer exists")), "Link no longer exists");
 });

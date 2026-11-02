@@ -2,12 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { NamedLinkDeleteCheck, NamedLinkDeleted, NamedProjectLink } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { deleteLinkText, linkRunningText } from "@milagre/shared/worktree-link";
+import { computerOfKey, LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { deleteLinkText, isDeletedLinkState, linkDeleteFailure, linkRunningText } from "@milagre/shared/worktree-link";
 import { bridgeForKey } from "../lib/computer-bridge";
+import { computerNameOf } from "../lib/computers";
+import { stateEvents } from "../lib/state-events";
+import { useEvent } from "../lib/stable";
+
+/** How often a Link with a running Chat is checked again, so Delete enables once the Chat stops. */
+const RECHECK_MS = 2000;
+
+/**
+ * The Links this window is deleting now. Their link:state with `deletedAt` comes before link:delete answers; the
+ * window leaves them when the answer comes, with the Worktrees it kept, not as a Link deleted on another device.
+ */
+export const linkDeletesInFlight = new Set<string>();
 
 /**
  * Asks before a Named Link is deleted, saying how many Chats it archives. The daemon is asked first, so a Link with a
- * running Chat names it and can't be deleted until it stops; the delete itself checks again.
+ * running Chat names it and can't be deleted until it stops: the check runs again every 2 s and on each change to the
+ * Link while one runs. The delete itself checks again. A Link deleted elsewhere meanwhile closes this.
  */
 export function DeleteLinkDialog({
   link,
@@ -22,33 +36,67 @@ export function DeleteLinkDialog({
   const [check, setCheck] = useState<NamedLinkDeleteCheck | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const scope = `milagre-link:${link.id}`;
+  const computerId = computerOfKey(scope);
+  // A computer too old to delete Links is asked to update, by name.
+  const failed = useEvent((cause: unknown) =>
+    linkDeleteFailure(ipcErrorMessage(cause), { computer: computerId === LOCAL_COMPUTER ? "this Mac" : computerNameOf(computerId) }),
+  );
+  // Only the latest check lands, and none after the dialog closes.
+  const checks = useRef(0);
+  const read = useEvent(async () => {
+    const asked = ++checks.current;
+    try {
+      const result = await bridgeForKey(scope).checkDeleteNamedLink(link.id);
+      if (asked !== checks.current) return;
+      setCheck(result);
+      setError("");
+    } catch (cause) {
+      if (asked === checks.current) setError(failed(cause));
+    }
+  });
   useEffect(() => {
     const element = dialog.current;
+    const asked = checks;
     element?.showModal();
-    let live = true;
-    void (async () => {
-      try {
-        const result = await bridgeForKey(`milagre-link:${link.id}`).checkDeleteNamedLink(link.id);
-        if (live) setCheck(result);
-      } catch (failure) {
-        if (live) setError(ipcErrorMessage(failure));
-      }
-    })();
+    void read();
     return () => {
-      live = false;
+      asked.current++;
       element?.close();
     };
-  }, [link.id]);
+  }, [read]);
+  const waiting = !!check?.running.length && !busy;
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setInterval(() => void read(), RECHECK_MS);
+    return () => window.clearInterval(timer);
+  }, [waiting, read]);
+  const changed = useEvent((deleted: boolean) => {
+    if (busy) return;
+    if (deleted) onClose();
+    else if (waiting) void read();
+  });
+  useEffect(
+    () =>
+      stateEvents.onLinkState((update) => {
+        if (update.linkId === link.id) changed(isDeletedLinkState(update.state));
+      }),
+    [link.id, changed],
+  );
   const text = deleteLinkText(link.name, check?.chats ?? 0);
   const running = check?.running.length ? linkRunningText(check.running) : "";
   async function remove() {
     if (busy || !check || running) return;
     setBusy(true);
     setError("");
+    linkDeletesInFlight.add(link.id);
     try {
-      onDeleted(link, await bridgeForKey(`milagre-link:${link.id}`).deleteNamedLink(link.id));
-    } catch (failure) {
-      setError(ipcErrorMessage(failure));
+      const result = await bridgeForKey(scope).deleteNamedLink(link.id);
+      linkDeletesInFlight.delete(link.id);
+      onDeleted(link, result);
+    } catch (cause) {
+      linkDeletesInFlight.delete(link.id);
+      setError(failed(cause));
       setBusy(false);
     }
   }

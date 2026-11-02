@@ -460,3 +460,126 @@ test("a Link with a running Chat is not deleted until that Chat stops", async (t
   assert.equal(result.removed.length, 2);
   assert.deepEqual(await runtime.invoke("link:list"), []);
 });
+
+// link-runtime alone, with each step of a delete held or failed on purpose.
+function deleteFixture() {
+  const { registerLinkRuntime } = require("./link-runtime.cjs");
+  const handlers = new Map();
+  const id = randomUUID();
+  const fixture = {
+    id,
+    groups: [{ id, name: "Food", projectIds: ["/api/.git", "/web/.git"], createdAt: "2026-11-01T00:00:00.000Z" }],
+    state: { next_id: 2, sessions: { 1: { id: 1, agent_name: "Food", status: "Idle", workspacePath: "/w/1", worktrees: [] } }, messages: [], preparations: {} },
+    broadcasts: [],
+    retired: [],
+    failRegistry: false,
+    failTidy: false,
+    hold: null,
+    call: (name, ...args) => handlers.get(name)({}, ...args),
+  };
+  fixture.runtime = registerLinkRuntime({
+    commands: { handle: (name, handler) => handlers.set(name, handler) },
+    registry: () => ({
+      listProjectGroups: async () => fixture.groups,
+      updateProjectGroup: async (request) => request,
+      snapshot: async () => ({ projects: [] }),
+      deleteProjectGroup: async (gone) => {
+        if (fixture.failRegistry) throw new Error("Could not save the registry");
+        fixture.groups = fixture.groups.filter((group) => group.id !== gone);
+      },
+    }),
+    store: {
+      has: () => true,
+      ids: () => [id],
+      cached: () => fixture.state,
+      get: async () => fixture.state,
+      update: async (_id, change) => {
+        fixture.state = change(fixture.state);
+      },
+      flush: async () => {},
+    },
+    workspaces: {
+      recoverLinkPreparations: async () => {},
+      membersAvailable: async () => [],
+      releaseLinkWorktrees: async () => {
+        await fixture.hold?.();
+        return { removed: [], kept: [{ worktreePath: "/w/web-1", projectPath: "/web" }] };
+      },
+    },
+    chats: { busyChats: () => new Set(), resumeInterrupted: async () => {}, recoverHandoffs: async () => {} },
+    broadcast: (_key, state) => fixture.broadcasts.push(state),
+    titles: { resume() {} },
+    retire: async (_scope, sessionId) => {
+      fixture.retired.push(sessionId);
+      const session = fixture.state.sessions[sessionId];
+      fixture.state = { ...fixture.state, sessions: { ...fixture.state.sessions, [sessionId]: { ...session, archived: true } } };
+    },
+    released: async () => {
+      if (fixture.failTidy) throw new Error("Canvas busy");
+    },
+  });
+  return fixture;
+}
+
+test("nothing new starts in a Link while it is being deleted, and reads still answer", async () => {
+  const fixture = deleteFixture();
+  let release, reached;
+  const releasing = new Promise((resolve) => (release = resolve));
+  const atRelease = new Promise((resolve) => (reached = resolve));
+  fixture.hold = () => (reached(), releasing);
+  fixture.failTidy = true;
+  const deleting = fixture.call("link:delete", fixture.id);
+  await atRelease;
+  await assert.rejects(fixture.call("link:open", fixture.id), /being deleted/);
+  await assert.rejects(fixture.runtime.usable(fixture.id), /being deleted/);
+  assert.equal((await fixture.call("link:snapshot", fixture.id)).link.id, fixture.id);
+  // An edit asked for meanwhile waits behind the delete, then finds the Link gone.
+  const editing = fixture.call("link:update", { id: fixture.id, name: "Food 2", projectIds: ["/api/.git", "/web/.git"] });
+  release();
+  // A tidy-up that fails after the registry entry went doesn't turn the delete into a failure.
+  assert.deepEqual(await deleting, { removed: [], kept: ["/w/web-1"] });
+  await assert.rejects(editing, /no longer exists/);
+  assert.deepEqual(fixture.retired, [1]);
+  assert.ok(fixture.broadcasts.at(-1).deletedAt, "the last word every device hears is the deleted state");
+  await assert.rejects(fixture.call("link:open", fixture.id), /no longer exists/);
+});
+
+test("a delete that stops before the registry entry goes leaves a Link that takes no work until it is deleted again", async () => {
+  const fixture = deleteFixture();
+  fixture.failRegistry = true;
+  await assert.rejects(fixture.call("link:delete", fixture.id), /Could not save the registry/);
+  const marked = fixture.state.deletedAt;
+  assert.ok(marked);
+  assert.equal(fixture.groups.length, 1);
+  await assert.rejects(fixture.call("link:open", fixture.id), /partly deleted\. Delete it again/);
+  await assert.rejects(fixture.call("link:update", { id: fixture.id, name: "Food", projectIds: ["/api/.git", "/web/.git"] }), /partly deleted/);
+  assert.deepEqual(await fixture.call("link:delete-check", fixture.id), { chats: 0, running: [] });
+  fixture.failRegistry = false;
+  assert.deepEqual(await fixture.call("link:delete", fixture.id), { removed: [], kept: ["/w/web-1"] });
+  assert.deepEqual(fixture.groups, []);
+  assert.equal(fixture.state.deletedAt, marked, "the first mark stays");
+});
+
+test("a Link not opened since a restart is deleted, and a Worktree with a commit not pushed stays", async (t) => {
+  const { runtime, make, projects, settle } = await fixture(t);
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const sent = await runtime.invoke("link:send", [
+    { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Edit both", provider: "codex", model: "test", permissionMode: "auto" },
+  ]);
+  await settle(1);
+  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const [api, web] = ["api", "web"].map((name) => session.worktrees.find((member) => path.basename(member.projectPath) === name));
+  execFileSync("git", ["-C", api.worktreePath, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "Work"]);
+  await runtime.close();
+
+  const next = make();
+  assert.deepEqual(await next.invoke("link:delete", [link.id]), { removed: [web.worktreePath], kept: [api.worktreePath] });
+  assert.deepEqual(await next.invoke("link:list"), []);
+  // The shared workspace is no Chat's now, and the kept Worktree is api's own, checked against where it started.
+  await assert.rejects(next.invoke("link:workspace-roots", [session.workspacePath]), /workspace/);
+  const view = await next.openProject(api.projectPath);
+  const worktree = Object.values(view.state.worktrees).find((item) => item.path === api.worktreePath);
+  assert.equal(worktree.sharedChat, undefined);
+  assert.equal(worktree.base, api.base);
+});

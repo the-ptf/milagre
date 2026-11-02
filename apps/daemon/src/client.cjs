@@ -4,6 +4,8 @@ const { once, EventEmitter } = require("node:events");
 const { socketPath } = require("./paths.cjs");
 const { VERSION, MAX_PENDING, wire, isEventFrame } = require("./protocol.cjs");
 
+// Room for a Link with several Chats' Worktrees to go one after another; the phone waits as long (mobile client.ts).
+const LINK_DELETE_MS = 30 * 60 * 1000;
 // Commands core lets run longer than the default deadline (git/client.cjs LIMITS, gh, the CLI installers), plus a
 // margin. A shorter client deadline reported a slow pre-commit hook or push as failed while it was still running.
 const SLOW_METHODS = Object.freeze({
@@ -23,6 +25,8 @@ const SLOW_METHODS = Object.freeze({
   "git:generate": 180000,
   "worktree:create": 330000,
   "worktree:remove": 330000,
+  // Deleting a Link removes each of its untouched Worktrees in turn, each with worktree:remove's 300 s git limit.
+  "link:delete": LINK_DELETE_MS,
   // Installing Antigravity downloads about 110 MB and unpacks it; a slow connection takes minutes.
   "agent:update-cli": 1200000,
   // A Linear sign-in waits up to five minutes for the browser, plus two 15 s requests.

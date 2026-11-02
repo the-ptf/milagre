@@ -79,3 +79,28 @@ export function deletedLinkText(name, kept) {
   const count = kept.length === 1 ? "1 Worktree with changes stays in its Project" : `${kept.length} Worktrees with changes stay in their Projects`;
   return `Deleted ${name}. ${count}: ${kept.join(", ")}`;
 }
+
+/**
+ * A failed Link delete as desktop and phone say it. A computer too old to have link:delete answers "not available
+ * from mobile" over the phone bridge, and "Unknown command" or "No handler" to a paired Mac: it is asked to update.
+ * `computer` names it on desktop ("this Mac", or a paired computer's name); without it, the phone's words for its Mac.
+ */
+export function linkDeleteFailure(message, { computer } = {}) {
+  if (!/not available from mobile|unknown command|no handler/i.test(message)) return message;
+  return computer ? `Update Milagre on ${computer} to delete its Links.` : "Update Milagre on your Mac to delete Links from your phone.";
+}
+
+/** Whether a Link read or open failed because the Link was deleted (here or on another device). */
+export function isLinkGone(message) {
+  return /Link no longer exists/i.test(message);
+}
+
+/** Whether a Link's state says it was deleted: link:delete marks it before the Link leaves the registry. */
+export function isDeletedLinkState(state) {
+  return Boolean(state && typeof state === "object" && "deletedAt" in state && state.deletedAt);
+}
+
+/** The notice when the open Link closes because another device deleted it. */
+export function linkDeletedElsewhereText(name) {
+  return `${name} was deleted on another device.`;
+}

@@ -328,6 +328,8 @@ export interface LinkState {
   sessions: Record<string, LinkChatSession>;
   messages: ChatMessage[];
   preparations: Record<string, LinkPreparation>;
+  /** When link:delete marked the Link deleted; every device leaves a Link whose state has it. */
+  deletedAt?: string;
 }
 export interface OpenLink {
   link: NamedProjectLink;
