@@ -10,7 +10,6 @@ import { designFontFamily, designFontFaces, validDesignFontFamily } from "./desi
 export {
   DESIGN_CATALOG_FAMILIES,
   designCatalogFont,
-  designDrawnWeight,
   designFontBuffers,
   designFontFamily,
   designFontFaces,
@@ -25,7 +24,6 @@ import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { designIcons, designIconSuggestions } from "./design-icons.mjs";
 export { designIcons } from "./design-icons.mjs";
 export { DESIGN_INK, DESIGN_PLACEHOLDER, designDefaultFill } from "./design-paint.mjs";
-export { designInterFonts } from "./design-font-data.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
 import { designDefaultFill } from "./design-paint.mjs";
 import { synchronizeDesignComponents, designInstanceRoot, detachDesignInstance } from "./design-components.mjs";
