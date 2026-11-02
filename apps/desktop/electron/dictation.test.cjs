@@ -117,7 +117,8 @@ test("a model downloads once, checked by hash, and status says it is ready", asy
   assert.deepEqual(await dictation.status(), [{ id: "remote", ready: false, size: BYTES.length, received: null }]);
   await Promise.all([dictation.download("remote"), dictation.download("remote")]);
   assert.equal((await stat(file)).size, BYTES.length);
-  await new Promise((resolve) => setImmediate(resolve));
+  // The last report follows the download after a file check of its own; a busy runner takes longer than one turn.
+  for (let wait = 0; wait < 100 && !changes.at(-1)?.ready; wait++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.deepEqual(changes.at(-1), { id: "remote", ready: true, size: BYTES.length, received: null });
   assert.deepEqual(await dictation.status(), [{ id: "remote", ready: true, size: BYTES.length, received: null }]);
 });
