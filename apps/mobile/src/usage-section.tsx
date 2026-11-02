@@ -246,14 +246,13 @@ export function UsageSection({ header = false }: { header?: boolean }) {
           {refresh}
         </View>
       )}
-      {session.hostName ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
-          <Icon icon={ComputerIcon} size={16} tone="ink2" />
-          <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>{session.hostName}</Text>
-        </View>
-      ) : null}
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <Text style={{ color: colors.ink2, fontSize: type.footnote }}>{updatedAt ? formatUpdatedAgo(updatedAt, now) : ""}</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+        {session.hostName ? (
+          <View style={{ flexDirection: "row", flexGrow: 1, flexShrink: 1, alignItems: "center", gap: 8, minHeight: 44 }}>
+            <Icon icon={ComputerIcon} size={16} tone="ink2" />
+            <Text style={{ color: colors.ink2, fontSize: type.subheadline, flexShrink: 1 }}>{session.hostName}</Text>
+          </View>
+        ) : null}
         <PullDown
           label="Plan usage display"
           nativeTrigger={{ title: display === "remaining" ? "Remaining" : "Used", systemImage: "chevron.up.chevron.down", iconSize: 12 }}
@@ -294,7 +293,9 @@ export function UsageSection({ header = false }: { header?: boolean }) {
               <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, fontWeight: "600" }}>
                 {providerName(group.provider)}
               </Text>
-              <Text style={{ color: colors.ink3, fontSize: type.footnote }}>{group.accounts.length}</Text>
+              <Text style={{ color: colors.ink3, fontSize: type.footnote }}>
+                {group.accounts.length} {group.accounts.length === 1 ? "account" : "accounts"}
+              </Text>
             </View>
             {group.accounts.map((provider, index) => (
               <View key={provider.account!.id} style={{ gap: 16 }}>
@@ -318,6 +319,7 @@ export function UsageSection({ header = false }: { header?: boolean }) {
           {actionError || usage.error}
         </Text>
       ) : null}
+      {updatedAt ? <Text style={{ color: colors.ink3, fontSize: type.footnote }}>{formatUpdatedAgo(updatedAt, now)}</Text> : null}
     </View>
   );
 }

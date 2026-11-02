@@ -58,6 +58,16 @@ async function check() {
     await waitFor(`document.querySelectorAll("[data-account-usage] [data-usage-account]").length === 3`);
     assert.equal(await evaluate("window.analyticsReads"), 0, "Plan usage does not read analytics");
     assert.equal(await evaluate(`document.querySelector('[aria-label="Usage view"] [aria-selected=true]').textContent`), "Plan usage");
+    assert.deepEqual(
+      await evaluate(
+        `Array.from(document.querySelectorAll('[data-account-usage] h2')).map(el => [el.getAttribute('aria-label'), el.querySelector('span').textContent.trim()])`,
+      ),
+      [
+        ["Codex, 1 account", "1 account"],
+        ["Claude, 2 accounts", "2 accounts"],
+      ],
+      "provider headings are explicit, without repeating the selected tab title",
+    );
     assert.equal(
       await evaluate(`document.querySelector('[data-usage-provider=claude]').classList.contains('bg-surface')`),
       true,

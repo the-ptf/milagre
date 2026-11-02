@@ -73,9 +73,8 @@ export function AccountUsageSection({
     }
   }
   return (
-    <section aria-label="Plan usage" data-account-usage className="flex min-w-0 flex-col gap-6 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-15 font-semibold text-ink">Plan usage</h2>
+    <section aria-label="Plan usage" data-account-usage className="flex min-w-0 flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-end gap-4">
         <div className="flex items-center gap-2">
           <Select
             label="Plan usage display"
@@ -101,14 +100,16 @@ export function AccountUsageSection({
       </div>
       {groups.map((group) => (
         <div key={group.provider} data-usage-provider={group.provider} className="flex min-w-0 flex-col rounded-card bg-surface p-4 shadow-card">
-          <h3
+          <h2
             aria-label={`${providerName(group.provider)}, ${group.accounts.length} ${group.accounts.length === 1 ? "account" : "accounts"}`}
-            className="flex items-center gap-2 border-b border-line pb-3 text-15 font-semibold text-ink"
+            className="flex items-center gap-2 pb-3 text-15 font-semibold text-ink"
           >
             <ProviderLogo provider={group.provider} size={16} />
             {providerName(group.provider)}
-            <span className="text-12 font-medium text-ink-3">{group.accounts.length}</span>
-          </h3>
+            <span className="text-12 font-medium text-ink-3">
+              {group.accounts.length} {group.accounts.length === 1 ? "account" : "accounts"}
+            </span>
+          </h2>
           {errors[group.provider] ? (
             <p role="alert" className="pt-2 text-12 text-orange-ink">
               {errors[group.provider]}
@@ -152,25 +153,27 @@ export function AccountUsageSection({
                     {stale ? <p className="mt-1 text-11 text-ink-3">Last known · {formatUpdatedAgo(entry.updatedAt, now)}</p> : null}
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-x-8 gap-y-4">
-                      {entry.windows.map((window) => (
-                        <div key={window.id} className="flex min-w-0 flex-col gap-2">
-                          <p className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 text-11 text-ink-3">
-                            <span>{window.label}</span>
-                            <span className={`text-13 font-semibold tabular-nums ${percentInk[usageTone(window.usedPercent)]}`}>
-                              {formatPercent(shownPercent(window.usedPercent, usageDisplay))} {shownSuffix(usageDisplay)}
-                            </span>
-                          </p>
-                          <UsageBar
-                            usedPercent={window.usedPercent}
-                            display={usageDisplay}
-                            tone={stale ? "stale" : usageTone(window.usedPercent)}
-                            className="h-1 w-full"
-                          />
-                          <p className="text-11 text-ink-3">{[window.detail, formatResetsAt(window.resetsAt, now)].filter(Boolean).join(" · ")}</p>
-                        </div>
-                      ))}
-                    </div>
+                    {entry.windows.length ? (
+                      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-x-8 gap-y-4">
+                        {entry.windows.map((window) => (
+                          <div key={window.id} className="flex min-w-0 flex-col gap-2">
+                            <p className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 text-11 text-ink-3">
+                              <span>{window.label}</span>
+                              <span className={`text-13 font-semibold tabular-nums ${percentInk[usageTone(window.usedPercent)]}`}>
+                                {formatPercent(shownPercent(window.usedPercent, usageDisplay))} {shownSuffix(usageDisplay)}
+                              </span>
+                            </p>
+                            <UsageBar
+                              usedPercent={window.usedPercent}
+                              display={usageDisplay}
+                              tone={stale ? "stale" : usageTone(window.usedPercent)}
+                              className="h-1 w-full"
+                            />
+                            <p className="text-11 text-ink-3">{[window.detail, formatResetsAt(window.resetsAt, now)].filter(Boolean).join(" · ")}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     {entry.bankedResets ? <p className="text-12 text-ink-2">Banked resets: {entry.bankedResets} left</p> : null}
                     {!entry.windows.length ? (
                       <p className="flex items-center gap-2 text-13 text-ink-2">
