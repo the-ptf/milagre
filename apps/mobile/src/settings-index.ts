@@ -65,19 +65,39 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "When a Chat in another Project needs an approval or an answer.",
     keywords: "inbox badge",
   },
-  { page: "notifications", title: "Notification schedule", keywords: "quiet hours do not disturb weekdays work hours days" },
+  {
+    page: "notifications",
+    title: "Notification schedule",
+    keywords: "quiet hours do not disturb weekdays work hours days",
+  },
   {
     page: "notifications",
     title: "Notification chime",
     description: "Plays when a Chat finishes or needs you, on this phone. Picking one plays it.",
     keywords: "sound alert tone",
   },
-  { page: "notifications", title: "Live Activities", keywords: "lock screen dynamic island show in live activities questions only" },
+  {
+    page: "notifications",
+    title: "Live Activities",
+    keywords: "lock screen dynamic island show in live activities questions only",
+  },
 
   // Appearance
   { page: "appearance", title: "Mode", keywords: "light dark system theme" },
-  { page: "appearance", title: "Text size", group: "Text and motion", description: "Messages and the composer.", keywords: "font bigger smaller" },
-  { page: "appearance", title: "Code size", group: "Text and motion", description: "Code blocks and diffs.", keywords: "font monospace" },
+  {
+    page: "appearance",
+    title: "Text size",
+    group: "Text and motion",
+    description: "Messages and the composer.",
+    keywords: "font bigger smaller",
+  },
+  {
+    page: "appearance",
+    title: "Code size",
+    group: "Text and motion",
+    description: "Code blocks and diffs.",
+    keywords: "font monospace",
+  },
   {
     page: "appearance",
     title: "Diff colors",
@@ -99,8 +119,19 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "Original colors, or black and white to match the mode.",
     keywords: "logos claude codex",
   },
-  { page: "appearance", title: "Custom theme", group: "Custom theme", description: "Build a theme from a few colors.", keywords: "colors palette" },
-  { page: "appearance", title: "Editing", group: "Custom theme", keywords: "light dark custom theme colors" },
+  {
+    page: "appearance",
+    title: "Custom theme",
+    group: "Custom theme",
+    description: "Build a theme from a few colors.",
+    keywords: "colors palette",
+  },
+  {
+    page: "appearance",
+    title: "Editing",
+    group: "Custom theme",
+    keywords: "light dark custom theme colors",
+  },
 
   // Browser
   {
@@ -119,7 +150,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "Tap for usage and Compact now.",
     keywords: "context window tokens usage",
   },
-  { page: "chat-display", title: "Show below threshold", group: "Context size", keywords: "compact button always" },
+  {
+    page: "chat-display",
+    title: "Show below threshold",
+    group: "Context size",
+    keywords: "compact button always",
+  },
   {
     page: "chat-display",
     title: "Auto compact quietly",
@@ -127,7 +163,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "Compacts at your limit. No context size, button or notifications.",
     keywords: "compact automatic threshold",
   },
-  { page: "chat-display", title: CHAT_LIST_TITLE, group: CHAT_LIST_TITLE, keywords: "one list by project grouped sidebar" },
+  {
+    page: "chat-display",
+    title: CHAT_LIST_TITLE,
+    group: CHAT_LIST_TITLE,
+    keywords: "one list by project grouped sidebar",
+  },
   // The phone never lists the Computer field: it is always on its rows.
   ...CHAT_ROW_FIELDS.filter((field) => field.id !== "computer").map((field) => ({
     page: "chat-display" as const,
@@ -135,13 +176,49 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: "Rows show",
     keywords: "chat list row",
   })),
-  { page: "chat-display", title: "Reasoning", group: "Reasoning", keywords: "thinking folded expanded" },
-  { page: "chat-display", title: "Tool calls", group: "Tool calls", keywords: "compact full detail" },
-  { page: "chat-display", title: "Keyboard shortcut", group: "Dictation", keywords: "dictate voice keyboard alt space ipad" },
-  { page: "chat-display", title: "Fix-up model", group: "Dictation", keywords: "correction automatic haiku codex gemini kiro" },
-  { page: "chat-display", title: "Fix names with AI", group: "Dictation", keywords: "post processing correction automatic model haiku codex gemini kiro" },
-  { page: "chat-display", title: "When dictation finishes", group: "Dictation", keywords: "voice send insert mic" },
+  {
+    page: "chat-display",
+    title: "Reasoning",
+    group: "Reasoning",
+    keywords: "thinking folded expanded",
+  },
+  {
+    page: "chat-display",
+    title: "Tool calls",
+    group: "Tool calls",
+    keywords: "compact full detail",
+  },
+  {
+    page: "chat-display",
+    title: "Keyboard shortcut",
+    group: "Dictation",
+    keywords: "dictate voice keyboard alt space ipad",
+  },
+  {
+    page: "chat-display",
+    title: "Fix-up model",
+    group: "Dictation",
+    keywords: "correction automatic haiku codex gemini kiro",
+  },
+  {
+    page: "chat-display",
+    title: "Fix names with AI",
+    group: "Dictation",
+    keywords: "post processing correction automatic model haiku codex gemini kiro",
+  },
+  {
+    page: "chat-display",
+    title: "When dictation finishes",
+    group: "Dictation",
+    keywords: "voice send insert mic",
+  },
 
+  {
+    page: "computers",
+    title: "Name on computers",
+    group: "This iPhone",
+    keywords: "device phone name",
+  },
   // Experimental
   {
     page: "experimental",
@@ -151,8 +228,8 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
   {
     page: "experimental",
-    title: "Show chat activity",
-    description: "Include working chats with a progress summary and finished updates. Off: only questions and permission requests.",
+    title: "Show Chat activity",
+    description: "Include working Chats with a progress summary and finished updates. Off: only questions and permission requests.",
     keywords: "floating inbox progress",
   },
   {
@@ -161,7 +238,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.",
     keywords: "mortal kombat announcer",
   },
-  { page: "experimental", title: DEVICE_NOTES_LABEL, description: DEVICE_NOTES_DESCRIPTION, keywords: "sent from phone ipad tokens" },
+  {
+    page: "experimental",
+    title: DEVICE_NOTES_LABEL,
+    description: DEVICE_NOTES_DESCRIPTION,
+    keywords: "sent from phone ipad tokens",
+  },
 
   // Babysit PRs
   {
@@ -185,7 +267,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "On by default. After replying on a thread, the agent marks it resolved.",
     keywords: "review comments",
   },
-  { page: "babysit-prs", title: "The PR is merged or closed", group: "Stop babysitting when", description: "Always" },
+  {
+    page: "babysit-prs",
+    title: "The PR is merged or closed",
+    group: "Stop babysitting when",
+    description: "Always",
+  },
   {
     page: "babysit-prs",
     title: "Checks pass and the PR is approved",
@@ -193,10 +280,30 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "Nothing left to address. A comment that lands after this goes unwatched.",
     keywords: "green ci",
   },
-  { page: "babysit-prs", title: "It has watched the PR for", group: "Stop babysitting when", keywords: "days timeout" },
-  { page: "babysit-prs", title: "Watch the PR for", group: "Stop babysitting when", keywords: "days timeout" },
-  { page: "babysit-prs", title: "It failed to fix the same problem", group: "Stop babysitting when", keywords: "times retries give up" },
-  { page: "babysit-prs", title: "Failed to fix the same problem", group: "Stop babysitting when", keywords: "times retries give up" },
+  {
+    page: "babysit-prs",
+    title: "It has watched the PR for",
+    group: "Stop babysitting when",
+    keywords: "days timeout",
+  },
+  {
+    page: "babysit-prs",
+    title: "Watch the PR for",
+    group: "Stop babysitting when",
+    keywords: "days timeout",
+  },
+  {
+    page: "babysit-prs",
+    title: "It failed to fix the same problem",
+    group: "Stop babysitting when",
+    keywords: "times retries give up",
+  },
+  {
+    page: "babysit-prs",
+    title: "Failed to fix the same problem",
+    group: "Stop babysitting when",
+    keywords: "times retries give up",
+  },
   {
     page: "babysit-prs",
     title: "Your own rule",
@@ -228,8 +335,18 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     title: "Show the agent's cursor",
     keywords: "pointer overlay screen",
   },
-  { page: "computer-use", title: "Accessibility", group: "Permissions on the Mac", keywords: "grant permission system settings" },
-  { page: "computer-use", title: "Screen Recording", group: "Permissions on the Mac", keywords: "grant permission system settings" },
+  {
+    page: "computer-use",
+    title: "Accessibility",
+    group: "Permissions on the Mac",
+    keywords: "grant permission system settings",
+  },
+  {
+    page: "computer-use",
+    title: "Screen Recording",
+    group: "Permissions on the Mac",
+    keywords: "grant permission system settings",
+  },
 
   // General
   {
@@ -268,7 +385,13 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
 
   // Connections
-  { page: "connections", title: LINEAR_TITLE, group: "Issue trackers", description: LINEAR_HINT, keywords: "issues tracker" },
+  {
+    page: "connections",
+    title: LINEAR_TITLE,
+    group: "Issue trackers",
+    description: LINEAR_HINT,
+    keywords: "issues tracker",
+  },
   {
     page: "connections",
     title: LINEAR_MOVE_TO_STARTED_TITLE,
@@ -285,8 +408,17 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: "Public links to designs and artifacts.",
     keywords: "share links",
   },
-  { page: "local-mcp", title: "Custom MCP", group: "Milagre MCP", keywords: "connection token access config" },
+  {
+    page: "local-mcp",
+    title: "Custom MCP",
+    group: "Milagre MCP",
+    keywords: "connection token access config",
+  },
 
   // Keybindings
-  { page: "keybindings", title: "Reset all to defaults", keywords: "shortcuts keys" },
+  {
+    page: "keybindings",
+    title: "Reset all to defaults",
+    keywords: "shortcuts keys",
+  },
 ];

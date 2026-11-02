@@ -576,10 +576,33 @@ async function browserChecks() {
     const divider = await evaluate(
       `(() => { const r = ${zoomBar}.querySelector("span").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseDown", x: divider.x, y: divider.y, button: "left", clickCount: 1 });
-    window.webContents.sendInputEvent({ type: "mouseMove", x: divider.x - 80, y: divider.y - 60, button: "left" });
-    window.webContents.sendInputEvent({ type: "mouseUp", x: divider.x - 80, y: divider.y - 60, button: "left", clickCount: 1 });
-    window.webContents.sendInputEvent({ type: "mouseWheel", x: divider.x, y: divider.y, deltaX: 0, deltaY: -120 });
+    window.webContents.sendInputEvent({
+      type: "mouseDown",
+      x: divider.x,
+      y: divider.y,
+      button: "left",
+      clickCount: 1,
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseMove",
+      x: divider.x - 80,
+      y: divider.y - 60,
+      button: "left",
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseUp",
+      x: divider.x - 80,
+      y: divider.y - 60,
+      button: "left",
+      clickCount: 1,
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseWheel",
+      x: divider.x,
+      y: divider.y,
+      deltaX: 0,
+      deltaY: -120,
+    });
     await delay(150);
     assert.equal(await evaluate(boardAt), still, "the zoom bar doesn't pan or zoom the canvas");
     await evaluate(`${zoomBar}.querySelector("[aria-label='Fit every design']").click()`);
@@ -595,7 +618,12 @@ async function browserChecks() {
         evaluate(
           `(() => { const r = ${selector}.getBoundingClientRect(); return { x: Math.floor(r.left), y: Math.floor(r.top), width: Math.ceil(r.width), height: Math.ceil(r.height) }; })()`,
         );
-      const pad = ({ x, y, width, height }, by) => ({ x: x - by, y: y - by, width: width + 2 * by, height: height + 2 * by });
+      const pad = ({ x, y, width, height }, by) => ({
+        x: x - by,
+        y: y - by,
+        width: width + 2 * by,
+        height: height + 2 * by,
+      });
       fs.writeFileSync(
         path.join(process.env.MILAGRE_SCREENSHOT_DIR, "zoom-bar.png"),
         (await window.webContents.capturePage(pad(await bounds(zoomBar), 16))).toPNG(),
@@ -982,7 +1010,14 @@ async function browserChecks() {
     const third = await evaluate(
       `(() => { const r = ${frame("login")}.querySelector("[data-slot=artifact-comment-layer]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 4), y: Math.round(r.top + r.height / 4) }; })()`,
     );
-    for (const type of ["mouseDown", "mouseUp"]) window.webContents.sendInputEvent({ type, x: third.x, y: third.y, button: "left", clickCount: 1 });
+    for (const type of ["mouseDown", "mouseUp"])
+      window.webContents.sendInputEvent({
+        type,
+        x: third.x,
+        y: third.y,
+        button: "left",
+        clickCount: 1,
+      });
     await waitFor(`document.activeElement?.tagName === "TEXTAREA"`);
     await evaluate(`(() => {
       const box = document.activeElement;
@@ -992,7 +1027,11 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]") && !!${dock}.querySelector("[data-slot=artifact-send]")`);
     assert.notEqual(await evaluate("document.activeElement?.tagName"), "TEXTAREA");
-    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: [process.platform === "darwin" ? "meta" : "control"] });
+    window.webContents.sendInputEvent({
+      type: "keyDown",
+      keyCode: "Enter",
+      modifiers: [process.platform === "darwin" ? "meta" : "control"],
+    });
     await waitFor("window.sent.length === 3");
     assert.match(await evaluate("window.sent[2]"), /Tighter spacing/);
     await waitFor(`!${dock}.querySelector("[data-slot=artifact-send]")`);
@@ -1162,7 +1201,13 @@ async function browserChecks() {
     if (!input.isAttached()) input.attach("1.3");
     for (let attempt = 0; attempt < 20 && !(await evaluate(`!!${dock}.querySelector("[data-slot=artifact-comment-bubble] textarea")`)); attempt++) {
       for (const type of ["mousePressed", "mouseReleased"])
-        await input.sendCommand("Input.dispatchMouseEvent", { type, x: heading.x, y: heading.y, button: "left", clickCount: 1 });
+        await input.sendCommand("Input.dispatchMouseEvent", {
+          type,
+          x: heading.x,
+          y: heading.y,
+          button: "left",
+          clickCount: 1,
+        });
       await delay(250);
     }
     await waitFor(`!!${dock}.querySelector("[data-slot=artifact-comment-bubble] textarea")`);
@@ -1215,7 +1260,9 @@ async function browserChecks() {
       "the Artifact page gets its own link, not the Designs one",
     );
     await screenshot("artifact-share");
-    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((button) => button.textContent === "Close").click()`);
+    await evaluate(
+      `[...${shareDialog}.querySelectorAll("button")].find((button) => button.textContent === "Close" || button.getAttribute("aria-label") === "Close").click()`,
+    );
     await evaluate(`(() => {
       window.htmlTabs = [
         { id: "overview", title: "Overview", html: "<h1>How this works 2</h1>" },

@@ -98,6 +98,7 @@ export function GeneralSection() {
           compact
           title="Token usage"
           subtitle="Tokens and estimated cost by Project, Chat and model"
+          subtitleLines={2}
           leading={<Icon icon={ChartColumnIcon} tone="ink" size={20} />}
           onPress={() => router.push("/token-usage")}
         />
@@ -106,7 +107,13 @@ export function GeneralSection() {
         <>
           <Text style={[styles.section, { marginTop: 12 }]}>Worktrees</Text>
           <View style={[styles.card, { gap: 4 }]}>
-            <ListRow title={MAIN_SYNC_TITLE} toggle={{ value: syncMain, onChange: () => void changeSyncMain(!syncMain) }} />
+            <ListRow
+              title={MAIN_SYNC_TITLE}
+              toggle={{
+                value: syncMain,
+                onChange: () => void changeSyncMain(!syncMain),
+              }}
+            />
             <Text style={styles.caption}>{MAIN_SYNC_HINT}</Text>
             {syncMainError ? <InlineError message={syncMainError} /> : null}
           </View>
@@ -121,7 +128,13 @@ export function GeneralSection() {
             {autoUpdate !== null && (
               <>
                 {(macUpdate.update !== undefined || macUpdate.restarting) && <View style={styles.separator} />}
-                <ListRow title={AUTO_UPDATE_TITLE} toggle={{ value: autoUpdate, onChange: () => void changeAutoUpdate(!autoUpdate) }} />
+                <ListRow
+                  title={AUTO_UPDATE_TITLE}
+                  toggle={{
+                    value: autoUpdate,
+                    onChange: () => void changeAutoUpdate(!autoUpdate),
+                  }}
+                />
                 <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
                 {autoUpdateError ? <InlineError message={autoUpdateError} /> : null}
               </>

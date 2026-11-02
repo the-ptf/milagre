@@ -10,7 +10,7 @@ import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
 // (`LABEL`), so every chip's text sits on the line's baseline and the chip is centred on the line whatever comes first
 // (an icon has no baseline, a badge a smaller one); icons and badges are sized in em, centred, and never set the height.
 const CHIP =
-  "inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[0.875em] leading-[1.35] font-[inherit] whitespace-nowrap";
+  "relative -top-[0.04em] inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[0.875em] leading-[1.35] font-[inherit] whitespace-nowrap";
 const LABEL = "truncate self-baseline";
 const ICON_SIZE = "0.95em";
 // A chip that opens something: a stronger border on hover; focus is the base accent outline. File and image chips keep
@@ -26,7 +26,10 @@ export function FileKindIcon({ path }: { path: string }) {
         aria-hidden
         data-file-badge={kind.badge}
         className="inline-block shrink-0 rounded-inline px-0.5 text-[0.62em] leading-[1.4] font-semibold"
-        style={{ color: kind.color, background: `color-mix(in srgb, ${kind.color} 16%, transparent)` }}
+        style={{
+          color: kind.color,
+          background: `color-mix(in srgb, ${kind.color} 16%, transparent)`,
+        }}
       >
         {kind.badge}
       </span>

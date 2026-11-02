@@ -131,7 +131,12 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", fs.mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-routines-ui-")));
   await app.whenReady();
-  const win = new BrowserWindow({ width: 1280, height: 900, show: false, webPreferences: { backgroundThrottling: false } });
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 900,
+    show: false,
+    webPreferences: { backgroundThrottling: false },
+  });
   const evaluate = (source) => win.webContents.executeJavaScript(source);
   const waitFor = async (source) => {
     for (let i = 0; i < 160; i++) {
@@ -233,7 +238,9 @@ async function browserChecks() {
     );
     assert.deepEqual(
       JSON.parse(
-        await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-toolbar] button')].map((button) => button.getAttribute('aria-label')))`),
+        await evaluate(
+          `JSON.stringify([...document.querySelectorAll('[data-routine-toolbar] button, [data-routine-toolbar] input[type=checkbox]')].map((button) => button.getAttribute('aria-label')))`,
+        ),
       ),
       ["Watch CI on #461 on", "Run now", "Edit"],
     );
@@ -460,8 +467,18 @@ async function browserChecks() {
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.created)")), {
       name: "Take issues labelled agent",
       prompt: "Work on {{issue.key}} {{issue.state}}",
-      trigger: { kind: "linear", workspace: "milagre", event: "label-added", team: "MIL", label: "agent" },
-      target: { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "worktree" },
+      trigger: {
+        kind: "linear",
+        workspace: "milagre",
+        event: "label-added",
+        team: "MIL",
+        label: "agent",
+      },
+      target: {
+        kind: "new-chat",
+        projectPath: "/code/milagre-ade",
+        workspace: "worktree",
+      },
     });
     await waitFor(`!!document.querySelector('[data-routine-page^="new"]') && !document.querySelector('[data-routine-editor]')`);
     await click("[data-routine-back]");
@@ -522,7 +539,11 @@ async function browserChecks() {
     await evaluate("window.failList = false; window.routinesChanged()");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify([window.created.trigger, window.created.target])")), [
       { kind: "linear", workspace: "milagre", event: "comment" },
-      { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "worktree" },
+      {
+        kind: "new-chat",
+        projectPath: "/code/milagre-ade",
+        workspace: "worktree",
+      },
     ]);
     await waitFor(`!document.querySelector('[data-routine-form]')`);
     await click("[data-routine-back]");

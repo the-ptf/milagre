@@ -120,7 +120,7 @@ const stubs = {
   "./live": "export const syncProject = () => () => {};",
   "./ui": ui,
   "./theme":
-    "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
+    "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const inkFor = (colors, tone) => ['ink', 'ink2', 'ink3'].includes(tone) ? colors[tone] : colors[tone + 'Ink']; export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
   "./primitives/tap": "export const tap = () => {};",
   // The toast pill draws the phone's icons and theme, native-only: here it is its text and Undo.
   "./primitives/toast":
@@ -165,7 +165,12 @@ async function browserChecks() {
   }, 90_000).unref();
   await app.whenReady();
   // App waits for the splash animation to finish; a shown window keeps its compositor painting under Xvfb.
-  const window = new BrowserWindow({ width: 1200, height: 800, show: true, webPreferences: { backgroundThrottling: false } });
+  const window = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    show: true,
+    webPreferences: { backgroundThrottling: false },
+  });
   const errors = [];
   window.webContents.on("console-message", (event) => {
     if (event.level === "error") {

@@ -44,13 +44,24 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     page: "general",
     title: "Chat order",
     group: "Sidebar",
-    description: "Newest chat first keeps chats in place as replies arrive",
+    description: "Newest Chat first keeps chats in place as replies arrive",
     keywords: "sort newest latest message recent",
   },
   { page: "general", title: "Editor" },
-  { page: "general", title: "Open files in", group: "Editor", keywords: "cursor vscode zed editor ide" },
+  {
+    page: "general",
+    title: "Open files in",
+    group: "Editor",
+    keywords: "cursor vscode zed editor ide",
+  },
   { page: "general", title: "Worktrees" },
-  { page: "general", title: MAIN_SYNC_TITLE, group: "Worktrees", description: MAIN_SYNC_HINT, keywords: "git pull fast-forward branch main" },
+  {
+    page: "general",
+    title: MAIN_SYNC_TITLE,
+    group: "Worktrees",
+    description: MAIN_SYNC_HINT,
+    keywords: "git pull fast-forward branch main",
+  },
   { page: "general", title: "System" },
   {
     page: "general",
@@ -61,16 +72,36 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "sleep caffeinate lid",
   },
   { page: "general", title: "Plan usage" },
-  { page: "general", title: "Show", group: "Plan usage", description: "Claude, Codex and Antigravity plan limits", keywords: "usage used remaining limits" },
-  { page: "general", title: "Show in sidebar", group: "Plan usage", description: "Hover a provider for its limits and reset times", keywords: "usage limits" },
+  {
+    page: "general",
+    title: "Show",
+    group: "Plan usage",
+    description: "Claude, Codex and Antigravity plan limits",
+    keywords: "usage used remaining limits",
+  },
+  {
+    page: "general",
+    title: "Show in sidebar",
+    group: "Plan usage",
+    description: "Hover a provider for its limits and reset times",
+    keywords: "usage limits",
+  },
 
   // Usage
-  { page: "usage", title: "Where it went", keywords: "cost tokens spend breakdown" },
+  {
+    page: "usage",
+    title: "Where it went",
+    keywords: "cost tokens spend breakdown",
+  },
   { page: "usage", title: "Models", keywords: "cost tokens spend" },
   { page: "usage", title: "Token mix", keywords: "input output cache tokens" },
 
   // Accounts
-  { page: "accounts", title: "Add account", keywords: "sign in login provider claude codex antigravity" },
+  {
+    page: "accounts",
+    title: "Add account",
+    keywords: "sign in login provider claude codex antigravity",
+  },
   { page: "accounts", title: "Usage limits" },
   {
     page: "accounts",
@@ -88,8 +119,16 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
 
   // Project Accounts
-  { page: "project-accounts", title: "Project or Link", keywords: "account choose which" },
-  { page: "project-accounts", title: "Manage saved accounts", keywords: "accounts" },
+  {
+    page: "project-accounts",
+    title: "Project or Link",
+    keywords: "account choose which",
+  },
+  {
+    page: "project-accounts",
+    title: "Manage saved accounts",
+    keywords: "accounts",
+  },
 
   // Appearance
   {
@@ -107,11 +146,41 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "colors palette own",
   },
   { page: "appearance", title: "Typography", keywords: "font text" },
-  { page: "appearance", title: "Interface font", group: "Typography", description: "Used across the app.", keywords: "typeface text" },
-  { page: "appearance", title: "Monospace font", group: "Typography", description: "Code, diffs and the terminal.", keywords: "code typeface" },
-  { page: "appearance", title: "Sidebar size", group: "Typography", description: "Project and chat names in the sidebar.", keywords: "text font px" },
-  { page: "appearance", title: "Chat size", group: "Typography", description: "Messages and the composer.", keywords: "text font px" },
-  { page: "appearance", title: "Code size", group: "Typography", description: "Code blocks, diffs and the terminal.", keywords: "text font px" },
+  {
+    page: "appearance",
+    title: "Interface font",
+    group: "Typography",
+    description: "Used across the app.",
+    keywords: "typeface text",
+  },
+  {
+    page: "appearance",
+    title: "Monospace font",
+    group: "Typography",
+    description: "Code, diffs and the terminal.",
+    keywords: "code typeface",
+  },
+  {
+    page: "appearance",
+    title: "Sidebar size",
+    group: "Typography",
+    description: "Project and chat names in the sidebar.",
+    keywords: "text font px",
+  },
+  {
+    page: "appearance",
+    title: "Chat size",
+    group: "Typography",
+    description: "Messages and the composer.",
+    keywords: "text font px",
+  },
+  {
+    page: "appearance",
+    title: "Code size",
+    group: "Typography",
+    description: "Code blocks, diffs and the terminal.",
+    keywords: "text font px",
+  },
   { page: "appearance", title: "Layout" },
   {
     page: "appearance",
@@ -152,7 +221,12 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
 
   // Chat
-  { page: "chat", title: "Context size beside Send", description: "Click it for usage and Compact now.", keywords: "context window tokens ring" },
+  {
+    page: "chat",
+    title: "Context size beside Send",
+    description: "Click it for usage and Compact now.",
+    keywords: "context window tokens ring",
+  },
   {
     page: "chat",
     title: "Auto compact quietly",
@@ -165,7 +239,11 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Drag either marker or enter a percentage. Auto compact waits for the reply to finish.",
     keywords: "compact context percent",
   },
-  { page: "chat", title: "Reset to defaults", keywords: "thresholds compact context" },
+  {
+    page: "chat",
+    title: "Reset to defaults",
+    keywords: "thresholds compact context",
+  },
   {
     page: "chat",
     title: "Show Compact below threshold",
@@ -173,15 +251,48 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "compact button context",
   },
   { page: "chat", title: "Chat list", keywords: "sidebar layout" },
-  { page: "chat", title: "One list", group: "Chat list", description: "Newest first, Project on each row." },
-  { page: "chat", title: "By Project", group: "Chat list", description: "A group per Project that folds.", keywords: "grouped folders" },
+  {
+    page: "chat",
+    title: "One list",
+    group: "Chat list",
+    description: "Newest first, Project on each row.",
+  },
+  {
+    page: "chat",
+    title: "By Project",
+    group: "Chat list",
+    description: "A group per Project that folds.",
+    keywords: "grouped folders",
+  },
   { page: "chat", title: "Done" },
-  { page: "chat", title: "Archive Done chats after", group: "Done", keywords: "retention days hours cleanup" },
+  {
+    page: "chat",
+    title: "Archive Done chats after",
+    group: "Done",
+    keywords: "retention days hours cleanup",
+  },
   { page: "chat", title: "Reasoning", keywords: "thinking" },
-  { page: "chat", title: "Folded", group: "Reasoning", description: "Thinking stays in its row until you open it.", keywords: "collapse thinking" },
-  { page: "chat", title: "Expanded", group: "Reasoning", description: "Thinking shows open above each answer.", keywords: "expand thinking" },
+  {
+    page: "chat",
+    title: "Folded",
+    group: "Reasoning",
+    description: "Thinking stays in its row until you open it.",
+    keywords: "collapse thinking",
+  },
+  {
+    page: "chat",
+    title: "Expanded",
+    group: "Reasoning",
+    description: "Thinking shows open above each answer.",
+    keywords: "expand thinking",
+  },
   { page: "chat", title: "Tool calls", keywords: "display detail" },
-  ...TOOL_CALL_DISPLAYS.map(({ label, description }) => ({ page: "chat" as const, title: label, group: "Tool calls", description })),
+  ...TOOL_CALL_DISPLAYS.map(({ label, description }) => ({
+    page: "chat" as const,
+    title: label,
+    group: "Tool calls",
+    description,
+  })),
   { page: "chat", title: "Replies" },
   {
     page: "chat",
@@ -190,13 +301,47 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Shape Claude, Codex and Antigravity updates and replies with /tldr. Applies on the next turn after the current reply finishes.",
     keywords: "short concise summary",
   },
-  { page: "chat", title: "Claude replies", group: "Replies", keywords: "concise normal length verbose" },
-  { page: "chat", title: "Dictation", keywords: "voice speech microphone whisper" },
-  { page: "chat", title: "Shortcut", group: "Dictation", keywords: "dictate voice keyboard alt space hold" },
-  { page: "chat", title: "How the shortcut works", group: "Dictation", keywords: "hold press toggle start stop" },
-  { page: "chat", title: "Fix-up model", group: "Dictation", keywords: "correction automatic haiku codex gemini kiro" },
-  { page: "chat", title: "Fix names with AI", group: "Dictation", keywords: "post processing correction automatic model haiku codex gemini kiro" },
-  { page: "chat", title: "When dictation finishes", group: "Dictation", keywords: "send insert voice" },
+  {
+    page: "chat",
+    title: "Claude replies",
+    group: "Replies",
+    keywords: "concise normal length verbose",
+  },
+  {
+    page: "chat",
+    title: "Dictation",
+    keywords: "voice speech microphone whisper",
+  },
+  {
+    page: "chat",
+    title: "Shortcut",
+    group: "Dictation",
+    keywords: "dictate voice keyboard alt space hold",
+  },
+  {
+    page: "chat",
+    title: "How the shortcut works",
+    group: "Dictation",
+    keywords: "hold press toggle start stop",
+  },
+  {
+    page: "chat",
+    title: "Fix-up model",
+    group: "Dictation",
+    keywords: "correction automatic haiku codex gemini kiro",
+  },
+  {
+    page: "chat",
+    title: "Fix names with AI",
+    group: "Dictation",
+    keywords: "post processing correction automatic model haiku codex gemini kiro",
+  },
+  {
+    page: "chat",
+    title: "When dictation finishes",
+    group: "Dictation",
+    keywords: "send insert voice",
+  },
   {
     page: "chat",
     title: "Speech model",
@@ -204,10 +349,19 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Transcribes on this computer. Picking a model downloads it once.",
     keywords: "whisper download",
   },
-  { page: "chat", title: "Language", group: "Dictation", keywords: "dictation voice english" },
+  {
+    page: "chat",
+    title: "Language",
+    group: "Dictation",
+    keywords: "dictation voice english",
+  },
 
   // Keybindings
-  { page: "keybindings", title: "Add keybinding", keywords: "shortcut hotkey key" },
+  {
+    page: "keybindings",
+    title: "Add keybinding",
+    keywords: "shortcut hotkey key",
+  },
   { page: "keybindings", title: "Advanced" },
   {
     page: "keybindings",
@@ -216,7 +370,11 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Adds When to each keybinding, to run a key only in some places (for example not in a Terminal).",
     keywords: "when keybinding",
   },
-  { page: "keybindings", title: "Reset all to defaults", keywords: "keys shortcuts restore" },
+  {
+    page: "keybindings",
+    title: "Reset all to defaults",
+    keywords: "keys shortcuts restore",
+  },
 
   // Browser
   { page: "browser", title: "Links" },
@@ -227,8 +385,17 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Where web links open when you click them: links in the agent's replies and the servers the Chat runs.",
     keywords: "default browser external",
   },
-  { page: "browser", title: SIGN_INS_TITLE, keywords: "logins cookies sessions" },
-  { page: "browser", title: SIGN_OUT, group: SIGN_INS_TITLE, keywords: "log out logins cookies sessions" },
+  {
+    page: "browser",
+    title: SIGN_INS_TITLE,
+    keywords: "logins cookies sessions",
+  },
+  {
+    page: "browser",
+    title: SIGN_OUT,
+    group: SIGN_INS_TITLE,
+    keywords: "log out logins cookies sessions",
+  },
 
   // Notifications
   { page: "notifications", title: "Alerts" },
@@ -260,7 +427,11 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Top right, when a chat in another project needs an approval or an answer",
     keywords: "inbox approval",
   },
-  { page: "notifications", title: "Schedule", keywords: "quiet hours do not disturb" },
+  {
+    page: "notifications",
+    title: "Schedule",
+    keywords: "quiet hours do not disturb",
+  },
   {
     page: "notifications",
     title: "Notification schedule",
@@ -289,7 +460,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
 
   // Connections
   { page: "connections", title: "Issue trackers" },
-  { page: "connections", title: LINEAR_TITLE, group: "Issue trackers", description: LINEAR_HINT, keywords: "issues tickets" },
+  {
+    page: "connections",
+    title: LINEAR_TITLE,
+    group: "Issue trackers",
+    description: LINEAR_HINT,
+    keywords: "issues tickets",
+  },
   {
     page: "connections",
     title: LINEAR_MOVE_TO_STARTED_TITLE,
@@ -297,7 +474,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: LINEAR_MOVE_TO_STARTED_HINT,
     keywords: "linear status started",
   },
-  { page: "connections", title: LINEAR_ADD_WORKSPACE, group: "Issue trackers", description: LINEAR_ADD_WORKSPACE_HINT, keywords: "linear connect sign in" },
+  {
+    page: "connections",
+    title: LINEAR_ADD_WORKSPACE,
+    group: "Issue trackers",
+    description: LINEAR_ADD_WORKSPACE_HINT,
+    keywords: "linear connect sign in",
+  },
 
   // MCP
   { page: "mcp", title: "Add server", keywords: "tool server install connect" },
@@ -311,9 +494,23 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Manage public links to designs and artifacts, including pages from deleted Chats.",
     keywords: "share public links revoke",
   },
-  { page: "local-mcp", title: "Milagre MCP", keywords: "clients claude desktop cursor" },
-  { page: "local-mcp", title: "Custom MCP", group: "Milagre MCP", keywords: "connection token config" },
-  { page: "local-mcp", title: "Create MCP config", group: "Milagre MCP", keywords: "connection token custom" },
+  {
+    page: "local-mcp",
+    title: "Milagre MCP",
+    keywords: "clients claude desktop cursor",
+  },
+  {
+    page: "local-mcp",
+    title: "Custom MCP",
+    group: "Milagre MCP",
+    keywords: "connection token config",
+  },
+  {
+    page: "local-mcp",
+    title: "Create MCP config",
+    group: "Milagre MCP",
+    keywords: "connection token custom",
+  },
 
   // Devices
   {
@@ -321,7 +518,11 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     title: "Allow devices to connect",
     keywords: "phone pair qr remote access",
   },
-  { page: "devices", title: "Allow on local network", keywords: "lan wifi phone" },
+  {
+    page: "devices",
+    title: "Allow on local network",
+    keywords: "lan wifi phone",
+  },
   {
     page: "devices",
     title: "Connect through",
@@ -335,7 +536,11 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "qr pair phone",
   },
   { page: "devices", title: "Copy link", keywords: "pairing" },
-  { page: "devices", title: "Allow pairing again", keywords: "pair new devices" },
+  {
+    page: "devices",
+    title: "Allow pairing again",
+    keywords: "pair new devices",
+  },
   {
     page: "devices",
     title: "Drive other computers",
@@ -348,7 +553,11 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Pair with another computer using the link from its Settings › Devices. The laptop button in the sidebar adds one too.",
     keywords: "pair mac remote",
   },
-  { page: "devices", title: "Reset access", keywords: "new code revoke phones" },
+  {
+    page: "devices",
+    title: "Reset access",
+    keywords: "new code revoke phones",
+  },
 
   // Experimental
   { page: "experimental", title: "Beta" },
@@ -367,7 +576,12 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Turning Ultracode on darkens the window, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.",
     keywords: "mortal kombat sound",
   },
-  { page: "experimental", title: "Bots", group: "Beta", description: "Named bots that work for you and ask before anything irreversible." },
+  {
+    page: "experimental",
+    title: "Bots",
+    group: "Beta",
+    description: "Named bots that work for you and ask before anything irreversible.",
+  },
   {
     page: "experimental",
     title: "Delegate to other computers",
@@ -376,7 +590,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
       "A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Devices.",
     keywords: "remote agents",
   },
-  { page: "experimental", title: DEVICE_NOTES_LABEL, group: "Beta", description: DEVICE_NOTES_DESCRIPTION, keywords: "phone tokens" },
+  {
+    page: "experimental",
+    title: DEVICE_NOTES_LABEL,
+    group: "Beta",
+    description: DEVICE_NOTES_DESCRIPTION,
+    keywords: "phone tokens",
+  },
   {
     page: "experimental",
     title: "Simlock devices",
@@ -402,13 +622,49 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
 
   // About
   { page: "about", title: "Milagre" },
-  { page: "about", title: "Version", group: "Milagre", keywords: "build release" },
-  { page: "about", title: "Release channel", group: "Milagre", keywords: "stable beta" },
-  { page: "about", title: "Updates", group: "Milagre", keywords: "update upgrade new version" },
-  { page: "about", title: "Check for updates", group: "Milagre", keywords: "update upgrade new version" },
-  { page: "about", title: AUTO_UPDATE_TITLE, group: "Milagre", description: AUTO_UPDATE_HINT, keywords: "install restart automatically" },
-  { page: "about", title: "Runtime", group: "Milagre", keywords: "electron chromium" },
+  {
+    page: "about",
+    title: "Version",
+    group: "Milagre",
+    keywords: "build release",
+  },
+  {
+    page: "about",
+    title: "Release channel",
+    group: "Milagre",
+    keywords: "stable beta",
+  },
+  {
+    page: "about",
+    title: "Updates",
+    group: "Milagre",
+    keywords: "update upgrade new version",
+  },
+  {
+    page: "about",
+    title: "Check for updates",
+    group: "Milagre",
+    keywords: "update upgrade new version",
+  },
+  {
+    page: "about",
+    title: AUTO_UPDATE_TITLE,
+    group: "Milagre",
+    description: AUTO_UPDATE_HINT,
+    keywords: "install restart automatically",
+  },
+  {
+    page: "about",
+    title: "Runtime",
+    group: "Milagre",
+    keywords: "electron chromium",
+  },
   { page: "about", title: "License", group: "Milagre", keywords: "mit" },
   { page: "about", title: "Privacy policy", group: "Milagre" },
-  { page: "about", title: "Support", group: "Milagre", keywords: "help contact" },
+  {
+    page: "about",
+    title: "Support",
+    group: "Milagre",
+    keywords: "help contact",
+  },
 ];

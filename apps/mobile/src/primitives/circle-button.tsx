@@ -70,7 +70,13 @@ export function CircleButton({
         >
           <Text
             maxFontSizeMultiplier={1.3}
-            style={{ color: colors.onInk, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600", fontVariant: ["tabular-nums"] }}
+            style={{
+              color: colors.onInk,
+              fontSize: type.caption2,
+              lineHeight: lineHeight.caption2,
+              fontWeight: "600",
+              fontVariant: ["tabular-nums"],
+            }}
           >
             {badge}
           </Text>
@@ -80,7 +86,13 @@ export function CircleButton({
   );
   if (asTrigger && !onPress)
     return (
-      <View accessible accessibilityRole="button" accessibilityLabel={label} style={disabled ? pressStyle({ pressed: false, disabled }) : undefined}>
+      <View
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled }}
+        style={disabled ? pressStyle({ pressed: false, disabled }) : undefined}
+      >
         {face}
       </View>
     );

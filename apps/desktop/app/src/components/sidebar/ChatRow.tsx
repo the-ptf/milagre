@@ -78,7 +78,12 @@ function useMinute(on: boolean) {
   return on ? now : 0;
 }
 
-const markToneClass = { accent: "text-accent", orange: "text-orange-ink", red: "text-red-ink", ink3: "text-ink-3" } as const;
+const markToneClass = {
+  accent: "text-accent",
+  orange: "text-orange-ink",
+  red: "text-red-ink",
+  ink3: "text-ink-3",
+} as const;
 
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -186,7 +191,11 @@ const NO_LINKS: LinkedEnd[] = [];
 export const PullRequestOpenContext = createContext<((item: SidebarRecent, pr: PullRequest) => boolean) | null>(null);
 
 /** A pending Worktree check keeps files when the conversation is deleted. */
-const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
+const HIDE_ONLY: ArchivePlan = {
+  milagreOwned: false,
+  shared: false,
+  status: null,
+};
 
 const MARK_LABEL: Record<Exclude<ChatMark, "idle">, string> = {
   interrupted: "Interrupted",
@@ -267,7 +276,7 @@ export function ChatMarkDot({
   topAligned?: boolean;
 }) {
   const failure = mark === "idle" && failed;
-  const label = failure ? "Last turn failed" : mark === "idle" ? "" : markLabel(mark, background);
+  const label = failure ? "Failed" : mark === "idle" ? "" : markLabel(mark, background);
   const dot = failure ? "size-2 bg-red" : mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
   return (
     <span className={`sidebar-copy mr-2 flex size-3 shrink-0 items-center justify-center ${topAligned ? "mt-1" : ""}`}>
@@ -361,7 +370,9 @@ function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number
         </span>
       )}
       {item.unread && <span data-slot="chat-mark" data-mark="unread" className="size-2 rounded-full bg-accent" />}
-      {!item.unread && item.details?.failed && <span data-slot="chat-mark" data-mark="failed" className="size-2 rounded-full bg-red" />}
+      {!item.unread && item.details?.failed && (
+        <span data-slot="chat-mark" data-mark="failed" role="img" aria-label="Failed" className="size-2 rounded-full bg-red" />
+      )}
     </>
   );
 }
@@ -489,8 +500,17 @@ function InboxLine({
         </span>
       ),
     });
-  if (linearIssue) parts.push({ key: "linear", node: <LinearIssueChip issue={linearIssue} inbox /> });
-  shown.forEach((pr) => parts.push({ key: pr.url, node: <PullRequestChip pr={pr} item={item} labelled={false} inbox /> }));
+  if (linearIssue)
+    parts.push({
+      key: "linear",
+      node: <LinearIssueChip issue={linearIssue} inbox />,
+    });
+  shown.forEach((pr) =>
+    parts.push({
+      key: pr.url,
+      node: <PullRequestChip pr={pr} item={item} labelled={false} inbox />,
+    }),
+  );
   if (hidden > 0)
     parts.push({
       key: "pr-more",
@@ -635,7 +655,12 @@ export const ChatRow = memo(function ChatRow({
    * A parent's subchats: a count on the Project icon (the One list) or "5 subchats" on line two folds and unfolds them,
    * orange while one of them waits on you (`asking`).
    */
-  family?: { count: number; folded: boolean; asking?: boolean; onToggle: () => void };
+  family?: {
+    count: number;
+    folded: boolean;
+    asking?: boolean;
+    onToggle: () => void;
+  };
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -719,7 +744,11 @@ export const ChatRow = memo(function ChatRow({
   const rowRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const hoverTimer = useRef<number | null>(null);
-  const [card, setCard] = useState<{ top: number; left: number; flip: boolean } | null>(null);
+  const [card, setCard] = useState<{
+    top: number;
+    left: number;
+    flip: boolean;
+  } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   // The issue picker opened from the menu's "Link issue…", at the menu's place.
   const [linking, setLinking] = useState<{ x: number; y: number } | null>(null);
@@ -774,7 +803,11 @@ export const ChatRow = memo(function ChatRow({
       const sidebar = row.closest("aside")?.getBoundingClientRect() ?? rect;
       // Rows low in the window open the card upwards so it stays on screen.
       const flip = rect.top > window.innerHeight - 240;
-      setCard({ top: flip ? window.innerHeight - rect.bottom - 4 : rect.top - 4, left: sidebar.right + 8, flip });
+      setCard({
+        top: flip ? window.innerHeight - rect.bottom - 4 : rect.top - 4,
+        left: sidebar.right + 8,
+        flip,
+      });
     }, HOVER_CARD_DELAY);
   };
 
@@ -885,7 +918,7 @@ export const ChatRow = memo(function ChatRow({
             aria-busy={archiving || undefined}
             aria-label={archiving ? `Deleting ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
-            className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-[46px] items-start pt-1.5" : "h-8 items-center"} rounded-control px-2 text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
+            className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-12 items-start pt-1.5" : "h-8 items-center"} rounded-control px-2 text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
               active ? "bg-hover-2" : "hover:bg-hover-2"
             } ${archiving ? "opacity-30" : ""}`}
           >
@@ -961,7 +994,9 @@ export const ChatRow = memo(function ChatRow({
               event.stopPropagation();
               shownFamily.onToggle();
             }}
-            style={{ backgroundImage: `linear-gradient(${familyBadgeFill}, ${familyBadgeFill})` }}
+            style={{
+              backgroundImage: `linear-gradient(${familyBadgeFill}, ${familyBadgeFill})`,
+            }}
             className={`sidebar-copy absolute top-[22px] left-[30px] z-20 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface px-1 text-10 font-semibold tabular-nums ring-2 ring-surface transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
               shownFamily.asking ? "text-black" : shownFamily.folded ? "text-ink" : "text-accent-ink"
             } ${archiving ? "opacity-30" : ""}`}
@@ -1176,7 +1211,7 @@ function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullReques
           <HugeIcon icon={LinkSquare02Icon} size={12} />
         </span>
         <span className="truncate">#{pr.number}</span>
-        {labelled && look.label && <span className={`shrink-0 ${look.toneClass}`}>{look.label}</span>}
+        {labelled && look.label && <span className={`shrink-0 ${look.labelClass}`}>{look.label}</span>}
       </a>
     </Tooltip>
   );
@@ -1245,7 +1280,10 @@ function ChatHoverCard({
   const mark = item.mark ?? "idle";
   const status =
     mark !== "idle"
-      ? { label: markLabel(mark, item.background), tone: markToneClass[chatMarkTone(mark)] }
+      ? {
+          label: markLabel(mark, item.background),
+          tone: markToneClass[chatMarkTone(mark)],
+        }
       : details.failed
         ? { label: "Last turn failed", tone: "text-red-ink" }
         : null;
@@ -1305,7 +1343,7 @@ function ChatHoverCard({
                     <span className="tabular-nums">#{pr.number}</span>
                     {pr.title ? ` · ${pr.title}` : ""}
                   </span>
-                  {look.label && <span className={`shrink-0 ${look.toneClass}`}>{look.ready ? "Ready to merge" : look.label}</span>}
+                  {look.label && <span className={`shrink-0 ${look.labelClass}`}>{look.ready ? "Ready to merge" : look.label}</span>}
                 </a>
               );
             })}
@@ -1531,9 +1569,23 @@ function ChatMenu({
   const deletionPlan = plan ?? HIDE_ONLY;
   const archiveItems: MenuEntry[] = [
     ...(actions.onDone && !item.doneAt
-      ? [{ key: "done", label: "Mark Done", icon: Tick02Icon, onSelect: run(() => actions.onDone?.(item.id)) }]
+      ? [
+          {
+            key: "done",
+            label: "Mark Done",
+            icon: Tick02Icon,
+            onSelect: run(() => actions.onDone?.(item.id)),
+          },
+        ]
       : actions.onReopen && item.doneAt
-        ? [{ key: "reopen", label: "Reopen", icon: Undo02Icon, onSelect: run(() => actions.onReopen?.(item.id)) }]
+        ? [
+            {
+              key: "reopen",
+              label: "Reopen",
+              icon: Undo02Icon,
+              onSelect: run(() => actions.onReopen?.(item.id)),
+            },
+          ]
         : []),
     {
       key: "archive",
@@ -1549,10 +1601,28 @@ function ChatMenu({
     ...(actions.gitless
       ? []
       : [
-          { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
-          { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
+          {
+            key: "copy-path",
+            label: "Copy path",
+            icon: Copy01Icon,
+            onSelect: copy(details.path ?? ""),
+            disabled: !details.path,
+          },
+          {
+            key: "copy-branch",
+            label: "Copy branch name",
+            icon: GitBranchIcon,
+            onSelect: copy(details.branch ?? ""),
+            disabled: !details.branch,
+          },
         ]),
-    { key: "rename", label: "Rename chat", icon: PencilEdit02Icon, onSelect: run(onRename), disabled: !actions.onRename },
+    {
+      key: "rename",
+      label: "Rename chat",
+      icon: PencilEdit02Icon,
+      onSelect: run(onRename),
+      disabled: !actions.onRename,
+    },
     {
       key: "reload",
       label: "Reload chat",
@@ -1573,10 +1643,24 @@ function ChatMenu({
               disabled: !actions.onUnlinkIssue,
             },
           ]
-        : [{ key: "link-issue", label: "Link issue…", leading: <LinearLogo size={14} />, onSelect: run(onLink), disabled: !actions.onLinkIssue }]
+        : [
+            {
+              key: "link-issue",
+              label: "Link issue…",
+              leading: <LinearLogo size={14} />,
+              onSelect: run(onLink),
+              disabled: !actions.onLinkIssue,
+            },
+          ]
       : []),
     item.unread
-      ? { key: "read", label: "Mark as read", icon: Tick02Icon, onSelect: run(() => actions.onMarkUnread?.(item.id, false)), disabled: !actions.onMarkUnread }
+      ? {
+          key: "read",
+          label: "Mark as read",
+          icon: Tick02Icon,
+          onSelect: run(() => actions.onMarkUnread?.(item.id, false)),
+          disabled: !actions.onMarkUnread,
+        }
       : {
           key: "unread",
           label: "Mark as unread",
@@ -1612,8 +1696,20 @@ function ChatMenu({
           },
         ]),
     item.pinned
-      ? { key: "unpin", label: "Unpin", icon: PinOffIcon, onSelect: run(() => actions.onPin?.(item.id, null)), disabled: !actions.onPin }
-      : { key: "pin", label: "Pin", icon: PinIcon, onSelect: run(() => actions.onPin?.(item.id)), disabled: !actions.onPin },
+      ? {
+          key: "unpin",
+          label: "Unpin",
+          icon: PinOffIcon,
+          onSelect: run(() => actions.onPin?.(item.id, null)),
+          disabled: !actions.onPin,
+        }
+      : {
+          key: "pin",
+          label: "Pin",
+          icon: PinIcon,
+          onSelect: run(() => actions.onPin?.(item.id)),
+          disabled: !actions.onPin,
+        },
     // Canvas Links between Worktrees, offered where the chat's Worktree can take one (this Mac, not a shared Link Chat).
     ...(actions.onLinkWith && details.path
       ? [
@@ -1621,7 +1717,12 @@ function ChatMenu({
             key: "link-with",
             label: "Link with…",
             icon: Link04Icon,
-            onSelect: run(() => actions.onLinkWith?.(item.id, { top: position.y, left: position.x })),
+            onSelect: run(() =>
+              actions.onLinkWith?.(item.id, {
+                top: position.y,
+                left: position.x,
+              }),
+            ),
           },
         ]
       : []),
@@ -1631,7 +1732,12 @@ function ChatMenu({
             key: "remove-link",
             label: "Remove Link with…",
             icon: Unlink04Icon,
-            onSelect: run(() => actions.onRemoveLink?.(item.id, { top: position.y, left: position.x })),
+            onSelect: run(() =>
+              actions.onRemoveLink?.(item.id, {
+                top: position.y,
+                left: position.x,
+              }),
+            ),
           },
         ]
       : []),
@@ -1663,7 +1769,13 @@ function ChatMenu({
       data-chat-menu
       onKeyDown={moveFocus}
       className="fixed z-[70] flex max-h-[calc(100vh-16px)] flex-col overflow-hidden rounded-card bg-surface p-1.5 shadow-overlay"
-      style={{ top, left: position.x, width: MENU_WIDTH, animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top left" }}
+      style={{
+        top,
+        left: position.x,
+        width: MENU_WIDTH,
+        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+        transformOrigin: "top left",
+      }}
     >
       <ScrollArea className="min-h-0">
         <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover-2">

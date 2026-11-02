@@ -13,14 +13,26 @@ const PR_ICONS = {
 } as const;
 
 const PR_TONES = {
-  purple: "text-purple-500",
-  red: "text-red-ink",
-  orange: "text-orange-ink",
-  green: "text-green-ink",
+  purple: "text-purple",
+  red: "text-red",
+  orange: "text-orange",
+  green: "text-green",
   ink3: "text-ink-3",
 } as const;
 
 export function prLook(pr: Parameters<typeof pullRequestPresentation>[0]) {
   const look = pullRequestPresentation(pr);
-  return { ...look, glyph: PR_ICONS[look.icon], toneClass: PR_TONES[look.tone] };
+  const labelClass = {
+    purple: "text-purple-ink",
+    red: "text-red-ink",
+    orange: "text-orange-ink",
+    green: "text-green-ink",
+    ink3: "text-ink-3",
+  }[look.tone];
+  return {
+    ...look,
+    labelClass,
+    glyph: PR_ICONS[look.icon],
+    toneClass: PR_TONES[look.tone],
+  };
 }

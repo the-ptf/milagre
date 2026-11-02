@@ -173,19 +173,47 @@ const SECTIONS: Array<{
   { key: "general", label: "General", icon: <Icon icon={Settings01Icon} /> },
   { key: "usage", label: "Usage", icon: <Icon icon={ChartColumnIcon} /> },
   { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} /> },
-  { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} /> },
-  { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
+  {
+    key: "project-accounts",
+    label: "Project Accounts",
+    icon: <Icon icon={FolderKeyIcon} />,
+  },
+  {
+    key: "appearance",
+    label: "Appearance",
+    icon: <Icon icon={PaintBoardIcon} />,
+  },
   { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
-  { key: "keybindings", label: "Keybindings", icon: <Icon icon={KeyboardIcon} /> },
+  {
+    key: "keybindings",
+    label: "Keybindings",
+    icon: <Icon icon={KeyboardIcon} />,
+  },
   { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} /> },
-  { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
+  {
+    key: "notifications",
+    label: "Notifications",
+    icon: <Icon icon={Notification01Icon} />,
+  },
   { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} /> },
-  { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
+  {
+    key: "connections",
+    label: "Connections",
+    icon: <Icon icon={ConnectIcon} />,
+  },
   { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
   { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
   { key: "local-mcp", label: "Milagre", icon: <MilagreMark /> },
-  { key: "devices", label: "Devices", icon: <Icon icon={LaptopPhoneSyncIcon} /> },
-  { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} /> },
+  {
+    key: "devices",
+    label: "Devices",
+    icon: <Icon icon={LaptopPhoneSyncIcon} />,
+  },
+  {
+    key: "experimental",
+    label: "Experimental",
+    icon: <Icon icon={FlaskConicalIcon} />,
+  },
   { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} /> },
 ];
 
@@ -430,7 +458,10 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
     ]).then(([status, recent]) => {
       if (!live) return;
       const projects = (Array.isArray(recent) ? recent : []).filter((project) => !project?.hidden).map((project) => String(project.name));
-      setAbout({ version: typeof status?.version === "string" ? status.version : null, projects });
+      setAbout({
+        version: typeof status?.version === "string" ? status.version : null,
+        projects,
+      });
     });
     return () => {
       live = false;
@@ -556,7 +587,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       <Group title="Remove">
         <Row
           label={`Remove ${computer.name}`}
-          description={`Its chats leave this sidebar and ${thisComputer} forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
+          description={`Its Chats leave this sidebar and ${thisComputer} forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
             waiting.length ? ` ${waiting.length === 1 ? "1 message" : `${waiting.length} messages`} waiting on ${thisComputer} for it will be discarded.` : ""
           }`}
         >
@@ -657,7 +688,10 @@ function NotificationChimeSetting() {
             updateSettings({ notificationChime: chime });
             playNotificationChime(chime);
           }}
-          options={NOTIFICATION_CHIMES.map((chime) => ({ value: chime.id, label: chime.label }))}
+          options={NOTIFICATION_CHIMES.map((chime) => ({
+            value: chime.id,
+            label: chime.label,
+          }))}
         />
       </div>
     </Row>
@@ -752,7 +786,10 @@ function DoneRetentionSetting() {
           label="Archive Done chats after"
           width={140}
           value={String(settings.retentionHours)}
-          options={DONE_RETENTION_OPTIONS.map((hours) => ({ value: String(hours), label: retentionLabel(hours) }))}
+          options={DONE_RETENTION_OPTIONS.map((hours) => ({
+            value: String(hours),
+            label: retentionLabel(hours),
+          }))}
           onChange={(value) => void save({ retentionHours: Number(value) }).catch(() => {})}
         />
       </Row>
@@ -857,7 +894,10 @@ function ChatSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void })
               value={englishOnly ? "en" : settings.dictationLanguage}
               disabled={englishOnly}
               onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
-              options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
+              options={DICTATION_LANGUAGES.map((language) => ({
+                value: language.code,
+                label: language.name,
+              }))}
             />
           </Row>
         </div>
@@ -955,11 +995,11 @@ function ExperimentalSettings({ title }: { title?: string }) {
         {settings.floatingInbox && (
           <div className="ml-4 border-l border-line pl-4">
             <Row
-              label="Show chat activity"
+              label="Show Chat activity"
               description="Include working chats with a progress summary and finished updates. Off: only questions and permission requests."
             >
               <SettingCheckbox
-                label="Show chat activity"
+                label="Show Chat activity"
                 checked={settings.floatingInboxActivity}
                 onChange={(floatingInboxActivity) => updateSettings({ floatingInboxActivity })}
               />
@@ -1031,13 +1071,13 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
         </Row>
       </Group>
       <Group title="Sidebar">
-        <Row label="Chat order" description="Newest chat first keeps chats in place as replies arrive">
+        <Row label="Chat order" description="Newest Chat first keeps Chats in place as replies arrive">
           <Select<ChatOrder>
             label="Chat order"
             value={settings.chatOrder}
             onChange={(chatOrder) => updateSettings({ chatOrder })}
             options={[
-              { value: "created", label: "Newest chat first" },
+              { value: "created", label: "Newest Chat first" },
               { value: "recent", label: "Latest message first" },
             ]}
           />
@@ -1059,7 +1099,10 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
               label="Open files in"
               value={editor?.id ?? ""}
               onChange={(editorId) => updateSettings({ editorId })}
-              options={(editors ?? []).map((item) => ({ value: item.id, label: item.name }))}
+              options={(editors ?? []).map((item) => ({
+                value: item.id,
+                label: item.name,
+              }))}
             />
           )}
         </Row>
@@ -1180,7 +1223,11 @@ function shownFont(list: readonly FontOption[], id: string) {
 }
 
 function pxOptions<T extends string>(list: readonly { id: T; px: number }[]) {
-  return list.map((size) => ({ value: size.id, label: `${size.px} px`, description: size.id === "default" ? "default" : undefined }));
+  return list.map((size) => ({
+    value: size.id,
+    label: `${size.px} px`,
+    description: size.id === "default" ? "default" : undefined,
+  }));
 }
 
 // The window's stripes (as on body, pinned to the viewport), so a strip painted with them is invisible over the page.
@@ -1251,10 +1298,17 @@ function AppearanceSettings() {
             checked={settings.customThemeEnabled}
             onChange={(customThemeEnabled) => {
               if (!customThemeEnabled) {
-                updateSettings({ customThemeEnabled, ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}) });
+                updateSettings({
+                  customThemeEnabled,
+                  ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}),
+                });
               } else {
                 const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
-                updateSettings({ customThemeEnabled, customTheme: settings.customTheme ?? seedsFrom(from), colorTheme: "custom" });
+                updateSettings({
+                  customThemeEnabled,
+                  customTheme: settings.customTheme ?? seedsFrom(from),
+                  colorTheme: "custom",
+                });
               }
             }}
           />
@@ -1341,7 +1395,10 @@ function AppearanceSettings() {
                 value={appearance.chatWidth}
                 onChange={(chatWidth) => change("width", { chatWidth })}
                 onOpenChange={preview.menu("width")}
-                options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
+                options={CHAT_WIDTHS.map((width) => ({
+                  value: width.id,
+                  label: width.label,
+                }))}
               />
             </div>
           </Row>
@@ -1352,7 +1409,10 @@ function AppearanceSettings() {
               value={appearance.providerIcons}
               onChange={(providerIcons) => change("ui", { providerIcons })}
               onOpenChange={preview.menu("ui")}
-              options={PROVIDER_ICON_STYLES.map((style) => ({ value: style.id, label: style.label }))}
+              options={PROVIDER_ICON_STYLES.map((style) => ({
+                value: style.id,
+                label: style.label,
+              }))}
             />
           </Row>
           <Row label="Sidebar usage" description="One row per provider, or provider icons in one line." preview={preview.row("usage")}>
@@ -1362,7 +1422,10 @@ function AppearanceSettings() {
               value={appearance.sidebarUsage}
               onChange={(sidebarUsage) => change("usage", { sidebarUsage })}
               onOpenChange={preview.menu("usage")}
-              options={SIDEBAR_USAGE_MODES.map((mode) => ({ value: mode.id, label: mode.label }))}
+              options={SIDEBAR_USAGE_MODES.map((mode) => ({
+                value: mode.id,
+                label: mode.label,
+              }))}
             />
           </Row>
         </Group>
@@ -1394,7 +1457,10 @@ function AppearanceSettings() {
                 preview.hold(null);
                 setPlayMotion((count) => count + 1);
               }}
-              options={MOTION_SPEEDS.map((speed) => ({ value: speed.id, label: speed.label }))}
+              options={MOTION_SPEEDS.map((speed) => ({
+                value: speed.id,
+                label: speed.label,
+              }))}
             />
           </Row>
         </Group>
@@ -1429,7 +1495,13 @@ function DeviceResources() {
     return () => clearInterval(timer);
   }, []);
   const rows: ResourceComputer[] = [
-    { id: "this-mac", name: thisMac, detail: "This Mac", bridge: window.milagre, online: true },
+    {
+      id: "this-mac",
+      name: thisMac,
+      detail: "This Mac",
+      bridge: window.milagre,
+      online: true,
+    },
     ...(otherComputers ? computers.map((computer) => resourceComputer(computer, now)) : []),
   ];
   return (
@@ -2201,7 +2273,7 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
     <div className="grid gap-2 px-4 py-3">
       <label htmlFor="setup-command" className="grid gap-0.5">
         <span className="text-13 font-medium text-ink">Setup command</span>
-        <span className="text-12 text-ink-3">Runs once in each new worktree before the agent starts, e.g. npm ci.</span>
+        <span className="text-12 text-ink-3">Runs once in each new Worktree before the agent starts, e.g. npm ci.</span>
       </label>
       <input
         id="setup-command"

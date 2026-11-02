@@ -2,7 +2,11 @@ import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 
 const BOX =
   "w-full rounded-control border border-line-strong bg-field text-ink transition-colors placeholder:text-ink-3 focus:border-accent aria-invalid:not-focus:border-red disabled:opacity-40";
-const SIZES = { 28: "h-7 px-2 text-12", 32: "h-8 px-2.5 text-13", 36: "h-9 px-2.5 text-13" } as const;
+const SIZES = {
+  28: "h-7 px-2 text-12",
+  32: "h-8 px-2.5 text-13",
+  36: "h-9 px-2.5 text-13",
+} as const;
 export type FieldSize = keyof typeof SIZES;
 
 /**
@@ -32,7 +36,10 @@ export function Input({
   className = "",
   ref,
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & { size?: FieldSize; ref?: Ref<HTMLInputElement> }) {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
+  size?: FieldSize;
+  ref?: Ref<HTMLInputElement>;
+}) {
   return <input ref={ref} {...props} className={`${fieldClass({ size })} ${className}`} />;
 }
 
@@ -57,7 +64,9 @@ export function FieldGroup({
   ref?: Ref<HTMLInputElement>;
 }) {
   return (
-    <label className={`${fieldClass({ size })} flex items-center gap-2 has-[input:focus]:border-accent has-[input:disabled]:opacity-40 ${className}`}>
+    <label
+      className={`${fieldClass({ size })} flex items-center gap-2 has-[input:focus]:border-accent has-[input[aria-invalid=true]:not(:focus)]:border-red has-[input:disabled]:opacity-40 ${className}`}
+    >
       {leading}
       <input ref={ref} {...props} className={`${FIELD_INNER} ${inputClassName}`} />
       {trailing}

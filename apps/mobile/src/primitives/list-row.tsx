@@ -17,7 +17,7 @@ const STACK_FONT_SCALE = 1.35;
 
 /**
  * A list row: leading icon, title, an optional subtitle or current value, and a chevron (see `rowMetrics`). With
- * `toggle` the whole row is a switch: a tap anywhere flips it and it reads as one ("Show its Chats, switch, on").
+ * `toggle` the whole row is a checkbox: a tap anywhere flips it and it reads as one ("Show its Chats, checkbox, checked").
  * Without `onPress` or `toggle` it isn't an element of its own, so VoiceOver reaches what's inside it.
  */
 export function ListRow({
@@ -52,7 +52,7 @@ export function ListRow({
   compact?: boolean;
   onPress?: () => void;
   onLongPress?: () => void;
-  /** The row is a switch: `value` its state, `onChange` flips it, `label` what it reads if not the title. */
+  /** The row is a checkbox: `value` its state, `onChange` flips it, `label` what it reads if not the title. */
   toggle?: { value: boolean; onChange: () => void; label?: string };
   disabled?: boolean;
   destructive?: boolean;
@@ -126,7 +126,7 @@ export function ListRow({
           {stacked ? valueText : null}
         </View>
         {toggle ? (
-          // The row is the control: its switch only shows the state, so a tap on it isn't counted twice.
+          // The row is the control: its checkbox only shows the state, so a tap on it isn't counted twice.
           <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <RowCheckbox selected={toggle.value} onPress={toggle.onChange} disabled={disabled} label={toggle.label ?? title} />
           </View>

@@ -1,3 +1,4 @@
+import { permissionPresentation } from "@milagre/shared/model-copy";
 import { useShortcutLabel } from "../lib/keybindings";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
@@ -19,6 +20,8 @@ import {
   FlashIcon,
   Mic01Icon,
   SecurityCheckIcon,
+  Shield01Icon,
+  ShieldAlertIcon,
 } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "../model";
@@ -70,20 +73,46 @@ function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number };
+type MenuRow = {
+  key: string;
+  name: string;
+  desc: string;
+  group?: string;
+  source?: string;
+  path?: string;
+  chatId?: number;
+};
 
 type Source = { key: string; name: string; desc: string; icon: IconData };
 
 const SOURCES: Source[] = [
-  { key: "attach", name: "Add files", desc: "Choose files from your computer", icon: Attachment01Icon },
-  { key: "paste", name: "Paste image", desc: "Attach an image from the clipboard", icon: ClipboardPasteIcon },
+  {
+    key: "attach",
+    name: "Add files",
+    desc: "Choose files from your computer",
+    icon: Attachment01Icon,
+  },
+  {
+    key: "paste",
+    name: "Paste image",
+    desc: "Attach an image from the clipboard",
+    icon: ClipboardPasteIcon,
+  },
 ];
 
-const UNDO_COMMAND = { key: "undo", name: "/undo", desc: "Undo a task's file changes" };
+const UNDO_COMMAND = {
+  key: "undo",
+  name: "/undo",
+  desc: "Undo a task's file changes",
+};
 
 const COMMANDS = [
   { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
-  { key: "blockers", name: "/blockers", desc: "Find blockers across worktrees" },
+  {
+    key: "blockers",
+    name: "/blockers",
+    desc: "Find blockers across worktrees",
+  },
   { key: "plan", name: "/plan", desc: "Draft the next steps" },
   { key: "review", name: "/review", desc: "Review the current agent output" },
 ];
@@ -172,7 +201,10 @@ function EffortMeter({ level, total }: { level: number; total: number }) {
         <span
           key={index}
           className="w-[2.5px] rounded-full transition-[background-color,height] duration-base ease-enter motion-reduce:transition-none"
-          style={{ height: `${4 + (index * 8) / Math.max(1, total - 1)}px`, background: index <= level ? "currentColor" : "var(--line-strong)" }}
+          style={{
+            height: `${4 + (index * 8) / Math.max(1, total - 1)}px`,
+            background: index <= level ? "currentColor" : "var(--line-strong)",
+          }}
         />
       ))}
     </span>
@@ -268,7 +300,14 @@ export function PromptComposer({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overflowRef = useRef<CompactOverflow>(null);
   const popoverRootRef = useRef<HTMLDivElement>(null);
-  const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number; below: boolean; alignRight: boolean }>({
+  const [anchor, setAnchor] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    maxHeight: number;
+    below: boolean;
+    alignRight: boolean;
+  }>({
     left: 0,
     maxHeight: 480,
     below: false,
@@ -375,9 +414,13 @@ export function PromptComposer({
       ? plusOpen
         ? SOURCES
         : [
-            ...fileSearch.files
-              .slice(0, matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId).length ? 3 : undefined)
-              .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
+            ...fileSearch.files.slice(0, matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId).length ? 3 : undefined).map((path) => ({
+              key: `file:${path}`,
+              name: path.split("/").at(-1) || path,
+              desc: path,
+              path,
+              group: "Files",
+            })),
             ...matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId).map((chat) => ({
               key: `chat:${chat.id}`,
               name: chat.title,
@@ -387,7 +430,10 @@ export function PromptComposer({
             })),
           ]
       : menu === "slash"
-        ? rankSkillMatches(commands, tokenQuery, (command) => ({ name: command.name, description: command.desc }))
+        ? rankSkillMatches(commands, tokenQuery, (command) => ({
+            name: command.name,
+            description: command.desc,
+          }))
         : [];
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
@@ -473,8 +519,20 @@ export function PromptComposer({
     const edge = expanded ? button.top - POPOVER_BUTTON_GAP : root.top - POPOVER_GAP;
     setAnchor(
       below
-        ? { left, alignRight, below, top: button.bottom + POPOVER_BUTTON_GAP - root.top, maxHeight: roomBelow }
-        : { left, alignRight, below, bottom: root.bottom - edge, maxHeight: edge - POPOVER_TOP_INSET },
+        ? {
+            left,
+            alignRight,
+            below,
+            top: button.bottom + POPOVER_BUTTON_GAP - root.top,
+            maxHeight: roomBelow,
+          }
+        : {
+            left,
+            alignRight,
+            below,
+            bottom: root.bottom - edge,
+            maxHeight: edge - POPOVER_TOP_INSET,
+          },
     );
   }
 
@@ -598,10 +656,18 @@ export function PromptComposer({
           inputRef.current?.setSelection(corrected.caret);
         }
         // Send now waits for the fix-up, so what goes out is the corrected message.
-        if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, scope };
+        if (sendAfter)
+          dictatedSend.current = {
+            value: corrected?.value ?? pending.take.produced,
+            scope,
+          };
       });
     },
-    { scope: mentions.project, chatId: mentions.currentId, provider: selectedModel.provider },
+    {
+      scope: mentions.project,
+      chatId: mentions.currentId,
+      provider: selectedModel.provider,
+    },
   );
   const partialText = dictation.partial.text;
   const partialSettled = dictation.partial.settled;
@@ -623,7 +689,10 @@ export function PromptComposer({
   const dictating = dictation.phase !== "idle";
   const startDictation = () => {
     endCorrection();
-    const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
+    const selection = inputRef.current?.getSelection() ?? {
+      start: caret,
+      end: caret,
+    };
     take.current = startTake(draftLatest.current, selection);
     setProvisional(null);
     void dictation.start({ selection });
@@ -818,7 +887,10 @@ export function PromptComposer({
             data-picker-panel
             onMouseLeave={() => setEngaged(false)}
             className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-card bg-surface p-1.5 shadow-raised"
-            style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "bottom center" }}
+            style={{
+              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
+              transformOrigin: "bottom center",
+            }}
           >
             <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files and Chats"}>
               <span
@@ -966,7 +1038,16 @@ export function PromptComposer({
                 key={mode.id}
                 icon={
                   <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
-                    <Icon icon={SecurityCheckIcon} size={14} />
+                    <Icon
+                      icon={
+                        {
+                          shield: Shield01Icon,
+                          "security-check": SecurityCheckIcon,
+                          "shield-alert": ShieldAlertIcon,
+                        }[permissionPresentation(permissionMode).icon]
+                      }
+                      size={16}
+                    />
                   </span>
                 }
                 label={mode.name}
@@ -1044,7 +1125,10 @@ export function PromptComposer({
                 skillDescriptions={skillDescriptions}
                 onOpenImage={(index) => setPreviewId(imageDraft.images[index - 1]?.id ?? null)}
                 onPaste={(event) => {
-                  const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
+                  const selection = inputRef.current?.getSelection() ?? {
+                    start: caret,
+                    end: caret,
+                  };
                   const promise = imageDraft.onPaste(event);
                   if (event.defaultPrevented) insertImages(promise, selection);
                 }}
@@ -1137,9 +1221,18 @@ export function PromptComposer({
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-orange-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
             >
-              <Icon icon={SecurityCheckIcon} size={14} />
+              <Icon
+                icon={
+                  {
+                    shield: Shield01Icon,
+                    "security-check": SecurityCheckIcon,
+                    "shield-alert": ShieldAlertIcon,
+                  }[permissionPresentation(permissionMode).icon]
+                }
+                size={16}
+              />
               <span className={`hidden min-[900px]:inline ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}>{PERMISSION_MODE_LABEL[permissionMode]}</span>
             </button>
             <div
@@ -1231,7 +1324,9 @@ export function PromptComposer({
                           aria-hidden
                           // 20px at rest and 27.6px at full voice, so it never bleeds past the 28px capsule.
                           className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
-                          style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
+                          style={{
+                            transform: "scale(calc(1 + var(--level, 0) * 0.38))",
+                          }}
                         />
                         <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
                       </button>
