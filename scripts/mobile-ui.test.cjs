@@ -1253,7 +1253,7 @@ test("beside an iPad's sidebar the Tasks panel keeps to the composer's column", 
   assert.deepEqual([screen.box.left, screen.box.width], [225 + 12, 736]);
 });
 
-test("inbox single-choice questions require Send and typed answers replace the choice", () => {
+function questionHost(request, { confirmSingle = false } = {}) {
   const react = hookHost();
   const sent = [];
   const { Questions } = load("questions.tsx", {
@@ -1274,6 +1274,14 @@ test("inbox single-choice questions require Send and typed answers replace the c
     "./icons": { Icon: "Icon" },
     "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
   });
+  const render = () => {
+    react.begin();
+    return Questions({ request, busy: false, confirmSingle, submit: (...args) => sent.push(args) });
+  };
+  return { render, sent };
+}
+
+test("inbox single-choice questions require Send and typed answers replace the choice", () => {
   const request = {
     requestId: "q",
     questions: [
@@ -1285,15 +1293,7 @@ test("inbox single-choice questions require Send and typed answers replace the c
       },
     ],
   };
-  const render = () => {
-    react.begin();
-    return Questions({
-      request,
-      busy: false,
-      confirmSingle: true,
-      submit: (...args) => sent.push(args),
-    });
-  };
+  const { render, sent } = questionHost(request, { confirmSingle: true });
   let tree = render();
   assert.equal(
     find(tree, (n) => n.props?.label === "Dismiss questions"),
@@ -1310,6 +1310,40 @@ test("inbox single-choice questions require Send and typed answers replace the c
   assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), {
     next: ["Write instead"],
   });
+});
+
+test("a Chat question batch waits for Send after the last pick, including repeated taps", () => {
+  const { render, sent } = questionHost({
+    requestId: "batch",
+    questions: [
+      { id: "complexity", header: "Complexidade", question: "Complexidade?", options: [{ label: "Baixa" }] },
+      { id: "validation", header: "Validação", question: "Validação?", options: [{ label: "Pendente" }] },
+    ],
+  });
+  let tree = render();
+  find(tree, (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  tree = render();
+  const lastPick = find(tree, (n) => n.props?.accessibilityRole === "radio");
+  lastPick.props.onPress();
+  lastPick.props.onPress();
+  tree = render();
+  assert.equal(sent.length, 0, "the final choice remains editable rather than sending the whole batch");
+  assert.equal(find(tree, (n) => n.type === "PillButton").props.title, "Send answers");
+  find(tree, (n) => n.props?.label === "Previous question").props.onPress();
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "radio").props.accessibilityState.checked, true);
+  find(tree, (n) => n.props?.label === "Next question").props.onPress();
+  tree = render();
+  find(tree, (n) => n.type === "PillButton").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { complexity: ["Baixa"], validation: ["Pendente"] });
+});
+
+test("a standalone single-choice Chat question still sends on its pick", () => {
+  const { render, sent } = questionHost({ requestId: "single", questions: [{ id: "choice", question: "Choice?", options: [{ label: "Read" }] }] });
+  find(render(), (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { choice: ["Read"] });
 });
 
 test("inbox approval shows the entire action inline, including folders, files and delegation", () => {
