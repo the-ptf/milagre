@@ -3485,6 +3485,12 @@
         }
       ]
     },
+    "usage:accounts:read": {
+      "parameters": []
+    },
+    "usage:accounts:cached": {
+      "parameters": []
+    },
     "token-usage:read": {
       "parameters": [
         {

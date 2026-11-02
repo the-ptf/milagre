@@ -3,11 +3,14 @@ import test from "node:test";
 import type { ProviderUsage, UsageSnapshot } from "../../model";
 import {
   accountPickerLabel,
+  accountUsageGroups,
   CONTEXT_CRITICAL_PERCENT,
   CONTEXT_WARN_PERCENT,
   contextSummary,
   contextTone,
   formatResetsIn,
+  formatResetsAt,
+  overviewUpdatedAt,
   formatTokens,
   formatUpdatedAgo,
   mergeSnapshot,
@@ -28,6 +31,27 @@ test("failed usage after an account switch never inherits another account's wind
   const previous = { accountKey: "personal", providers: [claude()] };
   const next = { accountKey: "work", providers: [claude({ status: "error", windows: [] })] };
   assert.deepEqual(mergeSnapshot(previous, next, NOW), next);
+});
+
+test("the overview groups by provider and keeps each failed Account's own limits", () => {
+  const personal = claude({ account: { id: "personal", label: "Personal" } });
+  const work = claude({
+    account: { id: "work", label: "Work" },
+    windows: [{ id: "daily", label: "Daily", shortLabel: "day", usedPercent: 12, resetsAt: null }],
+  });
+  const codex = { ...personal, provider: "codex" as const, account: { id: "default", label: "CLI" } };
+  const previous = { accountKey: "all", providers: [personal, work, codex] };
+  const merged = mergeSnapshot(previous, { accountKey: "all", providers: [codex, { ...work, status: "error", windows: [] }, personal] }, NOW);
+  const groups = accountUsageGroups(merged);
+  assert.deepEqual(
+    groups.map((group) => [group.provider, group.accounts.map((account) => account.account?.id)]),
+    [
+      ["codex", ["default"]],
+      ["claude", ["work", "personal"]],
+    ],
+  );
+  assert.equal(groups[1].accounts[0].windows[0].usedPercent, 12);
+  assert.equal(groups[1].accounts[1].windows[0].usedPercent, 73);
 });
 
 function claude(overrides: Partial<ProviderUsage> = {}): ProviderUsage {
@@ -197,4 +221,23 @@ test("the context ring warns at 75% and turns critical at 90%", () => {
 test("the account picker names whose account it switches", () => {
   assert.equal(accountPickerLabel("claude"), "Claude account for this Project");
   assert.equal(accountPickerLabel("codex", true), "Codex account for Chats without a Project");
+});
+
+test("Plan usage reset captions switch to a local weekday at 24h and reject invalid dates", () => {
+  assert.equal(formatResetsAt(null, NOW), null);
+  assert.equal(formatResetsAt("invalid", NOW), null);
+  assert.equal(formatResetsAt(at(-1), NOW), "Resetting…");
+  assert.equal(formatResetsAt(at(59 * MINUTE), NOW), "Resets in 59m");
+  assert.equal(formatResetsAt(at(DAY - MINUTE), NOW), "Resets in 23h 59m");
+  const expected = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(at(DAY)));
+  assert.equal(formatResetsAt(at(DAY), NOW), `Resets ${expected}`);
+});
+
+test("overview freshness uses the oldest last-good window, ignoring empty or invalid reads", () => {
+  assert.equal(overviewUpdatedAt(null), null);
+  assert.equal(overviewUpdatedAt({ providers: [] }), null);
+  assert.equal(
+    overviewUpdatedAt({ providers: [claude({ updatedAt: at(-HOUR) }), claude({ updatedAt: at(0) }), claude({ windows: [], updatedAt: at(-DAY) })] }),
+    at(-HOUR),
+  );
 });

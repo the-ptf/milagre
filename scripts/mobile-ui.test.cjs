@@ -416,6 +416,61 @@ const jsx = (type, props, key) => (type === messageActionsStub ? props.children(
 // The compiler's per-component cache uses a hook slot, just like a manual memo.
 const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
 
+test("phone Usage rows show and open Chats home and named Link Chats with their canonical owners", () => {
+  const { home, link, report } = require("./fixtures/token-usage.cjs");
+  const react = hookHost();
+  const { ProjectRows } = load(
+    "token-usage-section.tsx",
+    {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "react-native": { View: "View", Text: "Text", Pressable: "Pressable", AppState: {} },
+      "expo-router": { router: {} },
+      "@hugeicons/core-free-icons": {},
+      "@expo/ui": {},
+      "@expo/ui/swift-ui": {},
+      "@expo/ui/swift-ui/modifiers": {},
+      "./settings-find": { Findable: "Findable" },
+      "@milagre/shared/token-usage": require("../packages/shared/src/token-usage.ts"),
+      "@milagre/shared/providers": require("@milagre/shared/providers"),
+      "./theme": themeHooks,
+      "./ui": uiHooks,
+      "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+      "./primitives/segmented": { Segmented: "Segmented" },
+      "./primitives/error-notice": { ErrorNotice: "ErrorNotice" },
+      "./session": {},
+      "./usage-section": { UsageSection: "UsageSection" },
+    },
+    "\nexport { ProjectRows };",
+  );
+  const opened = [];
+  for (const owner of [home, link]) {
+    react.begin();
+    const project = report.projects.find((entry) => entry.path === owner);
+    const tree = ProjectRows({
+      project,
+      metric: "tokens",
+      largest: 220,
+      now: report.generatedAt,
+      open: true,
+      onToggle() {},
+      onOpenChat: (...args) => opened.push(args),
+    });
+    assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === (owner === home ? "Plan the release" : "Update both apps")));
+    assert.equal(
+      find(tree, (node) => node.type === "Text" && /Outside Milagre|Archived/.test(String(node.props.children))),
+      undefined,
+    );
+    const row = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button" && !node.props.accessibilityState);
+    assert.ok(row, "the Chat row is tappable");
+    row.props.onPress();
+  }
+  assert.deepEqual(opened, [
+    [home, 7],
+    [link, 7],
+  ]);
+});
+
 test("context settings stay safe and unavailable on both clients without a host response", async () => {
   const shared = await import("../packages/shared/src/context-settings.mjs");
   for (const response of [null, undefined]) {
@@ -2370,32 +2425,22 @@ for (const reactCompiler of [false, true])
   });
 
 for (const reactCompiler of [false, true])
-  test(`usage revision isolates pending account reads and closes the old connection (compiler: ${reactCompiler})`, async () => {
+  test(`account usage source changes isolate pending reads and close the old connection (compiler: ${reactCompiler})`, async () => {
     const host = hookHost({ effects: true });
-    const listeners = new Set(),
-      connections = [],
+    const connections = [],
       reads = [];
-    const AppState = {
-      currentState: "active",
-      addEventListener: (_event, fn) => {
-        listeners.add(fn);
-        return { remove: () => listeners.delete(fn) };
-      },
-    };
-    const react = {
-      ...host,
-      useSyncExternalStore(subscribe, snapshot) {
-        host.useEffect(() => subscribe(() => {}), [subscribe]);
-        return snapshot();
-      },
-    };
-    const client = {
-      call(method) {
+    const source = () => ({
+      cached() {
         const pending = deferred();
-        reads.push({ method, ...pending });
+        reads.push({ method: "cached", ...pending });
         return pending.promise;
       },
-      live() {
+      read() {
+        const pending = deferred();
+        reads.push({ method: "read", ...pending });
+        return pending.promise;
+      },
+      subscribe() {
         const connection = {
           closed: 0,
           close() {
@@ -2403,45 +2448,43 @@ for (const reactCompiler of [false, true])
           },
         };
         connections.push(connection);
-        return connection;
+        return () => connection.close();
       },
-    };
-    const { useUsage } = load(
-      "use-usage.ts",
-      {
-        react,
-        "react/compiler-runtime": compilerRuntime(host),
-        "react-native": { AppState },
-        "./usage-state": require("../apps/mobile/src/usage-state.ts"),
-      },
+    });
+    const sources = [source(), source()];
+    const { useAccountUsage } = load(
+      "../../../packages/shared/src/use-account-usage.ts",
+      { react: host, "react/compiler-runtime": compilerRuntime(host), "./usage": require("@milagre/shared/usage") },
       "",
       new Map(),
       reactCompiler,
     );
     const render = (revision) => {
       host.begin();
-      return useUsage(client, "/p", revision);
+      return useAccountUsage(sources[revision]);
     };
     try {
       const old = render(0);
+      const oldRead = old.refresh();
       assert.equal(reads.length, 2);
       assert.equal(render(0).refresh, old.refresh);
-      assert.equal(reads.length, 2, "same revision keeps the store and its pending reads");
+      assert.equal(reads.length, 2, "the same source keeps its pending requests");
       assert.equal(render(1).snapshot, null);
-      assert.equal(reads.length, 4, "new account gets fresh cached and live reads");
+      const newRead = render(1).refresh();
+      assert.equal(reads.length, 4, "the new computer gets its own cached and live reads");
       assert.equal(connections[0].closed, 1);
-      assert.equal(listeners.size, 1);
       for (const read of reads.slice(2)) read.resolve({ accountKey: "new-account", providers: [] });
+      await newRead;
       await settle();
       assert.equal(render(1).snapshot.accountKey, "new-account");
       for (const read of reads.slice(0, 2)) read.resolve({ accountKey: "old-account", providers: [] });
+      await oldRead;
       await settle();
       assert.equal(render(1).snapshot.accountKey, "new-account");
       assert.equal(connections.length, 2);
     } finally {
       host.unmount();
     }
-    assert.equal(listeners.size, 0);
     assert.equal(connections[1].closed, 1);
   });
 
@@ -11596,38 +11639,473 @@ test("mobile tool output retries after reconnect and clears the failed-read cont
   react.unmount();
 });
 
-test("mobile usage identifies the account by email, falls back to its label, and accepts older hosts", () => {
-  const { ProviderRows } = load(
+test("phone Usage tabs replace the route and keep the current tab selected", () => {
+  const replaced = [];
+  const { UsageTabs } = load("usage-tabs.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "expo-router": { router: { replace: (path) => replaced.push(path) } },
+    "./theme": themeHooks,
+  });
+  for (const value of ["plan", "analytics"]) {
+    const tabs = allNodes(UsageTabs({ value }), (node) => node.props?.accessibilityRole === "tab");
+    assert.deepEqual(
+      tabs.map((tab) => tab.props.accessibilityState.selected),
+      value === "plan" ? [true, false] : [false, true],
+    );
+    tabs.find((tab) => tab.props.accessibilityState.selected).props.onPress();
+    assert.equal(replaced.length, value === "plan" ? 0 : 1, "the active tab does not navigate again");
+    tabs.find((tab) => !tab.props.accessibilityState.selected).props.onPress();
+  }
+  assert.deepEqual(replaced, ["/(settings)/token-usage", "/(settings)/usage"]);
+});
+
+function planUsageHost() {
+  const react = hookHost();
+  let snapshot = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  let display = "used";
+  let syncs = 0;
+  let providerRefreshes = 0;
+  const requests = [];
+  let events, usageSource;
+  const client = {
+    call: async (method, args) => {
+      requests.push([method, args && JSON.parse(JSON.stringify(args))]);
+      return snapshot;
+    },
+    live: (_scope, options) => {
+      events = options;
+      return { close() {} };
+    },
+  };
+  const { UsageSection, ProviderRows, WindowRow } = load(
     "usage-section.tsx",
     {
+      react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
-      react: {},
-      "react-native": { Text: "Text", View: "View" },
+      "react-native": { Text: "Text", View: "View", AppState: {} },
+      "expo-router": { Stack: { Screen: "Screen" } },
       "@hugeicons/core-free-icons": {},
-      "@milagre/shared/providers": { providerName: () => "Codex" },
-      "@milagre/shared/usage": { formatUpdatedAgo: () => "Updated just now" },
-      "./icons": {},
-      "./ui": { colors: {}, styles: {} },
-      "./session": {},
-      "./use-usage": {},
+      "@milagre/shared/providers": require("@milagre/shared/providers"),
+      "@milagre/shared/usage": require("@milagre/shared/usage"),
+      "@milagre/shared/use-account-usage": {
+        useAccountUsage: (source) => {
+          usageSource = source;
+          return {
+            snapshot,
+            loading: false,
+            error: "",
+            refresh: source.read,
+            refreshAccounts: async () => {
+              syncs++;
+            },
+          };
+        },
+      },
+      "./icons": { ProviderLogo: "ProviderLogo", Icon: "Icon" },
+      "./ui": { IconButton: "IconButton", PullDown: "PullDown", useStyles: () => fakeStyles },
+      "./usage-display-setting": {
+        useUsageDisplay: () => [
+          display,
+          (next) => {
+            display = next;
+          },
+        ],
+      },
+      "./session": {
+        useSession: () => ({
+          client,
+          hostName: "Santo",
+          refreshProviders: async () => {
+            providerRefreshes++;
+          },
+        }),
+      },
+      "./theme": themeHooks,
     },
-    "\nexport { ProviderRows };\n",
+    "\nexport { ProviderRows, WindowRow };\n",
   );
+  const draw = (node) => {
+    if (Array.isArray(node)) return node.map(draw);
+    if (!node || typeof node !== "object" || !node.type) return node;
+    if (node.type === ProviderRows || node.type === WindowRow) return draw(node.type(node.props));
+    return { ...node, props: { ...node.props, children: draw(node.props?.children) } };
+  };
+  const render = (props = {}) => {
+    react.begin();
+    return draw(UsageSection(props));
+  };
+  return {
+    render,
+    requests,
+    source: () => usageSource,
+    events: () => events,
+    snapshot,
+    setSnapshot: (next) => {
+      snapshot = next;
+    },
+    syncs: () => syncs,
+    providerRefreshes: () => providerRefreshes,
+    ProviderRows,
+  };
+}
+
+test("mobile usage keeps account name and email separate and accepts older hosts", () => {
+  const { ProviderRows } = planUsageHost();
   const provider = { provider: "codex", status: "ok", windows: [], updatedAt: new Date().toISOString() };
   for (const account of [
     { id: "work", label: "Work", email: "work@example.test" },
     { id: "work", label: "Work" },
   ]) {
     const tree = ProviderRows({ provider: { ...provider, account }, now: Date.now() });
-    const label = find(tree, (node) => node.type === "Text" && node.props.children === (account.email || account.label));
-    assert.ok(label, "The account identity is visible");
-    assert.equal(label.props.selectable, true);
+    assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Work"));
+    if (account.email) assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === account.email));
     assert.equal(
-      find(tree, (node) => node.type === "Text" && node.props.children === "Codex"),
+      find(tree, (node) => node.type === "PullDown"),
       undefined,
+      "unknown readiness never offers an action",
     );
   }
   assert.doesNotThrow(() => ProviderRows({ provider, now: Date.now() }));
+});
+
+test("phone Plan usage shows every window, consistent remaining bars and screen-reader values", () => {
+  const screen = planUsageHost();
+  let tree = screen.render();
+  for (const account of screen.snapshot.providers) assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === account.account.email));
+  const bars = allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar");
+  assert.equal(bars.length, 11, "model pools are not hidden");
+  assert.deepEqual(
+    bars.map((bar) => bar.props.accessibilityValue.now),
+    [42, 42, 42, 21, 21, 21, 76, 76, 76, 76, 76],
+  );
+  for (const bar of bars) assert.match(bar.props.accessibilityValue.text, /% used/);
+  find(tree, (node) => node.type === "PullDown" && node.props.label === "Plan usage display").props.onSelect("remaining");
+  tree = screen.render();
+  const remaining = allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar");
+  assert.deepEqual(
+    remaining.map((bar) => bar.props.accessibilityValue.now),
+    [58, 58, 58, 79, 79, 79, 24, 24, 24, 24, 24],
+  );
+  for (const bar of remaining) {
+    assert.match(bar.props.accessibilityValue.text, /% left/);
+    assert.equal(bar.props.children.props.style.width, `${bar.props.accessibilityValue.now}%`);
+  }
+  assert.equal(
+    find(tree, (node) => node.type === "Segmented"),
+    undefined,
+  );
+  assert.equal(
+    find(tree, (node) => node.type === "Text" && node.props.children === "Retry"),
+    undefined,
+  );
+  find(tree, (node) => node.type === "IconButton" && node.props.label === "Refresh plan usage").props.onPress();
+  assert.equal(screen.requests[0][0], "usage:accounts:read");
+});
+
+test("phone default menu is only on ready non-default accounts and reuses account selection", async () => {
+  const screen = planUsageHost();
+  let tree = screen.render();
+  const actions = allNodes(tree, (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for"));
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].props.label, "Actions for Work");
+  assert.equal(actions[0].props.style.width, 44);
+  assert.equal(actions[0].props.style.height, 44);
+  assert.match(actions[0].props.sections[0].items[0].subtitle, /Computer default; Project and Link choices stay/);
+  actions[0].props.onSelect("default");
+  tree = screen.render();
+  assert.equal(find(tree, (node) => node.type === "PullDown" && node.props.label === "Actions for Work").props.nativeTrigger.disabled, true);
+  await new Promise(setImmediate);
+  assert.deepEqual(screen.requests, [["accounts:select", ["claude", "work"]]]);
+  assert.equal(screen.providerRefreshes(), 1);
+  assert.equal(screen.syncs(), 1);
+  screen.snapshot.providers.find((entry) => entry.account.id === "work").account.state = "signed-out";
+  assert.equal(
+    find(screen.render(), (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for")),
+    undefined,
+  );
+});
+
+test("phone unavailable accounts have no fabricated progress bars and keep explicit default labels", () => {
+  const screen = planUsageHost();
+  screen.setSnapshot({
+    providers: [
+      {
+        provider: "antigravity",
+        account: { id: "only", label: "Work", email: "work@example.test", state: "error", default: true },
+        status: "unavailable",
+        windows: [],
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  });
+  const tree = screen.render();
+  assert.equal(allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar").length, 0);
+  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Default"));
+  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Usage unavailable"));
+  assert.equal(
+    find(tree, (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for")),
+    undefined,
+  );
+});
+
+function overviewHook(t, source) {
+  const react = hookHost({ effects: true });
+  const { useAccountUsage } = load("../../../packages/shared/src/use-account-usage.ts", { react, "./usage": require("@milagre/shared/usage") });
+  t.after(() => react.unmount());
+  return () => {
+    react.begin();
+    return useAccountUsage(source);
+  };
+}
+
+test("account overview ignores a late mount cache and invalidated provider reads", async (t) => {
+  const { accountUsage } = require("./fixtures/token-usage.cjs");
+  const first = deferred(),
+    late = deferred(),
+    mountCache = deferred();
+  let cache = mountCache.promise;
+  let reads = 0,
+    accountsChanged;
+  const render = overviewHook(t, {
+    read: () => (++reads === 1 ? first.promise : reads === 2 ? late.promise : Promise.resolve({ accountKey: "removed", providers: [] })),
+    cached: () => cache,
+    subscribe: (_usage, accounts) => {
+      accountsChanged = accounts;
+      return () => {};
+    },
+  });
+  render();
+  const manual = render().refresh();
+  first.resolve(accountUsage);
+  await manual;
+  mountCache.resolve({ accountKey: "stale", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, accountUsage.accountKey);
+  const pending = render().refresh();
+  cache = Promise.resolve({ accountKey: "removed", providers: [] });
+  accountsChanged();
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "removed");
+  late.resolve(accountUsage);
+  await pending;
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "removed", "response from the removed account is discarded");
+});
+
+test("fresh account cache skips reads and default changes keep windows without querying providers", async (t) => {
+  let cached = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  cached.providers.forEach((entry) => {
+    entry.updatedAt = new Date().toISOString();
+  });
+  let reads = 0,
+    accountsChanged;
+  const render = overviewHook(t, {
+    read: async () => {
+      reads++;
+      return cached;
+    },
+    cached: async () => cached,
+    subscribe: (_usage, accounts) => {
+      accountsChanged = accounts;
+      return () => {};
+    },
+  });
+  render();
+  await new Promise(setImmediate);
+  assert.equal(reads, 0);
+  cached = {
+    ...cached,
+    providers: cached.providers.map((entry) => ({ ...entry, account: { ...entry.account, default: entry.account.id === "work" || undefined } })),
+  };
+  accountsChanged();
+  assert.equal(render().snapshot.providers.length, 3, "no blank list while default metadata updates");
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.providers.find((entry) => entry.account.id === "work").account.default, true);
+  assert.equal(render().snapshot.providers.find((entry) => entry.account.id === "work").windows.length, 5);
+  assert.equal(reads, 0);
+  await render().refresh();
+  assert.equal(reads, 1, "manual Refresh always forces a provider read");
+});
+
+test("a transport failure marks last-known usage and drops windows that have reset", async (t) => {
+  const cached = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  const now = Date.now();
+  cached.providers.forEach((entry) => {
+    entry.updatedAt = new Date(now).toISOString();
+    entry.windows.forEach((window, index) => {
+      window.resetsAt = new Date(now + (index ? 3600000 : -1000)).toISOString();
+    });
+  });
+  const render = overviewHook(t, {
+    read: async () => {
+      throw new Error("Disconnected");
+    },
+    cached: async () => cached,
+    subscribe: () => () => {},
+  });
+  render();
+  await new Promise(setImmediate);
+  await render().refresh();
+  const result = render();
+  assert.match(result.error, /Couldn't refresh/);
+  assert.equal(
+    result.snapshot.providers.every((entry) => entry.status === "error"),
+    true,
+  );
+  assert.deepEqual(
+    result.snapshot.providers.map((entry) => entry.windows.length),
+    [2, 4, 2],
+  );
+  assert.equal(result.snapshot.providers[0].updatedAt, cached.providers[0].updatedAt);
+});
+
+test("recent unavailable and failed checks are fresh despite old quotas or phone clock skew", async (t) => {
+  const hostNow = Date.now() - 10 * 60000;
+  const providers = ["unavailable", "error", "ok"].map((status, index) => ({
+    provider: "claude",
+    account: { id: String(index), label: "Account", state: "ready" },
+    status,
+    updatedAt: new Date(hostNow - 3600000).toISOString(),
+    checkedAt: new Date(hostNow - 15000).toISOString(),
+    windows: [],
+  }));
+  const cached = { accountKey: "checked", generatedAt: new Date(hostNow).toISOString(), providers };
+  let reads = 0;
+  const render = overviewHook(t, {
+    cached: async () => cached,
+    read: async () => {
+      reads++;
+      return cached;
+    },
+    subscribe: () => () => {},
+  });
+  render();
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "freshness uses the host's last-check time, regardless of result or available windows");
+  assert.equal(render().snapshot.generatedAt, cached.generatedAt);
+  await render().refresh();
+  assert.equal(reads, 1, "manual Refresh still forces a live read");
+});
+
+test("unchecked placeholders and expired checks still refresh on open", async (t) => {
+  for (const checkedAt of [undefined, new Date(Date.now() - 61000).toISOString()]) {
+    const cached = {
+      accountKey: "stale",
+      generatedAt: new Date().toISOString(),
+      providers: [
+        {
+          provider: "claude",
+          account: { id: "work", label: "Work", state: "ready" },
+          status: "unavailable",
+          windows: [],
+          updatedAt: new Date().toISOString(),
+          ...(checkedAt ? { checkedAt } : {}),
+        },
+      ],
+    };
+    let reads = 0;
+    const render = overviewHook(t, {
+      cached: async () => cached,
+      read: async () => {
+        reads++;
+        return cached;
+      },
+      subscribe: () => () => {},
+    });
+    render();
+    await new Promise(setImmediate);
+    assert.equal(reads, 1, "a recent placeholder timestamp cannot suppress the first real provider read");
+  }
+});
+
+test("a socket cache read overtaking the mount cache preserves freshness and pending refreshes", async (t) => {
+  const fresh = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  fresh.providers.forEach((entry) => {
+    entry.checkedAt = new Date().toISOString();
+  });
+  const mount = deferred(),
+    socket = deferred(),
+    manual = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? mount.promise : caches === 2 ? socket.promise : Promise.resolve(fresh)),
+    read: () => {
+      reads++;
+      return manual.promise;
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  socket.resolve(fresh);
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "socket open does not turn a fresh cache into an account mutation");
+  mount.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, fresh.accountKey);
+  const pending = render().refresh();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(render().loading, true, "a socket cache update never cancels the in-flight live read");
+  manual.resolve({ ...fresh, accountKey: "live" });
+  await pending;
+  assert.equal(render().snapshot.accountKey, "live");
+});
+
+test("phone socket status reads usage cache while account signals invalidate account metadata", () => {
+  const screen = planUsageHost();
+  screen.render();
+  let cacheReads = 0,
+    accountChanges = 0;
+  const off = screen.source().subscribe(
+    () => {
+      cacheReads++;
+    },
+    () => {
+      accountChanges++;
+    },
+  );
+  screen.events().onStatus(true);
+  assert.equal(cacheReads, 1);
+  assert.equal(accountChanges, 0);
+  screen.events().onSignal("accounts");
+  assert.equal(accountChanges, 1);
+  const header = find(screen.render(), (node) => node.props?.accessibilityLabel === "Codex, 1 account");
+  assert.equal(header.props.accessible, true);
+  off();
+});
+
+test("a failed socket cache read that overtakes mount still settles the initial load", async (t) => {
+  const initial = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? initial.promise : Promise.reject(new Error("Cache unavailable"))),
+    read: async () => {
+      reads++;
+      return { accountKey: "live", providers: [] };
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(reads, 1);
+  assert.equal(render().loading, false);
+  assert.equal(render().snapshot.accountKey, "live");
+  initial.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "live");
 });
 
 function subagentGlance() {

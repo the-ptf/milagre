@@ -193,6 +193,8 @@ const METHODS = new Set([
   "accounts:remove",
   "usage:read",
   "usage:cached",
+  "usage:accounts:read",
+  "usage:accounts:cached",
   "token-usage:read",
   "agent:answer-question",
   "agent:set-permission-mode",

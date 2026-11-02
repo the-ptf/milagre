@@ -342,3 +342,19 @@ export async function saveInternalBrowser(on: boolean) {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
 }
+
+const usageDisplayKey = "milagre.usage-display.v1";
+export async function readUsageDisplay(): Promise<import("@milagre/shared/usage").UsageDisplay> {
+  try {
+    return (await SecureStore.getItemAsync(usageDisplayKey)) === "remaining" ? "remaining" : "used";
+  } catch {
+    return "used";
+  }
+}
+export async function saveUsageDisplay(display: import("@milagre/shared/usage").UsageDisplay) {
+  try {
+    await SecureStore.setItemAsync(usageDisplayKey, display);
+  } catch {
+    /* Keep the in-memory preference if storage is unavailable. */
+  }
+}

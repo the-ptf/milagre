@@ -259,6 +259,8 @@ const PATHS = Object.freeze({
   // Token usage names every Project and folder an agent ran in on the Mac.
   "token-usage:read": denied,
   "usage:cached": (args) => (args[0] == null ? [] : [args[0]]),
+  "usage:accounts:read": denied,
+  "usage:accounts:cached": denied,
   "agent:answer-question": ([value]) => [chatProject(value?.chatId)],
   "agent:set-permission-mode": ([value]) => [chatProject(value?.chatId)],
   "agent:models": (args) => (args[0] == null ? [] : [args[0]]),
@@ -351,6 +353,7 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     if (!paths || !Array.isArray(args)) throw refused();
     // No push device is ever registered, so there is nothing to unregister or focus, and no daemon state to grow.
     if (method === "accounts:list") return { result: { providers: [] } };
+    if (method === "usage:accounts:read" || method === "usage:accounts:cached") return { result: { providers: [] } };
     if (method === "accounts:scopes") return { result: [] };
     if (method.startsWith("accounts:") || method === "chat:limit-switch" || method === "limits:auto-switch:save" || method === "limits:resume-at-reset:save")
       throw failure(403, "Accounts cannot be changed on this demo computer.");

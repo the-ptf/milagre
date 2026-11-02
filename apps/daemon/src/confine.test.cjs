@@ -359,6 +359,11 @@ test("the demo daemon reports only the demo agent, whichever provider the phone 
   assert.deepEqual(status.codex, { state: "ready" });
   assert.equal(status.claude.state, "missing");
   assert.deepEqual((await f.rpc("usage:read")).body.result, { providers: [] });
+  for (const method of ["usage:accounts:read", "usage:accounts:cached"]) {
+    const reply = await f.rpc(method);
+    assert.equal(reply.status, 200);
+    assert.deepEqual(reply.body.result, { providers: [] });
+  }
 });
 
 test("without allowedRoot the bridge opens any folder, as before", async (t) => {
