@@ -1012,10 +1012,9 @@ export function PromptComposer({
               {imageDraft.error}
             </div>
           )}
-          {/* Preparing and finishing share one slot above the words, so neither moves them. The model download is the
-              ring on the mic, and an error a bubble over it: both belong to the button that tries again. */}
+          {/* Status remains available to screen readers without inserting a row during the recording handoff. */}
           {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
-            <p role="status" data-dictation-status className="px-2 py-1 text-12 text-ink-2">
+            <p role="status" data-dictation-status className="sr-only">
               {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
             </p>
           ) : fixing !== null ? (

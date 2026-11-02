@@ -600,13 +600,6 @@ export function PromptField({
           </View>
         ) : null}
       </View>
-      {/* Preparing and finishing share one slot under the words, so neither moves them. The model download is the ring on
-          the mic, and an error a bubble over it: both belong to the button that tries again. */}
-      {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
-        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
-          {dictation.phase === "preparing" ? "Preparing the microphone\u2026" : "Finishing the last words\u2026"}
-        </Text>
-      ) : null}
       {skill && !query ? (
         <View
           accessibilityLiveRegion="polite"

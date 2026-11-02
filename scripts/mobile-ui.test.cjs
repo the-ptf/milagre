@@ -19074,7 +19074,10 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   assert.equal(draft, "fix");
   phase = "preparing";
   const preparing = render();
-  assert.ok(find(preparing, (node) => node.type === "Text" && node.props.children === "Preparing the microphone\u2026"));
+  assert.ok(
+    !find(preparing, (node) => node.type === "Text" && node.props.children === "Preparing the microphone\u2026"),
+    "starting dictation adds no status row",
+  );
   assert.ok(
     find(preparing, (node) => node.type === "DictationCapsule"),
     "the mic grew into the capsule, in its own place",
@@ -19108,7 +19111,12 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
 
   // Stop: the final transcript settles in place and the tint goes, with the words where they already were.
   phase = "transcribing";
-  find(render(), (node) => node.type === "DictationCapsule").props.onStop();
+  const finishing = render();
+  assert.ok(
+    !find(finishing, (node) => node.type === "Text" && node.props.children === "Finishing the last words\u2026"),
+    "stopping dictation adds no flashing status row",
+  );
+  find(finishing, (node) => node.type === "DictationCapsule").props.onStop();
   assert.equal(stops, 1);
   partial = { text: "", settled: 0 };
   phase = "idle";
