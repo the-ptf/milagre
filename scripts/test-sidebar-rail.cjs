@@ -280,6 +280,18 @@ async function browserChecks() {
       "Identical Chat IDs in different scopes keep their own mark",
     );
     assert.ok(!rail.some((entry) => entry.key.endsWith("#4")), "Done Chats stay out of the rail");
+    const modifier = process.platform === "darwin" ? { key: "Meta", metaKey: true } : { key: "Control", ctrlKey: true };
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keydown", ${JSON.stringify(modifier)}))`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope] [data-shortcut-hint]").length === 3`);
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll("[data-rail-scope]")].filter(node => node.querySelector("[data-shortcut-hint]")).map(node => node.dataset.railScope)`,
+      ),
+      ["/work/arketa#3", "/work/arketa#1", "/work/arketa#2"],
+      "Shortcut hints belong only to the current scope, including pinned Chats",
+    );
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifier.key)} }))`);
+
     await evaluate(`document.querySelector('[data-rail-scope="/work/arketa#2"]').click()`);
     assert.equal(await evaluate("window.picked"), "2", "An idle Chat in the current Project opens directly");
     await evaluate(`document.querySelector('[data-rail-scope="/work/shop#7"]').click()`);

@@ -1372,6 +1372,7 @@ export default memo(function SidebarNav({
         ].map(({ scopeKey, row }) => {
           const scope = scopes.find((item) => item.key === scopeKey);
           const current = scopeKey === currentKey;
+          const hintIndex = current && showHints ? jumpIds.indexOf(row.id) : -1;
           return {
             key: `${scopeKey}#${row.id}`,
             name: scope?.name ?? CHATS_GROUP_LABEL,
@@ -1380,6 +1381,7 @@ export default memo(function SidebarNav({
             status: railLive([row]).status,
             chats: [row],
             chat: { scopeKey, id: row.id },
+            shortcutHint: hintIndex >= 0 && hintIndex < 9 ? keys.jump(hintIndex) : undefined,
           };
         })
       : railScopes;

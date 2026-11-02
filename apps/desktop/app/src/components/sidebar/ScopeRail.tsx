@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ChatMarkDotInline, type SidebarRecent } from "./ChatRow";
 import { useDismiss } from "../../lib/use-dismiss";
@@ -13,6 +14,7 @@ export type RailScope = {
   current: boolean;
   /** One list opens this Chat directly; grouped items open their scope. */
   chat?: { scopeKey: string; id: string };
+  shortcutHint?: string;
   /** What the icon's corner shows: a chat asking or waiting wins over one running. */
   status: RailStatus;
   /** The chats with a turn under way or waiting on the user, listed in the popover. */
@@ -90,6 +92,7 @@ export function ScopeRail({
           key={scope.key}
           type="button"
           data-rail-scope={scope.key}
+          data-chat-id={scope.chat?.id}
           data-rail-status={scope.status}
           aria-current={scope.current ? "true" : undefined}
           aria-label={`${scope.name}${scope.chat ? `, ${scope.chats[0]?.label ?? "Chat"}` : ""}${scope.status === "idle" ? "" : `, a chat ${STATUS_LABEL[scope.status]}`}`}
@@ -119,6 +122,9 @@ export function ScopeRail({
               )
             )}
           </span>
+          {scope.shortcutHint && (
+            <ShortcutKeys shortcut={scope.shortcutHint} aria-hidden="true" className="pointer-events-none absolute right-1 top-1.5 z-30" />
+          )}
         </button>
       ))}
       {shown &&
