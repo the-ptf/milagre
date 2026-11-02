@@ -134,7 +134,7 @@ export function ModelPicker({
         </div>
         {/* PickerPanel's search field. */}
         <FieldGroup
-          className="mr-2 mb-1 shrink-0"
+          className="mr-2 mb-1 w-auto shrink-0"
           leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
