@@ -9,7 +9,7 @@ Use this tool for UI screens, mockups and visual designs. For a page explaining 
 
 If the user named another design tool (Pencil, Figma, Paper or any other MCP or app), use that tool. Their choice wins over Milagre designs.
 
-1. **Ground it.** In a project with an app, read its screens, colors, type and components first, and design in that style. Ask one question only if the platform or screen is unclear.
+1. **Ground it.** Read `design_kit_read` first when available: all Chats in this Project share that kit. Reuse its pinned snapshot in `document.kit`. On takeover or after user edits, call `design_inspect` to see the current saved screen without making a version. In a project with an app, read its screens, colors, type and components first, and design in that style. Ask one question only if the platform or screen is unclear.
 2. **Show it.** Call `design_show` with a title and one document per screen. Set its width and height (390 by 844 for a phone). Give layers stable, meaningful ids and names. Use real content: the dates, names, badges and chips a real screen would show, not a simplified placeholder. When the Chat covers more than one part of the app (onboarding, settings, a workout screen), give each design a `group` naming its part, the same name for every screen and variant of it; the canvas lays out one block per group.
 3. **Look before you reply.** `design_show` and `design_apply` return the saved design as an image, plus warnings for clipped text, layers outside their parent or the screen, and low contrast. Look at the image. Fix every warning unless the overflow is deliberate (an edge bleed or a scroll peek), and fix anything that looks off (alignment, uneven spacing, icons, crowding), with `design_apply`. Do at most two fix rounds, then reply. Remote `https:` images show as placeholders in your image only; the user sees them. If no image comes back, the design is still saved; work from the warnings and don't call the tool again just to get one. If your image shows a family that is not bundled (see Fonts) in Inter, that is expected; don't change the font for it. Characters your image can't draw (a note names their layers) are blank there only; keep them.
 4. **Offer variants when the direction is open.** Show two or three designs, each with its own id and a title that names the idea ("Alt B, dark timeline"), in the group of the screen they are variants of. When the user was specific, show one.
@@ -110,11 +110,41 @@ Besides Inter, these families are bundled: measured, embedded in every preview, 
 
 Albert Sans, Anton, Archivo, Barlow, Barlow Condensed, Bebas Neue, Besley, Big Shoulders, Bodoni Moda, Bricolage Grotesque, Chivo, EB Garamond, Epilogue, Figtree, Hanken Grotesk, Imbue, Jost, League Spartan, Libre Franklin, Literata, Newsreader, Onest, Public Sans, Red Hat Display, Red Hat Text, Rokkitt, Schibsted Grotesk, Source Serif 4, Stack Sans Headline, Stack Sans Text, STIX Two Text, TikTok Sans, Unbounded, Work Sans, Young Serif, Zilla Slab.
 
+## Project visual kit
+
+`design_kit_read` returns the Project's latest kit (default id `project`), or a specific version. `null` means no kit exists. Establish one from the app's existing style and confirmed choices with `design_kit_save`: send `expectedVersion: 0` for a new kit or the latest version for a revision. Never invent a new identity for an existing app without the user's direction.
+
+### Consistency rules
+
+Composition may vary: positions, dimensions, content and hierarchy are not kit rules. Colors (including defaults and instance property overrides), complete typography, padding/gap and corner radii must use kit values. Zero spacing/radius and transparent paint are allowed. Minimum dimensions are layout constraints unless bound to a kit token. Existing component links and typed property options must remain intact unless the user requests a detach/change.
+
+Documents default to advisory consistency. Opt in with `consistency: {mode: "strict"}` (also through a `document` patch). Omitting `consistency` in a full replacement preserves the existing policy; changing it requires an explicit mode. Strict saves and `design_validate` reject kit drift, including in the desktop editor. Reads and draft previews remain possible. A strict document needs a pinned kit with at least one color, text style, spacing and radius. Never switch off strict mode, change the kit or add exceptions to evade an error.
+
+When the user deliberately requests a variation, record `consistency.exceptions`: `{nodeId, field, value, reason}`. Copy `id`, `field` and `actual` from the diagnostic into `nodeId`, `field` and `value`; explain the user's intent in `reason`. The exception applies only to that layer/field and exact effective value. It stays visible as `kit-exception`; changing a token's resolved color invalidates the old exception. Typography values contain the normalized full font family, size, weight and line height. An exception documents intent, not independent proof of user approval. Hidden source layers are skipped, but their visible component instances are checked. Public pages omit consistency metadata and private reasons.
+
+### Content changes
+
+For "change only the text", preserve every other field. Inspect the resulting image and explicitly report any clipping or overflow; do not claim the layout is fixed. For a request to accommodate the text, use Hug and auto layout or adjust only the needed geometry; preserve content, kit, component links and user edits. Preflight, save and inspect again. Prefer Hug text in new screens so longer copy can flow. Strict kit consistency does not block content overflow: layout diagnostics are a separate criterion.
+
+The kit has `title`, `colors`, `textStyles`, `spacing`, `radii`, optional `components` and `references`. All four maps are required, but can be empty. A text style has `fontSize` and optional `fontFamily`, `fontWeight`, `lineHeight`. Component templates are arrays of ordinary layers, with one root main component whose id matches the map key. References are `{title, source}` records for approved examples or source files.
+
+Pass the returned snapshot, including `id` and `version`, as `document.kit`. Colors are available as `$name`. Use `textStyle: "body"` on text, or `bindings: {padding: "md", gap: "sm", radius: "card"}` on a frame. Radius names come from `radii`; the other supported bindings (`padding`, `gap`, `minWidth`, `minHeight`) come from `spacing`. Bound values follow the kit and override their numeric fallbacks. An explicit numeric property edit removes the corresponding spacing/radius binding; editing a typography property removes `textStyle`, preserving its other resolved values. A binding supplied in the same patch remains authoritative. You can also remove bindings explicitly with `unset`. Text-only edits keep their text style.
+
+Kit revisions do not change existing screens. To adopt a revision, read it, then send `{op: "document", patch: {kit: <returned snapshot>}}` in `design_apply`. This adopts its colors and updates bound fields. Review the result before continuing. Component templates are copied into the screen when used; changing a kit does not silently replace those component trees. Preserve source layer ids when explicitly updating a copied component.
+
+## Inspect and preflight
+
+`design_inspect` takes `{id, version?, nodeId?}`. It returns an image, calculated layer bounds, warning coverage and rendering limitations without saving. `nodeId` crops to a visible layer. Contrast marked `unsupported` has not passed: images, partial backdrops and translucency may prevent evaluation. Remote pictures and unbundled fonts can differ from the user's view; do not claim a complete visual verification in that case.
+
+`design_validate` checks either `{document}` or `{id, expectedVersion, operations}` without saving. It returns `valid`, errors with field paths, or the resulting document and diagnostics. It does not reserve a version; the subsequent write still needs `expectedVersion` and can conflict.
+
 ## Reusable components
 
 Mark a frame with `component: true` to make it a main component. Insert another frame with `componentId` set to that main frame's id, plus its own stable id, position and numeric size fallbacks. Milagre expands the instance's children and keeps their ids stable as the main changes. Change the main to update every linked instance. Nested components are not supported.
 
-An instance can change its position, parent, name, visibility and lock state. Its size, appearance and descendants follow the main. In `design_read`, generated children carry `componentSourceId`; edit that source layer in the main. To make an independent copy, send the whole document again with `design_show` (same id, latest `expectedVersion`), with `componentId` removed from the instance root and `componentSourceId` removed from its descendants. Keep their ids. Detach instances before deleting their main component.
+Expose content or state properties on a main frame with `componentProperties`, for example `{"label":{"nodeId":"button-label","field":"text"},"disabled":{"nodeId":"button","field":"opacity","options":[1,0.5]}}`. Supported fields are `text`, `icon`, `hidden`, `fill` and `opacity`. The target must be in that main component. An instance sets `componentValues: {label: "Cancel", disabled: 0.5}`. Omitted properties keep the source value; `options` limits allowed states. Update `componentValues` as a complete map; send an empty map to reset overrides.
+
+An instance can change its properties, position, parent, name, visibility and lock state. Its other size, appearance and descendant fields follow the main. In `design_read`, generated children carry `componentSourceId`; edit that source layer in the main. To make an independent copy, send the whole document again with `design_show` (same id, latest `expectedVersion`), with `componentId` removed from the instance root and `componentSourceId` removed from its descendants. Keep their ids. Detach instances before deleting their main component.
 
 ## Editing
 
@@ -132,6 +162,13 @@ An instance can change its position, parent, name, visibility and lock state. It
 ```
 
 Use `insert` with a `node` (the same fields as a `design_show` node) and optional `index` to add a layer, and `delete` with an `id` to remove a layer and its descendants. To replace the whole screen, call `design_show` with the design's id and the latest `expectedVersion`. Keep ids stable across edits so the user can keep working with the same layers.
+
+More atomic operations:
+
+- `{op: "document", patch: {tokens: {accent: "#2563eb"}, background: "$accent"}}` updates document fields without resending layers; token patches merge. Width, height and kit can also change here.
+- `{op: "duplicate", id: "card", newId: "second-card", x: 20, y: 300}` copies the subtree with new ids and preserves component links.
+- `{op: "detach", id: "button-instance"}` makes an independent copy with the current property values.
+- `{op: "unset", id: "heading", fields: ["textStyle"]}` removes optional bindings. Supported fields: `parentId`, `textStyle`, `bindings`, `componentValues`.
 
 ## Export
 

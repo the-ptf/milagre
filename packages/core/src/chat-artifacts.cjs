@@ -1,3 +1,4 @@
+const { isDeepStrictEqual } = require("node:util");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
@@ -6,10 +7,16 @@ const {
   designDocumentInputSchema,
   designOperationInputSchema,
   validateDesignDocument,
+  validateDesignConsistency,
   applyDesignOperations,
   designHtml,
   designSvg,
   designWarnings,
+  designDiagnostics,
+  designErrorIssues,
+  conciseDesignError,
+  designLayout,
+  designTextLayout,
   designWarningText,
   designUsesInter,
   designCatalogFont,
@@ -114,6 +121,8 @@ const summary = (artifact, entry) => ({
   format: formatOf(entry),
   ...(entry.inline ? { inline: true } : {}),
   ...(entry.group ? { group: entry.group } : {}),
+  ...(entry.kit ? { kit: entry.kit } : {}),
+  ...(entry.consistency ? { consistency: entry.consistency } : {}),
 });
 
 function checkVersion(request, existing, required = false) {
@@ -138,7 +147,7 @@ const readVersionFile = (file) =>
     throw error;
   });
 
-function createChatArtifacts({ directory, validateChat }) {
+function createChatArtifacts({ directory, validateChat, readKit }) {
   let queue = Promise.resolve();
   const serial = (fn) => {
     const result = queue.then(fn);
@@ -153,6 +162,12 @@ function createChatArtifacts({ directory, validateChat }) {
     if (typeof chatId !== "string" || !chatId || chatId.length > 8192) throw Error("An existing Chat is required.");
     await validateChat(chatId);
     return chatDirectory(chatId);
+  }
+  async function verifyKit(chatId, document) {
+    if (!document.kit || !readKit) return;
+    const kit = await readKit({ chatId, id: document.kit.id, version: document.kit.version });
+    if (!isDeepStrictEqual(kit, document.kit))
+      throw Error("The pinned kit differs from this Project's saved version. Read it with design_kit_read and use that snapshot.");
   }
   const designFolder = (folder, id) => path.join(folder, checkId(id));
   const htmlFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.html`);
@@ -479,6 +494,12 @@ function createChatArtifacts({ directory, validateChat }) {
           throw Error("This file is no longer on the page.");
         return assetFile(folder, current.id, request.hash);
       }),
+    validateDesign: async ({ chatId, document }) => {
+      await chat(chatId);
+      await verifyKit(chatId, document);
+      validateDesignConsistency(document);
+      return document;
+    },
     showDesign: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -489,7 +510,13 @@ function createChatArtifacts({ directory, validateChat }) {
         if (!existing && request.id && (await load(folder, id, { deleted: true }))) throw Error(`The design ${id} was deleted. Use a new id.`);
         editable(existing);
         checkVersion(request, existing, true);
-        const document = validateDesignDocument(request.document);
+        const inheritedConsistency = existing ? (await readVersion(folder, existing)).document?.consistency : undefined;
+        const document = validateDesignDocument({
+          ...request.document,
+          ...(!request.document?.consistency && inheritedConsistency ? { consistency: inheritedConsistency } : {}),
+        });
+        await verifyKit(request.chatId, document);
+        validateDesignConsistency(document);
         const previous = existing?.versions ?? [];
         // A revision stays in its group unless it names one; an empty group takes it out.
         const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : previous.at(-1)?.group;
@@ -497,6 +524,8 @@ function createChatArtifacts({ directory, validateChat }) {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
           ...(group ? { group } : {}),
+          ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
+          ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
           width: document.width,
           height: document.height,
           format: "design",
@@ -517,10 +546,14 @@ function createChatArtifacts({ directory, validateChat }) {
         checkVersion(request, existing, true);
         const current = await readVersion(folder, existing);
         const document = applyDesignOperations(current.document, request.operations);
+        await verifyKit(request.chatId, document);
+        validateDesignConsistency(document);
         const entry = {
           version: current.version + 1,
           title: current.title,
           ...(current.group ? { group: current.group } : {}),
+          ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
+          ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
           width: document.width,
           height: document.height,
           format: "design",
@@ -835,7 +868,11 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       readOnly: false,
       run: async (args) => {
         const design = await api.showDesign({ chatId, ...args }, authorization);
-        return designFeedback(design, validateDesignDocument(args.document), feedback);
+        const document =
+          !args.document.consistency && design.consistency
+            ? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).document
+            : validateDesignDocument(args.document);
+        return designFeedback(design, document, feedback);
       },
     },
     {
@@ -847,6 +884,82 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       run: async (args) => {
         const { html: _html, ...design } = await api.get({ chatId, ...args, format: "design" });
         return JSON.stringify(design);
+      },
+    },
+    {
+      name: "design_inspect",
+      description:
+        "Inspect a saved design without creating a version. Returns its image, computed layer bounds, contrast coverage and preview limitations. Use this when taking over from another model or reviewing user edits. nodeId crops the image to a visible layer; diagnostics still cover the whole screen.",
+      input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), nodeId: z.string().regex(LAYER_ID).optional() },
+      readOnly: true,
+      run: async ({ nodeId, ...args }) => {
+        const { html: _html, document, ...saved } = await api.get({ chatId, ...args, format: "design" });
+        const bounds = designLayout(document, designTextLayout);
+        const crop = nodeId ? bounds.get(nodeId) : undefined;
+        if (nodeId && !crop) throw Error(`Layer "${nodeId}" is missing or hidden.`);
+        let diagnostics;
+        try {
+          diagnostics = { status: "checked", ...designDiagnostics(document) };
+        } catch (error) {
+          diagnostics = { status: "failed", error: error.message };
+        }
+        const rendered = await designFeedback(saved, document, { ...feedback, renderPng: (doc) => renderPng(doc, { crop }) });
+        return {
+          ...rendered,
+          text:
+            rendered.text +
+            "\n" +
+            JSON.stringify({
+              inspection: {
+                version: saved.version,
+                nodeId,
+                bounds: Object.fromEntries(bounds),
+                diagnostics,
+                preview: {
+                  renderer: "resvg",
+                  remoteImages: "placeholder",
+                  unbundledFonts: unbundledFamilies(document),
+                  undrawableText: undrawableTextLayers(document),
+                  crop,
+                },
+              },
+            }),
+        };
+      },
+    },
+    {
+      name: "design_validate",
+      description:
+        "Preflight a proposed document, or a batch against a saved design and expectedVersion, without saving. Returns validation errors with field paths, layout diagnostics and the resulting document. Use before a complex edit. Send document OR id, expectedVersion and operations.",
+      input: {
+        document: designDocumentInputSchema.optional(),
+        id: z.string().regex(ID).optional(),
+        expectedVersion: z.number().int().positive().optional(),
+        operations: z.array(designOperationInputSchema).min(1).max(1000).optional(),
+      },
+      readOnly: true,
+      run: async (args) => {
+        let document;
+        try {
+          if (args.document !== undefined) {
+            if (args.id || args.operations || args.expectedVersion) throw Error("Send document OR id, expectedVersion and operations.");
+            document = validateDesignDocument(args.document);
+          } else {
+            if (!args.id || !args.expectedVersion || !args.operations) throw Error("Send document OR id, expectedVersion and operations.");
+            const current = await api.get({ chatId, id: args.id, format: "design" });
+            if (current.version !== args.expectedVersion)
+              throw Error(`Design version conflict: expected ${args.expectedVersion}, latest ${current.version}. Read again.`);
+            document = applyDesignOperations(current.document, args.operations);
+          }
+          await api.validateDesign?.({ chatId, document });
+          return JSON.stringify({ valid: true, document, diagnostics: designDiagnostics(document) });
+        } catch (error) {
+          return JSON.stringify({
+            valid: false,
+            errors: designErrorIssues(error),
+            ...(error.code === "DESIGN_KIT_DRIFT" && document ? { diagnostics: designDiagnostics(document) } : {}),
+          });
+        }
       },
     },
     {
@@ -881,7 +994,16 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       run: async (args) => JSON.stringify(await api.deleteDesign({ chatId, ...args }, authorization)),
     },
     ...artifactCommentToolDefinitions(chatId, api, authorization),
-  ];
+  ].map((tool) => ({
+    ...tool,
+    run: async (args) => {
+      try {
+        return await tool.run(args);
+      } catch (error) {
+        throw conciseDesignError(error);
+      }
+    },
+  }));
 }
 
 function artifactCommentToolDefinitions(chatId, api, authorization) {

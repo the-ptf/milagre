@@ -21,9 +21,9 @@ test("portable SVG emits native geometry and clips descendants in their parent's
   assert.doesNotMatch(svg, /foreignObject|<html|<div|<script/);
   assert.match(svg, /<clipPath id="clip-0" clipPathUnits="userSpaceOnUse"><rect x="20" y="30" width="100" height="80" rx="12"\/><\/clipPath>/);
   assert.match(svg, /<g id="layer-frame" opacity="0.5" clip-path="url\(#clip-0\)"><title>Card<\/title>.*<g id="layer-child"/);
-  assert.match(svg, /<rect x="90" y="80" width="60" height="50" rx="4" fill="red"/);
-  assert.match(svg, /<ellipse cx="200" cy="40" rx="40" ry="20" fill="blue"\/>/);
-  assert.match(svg, /<ellipse cx="200" cy="40" rx="38" ry="18" fill="none" stroke="black" stroke-width="4"\/>/);
+  assert.match(svg, /<rect x="90" y="80" width="60" height="50" rx="4" fill="#ff0000"/);
+  assert.match(svg, /<ellipse cx="200" cy="40" rx="40" ry="20" fill="#0000ff"\/>/);
+  assert.match(svg, /<ellipse cx="200" cy="40" rx="38" ry="18" fill="none" stroke="#000000" stroke-width="4"\/>/);
 });
 
 test("frame borders retain their fill underneath translucent strokes and clip child content to the inner edge", () => {
@@ -33,7 +33,7 @@ test("frame borders retain their fill underneath translucent strokes and clip ch
   ]);
   const svg = render(document);
   assert.match(svg, /<clipPath id="clip-0-content" clipPathUnits="userSpaceOnUse"><rect x="18" y="28" width="84" height="64" rx="12"\/><\/clipPath>/);
-  assert.match(svg, /<rect x="10" y="20" width="100" height="80" rx="20" fill="blue"\/>/);
+  assert.match(svg, /<rect x="10" y="20" width="100" height="80" rx="20" fill="#0000ff"\/>/);
   assert.match(svg, /<rect x="14" y="24" width="92" height="72" rx="16" fill="none" stroke="#ff0000" stroke-opacity="0.502" stroke-width="8"\/>/);
   assert.match(svg, /<g clip-path="url\(#clip-0-content\)"><g id="layer-child"/);
 });

@@ -263,9 +263,18 @@ function createRuntime(options) {
     ended: (device) => simlock.isDevice(device.id),
   });
   const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
+  const { createDesignKits, designKitToolDefinitions } = require("./design-kits.cjs");
+  const designKits = createDesignKits({
+    directory: path.join(dataDir, "design-kits"),
+    projectForChat: async (chatId) => {
+      await existingChat("using a design kit")(chatId);
+      return projectOfKey(chatId);
+    },
+  });
   const artifacts = createChatArtifacts({
     directory: path.join(dataDir, "artifacts"),
     validateChat: existingChat("showing a design"),
+    readKit: (request) => designKits.read(request),
   });
   const designPageSharing = require("./design-page-sharing.cjs").createDesignPageSharing({
     directory: path.join(dataDir, "design-page-shares"),
@@ -2502,6 +2511,7 @@ function createRuntime(options) {
       ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
+      ...designKitToolDefinitions(chatId, designKits),
       ...localMcp.agentTools(chatId).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name)),
       // Files an Artifact page shows come from the Chat's own Worktrees, as a chat_start attachment does.
       ...htmlArtifactToolDefinitions(chatId, artifacts, undefined, {
@@ -3393,7 +3403,15 @@ function createRuntime(options) {
       await advisorMcp.close();
       await advisorStore.close();
       // Ending the Terminals first also answers their pending reads, which the wait for accepted commands includes.
-      await Promise.all([simulators.close(), browsers.close(), panelForwarders.closeAll(), artifacts.close(), pageComments.close(), terminals.dispose()]);
+      await Promise.all([
+        simulators.close(),
+        browsers.close(),
+        panelForwarders.closeAll(),
+        artifacts.close(),
+        designKits.close(),
+        pageComments.close(),
+        terminals.dispose(),
+      ]);
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
       await Promise.allSettled(active);

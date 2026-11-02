@@ -160,3 +160,21 @@ test("ordinary auto-layout, hug sizing and component instances produce no warnin
 test("the stock example produces no warnings", () => {
   assert.deepEqual(designWarnings(validateDesignDocument(createExampleDesign())), []);
 });
+
+test("equivalent CSS whites produce the same invisible-text warning", () => {
+  for (const fill of ["#fff", "#ffffff", "#ffff", "#ffffffff", "white", "WHITE", "rgb(255,255,255)", "rgb(100% 100% 100%)", "hsl(0, 0%, 100%)"]) {
+    const warnings = designWarnings(doc([caption({ fill })]));
+    assert.equal(warnings[0]?.kind, "low-contrast", fill);
+    assert.match(warnings[0].message, /1\.0:1/);
+  }
+  assert.throws(() => doc([caption({ fill: "banana" })]), /valid CSS color/);
+});
+
+test("contrast coverage distinguishes unsupported backgrounds and ancestor opacity", async () => {
+  const { designDiagnostics } = await import("./design.mjs");
+  assert.equal(designDiagnostics(doc([caption()])).contrastChecks[0].status, "checked");
+  assert.equal(designDiagnostics(doc([photo, caption()])).contrastChecks[0].status, "unsupported");
+  const translucent = doc([{ id: "group", type: "frame", width: 390, height: 300, opacity: 0.5 }, caption({ parentId: "group" })]);
+  assert.equal(designDiagnostics(translucent).contrastChecks[0].status, "unsupported");
+  assert.deepEqual(designWarnings(translucent), []);
+});

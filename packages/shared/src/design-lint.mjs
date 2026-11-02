@@ -1,3 +1,5 @@
+import { designKitWarnings } from "./design-kit.mjs";
+import { designLuminance } from "./design-colors.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { visibleDesignTextLines } from "./design-render-limits.mjs";
 import { DESIGN_INK } from "./design-paint.mjs";
@@ -33,32 +35,18 @@ function paintOrder(document) {
   return order;
 }
 
-// sRGB relative luminance of a 3/6-digit hex or rgb() color; null for anything we can't resolve confidently.
-function luminance(color) {
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color ?? "");
-  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)\s*(?:[,/]\s*1(?:\.0+)?\s*)?\)$/i.exec(color ?? "");
-  const channels = hex
-    ? (hex[1].length === 3 ? hex[1].split("").map((c) => c + c) : hex[1].match(/../g)).map((pair) => parseInt(pair, 16))
-    : rgb
-      ? rgb.slice(1, 4).map(Number)
-      : null;
-  if (!channels) return null;
-  const [r, g, b] = channels.map((value) => {
-    const channel = value / 255;
-    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+const luminance = designLuminance;
 const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 
 /** Problems an agent can't see in JSON: text cut off, layers spilling out, unreadable text. Pure; layer ids included. */
-export function designWarnings(document) {
+export function designDiagnostics(document) {
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   const bounds = designLayout(document, designTextLayout);
   const resolve = (value) => (value?.startsWith("$") ? document.tokens?.[value.slice(1)] : value);
   const order = paintOrder(document);
   const position = new Map(order.map((layer, at) => [layer.id, at]));
   const warnings = [];
+  const contrastChecks = [];
   for (const node of document.nodes) {
     const box = bounds.get(node.id);
     if (!box) continue;
@@ -110,7 +98,19 @@ export function designWarnings(document) {
       }
       const foreground = (node.opacity ?? 1) === 1 ? luminance(resolve(node.fill ?? DESIGN_INK)) : null;
       const background = luminance(backdrop);
-      if (foreground !== null && background !== null && contrast(foreground, background) < MINIMUM_CONTRAST)
+      let ancestor = parent;
+      let opaqueAncestors = true;
+      while (ancestor) {
+        if ((ancestor.opacity ?? 1) !== 1) opaqueAncestors = false;
+        ancestor = nodes.get(ancestor.parentId);
+      }
+      const checked = foreground !== null && background !== null && opaqueAncestors;
+      contrastChecks.push({
+        id: node.id,
+        status: checked ? "checked" : "unsupported",
+        ...(checked ? { ratio: contrast(foreground, background) } : { reason: "The backdrop, color or transparency cannot be evaluated as one opaque color." }),
+      });
+      if (checked && contrast(foreground, background) < MINIMUM_CONTRAST)
         warnings.push({
           id: node.id,
           kind: "low-contrast",
@@ -118,7 +118,13 @@ export function designWarnings(document) {
         });
     }
   }
-  return warnings;
+  // Style drift must not bury clipping or contrast failures in the bounded text response.
+  warnings.push(...designKitWarnings(document));
+  return { warnings, contrastChecks };
+}
+
+export function designWarnings(document) {
+  return designDiagnostics(document).warnings;
 }
 
 export function designWarningText(warnings) {

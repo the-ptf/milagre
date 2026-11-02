@@ -6,7 +6,19 @@ export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.
 export type { ArtifactAsset };
 
 /** A design as `artifact:list` returns it: its newest version, and the screen it is laid out on. */
-export type ArtifactSummary = ArtifactRef & { versions: number; width: number; height: number; format: "design" | "html" };
+export type ArtifactSummary = ArtifactRef & {
+  versions: number;
+  width: number;
+  height: number;
+  format: "design" | "html";
+  kit?: { id: string; version: number; title: string };
+  consistency?: { mode: "advisory" | "strict" };
+};
+
+/** The pinned visual identity, shared by desktop and phone. */
+export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "consistency"> | null | undefined): string {
+  return design?.kit ? `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}` : "";
+}
 
 /** One version of a design an agent showed, as `artifact:get` returns it. */
 export type DesignArtifact = ArtifactSummary & {

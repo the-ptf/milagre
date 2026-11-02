@@ -1,3 +1,4 @@
+import { designPaint } from "./design-colors.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designDrawnWeight, designFontFamily } from "./design-fonts.mjs";
 import { designIcons } from "./design-icons.mjs";
@@ -10,56 +11,7 @@ const xml = (value) =>
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ud800-\udfff\ufffe\uffff]/gu, "\ufffd")
     .replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]);
 const number = (value) => String(Math.round(value * 10000) / 10000);
-const clamp = (value, maximum = 1) => Math.max(0, Math.min(maximum, value));
-const hex = (channels) => `#${channels.map((channel) => Math.round(clamp(channel, 255)).toString(16).padStart(2, "0")).join("")}`;
-const alpha = (value) => clamp(value?.endsWith("%") ? parseFloat(value) / 100 : Number(value ?? 1));
-
-// SVG 1.1 consumers do not all accept CSS's alpha hex, rgba or modern hsl syntax.
-// Keep the paint and its alpha separate so shape, text and ancestor opacity compose correctly.
-function paint(value) {
-  const source = value.trim();
-  if (source.toLowerCase() === "transparent") return { color: "none", opacity: 1 };
-  if (/^#[a-f0-9]{4}$/i.test(source)) {
-    return {
-      color: `#${source
-        .slice(1, 4)
-        .split("")
-        .map((character) => character.repeat(2))
-        .join("")}`,
-      opacity: parseInt(source[4], 16) / 15,
-    };
-  }
-  if (/^#[a-f0-9]{8}$/i.test(source)) return { color: source.slice(0, 7), opacity: parseInt(source.slice(7), 16) / 255 };
-  const match = /^(rgba?|hsla?)\(([^)]+)\)$/i.exec(source);
-  if (!match) return { color: source, opacity: 1 };
-  const parts = match[2].trim().split(/[\s,/]+/);
-  if (parts.length < 3 || parts.length > 4 || parts.some((part) => !Number.isFinite(Number(part.replace(/%$/, ""))))) {
-    return { color: source, opacity: 1 };
-  }
-  if (match[1].toLowerCase().startsWith("rgb")) {
-    return { color: hex(parts.slice(0, 3).map((part) => (part.endsWith("%") ? parseFloat(part) * 2.55 : Number(part)))), opacity: alpha(parts[3]) };
-  }
-  if (!parts[1].endsWith("%") || !parts[2].endsWith("%")) return { color: source, opacity: 1 };
-  const hue = ((Number(parts[0]) % 360) + 360) % 360;
-  const saturation = clamp(parseFloat(parts[1]) / 100);
-  const lightness = clamp(parseFloat(parts[2]) / 100);
-  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
-  const second = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
-  const channels =
-    hue < 60
-      ? [chroma, second, 0]
-      : hue < 120
-        ? [second, chroma, 0]
-        : hue < 180
-          ? [0, chroma, second]
-          : hue < 240
-            ? [0, second, chroma]
-            : hue < 300
-              ? [second, 0, chroma]
-              : [chroma, 0, second];
-  const offset = lightness - chroma / 2;
-  return { color: hex(channels.map((channel) => (channel + offset) * 255)), opacity: alpha(parts[3]) };
-}
+const paint = (value) => designPaint(value) ?? { color: "none", opacity: 1 };
 
 function shape(node, box, inset = 0) {
   const width = Math.max(0, box.width - inset * 2);

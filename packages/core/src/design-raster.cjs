@@ -136,8 +136,10 @@ function post(request) {
 }
 
 /** Draws a validated design as a PNG, at most 1568 px on the long edge. Renders run one at a time. */
-function renderDesignPng(document) {
-  const result = queue.then(() => post({ document: rasterDocument(document) }));
+function renderDesignPng(document, { crop } = {}) {
+  if (crop && (![crop.x, crop.y, crop.width, crop.height].every(Number.isFinite) || crop.width <= 0 || crop.height <= 0))
+    return Promise.reject(Error("Invalid preview crop."));
+  const result = queue.then(() => post({ document: rasterDocument(document), crop }));
   queue = result.catch(() => {});
   return result;
 }

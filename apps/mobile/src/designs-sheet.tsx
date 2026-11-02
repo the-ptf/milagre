@@ -20,6 +20,7 @@ import {
   artifactDocument,
   designFeedbackMessage,
   designGroups,
+  designKitLabel,
   designsCanvasShell,
   newCommentId,
   sentNumbers,
@@ -488,7 +489,7 @@ export function DesignsSheet({
   const title = canvasMode ? "All designs" : (summary?.title ?? shown?.title ?? "Designs");
   const subtitle = canvasMode
     ? `${ordered.length} ${ordered.length === 1 ? "design" : "designs"}${rows.length > 1 ? ` · ${rows.length} screens` : ""}`
-    : [row?.group, position, shown ? `v${shown.version}` : ""].filter(Boolean).join(" · ");
+    : [row?.group, position, shown ? `v${shown.version}` : "", designKitLabel(shown)].filter(Boolean).join(" · ");
 
   const openNote = composer && composer.kind !== "read" ? notes.find((note) => note.key === composer.key) : undefined;
   const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
