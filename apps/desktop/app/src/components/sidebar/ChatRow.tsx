@@ -333,7 +333,7 @@ function RowProjectIcon({ image, initial = "" }: { image?: string | null; initia
     <span
       aria-hidden
       data-chat-project-icon
-      className="sidebar-chat-initials relative size-6 shrink-0 items-center justify-center rounded-chip bg-field text-10 font-semibold text-ink-2"
+      className="sidebar-copy flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-on-ink"
     >
       <WorkspaceIcon src={image} fallback={letter} />
     </span>
@@ -865,10 +865,7 @@ export const ChatRow = memo(function ChatRow({
             />
           </div>
         ) : renaming ? (
-          <div
-            data-row
-            className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-control bg-hover-2 px-2 focus-within:ring-2 focus-within:ring-accent focus-within:ring-inset"
-          >
+          <div data-row className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-control bg-hover-2 px-2">
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} />
             <RenameField
               initial={item.label}

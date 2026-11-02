@@ -1072,7 +1072,7 @@ export function PromptComposer({
 
         <div
           data-ultracode={ultracodeOn || undefined}
-          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast has-[[contenteditable]:focus]:border-accent ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
+          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
         >
           <input
             ref={fileInputRef}

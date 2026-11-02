@@ -167,7 +167,7 @@ export function FindBar({
     <div
       role="search"
       data-find-bar
-      className="absolute top-11 right-4 z-20 flex items-center gap-1 rounded-card bg-surface py-1 pr-1 pl-3 shadow-raised no-drag has-[input:focus]:ring-2 has-[input:focus]:ring-accent"
+      className="absolute top-11 right-4 z-20 flex items-center gap-1 rounded-card bg-surface py-1 pr-1 pl-3 shadow-raised no-drag"
       style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {

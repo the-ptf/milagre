@@ -228,7 +228,7 @@ export function CommentPin({
                     }
                   }}
                   // Grows with the comment up to eight lines, then scrolls; the surface follows the bubble's size.
-                  className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-chip bg-transparent px-1 text-13 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-chip bg-transparent px-1 text-13 outline-none"
                 />
                 <div className="flex items-center justify-between text-11 text-ink-3">
                   <Button variant="danger-ghost" size={24} className="-ml-1" onClick={() => comments.onRemove(pin.key)}>

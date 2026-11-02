@@ -128,7 +128,7 @@ export function CommentEditor({
             if (body) (onAddToReview ?? onSave)(body);
           }
         }}
-        className="block w-full resize-none rounded-control border border-line-strong bg-field px-2.5 py-2 text-12 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent"
+        className="block w-full resize-none rounded-control border border-line-strong bg-field px-2.5 py-2 text-12 text-ink outline-none transition-colors placeholder:text-ink-3"
       />
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size={28} data-diff-comment-cancel onClick={onCancel}>

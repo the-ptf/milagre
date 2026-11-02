@@ -100,7 +100,7 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
             disabled={brief === null}
             onChange={(event) => setBriefDraft(event.target.value)}
             rows={6}
-            className="w-full resize-y rounded-control border border-transparent bg-transparent px-0 py-0.5 text-13 text-ink outline-none transition-colors hover:border-line focus:border-accent focus:px-2"
+            className="w-full resize-y rounded-control border border-transparent bg-transparent px-0 py-0.5 text-13 text-ink outline-none transition-colors hover:border-line focus:px-2"
           />
           {briefChanged && (
             <div className="mt-1 flex justify-end gap-1">

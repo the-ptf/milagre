@@ -95,7 +95,7 @@ export function SecretCard({
                   setRevealed(false);
                 }
               }}
-              className="h-9 w-full min-w-0 rounded-control border border-line bg-field pl-3 pr-10 text-13 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent disabled:opacity-40"
+              className="h-9 w-full min-w-0 rounded-control border border-line bg-field pl-3 pr-10 text-13 text-ink outline-none transition-colors placeholder:text-ink-3 disabled:opacity-40"
             />
             <button
               type="button"

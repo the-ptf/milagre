@@ -420,7 +420,7 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
           setText(addressText(tab.url));
           event.currentTarget.blur();
         }}
-        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent focus:bg-surface"
+        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none transition-colors placeholder:text-ink-3 focus:bg-surface"
       />
       <CommentControls chatKey={chatKey} live={!blank && !tab.error} onSend={onSendComments} />
       <Tooltip label="Open in your default browser" side="bottom" align="end">
