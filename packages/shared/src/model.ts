@@ -829,6 +829,7 @@ export type ChatContext =
   | CompactionContext
   | PullRequestActionContext
   | LinearIssueContext
+  | import("./github-issue.mjs").GitHubIssueContext
   | UsageLimitContext
   | AccountSwitchContext
   | { kind: "limit-reset" }
@@ -1251,6 +1252,8 @@ export interface ChatSendRequest {
   prAction?: { action: PullRequestBlocker; pr: number; url: string };
   /** The first message of a Chat started from an issue. Milagre reads the issue and writes the body, prompt and context itself. */
   linearIssue?: { key: string; workspace?: string; note?: string };
+  /** Computer-read GitHub issue context. A failed authoritative read refuses the send. */
+  githubIssue?: { url: string; account: string; note?: string };
   /** Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent. */
   compact?: boolean;
   /** Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs). */

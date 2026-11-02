@@ -1,3 +1,4 @@
+import { GitHubIssueImport } from "./components/GitHubIssueImport";
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat, startOutbox } from "./lib/outbox";
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { OfflineTray, useOfflineTray } from "./components/OfflineTray";
@@ -528,6 +529,7 @@ function App() {
   const [, setBranchesRead] = useState(0);
   const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
+  const [githubImportFor, setGitHubImportFor] = useState<string | null>(null);
   const [newChatError, setNewChatError] = useState<string | null>(null);
   // A short message about something that happened off to the side (a worktree that wouldn't go).
   const [quitError, setQuitError] = useState<string | null>(null);
@@ -3933,6 +3935,35 @@ function App() {
                       files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
                     >
                       {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
+                      {githubImportFor === `${project.path}#${chatView.current}` && state && (
+                        <GitHubIssueImport
+                          key={githubImportFor}
+                          project={{ path: project.path, name: project.name, state }}
+                          computer={openComputer?.name ?? "This computer"}
+                          baseBranch={effectiveBaseBranch}
+                          sessionId={selectedSession?.id}
+                          options={{
+                            provider: selectedModel.provider,
+                            model: selectedModel.id,
+                            permissionMode,
+                            effort: effortFor(capabilityFor(selectedModel, capabilities), effort),
+                            ultracode: capabilityFor(selectedModel, capabilities).ultracode && ultracode,
+                            fastMode: capabilityFor(selectedModel, capabilities).fastMode && fastMode,
+                            replies: getSettings().claudeReplies,
+                            tldrEnabled: getSettings().tldrEnabled,
+                          }}
+                          note={draftStore.get()}
+                          onClose={() => setGitHubImportFor(null)}
+                          onImported={(result) => {
+                            receiveState(project.path, result.project.state);
+                            setGitHubImportFor(null);
+                            if (projectRef.current?.path !== project.path || `${project.path}#${chatView.current}` !== githubImportFor) return;
+                            setSelectedSessionId(result.sessionId);
+                            setSelectedWorktreeId(result.project.state.sessions[result.sessionId]?.worktree_id ?? selectedWorktreeId);
+                            setDraft("");
+                          }}
+                        />
+                      )}
                       <DraftChatComposer
                         store={draftStore}
                         offScreen={!((view === "chat" && !botsShown) || runPaneOpen)}
@@ -3962,6 +3993,7 @@ function App() {
                         onSendPageComments={(text, images) => executeSend(text, permissionMode, images, [], true)}
                         linearActive={linear.active}
                         onStartFromIssue={surfaces.git ? startFromIssue : undefined}
+                        onImportGitHubIssue={surfaces.git && !readOnly ? () => setGitHubImportFor(`${project.path}#${chatView.current}`) : undefined}
                         onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
                         pullRequestAction={
                           selectedSession && pullRequestBlockerAction && pullRequestActionRequest

@@ -1,3 +1,5 @@
+import { isGitHubIssueContext } from "@milagre/shared/github-issue";
+import { GitHubIssueCard } from "./agents/GitHubIssueCard";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
 import { MessageSelection } from "./MessageSelection";
@@ -423,14 +425,15 @@ const MessageSection = memo(function MessageSection({
   const prAction = isUser && isPullRequestAction(message.context) ? message.context : null;
   // So does a Chat's first message when it was started from a Linear issue.
   const issue = isUser && isLinearIssueContext(message.context) ? message.context : null;
+  const githubIssue = isUser && isGitHubIssueContext(message.context) ? message.context : null;
   // A message another Chat sent sits apart from the user's own: left-aligned, with its sender over it.
   // Feedback sent from the design canvas shows as a card, not as the text the agent reads.
-  const feedback = isUser && !linked && !advisor && !prAction && !issue ? parseDesignFeedback(message.body) : null;
+  const feedback = isUser && !linked && !advisor && !prAction && !githubIssue && !issue ? parseDesignFeedback(message.body) : null;
   // So do comments sent from a Browser panel page.
-  const pageFeedback = isUser && !linked && !advisor && !prAction && !issue && !feedback ? parsePageComments(message.body) : null;
+  const pageFeedback = isUser && !linked && !advisor && !prAction && !githubIssue && !issue && !feedback ? parsePageComments(message.body) : null;
   // So do the answers to the agent's questions.
   const answered = isUser && !linked && !advisor && !feedback && !pageFeedback && message.answered?.length ? message.answered : null;
-  const bubble = isUser && !linked && !advisor && !feedback && !pageFeedback && !answered && !prAction && !issue;
+  const bubble = isUser && !linked && !advisor && !feedback && !pageFeedback && !answered && !prAction && !githubIssue && !issue;
   const recommendation = !isUser && !streaming ? parseRecommendation(message.body) : null;
   const outdatedProvider = !isUser && !streaming ? extractOutdatedProvider(message.body) : null;
   const isCurrentlyOutdated = outdatedProvider ? (cliStatus ? cliStatus[outdatedProvider]?.state === "outdated" : true) : false;
@@ -499,6 +502,8 @@ const MessageSection = memo(function MessageSection({
           <AdvisorResultCard context={advisor} body={message.body} />
         ) : prAction ? (
           <PullRequestActionCard action={prAction} />
+        ) : githubIssue ? (
+          <GitHubIssueCard issue={githubIssue} />
         ) : issue ? (
           <LinearIssueCard issue={issue} />
         ) : feedback ? (
@@ -1015,6 +1020,7 @@ interface ChatComposerProps {
   /** Linear is on and connected: the new-chat header offers a Linear issue to start from. */
   linearActive?: boolean;
   onStartFromIssue?: (issue: LinearIssue) => void;
+  onImportGitHubIssue?: () => void;
   newChatError: string | null;
   saveNotice?: ReactNode;
   notice?: string | null;
@@ -1387,6 +1393,7 @@ export function ChatComposer({
   onBaseBranchChange,
   linearActive,
   onStartFromIssue,
+  onImportGitHubIssue,
   newChatError,
   composerNote,
   noGit,
@@ -1853,6 +1860,11 @@ export function ChatComposer({
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
           <UpdatePillSlot className="bottom-full mb-2" />
           {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
+          {onImportGitHubIssue && (
+            <Button variant="quiet" size={24} className="mb-2" onClick={onImportGitHubIssue}>
+              Import GitHub issue
+            </Button>
+          )}
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}

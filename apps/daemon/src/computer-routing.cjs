@@ -169,6 +169,7 @@ const RESULTS = {
     return { agents: each(id, result.agents, item), items: each(id, result.items, item) };
   },
   "agent:ports": keyed,
+  "github:import": (id, result) => field(id, result, "project", withPath),
   "worktree:create": (id, result) => field(id, result, "project", withPath),
   "worktree:link-issue": (id, result) => field(id, result, "project", withPath),
   "worktree:unlink-issue": (id, result) => field(id, result, "project", withPath),

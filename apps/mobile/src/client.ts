@@ -104,6 +104,9 @@ const LINK_DELETE_MS = 30 * 60 * 1000;
 // Creating a worktree can fetch and copy files; removing one with big ignored folders can take minutes.
 const LONG_CALLS = new Set([
   "worktree:create",
+  "github:issues",
+  "github:issue",
+  "github:import",
   "worktree:remove",
   "link:send",
   "link:open",
@@ -450,15 +453,17 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       return request<T>(
         "/rpc",
         { v: 1, method, args },
-        method === "link:delete"
-          ? Math.max(timeoutMs, LINK_DELETE_MS)
-          : LONG_CALLS.has(method)
-            ? Math.max(timeoutMs, 330000)
-            : DESIGN_SHARE_CALLS.has(method)
-              ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
-              : MCP_CALLS.has(method)
-                ? Math.max(timeoutMs, 45000)
-                : timeoutMs,
+        method === "github:import"
+          ? Math.max(timeoutMs, 450000)
+          : method === "link:delete"
+            ? Math.max(timeoutMs, LINK_DELETE_MS)
+            : LONG_CALLS.has(method)
+              ? Math.max(timeoutMs, 330000)
+              : DESIGN_SHARE_CALLS.has(method)
+                ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
+                : MCP_CALLS.has(method)
+                  ? Math.max(timeoutMs, 45000)
+                  : timeoutMs,
       );
     },
     media,

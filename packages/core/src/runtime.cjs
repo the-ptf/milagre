@@ -21,6 +21,10 @@ const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
 const { originId } = require("@milagre/shared/project-origin");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
+const { createGitHubIssues } = require("./github-issues.cjs");
+const { createGitHubImporter } = require("./github-import.cjs");
+const { createGitHubImportStore } = require("./github-import-store.cjs");
+const { githubIssueBody, githubIssueContext, githubIssuePrompt } = require("@milagre/shared/github-issue");
 const { ChatTitles, createChatTitleModels, generateChatTitle, generateRunTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
 const { syncMainBranch } = require("./main-sync.cjs");
@@ -2010,6 +2014,39 @@ function createRuntime(options) {
     tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
+  const githubIssues = options.githubIssues ?? createGitHubIssues();
+  async function githubProject(projectPath) {
+    if (!scopeStates.has(projectPath) || chatsHome.isHome(projectPath) || bots.isHome(projectPath))
+      throw new Error("Select an open GitHub Project on this Computer before importing.");
+    await ownProject(projectPath);
+    await environmentReady;
+    return readProject(projectPath);
+  }
+  commands.handle("github:issues", async (_event, projectPath) => {
+    await githubProject(projectPath);
+    return githubIssues.list(projectPath);
+  });
+  commands.handle("github:issue", async (_event, projectPath, url) => {
+    await githubProject(projectPath);
+    return githubIssues.read(projectPath, url);
+  });
+  const importGitHubIssue = createGitHubImporter({
+    issues: githubIssues,
+    store: createGitHubImportStore(dataDir),
+    validateBase: async (projectPath, base) => {
+      try {
+        await git.checked(projectPath, ["rev-parse", "--verify", "--end-of-options", `${base}^{commit}`]);
+      } catch (error) {
+        throw new Error("Choose an existing base branch before importing.", { cause: error });
+      }
+    },
+    sendStatus: (projectPath, id) => chats.sendStatus(projectPath, id),
+    readProject: githubProject,
+    createWorktree: (request) => handlers.get("worktree:create")({}, request),
+    send: sendAsUser,
+  });
+  commands.handle("github:import", (_event, request) => importGitHubIssue(request));
+
   commands.handle("chat:send", (_event, request) => sendAsUser(request));
   /** A message the user sends to a Chat: from a composer (desktop or phone), a pill, or a comment on a page. */
   async function sendAsUser(request) {
@@ -2028,7 +2065,7 @@ function createRuntime(options) {
     }
     // Only Milagre marks a message as coming from another Chat. A PR-blocker pill and a Chat started from a Linear issue
     // are the contexts a renderer can ask for, and Milagre checks them and writes their message and prompt itself.
-    const { prAction, linearIssue, compact, sentFrom, ...rest } = request;
+    const { prAction, linearIssue, githubIssue, compact, sentFrom, ...rest } = request;
     const action = prAction === undefined ? null : pullRequestActionContext(prAction);
     if (prAction !== undefined && !action) throw new Error("That pull request action isn't valid.");
     if (compact && rest.sessionId == null) throw new Error("Open a chat before compacting it.");
@@ -2036,9 +2073,11 @@ function createRuntime(options) {
       ? { ...rest, body: pullRequestActionBody(action), prompt: pullRequestActionPrompt(action), images: [], files: [], context: action }
       : compact
         ? { ...rest, ...compactionMessage() }
-        : linearIssue !== undefined
-          ? await linearIssueMessage(rest, linearIssue)
-          : { ...rest, context: undefined };
+        : githubIssue !== undefined
+          ? await githubIssueMessage(rest, githubIssue)
+          : linearIssue !== undefined
+            ? await linearIssueMessage(rest, linearIssue)
+            : { ...rest, context: undefined };
     // A compact is a command to the agent's CLI, not a message: it says nothing of where the user is.
     const { sessionId } = await chats.send(
       compact ? message : sentFromNotes.message({ ...message, sentFrom }, rest.sessionId == null ? null : chatKey(rest.projectPath, rest.sessionId)),
@@ -2053,8 +2092,20 @@ function createRuntime(options) {
     }
     return { sessionId };
   }
-  // The issue is read again here, so the card and prompt are Linear's copy. If Linear can't answer now, the Chat still
-  // starts, with the text the renderer sent as a plain message.
+  // GitHub import fails closed when its authoritative read fails.
+  async function githubIssueMessage(rest, request) {
+    await githubProject(rest.projectPath);
+    if (typeof request?.url !== "string" || typeof request?.account !== "string" || (request.note !== undefined && typeof request.note !== "string"))
+      throw new Error("Preview the GitHub issue before importing.");
+    const issue = await githubIssues.read(rest.projectPath, request.url, request.account);
+    return {
+      ...rest,
+      body: githubIssueBody(issue, request.note),
+      prompt: githubIssuePrompt(issue, request.note),
+      context: githubIssueContext(issue, request.note),
+    };
+  }
+  // Linear keeps its existing plain-message fallback when it cannot answer.
   async function linearIssueMessage(rest, request) {
     const ask = linearIssueRequest(request);
     if (!ask) throw new Error("That Linear issue isn't valid.");

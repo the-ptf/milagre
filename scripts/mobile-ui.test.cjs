@@ -3374,6 +3374,7 @@ function chatHost({
     "@milagre/shared/provider-capabilities": require("@milagre/shared/provider-capabilities"),
     "@milagre/shared/queued-messages": require("@milagre/shared/queued-messages"),
     "../message-navigation": { MessageNavigation: "MessageNavigation" },
+    "../github-issue-import": { GitHubIssueImport: "GitHubIssueImport" },
     "../queued-messages": { QueuedMessages: "QueuedMessages" },
     "../prompt-field": { PromptField: "PromptField" },
     "../context-ring": { ContextRing: "ContextRing" },
@@ -3401,6 +3402,7 @@ function chatHost({
     "@hugeicons/core-free-icons": icons,
     "@milagre/shared/pr-blockers": require("@milagre/shared/pr-blockers"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/github-issue": require("@milagre/shared/github-issue"),
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "../indicators": require("../apps/mobile/src/indicators.ts"),
     "../icons": { Icon: "Icon" },
@@ -11794,12 +11796,14 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./github-issue-card": { GitHubIssueCard: "GitHubIssueCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/github-issue": require("@milagre/shared/github-issue"),
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./theme": { hex: () => "#000" },
@@ -11906,12 +11910,14 @@ test("mobile Full detail shows each tool call and the notes between them in the 
       "./answer-card": { AnswerCard: "AnswerCard" },
       "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+      "./github-issue-card": { GitHubIssueCard: "GitHubIssueCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
       "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
       "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
       "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
       "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+      "@milagre/shared/github-issue": require("@milagre/shared/github-issue"),
       "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
       "./theme": { hex: () => "#000" },
@@ -13922,12 +13928,14 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./github-issue-card": { GitHubIssueCard: "GitHubIssueCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/github-issue": require("@milagre/shared/github-issue"),
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./theme": { hex: () => "#000" },
@@ -13980,12 +13988,14 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./github-issue-card": { GitHubIssueCard: "GitHubIssueCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/github-issue": require("@milagre/shared/github-issue"),
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./theme": { hex: () => "#000" },
@@ -17389,6 +17399,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./github-issue-card": { GitHubIssueCard: "GitHubIssueCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
@@ -17396,6 +17407,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/github-issue": require("@milagre/shared/github-issue"),
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./theme": { hex: () => "#000" },
@@ -20852,4 +20864,86 @@ test("phone viewed strip groups loaded thumbnails, excludes failed media and rec
   assert.equal(opened.at(-1).images[0].source.uri, "/new-durable/bad.png");
   parent.unmount();
   for (const host of tiles.values()) host.unmount();
+});
+
+test("GitHub import keeps native choices in its sheet, invalidates edited URLs and confirms only the previewed issue", async () => {
+  const react = hookHost({ effects: true });
+  const issue = {
+    repository: "acme/app",
+    number: 12,
+    url: "https://github.com/acme/app/issues/12",
+    title: "Login",
+    body: "Description",
+    state: "OPEN",
+    account: "qa",
+    importedAt: "2026-11-02T23:00:00Z",
+  };
+  const calls = [];
+  let imported = 0;
+  const client = {
+    call: async (method, args) => {
+      calls.push({ method, args });
+      return method === "github:issues"
+        ? { repository: issue.repository, account: issue.account, issues: [issue] }
+        : method === "github:issue"
+          ? issue
+          : { sessionId: 9, worktreeId: 3 };
+    },
+  };
+  const shared = load("../../../packages/shared/src/use-github-issue.ts", { react, "./result.mjs": require("@milagre/shared/result") });
+  const { GitHubIssueImport } = load("github-issue-import.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Modal: "Modal", View: "View", Text: "Text", TextInput: "TextInput" },
+    "expo-crypto": { randomUUID: () => "native-import-request-1234" },
+    "@milagre/shared/result": require("@milagre/shared/result"),
+    "@milagre/shared/use-github-issue": shared,
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./theme": { useTheme: () => ({ colors: fakePalette }) },
+    "./ui": { PageScroll: "PageScroll", PillButton: "PillButton", PullDown: "PullDown", SheetHeader: "SheetHeader" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+  });
+  const props = {
+    client,
+    project: { path: "/project", name: "Project", state: { worktrees: { 1: { id: 1, name: "main" } }, sessions: {} } },
+    computer: "QA",
+    baseBranch: "main",
+    options: { provider: "codex", model: "test", permissionMode: "ask" },
+    note: "Inspect first",
+    onClose() {},
+    onImported: () => {
+      imported++;
+    },
+  };
+  const render = () => {
+    react.begin();
+    return GitHubIssueImport(props);
+  };
+  render();
+  await settle();
+  const menu = find(render(), (node) => node.type === "PullDown" && node.props.label === "Select an open GitHub issue");
+  assert.equal(menu.props.searchable, undefined, "native modal choices must not navigate to a route behind the modal");
+  menu.props.onSelect(issue.url);
+  await settle();
+  let tree = render();
+  let confirm = find(tree, (node) => node.type === "PillButton" && node.props.title === "Import and start Chat");
+  assert.equal(confirm.props.disabled, false);
+  const input = find(tree, (node) => node.type === "TextInput" && node.props.accessibilityLabel === "GitHub issue URL");
+  assert.equal(input.props.value, issue.url);
+  assert.ok(input.props.style.minHeight >= 44);
+  input.props.onChangeText("https://github.com/acme/app/issues/99");
+  tree = render();
+  confirm = find(tree, (node) => node.type === "PillButton" && node.props.title === "Import and start Chat");
+  assert.equal(confirm.props.disabled, true, "editing the URL clears the old confirmation");
+  find(tree, (node) => node.type === "PullDown" && node.props.label === "Select an open GitHub issue").props.onSelect(issue.url);
+  await settle();
+  confirm = find(render(), (node) => node.type === "PillButton" && node.props.title === "Import and start Chat");
+  confirm.props.onPress();
+  confirm.props.onPress();
+  await settle();
+  const imports = calls.filter((call) => call.method === "github:import");
+  assert.equal(imports.length, 1);
+  assert.equal(imports[0].args[0].url, issue.url);
+  assert.deepEqual(JSON.parse(JSON.stringify(imports[0].args[0].target)), { kind: "worktree", baseBranch: "main" });
+  assert.equal(imported, 1);
 });

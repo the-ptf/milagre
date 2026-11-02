@@ -1,3 +1,4 @@
+import type { GitHubIssue, GitHubIssueList, GitHubImportRequest, GitHubImportResult } from "@milagre/shared/github-issue";
 import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
@@ -510,6 +511,9 @@ export type MilagreBridge = {
   /** The Linear switch (Settings › Connections › Linear) changed, on this Mac or from a phone. */
   onLinearEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** Assigned issues when query is empty, otherwise workspace matches (a key also finds that issue first). Never rejects. */
+  listGitHubIssues: (projectPath: string) => Promise<GitHubIssueList>;
+  readGitHubIssue: (projectPath: string, url: string) => Promise<GitHubIssue>;
+  importGitHubIssue: (request: GitHubImportRequest) => Promise<GitHubImportResult>;
   listLinearIssues: (query?: string, options?: { fresh?: boolean; workspace?: string }) => Promise<LinearIssuesResult>;
   /** Each Worktree's Linear issue by worktree path, for the chips. {} when off, disconnected or on error. */
   readWorktreeLinearIssues: (projectPath: string) => Promise<Record<string, LinearIssue>>;

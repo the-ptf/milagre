@@ -82,6 +82,9 @@ const METHODS = new Set([
   "routines:linear-options",
   "routines:hook",
   "routines:rotate-hook",
+  "github:issues",
+  "github:issue",
+  "github:import",
   "linear:issues",
   "linear:worktree-issues",
   "chat:runs",
@@ -1040,7 +1043,7 @@ async function startMobileBridge({
               result = { path: result.path, name: result.name, ...(result.kind ? { kind: result.kind } : {}) };
             if (request.method === "link:open" && result?.link) result = { id: result.link.id, name: result.link.name };
             // The phone only looks up the new worktree's Chat; a large Project's whole state is tens of MB, past what a LAN socket buffers.
-            if (request.method === "worktree:create" && result?.project?.state)
+            if (["worktree:create", "github:import"].includes(request.method) && result?.project?.state)
               result = { ...result, project: forNewWorktree(result.project, result.worktreeId) };
             // Project icons retain the desktop's result. Core bounds repository images to 5 MiB and chosen icons
             // to 450 KB; a smaller transport-only limit silently replaces valid icons with folders on phones.

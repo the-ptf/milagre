@@ -24,6 +24,9 @@ const SLOW_METHODS = Object.freeze({
   "git:open-pr": 120000,
   "git:generate": 180000,
   "worktree:create": 330000,
+  "github:issues": 60000,
+  "github:issue": 60000,
+  "github:import": 450000,
   "worktree:remove": 330000,
   // Deleting a Link removes each of its untouched Worktrees in turn, each with worktree:remove's 300 s git limit.
   "link:delete": LINK_DELETE_MS,

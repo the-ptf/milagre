@@ -44,6 +44,10 @@ const denied = () => {
  * refused while the bridge is confined, so a command added to the bridge later stays closed until it is listed.
  */
 const PATHS = Object.freeze({
+  // GitHub uses the owner's Computer account and external repositories, beyond a confined demo.
+  "github:issues": denied,
+  "github:issue": denied,
+  "github:import": denied,
   // Simulators are machine-wide. A demo Project never grants access to the host's devices.
   "simulator:list": denySimulator,
   "simulator:attach": denySimulator,

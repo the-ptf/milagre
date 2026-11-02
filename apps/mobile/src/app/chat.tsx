@@ -1,3 +1,4 @@
+import { GitHubIssueImport } from "../github-issue-import";
 import { radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
@@ -406,6 +407,7 @@ function ChatPane({
   const knownFiles = useRef(createKnownFiles());
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSends = useRef(createResendMemory());
+  const [githubImportFor, setGitHubImportFor] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   // The new-Chat tray row's width: 0 until it is laid out, which keeps the Linear chip compact on a phone from the start.
   const [trayRowWidth, setTrayRowWidth] = useState(0);
@@ -2809,6 +2811,17 @@ function ChatPane({
                               </View>
                             )
                           )}
+                          {!project.link && !chatsHomeOpen && (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Import GitHub issue"
+                              disabled={targetDisabled}
+                              onPress={() => setGitHubImportFor(chatId)}
+                              style={{ padding: 8, minHeight: 44, justifyContent: "center", opacity: targetDisabled ? 0.35 : 1 }}
+                            >
+                              <Text style={styles.label}>GitHub issue</Text>
+                            </Pressable>
+                          )}
                           <OfflineTray target={trayTarget} chip={!startTray} />
                           <View
                             style={{
@@ -3100,6 +3113,25 @@ function ChatPane({
             <SubchatPanel panel={subchatPanel} messages={messages} onOpenChat={openFamilyChat} />
           </View>
         </PanelTabsContext>
+        {githubImportFor === chatId && !project.link && !chatsHomeOpen && (
+          <GitHubIssueImport
+            key={`${client.url}|${project.path}|${chatId}`}
+            client={client}
+            project={project}
+            computer={computerName || "Computer"}
+            baseBranch={base || ""}
+            sessionId={params.id ? Number(params.id) : undefined}
+            options={sendOptions(model, preferences)}
+            note={draft}
+            onClose={() => setGitHubImportFor(null)}
+            onImported={(result) => {
+              setGitHubImportFor(null);
+              if (!session.isSelected()) return;
+              composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
+              adoptChat(result.sessionId);
+            }}
+          />
+        )}
       </ChatLinkProvider>
     </GenerativeUIProvider>
   );

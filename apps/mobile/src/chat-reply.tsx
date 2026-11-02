@@ -1,3 +1,5 @@
+import { isGitHubIssueContext } from "@milagre/shared/github-issue";
+import { GitHubIssueCard } from "./github-issue-card";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
@@ -346,6 +348,7 @@ export const ChatReply = memo(function ChatReply({
   const prAction = message?.role === "user" && isPullRequestAction(message.context) ? message.context : null;
   // And a Chat's first message when it was started from a Linear issue.
   const issue = message?.role === "user" && isLinearIssueContext(message.context) ? message.context : null;
+  const githubIssue = message?.role === "user" && isGitHubIssueContext(message.context) ? message.context : null;
   // What the agent concluded only in thinking, once the turn ends or stops on a question.
   const thought = !run || run.questions.length ? unspokenThought(text, allSteps) : "";
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
@@ -407,6 +410,8 @@ export const ChatReply = memo(function ChatReply({
           ))}
         {prAction ? (
           <PullRequestActionCard action={prAction} />
+        ) : githubIssue ? (
+          <GitHubIssueCard issue={githubIssue} />
         ) : issue ? (
           <LinearIssueCard issue={issue} />
         ) : feedback ? (
