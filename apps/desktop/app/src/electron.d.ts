@@ -320,9 +320,20 @@ export type MilagreBridge = {
   /** The text of a SKILL.md the catalog listed (a shadowed one included), up to 256 KiB. */
   readSkill: (projectPath: string, file: string) => Promise<string>;
   /** The words a dictated message about this folder likely holds, for the recognizer. */
-  dictationContext: (request: { cwd: string; chatTitle?: string }) => Promise<{ terms: string[] }>;
+  /** `scope` and `chatId` name the Chat dictated into: the names its last turns used join the words. */
+  dictationContext: (request: { cwd: string; chatTitle?: string; scope?: string; chatId?: number }) => Promise<{ terms: string[] }>;
   /** A dictated message with misheard names fixed by a small model of the Chat's agent; as dictated when none answers. */
-  polishDictation: (request: { cwd: string; text: string; chatTitle?: string; provider?: string }) => Promise<{ text: string; polished: boolean }>;
+  /** Claude Haiku's fix-up of a finished take's misheard names (the Chat's agent's small model when Claude can't answer). */
+  polishDictation: (request: {
+    cwd: string;
+    text: string;
+    chatTitle?: string;
+    provider?: string;
+    /** The user's pick: "auto" (the Chat's agent, `provider`, then the others) or one agent alone. */
+    model?: string;
+    scope?: string;
+    chatId?: number;
+  }) => Promise<{ text: string; polished: boolean }>;
   /** Opens a listed SKILL.md in an editor, wherever it lives (user skills are outside any checkout). */
   openSkill: (request: { projectPath: string; file: string; editor?: string }) => Promise<Result<null>>;
   /** Shows a listed SKILL.md in the file manager. */

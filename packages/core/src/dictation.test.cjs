@@ -36,3 +36,24 @@ test("no model, or none in time, leaves the text as dictated", async () => {
   const slow = () => new Promise(() => {});
   assert.deepEqual(await polishDictation({ text: "hello" }, { models: { claude: slow }, timeoutMs: 1200 }), { text: "hello", polished: false });
 });
+
+test("an explicitly chosen provider never falls back to another account", async () => {
+  const calls = [];
+  const result = await polishDictation(
+    { text: "open miracle", provider: "codex", only: true },
+    {
+      models: {
+        codex: async () => {
+          calls.push("codex");
+          throw new Error("signed out");
+        },
+        claude: async () => {
+          calls.push("claude");
+          return JSON.stringify({ text: "open Milagre" });
+        },
+      },
+    },
+  );
+  assert.deepEqual(calls, ["codex"]);
+  assert.deepEqual(result, { text: "open miracle", polished: false });
+});

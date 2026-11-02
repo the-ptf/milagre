@@ -192,6 +192,10 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
   { page: "chat", title: "Claude replies", group: "Replies", keywords: "concise normal length verbose" },
   { page: "chat", title: "Dictation", keywords: "voice speech microphone whisper" },
+  { page: "chat", title: "Shortcut", group: "Dictation", keywords: "dictate voice keyboard alt space hold" },
+  { page: "chat", title: "How the shortcut works", group: "Dictation", keywords: "hold press toggle start stop" },
+  { page: "chat", title: "Fix-up model", group: "Dictation", keywords: "correction automatic haiku codex gemini kiro" },
+  { page: "chat", title: "Fix names with AI", group: "Dictation", keywords: "post processing correction automatic model haiku codex gemini kiro" },
   { page: "chat", title: "When dictation finishes", group: "Dictation", keywords: "send insert voice" },
   {
     page: "chat",

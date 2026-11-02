@@ -137,6 +137,9 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   })),
   { page: "chat-display", title: "Reasoning", group: "Reasoning", keywords: "thinking folded expanded" },
   { page: "chat-display", title: "Tool calls", group: "Tool calls", keywords: "compact full detail" },
+  { page: "chat-display", title: "Keyboard shortcut", group: "Dictation", keywords: "dictate voice keyboard alt space ipad" },
+  { page: "chat-display", title: "Fix-up model", group: "Dictation", keywords: "correction automatic haiku codex gemini kiro" },
+  { page: "chat-display", title: "Fix names with AI", group: "Dictation", keywords: "post processing correction automatic model haiku codex gemini kiro" },
   { page: "chat-display", title: "When dictation finishes", group: "Dictation", keywords: "voice send insert mic" },
 
   // Experimental

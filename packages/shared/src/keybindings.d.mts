@@ -12,6 +12,7 @@ export type KeybindingCommandId =
   | "grid.focusNext"
   | `chat.jump.${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
   | "chat.find"
+  | "dictation.toggle"
   | "changes.toggle"
   | "terminal.toggle"
   | "terminal.new"

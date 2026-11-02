@@ -280,6 +280,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
       // Dictation is not available in a test: no microphone, no on-device transcriber.
       if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
+      if (base === "dictation-shortcut" && !(id in modules)) return { useDictationShortcut() {}, toggleDictationShortcut() {} };
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({
@@ -18307,7 +18308,7 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   assert.equal(discards, 2);
 });
 
-test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", () => {
+test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", async () => {
   const react = hookHost();
   react.useEffect = react.effect;
   let draft = "fix";
@@ -18373,7 +18374,7 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
     react.flush();
     return tree;
   };
-  const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } });
+  const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } }, null);
   // The words in the field: every run of the attributed text, with whether it is the provisional tail.
   const runs = (tree) => {
     const field = find(tree, (node) => node.type === "Field");
@@ -18477,7 +18478,56 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   blocked = false;
   render();
   assert.equal(sent.length, 1, "unblocking does not send a stale transcript");
+
+  action = "paste";
+  draft = "";
+  render();
+  let resolveCorrection;
+  const correction = {
+    model: "GPT-6 Luna",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("open miracle", { draft, selection: { start: 0, end: 0 } }, correction);
+  let fixing = render();
+  assert.equal(draft, "open miracle", "the heard words land before AI answers");
+  assert.ok(find(fixing, (node) => node.type === "Text" && node.props.children === "Fixing names · GPT-6 Luna"));
+  resolveCorrection("open Milagre");
+  await correction.text;
+  render();
+  fixing = render();
+  assert.equal(draft, "open Milagre", "the answer updates the dictated words in place");
+  assert.ok(!find(fixing, (node) => node.type === "Text" && String(node.props.children).startsWith("Fixing names")));
+
+  const late = {
+    model: "Claude Haiku",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("please", { draft, selection: { start: draft.length, end: draft.length } }, late);
+  render();
+  draft += " after my edit";
+  render();
+  const edited = draft;
+  resolveCorrection("PLEASE");
+  await late.text;
+  render();
+  assert.equal(draft, edited, "a late answer cannot overwrite an edited draft");
+  const unmounted = {
+    model: "Claude Haiku",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("more", { draft, selection: { start: draft.length, end: draft.length } }, unmounted);
+  render();
+  const left = draft;
   react.cleanup();
+  resolveCorrection("MORE");
+  await unmounted.text;
+  assert.equal(draft, left, "leaving the composer drops a late answer");
 });
 
 test("a take's error is a bubble over the mic, not a line that moves the words", () => {
@@ -19397,4 +19447,36 @@ test("MCP save without a connected computer rejects instead of closing as saved"
     "./session": { useSession: () => ({ client: null }) },
   });
   await assert.rejects(useMcp().saveUrl({ name: "docs", type: "http", url: "https://docs.example/mcp", headers: {} }, "everywhere"), /Connect to a computer/);
+});
+
+test("an iPad dictation shortcut reaches one focused composer and ignores unavailable fields", () => {
+  const react = hookHost();
+  const { useDictationShortcut, toggleDictationShortcut } = load("dictation-shortcut.ts", {
+    react,
+    "expo-router": { useFocusEffect: react.effect },
+  });
+  const calls = [];
+  let focused = "second";
+  let available = true;
+  react.begin();
+  for (const id of ["first", "second"])
+    useDictationShortcut({
+      focused: () => focused === id,
+      dictating: () => id === "first",
+      available: () => available,
+      toggle: () => calls.push(id),
+    });
+  react.flush();
+  toggleDictationShortcut();
+  assert.deepEqual(calls, ["second"]);
+  focused = "none";
+  toggleDictationShortcut();
+  assert.deepEqual(calls, ["second", "first"], "without focus, stop the recording composer");
+  available = false;
+  toggleDictationShortcut();
+  assert.equal(calls.length, 2);
+  react.cleanup();
+  available = true;
+  toggleDictationShortcut();
+  assert.equal(calls.length, 2, "a route that lost focus no longer receives shortcuts");
 });

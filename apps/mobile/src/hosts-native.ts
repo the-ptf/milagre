@@ -7,7 +7,7 @@ import {
   type CompactButtonDisplay,
   type ToolCallDisplay,
 } from "@milagre/shared/chat-display";
-import { dictationLanguage, whisperModelFor } from "@milagre/shared/dictation";
+import { dictationLanguage, whisperModelFor, dictationFixModel, type DictationFixModel } from "@milagre/shared/dictation";
 import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
@@ -206,6 +206,38 @@ export async function readPanelWidth(): Promise<number | null> {
 export async function savePanelWidth(width: number) {
   try {
     await SecureStore.setItemAsync(panelWidthKey, String(Math.round(width)));
+  } catch {
+    /* best effort */
+  }
+}
+const dictationFixUpKey = "milagre.dictation-fix-up.v1";
+const dictationFixModelKey = "milagre.dictation-fix-model.v1";
+/** Settings › Chat › Dictation: whether the Mac's fix-up corrects a finished take's names, on unless turned off. */
+export async function readDictationFixUp(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(dictationFixUpKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveDictationFixUp(on: boolean) {
+  try {
+    await SecureStore.setItemAsync(dictationFixUpKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
+/** Settings › Chat › Dictation: the fix-up's model, "auto" for the Chat's own agent's smallest one. */
+export async function readDictationFixModel(): Promise<DictationFixModel> {
+  try {
+    return dictationFixModel(await SecureStore.getItemAsync(dictationFixModelKey));
+  } catch {
+    return "auto";
+  }
+}
+export async function saveDictationFixModel(model: DictationFixModel) {
+  try {
+    await SecureStore.setItemAsync(dictationFixModelKey, model);
   } catch {
     /* best effort */
   }

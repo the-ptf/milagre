@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import captureWorklet from "../lib/dictation-worklet.js?url&no-inline";
-import { whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
+import { VOCABULARY_WAIT_MS, fixUpModelName, snapTerms, whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   ERRORS,
@@ -23,6 +23,9 @@ import { useDictationModels } from "./useDictationModels";
 
 export type DictationAnchor = { selection: Selection };
 
+/** A finished take's fix-up: the model's short name for the status line, and its answer, which never rejects. */
+export type DictationCorrection = { model: string; text: Promise<string> };
+
 /** The transcript so far and how much of it has stopped changing. `settled` marks stability, not correctness. */
 export type DictationPartial = { text: string; settled: number };
 
@@ -35,6 +38,8 @@ type Take = {
   audio: AudioContext;
   processor: AudioWorkletNode;
   transcript: StreamingDictation;
+  /** The fix-up of the take's final words, or null when Settings turns it off. */
+  fixUp: ((text: string) => DictationCorrection) | null;
   finishCapture: () => Promise<void>;
   limit: ReturnType<typeof setTimeout> | null;
 };
@@ -47,9 +52,18 @@ function closeAudio(audio: AudioContext) {
  * Local PCM capture and partial inference while speaking. Only the final transcript edits or sends the draft. A take whose
  * model isn't on this computer yet downloads it first (`downloading`, with `download` progress) and records once it lands.
  */
-export function useDictation(cwd: string, scope: string, onTranscript: (text: string, anchor: DictationAnchor) => void) {
+export function useDictation(
+  cwd: string,
+  scope: string,
+  /** The final transcript, and its fix-up when Settings has it on. */
+  onTranscript: (text: string, anchor: DictationAnchor, correction: DictationCorrection | null) => void,
+  /** The Chat dictated into (its Project scope and id): the names its last turns used guide the recognizer. */
+  chat: { scope?: string; chatId?: number; provider?: string } = {},
+) {
   const bridge = useBridge();
-  const { dictationLanguage, dictationModel } = useSettings();
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
+  const { dictationLanguage, dictationModel, dictationFixUp, dictationFixModel } = useSettings();
   const model = whisperModelFor("desktop", dictationModel);
   const models = useDictationModels();
   const [state, setState] = useState<Dictation>(IDLE);
@@ -119,7 +133,7 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
       setPartial(NO_PARTIAL);
       if (!text) return move({ type: "fail", error: ERRORS["no-speech"] });
       move({ type: "done" });
-      deliver.current(text, current.anchor);
+      deliver.current(text, current.anchor, current.fixUp?.(text) ?? null);
     } catch (error) {
       if (live()) fail({ kind: "failed", message: ipcErrorMessage(error) || ERRORS.failed.message });
     }
@@ -153,12 +167,14 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
         if (!live()) return void stream.getTracks().forEach((track) => track.stop());
         let vocabulary: string[] = [];
-        void bridge
-          .dictationContext({ cwd })
+        const terms = bridge
+          .dictationContext({ cwd, scope: chatRef.current.scope || undefined, chatId: chatRef.current.chatId })
           .then((context) => {
             vocabulary = context.terms;
           })
-          .catch(() => []);
+          .catch(() => {});
+        // The first inference waits briefly for the project's words; a slow or offline computer doesn't hold it up.
+        const vocabularyReady = Promise.race([terms, new Promise((resolve) => setTimeout(resolve, VOCABULARY_WAIT_MS))]);
         // Load the model during capture, rather than after Stop.
         const prepared = window.milagre.dictation.prepare(model.id);
         prepared.catch(() => {});
@@ -180,7 +196,7 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
         const resample = createDictationResampler();
         const transcript = createStreamingDictation({
           transcribe: async (pcm) => {
-            await prepared;
+            await Promise.all([prepared, vocabularyReady]);
             if (!live()) return "";
             const result = await window.milagre.dictation.transcribe({
               audio: pcm,
@@ -188,7 +204,7 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
               prompt: whisperPrompt(vocabulary, language),
               model: model.id,
             });
-            return result.text;
+            return snapTerms(result.text, vocabulary);
           },
           onPartial: (text, settled) => {
             if (live()) setPartial({ text, settled });
@@ -207,6 +223,27 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
           audio,
           processor,
           transcript,
+          // A computer without the fix-up (an older paired Mac) leaves the words as heard.
+          fixUp: dictationFixUp
+            ? (text) => ({
+                model: fixUpModelName(dictationFixModel, chatRef.current.provider),
+                text: Promise.resolve()
+                  .then(() =>
+                    bridge.polishDictation({
+                      cwd,
+                      text,
+                      provider: chatRef.current.provider,
+                      model: dictationFixModel,
+                      scope: chatRef.current.scope || undefined,
+                      chatId: chatRef.current.chatId,
+                    }),
+                  )
+                  .then(
+                    (result) => snapTerms(result?.text || text, vocabulary),
+                    () => text,
+                  ),
+              })
+            : null,
           limit: null,
           finishCapture: () =>
             new Promise<void>((resolve, reject) => {
@@ -243,7 +280,7 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
         if (live()) fail(error instanceof DOMException && error.name === "NotAllowedError" ? ERRORS.permission : ERRORS.failed);
       }
     },
-    [bridge, cwd, dictationLanguage, fail, model, move, stop],
+    [bridge, cwd, dictationFixModel, dictationFixUp, dictationLanguage, fail, model, move, stop],
   );
 
   useEffect(

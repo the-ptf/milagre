@@ -12,8 +12,8 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useDictation } from '/src/components/useDictation';
 import { updateSettings } from '/src/lib/settings';
-window.calls = []; window.delivered = []; window.hold = false;
-window.requests = []; window.setDictationLanguage = language => updateSettings({dictationLanguage:language});
+window.calls = []; window.delivered = []; window.corrections = []; window.polishRequests = []; window.hold = false;
+window.requests = []; window.setDictationLanguage = language => updateSettings({dictationLanguage:language}); window.updateSettings = updateSettings;
 window.holdMic = false; window.pendingStreams = []; window.draft = 'original draft';
 window.modelMissing = false; window.downloads = []; window.cancelled = [];
 const context = new AudioContext({sampleRate:48000,sinkId:{type:'none'}});
@@ -44,6 +44,8 @@ navigator.mediaDevices.getUserMedia = async () => {
 window.milagre = {
   // A slow/offline computer must not hold up local recognition.
   dictationContext: () => new Promise(() => {}),
+  // The Mac's fix-up of the finished words, as Claude Haiku answers it.
+  polishDictation: async (request) => { window.polishRequests.push(request); return {text: request.text.replace('Corrija', 'Corrige'), polished: true}; },
   dictation: {
     status: async () => [{id:'large-v3-turbo', ready: !window.modelMissing, size: 574041195, received: null}],
     download: (id) => new Promise((resolve, reject) => {
@@ -64,7 +66,7 @@ window.milagre = {
 };
 function Fixture() {
   const [scope,setScope] = useState('first');
-  const dictation = useDictation('/fixture', scope, (text) => { window.delivered.push(text); window.draft += text; });
+  const dictation = useDictation('/fixture', scope, (text, _anchor, correction) => { window.delivered.push(text); window.draft += text; if (correction) void correction.text.then(fixed => window.corrections.push(fixed)); }, {scope: '/fixture', chatId: 7});
   useEffect(() => { window.dictation = dictation; window.changeScope = setScope; });
   return <div>
     <p id="phase">{dictation.phase}</p><p id="partial">{dictation.partial.text}</p><p id="settled">{dictation.partial.settled}</p><p id="error">{dictation.error?.message}</p>
@@ -121,7 +123,17 @@ async function checks() {
     await until("window.dictation.partial.text === '' && window.dictation.phase === 'idle'");
     assert.deepEqual(await evaluate("({...window.dictation.partial})"), { text: "", settled: 0 });
     assert.equal(await evaluate("window.dictation.phase"), "idle");
-    assert.equal(await evaluate("window.delivered[0]"), "Corrija o Milagre.");
+    assert.equal(await evaluate("window.delivered[0]"), "Corrija o Milagre.", "the words land before the fix-up answers");
+    await until("window.corrections.length === 1");
+    assert.equal(await evaluate("window.corrections[0]"), "Corrige o Milagre.", "the fix-up's correction follows the delivery");
+    assert.deepEqual(await evaluate("window.polishRequests[0]"), {
+      cwd: "/fixture",
+      text: "Corrija o Milagre.",
+      provider: undefined,
+      model: "auto",
+      scope: "/fixture",
+      chatId: 7,
+    });
     await evaluate(
       "window.holdMic = true; window.resolveMic = null; window.draftBeforePending = window.draft; window.callsBeforePending = window.calls.length; window.streamCountBeforePending = window.pendingStreams.length; void window.dictation.start({selection:{start:0,end:0}})",
     );
@@ -192,6 +204,29 @@ async function checks() {
     await until("window.dictation.phase === 'recording' && window.dictation.partial.text === 'Corrija o Milagre.'");
     await evaluate("void window.dictation.stop()");
     await until(`window.delivered.length === ${deliveredBefore + 1}`);
+    await until("window.dictation.phase === 'idle'");
+    await evaluate(
+      "window.baselinePolish = window.polishRequests.length; window.baselineCorrections = window.corrections.length; window.baselineDelivered = window.delivered.length",
+    );
+    // The selected model travels with the take, and disabling correction skips the Mac entirely.
+    await evaluate("window.updateSettings({dictationFixModel:'codex'});");
+    await delay(50);
+    await evaluate("void window.dictation.start({selection:{start:0,end:0}})");
+    await until("window.dictation.phase === 'recording'");
+    await delay(120);
+    await evaluate("void window.dictation.stop()");
+    await until("window.polishRequests.length === baselinePolish + 1 && window.corrections.length === baselineCorrections + 1");
+    assert.equal(await evaluate("window.polishRequests.at(-1).model"), "codex");
+    await evaluate("window.updateSettings({dictationFixUp:false})");
+    await delay(50);
+    await evaluate("void window.dictation.start({selection:{start:0,end:0}})");
+    await until("window.dictation.phase === 'recording'");
+    await delay(120);
+    await evaluate("void window.dictation.stop()");
+    await until("window.delivered.length === baselineDelivered + 2");
+    assert.equal(await evaluate("window.polishRequests.length"), await evaluate("baselinePolish + 1"), "correction off makes no model request");
+    await evaluate("window.updateSettings({dictationFixUp:true,dictationFixModel:'auto'})");
+    await delay(50);
     assert.deepEqual(errors, []);
     console.log(
       `PASS: ${production ? "production file fixture under renderer CSP" : "dev-server fixture"}, synthetic PCM, real audio worklet, live preview, final delivery, pending-start cancellation, download before recording`,
