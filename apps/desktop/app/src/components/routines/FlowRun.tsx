@@ -368,7 +368,7 @@ function ApprovalCard({ name, step, state, act }: { name: string; step: FlowStep
         </div>
       )}
       <p className="text-12 text-ink-3">
-        Rejecting ends {name}. No answer by {clock(approval.expiresAt)} ends it too.
+        Rejecting ends {name}. No answer by {clock(approval.expiresAt, undefined, true)} ends it too.
       </p>
     </div>
   );
