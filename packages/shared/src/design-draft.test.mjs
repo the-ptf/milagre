@@ -155,3 +155,14 @@ test("designChanges and designReplay play a change back in reading order, ending
   assert.equal(grouped.flatMap((step) => step.changed).length, 40);
   assert.deepEqual(designReplay(after, after), []);
 });
+
+test("a design_show draft with from applies its operations to the copied base", () => {
+  const base = { schemaVersion: 1, width: 390, height: 844, nodes: [node("a"), node("b")] };
+  const draft = createDesignDraft("design_show");
+  const input = json({ id: "alt", title: "Alt", from: { id: "home" }, operations: [{ op: "update", id: "a", patch: { fill: "#ff0000" } }] });
+  assert.equal(draft.read(input, null).document, null);
+  const shown = draft.read(input, base);
+  assert.equal(shown.designId, "alt");
+  assert.equal(shown.document.nodes.find((item) => item.id === "a").fill, "#ff0000");
+  assert.deepEqual(shown.changed, ["a"]);
+});

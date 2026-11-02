@@ -177,7 +177,7 @@ function validStart(document) {
 
 /**
  * Follows one design tool call while its input streams in (`tool` is design_show or design_apply). `read(input, base)`
- * takes the input so far and, for design_apply or a design_show of an existing design, the document it starts from;
+ * takes the input so far and, for design_apply or a design_show of a variant (`from`), the document it starts from;
  * it returns what to show, reusing its work on the layers it already read.
  */
 export function createDesignDraft(tool) {
@@ -208,7 +208,8 @@ export function createDesignDraft(tool) {
         group: typeof value?.group === "string" ? value.group : null,
       };
       if (!isObject(value)) return snapshot(fields, last?.document ?? null);
-      if (tool === "design_apply") {
+      // A design_show with `from` is a variant: the operations applied to a copy of that design, as design_apply does.
+      if (tool === "design_apply" || isObject(value.from)) {
         if (!base) return snapshot(fields, null);
         // The base is what the frame shows already: only what the operations change counts as changed, so the
         // design doesn't build again from nothing when the base arrives.

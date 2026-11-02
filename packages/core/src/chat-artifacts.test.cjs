@@ -983,3 +983,32 @@ test("fontless designs, non-generated heads and HTML artifacts stay self-contain
   assert.equal(read.html, html);
   assert.equal(read.fontKey, undefined);
 });
+
+test("design_show from copies a saved design, applies only the differing operations and keeps its group", async (t) => {
+  const { api, tools } = await fixture(t);
+  await api.showDesign({ chatId: CHAT, id: "home", title: "Home", group: "Start", document: designDocument() });
+  await api.apply({ chatId: CHAT, id: "home", expectedVersion: 1, operations: [{ op: "update", id: "heading", patch: { text: "Hello" } }] });
+  const variant = firstLine(
+    await tools.design_show.run({
+      id: "home-dark",
+      title: "Home, dark",
+      from: { id: "home" },
+      operations: [{ op: "document", patch: { background: "#101010" } }],
+    }),
+  );
+  assert.equal(variant.id, "home-dark");
+  assert.equal(variant.version, 1);
+  assert.equal(variant.group, "Start");
+  const saved = await api.get({ chatId: CHAT, id: "home-dark", format: "design" });
+  assert.equal(saved.document.background, "#101010");
+  // The latest version of the source, unless the call names one.
+  assert.equal(saved.document.nodes.find((node) => node.id === "heading").text, "Hello");
+  await tools.design_show.run({ id: "home-v1", title: "Home v1", from: { id: "home", version: 1 } });
+  assert.equal((await api.get({ chatId: CHAT, id: "home-v1", format: "design" })).document.nodes.find((node) => node.id === "heading").text, "Welcome");
+  // The source is untouched.
+  assert.equal((await api.get({ chatId: CHAT, id: "home", format: "design" })).document.background, "#f5f4ef");
+  await assert.rejects(tools.design_show.run({ title: "Both", document: designDocument(), from: { id: "home" } }), /document OR from/);
+  await assert.rejects(tools.design_show.run({ title: "Neither" }), /document OR from/);
+  await assert.rejects(tools.design_show.run({ title: "Gone", from: { id: "missing" } }), /no longer available/);
+  await assert.rejects(api.showDesign({ chatId: CHAT, title: "Ops", document: designDocument(), operations: [] }), /operations go with from/);
+});
