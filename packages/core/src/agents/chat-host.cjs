@@ -170,6 +170,7 @@ class ChatHost {
   constructor({
     states,
     startTurn,
+    interrupt = async () => {},
     publish,
     broadcast,
     isFocused = () => true,
@@ -188,6 +189,7 @@ class ChatHost {
     Object.assign(this, {
       states,
       startTurn,
+      interrupt,
       publish,
       broadcast,
       isFocused,
@@ -585,10 +587,10 @@ class ChatHost {
    * save that adds it to the chat, so it runs once. Resolves false when it is gone or another turn took the chat first:
    * then it stays queued, and the end of that turn moves the queue on.
    */
-  async startQueued(chatId, id, token) {
+  async startQueued(chatId, id, token, steer = false) {
     const projectPath = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
-    if (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId)) return false;
+    if (!steer && (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId))) return false;
     const entry = (await this.states.get(projectPath)).sessions[sessionId]?.queued?.find((item) => item.id === id);
     if (!entry) return false;
     const { body, images, files = [], context, turn, prompt, clientMessageId, operationId } = entry;
@@ -608,6 +610,7 @@ class ChatHost {
         ...(clientMessageId ? { clientMessageId } : {}),
         ...(operationId ? { operationId } : {}),
         fromQueue: id,
+        steerQueued: steer,
         ...(token ? { canStart: token.valid, queueReleaseToken: true, queueReleaseEntry: entry } : {}),
       });
     } catch (error) {
@@ -627,18 +630,37 @@ class ChatHost {
   }
 
   /**
-   * Send now on a queued message. With no turn running it starts at once, and the rest of the queue follows it. While a
-   * turn runs, it is marked to start next and `{ interrupt: true }` asks the caller to stop that turn (see afterTurn).
+   * Send now steers the running turn when supported, or starts immediately when idle. Otherwise it is marked
+   * to start next and `{ interrupt: true }` asks the caller to stop the current turn (see afterTurn).
    */
-  async sendQueuedNow(chatId, id) {
-    const session = (await this.states.get(projectOfKey(chatId))).sessions[sessionIdFromKey(chatId)];
-    if (!session?.queued?.some((item) => item.id === id)) throw new Error("That queued message was already sent or removed.");
+  async sendQueuedNow(chatId, id, { ifPresent = false } = {}) {
+    const state = await this.states.get(projectOfKey(chatId));
+    const session = state.sessions[sessionIdFromKey(chatId)];
+    if (!session?.queued?.some((item) => item.id === id)) {
+      // A direct Send now may have drained naturally while its durable save was finishing.
+      if (ifPresent) return { interrupt: false };
+      throw new Error("That queued message was already sent or removed.");
+    }
+    const entry = session.queued.find((item) => item.id === id);
+    if (entry.context?.kind !== "compaction" && this.canSteerQueued(chatId, session, state)) {
+      if (await this.startQueued(chatId, id, undefined, true)) return { interrupt: false };
+    }
     if (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId)) {
       this.sendNext.set(chatId, id);
       return { interrupt: true };
     }
     await this.startQueued(chatId, id);
     return { interrupt: false };
+  }
+
+  canSteerQueued(chatId, session, state) {
+    return Boolean(
+      this.runs[chatId] &&
+      !this.preparing.has(chatId) &&
+      !this.startingTurns.has(chatId) &&
+      providerCapabilities(session.provider).steer &&
+      state.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind !== "compaction",
+    );
   }
 
   /** Takes a message out of the chat's queue without sending it. Resolves false when it was already gone. */
@@ -909,6 +931,7 @@ class ChatHost {
   }
 
   async sendMessage(request) {
+    if (request.delivery !== undefined && !["queue", "now"].includes(request.delivery)) throw new Error("Invalid message delivery.");
     await this.beforeSend(request);
     if (request.canStart && !request.canStart()) throw new Error("Advisor delivery is deferred.");
     const { projectPath, body, images = [], files = [], model } = request;
@@ -1026,10 +1049,14 @@ class ChatHost {
         waitFor = this.preparing.get(chatId) ?? null;
         const beforeQueue = session;
         if (request.fromQueue !== undefined) {
-          // A queued message starts only once, and only into an idle chat; otherwise it stays queued. Sending one
+          // A queued message starts only once, into an idle chat or an explicitly steered turn. Sending one
           // releases a held queue: the rest follow it.
           if (!session.queued?.some((item) => item.id === request.fromQueue)) throw new Error("That queued message was already sent or removed.");
-          if (this.runs[chatId] || waitFor || this.startingTurns.has(chatId)) throw Object.assign(new Error("The chat is busy."), { queueBusy: true });
+          if (
+            (this.runs[chatId] || waitFor || this.startingTurns.has(chatId)) &&
+            !(request.steerQueued && !compaction && this.canSteerQueued(chatId, session, latest))
+          )
+            throw Object.assign(new Error("The chat is busy."), { queueBusy: true });
           const { queueHeld: _held, ...rest } = withoutQueued(session, request.fromQueue);
           session = rest;
         }
@@ -1039,7 +1066,11 @@ class ChatHost {
         const compacting =
           (this.runs[chatId] || this.startingTurns.has(chatId)) &&
           latest.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind === "compaction";
-        if (runningProvider && request.fromQueue === undefined && (compaction || compacting || !providerCapabilities(runningProvider).steer)) {
+        if (
+          runningProvider &&
+          request.fromQueue === undefined &&
+          (request.delivery === "queue" || compaction || compacting || !providerCapabilities(runningProvider).steer)
+        ) {
           queuedEntry = {
             id: randomUUID(),
             body,
@@ -1151,7 +1182,15 @@ class ChatHost {
       throw error;
     });
     if (duplicate) return duplicateSend(duplicate);
-    if (queuedEntry) return this.queueSaved(projectPath, target, queuedEntry);
+    if (queuedEntry) {
+      const saved = await this.queueSaved(projectPath, target, queuedEntry);
+      // Persist first: a failed save must never stop the work already running.
+      if (request.delivery === "now" && !compaction) {
+        const { interrupt } = await this.sendQueuedNow(target.chatId, queuedEntry.id, { ifPresent: true });
+        if (interrupt) await this.interrupt(target.chatId);
+      }
+      return saved;
+    }
     try {
       await this.states.flush(projectPath);
       // A /compact changes no files, so it takes no checkpoint.

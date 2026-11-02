@@ -1,3 +1,4 @@
+import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../lib/outbox";
 import { OfflineTray, useOfflineTray } from "./OfflineTray";
 import { useDisplayNow } from "../lib/display-clock";
@@ -433,7 +434,7 @@ export function LinkWorkspace({
       .catch(() => {});
   }, [owner, chatId, state.sessions]);
   // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
-  async function send(body = draftStore.get().trim(), preserve = false, attach = true) {
+  async function send(body = draftStore.get().trim(), preserve = false, attach = true, delivery?: MessageDelivery) {
     const images = attach ? imageDraft.images : [];
     const files = attach ? imageDraft.files : [];
     if (preparing || sendsInFlight.current.has(sendKey) || imageDraft.loading || (!body && !images.length && !files.length)) return false;
@@ -456,6 +457,7 @@ export function LinkWorkspace({
           link: { linkId: opened.link.id, operationId: operation },
           request: {
             projectPath: owner,
+            delivery,
             sessionId,
             worktreeId: 0,
             body,
@@ -509,6 +511,7 @@ export function LinkWorkspace({
     try {
       const uploadedFiles = await prepareLocalFileUploads(owner, files, images, imageDraft.localFiles);
       const request = {
+        delivery,
         linkId: opened.link.id,
         sessionId,
         operationId: operation,
@@ -787,7 +790,7 @@ export function LinkWorkspace({
                         loadError={lean ? chatWindow.error : undefined}
                         onRetryLoad={() => void chatWindow.retry()}
                         imageDraft={imageDraft}
-                        onSend={() => void send()}
+                        onSend={(delivery) => void send(draftStore.get().trim(), false, true, delivery)}
                         onSendDesignMessage={(text) => send(text, true, false)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}

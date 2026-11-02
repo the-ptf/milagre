@@ -6,13 +6,14 @@ import { useTheme } from "./theme";
 import { IconButton, tap, useStyles } from "./ui";
 
 /**
- * Messages waiting for the running turn of an agent that can't be steered, above the composer like desktop's: oldest
+ * Messages waiting for the running turn to finish, above the composer like desktop's: oldest
  * first, each with Send now (Stop and send while a turn runs) and Remove. The line above says when they go.
  */
 export function QueuedMessages({
   items,
   held,
   running,
+  canSteer = false,
   disabled,
   onSendNow,
   onRemove,
@@ -20,6 +21,7 @@ export function QueuedMessages({
   items: QueuedMessage[];
   held: boolean;
   running: boolean;
+  canSteer?: boolean;
   disabled: boolean;
   onSendNow: (id: string) => void;
   onRemove: (id: string) => void;
@@ -52,7 +54,7 @@ export function QueuedMessages({
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={running ? "Stop and send" : "Send now"}
+            accessibilityLabel={running && !canSteer ? "Stop and send" : "Send now"}
             accessibilityState={{ disabled }}
             disabled={disabled}
             hitSlop={6}
@@ -62,7 +64,7 @@ export function QueuedMessages({
             }}
             style={({ pressed }) => ({ paddingHorizontal: 8, paddingVertical: 6, opacity: disabled ? 0.4 : pressed ? 0.6 : 1 })}
           >
-            <Text style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>{running ? "Stop and send" : "Send now"}</Text>
+            <Text style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>{running && !canSteer ? "Stop and send" : "Send now"}</Text>
           </Pressable>
           <IconButton label="Remove from queue" icon={Cancel01Icon} size={32} disabled={disabled} onPress={() => onRemove(item.id)} />
         </View>

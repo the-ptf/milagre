@@ -147,7 +147,7 @@ async function browserChecks() {
   // The surface overlays the transcript: opening it never moves the composer row's other controls.
   const rowControls = () =>
     evaluate(
-      `["[data-slot=subagent-track] [data-face=pill] button","button[aria-label=Send]"].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.left,r.top,r.width,r.height]})`,
+      `["[data-slot=subagent-track] [data-face=pill] button","[data-composer-submit]"].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.left,r.top,r.width,r.height]})`,
     );
   const assertRowStill = (before, after, when) =>
     assert.ok(
@@ -216,7 +216,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector("${ring}").getAttribute("aria-label")`), "Context: 37% used (366k of 1M tokens)");
     assert.ok(
       await evaluate(
-        `(() => {const r=document.querySelector("${ring}").getBoundingClientRect(), s=document.querySelector("button[aria-label=Send]").getBoundingClientRect();return r.right<=s.left && Math.abs(r.top-s.top)<1})()`,
+        `(() => {const r=document.querySelector("${ring}").getBoundingClientRect(), s=document.querySelector("[data-composer-submit]").getBoundingClientRect();return r.right<=s.left && Math.abs(r.top-s.top)<1})()`,
       ),
     );
     assert.equal(await evaluate('!!document.querySelector("[data-compact-context]")'), false, "threshold action is hidden at 37%");
@@ -390,7 +390,7 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-compact-context]")');
     assert.ok(
       await evaluate(
-        '(() => { const b = document.querySelector("[data-compact-context]").getBoundingClientRect(), s = document.querySelector("button[aria-label=Send]").getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth && s.right <= innerWidth; })()',
+        '(() => { const b = document.querySelector("[data-compact-context]").getBoundingClientRect(), s = document.querySelector("[data-composer-submit]").getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth && s.right <= innerWidth; })()',
       ),
       "Compact and Send stay inside a narrow Chat with context size visible",
     );
@@ -436,13 +436,13 @@ async function browserChecks() {
     await evaluate('document.getElementById("root").style.width = "390px"');
     await delay(200);
     assert.ok(
-      await evaluate('document.querySelector("button[aria-label=Send]").getBoundingClientRect().right <= 390'),
+      await evaluate('document.querySelector("[data-composer-submit]").getBoundingClientRect().right <= 390'),
       "a narrow pane also fits inside a wide window",
     );
     await evaluate('window.setDraft("A multiline draft\\nkeeps the controls visible")');
     await delay(200);
     assert.ok(
-      await evaluate('document.querySelector("button[aria-label=Send]").getBoundingClientRect().right <= 390'),
+      await evaluate('document.querySelector("[data-composer-submit]").getBoundingClientRect().right <= 390'),
       "expanded narrow panes keep Send visible",
     );
     await evaluate('document.getElementById("root").style.width = ""; window.setDraft("")');

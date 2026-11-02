@@ -1487,6 +1487,7 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
+    interrupt: (chatId) => stopChat(chatId),
     ...(options.limitResume?.now ? { now: options.limitResume.now } : {}),
     contextSettings: () => contextSettings.read(),
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
@@ -2308,8 +2309,8 @@ function createRuntime(options) {
     await stopChat(chatId);
   });
 
-  // A message queued behind a turn its provider can't steer (chat-host.cjs): Send now starts it; while a turn runs it
-  // is Stop and send, so that turn stops as Stop stops it; Remove drops it unsent.
+  // Send now promotes a queued message into the running turn when supported. Otherwise Stop and send
+  // stops that turn as Stop does; Remove drops the message unsent.
   commands.handle("chat:queue-send", async (_event, chatId, id) => {
     await existingChat("sending a queued message")(chatId);
     if (typeof id !== "string") throw new Error("That queued message isn't valid.");

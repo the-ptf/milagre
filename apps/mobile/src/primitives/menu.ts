@@ -20,6 +20,8 @@ export type NativeMenuTrigger = {
   systemImage: string;
   disabled?: boolean;
   maxWidth?: number;
+  minHeight?: number;
+  fontSize?: number;
   showIcon?: boolean;
   iconSize?: number;
   menuTint?: ColorValue;

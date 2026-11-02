@@ -217,7 +217,7 @@ export interface AgentSession {
    */
   parent?: number;
   /**
-   * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
+   * Messages waiting for a later turn, by explicit choice or because the provider can't steer, oldest first. Each
    * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
    */
   queued?: QueuedMessage[];
@@ -1211,6 +1211,8 @@ export interface LimitResume {
 /** A message for a chat. The main process saves it, then starts or steers the chat's turn. */
 export interface ChatSendRequest {
   projectPath: string;
+  /** While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior. */
+  delivery?: "queue" | "now";
   clientMessageId?: string;
   /** The chat to send to, or null for a new chat in the worktree. */
   sessionId: number | null;

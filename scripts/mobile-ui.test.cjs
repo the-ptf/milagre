@@ -3154,6 +3154,7 @@ function chatHost({
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     "@milagre/shared/provider-capabilities": require("@milagre/shared/provider-capabilities"),
+    "@milagre/shared/queued-messages": require("@milagre/shared/queued-messages"),
     "../message-navigation": { MessageNavigation: "MessageNavigation" },
     "../queued-messages": { QueuedMessages: "QueuedMessages" },
     "../prompt-field": { PromptField: "PromptField" },
@@ -8974,6 +8975,31 @@ function ongoingChatHost(options = {}) {
   ];
   screen.session.drafts["/p#7"] = "Follow-up message";
   return screen;
+}
+
+for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+  for (const delivery of ["queue", "now"]) {
+    test(`mobile ${provider} sends the chosen ${delivery} delivery`, async () => {
+      const screen = ongoingChatHost();
+      screen.session.snapshot.project.state.sessions[7].provider = provider;
+      screen.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
+      const picker = find(screen.render(), (node) => node.props?.label === "Follow-up delivery");
+      assert.equal(picker.props.nativeTrigger.title, "After this turn");
+      assert.deepEqual(
+        Array.from(picker.props.sections[0].items, (item) => item.id),
+        ["queue", "now"],
+      );
+      picker.props.onSelect(delivery);
+      const immediate = ["claude", "codex"].includes(provider) ? "Send now" : "Stop and send";
+      const send = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === (delivery === "queue" ? "Queue message" : immediate));
+      assert.ok(send);
+      void send.props.onPress();
+      await settle();
+      assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].delivery, delivery);
+      screen.sending.resolve({ sessionId: 7 });
+      await settle();
+    });
+  }
 }
 
 function transcriptMessages(screen) {
