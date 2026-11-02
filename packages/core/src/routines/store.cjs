@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const util = require("node:util");
 const { normalizeBabysitSettings } = require("@milagre/shared/babysit");
+const { checkDraftSteps, checkFlowSteps } = require("@milagre/shared/routine-flows");
 const { everyToCron, nextRun } = require("./cron.cjs");
 
 const DEFAULT_EXPIRY_MS = 7 * 864e5;
@@ -26,10 +27,13 @@ const UPDATABLE = new Set([
   "trigger",
   "target",
   "signingHeader",
+  // A flow's draft (steps, or null to drop it) and `publishFlow: true`, which makes the draft the steps new Runs use.
+  "flowDraft",
+  "publishFlow",
 ]);
 // These end a run's life in a count: skipped-busy and missed runs never ran, so they are not counted.
-const FINISH_STATUSES = new Set(["acted", "quiet", "failed", "skipped-busy"]);
-const COUNTED = new Set(["acted", "quiet", "failed"]);
+const FINISH_STATUSES = new Set(["acted", "quiet", "failed", "skipped-busy", "ended"]);
+const COUNTED = new Set(["acted", "quiet", "failed", "ended"]);
 // A heartbeat that keeps failing (no agent CLI, a Chat that can't take turns) ends itself rather than fail forever;
 // a trigger is paused instead, so its owner can fix what fails and switch it back on.
 const MAX_FAILED_IN_A_ROW = 3;
@@ -59,7 +63,7 @@ const SKIPPED_KEPT = 50;
 // Events refused for a bad signature: the newest ones kept as Runs (how many there were is counted apart), so a flood of
 // them neither pushes real Runs out nor fills the seen ledger.
 const REJECTED_KEPT = 50;
-const RUN_STATUSES = new Set(["running", "acted", "quiet", "failed", "skipped-busy", "missed"]);
+const RUN_STATUSES = new Set(["running", "acted", "quiet", "failed", "skipped-busy", "missed", "ended"]);
 // A completed Routine stays this long after it ended, then goes with everything it kept.
 const PURGE_AFTER_MS = 30 * 864e5;
 const MAINTAIN_EVERY_MS = 3600_000;
@@ -216,8 +220,10 @@ function finish(state, routine, run, status, extra, at, countsToFailures = true)
   if (extra.title !== undefined) run.title = extra.title;
   if (extra.error !== undefined) run.error = extra.error;
   if (extra.chatId !== undefined) run.chatId = extra.chatId;
-  routine.lastRunAt = run.startedAt;
   routine.updatedAt = at;
+  // A Test run is the owner trying the draft: it neither counts nor moves the failure streak.
+  if (run.flow?.dryRun) return;
+  routine.lastRunAt = run.startedAt;
   if (COUNTED.has(status)) routine.runCount += 1;
   // How many counted Runs in a row failed: skipped-busy and missed ones neither break nor extend it.
   if (status === "failed") {
@@ -301,6 +307,7 @@ function validRoutine(routine) {
   if (typeof routine.enabled !== "boolean" || !validTrigger(routine.trigger) || !validTarget(routine.target)) return false;
   if (![routine.createdAt, routine.updatedAt, routine.runCount].every(finite)) return false;
   if (routine.nextRunAt != null && !finite(routine.nextRunAt)) return false;
+  if (routine.flow !== undefined && !(isObject(routine.flow) && Array.isArray(routine.flow.steps) && finite(routine.flow.revision))) return false;
   return ["maxRuns", "expiresAt", "completedAt", "lastRunAt", "failedStreak"].every((key) => routine[key] === undefined || finite(routine[key]));
 }
 
@@ -445,6 +452,13 @@ function chatRuns(state) {
  * that had a Chat and are no longer in the store (trimmed, deleted with their Routine, or purged, on load too), once per
  * write or load, after it, so the Chats they left can be tidied. A Run without a Chat is never reported.
  */
+// A flow as created: published at revision 1, or (`publish: false`) a draft at revision 0 that runs nothing yet.
+function newFlow(value, triggerKind, at) {
+  if (!isObject(value)) throw new Error("A flow needs its steps");
+  if (value.publish === false) return { revision: 0, steps: [], publishedAt: 0, draft: { steps: checkDraftSteps(value.steps ?? []), updatedAt: at } };
+  return { revision: 1, steps: checkFlowSteps(value.steps, triggerKind), publishedAt: at };
+}
+
 function createRoutineStore({
   file,
   now = Date.now,
@@ -750,12 +764,19 @@ function createRoutineStore({
       throw new Error("Only schedule triggers can target an existing Chat");
     }
     const name = checkText(input.name, "name", NAME_MAX);
-    const prompt = checkText(input.prompt, "prompt", PROMPT_MAX);
+    const isFlow = input.flow != null;
+    // A flow's steps carry their own prompts; its `prompt` is only a note.
+    const prompt = isFlow ? (typeof input.prompt === "string" ? input.prompt.slice(0, PROMPT_MAX) : "") : checkText(input.prompt, "prompt", PROMPT_MAX);
     const trigger = checkTrigger(input.trigger);
     const target = checkTarget(input.target);
+    if (isFlow && (target.kind !== "new-chat" || trigger.kind === "pull-request"))
+      throw new Error("A flow starts a Chat of its own: give it a new-chat target");
     if (trigger.kind === "pull-request" && target.kind !== "chat") throw new Error("A pull-request trigger must target an existing Chat");
     const createdBy = checkCreatedBy(input.createdBy);
     const routine = { id: id(), name, prompt, trigger, target, enabled: true, createdBy, runCount: 0, createdAt: at, updatedAt: at };
+    if (isFlow) routine.flow = newFlow(input.flow, trigger.kind, at);
+    // A flow saved as a draft only has nothing to run yet: it stays off until it is published.
+    if (routine.flow?.revision === 0) routine.enabled = false;
     for (const key of ["provider", "model", "permissionMode"]) if (input[key] != null) routine[key] = checkText(input[key], key);
     if (input.fallback != null) routine.fallback = checkFallback(input.fallback);
     if (input.maxRuns != null) routine.maxRuns = checkMaxRuns(input.maxRuns);
@@ -813,6 +834,16 @@ function createRoutineStore({
         if (patch.target.kind !== routine.target.kind) throw new Error("Can't change a Routine's target kind");
         next.target = checkTarget(patch.target);
       }
+      if (patch.flowDraft !== undefined || patch.publishFlow !== undefined) {
+        if (!next.flow) throw new Error("This Routine isn't a flow");
+        if (patch.flowDraft === null) delete next.flow.draft;
+        else if (patch.flowDraft !== undefined) next.flow.draft = { steps: checkDraftSteps(patch.flowDraft), updatedAt: at };
+        if (patch.publishFlow === true) {
+          if (!next.flow.draft) throw new Error("There is no draft to publish");
+          next.flow = { revision: next.flow.revision + 1, steps: checkFlowSteps(next.flow.draft.steps, next.trigger.kind), publishedAt: at };
+        } else if (patch.publishFlow !== undefined) throw new Error("publishFlow must be true");
+      }
+      if (next.flow?.revision === 0 && next.enabled) throw new Error("Publish the flow before turning it on");
       if (patch.signingHeader === null) delete next.signingHeader;
       else if (patch.signingHeader !== undefined) next.signingHeader = checkSigningHeader(patch.signingHeader, next.trigger);
       // A cron or timezone given next to a whole trigger changes that trigger.
@@ -1133,6 +1164,76 @@ function createRoutineStore({
     });
   }
 
+  /**
+   * Changes a flow Run's progress: `change(flow, run)` edits copies, which are written when it returns anything but false.
+   * Returns the Run as saved, or null when it is gone or ended. The first call (on a Run without `flow`) gets `flow` null and
+   * sets `run.flow`.
+   */
+  function updateFlowRun(runId, change, { allowEnded = false } = {}) {
+    return transact((state, tx) => {
+      const found = findRun(state, runId);
+      if (!found || (!allowEnded && found.run.status !== "running")) return null;
+      if (change(found.run.flow ?? null, found.run, found.routine) === false) return copy(found.run);
+      tx.changed = true;
+      return copy(found.run);
+    });
+  }
+
+  // A Run and its Routine as saved, or null.
+  function getRun(runId) {
+    const found = findRun(data, runId);
+    return found ? { routine: copy(found.routine), run: copy(found.run) } : null;
+  }
+
+  // The flow Runs still going, oldest first, each with its Routine.
+  function runningFlows() {
+    const out = [];
+    for (const routine of data.routines) {
+      for (const run of data.runs[routine.id] ?? []) if (run.status === "running" && run.flow) out.push({ routine: copy(routine), run: copy(run) });
+    }
+    return out;
+  }
+
+  /**
+   * Opens a flow Run that stopped (failed) again, so a step can be retried: it runs on and is counted once more when it
+   * ends, so its first end is taken back (one Run, one count; the failure it ended with leaves the streak).
+   */
+  function reopenFlowRun(runId) {
+    return transact((state, tx) => {
+      const found = findRun(state, runId);
+      if (!found?.run.flow || found.run.status !== "failed") return null;
+      const { routine, run } = found;
+      run.status = "running";
+      delete run.endedAt;
+      delete run.error;
+      if (!run.flow.dryRun) {
+        routine.runCount = Math.max(0, routine.runCount - 1);
+        if (routine.failedStreak) routine.failedStreak -= 1;
+      }
+      tx.changed = true;
+      return copy(run);
+    });
+  }
+
+  /**
+   * A Test run of a flow's draft (or, without one, its published steps), answering `event` (the last real Run's, so a Linear
+   * flow tries its last issue). It never counts.
+   */
+  function startTestRun(routineId, at, event) {
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine?.flow || routine.completedAt) return null;
+      const steps = routine.flow.draft?.steps ?? routine.flow.steps;
+      const clean = checkFlowSteps(steps, routine.trigger.kind);
+      const run = { id: id(), routineId, scheduledFor: at, startedAt: at, status: "running" };
+      if (event) run.event = copy(event);
+      run.flow = { revision: routine.flow.revision, steps: clean, state: {}, status: "running", dryRun: true };
+      appendRun(state, routineId, run);
+      tx.changed = true;
+      return { routine: copy(routine), run: copy(run) };
+    });
+  }
+
   // Names a Run, usually once it has ended. False when the Run is gone (trimmed, or its Routine deleted).
   function setRunTitle(runId, title) {
     checkText(title, "title");
@@ -1266,7 +1367,8 @@ function createRoutineStore({
       for (const routine of state.routines) {
         let cut = 0;
         for (const run of state.runs[routine.id] ?? []) {
-          if (run.status !== "running") continue;
+          // A flow Run picks up where it was (flow-runner.cjs resume): its steps say what is done.
+          if (run.status !== "running" || run.flow) continue;
           finish(state, routine, run, "failed", { error: "daemon restarted" }, at, cut === 0);
           cut += 1;
           tx.changed = true;
@@ -1300,6 +1402,11 @@ function createRoutineStore({
     attachChat,
     retryRun,
     finishRun,
+    updateFlowRun,
+    startTestRun,
+    getRun,
+    runningFlows,
+    reopenFlowRun,
     setRunTitle,
     // How many Runs are under way, in every Routine, a completed one's last Run included.
     runningCount: () => Object.values(data.runs).reduce((count, runs) => count + runs.filter((run) => run.status === "running").length, 0),

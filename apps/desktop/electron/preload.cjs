@@ -225,6 +225,8 @@ function makeBridge(invoke, listen, send) {
     updateRoutine: (id, patch) => invoke("routines:update", id, patch),
     deleteRoutine: (id) => invoke("routines:delete", id),
     runRoutineNow: (id) => invoke("routines:run-now", id),
+    flowRunAct: (routineId, runId, action, options) => invoke("routines:flow-act", routineId, runId, action, options),
+    testFlow: (id) => invoke("routines:flow-test", id),
     createRoutine: (input) => invoke("routines:create", input),
     routineTargets: () => invoke("routines:targets"),
     routineLinearOptions: (args) => invoke("routines:linear-options", args),

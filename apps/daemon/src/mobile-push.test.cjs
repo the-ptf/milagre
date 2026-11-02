@@ -552,3 +552,21 @@ test("quiet-hour events stay quiet if metadata resolves after the window opens",
   await push.settled();
   assert.equal(messages.length, 0);
 });
+
+test("a Routine flow notice reaches devices that want waiting notices, never one viewing its Chat", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.notice(chatId, { title: "Issue to PR", body: "Issue to PR waits for you: Open pull request" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].title, "Issue to PR");
+  assert.equal(messages[0].data.sessionId, 1);
+  push.focus({ deviceId, chatId });
+  push.notice(chatId, { title: "Issue to PR", body: "again" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  await push.register(registration({ notifyWhenWaiting: false }));
+  push.notice("/project#2", { title: "x", body: "y" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+});

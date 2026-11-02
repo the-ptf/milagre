@@ -80,6 +80,11 @@ export default function Layout() {
                           <Stack.Screen name="routines" options={{ title: "Routines" }} />
                           <Stack.Screen name="routine" options={{ title: "Routine" }} />
                           <Stack.Screen name="routine-form" options={{ ...sheet, sheetAllowedDetents: [1] }} />
+                          {/* A flow Routine's Run, step by step, and the sheets its Steps editor opens. */}
+                          <Stack.Screen name="flow-run" options={{ title: "Run" }} />
+                          <Stack.Screen name="flow-step" options={{ ...sheet, sheetAllowedDetents: [1] }} />
+                          <Stack.Screen name="flow-add-step" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
+                          <Stack.Screen name="flow-publish" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="link-projects" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                           <Stack.Screen name="link-chat" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                           <Stack.Screen name="choose-projects" options={{ ...sheet, sheetAllowedDetents: [0.6, 1], sheetInitialDetentIndex: 0 }} />

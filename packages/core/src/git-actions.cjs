@@ -349,7 +349,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
   }
 
   /** `gh pr create` into the base, with the body on stdin. gh works out the head, forks included. */
-  async function openPr({ cwd, base, title, body }) {
+  async function openPr({ cwd, base, title, body, draft = false }) {
     const top = await checkTop(cwd);
     if (!top.ok) return { ok: false, kind: "error", message: top.message };
     if (!(await hasOrigin(cwd))) return { ok: false, kind: "no-origin", message: NO_ORIGIN, code: GIT_CODES.NO_ORIGIN };
@@ -359,7 +359,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     if (branch === resolved.name) return { ok: false, kind: "on-base", message: `You're on ${resolved.name}. Open a PR from a worktree branch.` };
     const prTitle = String(title ?? "").trim();
     if (!prTitle) return { ok: false, kind: "error", message: "Add a PR title first." };
-    const result = await run(gh, ["pr", "create", `--base=${resolved.name}`, `--title=${prTitle}`, "--body-file", "-"], {
+    const result = await run(gh, ["pr", "create", `--base=${resolved.name}`, `--title=${prTitle}`, "--body-file", "-", ...(draft ? ["--draft"] : [])], {
       cwd,
       input: String(body ?? ""),
       timeout: GH_TIMEOUT,

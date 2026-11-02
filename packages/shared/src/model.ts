@@ -489,7 +489,189 @@ export type RoutineEvent =
   | { kind: "linear"; key: string; change: "assigned" | "label-added" | "state" | "comment"; issue: LinearIssueSnapshot; comment?: LinearCommentSnapshot }
   | { kind: "webhook"; key: string; deliveryId: string };
 
-export type RoutineRunStatus = "running" | "acted" | "quiet" | "failed" | "skipped-busy" | "missed";
+/**
+ * How a Run ended or stands. `ended` is a flow Run that stopped without failing: an approval rejected or expired, or ended
+ * by hand. It never counts toward the failed streak.
+ */
+export type RoutineRunStatus = "running" | "acted" | "quiet" | "failed" | "skipped-busy" | "missed" | "ended";
+
+/**
+ * A field a flow step gives the steps after it. `choice` takes one of `choices`; `yes-no` is a boolean; `link` an http(s)
+ * URL. Later steps read it as `{{<stepId>.<name>}}`.
+ */
+export interface FlowField {
+  name: string;
+  type: "text" | "choice" | "yes-no" | "number" | "link";
+  choices?: string[];
+  description?: string;
+}
+
+/** A step in a Routine flow. Every step has an id unique in its flow and a name people read. */
+export type FlowStep = FlowAgentStep | FlowIfStep | FlowAskStep | FlowWaitStep | FlowPullRequestStep | FlowCommentStep;
+export type FlowStepKind = FlowStep["kind"];
+
+/**
+ * A turn in a Chat. `chat: "run"` uses the Run's Chat (made by the first agent step, in the Run's Worktree); `own` starts a
+ * Chat of its own in the same Worktree. The agent hands `output` back through the flow_step_output tool. `retries` is how
+ * many more turns it gets after a failed one; `onInvalid: "ask-once"` sends one follow-up when a turn ended without a valid
+ * output.
+ */
+export interface FlowAgentStep {
+  id: string;
+  name: string;
+  kind: "agent";
+  prompt: string;
+  provider?: ModelProvider;
+  model?: string;
+  effort?: EffortLevel;
+  permissionMode?: PermissionMode;
+  chat: "run" | "own";
+  output: FlowField[];
+  retries: number;
+  onInvalid: "ask-once" | "stop";
+}
+
+/** Picks a path from a field of an earlier step (or the trigger): `yes` when the test holds, `otherwise` when it doesn't. */
+export interface FlowIfStep {
+  id: string;
+  name: string;
+  kind: "if";
+  /** `<stepId>.<field>` or `trigger.<path>`. */
+  field: string;
+  test: "is" | "is-not" | "contains" | "is-set";
+  value?: string;
+  yes: FlowStep[];
+  otherwise: FlowStep[];
+}
+
+/** Waits for the owner's approval on any device. Rejected, or no answer in `expiresInHours`, ends the Run. */
+export interface FlowAskStep {
+  id: string;
+  name: string;
+  kind: "ask";
+  message: string;
+  expiresInHours: number;
+}
+
+/** Waits for a time to pass, a Linear issue to reach a state, or the Run's pull request to be reviewed. */
+export interface FlowWaitStep {
+  id: string;
+  name: string;
+  kind: "wait";
+  until: { kind: "time"; minutes: number } | { kind: "linear-state"; state: string } | { kind: "pr-review" };
+  /** For a Linear state or a review: how long to wait before the step fails. */
+  timeoutHours: number;
+}
+
+/**
+ * Pushes the Run's branch and opens a pull request, once: the receipt it keeps (and a look for a PR already on the branch)
+ * means a restart or a retry never opens a second one. `askFirst` shows what will be opened and waits for approval.
+ */
+export interface FlowPullRequestStep {
+  id: string;
+  name: string;
+  kind: "pull-request";
+  title: string;
+  body: string;
+  base?: string;
+  draft: boolean;
+  askFirst: boolean;
+}
+
+/** Comments on the Run's Linear issue, once per Run. */
+export interface FlowCommentStep {
+  id: string;
+  name: string;
+  kind: "linear-comment";
+  body: string;
+}
+
+/**
+ * A Routine's flow: the published steps every new Run uses (`revision` counts publishes) and the draft being edited. A Run
+ * keeps a copy of the steps it started with, so publishing never changes a Run in progress.
+ */
+export interface RoutineFlow {
+  revision: number;
+  steps: FlowStep[];
+  publishedAt: number;
+  draft?: { steps: FlowStep[]; updatedAt: number };
+}
+
+/** What a flow step did, kept so a Run never repeats it: the pull request it opened or found, the comment it posted. */
+export type FlowReceipt =
+  | { kind: "pull-request"; url: string; number: number; branch: string; draft: boolean; matched: boolean; at: number }
+  | { kind: "linear-comment"; issue: string; url?: string; at: number };
+
+/** What an approval shows before a pull request opens. */
+export interface FlowPullRequestPreview {
+  repository?: string;
+  /** Commit shown for approval, checked again before publishing the branch. */
+  head?: string;
+  branch: string;
+  base: string;
+  title: string;
+  body: string;
+  draft: boolean;
+  /** e.g. "6 files, 214 added, 38 removed". */
+  changes?: string;
+}
+
+export interface FlowApproval {
+  askedAt: number;
+  expiresAt: number;
+  message: string;
+  preview?: FlowPullRequestPreview;
+  decision?: "approved" | "rejected" | "expired";
+  decidedAt?: number;
+  reason?: string;
+}
+
+export type FlowStepStatus = "pending" | "running" | "waiting" | "done" | "failed" | "skipped" | "not-run";
+
+/** A step's part of a Run. `tries` are the turns that failed before this one; `taken` is the path an If took. */
+export interface FlowStepRun {
+  status: FlowStepStatus;
+  startedAt?: number;
+  endedAt?: number;
+  chatId?: string;
+  output?: Record<string, string | number | boolean>;
+  error?: string;
+  /** What the step says it did, in a few words: "complexity large, area relay", "Opened draft #861". */
+  summary?: string;
+  tries?: Array<{ startedAt: number; endedAt: number; error: string; chatId?: string }>;
+  taken?: "yes" | "otherwise";
+  /** A note the owner added on retry; the next turn's prompt carries it. */
+  note?: string;
+  /** Whether the follow-up asking for a valid output was sent this turn. */
+  askedForOutput?: boolean;
+  /** Its successful turn ended; work that reports back may still hold the step. */
+  turnEnded?: boolean;
+  approval?: FlowApproval;
+  receipt?: FlowReceipt;
+  /** Set right before an action runs and kept until its receipt: one found after a restart is checked, never repeated. */
+  intentAt?: number;
+  /** The repository, branch and commit the action started against, also for actions without approval. */
+  intentPreview?: FlowPullRequestPreview;
+  /** A wait's deadline, or when a time wait ends. */
+  waitUntil?: number;
+  /** When a Linear state or review wait last looked. */
+  checkedAt?: number;
+}
+
+/**
+ * A flow Run's progress, on its RoutineRun. `steps` is the revision it started on. `status` is `waiting` while a step waits
+ * for approval or a wait; `paused` once the owner paused it (the step under way finishes, the next one doesn't start).
+ */
+export interface FlowRun {
+  revision: number;
+  steps: FlowStep[];
+  state: Record<string, FlowStepRun>;
+  status: "running" | "waiting" | "paused" | "done" | "failed" | "ended";
+  /** A simulation: agents use sample or saved fields; actions and waits are skipped and approvals pass. */
+  dryRun?: boolean;
+  /** Set while paused and asked to pause. */
+  pauseRequested?: boolean;
+}
 
 /**
  * The model a Run in a Chat of its own retries on, once, when its attempt fails for a provider-side reason (the model at
@@ -540,6 +722,8 @@ export interface Routine {
   lastError?: string;
   /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
   signingHeader?: string;
+  /** Set on a flow: its Runs go step by step (flow-runner.cjs) instead of one turn on `prompt`. */
+  flow?: RoutineFlow;
   completedAt?: number;
   /** Why it ended, when whatever ended it said: a babysit stop reason, "expired", "max runs", "chat gone"… */
   completedReason?: string;
@@ -569,6 +753,8 @@ export interface RoutineRun {
   attempts?: RoutineRunAttempt[];
   /** Set when the last attempt was the retry: the model it ran on. */
   fallback?: RoutineFallback;
+  /** A flow Run's steps and how each went. */
+  flow?: FlowRun;
 }
 
 /**

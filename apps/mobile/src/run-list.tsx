@@ -8,6 +8,7 @@ import {
   Clock01Icon,
   Moon02Icon,
   NextIcon,
+  StopCircleIcon,
   UnavailableIcon,
   UnfoldLessIcon,
   UnfoldMoreIcon,
@@ -39,6 +40,15 @@ function runLook(run: RoutineRun, routineName: string): { icon?: IconData; tone:
   if (run.status === "failed") {
     const error = firstLine(run.error);
     return { icon: Alert02Icon, tone: "red", text: noted(error ? `Failed: ${error}` : "Failed"), failed: true };
+  }
+  // A flow Run that stopped without failing (an approval rejected or expired, or ended by hand) reads as neutral.
+  if (run.status === "ended") {
+    const reason = firstLine(run.error);
+    return {
+      icon: StopCircleIcon,
+      tone: "ink3",
+      text: noted(reason ? `${runTitle(run, routineName)}: ended, ${reason}` : `${runTitle(run, routineName)}: ended`),
+    };
   }
   return { icon: CheckmarkCircle02Icon, tone: "ink3", text: noted(runTitle(run, routineName)) };
 }
