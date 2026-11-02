@@ -410,7 +410,10 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector("[data-promptbar] [aria-label=Attachments]")`), false, "Mentioned files show as chips, not tiles");
     await screenshot("file-attachments-selected");
     await type(mentions + "Review these");
-    await click('[aria-label="Stop agent"]');
+    await waitFor(`!!document.querySelector('[data-composer-submit][aria-label="Queue message"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`), false, "A nonempty draft offers the selected delivery");
+    // With a follow-up draft, the submit button sends it; Escape still stops without losing the draft or attachments.
+    await key("Escape");
     assert.equal(await evaluate("window.interrupted"), "/fixture#3", "Stop targets the open chat");
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions + "Review these", "Stopping preserves the draft");
     assert.equal(await evaluate("window.calls.length"), 1, "Stop does not send the draft");
