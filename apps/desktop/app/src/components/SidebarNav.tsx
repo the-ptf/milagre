@@ -1825,7 +1825,26 @@ export default memo(function SidebarNav({
                           })}
                     </>
                   ) : railItems ? (
-                    <ScopeRail scopes={railItems} onOpenScope={openRailScope} onOpenChat={openRailChat} />
+                    <>
+                      <ScopeRail scopes={railItems} onOpenScope={openRailScope} onOpenChat={openRailChat} />
+                      {oneList && (
+                        <div className="mx-auto mt-1 flex size-8 items-center justify-center">
+                          <Tooltip label="New chat" shortcut={keys.newChat} align="end">
+                            <button
+                              type="button"
+                              aria-label="New chat"
+                              onClick={() => {
+                                if (activeTitle === undefined) setDemoActiveTitle(null);
+                                onNewChat?.();
+                              }}
+                              className={CHATS_HEADER_BUTTON}
+                            >
+                              <IconPlusMedium size={16} />
+                            </button>
+                          </Tooltip>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <ChatList
                       recents={recents}

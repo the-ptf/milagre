@@ -70,7 +70,8 @@ window.render = (projectPath) =>
         onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }}
         onSwitchProject={(path) => { window.switched = path; }}
         onSwitchLink={(id) => { window.switchedLink = id; }}
-        onPick={(id) => { window.picked = id; }} />
+        onPick={(id) => { window.picked = id; }}
+        onNewChat={() => { window.newChatCount = (window.newChatCount ?? 0) + 1; }} />
     </div>,
   );
 window.render("/work/arketa");
@@ -272,6 +273,11 @@ async function browserChecks() {
       ["/work/arketa#1"],
       "Only the active Chat is marked current",
     );
+    assert.equal(rail.find((entry) => entry.current).current, "page", "An active Chat keeps the page navigation semantics of ChatRow");
+    assert.ok(
+      await evaluate(`document.querySelector('[data-rail-scope="/work/arketa#1"][data-row]').textContent.includes("Fix the login flow")`),
+      "A collapsed Chat keeps its row marker and hidden title",
+    );
     assert.equal(rail.find((entry) => entry.key === "/work/arketa#1").status, "running");
     assert.equal(rail.find((entry) => entry.key === "/work/shop#7").status, "attention");
     assert.equal(
@@ -328,6 +334,8 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
     await waitFor(`!!document.querySelector("[data-scope-rail]")`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-rail-scope]").length`), 0, "No Chats means an empty One list rail");
+    await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
+    assert.equal(await evaluate(`window.newChatCount`), 1, "An empty collapsed One list still starts a new Chat");
     await window.loadURL(process.argv[2] + "?home");
     await waitFor(`!!document.querySelector('[data-sidebar-chats] [data-chat-id="11"]')`);
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);

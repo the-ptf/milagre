@@ -93,8 +93,9 @@ export function ScopeRail({
           type="button"
           data-rail-scope={scope.key}
           data-chat-id={scope.chat?.id}
+          data-row={scope.chat ? "" : undefined}
           data-rail-status={scope.status}
-          aria-current={scope.current ? "true" : undefined}
+          aria-current={scope.current ? (scope.chat ? "page" : "true") : undefined}
           aria-label={`${scope.name}${scope.chat ? `, ${scope.chats[0]?.label ?? "Chat"}` : ""}${scope.status === "idle" ? "" : `, a chat ${STATUS_LABEL[scope.status]}`}`}
           onClick={() => {
             hide();
@@ -122,6 +123,7 @@ export function ScopeRail({
               )
             )}
           </span>
+          {scope.chat && <span className="sr-only">{scope.chats[0]?.label}</span>}
           {scope.shortcutHint && (
             <ShortcutKeys shortcut={scope.shortcutHint} aria-hidden="true" className="pointer-events-none absolute right-1 top-1.5 z-30" />
           )}
