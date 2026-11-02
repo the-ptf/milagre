@@ -20,7 +20,14 @@ import { applyAppearance } from "./appearance.ts";
 import { DEFAULT_APPEARANCE, parseAppearance, type Appearance } from "@milagre/shared/appearance";
 
 import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
-import { dictationLanguage, whisperModelFor } from "@milagre/shared/dictation";
+import {
+  dictationLanguage,
+  whisperModelFor,
+  dictationShortcutMode,
+  dictationFixModel,
+  type DictationShortcutMode,
+  type DictationFixModel,
+} from "@milagre/shared/dictation";
 import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -90,6 +97,12 @@ export interface AppSettings {
   /** Settings › Chat: the Whisper model dictation uses on this computer, an id from WHISPER_MODELS.desktop. */
   dictationModel: string;
   dictationAction: DictationActionPreference;
+  /** Settings › Chat: the Dictate shortcut is held while talking ("hold") or pressed to start and again to stop. */
+  dictationShortcutMode: DictationShortcutMode;
+  /** Settings › Chat: a finished take's misheard names are corrected by a small model, in place. */
+  dictationFixUp: boolean;
+  /** Settings › Chat: the fix-up's model, "auto" for the Chat's own agent's smallest one. */
+  dictationFixModel: DictationFixModel;
 }
 
 const STORAGE_KEY = "milagre-settings";
@@ -134,6 +147,9 @@ const DEFAULTS: AppSettings = {
   dictationLanguage: "auto",
   dictationModel: whisperModelFor("desktop", undefined).id,
   dictationAction: "paste",
+  dictationShortcutMode: "hold",
+  dictationFixUp: true,
+  dictationFixModel: "auto",
 };
 
 function load(): AppSettings {
@@ -188,6 +204,9 @@ function load(): AppSettings {
       dictationLanguage: dictationLanguage(saved.dictationLanguage),
       dictationModel: whisperModelFor("desktop", saved.dictationModel).id,
       dictationAction: parseDictationAction(saved.dictationAction),
+      dictationShortcutMode: dictationShortcutMode(saved.dictationShortcutMode),
+      dictationFixUp: typeof saved.dictationFixUp === "boolean" ? saved.dictationFixUp : DEFAULTS.dictationFixUp,
+      dictationFixModel: dictationFixModel(saved.dictationFixModel),
     };
   } catch {
     return DEFAULTS;

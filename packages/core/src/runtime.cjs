@@ -806,16 +806,29 @@ function createRuntime(options) {
     return searchFiles(root, query);
   });
   // Dictation: the words a Chat's project gives the recognizer, and the AI fix-up of a phone's Apple transcript.
-  commands.handle("dictation:context", async (_event, { cwd, chatTitle } = {}) => {
+  commands.handle("dictation:context", async (_event, { cwd, chatTitle, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
   });
-  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider } = {}) => {
+  // The last turns of the Chat being dictated into, for the names it has used. Only an open Project's Chat; anything else
+  // (a Link, a Chat not loaded, a failed read) gives none rather than holding the take up.
+  async function dictationMessages(scope, chatId) {
+    if (typeof scope !== "string" || !states.has(scope) || !Number.isSafeInteger(chatId)) return [];
+    try {
+      const { messages } = chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, { turns: 6, limit: 40 });
+      return messages.map((message) => message.body).filter((body) => typeof body === "string");
+    } catch {
+      return [];
+    }
+  }
+  // `model` is the user's pick in Settings: "auto" (the Chat's agent, `provider`, then the others) or one agent alone.
+  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider, model, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
     const models =
       options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
-    return polishDictation({ text, terms, chatTitle, provider }, { models });
+    const picked = typeof model === "string" && model !== "auto" ? model : null;
+    return polishDictation({ text, terms, chatTitle, provider: picked ?? provider, only: Boolean(picked) }, { models });
   });
   // Path-taking commands only serve folders the user opened: an open project, one of its worktrees, or a recent
   // project (the switcher shows their avatars). Any renderer or paired phone script otherwise reaches any folder.

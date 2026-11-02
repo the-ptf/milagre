@@ -4,11 +4,14 @@ import {
   DICTATION_LANGUAGES,
   WHISPER_MODELS,
   appleLocale,
+  chatTerms,
+  codeNames,
   dictationLanguage,
   dictationTerms,
   whisperLanguage,
   whisperModelFor,
   whisperPrompt,
+  snapTerms,
 } from "./dictation.mjs";
 
 test("terms lead with the app and project, keep code names and folders, and drop noise and repeats", () => {
@@ -107,4 +110,108 @@ test("an English-only model always listens for English", () => {
   assert.equal(whisperLanguage("pt", english), "en");
   assert.equal(whisperLanguage("auto", english), "en");
   assert.equal(whisperLanguage("pt", WHISPER_MODELS.desktop[0]), "pt");
+});
+
+test("the files being worked on come before the rest, kebab-case ones with their extension, and their names beside them", () => {
+  const terms = dictationTerms({
+    projectName: "milagre-ade",
+    files: ["a/AccountSwitchDivider.tsx", "packages/shared/src/voice-dictation.ts", "apps/mobile/src/PromptComposer.tsx", ".github/ci.yml"],
+    recent: ["packages/shared/src/voice-dictation.ts", "apps/mobile/src/PromptComposer.tsx", ".github/ci.yml", "src/index.ts"],
+    names: ["insertDictation", "writeTake", "PromptComposerProps"],
+  });
+  const at = (term) => terms.indexOf(term);
+  assert.ok(at("voice-dictation.ts") > at("milagre-ade"));
+  assert.ok(at("insertDictation") > at("voice-dictation.ts") && at("insertDictation") < at("PromptComposer"));
+  assert.ok(at("PromptComposer") < at("GitHub"), "what the user works on comes before the usual tools");
+  assert.ok(at("GitHub") < at("AccountSwitchDivider"), "the usual tools come before the rest of the project");
+  assert.ok(!terms.includes("ci.yml") && !terms.includes("index.ts"));
+  for (const name of ["Claude Code", "OpenAI", "Gemini", "Supabase", "npm"]) assert.ok(terms.includes(name), name);
+});
+
+test("code names are a file's multi-word declarations, never its locals", () => {
+  const source = [
+    "export function insertDictation() {}",
+    "export const DICTATION_SAMPLE_RATE = 16000;",
+    "export const meterLevel = () => {};",
+    "function writeTake() { const firstEnded = 1; }",
+    "class PromptComposer {}",
+    "export type DictationTake = {};",
+    "    func transcribeAudio() {}",
+    "def snap_terms(): pass",
+    "module.exports = { dictationContext, polishDictation: polish };",
+  ].join("\n");
+  assert.deepEqual(codeNames(source, 20), [
+    "insertDictation",
+    "writeTake",
+    "PromptComposer",
+    "DictationTake",
+    "transcribeAudio",
+    "snap_terms",
+    "meterLevel",
+    "dictationContext",
+    "polishDictation",
+  ]);
+  assert.equal(codeNames(source, 2).length, 2);
+});
+
+test("snapping spells the project's terms where the recognizer split or lowercased them", () => {
+  const terms = [
+    "Milagre",
+    "Codex",
+    "Claude Code",
+    "GitHub",
+    "OpenAI",
+    "npm",
+    "MCP",
+    "voice-dictation.ts",
+    "dictation.test.mjs",
+    "useDictation",
+    "createStreamingDictation",
+    "PromptEditor",
+    "Chat",
+    "pull request",
+  ];
+  const cases = [
+    ["Ask code X to open voice dictation dot ts.", "Ask Codex to open voice-dictation.ts."],
+    ["The bug is in the use. Dictation hook.", "The bug is in the useDictation hook."],
+    ["The create streaming dictation function seals it.", "The createStreamingDictation function seals it."],
+    ["Run N P M test and list the M C P servers.", "Run npm test and list the MCP servers."],
+    ["claude code reads git hub, open AI too.", "Claude Code reads GitHub, OpenAI too."],
+    ["Fix dictation dot test dot mjs, then milagre.", "Fix dictation.test.mjs, then Milagre."],
+    ["O arquivo voice dictation ponto ts quebrou.", "O arquivo voice-dictation.ts quebrou."],
+    // Ordinary speech that happens to spell a term stays as said.
+    ["We use dictation a lot.", "We use dictation a lot."],
+    ["The prompt editor feels slow.", "The prompt editor feels slow."],
+    ["Open a chat and the pull request.", "Open a chat and the pull request."],
+    ["Use code, x marks it.", "Use code, x marks it."],
+  ];
+  for (const [heard, expected] of cases) assert.equal(snapTerms(heard, terms), expected, heard);
+  assert.equal(snapTerms("open the PromptEditor component", terms), "open the PromptEditor component");
+  assert.equal(snapTerms("open the prompt editor component", terms), "open the PromptEditor component");
+  assert.equal(snapTerms("", terms), "");
+  assert.equal(snapTerms("code x", []), "code x");
+});
+
+test("a Chat's names come from its newest turns first: files, code names and acronyms in backticks", () => {
+  const terms = chatTerms([
+    "See `packages/shared/src/voice-dictation.ts` and insertDictation(), then https://github.com/a/notes.md",
+    "Now `useDictation.ts`, the `OTA` and mobile-bridge.cjs. I think PromptComposer.tsx too.",
+  ]);
+  assert.deepEqual(terms.slice(0, 4), ["useDictation", "mobile-bridge.cjs", "PromptComposer", "OTA"]);
+  assert.ok(terms.includes("voice-dictation.ts") && terms.includes("insertDictation"));
+  assert.ok(!terms.includes("notes.md") && !terms.includes("think"));
+  assert.equal(
+    chatTerms(
+      Array.from({ length: 50 }, (_, index) => `fileNumber${index}`),
+      5,
+    ).length,
+    5,
+  );
+  assert.deepEqual(chatTerms([]), []);
+});
+
+test("the Chat's names come right after its title, before the files being worked on", () => {
+  const terms = dictationTerms({ projectName: "milagre-ade", chatTitle: "Dictation", chat: ["voice-dictation.ts"], recent: ["src/OtherThing.tsx"] });
+  assert.equal(terms.indexOf("voice-dictation.ts"), terms.indexOf("Dictation") + 1);
+  assert.ok(terms.indexOf("OtherThing") > terms.indexOf("voice-dictation.ts"));
 });

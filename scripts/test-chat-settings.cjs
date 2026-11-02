@@ -93,9 +93,20 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Chat");
     assert.equal(
       await evaluate(`document.querySelectorAll('[role="radiogroup"]:not([aria-label="Speech model"]) [role="radio"]').length`),
-      8,
-      "four settings, two choices each",
+      10,
+      "five settings, two choices each",
     );
+    assert.equal(await evaluate(checked("How the shortcut works")), "Hold to talk");
+    await evaluate(`${card("How the shortcut works", "Press to start, press to stop")}.click()`);
+    await waitFor(`${checked("How the shortcut works")} === 'Press to start, press to stop'`);
+    assert.equal((await saved()).dictationShortcutMode, "toggle");
+    await evaluate(`${card("How the shortcut works", "Hold to talk")}.click()`);
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"Fix names with AI\"]').getAttribute('aria-checked')"), "true");
+    await evaluate("document.querySelector('[aria-label=\"Fix names with AI\"]').click()");
+    await waitFor("document.querySelector('[aria-label=\"Fix-up model\"]').disabled");
+    assert.equal((await saved()).dictationFixUp, false);
+    await evaluate("document.querySelector('[aria-label=\"Fix names with AI\"]').click()");
+    await waitFor("!document.querySelector('[aria-label=\"Fix-up model\"]').disabled");
     // Speech model: four models named for what they're good at, the best any-language one by default.
     assert.equal(await evaluate(`document.querySelectorAll('[role="radiogroup"][aria-label="Speech model"] [role="radio"]').length`), 4);
     assert.equal(await evaluate(checked("Speech model")), "Best, any language");

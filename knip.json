@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.cjs", "scripts/*.sh", "scripts/site-demo/*.cjs", "scripts/html-eval/*.cjs"],
+      "entry": ["scripts/*.cjs", "scripts/*.sh", "scripts/site-demo/*.cjs", "scripts/html-eval/*.cjs", "scripts/dictation-eval/run.mjs"],
       "project": ["scripts/**"],
       "ignoreDependencies": ["expo", "expo-router", "vite", "app-builder-lib", "builder-util", "expo-device-hub"],
       "ignore": ["scripts/fixtures/mobile-prompt-skills.tsx"]
@@ -46,7 +46,7 @@
     }
   },
   "ignoreDependencies": [],
-  "ignoreBinaries": [],
+  "ignoreBinaries": ["say", "afconvert", "swiftc"],
   "ignoreIssues": {
     "apps/mobile/src/update-sheet.tsx": ["exports"],
     "apps/mobile/src/accounts-section.tsx": ["exports"]
