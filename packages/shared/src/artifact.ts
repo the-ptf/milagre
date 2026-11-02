@@ -1,12 +1,24 @@
 import type { ArtifactRef } from "./model.ts";
-import type { DesignDocument, DesignOperation } from "./design.mjs";
+import type { DesignDocument, DesignOperation, DesignEditIntent } from "./design.mjs";
 import type { ArtifactAsset } from "./artifact-assets.mjs";
 export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
 
 export type { ArtifactAsset };
 
 /** A design as `artifact:list` returns it: its newest version, and the screen it is laid out on. */
-export type ArtifactSummary = ArtifactRef & { versions: number; width: number; height: number; format: "design" | "html" };
+export type ArtifactSummary = ArtifactRef & {
+  versions: number;
+  width: number;
+  height: number;
+  format: "design" | "html";
+  kit?: { id: string; version: number; title: string };
+  consistency?: { mode: "advisory" | "strict" };
+};
+
+/** The pinned visual identity, shared by desktop and phone. */
+export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "consistency"> | null | undefined): string {
+  return design?.kit ? `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}` : "";
+}
 
 /** One version of a design an agent showed, as `artifact:get` returns it. */
 export type DesignArtifact = ArtifactSummary & {
@@ -67,7 +79,7 @@ export interface ArtifactApi {
   asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
   /** Saves an atomic batch against the version the editor loaded. A stale version leaves the design unchanged. */
-  apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[] }): Promise<DesignArtifact>;
+  apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[]; intent?: DesignEditIntent }): Promise<DesignArtifact>;
   /** Deletes a design with every version and the comments on it. Its id is never reused. */
   delete(request: { chatId: string; id: string }): Promise<{ id: string }>;
   /** Records comments the user is sending; returns them with their ids. */

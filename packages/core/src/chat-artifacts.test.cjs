@@ -368,7 +368,7 @@ test("editable design tool schemas expose layer fields and version checks to MCP
   assert.ok(schemas.design_apply.required.includes("expectedVersion"));
   assert.deepEqual(
     schemas.design_apply.properties.operations.items.oneOf.map((item) => item.properties.op.const),
-    ["update", "insert", "delete"],
+    ["document", "detach", "duplicate", "unset", "update", "insert", "delete"],
   );
   assert.deepEqual(schemas.design_export.properties.format.enum, ["json", "svg"]);
   assert.equal(tools.design_show.readOnly, false);

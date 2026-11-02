@@ -66,7 +66,9 @@ async function browserChecks() {
       assert.equal(id, chatId);
     },
   });
-  await api.showDesign({ chatId, id: designId, title: "Fieldnotes", document: createExampleDesign() });
+  const initial = createExampleDesign();
+  initial.kit = { id: "project", version: 1, title: "Fieldnotes identity", colors: { ...initial.tokens }, textStyles: {}, spacing: {}, radii: {} };
+  await api.showDesign({ chatId, id: designId, title: "Fieldnotes", document: initial });
   const methods = ["get", "list", "apply", "comments", "addComments"];
   let nextApplyGate = null;
   ipcMain.handle("design-fixture:call", (_event, method, request) => {
@@ -1321,6 +1323,45 @@ async function browserChecks() {
         );
       }
     }
+    await click('[aria-label="Close design editor"]');
+    await waitFor(`!${editor}`);
+
+    // Strict consistency is checked through real editor save IPC, preserving failed drafts.
+    const strictDocument = {
+      schemaVersion: 1,
+      width: 390,
+      height: 844,
+      background: "$paper",
+      kit: {
+        id: "project",
+        version: 1,
+        title: "Strict identity",
+        colors: { paper: "#ffffff", ink: "#123456" },
+        textStyles: { body: { fontSize: 17 } },
+        spacing: { md: 16 },
+        radii: { card: 12 },
+      },
+      consistency: { mode: "strict" },
+      nodes: [{ id: "strict-text", type: "text", x: 24, y: 40, width: 300, height: 60, text: "Preserve my draft", textStyle: "body", fill: "$ink" }],
+    };
+    const beforeStrict = await read();
+    await api.apply({ chatId, id: designId, expectedVersion: beforeStrict.version, operations: [{ op: "replace", document: strictDocument }] });
+    await openEditor();
+    await waitFor(`${editor}.textContent.includes("Strict identity") && ${editor}.textContent.includes("Strict")`);
+    await click('[data-node-id="strict-text"]');
+    await input("Text color", "red");
+    const strictVersion = (await read()).version;
+    await click("[data-slot=design-save]");
+    await waitFor(`${editor}.textContent.includes("outside kit")`);
+    assert.equal((await read()).version, strictVersion, "strict rejection does not create a version");
+    assert.equal(await evaluate(`document.querySelector('input[aria-label="Text color"]').value`), "red", "rejected draft stays editable");
+    await screenshot("strict-rejected");
+    await input("Text color", "$ink");
+    await input("Text", "A corrected draft");
+    await click("[data-slot=design-save]");
+    await waitFor(`${status}.textContent.includes("Saved · version ${strictVersion + 1}")`);
+    assert.equal((await read()).document.nodes[0].text, "A corrected draft");
+    await screenshot("strict-saved");
     await click('[aria-label="Close design editor"]');
     await waitFor(`!${editor}`);
 

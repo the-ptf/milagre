@@ -16,9 +16,29 @@ export interface DesignDocument {
   width: number;
   height: number;
   background?: string;
+  kit?: DesignKit;
+  consistency?: {
+    mode: "advisory" | "strict";
+    exceptions?: Array<{ nodeId: string; field: string; value: string | number | Record<string, string | number>; reason: string }>;
+  };
   tokens?: Record<string, string>;
   nodes: DesignNode[];
 }
+
+export interface DesignKit {
+  id: string;
+  version: number;
+  title: string;
+  colors: Record<string, string>;
+  textStyles: Record<string, { fontFamily?: string; fontSize: number; fontWeight?: number; lineHeight?: number }>;
+  spacing: Record<string, number>;
+  radii: Record<string, number>;
+  components?: Record<string, DesignNode[]>;
+  references?: Array<{ title: string; source: string }>;
+}
+export const designKitSchema: z.ZodType<DesignKit>;
+export const designKitDataSchema: z.ZodType<Omit<DesignKit, "id" | "version">>;
+export function validateDesignKit(value: unknown): DesignKit;
 
 export interface DesignNode {
   id: string;
@@ -56,13 +76,28 @@ export interface DesignNode {
   component?: boolean;
   componentId?: string;
   componentSourceId?: string;
+  textStyle?: string;
+  bindings?: Partial<Record<"padding" | "gap" | "minWidth" | "minHeight" | "radius", string>>;
+  componentProperties?: Record<string, { nodeId: string; field: "text" | "icon" | "hidden" | "fill" | "opacity"; options?: Array<string | boolean | number> }>;
+  componentValues?: Record<string, string | boolean | number>;
 }
 
 export type DesignOperation =
   | { op: "update"; id: string; patch: Partial<Omit<DesignNode, "id">> }
   | { op: "insert"; node: DesignNode; index?: number }
   | { op: "delete"; id: string }
-  | { op: "replace"; document: DesignDocument };
+  | { op: "replace"; document: DesignDocument }
+  | { op: "document"; patch: Partial<Omit<DesignDocument, "nodes" | "schemaVersion">> }
+  | { op: "detach"; id: string }
+  | { op: "duplicate"; id: string; newId: string; x?: number; y?: number }
+  | { op: "unset"; id: string; fields: Array<"parentId" | "textStyle" | "bindings" | "componentValues"> };
+
+export interface DesignEditIntent {
+  mode: "text-only" | "fit-text";
+  textIds: string[];
+  layoutIds?: string[];
+}
+export const designEditIntentSchema: z.ZodType<DesignEditIntent>;
 
 export interface DesignBounds {
   x: number;
@@ -76,7 +111,8 @@ export const designOperationSchema: z.ZodType<DesignOperation>;
 export const designDocumentInputSchema: z.ZodType<unknown>;
 export const designOperationInputSchema: z.ZodType<unknown>;
 export function validateDesignDocument(value: unknown): DesignDocument;
-export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[]): DesignDocument;
+export function validateDesignConsistency(document: DesignDocument): DesignDocument;
+export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[], intent?: DesignEditIntent): DesignDocument;
 export function diffDesignDocuments(before: DesignDocument, after: DesignDocument): DesignOperation[];
 export function designLayout(document: DesignDocument, textLayout?: typeof designTextLayout): Map<string, DesignBounds>;
 export function designTextLayout(node: DesignNode, width?: number): { lines: string[]; width: number; height: number; lineHeight: number };
@@ -91,12 +127,22 @@ export function detachDesignInstance(document: DesignDocument, instanceId: strin
 /** The frontmost visible layer at a screen coordinate, respecting clipped parent frames. */
 export function designNodeAt(document: DesignDocument, x: number, y: number): DesignNode | null;
 export interface DesignWarning {
+  blockerId?: string;
+  measurements?: Record<string, number>;
+  suggestions?: Array<{ label: string; operations?: DesignOperation[]; requiresValidation: true }>;
   id: string;
-  kind: "clipped-text" | "overflow" | "off-canvas" | "low-contrast" | "remote-image";
+  field?: string;
+  actual?: string | number | Record<string, string | number>;
+  path?: Array<string | number>;
+  kind: "clipped-text" | "overflow" | "off-canvas" | "low-contrast" | "remote-image" | "kit-drift" | "kit-exception";
   message: string;
 }
 /** Problems an agent can't see in JSON: cut-off text, layers outside their parent or the screen, unreadable text, remote images. */
 export function designWarnings(document: DesignDocument): DesignWarning[];
+export function designDiagnostics(document: DesignDocument): {
+  warnings: DesignWarning[];
+  contrastChecks: Array<{ id: string; status: "checked" | "unsupported"; ratio?: number; reason?: string }>;
+};
 /** At most 20 warning lines plus "…and N more", or "" when there are none. */
 export function designWarningText(warnings: DesignWarning[]): string;
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
@@ -137,3 +183,6 @@ export function designLiveParts(document: DesignDocument): {
 /** A portable SVG with native shapes, text and image elements. Inter and loaded catalog faces are embedded unless `embedFonts` is false. JSON is the lossless design export. */
 export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean; onCanvasOnly?: boolean; renderByteLimit?: number }): string;
 export function createExampleDesign(): DesignDocument;
+
+export function designErrorIssues(error: unknown): Array<{ path: Array<string | number>; message: string }>;
+export function conciseDesignError(error: unknown): Error;

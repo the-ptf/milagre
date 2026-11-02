@@ -270,3 +270,21 @@ test("a worker that exits while idle is dropped, so the next render starts a fre
   assert.equal((await renderDesignPng(document)).mime, "image/png");
   assert.ok(Date.now() - started < 3000, `the render took ${Date.now() - started} ms`);
 });
+
+test("inspecting a lower text layer crops without a resvg text panic", async () => {
+  const document = {
+    schemaVersion: 1,
+    width: 390,
+    height: 844,
+    background: "#fff",
+    nodes: [
+      { id: "upper", type: "text", x: 20, y: 20, width: 300, height: 40, text: "Above the crop", fill: "#000" },
+      { id: "button", type: "frame", x: 20, y: 420, width: 318, height: 52, fill: "#25634b", radius: 12 },
+      { id: "label", type: "text", parentId: "button", x: 16, y: 12, width: 286, height: 26, text: "Maybe later", fill: "#fff" },
+    ],
+  };
+  const result = await renderDesignPng(document, { crop: { x: 20, y: 420, width: 318, height: 52 } });
+  assert.equal(result.width, 318);
+  assert.equal(result.height, 52);
+  assert.ok(result.base64.length > 100);
+});

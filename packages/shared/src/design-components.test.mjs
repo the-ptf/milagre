@@ -158,3 +158,39 @@ test("valid replacement references still follow later main edits in the same bat
   const invalidRoot = { ...before, nodes: before.nodes.map((node) => (node.id === "copy" ? { ...node, componentSourceId: "label" } : node)) };
   assert.throws(() => validateDesignDocument(invalidRoot), /source/i);
 });
+
+test("component properties vary content while main style changes propagate", () => {
+  let doc = applyDesignOperations(scene(), [
+    {
+      op: "update",
+      id: "button",
+      patch: { componentProperties: { label: { nodeId: "label", field: "text" }, disabled: { nodeId: "button", field: "opacity", options: [1, 0.5] } } },
+    },
+  ]);
+  doc = applyDesignOperations(doc, createDesignInstance(doc, "button", "copy"));
+  doc = applyDesignOperations(doc, [{ op: "update", id: "copy", patch: { componentValues: { label: "Cancel", disabled: 0.5 } } }]);
+  assert.equal(doc.nodes.find((n) => n.componentSourceId === "label").text, "Cancel");
+  assert.equal(doc.nodes.find((n) => n.id === "copy").opacity, 0.5);
+  const after = applyDesignOperations(doc, [{ op: "update", id: "button", patch: { fill: "#abcdef" } }]);
+  assert.equal(after.nodes.find((n) => n.id === "copy").fill, "#abcdef");
+  assert.equal(after.nodes.find((n) => n.componentSourceId === "label").text, "Cancel");
+  assert.throws(() => applyDesignOperations(doc, [{ op: "update", id: "copy", patch: { componentValues: { disabled: 0.7 } } }]), /must be one of/);
+  assert.throws(() => applyDesignOperations(doc, [{ op: "update", id: "copy", patch: { componentValues: { unknown: "no" } } }]), /Unknown component property/);
+  const detached = applyDesignOperations(doc, [{ op: "detach", id: "copy" }]);
+  assert.equal(detached.nodes.find((n) => n.id === "copy").componentValues, undefined);
+  assert.equal(detached.nodes.find((n) => n.text === "Cancel").componentSourceId, undefined);
+  assert.deepEqual(applyDesignOperations(doc, diffDesignDocuments(doc, after)), after);
+});
+
+test("document patches, duplicates and unsetting preserve unrelated fields", () => {
+  const before = withInstance();
+  const after = applyDesignOperations(before, [
+    { op: "document", patch: { tokens: { ink: "#123456" }, background: "$ink" } },
+    { op: "duplicate", id: "copy", newId: "other", x: 50 },
+  ]);
+  assert.equal(after.nodes.find((n) => n.id === "other").componentId, "button");
+  assert.equal(after.nodes.find((n) => n.id === "other").x, 50);
+  assert.equal(after.nodes.filter((n) => n.componentSourceId === "label").length, 2);
+  assert.throws(() => applyDesignOperations(after, [{ op: "duplicate", id: "copy", newId: "other" }]), /already exist/);
+  assert.equal(before.nodes.length, 4);
+});

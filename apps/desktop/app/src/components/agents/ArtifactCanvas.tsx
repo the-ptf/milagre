@@ -10,6 +10,7 @@ import {
   createDesignFontReader,
   restoreDesignFonts,
   designGroups,
+  designKitLabel,
   readPageMessage,
   type Artifact,
   type ArtifactAsset,
@@ -810,6 +811,11 @@ const DesignFrame = memo(function DesignFrame({
           </Tooltip>
           <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
             v{shown.version} of {last}
+            {artifact?.kit && (
+              <span className="ml-2" title={designKitLabel(artifact)}>
+                {designKitLabel(artifact)}
+              </span>
+            )}
           </span>
           <Tooltip label="Next version">
             <button

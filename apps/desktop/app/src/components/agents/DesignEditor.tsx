@@ -938,6 +938,12 @@ export function DesignDocumentEditor({
           className={`mb-2 max-w-full truncate text-left text-[13px] ${active ? "text-ink" : "text-ink-3"}`}
         >
           {saved.title}
+          {document.kit && (
+            <span className="ml-2 text-ink-3">
+              {document.consistency?.mode === "strict" ? "Strict · " : ""}
+              {document.kit.title} · kit v{document.kit.version}
+            </span>
+          )}
         </button>
         <div
           data-slot="design-editor-preview"

@@ -25,7 +25,18 @@ function publicPageContent(snapshot) {
           height: document.height,
           ...(document.background ? { background: literal(document.background) } : {}),
           nodes: visible.map((node) => {
-            const { name: _name, component: _component, componentId: _componentId, componentSourceId: _source, hidden: _hidden, ...copy } = node;
+            const {
+              name: _name,
+              component: _component,
+              componentId: _componentId,
+              componentSourceId: _source,
+              hidden: _hidden,
+              textStyle: _textStyle,
+              bindings: _bindings,
+              componentProperties: _properties,
+              componentValues: _values,
+              ...copy
+            } = node;
             return {
               ...copy,
               id: ids.get(node.id),

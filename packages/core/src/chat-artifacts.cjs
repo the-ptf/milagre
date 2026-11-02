@@ -1,3 +1,4 @@
+const { isDeepStrictEqual } = require("node:util");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
@@ -5,11 +6,18 @@ const { z } = require("zod");
 const {
   designDocumentInputSchema,
   designOperationInputSchema,
+  designEditIntentSchema,
   validateDesignDocument,
+  validateDesignConsistency,
   applyDesignOperations,
   designHtml,
   designSvg,
   designWarnings,
+  designDiagnostics,
+  designErrorIssues,
+  conciseDesignError,
+  designLayout,
+  designTextLayout,
   designWarningText,
   designUsesInter,
   designCatalogFont,
@@ -114,6 +122,8 @@ const summary = (artifact, entry) => ({
   format: formatOf(entry),
   ...(entry.inline ? { inline: true } : {}),
   ...(entry.group ? { group: entry.group } : {}),
+  ...(entry.kit ? { kit: entry.kit } : {}),
+  ...(entry.consistency ? { consistency: entry.consistency } : {}),
 });
 
 function checkVersion(request, existing, required = false) {
@@ -138,7 +148,7 @@ const readVersionFile = (file) =>
     throw error;
   });
 
-function createChatArtifacts({ directory, validateChat }) {
+function createChatArtifacts({ directory, validateChat, readKit }) {
   let queue = Promise.resolve();
   const serial = (fn) => {
     const result = queue.then(fn);
@@ -153,6 +163,12 @@ function createChatArtifacts({ directory, validateChat }) {
     if (typeof chatId !== "string" || !chatId || chatId.length > 8192) throw Error("An existing Chat is required.");
     await validateChat(chatId);
     return chatDirectory(chatId);
+  }
+  async function verifyKit(chatId, document) {
+    if (!document.kit || !readKit) return;
+    const kit = await readKit({ chatId, id: document.kit.id, version: document.kit.version });
+    if (!isDeepStrictEqual(kit, document.kit))
+      throw Error("The pinned kit differs from this Project's saved version. Read it with design_kit_read and use that snapshot.");
   }
   const designFolder = (folder, id) => path.join(folder, checkId(id));
   const htmlFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.html`);
@@ -479,6 +495,12 @@ function createChatArtifacts({ directory, validateChat }) {
           throw Error("This file is no longer on the page.");
         return assetFile(folder, current.id, request.hash);
       }),
+    validateDesign: async ({ chatId, document }) => {
+      await chat(chatId);
+      await verifyKit(chatId, document);
+      validateDesignConsistency(document);
+      return document;
+    },
     showDesign: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -489,7 +511,13 @@ function createChatArtifacts({ directory, validateChat }) {
         if (!existing && request.id && (await load(folder, id, { deleted: true }))) throw Error(`The design ${id} was deleted. Use a new id.`);
         editable(existing);
         checkVersion(request, existing, true);
-        const document = validateDesignDocument(request.document);
+        const inheritedConsistency = existing ? (await readVersion(folder, existing)).document?.consistency : undefined;
+        const document = validateDesignDocument({
+          ...request.document,
+          ...(!request.document?.consistency && inheritedConsistency ? { consistency: inheritedConsistency } : {}),
+        });
+        await verifyKit(request.chatId, document);
+        validateDesignConsistency(document);
         const previous = existing?.versions ?? [];
         // A revision stays in its group unless it names one; an empty group takes it out.
         const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : previous.at(-1)?.group;
@@ -497,6 +525,8 @@ function createChatArtifacts({ directory, validateChat }) {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
           ...(group ? { group } : {}),
+          ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
+          ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
           width: document.width,
           height: document.height,
           format: "design",
@@ -516,11 +546,15 @@ function createChatArtifacts({ directory, validateChat }) {
         editable(existing);
         checkVersion(request, existing, true);
         const current = await readVersion(folder, existing);
-        const document = applyDesignOperations(current.document, request.operations);
+        const document = applyDesignOperations(current.document, request.operations, request.intent);
+        await verifyKit(request.chatId, document);
+        validateDesignConsistency(document);
         const entry = {
           version: current.version + 1,
           title: current.title,
           ...(current.group ? { group: current.group } : {}),
+          ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
+          ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
           width: document.width,
           height: document.height,
           format: "design",
@@ -779,7 +813,7 @@ const namedLayers = (ids) =>
 
 // What the agent sees after a design call: the summary (first line, which the Chat card parses), the warnings, and
 // the saved version drawn as a PNG. Neither drawing nor checking fails the call; the version is already saved.
-async function designFeedback(saved, document, { renderPng, warnings: findWarnings }) {
+async function designFeedback(saved, document, { renderPng, warnings: findWarnings, intent }) {
   const problems = [];
   let warnings = [];
   try {
@@ -794,7 +828,11 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
   try {
     images = [await renderPng(document)];
     notes.push(
-      "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every item under Warnings with design_apply, then reply.",
+      intent?.mode === "text-only"
+        ? "Look at the image. This was a text-only edit: report clipping, overflow or other warnings without changing geometry or style. Keep the same intent for further text edits; expanding the scope needs the user's permission."
+        : intent?.mode === "fit-text"
+          ? "Look at the image and verify the text fits. Keep this fit-text intent and its declared scope for any correction; preserve styles and other copy. Report problems that need a wider scope."
+          : "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every item under Warnings within the user's requested scope with design_apply, then reply.",
     );
     const fonts = unbundledFamilies(document);
     if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
@@ -835,7 +873,11 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       readOnly: false,
       run: async (args) => {
         const design = await api.showDesign({ chatId, ...args }, authorization);
-        return designFeedback(design, validateDesignDocument(args.document), feedback);
+        const document =
+          !args.document.consistency && design.consistency
+            ? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).document
+            : validateDesignDocument(args.document);
+        return designFeedback(design, document, feedback);
       },
     },
     {
@@ -850,18 +892,98 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       },
     },
     {
+      name: "design_inspect",
+      description:
+        "Inspect a saved design without creating a version. Returns its image, computed layer bounds, contrast coverage and preview limitations. Use this when taking over from another model or reviewing user edits. nodeId crops the image to a visible layer; diagnostics still cover the whole screen.",
+      input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), nodeId: z.string().regex(LAYER_ID).optional() },
+      readOnly: true,
+      run: async ({ nodeId, ...args }) => {
+        const { html: _html, document, ...saved } = await api.get({ chatId, ...args, format: "design" });
+        const bounds = designLayout(document, designTextLayout);
+        const crop = nodeId ? bounds.get(nodeId) : undefined;
+        if (nodeId && !crop) throw Error(`Layer "${nodeId}" is missing or hidden.`);
+        let diagnostics;
+        try {
+          diagnostics = { status: "checked", ...designDiagnostics(document) };
+        } catch (error) {
+          diagnostics = { status: "failed", error: error.message };
+        }
+        const rendered = await designFeedback(saved, document, { ...feedback, renderPng: (doc) => renderPng(doc, { crop }) });
+        return {
+          ...rendered,
+          text:
+            rendered.text +
+            "\n" +
+            JSON.stringify({
+              inspection: {
+                version: saved.version,
+                nodeId,
+                bounds: Object.fromEntries(bounds),
+                diagnostics,
+                preview: {
+                  renderer: "resvg",
+                  remoteImages: "placeholder",
+                  unbundledFonts: unbundledFamilies(document),
+                  undrawableText: undrawableTextLayers(document),
+                  crop,
+                },
+              },
+            }),
+        };
+      },
+    },
+    {
+      name: "design_validate",
+      description:
+        "Preflight a proposed document, or a batch against a saved design and expectedVersion, without saving. Optional intent is enforced exactly as on design_apply. Returns validation errors with field paths, measured layout shortages, candidate repair operations (validate before applying) and the resulting document. Use before a complex edit. Send document OR id, expectedVersion and operations.",
+      input: {
+        document: designDocumentInputSchema.optional(),
+        id: z.string().regex(ID).optional(),
+        expectedVersion: z.number().int().positive().optional(),
+        operations: z.array(designOperationInputSchema).min(1).max(1000).optional(),
+        intent: designEditIntentSchema.optional(),
+      },
+      readOnly: true,
+      run: async (args) => {
+        let document;
+        try {
+          if (args.document !== undefined) {
+            if (args.id || args.operations || args.expectedVersion || args.intent) throw Error("Send document OR id, expectedVersion and operations.");
+            document = validateDesignDocument(args.document);
+          } else {
+            if (!args.id || !args.expectedVersion || !args.operations) throw Error("Send document OR id, expectedVersion and operations.");
+            const current = await api.get({ chatId, id: args.id, format: "design" });
+            if (current.version !== args.expectedVersion)
+              throw Error(`Design version conflict: expected ${args.expectedVersion}, latest ${current.version}. Read again.`);
+            document = applyDesignOperations(current.document, args.operations, args.intent);
+          }
+          await api.validateDesign?.({ chatId, document });
+          return JSON.stringify({ valid: true, document, diagnostics: designDiagnostics(document) });
+        } catch (error) {
+          return JSON.stringify({
+            valid: false,
+            errors: designErrorIssues(error),
+            ...(error.code ? { code: error.code } : {}),
+            ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}),
+            ...(error.code === "DESIGN_KIT_DRIFT" && document ? { diagnostics: designDiagnostics(document) } : {}),
+          });
+        }
+      },
+    },
+    {
       name: "design_apply",
       description:
-        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants. To replace the whole document, use design_show with its id and expectedVersion. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. One successful batch creates one immutable version and shows its design card.",
+        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants. To replace the whole document, use design_show with its id and expectedVersion. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. Optional intent enforces text-only preservation or fit-text within declared textIds/layoutIds. Rejected intent saves nothing. One successful batch creates one immutable version and shows its design card.",
       input: {
         id: z.string().regex(ID),
         expectedVersion: z.number().int().positive(),
         operations: z.array(designOperationInputSchema).min(1).max(1000),
+        intent: designEditIntentSchema.optional(),
       },
       readOnly: false,
       run: async (args) => {
         const { html: _html, document, ...design } = await api.apply({ chatId, ...args }, authorization);
-        return designFeedback(design, document, feedback);
+        return designFeedback(design, document, { ...feedback, intent: args.intent });
       },
     },
     {
@@ -881,7 +1003,16 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       run: async (args) => JSON.stringify(await api.deleteDesign({ chatId, ...args }, authorization)),
     },
     ...artifactCommentToolDefinitions(chatId, api, authorization),
-  ];
+  ].map((tool) => ({
+    ...tool,
+    run: async (args) => {
+      try {
+        return await tool.run(args);
+      } catch (error) {
+        throw conciseDesignError(error);
+      }
+    },
+  }));
 }
 
 function artifactCommentToolDefinitions(chatId, api, authorization) {
