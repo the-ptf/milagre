@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ArrowDown01Icon, ArrowRight01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -32,11 +32,11 @@ import {
 import type { ModelProvider } from "@milagre/shared/model";
 import type { Client } from "./client";
 import { Icon, SpinnerRing } from "./icons";
-import { Segmented } from "./primitives/segmented";
 import { ErrorNotice } from "./primitives/error-notice";
 import { useSession } from "./session";
+import { Findable } from "./settings-find";
 import { useTheme } from "./theme";
-import { useStyles } from "./ui";
+import { PullDown, useStyles } from "./ui";
 import { radius, type } from "./design-tokens";
 
 // While a scan runs, the screen reads again this often; the host's token-usage signal also reads at once.
@@ -271,7 +271,7 @@ function ProjectRows({
  * Token usage on the connected computer, as on the desktop's Usage page: the total and its provider split, the last 90
  * days as a calendar whose days pick what the screen covers, then where it went (Projects and Chats) and the models.
  */
-export function TokenUsageSection() {
+export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
@@ -282,7 +282,13 @@ export function TokenUsageSection() {
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   const { report, error } = useTokenUsage(client, range, days);
   const now = report?.generatedAt ?? 0;
-  if (!client) return <Text style={styles.muted}>Connect to a computer to see its token usage.</Text>;
+  if (!client)
+    return (
+      <View style={{ gap: 16 }}>
+        {navigation}
+        <Text style={styles.muted}>Connect to a computer to see its token usage.</Text>
+      </View>
+    );
   const openChat = (projectPath: string, sessionId: number) => {
     router.dismissAll();
     router.replace({ pathname: "/chat", params: { id: String(sessionId), projectPath, hostId: client.url } });
@@ -292,24 +298,51 @@ export function TokenUsageSection() {
   const largest = report ? Math.max(0, ...report.projects.map((project) => metricOf(metric, project.totals))) : 0;
   return (
     <View style={{ gap: 16 }}>
-      <Segmented
-        label="Period"
-        value={days ? "" : range}
-        options={TOKEN_USAGE_RANGES.map((option) => ({ value: option.value, title: option.short }))}
-        onChange={(value) => {
-          setDays(null);
-          setRange(value as TokenUsageRange);
-        }}
-      />
-      <Segmented
-        label="Show"
-        value={metric}
-        options={[
-          { value: "cost", title: "Cost" },
-          { value: "tokens", title: "Tokens" },
-        ]}
-        onChange={(value) => setMetric(value as TokenUsageMetric)}
-      />
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        {navigation}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <Findable title="Show">
+            <PullDown
+              label="Show"
+              sections={[
+                {
+                  items: [
+                    { id: "cost", title: "Cost", checked: metric === "cost" },
+                    { id: "tokens", title: "Tokens", checked: metric === "tokens" },
+                  ],
+                },
+              ]}
+              onSelect={(value) => {
+                if (value === "cost" || value === "tokens") setMetric(value);
+              }}
+            >
+              <View style={{ minWidth: 44, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={{ color: colors.ink2, fontSize: type.footnote }}>{metric === "cost" ? "Cost" : "Tokens"}</Text>
+                <Icon icon={ArrowDown01Icon} size={12} tone="ink3" />
+              </View>
+            </PullDown>
+          </Findable>
+          <Findable title="Period">
+            <PullDown
+              label="Period"
+              sections={[{ items: TOKEN_USAGE_RANGES.map((option) => ({ id: option.value, title: option.short, checked: !days && range === option.value })) }]}
+              onSelect={(value) => {
+                const picked = TOKEN_USAGE_RANGES.find((option) => option.value === value);
+                if (!picked) return;
+                setDays(null);
+                setRange(picked.value);
+              }}
+            >
+              <View style={{ minWidth: 44, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={{ color: colors.ink2, fontSize: type.footnote }}>
+                  {days ? "Custom" : TOKEN_USAGE_RANGES.find((option) => option.value === range)?.short}
+                </Text>
+                <Icon icon={ArrowDown01Icon} size={12} tone="ink3" />
+              </View>
+            </PullDown>
+          </Findable>
+        </View>
+      </View>
       {error ? <ErrorNotice message={error} /> : null}
       {!report && !error ? (
         <View style={[styles.row, { gap: 10 }]}>

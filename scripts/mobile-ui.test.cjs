@@ -132,6 +132,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   const locals = {
     "floating-inbox-button.tsx": ["landInboxButton"],
     "inbox.tsx": ["usePhoneInbox", "PhoneInboxPages"],
+    "html-reply.tsx": ["HtmlWebView"],
   };
   let source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
   if (reactCompiler)
@@ -280,6 +281,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
       // Dictation is not available in a test: no microphone, no on-device transcriber.
       if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
+      if (base === "dictation-shortcut" && !(id in modules)) return { useDictationShortcut() {}, toggleDictationShortcut() {} };
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({
@@ -386,6 +388,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "settings-find" && !(id in modules)) return { Findable: ({ children }) => children, SettingsScroll: "PageScroll" };
       if (id === "@milagre/shared/settings-search" && !(id in modules)) return require("../packages/shared/src/settings-search.ts");
       if (base === "settings-index" && !(id in modules)) return require("../apps/mobile/src/settings-index.ts");
+      if (id === "@milagre/shared/routine-flows" && !(id in modules)) return require("@milagre/shared/routine-flows");
+      // Ordinary Routine tests don't render the flow page; flow tests supply its real component explicitly.
+      if (base === "flow-routine" && !(id in modules)) return { FlowRoutineScreen: "FlowRoutineScreen" };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -409,11 +414,66 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   return exports;
 }
 // The long-press wrapper gives its children no `open`; elements built through `jsx` show them in its place, so a test reads the message.
-const messageActionsStub = ({ children }) => children(undefined);
-const jsx = (type, props, key) => (type === messageActionsStub ? props.children(undefined) : { type, props, key });
+const messageActionsStub = ({ children }) => children(undefined, (formatted) => formatted);
+const jsx = (type, props, key) => (type === messageActionsStub ? messageActionsStub(props) : { type, props, key });
 
 // The compiler's per-component cache uses a hook slot, just like a manual memo.
 const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
+
+test("phone Usage rows show and open Chats home and named Link Chats with their canonical owners", () => {
+  const { home, link, report } = require("./fixtures/token-usage.cjs");
+  const react = hookHost();
+  const { ProjectRows } = load(
+    "token-usage-section.tsx",
+    {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "react-native": { View: "View", Text: "Text", Pressable: "Pressable", AppState: {} },
+      "expo-router": { router: {} },
+      "@hugeicons/core-free-icons": {},
+      "@expo/ui": {},
+      "@expo/ui/swift-ui": {},
+      "@expo/ui/swift-ui/modifiers": {},
+      "./settings-find": { Findable: "Findable" },
+      "@milagre/shared/token-usage": require("../packages/shared/src/token-usage.ts"),
+      "@milagre/shared/providers": require("@milagre/shared/providers"),
+      "./theme": themeHooks,
+      "./ui": uiHooks,
+      "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+      "./primitives/segmented": { Segmented: "Segmented" },
+      "./primitives/error-notice": { ErrorNotice: "ErrorNotice" },
+      "./session": {},
+      "./usage-section": { UsageSection: "UsageSection" },
+    },
+    "\nexport { ProjectRows };",
+  );
+  const opened = [];
+  for (const owner of [home, link]) {
+    react.begin();
+    const project = report.projects.find((entry) => entry.path === owner);
+    const tree = ProjectRows({
+      project,
+      metric: "tokens",
+      largest: 220,
+      now: report.generatedAt,
+      open: true,
+      onToggle() {},
+      onOpenChat: (...args) => opened.push(args),
+    });
+    assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === (owner === home ? "Plan the release" : "Update both apps")));
+    assert.equal(
+      find(tree, (node) => node.type === "Text" && /Outside Milagre|Archived/.test(String(node.props.children))),
+      undefined,
+    );
+    const row = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button" && !node.props.accessibilityState);
+    assert.ok(row, "the Chat row is tappable");
+    row.props.onPress();
+  }
+  assert.deepEqual(opened, [
+    [home, 7],
+    [link, 7],
+  ]);
+});
 
 test("context settings stay safe and unavailable on both clients without a host response", async () => {
   const shared = await import("../packages/shared/src/context-settings.mjs");
@@ -1253,7 +1313,7 @@ test("beside an iPad's sidebar the Tasks panel keeps to the composer's column", 
   assert.deepEqual([screen.box.left, screen.box.width], [225 + 12, 736]);
 });
 
-test("inbox single-choice questions require Send and typed answers replace the choice", () => {
+function questionHost(request, { confirmSingle = false } = {}) {
   const react = hookHost();
   const sent = [];
   const { Questions } = load("questions.tsx", {
@@ -1274,6 +1334,14 @@ test("inbox single-choice questions require Send and typed answers replace the c
     "./icons": { Icon: "Icon" },
     "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
   });
+  const render = () => {
+    react.begin();
+    return Questions({ request, busy: false, confirmSingle, submit: (...args) => sent.push(args) });
+  };
+  return { render, sent };
+}
+
+test("inbox single-choice questions require Send and typed answers replace the choice", () => {
   const request = {
     requestId: "q",
     questions: [
@@ -1285,15 +1353,7 @@ test("inbox single-choice questions require Send and typed answers replace the c
       },
     ],
   };
-  const render = () => {
-    react.begin();
-    return Questions({
-      request,
-      busy: false,
-      confirmSingle: true,
-      submit: (...args) => sent.push(args),
-    });
-  };
+  const { render, sent } = questionHost(request, { confirmSingle: true });
   let tree = render();
   assert.equal(
     find(tree, (n) => n.props?.label === "Dismiss questions"),
@@ -1310,6 +1370,40 @@ test("inbox single-choice questions require Send and typed answers replace the c
   assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), {
     next: ["Write instead"],
   });
+});
+
+test("a Chat question batch waits for Send after the last pick, including repeated taps", () => {
+  const { render, sent } = questionHost({
+    requestId: "batch",
+    questions: [
+      { id: "complexity", header: "Complexidade", question: "Complexidade?", options: [{ label: "Baixa" }] },
+      { id: "validation", header: "Validação", question: "Validação?", options: [{ label: "Pendente" }] },
+    ],
+  });
+  let tree = render();
+  find(tree, (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  tree = render();
+  const lastPick = find(tree, (n) => n.props?.accessibilityRole === "radio");
+  lastPick.props.onPress();
+  lastPick.props.onPress();
+  tree = render();
+  assert.equal(sent.length, 0, "the final choice remains editable rather than sending the whole batch");
+  assert.equal(find(tree, (n) => n.type === "PillButton").props.title, "Send answers");
+  find(tree, (n) => n.props?.label === "Previous question").props.onPress();
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "radio").props.accessibilityState.checked, true);
+  find(tree, (n) => n.props?.label === "Next question").props.onPress();
+  tree = render();
+  find(tree, (n) => n.type === "PillButton").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { complexity: ["Baixa"], validation: ["Pendente"] });
+});
+
+test("a standalone single-choice Chat question still sends on its pick", () => {
+  const { render, sent } = questionHost({ requestId: "single", questions: [{ id: "choice", question: "Choice?", options: [{ label: "Read" }] }] });
+  find(render(), (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { choice: ["Read"] });
 });
 
 test("inbox approval shows the entire action inline, including folders, files and delegation", () => {
@@ -2369,32 +2463,22 @@ for (const reactCompiler of [false, true])
   });
 
 for (const reactCompiler of [false, true])
-  test(`usage revision isolates pending account reads and closes the old connection (compiler: ${reactCompiler})`, async () => {
+  test(`account usage source changes isolate pending reads and close the old connection (compiler: ${reactCompiler})`, async () => {
     const host = hookHost({ effects: true });
-    const listeners = new Set(),
-      connections = [],
+    const connections = [],
       reads = [];
-    const AppState = {
-      currentState: "active",
-      addEventListener: (_event, fn) => {
-        listeners.add(fn);
-        return { remove: () => listeners.delete(fn) };
-      },
-    };
-    const react = {
-      ...host,
-      useSyncExternalStore(subscribe, snapshot) {
-        host.useEffect(() => subscribe(() => {}), [subscribe]);
-        return snapshot();
-      },
-    };
-    const client = {
-      call(method) {
+    const source = () => ({
+      cached() {
         const pending = deferred();
-        reads.push({ method, ...pending });
+        reads.push({ method: "cached", ...pending });
         return pending.promise;
       },
-      live() {
+      read() {
+        const pending = deferred();
+        reads.push({ method: "read", ...pending });
+        return pending.promise;
+      },
+      subscribe() {
         const connection = {
           closed: 0,
           close() {
@@ -2402,45 +2486,43 @@ for (const reactCompiler of [false, true])
           },
         };
         connections.push(connection);
-        return connection;
+        return () => connection.close();
       },
-    };
-    const { useUsage } = load(
-      "use-usage.ts",
-      {
-        react,
-        "react/compiler-runtime": compilerRuntime(host),
-        "react-native": { AppState },
-        "./usage-state": require("../apps/mobile/src/usage-state.ts"),
-      },
+    });
+    const sources = [source(), source()];
+    const { useAccountUsage } = load(
+      "../../../packages/shared/src/use-account-usage.ts",
+      { react: host, "react/compiler-runtime": compilerRuntime(host), "./usage": require("@milagre/shared/usage") },
       "",
       new Map(),
       reactCompiler,
     );
     const render = (revision) => {
       host.begin();
-      return useUsage(client, "/p", revision);
+      return useAccountUsage(sources[revision]);
     };
     try {
       const old = render(0);
+      const oldRead = old.refresh();
       assert.equal(reads.length, 2);
       assert.equal(render(0).refresh, old.refresh);
-      assert.equal(reads.length, 2, "same revision keeps the store and its pending reads");
+      assert.equal(reads.length, 2, "the same source keeps its pending requests");
       assert.equal(render(1).snapshot, null);
-      assert.equal(reads.length, 4, "new account gets fresh cached and live reads");
+      const newRead = render(1).refresh();
+      assert.equal(reads.length, 4, "the new computer gets its own cached and live reads");
       assert.equal(connections[0].closed, 1);
-      assert.equal(listeners.size, 1);
       for (const read of reads.slice(2)) read.resolve({ accountKey: "new-account", providers: [] });
+      await newRead;
       await settle();
       assert.equal(render(1).snapshot.accountKey, "new-account");
       for (const read of reads.slice(0, 2)) read.resolve({ accountKey: "old-account", providers: [] });
+      await oldRead;
       await settle();
       assert.equal(render(1).snapshot.accountKey, "new-account");
       assert.equal(connections.length, 2);
     } finally {
       host.unmount();
     }
-    assert.equal(listeners.size, 0);
     assert.equal(connections[1].closed, 1);
   });
 
@@ -5739,10 +5821,15 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
   assert.ok(menu(), "attachments must use a pull-down anchored to the +");
   menu().props.onSelect("photos");
   assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
+  assert.ok(find(screen.render(), (node) => node.props.accessibilityLabel === "Preparing attachment"));
   menu().props.onSelect("files");
   assert.deepEqual(kinds, ["photos"]);
   picking.resolve([]);
   await settle();
+  assert.equal(
+    find(screen.render(), (node) => node.props.accessibilityLabel === "Preparing attachment"),
+    undefined,
+  );
   menu().props.onSelect("camera");
   await settle();
   assert.deepEqual(kinds, ["photos", "camera"]);
@@ -9330,6 +9417,65 @@ test("clipboard screenshots use the same compressed image payload as picked phot
   assert.equal(photo.uri, "file:///compressed.jpg");
 });
 
+test("photo library includes videos, keeps their exported format and rejects oversized bytes before reading them", async () => {
+  let options,
+    cancelled = false,
+    oversized = false,
+    reads = 0;
+  const deleted = [];
+  const { pickAttachments } = load("attachment-picker.ts", {
+    "expo-document-picker": {},
+    "expo-image-picker": {
+      VideoExportPreset: { H264_1280x720: 6 },
+      launchImageLibraryAsync: async (value) => {
+        options = value;
+        return {
+          canceled: cancelled,
+          assets: [
+            { type: "video", uri: "file:///export.mp4", fileName: "Original.MOV" },
+            { type: "video", uri: "file:///android.webm", fileName: "Android.webm" },
+          ],
+        };
+      },
+    },
+    "expo-file-system": {
+      File: class {
+        constructor(uri) {
+          this.uri = uri;
+          this.size = oversized ? 51 * 1024 * 1024 : 1000;
+        }
+        async base64() {
+          reads++;
+          return "dmlkZW8=";
+        }
+        delete() {
+          deleted.push(this.uri);
+        }
+      },
+    },
+    "expo-image-manipulator": {},
+    "expo-clipboard": {},
+    "./attachments": require("../apps/mobile/src/attachments.ts"),
+  });
+  const files = await pickAttachments("photos");
+  assert.deepEqual([...options.mediaTypes], ["images", "videos"]);
+  assert.equal(options.videoExportPreset, 6);
+  assert.equal(options.allowsMultipleSelection, true);
+  assert.deepEqual(
+    Array.from(files, (file) => file.name),
+    ["Original.mp4", "Android.webm"],
+  );
+  assert.ok(files.every((file) => file.video && file.base64 && !file.image));
+  cancelled = true;
+  assert.equal((await pickAttachments("photos")).length, 0);
+  assert.equal(reads, 2);
+  cancelled = false;
+  oversized = true;
+  await assert.rejects(pickAttachments("photos"), /larger than 50 MiB.*Trim/);
+  assert.equal(reads, 2);
+  assert.equal(deleted.length, 2);
+});
+
 test("an empty or denied clipboard gives a useful error without adding an attachment", async () => {
   const { pickAttachments } = load("attachment-picker.ts", {
     "expo-document-picker": { getDocumentAsync: async () => ({ canceled: true }) },
@@ -11595,38 +11741,506 @@ test("mobile tool output retries after reconnect and clears the failed-read cont
   react.unmount();
 });
 
-test("mobile usage identifies the account by email, falls back to its label, and accepts older hosts", () => {
-  const { ProviderRows } = load(
+test("phone Usage tabs replace the route and keep the current tab selected", () => {
+  const replaced = [];
+  const { UsageTabs } = load("usage-tabs.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "expo-router": { router: { replace: (path) => replaced.push(path) } },
+    "./theme": themeHooks,
+  });
+  for (const value of ["plan", "analytics"]) {
+    const tabs = allNodes(UsageTabs({ value }), (node) => node.props?.accessibilityRole === "tab");
+    assert.deepEqual(
+      tabs.map((tab) => tab.props.accessibilityState.selected),
+      value === "plan" ? [true, false] : [false, true],
+    );
+    tabs.find((tab) => tab.props.accessibilityState.selected).props.onPress();
+    assert.equal(replaced.length, value === "plan" ? 0 : 1, "the active tab does not navigate again");
+    tabs.find((tab) => !tab.props.accessibilityState.selected).props.onPress();
+  }
+  assert.deepEqual(replaced, ["/(settings)/token-usage", "/(settings)/usage"]);
+});
+
+test("phone Analytics menus preserve metric and period choices beside navigation", () => {
+  const react = hookHost();
+  const { TokenUsageSection } = load("token-usage-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", AppState: {} },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/token-usage": require("@milagre/shared/token-usage"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "./theme": themeHooks,
+    "./ui": { ...uiHooks, PullDown: "PullDown" },
+    "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+    "./primitives/error-notice": { ErrorNotice: "ErrorNotice" },
+    "./settings-find": { Findable: "Findable" },
+    "./session": { useSession: () => ({ client: {} }) },
+  });
+  const render = () => {
+    react.begin();
+    return TokenUsageSection({ navigation: jsx("UsageTabs", { value: "analytics" }) });
+  };
+  const menu = (tree, label) => find(tree, (node) => node.type === "PullDown" && node.props.label === label);
+  let tree = render();
+  assert.ok(find(tree, (node) => node.type === "UsageTabs"));
+  assert.equal(menu(tree, "Show").props.children.props.style.minHeight, 44);
+  assert.equal(menu(tree, "Period").props.children.props.style.minHeight, 44);
+  menu(tree, "Show").props.onSelect("tokens");
+  menu(tree, "Period").props.onSelect("30d");
+  tree = render();
+  assert.equal(menu(tree, "Show").props.sections[0].items.find((item) => item.checked).id, "tokens");
+  assert.equal(menu(tree, "Period").props.sections[0].items.find((item) => item.checked).id, "30d");
+});
+
+function planUsageHost() {
+  const react = hookHost();
+  let snapshot = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  let display = "used";
+  let syncs = 0;
+  let providerRefreshes = 0;
+  const requests = [];
+  let events, usageSource;
+  const client = {
+    call: async (method, args) => {
+      requests.push([method, args && JSON.parse(JSON.stringify(args))]);
+      return snapshot;
+    },
+    live: (_scope, options) => {
+      events = options;
+      return { close() {} };
+    },
+  };
+  const { UsageSection, ProviderRows, WindowRow } = load(
     "usage-section.tsx",
     {
+      react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
-      react: {},
-      "react-native": { Text: "Text", View: "View" },
+      "react-native": { Text: "Text", View: "View", AppState: {} },
+      "expo-router": { Stack: { Screen: "Screen" } },
       "@hugeicons/core-free-icons": {},
-      "@milagre/shared/providers": { providerName: () => "Codex" },
-      "@milagre/shared/usage": { formatUpdatedAgo: () => "Updated just now" },
-      "./icons": {},
-      "./ui": { colors: {}, styles: {} },
-      "./session": {},
-      "./use-usage": {},
+      "@milagre/shared/providers": require("@milagre/shared/providers"),
+      "@milagre/shared/usage": require("@milagre/shared/usage"),
+      "@milagre/shared/use-account-usage": {
+        useAccountUsage: (source) => {
+          usageSource = source;
+          return {
+            snapshot,
+            loading: false,
+            error: "",
+            refresh: source.read,
+            refreshAccounts: async () => {
+              syncs++;
+            },
+          };
+        },
+      },
+      "./icons": { ProviderLogo: "ProviderLogo", Icon: "Icon" },
+      "./ui": { IconButton: "IconButton", PullDown: "PullDown", useStyles: () => fakeStyles },
+      "./usage-display-setting": {
+        useUsageDisplay: () => [
+          display,
+          (next) => {
+            display = next;
+          },
+        ],
+      },
+      "./session": {
+        useSession: () => ({
+          client,
+          hostName: "Santo",
+          refreshProviders: async () => {
+            providerRefreshes++;
+          },
+        }),
+      },
+      "./theme": themeHooks,
     },
-    "\nexport { ProviderRows };\n",
+    "\nexport { ProviderRows, WindowRow };\n",
   );
+  const draw = (node) => {
+    if (Array.isArray(node)) return node.map(draw);
+    if (!node || typeof node !== "object" || !node.type) return node;
+    if (node.type === ProviderRows || node.type === WindowRow) return draw(node.type(node.props));
+    return { ...node, props: { ...node.props, children: draw(node.props?.children) } };
+  };
+  const render = (props = {}) => {
+    react.begin();
+    return draw(UsageSection(props));
+  };
+  return {
+    render,
+    requests,
+    source: () => usageSource,
+    events: () => events,
+    snapshot,
+    setSnapshot: (next) => {
+      snapshot = next;
+    },
+    syncs: () => syncs,
+    providerRefreshes: () => providerRefreshes,
+    ProviderRows,
+  };
+}
+
+test("mobile usage keeps account name and email separate and accepts older hosts", () => {
+  const { ProviderRows } = planUsageHost();
   const provider = { provider: "codex", status: "ok", windows: [], updatedAt: new Date().toISOString() };
   for (const account of [
     { id: "work", label: "Work", email: "work@example.test" },
     { id: "work", label: "Work" },
   ]) {
     const tree = ProviderRows({ provider: { ...provider, account }, now: Date.now() });
-    const label = find(tree, (node) => node.type === "Text" && node.props.children === (account.email || account.label));
-    assert.ok(label, "The account identity is visible");
-    assert.equal(label.props.selectable, true);
+    assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Work"));
+    if (account.email) assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === account.email));
     assert.equal(
-      find(tree, (node) => node.type === "Text" && node.props.children === "Codex"),
+      find(tree, (node) => node.type === "PullDown"),
       undefined,
+      "unknown readiness never offers an action",
     );
   }
   assert.doesNotThrow(() => ProviderRows({ provider, now: Date.now() }));
+});
+
+test("phone Plan usage shows every window, consistent remaining bars and screen-reader values", () => {
+  const screen = planUsageHost();
+  let tree = screen.render();
+  for (const account of screen.snapshot.providers) assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === account.account.email));
+  const bars = allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar");
+  assert.equal(bars.length, 11, "model pools are not hidden");
+  assert.deepEqual(
+    bars.map((bar) => bar.props.accessibilityValue.now),
+    [42, 42, 42, 21, 21, 21, 76, 76, 76, 76, 76],
+  );
+  for (const bar of bars) assert.match(bar.props.accessibilityValue.text, /% used/);
+  find(tree, (node) => node.type === "PullDown" && node.props.label === "Plan usage display").props.onSelect("remaining");
+  tree = screen.render();
+  const remaining = allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar");
+  assert.deepEqual(
+    remaining.map((bar) => bar.props.accessibilityValue.now),
+    [58, 58, 58, 79, 79, 79, 24, 24, 24, 24, 24],
+  );
+  for (const bar of remaining) {
+    assert.match(bar.props.accessibilityValue.text, /% left/);
+    assert.equal(bar.props.children.props.style.width, `${bar.props.accessibilityValue.now}%`);
+  }
+  assert.equal(
+    find(tree, (node) => node.type === "Segmented"),
+    undefined,
+  );
+  assert.equal(
+    find(tree, (node) => node.type === "Text" && node.props.children === "Retry"),
+    undefined,
+  );
+  find(tree, (node) => node.type === "IconButton" && node.props.label === "Refresh plan usage").props.onPress();
+  assert.equal(screen.requests[0][0], "usage:accounts:read");
+});
+
+test("phone default menu is only on ready non-default accounts and reuses account selection", async () => {
+  const screen = planUsageHost();
+  let tree = screen.render();
+  const actions = allNodes(tree, (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for"));
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].props.label, "Actions for Work");
+  assert.equal(actions[0].props.style.width, 44);
+  assert.equal(actions[0].props.style.height, 44);
+  assert.match(actions[0].props.sections[0].items[0].subtitle, /Computer default; Project and Link choices stay/);
+  actions[0].props.onSelect("default");
+  tree = screen.render();
+  assert.equal(find(tree, (node) => node.type === "PullDown" && node.props.label === "Actions for Work").props.nativeTrigger.disabled, true);
+  await new Promise(setImmediate);
+  assert.deepEqual(screen.requests, [["accounts:select", ["claude", "work"]]]);
+  assert.equal(screen.providerRefreshes(), 1);
+  assert.equal(screen.syncs(), 1);
+  screen.snapshot.providers.find((entry) => entry.account.id === "work").account.state = "signed-out";
+  assert.equal(
+    find(screen.render(), (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for")),
+    undefined,
+  );
+});
+
+test("phone unavailable accounts have no fabricated progress bars and keep explicit default labels", () => {
+  const screen = planUsageHost();
+  screen.setSnapshot({
+    providers: [
+      {
+        provider: "antigravity",
+        account: { id: "only", label: "Work", email: "work@example.test", state: "error", default: true },
+        status: "unavailable",
+        windows: [],
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  });
+  const tree = screen.render();
+  assert.equal(allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar").length, 0);
+  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Default"));
+  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Usage unavailable"));
+  assert.equal(
+    find(tree, (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for")),
+    undefined,
+  );
+});
+
+function overviewHook(t, source) {
+  const react = hookHost({ effects: true });
+  const { useAccountUsage } = load("../../../packages/shared/src/use-account-usage.ts", { react, "./usage": require("@milagre/shared/usage") });
+  t.after(() => react.unmount());
+  return () => {
+    react.begin();
+    return useAccountUsage(source);
+  };
+}
+
+test("account overview ignores a late mount cache and invalidated provider reads", async (t) => {
+  const { accountUsage } = require("./fixtures/token-usage.cjs");
+  const first = deferred(),
+    late = deferred(),
+    mountCache = deferred();
+  let cache = mountCache.promise;
+  let reads = 0,
+    accountsChanged;
+  const render = overviewHook(t, {
+    read: () => (++reads === 1 ? first.promise : reads === 2 ? late.promise : Promise.resolve({ accountKey: "removed", providers: [] })),
+    cached: () => cache,
+    subscribe: (_usage, accounts) => {
+      accountsChanged = accounts;
+      return () => {};
+    },
+  });
+  render();
+  const manual = render().refresh();
+  first.resolve(accountUsage);
+  await manual;
+  mountCache.resolve({ accountKey: "stale", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, accountUsage.accountKey);
+  const pending = render().refresh();
+  cache = Promise.resolve({ accountKey: "removed", providers: [] });
+  accountsChanged();
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "removed");
+  late.resolve(accountUsage);
+  await pending;
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "removed", "response from the removed account is discarded");
+});
+
+test("fresh account cache skips reads and default changes keep windows without querying providers", async (t) => {
+  let cached = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  cached.providers.forEach((entry) => {
+    entry.updatedAt = new Date().toISOString();
+  });
+  let reads = 0,
+    accountsChanged;
+  const render = overviewHook(t, {
+    read: async () => {
+      reads++;
+      return cached;
+    },
+    cached: async () => cached,
+    subscribe: (_usage, accounts) => {
+      accountsChanged = accounts;
+      return () => {};
+    },
+  });
+  render();
+  await new Promise(setImmediate);
+  assert.equal(reads, 0);
+  cached = {
+    ...cached,
+    providers: cached.providers.map((entry) => ({ ...entry, account: { ...entry.account, default: entry.account.id === "work" || undefined } })),
+  };
+  accountsChanged();
+  assert.equal(render().snapshot.providers.length, 3, "no blank list while default metadata updates");
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.providers.find((entry) => entry.account.id === "work").account.default, true);
+  assert.equal(render().snapshot.providers.find((entry) => entry.account.id === "work").windows.length, 5);
+  assert.equal(reads, 0);
+  await render().refresh();
+  assert.equal(reads, 1, "manual Refresh always forces a provider read");
+});
+
+test("a transport failure marks last-known usage and drops windows that have reset", async (t) => {
+  const cached = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  const now = Date.now();
+  cached.providers.forEach((entry) => {
+    entry.updatedAt = new Date(now).toISOString();
+    entry.windows.forEach((window, index) => {
+      window.resetsAt = new Date(now + (index ? 3600000 : -1000)).toISOString();
+    });
+  });
+  const render = overviewHook(t, {
+    read: async () => {
+      throw new Error("Disconnected");
+    },
+    cached: async () => cached,
+    subscribe: () => () => {},
+  });
+  render();
+  await new Promise(setImmediate);
+  await render().refresh();
+  const result = render();
+  assert.match(result.error, /Couldn't refresh/);
+  assert.equal(
+    result.snapshot.providers.every((entry) => entry.status === "error"),
+    true,
+  );
+  assert.deepEqual(
+    result.snapshot.providers.map((entry) => entry.windows.length),
+    [2, 4, 2],
+  );
+  assert.equal(result.snapshot.providers[0].updatedAt, cached.providers[0].updatedAt);
+});
+
+test("recent unavailable and failed checks are fresh despite old quotas or phone clock skew", async (t) => {
+  const hostNow = Date.now() - 10 * 60000;
+  const providers = ["unavailable", "error", "ok"].map((status, index) => ({
+    provider: "claude",
+    account: { id: String(index), label: "Account", state: "ready" },
+    status,
+    updatedAt: new Date(hostNow - 3600000).toISOString(),
+    checkedAt: new Date(hostNow - 15000).toISOString(),
+    windows: [],
+  }));
+  const cached = { accountKey: "checked", generatedAt: new Date(hostNow).toISOString(), providers };
+  let reads = 0;
+  const render = overviewHook(t, {
+    cached: async () => cached,
+    read: async () => {
+      reads++;
+      return cached;
+    },
+    subscribe: () => () => {},
+  });
+  render();
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "freshness uses the host's last-check time, regardless of result or available windows");
+  assert.equal(render().snapshot.generatedAt, cached.generatedAt);
+  await render().refresh();
+  assert.equal(reads, 1, "manual Refresh still forces a live read");
+});
+
+test("unchecked placeholders and expired checks still refresh on open", async (t) => {
+  for (const checkedAt of [undefined, new Date(Date.now() - 61000).toISOString()]) {
+    const cached = {
+      accountKey: "stale",
+      generatedAt: new Date().toISOString(),
+      providers: [
+        {
+          provider: "claude",
+          account: { id: "work", label: "Work", state: "ready" },
+          status: "unavailable",
+          windows: [],
+          updatedAt: new Date().toISOString(),
+          ...(checkedAt ? { checkedAt } : {}),
+        },
+      ],
+    };
+    let reads = 0;
+    const render = overviewHook(t, {
+      cached: async () => cached,
+      read: async () => {
+        reads++;
+        return cached;
+      },
+      subscribe: () => () => {},
+    });
+    render();
+    await new Promise(setImmediate);
+    assert.equal(reads, 1, "a recent placeholder timestamp cannot suppress the first real provider read");
+  }
+});
+
+test("a socket cache read overtaking the mount cache preserves freshness and pending refreshes", async (t) => {
+  const fresh = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  fresh.providers.forEach((entry) => {
+    entry.checkedAt = new Date().toISOString();
+  });
+  const mount = deferred(),
+    socket = deferred(),
+    manual = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? mount.promise : caches === 2 ? socket.promise : Promise.resolve(fresh)),
+    read: () => {
+      reads++;
+      return manual.promise;
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  socket.resolve(fresh);
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "socket open does not turn a fresh cache into an account mutation");
+  mount.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, fresh.accountKey);
+  const pending = render().refresh();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(render().loading, true, "a socket cache update never cancels the in-flight live read");
+  manual.resolve({ ...fresh, accountKey: "live" });
+  await pending;
+  assert.equal(render().snapshot.accountKey, "live");
+});
+
+test("phone socket status reads usage cache while account signals invalidate account metadata", () => {
+  const screen = planUsageHost();
+  screen.render();
+  let cacheReads = 0,
+    accountChanges = 0;
+  const off = screen.source().subscribe(
+    () => {
+      cacheReads++;
+    },
+    () => {
+      accountChanges++;
+    },
+  );
+  screen.events().onStatus(true);
+  assert.equal(cacheReads, 1);
+  assert.equal(accountChanges, 0);
+  screen.events().onSignal("accounts");
+  assert.equal(accountChanges, 1);
+  const header = find(screen.render(), (node) => node.props?.accessibilityLabel === "Codex, 1 account");
+  assert.equal(header.props.accessible, true);
+  off();
+});
+
+test("a failed socket cache read that overtakes mount still settles the initial load", async (t) => {
+  const initial = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? initial.promise : Promise.reject(new Error("Cache unavailable"))),
+    read: async () => {
+      reads++;
+      return { accountKey: "live", providers: [] };
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(reads, 1);
+  assert.equal(render().loading, false);
+  assert.equal(render().snapshot.accountKey, "live");
+  initial.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "live");
 });
 
 function subagentGlance() {
@@ -16536,7 +17150,7 @@ test("the phone New Routine sheet uses desktop's copy, and Create waits for a na
   assert.ok(texts().includes("Starts"));
   assert.deepEqual(
     allNodes(tree, (node) => node.props?.accessibilityRole === "radio").map((node) => node.props.accessibilityLabel),
-    ["On a schedule", "Linear event", "Webhook"],
+    ["Single prompt. One turn on a prompt", "Flow. Steps, checks and approvals", "On a schedule", "Linear event", "Webhook"],
   );
   assert.equal(find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.placeholder, "Name this Routine");
   assert.equal(
@@ -17091,7 +17705,9 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   const { MessageActions, messageActionProps } = load("message-actions.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Platform: platform, Pressable: "Pressable", TextInput: "TextInput", View: "View" },
+    "react-native": { Platform: platform, Pressable: "Pressable", TextInput: "TextInput", View: "View", processColor: (value) => value },
+    "expo-modules-core": { requireOptionalNativeModule: () => null },
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
     "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
     "./plain-text": { markdownPlainText: (value) => value.replaceAll("**", "") },
     "./ui": { PillButton: "PillButton" },
@@ -17100,7 +17716,14 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   let text = "Some **selected** words";
   const render = () => {
     react.begin();
-    return MessageActions({ text, markdown: true, children: (open) => jsx("Message", { ...messageActionProps(open), text }) });
+    const tree = MessageActions({ text, markdown: true, children: (open, swap) => swap(jsx("Message", { ...messageActionProps(open), text })) });
+    const expand = (node) => {
+      if (!node || typeof node !== "object") return node;
+      if (Array.isArray(node)) return node.map(expand);
+      if (typeof node.type === "function") return expand(node.type(node.props));
+      return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
+    };
+    return expand(tree);
   };
   const original = render();
   assert.equal(original.type, "Pressable");
@@ -17125,6 +17748,57 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   );
   platform.OS = "android";
   assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
+});
+
+test("native selection freezes the passage, preserves the formatted view and asks with only the chosen text", () => {
+  const react = hookHost({ effects: true });
+  const asked = [];
+  const { MessageActions, MessageAskContext } = load("message-actions.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Platform: { OS: "ios" },
+      Pressable: "Pressable",
+      View: "View",
+      processColor: (value) => value,
+      StyleSheet: { absoluteFill: { position: "absolute" } },
+    },
+    "expo-modules-core": { requireOptionalNativeModule: () => ({}), requireNativeViewManager: () => "NativeSelectableText" },
+    "expo-clipboard": {},
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
+    "./plain-text": {},
+    "./ui": {},
+    "./primitives/tap": { tap() {} },
+  });
+  MessageAskContext.defaultValue = (text) => asked.push(text);
+  let text = "A **selected** passage.";
+  const render = () => {
+    react.begin();
+    const tree = MessageActions({ text, markdown: true, children: (_open, swap) => swap(jsx("Formatted", { text })) });
+    const slot = tree.props.children;
+    return { tree, slot: slot.type(slot.props) };
+  };
+  render().tree.props.onLongPress({ nativeEvent: { pageX: 42, pageY: 180 } });
+  let current = render();
+  let native = find(current.slot, (node) => node.type === "NativeSelectableText");
+  assert.deepEqual({ ...native.props.start }, { x: 42, y: 180 });
+  assert.equal(native.props.askTitle, "Ask");
+  assert.equal(find(current.slot, (node) => node.props.pointerEvents === "none").props.style.opacity, 0, "the original stays mounted in its measured place");
+  native.props.onContentHeight({ nativeEvent: { height: 120 } });
+  text += " New streamed text.";
+  current = render();
+  native = find(current.slot, (node) => node.type === "NativeSelectableText");
+  assert.equal(native.props.paragraphs[0].spans.map((span) => span.text).join(""), "A selected passage.");
+  assert.equal(native.props.style.height, 120);
+  native.props.onAsk({ nativeEvent: { text: "selected" } });
+  assert.deepEqual(asked, ["selected"]);
+  native.props.onEnd();
+  current = render();
+  assert.equal(
+    find(current.slot, (node) => node.type === "NativeSelectableText"),
+    undefined,
+  );
+  assert.equal(find(current.slot, (node) => node.type === "Formatted").props.text, text);
 });
 
 test("an iPad's on-screen return key sends; a hardware keyboard's shortcut bar and an iPhone keep new lines", () => {
@@ -18242,6 +18916,15 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   assert.equal(idle.props.accessibilityLabel, "Dictate");
   idle.props.onPress();
   assert.equal(starts, 1);
+  const processing = VoiceMicButton({ onPress: () => starts++, processing: "GPT-6 Luna" });
+  assert.equal(processing.props.accessibilityState.busy, true);
+  assert.equal(processing.props.accessibilityValue.text, "Correcting names · GPT-6 Luna");
+  assert.equal(processing.props.style({ pressed: false }).width, 44, "processing keeps the mic's touch target");
+  assert.equal(find(processing, (node) => node.type === "Icon").props.tone, "ink4", "the busy mic is gray");
+  const border = find(processing, (node) => typeof node.type === "function" && node.type.name === "MicLoadingRing");
+  assert.equal(border.props.size, 36, "the loading arc is on the visual button's border");
+  processing.props.onPress();
+  assert.equal(starts, 2, "starting a new take stays available while the previous correction is pending");
 
   let discards = 0;
   let stops = 0;
@@ -18307,7 +18990,7 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   assert.equal(discards, 2);
 });
 
-test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", () => {
+test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", async () => {
   const react = hookHost();
   react.useEffect = react.effect;
   let draft = "fix";
@@ -18373,7 +19056,7 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
     react.flush();
     return tree;
   };
-  const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } });
+  const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } }, null);
   // The words in the field: every run of the attributed text, with whether it is the provisional tail.
   const runs = (tree) => {
     const field = find(tree, (node) => node.type === "Field");
@@ -18391,7 +19074,10 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   assert.equal(draft, "fix");
   phase = "preparing";
   const preparing = render();
-  assert.ok(find(preparing, (node) => node.type === "Text" && node.props.children === "Preparing the microphone\u2026"));
+  assert.ok(
+    !find(preparing, (node) => node.type === "Text" && node.props.children === "Preparing the microphone\u2026"),
+    "starting dictation adds no status row",
+  );
   assert.ok(
     find(preparing, (node) => node.type === "DictationCapsule"),
     "the mic grew into the capsule, in its own place",
@@ -18425,7 +19111,12 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
 
   // Stop: the final transcript settles in place and the tint goes, with the words where they already were.
   phase = "transcribing";
-  find(render(), (node) => node.type === "DictationCapsule").props.onStop();
+  const finishing = render();
+  assert.ok(
+    !find(finishing, (node) => node.type === "Text" && node.props.children === "Finishing the last words\u2026"),
+    "stopping dictation adds no flashing status row",
+  );
+  find(finishing, (node) => node.type === "DictationCapsule").props.onStop();
   assert.equal(stops, 1);
   partial = { text: "", settled: 0 };
   phase = "idle";
@@ -18477,7 +19168,63 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   blocked = false;
   render();
   assert.equal(sent.length, 1, "unblocking does not send a stale transcript");
+
+  action = "paste";
+  draft = "";
+  render();
+  let resolveCorrection;
+  const correction = {
+    model: "GPT-6 Luna",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("open miracle", { draft, selection: { start: 0, end: 0 } }, correction);
+  let fixing = render();
+  assert.equal(draft, "open miracle", "the heard words land before AI answers");
+  assert.equal(find(fixing, (node) => node.type === "VoiceMicButton").props.processing, "GPT-6 Luna");
+  assert.ok(
+    !find(fixing, (node) => node.type === "Text" && String(node.props.children).startsWith("Fixing names")),
+    "processing stays in the mic, with no status row",
+  );
+  resolveCorrection("open Milagre");
+  await correction.text;
+  render();
+  fixing = render();
+  assert.equal(draft, "open Milagre", "the answer updates the dictated words in place");
+  assert.equal(find(fixing, (node) => node.type === "VoiceMicButton").props.processing, null, "the indicator clears after correction");
+  assert.ok(!find(fixing, (node) => node.type === "Text" && String(node.props.children).startsWith("Fixing names")));
+
+  const late = {
+    model: "Claude Haiku",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("please", { draft, selection: { start: draft.length, end: draft.length } }, late);
+  render();
+  draft += " after my edit";
+  render();
+  const editedTree = render();
+  assert.equal(find(editedTree, (node) => node.type === "VoiceMicButton").props.processing, null, "editing clears the indicator before the AI answers");
+  const edited = draft;
+  resolveCorrection("PLEASE");
+  await late.text;
+  render();
+  assert.equal(draft, edited, "a late answer cannot overwrite an edited draft");
+  const unmounted = {
+    model: "Claude Haiku",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("more", { draft, selection: { start: draft.length, end: draft.length } }, unmounted);
+  render();
+  const left = draft;
   react.cleanup();
+  resolveCorrection("MORE");
+  await unmounted.text;
+  assert.equal(draft, left, "leaving the composer drops a late answer");
 });
 
 test("a take's error is a bubble over the mic, not a line that moves the words", () => {
@@ -19281,6 +20028,80 @@ test("inline HTML replies load their immutable page without app chrome", async (
   react.cleanup();
 });
 
+test("inline HTML reports loading until layout, times out with Retry, and rejects stale readiness", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const react = hookHost({ effects: true });
+  const pages = [];
+  class File {
+    constructor() {
+      this.uri = `file:///cache/reply-${pages.length}.html`;
+      this.exists = true;
+      pages.push(this);
+    }
+    writeSync(html) {
+      this.html = html;
+    }
+    delete() {
+      this.exists = false;
+    }
+  }
+  const source = load("html-reply.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: async () => {} } },
+    "expo-file-system": { File, Paths: { cache: "/cache" } },
+    "@expo/dom-webview": { DomWebView: "DomWebView" },
+    "@milagre/shared/html-render": require("../packages/shared/src/html-render.mjs"),
+    "./session": { useSession: () => ({}) },
+  });
+  const { HTML_RENDER_MESSAGE, HTML_RENDER_LOAD_TIMEOUT } = require("../packages/shared/src/html-render.mjs");
+  const heights = [];
+  let html = "<p>First</p>";
+  const render = () => {
+    react.begin();
+    return source.HtmlWebView({ html, onHeight: (height) => heights.push(height) });
+  };
+  const loading = () => find(render(), (node) => node.type?.name === "PageLoading");
+  const webview = () => find(render(), (node) => node.type === "DomWebView");
+  const send = (view, message) => view.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: HTML_RENDER_MESSAGE, ...message }) } });
+  assert.ok(loading(), "preparing the file has visible progress");
+  await new Promise(setImmediate);
+  const first = webview();
+  assert.ok(first);
+  assert.equal(first.props.useExpoModulesBridge, false);
+  send(first, { type: "ready" });
+  assert.ok(loading(), "load alone is not proof of a rendered document");
+  send(first, { type: "size", height: 480 });
+  assert.equal(loading(), undefined);
+  t.mock.timers.tick(HTML_RENDER_LOAD_TIMEOUT + 1);
+  assert.ok(webview(), "successful layout clears the watchdog");
+  html = "<p>Second</p>";
+  render();
+  await new Promise(setImmediate);
+  const second = webview();
+  assert.notEqual(second.props.source.uri, first.props.source.uri);
+  send(first, { type: "size", height: 480 });
+  assert.ok(loading(), "the previous document cannot reveal its replacement");
+  t.mock.timers.tick(HTML_RENDER_LOAD_TIMEOUT);
+  const retry = find(render(), (node) => node.props?.accessibilityLabel === "Retry HTML page");
+  assert.ok(retry);
+  assert.equal(webview(), undefined, "a stalled document is unmounted");
+  retry.props.onPress();
+  render();
+  await new Promise(setImmediate);
+  const retried = webview();
+  assert.notEqual(retried.props.source.uri, second.props.source.uri);
+  assert.ok(loading());
+  send(retried, { type: "size", height: 520 });
+  assert.equal(loading(), undefined);
+  assert.equal(heights.at(-1), 520);
+  react.cleanup();
+  assert.equal(
+    pages.every((file) => !file.exists),
+    true,
+  );
+});
+
 function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async () => null } = {}) {
   const hooks = hookHost({ effects: true });
   let backs = 0;
@@ -19397,4 +20218,115 @@ test("MCP save without a connected computer rejects instead of closing as saved"
     "./session": { useSession: () => ({ client: null }) },
   });
   await assert.rejects(useMcp().saveUrl({ name: "docs", type: "http", url: "https://docs.example/mcp", headers: {} }, "everywhere"), /Connect to a computer/);
+});
+
+test("an iPad dictation shortcut reaches one focused composer and ignores unavailable fields", () => {
+  const react = hookHost();
+  const { useDictationShortcut, toggleDictationShortcut } = load("dictation-shortcut.ts", {
+    react,
+    "expo-router": { useFocusEffect: react.effect },
+  });
+  const calls = [];
+  let focused = "second";
+  let available = true;
+  react.begin();
+  for (const id of ["first", "second"])
+    useDictationShortcut({
+      focused: () => focused === id,
+      dictating: () => id === "first",
+      available: () => available,
+      toggle: () => calls.push(id),
+    });
+  react.flush();
+  toggleDictationShortcut();
+  assert.deepEqual(calls, ["second"]);
+  focused = "none";
+  toggleDictationShortcut();
+  assert.deepEqual(calls, ["second", "first"], "without focus, stop the recording composer");
+  available = false;
+  toggleDictationShortcut();
+  assert.equal(calls.length, 2);
+  react.cleanup();
+  available = true;
+  toggleDictationShortcut();
+  assert.equal(calls.length, 2, "a route that lost focus no longer receives shortcuts");
+});
+
+test("flow drafts serialize edits before Publish and keep failed saves available for retry", async () => {
+  const react = { useCallback: (fn) => fn, useSyncExternalStore() {} };
+  const { useFlowDraft } = load("flow-draft.ts", { react });
+  const client = {};
+  const routine = { id: "flow-draft-test", flow: { revision: 1, steps: [], publishedAt: 1 } };
+  const gate = deferred();
+  const saved = [];
+  const save = async (_id, patch) => {
+    saved.push(patch);
+    if (saved.length === 1) await gate.promise;
+  };
+  const draft = useFlowDraft(client, routine, save);
+  draft.edit([{ id: "first", name: "First", kind: "ask", message: "First?", expiresInHours: 1 }]);
+  const flushing = draft.flush();
+  draft.edit([{ id: "latest", name: "Latest", kind: "ask", message: "Latest?", expiresInHours: 1 }]);
+  gate.resolve();
+  await flushing;
+  assert.deepEqual(
+    saved.map((patch) => patch.flowDraft[0].id),
+    ["first", "latest"],
+  );
+  assert.equal(useFlowDraft(client, routine, save).pending, false);
+
+  const errorClient = {};
+  const refused = useFlowDraft(errorClient, routine, async () => {
+    throw new Error("Computer disconnected");
+  });
+  refused.edit([{ id: "kept", kind: "ask" }]);
+  await assert.rejects(refused.flush(), /Computer disconnected/);
+  const kept = useFlowDraft(errorClient, routine, save);
+  assert.equal(kept.steps[0].id, "kept");
+  assert.equal(kept.pending, true);
+  assert.match(kept.error, /disconnected/);
+  await kept.discard();
+});
+
+test("the phone flow editor offers all six types and keeps each If path editable", () => {
+  const routes = [];
+  const changed = [];
+  const modules = {
+    react: { Fragment: "Fragment" },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
+    "expo-router": { router: { push: (href) => routes.push(href) } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => name }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "./flow-ui": { StepTile: "StepTile" },
+    "./icons": { Icon: "Icon" },
+    "./ui": { useStyles: () => fakeStyles, tap() {}, PullDown: "PullDown" },
+  };
+  modules["./flow-looks"] = load("flow-looks.ts", modules);
+  const { FlowSteps } = load("flow-editor.tsx", modules);
+  const routine = {
+    id: "flow",
+    name: "Flow",
+    flow: { revision: 0, steps: [] },
+    trigger: { kind: "linear", workspace: "w", event: "label-added", label: "agent" },
+  };
+  const draft = { steps: [], published: [], hasDraft: true, edit: (steps) => changed.push(steps) };
+  const empty = FlowSteps({ routine, routines: [], draft, modelName: () => "Default", onTrigger() {} });
+  const tiles = allNodes(
+    empty,
+    (node) =>
+      node.type === "Pressable" &&
+      /^Ask an agent\.|^If\.|^Ask me\.|^Wait for\.|^Open pull request\.|^Comment on Linear\./.test(node.props.accessibilityLabel ?? ""),
+  );
+  assert.equal(tiles.length, 6);
+  tiles[0].props.onPress();
+  assert.equal(changed[0][0].kind, "agent");
+  assert.equal(routes[0].pathname, "/flow-step");
+  const steps = [{ id: "condition", name: "If", kind: "if", field: "trigger.issue.key", test: "is-set", yes: [], otherwise: [] }];
+  const tree = FlowSteps({ routine, routines: [], draft: { ...draft, steps }, modelName: () => "Default", onTrigger() {} });
+  const branches = allNodes(tree, (node) => node.type === "Pressable" && /Add a step on/.test(node.props.accessibilityLabel ?? ""));
+  assert.equal(branches.length, 2);
+  branches[1].props.onPress();
+  assert.equal(routes.at(-1).pathname, "/flow-add-step");
+  assert.equal(routes.at(-1).params.branch, "otherwise");
 });

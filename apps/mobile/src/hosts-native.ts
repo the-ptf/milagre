@@ -7,7 +7,7 @@ import {
   type CompactButtonDisplay,
   type ToolCallDisplay,
 } from "@milagre/shared/chat-display";
-import { dictationLanguage, whisperModelFor } from "@milagre/shared/dictation";
+import { dictationLanguage, whisperModelFor, dictationFixModel, type DictationFixModel } from "@milagre/shared/dictation";
 import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
@@ -210,6 +210,38 @@ export async function savePanelWidth(width: number) {
     /* best effort */
   }
 }
+const dictationFixUpKey = "milagre.dictation-fix-up.v1";
+const dictationFixModelKey = "milagre.dictation-fix-model.v1";
+/** Settings › Chat › Dictation: whether the Mac's fix-up corrects a finished take's names, on unless turned off. */
+export async function readDictationFixUp(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(dictationFixUpKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveDictationFixUp(on: boolean) {
+  try {
+    await SecureStore.setItemAsync(dictationFixUpKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
+/** Settings › Chat › Dictation: the fix-up's model, "auto" for the Chat's own agent's smallest one. */
+export async function readDictationFixModel(): Promise<DictationFixModel> {
+  try {
+    return dictationFixModel(await SecureStore.getItemAsync(dictationFixModelKey));
+  } catch {
+    return "auto";
+  }
+}
+export async function saveDictationFixModel(model: DictationFixModel) {
+  try {
+    await SecureStore.setItemAsync(dictationFixModelKey, model);
+  } catch {
+    /* best effort */
+  }
+}
 const dictationLanguageKey = "milagre.dictation-language.v1";
 const dictationActionKey = "milagre.dictation-action.v1";
 export async function readDictationAction(): Promise<DictationActionPreference> {
@@ -309,4 +341,20 @@ export async function saveInternalBrowser(on: boolean) {
   await SecureStore.setItemAsync(internalBrowserKey, on ? "on" : "off", {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
+}
+
+const usageDisplayKey = "milagre.usage-display.v1";
+export async function readUsageDisplay(): Promise<import("@milagre/shared/usage").UsageDisplay> {
+  try {
+    return (await SecureStore.getItemAsync(usageDisplayKey)) === "remaining" ? "remaining" : "used";
+  } catch {
+    return "used";
+  }
+}
+export async function saveUsageDisplay(display: import("@milagre/shared/usage").UsageDisplay) {
+  try {
+    await SecureStore.setItemAsync(usageDisplayKey, display);
+  } catch {
+    /* Keep the in-memory preference if storage is unavailable. */
+  }
 }

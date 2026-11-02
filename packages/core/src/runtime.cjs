@@ -97,7 +97,7 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
-const { createTokenUsage } = require("./token-usage.cjs");
+const { createTokenUsage, readTokenUsageScopes } = require("./token-usage.cjs");
 const { createTokenUsageScan } = require("./token-usage-scan.cjs");
 const { createTokenPricing } = require("./token-usage-pricing.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
@@ -496,12 +496,12 @@ function createRuntime(options) {
   const kiroUsage = createKiroUsage({ cli: () => baseCli("kiro") });
   // A host may bring its own usage, models and CLI status (the review demo, which runs no real agent).
   const accountUsage = new Map();
-  // Tests replace single readers. Claude's and Codex's are called with no arguments; Antigravity's gets the Account's environment.
+  // Tests replace single readers; each gets the Account's environment.
   const readers = options.usageReaders ?? {};
-  function usageForAccounts(scope) {
-    const claude = accounts.selected("claude", scope),
-      codex = accounts.selected("codex", scope),
-      antigravity = accounts.selected("antigravity", scope);
+  function usageForAccounts(scope, overrides = {}) {
+    const claude = overrides.claude ?? accounts.selected("claude", scope),
+      codex = overrides.codex ?? accounts.selected("codex", scope),
+      antigravity = overrides.antigravity ?? accounts.selected("antigravity", scope);
     // The default Antigravity Account adds nothing to the key, so existing cache files keep their names.
     const key = `${claude}-${codex}${antigravity === "default" ? "" : `-${antigravity}`}`;
     if (!accountUsage.has(key)) {
@@ -517,13 +517,12 @@ function createRuntime(options) {
         read: createUsageReader({
           ready: () => environmentReady,
           store,
-          readClaude:
-            readers.claude ??
-            (async () => {
-              const env = accounts.environment("claude", claude);
-              return env.CLAUDE_CONFIG_DIR ? readClaudeProfileUsage({ command: (await baseCli("claude")).command, env }) : readClaudeUsage();
-            }),
-          readCodex: readers.codex ?? (() => readCodexUsage({ env: accounts.environment("codex", codex) })),
+          readClaude: async () => {
+            const env = accounts.environment("claude", claude);
+            if (readers.claude) return readers.claude({ env });
+            return env.CLAUDE_CONFIG_DIR ? readClaudeProfileUsage({ command: (await baseCli("claude")).command, env }) : readClaudeUsage();
+          },
+          readCodex: () => (readers.codex ?? readCodexUsage)({ env: accounts.environment("codex", codex) }),
           readAntigravity: () => (readers.antigravity ?? readAntigravityUsage)({ env: accounts.environment("antigravity", antigravity) }),
           readKiro: readers.kiro ?? kiroUsage,
         }),
@@ -815,16 +814,29 @@ function createRuntime(options) {
     return searchFiles(root, query);
   });
   // Dictation: the words a Chat's project gives the recognizer, and the AI fix-up of a phone's Apple transcript.
-  commands.handle("dictation:context", async (_event, { cwd, chatTitle } = {}) => {
+  commands.handle("dictation:context", async (_event, { cwd, chatTitle, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
   });
-  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider } = {}) => {
+  // The last turns of the Chat being dictated into, for the names it has used. Only an open Project's Chat; anything else
+  // (a Link, a Chat not loaded, a failed read) gives none rather than holding the take up.
+  async function dictationMessages(scope, chatId) {
+    if (typeof scope !== "string" || !states.has(scope) || !Number.isSafeInteger(chatId)) return [];
+    try {
+      const { messages } = chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, { turns: 6, limit: 40 });
+      return messages.map((message) => message.body).filter((body) => typeof body === "string");
+    } catch {
+      return [];
+    }
+  }
+  // `model` is the user's pick in Settings: "auto" (the Chat's agent, `provider`, then the others) or one agent alone.
+  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider, model, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
     const models =
       options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
-    return polishDictation({ text, terms, chatTitle, provider }, { models });
+    const picked = typeof model === "string" && model !== "auto" ? model : null;
+    return polishDictation({ text, terms, chatTitle, provider: picked ?? provider, only: Boolean(picked) }, { models });
   });
   // Path-taking commands only serve folders the user opened: an open project, one of its worktrees, or a recent
   // project (the switcher shows their avatars). Any renderer or paired phone script otherwise reaches any folder.
@@ -1667,6 +1679,11 @@ function createRuntime(options) {
     botHome: (projectPath) => Boolean(bots?.isHome(projectPath)),
     // A Run that ends is named from its final reply, with the models that name Chats.
     generateRunTitle: (request) => generateRunTitle(request, { models: titleModels(request.projectPath), isClosing: () => closing }),
+    // Flow steps: Linear reads and comments (made further down), the Stop button, and the "waits for you" notification.
+    linearIssues: () => linearIssues,
+    linearTools: () => linearTools,
+    stopChat: (chatId) => stopChat(chatId),
+    notifyWaiting: (notice) => options.notifyWaiting?.(notice),
     timers: options.routines,
   });
   routines.start();
@@ -1711,6 +1728,9 @@ function createRuntime(options) {
   commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
   commands.handle("routines:delete", (_event, id) => routines.remove(id));
   commands.handle("routines:run-now", (_event, id) => routines.runNow(id));
+  // A flow Run's owner actions. The Routine's id comes first so a paired computer's window routes it to the right Mac.
+  commands.handle("routines:flow-act", (_event, _routineId, runId, action, options) => routines.flowAct(runId, action, options));
+  commands.handle("routines:flow-test", (_event, id) => routines.flowTest(id));
   // A Routine the user made in the Routines form; routines.create checks its target (a Project Milagre lists).
   commands.handle("routines:create", async (_event, input) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
@@ -1867,6 +1887,56 @@ function createRuntime(options) {
     return usageWithAccounts(usage, cachedSnapshot(usage.store, Date.now()));
   });
 
+  // Keep every saved identity visible; only signed-in Accounts query usage. Pin unrelated providers to their CLI
+  // profiles so changing a computer default cannot move another Account's overview into a different cache.
+  async function allAccountUsage(refresh) {
+    const identities = await accounts.list();
+    const connected = identities.providers
+      .filter((group) => group.installed !== false)
+      .flatMap((group) => group.accounts.map((account) => ({ ...account, default: group.selectedId === account.id })));
+    const providers = await Promise.all(
+      connected.map(async (account) => {
+        const usage = usageForAccounts(undefined, { claude: "default", codex: "default", antigravity: "default", [account.provider]: account.id });
+        const result = account.state === "ready" ? (refresh ? await usage.read.provider(account.provider) : usage.read.cached(account.provider)) : null;
+        const checkedAt = usage.read.checkedAt(account.provider);
+        return {
+          ...(result ?? {
+            provider: account.provider,
+            status: "unavailable",
+            windows: [],
+            updatedAt: new Date().toISOString(),
+            message:
+              account.message ||
+              (account.state === "ready" ? "Refresh to check usage." : account.state === "unknown" ? "Checking account sign-in…" : "Account is not signed in."),
+          }),
+          ...(checkedAt ? { checkedAt } : {}),
+          account: {
+            id: account.id,
+            label: account.label,
+            state: account.state,
+            ...(account.default ? { default: true } : {}),
+            ...(account.email ? { email: account.email } : {}),
+          },
+        };
+      }),
+    );
+    return {
+      generatedAt: new Date().toISOString(),
+      accountKey: `all:${connected
+        .map((account) => `${account.provider}:${account.id}:${account.state}`)
+        .sort()
+        .join(",")}`,
+      providers,
+    };
+  }
+  commands.handle("usage:accounts:read", async () => {
+    await environmentReady;
+    const snapshot = await allAccountUsage(true);
+    emit("usage:changed", {});
+    return snapshot;
+  });
+  commands.handle("usage:accounts:cached", () => allAccountUsage(false));
+
   // Token usage page: every Claude Code and Codex transcript on this computer (the connected CLI accounts' and each
   // Account's folders), priced with LiteLLM's list and credited to the Projects and Chats Milagre knows.
   async function tokenUsageRoots() {
@@ -1895,14 +1965,14 @@ function createRuntime(options) {
     createTokenUsage({
       scan: createTokenUsageScan({ cacheFile: path.join(dataDir, "token-usage-cache.json"), roots: tokenUsageRoots }),
       pricing: createTokenPricing({ file: path.join(dataDir, "model-prices.json"), onChange: () => emit("token-usage:changed", {}) }),
-      projects: async () =>
-        Promise.all(
-          (await projectRegistry().list()).map(async (project) => ({
-            path: project.path,
-            name: chatsHome.isHome(project.path) ? CHATS_ACCOUNT_LABEL : project.name || path.basename(project.path),
-            state: await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null),
-          })),
-        ),
+      projects: () =>
+        readTokenUsageScopes({
+          registry: projectRegistry(),
+          chatsHome,
+          projectState: projectStateReadOnly,
+          // A named Link owns its canonical Chat. Read metadata without opening it or hydrating its messages.
+          linkState: (id) => linkStore.cached(id) ?? readRawState(linkStore.directory(id)),
+        }),
       worktreeRoot: worktreeRoot(),
       emit,
     });

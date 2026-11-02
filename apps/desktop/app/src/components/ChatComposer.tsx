@@ -1,4 +1,6 @@
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
+import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
+import { MessageSelection } from "./MessageSelection";
 import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
@@ -1493,8 +1495,18 @@ export function ChatComposer({
     setUndoIntent(action);
     void review.inspect(id);
   });
-  const focusPrompt = useCallback(() => {
-    requestAnimationFrame(() => root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
+  const focusPrompt = useCallback((atEnd = false) => {
+    requestAnimationFrame(() => {
+      const editor = root.current?.querySelector<HTMLElement>("[data-prompt-editor]");
+      editor?.focus();
+      if (atEnd && editor) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+      }
+    });
   }, []);
   // The prompt takes the keys at once after a pick, not the heading's button: what is typed while the draft moves to
   // the picked Project lands in the prompt, and goes along with it (App's moveNewChat).
@@ -1662,6 +1674,13 @@ export function ChatComposer({
               </div>
             ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
+                <MessageSelection
+                  container={root}
+                  onAsk={(text) => {
+                    onDraftChange(quoteIntoDraft(draft, text));
+                    focusPrompt(true);
+                  }}
+                />
                 <MessageScroller
                   navigation="rail"
                   followOutput

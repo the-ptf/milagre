@@ -297,6 +297,87 @@ async function browserChecks() {
     await evaluate(`window.setSuggestOptions({})`);
     await delay(100);
     assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "unblocking does not send an old transcript");
+    await evaluate("window.setSuggestOptions({}); window.updateSettings({dictationAction:'paste',dictationShortcutMode:'hold'});");
+    await delay(100);
+    const keyDown = "window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    const keyUp = "window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 1");
+    await evaluate(keyUp);
+    await evaluate("window.startRecording()");
+    await waitFor("window.micStops === 1");
+    assert.equal(await evaluate("window.micStarts"), 1, "hold starts exactly one composer and finishes after a pending microphone opens");
+    await evaluate("window.updateSettings({dictationShortcutMode:'toggle'})");
+    await delay(100);
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 2");
+    await evaluate("window.startRecording()");
+    await evaluate(keyUp);
+    await delay(50);
+    assert.equal(await evaluate("window.micStops"), 1, "toggle mode keeps recording after release");
+    await evaluate(keyDown);
+    await waitFor("window.micStops === 2");
+    await evaluate(keyUp);
+    await type("open miracle");
+    await evaluate("window.setDictationPhase('recording')");
+    await waitFor("!!document.querySelector('[data-dictation-capsule]')");
+    const recordingHeight = await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height");
+    await evaluate("window.setDictationPhase('transcribing')");
+    await waitFor("document.querySelector('[data-dictation-status]')?.textContent.includes('Finishing the last words')");
+    assert.equal(
+      await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height"),
+      recordingHeight,
+      "Stop never inserts a row or moves the text area",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('[data-dictation-status]').classList.contains('sr-only')"),
+      true,
+      "finishing remains announced without a visible flash",
+    );
+    await evaluate("window.setDictationPhase('idle')");
+    await type("");
+    await evaluate(
+      "window.deliverTranscript('open miracle', {selection:{start:0,end:0}}, {model:'GPT-6 Luna',text:new Promise(resolve=>{window.finishCorrection=resolve})})",
+    );
+    await waitFor("!!document.querySelector('[data-dictation-processing]')");
+    assert.equal(await evaluate("document.querySelector('[data-dictation-processing]').getAttribute('aria-busy')"), "true");
+    assert.equal(await evaluate("!!document.querySelector('[data-dictation-status]')"), false, "AI correction adds no status row");
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft remains editable during correction");
+    assert.equal(await evaluate("document.querySelector('[aria-label=Send]').disabled"), false, "Send stays available during correction");
+    assert.equal(
+      await evaluate("parseFloat(getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).width)"),
+      28,
+      "the loading arc follows the mic button's border",
+    );
+    await evaluate("document.querySelector('[data-dictation-processing]').scrollIntoView({block:'nearest'})");
+    await screenshot("dictation-processing-before-hover");
+    const micPoint = await evaluate(
+      "(() => {const r=document.querySelector('[data-dictation-processing]').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()",
+    );
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    window.webContents.sendInputEvent({ type: "mouseMove", ...micPoint });
+    await evaluate(
+      "document.querySelector('[data-dictation-processing]').dispatchEvent(new PointerEvent('pointerover',{bubbles:true,relatedTarget:document.body}))",
+    );
+    await waitFor("[...document.querySelectorAll('[role=tooltip]')].some(node=>node.textContent.includes('Correcting names · GPT-6 Luna'))");
+    await screenshot("dictation-processing-tooltip");
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    for (const dark of [false, true]) {
+      await evaluate(`document.documentElement.classList.toggle('dark', ${dark})`);
+      await screenshot(dark ? "dictation-processing-dark" : "dictation-processing-light");
+    }
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(
+      await evaluate("getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).animationName"),
+      "reduced-motion-loading",
+      "reduced motion keeps a fading cue without rotation",
+    );
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+    window.webContents.debugger.detach();
+    await evaluate("window.finishCorrection('open Milagre')");
+    await waitFor("!document.querySelector('[data-dictation-processing]')");
+    await waitFor(`${editor}.value === 'open Milagre'`);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",
@@ -329,10 +410,12 @@ async function main() {
         },
         load(id) {
           if (id !== "\0dictation-fixture") return;
-          return `import { useEffect } from 'react';
+          return `import { useEffect, useState } from 'react';
             export function useDictation(cwd, scope, deliver) {
-              useEffect(() => { window.deliverTranscript = deliver; });
-              return { phase: 'idle', error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() {}, stop() {}, cancel() {}, dismiss() {}, openSettings() {} };
+              const [phase, setPhase] = useState('idle');
+              window.startRecording = () => setPhase('recording'); window.setDictationPhase = setPhase;
+              useEffect(() => { window.deliverTranscript = (text, anchor, correction = null) => deliver(text, anchor, correction); });
+              return { phase, error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() { window.micStarts = (window.micStarts || 0) + 1; setPhase('preparing'); }, stop() { window.micStops = (window.micStops || 0) + 1; setPhase('idle'); }, cancel() { setPhase('idle'); }, dismiss() {}, openSettings() {} };
             }`;
         },
       },

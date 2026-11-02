@@ -163,7 +163,7 @@ function makeBridge(invoke, listen, send) {
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
     dictationContext: (request) => invoke("dictation:context", request),
-    // The phone's fix-up of an Apple transcript; the desktop transcribes with Whisper and has no use for it.
+    // The fix-up of a finished take's misheard names, which both apps write over the take in place.
     polishDictation: (request) => invoke("dictation:polish", request),
     openSkill: (request) => invoke("skills:open", request),
     revealSkill: (projectPath, file) => invoke("skills:reveal", projectPath, file),
@@ -225,6 +225,8 @@ function makeBridge(invoke, listen, send) {
     updateRoutine: (id, patch) => invoke("routines:update", id, patch),
     deleteRoutine: (id) => invoke("routines:delete", id),
     runRoutineNow: (id) => invoke("routines:run-now", id),
+    flowRunAct: (routineId, runId, action, options) => invoke("routines:flow-act", routineId, runId, action, options),
+    testFlow: (id) => invoke("routines:flow-test", id),
     createRoutine: (input) => invoke("routines:create", input),
     routineTargets: () => invoke("routines:targets"),
     routineLinearOptions: (args) => invoke("routines:linear-options", args),
@@ -425,6 +427,8 @@ function makeBridge(invoke, listen, send) {
     readUsage: (scopeKey) => invoke("usage:read", scopeKey),
     setKeepAwake: (enabled) => invoke("app:set-keep-awake", enabled),
     getCachedUsage: (scopeKey) => invoke("usage:cached", scopeKey),
+    readAccountUsage: () => invoke("usage:accounts:read"),
+    getCachedAccountUsage: () => invoke("usage:accounts:cached"),
     readTokenUsage: (request) => invoke("token-usage:read", request),
     onTokenUsageChanged: (callback) => listen("token-usage:changed", () => callback()),
     setNotifyWhenWaiting: (on) => invoke("settings:notify-when-waiting", on),

@@ -15,6 +15,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { TOOL_CALL_DISPLAYS, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { DICTATION_ACTION_OPTIONS, type DictationActionPreference } from "@milagre/shared/voice-dictation";
+import { DICTATION_SHORTCUT_MODES, type DictationShortcutMode } from "@milagre/shared/dictation";
 
 type Choice<T extends string> = { id: T; label: string; description: string; preview: ReactNode };
 
@@ -276,4 +277,58 @@ export function ReasoningChoice({ expanded, onChange }: { expanded: boolean; onC
 
 export function ToolCallChoice({ value, onChange }: { value: ToolCallDisplay; onChange: (value: ToolCallDisplay) => void }) {
   return <ChoiceCards label="Tool calls" value={value} onChange={onChange} choices={TOOL_CALL_CHOICES} />;
+}
+
+/** How the Dictate shortcut works: held while talking, or pressed to start and again to stop. */
+export function DictationShortcutModeChoice({
+  value,
+  onChange,
+  shortcut,
+}: {
+  value: DictationShortcutMode;
+  onChange: (value: DictationShortcutMode) => void;
+  shortcut: string;
+}) {
+  return (
+    <ChoiceCards
+      compact
+      label="How the shortcut works"
+      value={value}
+      onChange={onChange}
+      choices={DICTATION_SHORTCUT_MODES.map((mode) => ({
+        id: mode.value,
+        label: mode.label,
+        description: mode.description,
+        preview: <ShortcutPreview hold={mode.value === "hold"} shortcut={shortcut} />,
+      }))}
+    />
+  );
+}
+
+/** A key cap held down under a long wave, or pressed twice around a short one. */
+function ShortcutPreview({ hold, shortcut }: { hold: boolean; shortcut: string }) {
+  const cap = (pressed: boolean) => (
+    <span
+      className={`flex h-6 w-12 shrink-0 items-center justify-center rounded-control border border-line-strong text-11 font-semibold text-ink-2 ${pressed ? "translate-y-px bg-line shadow-none" : "bg-surface shadow-xs"}`}
+    >
+      {shortcut}
+    </span>
+  );
+  const wave = (width: string) => <span className="h-1.5 shrink rounded-full bg-accent/50" style={{ width }} />;
+  return (
+    <span className="mx-auto flex h-full w-full max-w-56 items-center justify-center gap-2">
+      {hold ? (
+        <>
+          {cap(true)}
+          {wave("60%")}
+        </>
+      ) : (
+        <>
+          {cap(false)}
+          {wave("40%")}
+          {cap(false)}
+        </>
+      )}
+    </span>
+  );
 }

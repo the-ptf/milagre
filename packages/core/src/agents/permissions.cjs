@@ -224,6 +224,8 @@ const OWN_CHAT_TOOLS = [
   "browser_open",
   "browser_resolve_comment",
   "conclude_negotiation",
+  // Hands a Routine flow step's fields back to the Run that asked for them.
+  "flow_step_output",
 ];
 const ROUTINE_READS = ROUTINE_TOOL_NAMES.filter((name) => name === "routine_list");
 const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...ROUTINE_READS, ...SELF_GATED_TOOLS, ...OWN_CHAT_TOOLS]);

@@ -31,6 +31,7 @@ import {
   MoreHorizontalIcon,
   SidebarLeftIcon,
   StopIcon,
+  Video01Icon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
@@ -59,6 +60,7 @@ import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPromp
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ChatLinkProvider } from "../chat-link-context";
+import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
@@ -288,8 +290,7 @@ export default function ChatScreen() {
     router.setParams({ id: String(shown.chatId), worktreeId: undefined, draft: undefined, prefill: undefined });
     closeBeside();
   }, [shown]);
-  // The pane whose composer has focus owns the keyboard: only its composer rides it and only its transcript makes room, so
-  // the other pane does no keyboard-driven layout work on every frame of the animation.
+  // Focus identifies the pane whose terminal can own the keyboard. Both composers and transcripts make room for it.
   const [typing, setTyping] = useState<"routed" | "beside">("routed");
   const besideTyping = Boolean(shown) && typing === "beside";
   const routedTypes = useCallback(() => setTyping("routed"), []);
@@ -415,6 +416,19 @@ function ChatPane({
   const [terminalCount, setTerminalCount] = useState<number | undefined>(undefined);
   // The composer has the keyboard; without it, a keyboard up over the docked Terminal is the Terminal's.
   const [composerFocused, setComposerFocused] = useState(false);
+  // Ask in a message's selection menu: the passage goes into the draft as a quote and the composer takes the keyboard.
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  const askChatId = `${session.snapshot?.project.path ?? ""}#${params.id ?? `new:${params.worktreeId}`}`;
+  const askTarget = useRef({ chatId: "", setDrafts: composer.setDrafts });
+  useEffect(() => {
+    askTarget.current = { chatId: askChatId, setDrafts: composer.setDrafts };
+  });
+  // One identity for the pane's life, so the messages that read it don't render again with each keystroke.
+  const askAboutPassage = useCallback((passage: string) => {
+    const { chatId: target, setDrafts } = askTarget.current;
+    setDrafts((current) => ({ ...current, [target]: quoteIntoDraft(current[target] || "", passage) }));
+    setComposerFocusRequest((value) => value + 1);
+  }, []);
   const [error, setError] = useState("");
   // Bumped after a link or unlink so the Linear issues of the Worktrees are read again.
   const [linkVersion, setLinkVersion] = useState(0);
@@ -914,7 +928,7 @@ function ChatPane({
   const restingKeyboard = useKeyboardState((state) => (state.isVisible ? state.height : 0));
   const startLift = Math.max(insets.bottom, 12) - 8;
   const startLineStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: ownsKeyboard ? Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 : 0 }],
+    transform: [{ translateY: Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 }],
   }));
   const sidebar = <SidebarToolbar onOpenNavigation={panels.show} />;
   // A comment or a choice from the design sheet is sent from here when the Chat comes back into view. Sent while the
@@ -2113,7 +2127,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ChatLinkProvider reachable={reachable} openLink={openChatLink}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
@@ -2137,7 +2151,9 @@ function ChatPane({
                 <KeyboardChatScrollView
                   key={scrollKey}
                   ref={scroll}
-                  freeze={!ownsKeyboard || terminalTyping}
+                  // The keyboard covers both panes. Both must observe its full animation, including when focus moves
+                  // between composers while it is open; unfreezing after focus misses the opening scroll adjustment.
+                  freeze={terminalTyping}
                   offset={lift}
                   keyboardLiftBehavior="whenAtEnd"
                   onEndVisible={onEndVisible}
@@ -2161,7 +2177,7 @@ function ChatPane({
                     scrollOffset.current = e.contentOffset.y;
                     const under = e.contentOffset.y > 4;
                     setUnderHeader((current) => (current === under ? current : under));
-                    const distance = e.contentSize.height - e.contentOffset.y - e.layoutMeasurement.height;
+                    const distance = e.contentSize.height + (e.contentInset?.bottom ?? 0) - e.contentOffset.y - e.layoutMeasurement.height;
                     if (!placed && distance <= 1) setPlacedKey(scrollKey);
                     // Native scroll events can arrive before the jump catches up with image layout.
                     if (scrollingToBottom.current) {
@@ -2452,14 +2468,12 @@ function ChatPane({
                   top={insets.top + 72}
                   bottom={dockHeight + 12}
                   keyboardOffset={lift}
-                  followKeyboard={ownsKeyboard && !terminalTyping}
+                  followKeyboard={!terminalTyping}
                 />
                 <KeyboardStickyView
-                  enabled={ownsKeyboard && !terminalTyping}
+                  enabled={!terminalTyping}
                   pointerEvents="box-none"
-                  // The other pane's composer jumps clear of the open keyboard once, so a tap can move the keyboard to it. A
-                  // disabled sticky view sits at its `closed` offset, which overrides any transform in `style`.
-                  offset={{ closed: ownsKeyboard ? 0 : Math.min(0, lift - restingKeyboard), opened: lift }}
+                  offset={{ closed: 0, opened: lift }}
                   style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
                 >
                   {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
@@ -2784,6 +2798,11 @@ function ChatPane({
                           >
                             {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
                             {ultracodeOn && <UltracodeGlow radius={startTray ? 23 : 24} />}
+                            {picking && (
+                              <Text accessibilityRole="progressbar" accessibilityLabel="Preparing attachment" style={styles.caption}>
+                                Preparing attachment...
+                              </Text>
+                            )}
                             {!!attachments.length && (
                               <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
                                 {attachments.map((item) => {
@@ -2815,7 +2834,7 @@ function ChatPane({
                                           }
                                           style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
                                         >
-                                          <Icon icon={File01Icon} tone="ink2" size={18} />
+                                          <Icon icon={item.video ? Video01Icon : File01Icon} tone="ink2" size={18} />
                                           <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
                                             {item.name}
                                           </Text>
@@ -2897,6 +2916,10 @@ function ChatPane({
                                 onTyping();
                               }}
                               onBlur={() => setComposerFocused(false)}
+                              focusRequest={composerFocusRequest}
+                              // In a split the pane takes the keyboard on touch-down: by focus its animation has begun, and
+                              // the pane would miss the lift that keeps its transcript's end above the keyboard.
+                              onTouchStart={onTyping}
                               onChangeText={(value) => {
                                 // Clearing the composer also clears the limit error that its mentions caused.
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));

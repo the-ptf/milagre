@@ -70,8 +70,8 @@ const sourceOf = (route: keyof typeof SETTINGS_PAGES) => flat(SOURCES[route].map
 /** Titles written as a plain string on a row primitive, or on the helpers a section draws its rows with. */
 function staticTitles(file: string): string[] {
   const tree = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  // Rows and controls the find param lights up: the first four by `title`, the last three by `label`.
-  const primitives = new Set(["Row", "ListRow", "Toggle", "ChoiceRow"]);
+  // Rows and controls the find param lights up: the first five by `title`, the last three by `label`.
+  const primitives = new Set(["Row", "ListRow", "Toggle", "ChoiceRow", "Findable"]);
   const labelled = new Set(["Choice", "Segmented", "ChoiceCards"]);
   const helpers = new Set(["toggle", "permission"]);
   const found: string[] = [];
@@ -146,7 +146,7 @@ test("every entry's title is drawn by a row or control that lights up", () => {
     const inShared = SOURCES[entry.page].some((file) => !file.endsWith(".tsx") && read(file).includes(entry.title));
     assert.ok(
       titles.includes(entry.title) || inShared,
-      `${entry.page}: "${entry.title}" is not the title of a Row, ListRow, Toggle or ChoiceRow, nor the label of a Choice, Segmented or ChoiceCards`,
+      `${entry.page}: "${entry.title}" is not the title of a Row, ListRow, Toggle, ChoiceRow or Findable, nor the label of a Choice, Segmented or ChoiceCards`,
     );
   }
 });

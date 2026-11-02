@@ -1,6 +1,7 @@
 import { Clock01Icon, Comment01Icon, Exchange01Icon, Pulse01Icon, Tag01Icon, UserCheck01Icon, WebhookIcon } from "@hugeicons/core-free-icons";
 import { clock, triggerText } from "@milagre/shared/routines";
 import { deleteWarning } from "@milagre/shared/routine-form";
+import { needsAnswer } from "@milagre/shared/routine-flows";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import type { IconData } from "./icons";
 
@@ -65,6 +66,8 @@ function lastRun(runs: RoutineRun[] | undefined) {
 export function routineMeta(routine: RoutineLike, now: number) {
   const parts = [capital(triggerText(routine.trigger))];
   if (routine.pausedReason) parts.push(`Paused: ${routine.pausedReason}`);
+  // A flow saved before its first publish has nothing to run yet.
+  else if (routine.flow && routine.flow.revision === 0) parts.push("Flow draft, not published");
   else if (!routine.enabled) parts.push("Off");
   else if (isHeartbeat(routine)) {
     if (typeof routine.nextRunAt === "number") parts.push(`next ${clock(routine.nextRunAt)}`);
@@ -76,6 +79,7 @@ export function routineMeta(routine: RoutineLike, now: number) {
     if (!last) parts.push("no Runs yet");
     else parts.push(event?.kind === "linear" ? `${event.issue.key}, ${ago(last.startedAt, now)}` : `last Run ${ago(last.startedAt, now)}`);
   }
+  if (routine.flow && (routine.runs ?? []).some((run) => needsAnswer(run))) parts.push("a Run waits for you");
   if (routine.lastError) parts.push(routine.lastError);
   return parts.join(" · ");
 }

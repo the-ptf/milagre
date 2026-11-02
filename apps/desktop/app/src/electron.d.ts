@@ -20,6 +20,7 @@ import type {
   ChatMessage,
   Routine,
   RoutineFallback,
+  FlowStep,
   RoutineRun,
   RoutineTarget,
   RoutineTrigger,
@@ -115,6 +116,10 @@ export type RoutineUpdate = Partial<Pick<Routine, "name" | "prompt" | "enabled">
   /** Webhook Routines: a new HMAC secret (write-only, never read back) and the header the signature comes in (null or blank: the default). */
   signingSecret?: string;
   signingHeader?: string | null;
+  /** A flow's draft steps, saved as they are edited; null drops the draft. */
+  flowDraft?: FlowStep[] | null;
+  /** Makes the draft the steps new Runs use (the next revision). */
+  publishFlow?: true;
 };
 
 /** A Routine the user makes in the Routines form. It is always theirs (`createdBy` is set by the Mac). */
@@ -123,7 +128,12 @@ export type RoutineCreate = Pick<Routine, "name" | "prompt" | "trigger" | "targe
     /** Webhook Routines: the HMAC secret, write-only (signs the Routine), and the header the signature comes in. */
     signingSecret?: string;
     signingHeader?: string;
+    /** A flow: its steps, published at revision 1, or with `publish: false` kept as a draft (the Routine stays off). */
+    flow?: { steps: FlowStep[]; publish?: boolean };
   };
+
+/** What the owner does to a flow Run. */
+export type FlowRunAction = "approve" | "reject" | "pause" | "resume" | "end" | "retry";
 
 /** The Routines form's Linear choices. `error` says why a read failed. */
 export type RoutineLinearOptions = {
@@ -320,9 +330,20 @@ export type MilagreBridge = {
   /** The text of a SKILL.md the catalog listed (a shadowed one included), up to 256 KiB. */
   readSkill: (projectPath: string, file: string) => Promise<string>;
   /** The words a dictated message about this folder likely holds, for the recognizer. */
-  dictationContext: (request: { cwd: string; chatTitle?: string }) => Promise<{ terms: string[] }>;
+  /** `scope` and `chatId` name the Chat dictated into: the names its last turns used join the words. */
+  dictationContext: (request: { cwd: string; chatTitle?: string; scope?: string; chatId?: number }) => Promise<{ terms: string[] }>;
   /** A dictated message with misheard names fixed by a small model of the Chat's agent; as dictated when none answers. */
-  polishDictation: (request: { cwd: string; text: string; chatTitle?: string; provider?: string }) => Promise<{ text: string; polished: boolean }>;
+  /** Claude Haiku's fix-up of a finished take's misheard names (the Chat's agent's small model when Claude can't answer). */
+  polishDictation: (request: {
+    cwd: string;
+    text: string;
+    chatTitle?: string;
+    provider?: string;
+    /** The user's pick: "auto" (the Chat's agent, `provider`, then the others) or one agent alone. */
+    model?: string;
+    scope?: string;
+    chatId?: number;
+  }) => Promise<{ text: string; polished: boolean }>;
   /** Opens a listed SKILL.md in an editor, wherever it lives (user skills are outside any checkout). */
   openSkill: (request: { projectPath: string; file: string; editor?: string }) => Promise<Result<null>>;
   /** Shows a listed SKILL.md in the file manager. */
@@ -455,6 +476,10 @@ export type MilagreBridge = {
   updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;
   deleteRoutine: (id: string) => Promise<{ removed: boolean }>;
   runRoutineNow: (id: string) => Promise<RoutineRun | undefined>;
+  /** Approve, reject (with `reason`), pause, resume, end or retry (with `note`) a flow Run of Routine `routineId`. */
+  flowRunAct: (routineId: string, runId: string, action: FlowRunAction, options?: { reason?: string; note?: string }) => Promise<{ run: RoutineRun | null }>;
+  /** A Test run of the flow's draft. */
+  testFlow: (id: string) => Promise<{ run: RoutineRun }>;
   /** `hookUrl` comes with a webhook Routine (a later update). */
   createRoutine: (input: RoutineCreate) => Promise<{ routine: Routine; hookUrl?: string }>;
   routineTargets: () => Promise<RoutineTargets>;
@@ -789,6 +814,8 @@ export type MilagreBridge = {
   /** Whether the Mac stays awake while Milagre runs (the screen can still sleep; plugged in, also with the lid closed). */
   setKeepAwake: (enabled: boolean) => Promise<void>;
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
+  readAccountUsage: () => Promise<UsageSnapshot>;
+  getCachedAccountUsage: () => Promise<UsageSnapshot>;
   /** The Usage page: tokens and estimated cost from this computer's Claude Code and Codex transcripts. */
   readTokenUsage: (request: import("@milagre/shared/token-usage").TokenUsageRequest) => Promise<import("@milagre/shared/token-usage").TokenUsageReport>;
   /** A transcript scan or a price refresh changed what readTokenUsage returns. */

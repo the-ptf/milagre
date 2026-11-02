@@ -1,6 +1,8 @@
 import { artifactDocument, ARTIFACT_CSP } from "./artifact-document.mjs";
 
 export const HTML_RENDER_MESSAGE = "milagre:html-render";
+/** A saved page that never reports its initial layout must offer Retry instead of remaining empty. */
+export const HTML_RENDER_LOAD_TIMEOUT = 15_000;
 /** Bounds for a reply's height in pixels: what html_render accepts and what the transcript reserves or grows to. */
 export const HTML_RENDER_MIN_HEIGHT = 24;
 export const HTML_RENDER_MAX_HEIGHT = 2000;

@@ -4,6 +4,7 @@ const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { linearIssueUrl } = require("@milagre/shared/linear-issue");
 const { providerFailure } = require("./fallback.cjs");
 const { BABYSIT_PASS_HINT, babysitPrompt, effectiveLevel, effectiveResolve } = require("./babysit-prompt.cjs");
+const { createFlowRunner } = require("./flow-runner.cjs");
 
 const TICK_MS = 1000;
 const BUSY = "chat was busy";
@@ -23,7 +24,8 @@ const isComment = (event) => event?.kind === "linear" && event.change === "comme
 const isPullRequest = (event) => event?.kind === "pull-request";
 // Whether a claimed Run makes a Chat: a trigger's (a comment and a pull-request event go into a Chat that exists), or a
 // schedule's with a new-chat target.
-const startsChat = (routine, run) => (run.event ? !isComment(run.event) && !isPullRequest(run.event) : routine.target.kind === "new-chat");
+const startsChat = (routine, run) =>
+  routine.flow ? true : run.event ? !isComment(run.event) && !isPullRequest(run.event) : routine.target.kind === "new-chat";
 
 // Characters that show nothing or turn text around: zero-width spaces and joiners, direction marks and overrides,
 // isolates, the BOM and soft hyphens.
@@ -126,7 +128,12 @@ function createRoutineScheduler({
   setInterval: setTimer = setInterval,
   clearInterval: clearTimer = clearInterval,
   onChange = () => {},
+  // What flow steps change outside Milagre (flow-runner.cjs): pull requests, Linear comments, waits.
+  flowActions = {},
 }) {
+  // A flow's Runs go step by step there; this scheduler only claims them and passes their Chats' events on.
+  const flows = createFlowRunner({ store, chats, actions: flowActions, now, onChange: () => onChange() });
+  let flowsResumed = false;
   // chatId -> the Run in flight there. `sent` flips on its message-sent, `turnStarted` on turn-started; a turn's end only
   // classifies the Run after both. `newChat` marks a Chat the Run started itself, which a quiet end archives.
   const pending = new Map();
@@ -454,6 +461,11 @@ function createRoutineScheduler({
   }
 
   async function dispatch(routine, run) {
+    if (routine.flow) {
+      if (!run.event && !scheduleAllows(routine, run)) return;
+      await flows.start(routine, run);
+      return;
+    }
     if (run.event) {
       if (isComment(run.event)) await deliverComment(routine, run);
       else if (isPullRequest(run.event)) await deliverPullRequest(routine, run);
@@ -540,6 +552,7 @@ function createRoutineScheduler({
       // Schedule Runs, then the events waiting in each trigger's queue, three Runs at most going per Routine.
       const claims = [...store.claimDue(at), ...store.claimQueued(at, CONCURRENT_RUNS)];
       await dispatchAll(claims);
+      await flows.tick();
       // A tick before start() does start's sweep, after its claims so a due beat still records its Run.
       if (!swept) {
         swept = true;
@@ -566,6 +579,11 @@ function createRoutineScheduler({
   function start() {
     recover();
     stopped = false;
+    // Flow Runs a stop left mid-way go on from where they were, once the Chats can be reached.
+    if (!flowsResumed) {
+      flowsResumed = true;
+      flows.resume();
+    }
     if (timer) return;
     timer = setTimer(() => {
       tick().catch((error) => console.warn("[routines] tick failed", error));
@@ -625,6 +643,7 @@ function createRoutineScheduler({
 
   // Runs synchronously: it marks the event quiet before the runtime broadcasts it.
   function observe(chatId, event) {
+    if (flows.observe(chatId, event)) return;
     if (silenced.has(chatId)) {
       if (event.type === "message-sent" || event.type === "turn-started") silenced.delete(chatId);
       else if (isTurnEnd(event) && event.type !== "turn-completed") {
@@ -736,6 +755,7 @@ function createRoutineScheduler({
       await comments;
       if (!andBackground) return;
       while (background.size) await Promise.allSettled(background);
+      await flows.idle();
     },
     start,
     stop,
@@ -746,6 +766,12 @@ function createRoutineScheduler({
     runNow,
     enqueueEvent,
     enqueueEvents,
+    // Flow Runs: the owner's actions (approve, reject, pause, resume, end, retry), a Test run, and the fields a step's agent
+    // hands back through flow_step_output.
+    flowAct: (runId, action, options) => flows.act(runId, action, options),
+    flowTest: (routineId) => flows.test(routineId),
+    flowOutput: (chatId, value) => flows.recordOutput(chatId, value),
+    runsFlowStep: (chatId) => flows.runsStep(chatId),
   };
 }
 

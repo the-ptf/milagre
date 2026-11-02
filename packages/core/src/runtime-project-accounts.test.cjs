@@ -440,6 +440,76 @@ test("cached usage resolves the requested account pair without leaking the viewe
   await assert.rejects(runtime.invoke("usage:cached", [path.join(dataDir, "unregistered")]));
 });
 
+test("the account usage overview reads every connected Account separately without changing selections", async (t) => {
+  const { make, ids, profile, saved, events, created } = await fixture(t);
+  const reads = [];
+  let failWork = false;
+  const values = new Map([
+    [profile(ids.work), 17],
+    [profile(ids.personal), 81],
+    [profile(ids.shared), 35],
+  ]);
+  const runtime = make({
+    usageReaders: {
+      claude: async ({ env }) => {
+        reads.push(env.CLAUDE_CONFIG_DIR);
+        if (failWork && env.CLAUDE_CONFIG_DIR === profile(ids.work)) throw new Error("Offline");
+        return {
+          provider: "claude",
+          status: "ok",
+          updatedAt: new Date().toISOString(),
+          windows: ["Hourly", "Daily", "Weekly"].map((label) => ({
+            id: label,
+            label,
+            shortLabel: label,
+            usedPercent: values.get(env.CLAUDE_CONFIG_DIR) ?? 9,
+            resetsAt: null,
+          })),
+        };
+      },
+      codex: () => {
+        throw new Error("Unconnected provider must not be read");
+      },
+    },
+  });
+  const before = JSON.stringify(saved);
+  const cached = await runtime.invoke("usage:accounts:cached");
+  assert.equal(cached.providers.length, 4);
+  assert.equal(reads.length, 0, "cache reads never query usage");
+  const [report, simultaneous] = await Promise.all([runtime.invoke("usage:accounts:read"), runtime.invoke("usage:accounts:read")]);
+  assert.equal(reads.length, 4, "concurrent reads share one request for each Account");
+  assert.deepEqual(report.providers, simultaneous.providers);
+  assert.equal(report.accountKey, simultaneous.accountKey);
+  assert.equal(Number.isFinite(Date.parse(report.generatedAt)), true);
+  assert.equal(
+    report.providers.every((entry) => entry.provider === "claude"),
+    true,
+  );
+  for (const [id, percent] of [
+    [ids.work, 17],
+    [ids.personal, 81],
+    [ids.shared, 35],
+  ]) {
+    const account = report.providers.find((entry) => entry.account.id === id);
+    assert.deepEqual(
+      account.windows.map((window) => window.usedPercent),
+      [percent, percent, percent],
+    );
+  }
+  failWork = true;
+  const failed = await runtime.invoke("usage:accounts:read");
+  const work = failed.providers.find((entry) => entry.account.id === ids.work);
+  assert.equal(work.status, "error");
+  assert.equal(work.windows[0].usedPercent, 17, "a failed Account keeps its own last-good limits");
+  const latest = await runtime.invoke("usage:accounts:cached");
+  assert.equal(latest.providers.find((entry) => entry.account.id === ids.work).status, "error");
+  assert.equal(reads.length, 8);
+  assert.equal(JSON.stringify(saved), before);
+  assert.equal((await runtime.invoke("accounts:list")).providers.find((group) => group.provider === "claude").selectedId, ids.personal);
+  assert.equal(created.length, 0, "checking usage starts no model turns");
+  assert.equal(events.filter((event) => event.channel === "usage:changed").length, 3);
+});
+
 test("advisors inherit a named Link's Account and both owned Worktrees", async (t) => {
   const { make, projects, saved, save, ids, profile, created } = await fixture(t);
   const first = make();
@@ -604,4 +674,89 @@ test("a completed usage read signals its scope so other views can fetch the save
   assert.deepEqual(cached.providers[0].windows, result.providers[0].windows);
   assert.equal(cached.providers[0].windows[0].usedPercent, 37);
   assert.equal(events.filter((event) => event.channel === "usage:changed").length, 1, "cache reads must not signal another read");
+});
+
+test("usage overview defaults follow the computer while explicit Project and Link choices stay", async (t) => {
+  const { make, projects, ids, saved, save } = await fixture(t);
+  const first = make();
+  for (const project of projects) await first.openProject(project);
+  const registry = await first.invoke("project:registry");
+  const link = await first.invoke("link:create", [{ name: "Usage defaults", projectIds: registry.map((project) => project.id) }]);
+  await first.close();
+  const scope = `milagre-link:${link.id}`;
+  saved.scopes[scope] = { claude: ids.shared };
+  await save();
+  const runtime = make();
+  const overview = () => runtime.invoke("usage:accounts:cached");
+  const defaults = (snapshot) => snapshot.providers.filter((entry) => entry.account.default).map((entry) => entry.account.id);
+  const before = await overview();
+  assert.deepEqual(defaults(before), [ids.personal]);
+  assert.equal(
+    before.providers.every((entry) => entry.account.state === "ready"),
+    true,
+  );
+  await runtime.invoke("accounts:select", ["claude", ids.work]);
+  const after = await overview();
+  assert.equal(after.accountKey, before.accountKey, "changing a default does not invalidate usage identity");
+  assert.deepEqual(defaults(after), [ids.work]);
+  const claude = (snapshot) => snapshot.providers.find((entry) => entry.provider === "claude");
+  assert.equal(claude(await runtime.invoke("accounts:scope", [projects[0]])).effectiveId, ids.work);
+  assert.equal(claude(await runtime.invoke("accounts:scope", [projects[1]])).effectiveId, ids.personal);
+  assert.equal(claude(await runtime.invoke("accounts:scope", [scope])).effectiveId, ids.shared);
+});
+
+test("the usage overview retains signed-out accounts without reading their provider or inventing windows", async (t) => {
+  const { make, cli } = await fixture(t);
+  await fs.writeFile(cli, "#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n", { mode: 0o700 });
+  let reads = 0;
+  const runtime = make({
+    usageReaders: {
+      claude: () => {
+        reads++;
+        throw new Error("Must not read signed-out accounts");
+      },
+    },
+  });
+  const snapshot = await runtime.invoke("usage:accounts:read");
+  assert.equal(snapshot.providers.length, 4);
+  assert.equal(
+    snapshot.providers.every((entry) => entry.account.state === "signed-out" && entry.status === "unavailable" && entry.windows.length === 0),
+    true,
+  );
+  assert.equal(snapshot.providers.filter((entry) => entry.account.default).length, 1);
+  assert.equal(reads, 0);
+});
+
+test("changing one provider's default preserves every other account's overview cache", async (t) => {
+  const { make, cli, dataDir, ids } = await fixture(t);
+  const token = path.join(dataDir, "accounts", "antigravity-default", "antigravity-acp", "acp_token.json");
+  await fs.mkdir(path.dirname(token), { recursive: true, mode: 0o700 });
+  await fs.writeFile(token, "{}");
+  let reads = 0;
+  const runtime = make({
+    agentCli: async (provider) => (provider === "claude" || provider === "antigravity" ? { command: cli } : { problem: "Not installed" }),
+    usageReaders: Object.fromEntries(
+      ["claude", "antigravity"].map((provider) => [
+        provider,
+        async () => {
+          reads++;
+          return {
+            provider,
+            status: "ok",
+            updatedAt: new Date().toISOString(),
+            windows: [{ id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 37, resetsAt: null }],
+          };
+        },
+      ]),
+    ),
+  });
+  const before = await runtime.invoke("usage:accounts:read");
+  const count = reads;
+  await runtime.invoke("accounts:select", ["claude", ids.work]);
+  const after = await runtime.invoke("usage:accounts:cached");
+  assert.equal(after.accountKey, before.accountKey);
+  for (const entry of before.providers) {
+    assert.deepEqual(after.providers.find((item) => item.provider === entry.provider && item.account.id === entry.account.id).windows, entry.windows);
+  }
+  assert.equal(reads, count, "default changes only update identity metadata, without a provider read");
 });

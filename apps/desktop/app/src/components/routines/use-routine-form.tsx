@@ -114,6 +114,8 @@ export function useRoutineForm({
   const [copied, setCopied] = useState(false);
   // The date picker's range starts from when the form opened.
   const [openedAt] = useState(() => Date.now());
+  // A flow: its steps carry the prompts, so the form has none, and its Runs always start a Chat of their own.
+  const [flow, setFlowState] = useState(Boolean(initial?.flow));
   const editing = Boolean(initial);
   // Comments go into the Chat linked to their issue: no Project or Each Run to pick.
   const comment = isCommentRoutine(state);
@@ -209,12 +211,21 @@ export function useRoutineForm({
   /** A new Routine's trigger kind. Only a schedule can check back on a Chat; another trigger starts new Chats. */
   const setTrigger = (trigger: RoutineFormState["trigger"]) =>
     update({ trigger, runIn: trigger !== "schedule" && state.runIn === "chat" ? "worktree" : state.runIn });
+  /** A new Routine as a single prompt or a flow. A flow can't check back on an existing Chat. */
+  const setFlow = (on: boolean) => {
+    setDirty(true);
+    setErrors({});
+    setFlowState(on);
+    if (on && state.runIn === "chat") setState((current) => withRunIn(current, "worktree"));
+  };
   const placeholders = useMemo(() => placeholdersFor(draftTrigger(state)), [state]);
   const project = targets?.projects.find((entry) => entry.path === state.projectPath);
 
   /** Saves the form; a problem shows under its field and resolves null. */
   const submit = async (): Promise<RoutineSaved | null> => {
-    const result = initial ? formToUpdate(state, initial) : formToInput(state);
+    // A flow has no prompt of its own (its steps have theirs): the checks get a stand-in, and the Mac gets none back.
+    const checked = flow && !state.prompt.trim() ? { ...state, prompt: "flow" } : state;
+    const result = initial ? formToUpdate(checked, initial) : formToInput(checked);
     if (result.field !== undefined) {
       // A comment Routine shows no Project or Each Run, so their problems show under the Linear fields.
       setErrors({ [comment && ["project", "runIn", "chat"].includes(result.field) ? "workspace" : result.field]: result.error });
@@ -224,12 +235,17 @@ export function useRoutineForm({
     setTopError("");
     try {
       if (initial && "patch" in result) {
-        await bridgeForKey(initial.id).updateRoutine(initial.id, result.patch as RoutineUpdate);
+        const patch = { ...(result.patch as RoutineUpdate) };
+        if (flow) delete patch.prompt;
+        await bridgeForKey(initial.id).updateRoutine(initial.id, patch);
         return { kind: "saved" };
       }
       if ("input" in result) {
         // A webhook trigger goes without a hook id: the Mac mints the URL and answers with it. The target's computer runs it.
-        const input = result.input as RoutineCreate;
+        // A new flow starts as an empty draft and stays off until it is published.
+        const input: RoutineCreate = flow
+          ? { ...(result.input as RoutineCreate), prompt: state.prompt.trim(), flow: { steps: [], publish: false } }
+          : (result.input as RoutineCreate);
         const made = await bridgeForKey(input.target.kind === "chat" ? input.target.chatId : input.target.projectPath).createRoutine(input);
         return { kind: "created", routine: made.routine, ...(made.hookUrl ? { hookUrl: made.hookUrl } : {}) };
       }
@@ -316,8 +332,8 @@ export function useRoutineForm({
     {
       value: "chat",
       label: "An existing Chat",
-      description: state.trigger === "schedule" ? "A Heartbeat that checks back on one Chat" : "Schedules only",
-      disabled: state.trigger !== "schedule" || (editing && !heartbeat),
+      description: flow ? "Not for a flow" : state.trigger === "schedule" ? "A Heartbeat that checks back on one Chat" : "Schedules only",
+      disabled: flow || state.trigger !== "schedule" || (editing && !heartbeat),
     },
   ];
   const stopOptions: SelectOption<RoutineFormState["stop"]["kind"]>[] = [
@@ -369,7 +385,9 @@ export function useRoutineForm({
       const efforts = picked ? capabilityFor(picked, capabilities).efforts : [];
       update({ fallbackProvider: provider, fallbackModel: model, fallbackEffort: efforts.includes(state.fallbackEffort) ? state.fallbackEffort : "" });
     },
-    ready: state.name.trim().length > 0 && state.prompt.trim().length > 0,
+    flow,
+    setFlow,
+    ready: state.name.trim().length > 0 && (flow || state.prompt.trim().length > 0),
     options: {
       model: modelOptions,
       fallback: fallbackOptions,

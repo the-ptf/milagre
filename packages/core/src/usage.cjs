@@ -4,7 +4,7 @@ const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { createUsageStore } = require("./usage-cache.cjs");
+const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { readAntigravityUsage } = require("./antigravity-usage.cjs");
 
 const PROVIDER_TIMEOUT_MS = 10_000;
@@ -284,25 +284,52 @@ function createUsageReader(deps = {}) {
     }
     return withLastGood(result, store.get(provider).last, now());
   };
-  let inFlight = null;
-  return function readUsage() {
-    inFlight ??= Promise.resolve()
+  const pending = new Map();
+  const latest = new Map();
+  const checked = new Map();
+  const readers = { claude: readClaude, codex: readCodex, antigravity: readAntigravity, kiro: readKiro };
+  let environment;
+  const waitReady = () =>
+    (environment ??= Promise.resolve()
       .then(ready)
-      .catch(() => {})
-      .then(() =>
-        Promise.all([
-          readProvider("claude", readClaude),
-          readProvider("codex", readCodex),
-          readProvider("antigravity", readAntigravity),
-          readProvider("kiro", readKiro),
-        ]),
-      )
+      .catch(() => {}));
+  function providerUsage(provider) {
+    if (!Object.hasOwn(readers, provider)) throw new Error("Unknown usage provider");
+    if (!pending.has(provider)) {
+      pending.set(
+        provider,
+        waitReady()
+          .then(() => readProvider(provider, readers[provider]))
+          .then((result) => {
+            latest.set(provider, result);
+            checked.set(provider, new Date(now()).toISOString());
+            return result;
+          })
+          .finally(() => pending.delete(provider)),
+      );
+    }
+    return pending.get(provider);
+  }
+  let inFlight = null;
+  function readUsage() {
+    inFlight ??= Promise.resolve()
+      .then(() => Promise.all([providerUsage("claude"), providerUsage("codex"), providerUsage("antigravity"), providerUsage("kiro")]))
       .then((providers) => ({ providers }))
       .finally(() => {
         inFlight = null;
       });
     return inFlight;
+  }
+  readUsage.provider = providerUsage;
+  // A failed check can retain old quota numbers; its check time must not overwrite their updatedAt.
+  readUsage.checkedAt = (provider) => checked.get(provider);
+  readUsage.cached = (provider) => {
+    const result = latest.get(provider);
+    return result
+      ? { ...result, windows: result.windows.filter((window) => !window.resetsAt || Date.parse(window.resetsAt) > now()) }
+      : cachedSnapshot(store, now()).providers.find((item) => item.provider === provider);
   };
+  return readUsage;
 }
 
 // The CLI owns the per-profile Keychain name and token refresh. Ask its control API without

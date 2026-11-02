@@ -1,3 +1,4 @@
+import { useDictationShortcut } from "./dictation-shortcut";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import * as Font from "expo-font";
@@ -20,6 +21,8 @@ import type { PastedImage } from "./attachment-picker";
 import {
   NOTICE_SECONDS,
   provisionalRange,
+  correctTake,
+  takeRange,
   revertTake,
   splitProvisional,
   startTake,
@@ -93,6 +96,8 @@ export function PromptField({
   onAcceptSuggestion,
   chatTitle,
   provider,
+  focusRequest = 0,
+  onTouchStart,
 }: {
   chats?: readonly MentionChat[];
   currentId?: number;
@@ -121,6 +126,10 @@ export function PromptField({
   /** The Chat's title and agent: dictation's fix-up asks that agent, with the title as context. */
   chatTitle?: string;
   provider?: string;
+  /** Each new value takes the keyboard with the caret at the end of the draft (Ask from a message selection). */
+  focusRequest?: number;
+  /** A finger came down on the field, before it focuses and the keyboard starts to open. */
+  onTouchStart?: () => void;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
   // Text size scales the composer too; 16 stays 16 at the default step.
@@ -161,6 +170,17 @@ export function PromptField({
     [draft, skills, known, projectPath, lookups, images, chats],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
+  const focusDraft = useRef(draft);
+  useEffect(() => {
+    focusDraft.current = draft;
+  });
+  useEffect(() => {
+    if (!focusRequest) return;
+    const end = { start: focusDraft.current.length, end: focusDraft.current.length };
+    setRequested({ draft: focusDraft.current, selection: end });
+    setSelection(end);
+    paste.ref.current?.focus();
+  }, [focusRequest, paste.ref]);
   // Until the field has reported a caret, dictation starts after the restored draft.
   const placed = useRef(false);
   const latestDraft = useRef(draft);
@@ -204,16 +224,64 @@ export function PromptField({
   };
   const writeLatest = useRef(write);
   const discardLatest = useRef<() => void>(() => {});
+  // A finished take whose fix-up hasn't answered: its words stay tinted until it does, and it rewrites them only if the
+  // draft is still exactly what the take left.
+  const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
+  const corrections = useRef(0);
+  useEffect(
+    () => () => {
+      correcting.current = null;
+    },
+    [],
+  );
+  const [fixing, setFixing] = useState<string | null>(null);
+  const endCorrection = useCallback(() => {
+    correcting.current = null;
+    setFixing(null);
+    if (!take.current) setProvisional(null);
+  }, []);
+  useEffect(() => {
+    if (correcting.current) endCorrection();
+  }, [projectPath, currentId, endCorrection]);
+  useEffect(() => {
+    const pending = correcting.current;
+    if (!pending || draft === pending.take.produced) return;
+    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
+    endCorrection();
+  }, [draft, endCorrection]);
   const dictation = useVoiceDictation(
-    (text, anchor) => {
-      // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
+    (text, anchor, correction) => {
+      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
       take.current ??= startTake(latestDraft.current, anchor.selection);
       const written = writeLatest.current(text, text.length);
       take.current = null;
-      setProvisional(null);
-      if (written && dictationAction === "send") dictatedSend.current = { value: written.value, projectPath, currentId };
+      const sendAfter = dictationAction === "send";
+      const sentFrom = { projectPath, currentId };
+      if (!written || !correction) {
+        setProvisional(null);
+        if (written && sendAfter) dictatedSend.current = { value: written.value, ...sentFrom };
+        return;
+      }
+      const id = (corrections.current += 1);
+      correcting.current = { id, take: written.take };
+      setProvisional(takeRange(written.take));
+      setFixing(correction.model);
+      void correction.text.then((fixed) => {
+        const pending = correcting.current;
+        if (pending?.id !== id) return;
+        endCorrection();
+        const corrected = correctTake(pending.take, latestDraft.current, fixed);
+        if (corrected) {
+          const caret = { start: corrected.caret, end: corrected.caret };
+          setRequested({ draft: corrected.value, selection: caret });
+          setSelection(caret);
+          onChangeText(corrected.value);
+        }
+        // Send now waits for the fix-up, so what goes out is the corrected message.
+        if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, ...sentFrom };
+      });
     },
-    projectPath ? { client, cwd: projectPath, chatTitle, provider } : undefined,
+    projectPath ? { client, cwd: projectPath, chatTitle, provider, chatId: currentId } : undefined,
   );
   const partialText = dictation.partial.text;
   const partialSettled = dictation.partial.settled;
@@ -229,6 +297,34 @@ export function PromptField({
     onChangeText(back.value);
   };
   const dictating = dictation.phase !== "idle";
+  const startDictation = () => {
+    endCorrection();
+    const end = draft.length;
+    const anchor = placed.current ? selection : { start: end, end };
+    take.current = startTake(draft, anchor);
+    setProvisional(null);
+    void dictation.start({ draft, selection: anchor });
+  };
+  const finishWhenRecording = useRef(false);
+  const { phase: dictationPhase, stop: stopDictation } = dictation;
+  useEffect(() => {
+    if (dictationPhase === "idle") finishWhenRecording.current = false;
+    if (dictationPhase !== "recording" || !finishWhenRecording.current) return;
+    finishWhenRecording.current = false;
+    void stopDictation();
+  }, [dictationPhase, stopDictation]);
+  useDictationShortcut({
+    focused: () => focused,
+    dictating: () => dictating,
+    available: () => dictation.available,
+    toggle: () => {
+      if (!dictating) startDictation();
+      else if (dictationPhase === "recording") void stopDictation();
+      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
+      else if (dictationPhase === "downloading") discardDictation();
+    },
+  });
+
   // While the model downloads the mic keeps its own size and place: the capsule only grows once the take records.
   const capsule = dictating && dictation.phase !== "downloading";
   useEffect(() => {
@@ -298,7 +394,7 @@ export function PromptField({
   };
 
   return (
-    <View>
+    <View onTouchStart={onTouchStart}>
       {suggestion && !draft && !query && !fileToken && onAcceptSuggestion && (
         <Pressable
           accessibilityRole="button"
@@ -499,27 +595,11 @@ export function PromptField({
                 onStop={() => void dictation.stop()}
               />
             ) : (
-              <VoiceMicButton
-                onPress={() => {
-                  // Where the words land is fixed now, while the caret is where the user left it.
-                  const end = draft.length;
-                  const anchor = placed.current ? selection : { start: end, end };
-                  take.current = startTake(draft, anchor);
-                  setProvisional(null);
-                  void dictation.start({ draft, selection: anchor });
-                }}
-              />
+              <VoiceMicButton onPress={startDictation} processing={fixing} />
             )}
           </View>
         ) : null}
       </View>
-      {/* Preparing and finishing share one slot under the words, so neither moves them. The model download is the ring on
-          the mic, and an error a bubble over it: both belong to the button that tries again. */}
-      {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
-        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
-          {dictation.phase === "preparing" ? "Preparing the microphone\u2026" : "Finishing the last words\u2026"}
-        </Text>
-      ) : null}
       {skill && !query ? (
         <View
           accessibilityLiveRegion="polite"

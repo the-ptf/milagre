@@ -3,7 +3,8 @@ import type { ImageAttachment } from "@milagre/shared/model";
 import { formatImageMention, promptParts } from "@milagre/shared/prompt-parts";
 import type { Client } from "./client";
 
-export type Attachment = { id: string; name: string; uri: string; image?: ImageAttachment; base64?: string; path?: string };
+/** `video` marks a video from Photos, sent as a file; the composer shows it as one. */
+export type Attachment = { id: string; name: string; uri: string; image?: ImageAttachment; base64?: string; path?: string; video?: boolean };
 import { MAX_ATTACHMENT_BYTES } from "@milagre/shared/limits";
 export const MAX_PHOTO_BYTES = MAX_ATTACHMENT_BYTES;
 export const MAX_FILE_BYTES = MAX_ATTACHMENT_BYTES;

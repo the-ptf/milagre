@@ -1,7 +1,8 @@
+import { useShortcutLabel } from "../lib/keybindings";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -46,16 +47,20 @@ import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
 import {
   NOTICE_SECONDS,
   provisionalRange,
+  correctTake,
+  takeRange,
   revertTake,
   startTake,
   writeTake,
   type DictationTake,
   type Selection as TextRange,
 } from "@milagre/shared/voice-dictation";
+import { useDictationShortcut } from "../lib/dictation-shortcut";
 import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
 import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
+import { SpinnerRing } from "./primitives/SpinnerRing";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -219,7 +224,7 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance, dictationAction, showContextSize, compactButtonDisplay } = useSettings();
+  const { ultracodeFatality, appearance, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
   const { settings: contextSettings } = useContextSettings();
   const quiet = contextSettings.autoCompact && Boolean(onCompact);
   const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
@@ -531,15 +536,66 @@ export function PromptComposer({
   };
   const writeLatest = useRef(write);
   writeLatest.current = write;
+  // A finished take whose fix-up hasn't answered: its words stay tinted and the status names the model until it does,
+  // and it rewrites them only if the draft is still exactly what the take left.
+  const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
+  const corrections = useRef(0);
+  useEffect(
+    () => () => {
+      correcting.current = null;
+    },
+    [],
+  );
+  const [fixing, setFixing] = useState<string | null>(null);
+  const endCorrection = useCallback(() => {
+    correcting.current = null;
+    setFixing(null);
+    if (!take.current) setProvisional(null);
+  }, []);
+  useEffect(() => {
+    endCorrection();
+  }, [imageDraft.scope, endCorrection]);
+  useEffect(() => {
+    const pending = correcting.current;
+    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
+    if (pending && draft !== pending.take.produced) endCorrection();
+  }, [draft, endCorrection]);
 
-  const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
-    // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
-    take.current ??= startTake(draftLatest.current, anchor.selection);
-    const written = writeLatest.current(text, text.length);
-    take.current = null;
-    setProvisional(null);
-    if (written && dictationAction === "send") dictatedSend.current = { value: written.value, scope: imageDraft.scope };
-  });
+  const dictation = useDictation(
+    projectPath,
+    imageDraft.scope,
+    (text, anchor, correction) => {
+      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
+      take.current ??= startTake(draftLatest.current, anchor.selection);
+      const written = writeLatest.current(text, text.length);
+      take.current = null;
+      const scope = imageDraft.scope;
+      const sendAfter = dictationAction === "send";
+      if (!written || !correction) {
+        setProvisional(null);
+        if (written && sendAfter) dictatedSend.current = { value: written.value, scope };
+        return;
+      }
+      const id = (corrections.current += 1);
+      correcting.current = { id, take: written.take };
+      setProvisional(takeRange(written.take));
+      setFixing(correction.model);
+      void correction.text.then((fixed) => {
+        const pending = correcting.current;
+        if (pending?.id !== id) return;
+        endCorrection();
+        const corrected = correctTake(pending.take, draftLatest.current, fixed);
+        if (corrected) {
+          setCaret(corrected.caret);
+          onDraftChange(corrected.value);
+          inputRef.current?.setSelection(corrected.caret);
+        }
+        // Send now waits for the fix-up, so what goes out is the corrected message.
+        if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, scope };
+      });
+    },
+    { scope: mentions.project, chatId: mentions.currentId, provider: selectedModel.provider },
+  );
   const partialText = dictation.partial.text;
   const partialSettled = dictation.partial.settled;
   useEffect(() => {
@@ -556,7 +612,37 @@ export function PromptComposer({
     onDraftChange(back.value);
     inputRef.current?.setSelection(back.selection.start, back.selection.end);
   };
+  const dictateShortcutLabel = useShortcutLabel("dictation.toggle");
   const dictating = dictation.phase !== "idle";
+  const startDictation = () => {
+    endCorrection();
+    const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
+    take.current = startTake(draftLatest.current, selection);
+    setProvisional(null);
+    void dictation.start({ selection });
+  };
+  // The shortcut was let go before the microphone opened: the take finishes as soon as it records.
+  const finishWhenRecording = useRef(false);
+  const { phase: dictationPhase, stop: stopDictation } = dictation;
+  useEffect(() => {
+    if (dictationPhase === "idle") finishWhenRecording.current = false;
+    if (dictationPhase !== "recording" || !finishWhenRecording.current) return;
+    finishWhenRecording.current = false;
+    void stopDictation();
+  }, [dictationPhase, stopDictation]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useDictationShortcut({
+    root: () => rootRef.current,
+    dictating: () => dictationPhase !== "idle",
+    mode: () => dictationShortcutMode,
+    start: startDictation,
+    finish: () => {
+      if (dictationPhase === "recording") void stopDictation();
+      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
+      // Let go while the model was still downloading: there is nothing to finish yet.
+      else if (dictationPhase === "downloading") discardDictation();
+    },
+  });
   // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
   const discardLatest = useRef(discardDictation);
   discardLatest.current = discardDictation;
@@ -718,7 +804,7 @@ export function PromptComposer({
   }
 
   return (
-    <div data-promptbar className="@container w-full" onKeyDown={handleEscape}>
+    <div ref={rootRef} data-promptbar className="@container w-full" onKeyDown={handleEscape}>
       <div ref={popoverRootRef} className="relative">
         {menu && (
           <div
@@ -926,12 +1012,15 @@ export function PromptComposer({
               {imageDraft.error}
             </div>
           )}
-          {/* Preparing and finishing share one slot above the words, so neither moves them. The model download is the
-              ring on the mic, and an error a bubble over it: both belong to the button that tries again. */}
+          {/* Status remains available to screen readers without inserting a row during the recording handoff. */}
           {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
-            <p role="status" data-dictation-status className="px-2 py-1 text-12 text-ink-2">
+            <p role="status" data-dictation-status className="sr-only">
               {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
             </p>
+          ) : fixing !== null ? (
+            <span role="status" className="sr-only">
+              {fixing ? `Correcting names · ${fixing}` : "Correcting names…"}
+            </span>
           ) : null}
 
           <div
@@ -1147,20 +1236,28 @@ export function PromptComposer({
                     )}
                   </span>
                 ) : (
-                  <button
-                    type="button"
-                    aria-label={DICTATION_LABELS.idle}
-                    title={DICTATION_LABELS.idle}
-                    onClick={() => {
-                      const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
-                      take.current = startTake(draftLatest.current, selection);
-                      setProvisional(null);
-                      void dictation.start({ selection });
-                    }}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+                  <Tooltip
+                    label={fixing !== null ? (fixing ? `Correcting names · ${fixing}` : "Correcting names…") : DICTATION_LABELS.idle}
+                    shortcut={dictateShortcutLabel}
+                    align="end"
                   >
-                    <Icon icon={Mic01Icon} size={16} />
-                  </button>
+                    <button
+                      type="button"
+                      data-dictation-processing={fixing !== null || undefined}
+                      aria-label={DICTATION_LABELS.idle}
+                      aria-busy={fixing !== null}
+                      aria-description={fixing !== null ? "Correcting names. Start a new dictation to replace the pending correction." : undefined}
+                      onClick={startDictation}
+                      className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors ${fixing !== null ? "bg-hover text-ink-4" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                    >
+                      {fixing !== null && (
+                        <span className="pointer-events-none absolute inset-0">
+                          <SpinnerRing size={28} stroke={1.5} color="var(--accent)" />
+                        </span>
+                      )}
+                      <Icon icon={Mic01Icon} size={16} />
+                    </button>
+                  </Tooltip>
                 )}
               </span>
               <button

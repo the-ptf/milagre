@@ -2,7 +2,19 @@ export type DictationLanguage = { code: string; name: string; locale: string | n
 export const DICTATION_LANGUAGES: readonly DictationLanguage[];
 export function dictationLanguage(value: unknown): string;
 export function appleLocale(language: string): string;
-export function dictationTerms(context?: { projectName?: string; branch?: string | null; chatTitle?: string; files?: readonly string[] }): string[];
+export function dictationTerms(context?: {
+  projectName?: string;
+  branch?: string | null;
+  chatTitle?: string;
+  chat?: readonly string[];
+  files?: readonly string[];
+  recent?: readonly string[];
+  names?: readonly string[];
+}): string[];
+export function chatTerms(messages: readonly string[], limit?: number): string[];
+export function codeNames(source: string, limit?: number): string[];
+export function snapTerms(text: string, terms: readonly string[]): string;
+export const VOCABULARY_WAIT_MS: number;
 export function whisperPrompt(terms: readonly string[], language?: string): string;
 export type WhisperModel = {
   id: string;
@@ -22,3 +34,11 @@ export const WHISPER_MODELS: Record<WhisperPlatform, readonly WhisperModel[]>;
 export function whisperModelFor(platform: WhisperPlatform, id: unknown): WhisperModel;
 export function whisperText(text: unknown): string;
 export function silentPcm(samples: Int16Array): boolean;
+export type DictationShortcutMode = "hold" | "toggle";
+export const DICTATION_SHORTCUT_MODES: readonly { value: DictationShortcutMode; label: string; description: string }[];
+export function dictationShortcutMode(value: unknown): DictationShortcutMode;
+export type DictationFixModel = "auto" | "claude" | "codex" | "antigravity" | "kiro";
+export const DICTATION_FIX_MODELS: readonly { value: DictationFixModel; label: string; name: string; description: string }[];
+export function dictationFixModel(value: unknown): DictationFixModel;
+export function fixUpProvider(model: unknown, chatProvider?: string): Exclude<DictationFixModel, "auto">;
+export function fixUpModelName(model: unknown, chatProvider?: string): string;
