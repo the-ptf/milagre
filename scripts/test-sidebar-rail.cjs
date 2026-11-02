@@ -15,6 +15,7 @@ import SidebarNav from "/src/components/SidebarNav";
 import { updateSettings } from "/src/lib/settings";
 import { DESKTOP_CHAT_ROW_SHOW } from "@milagre/shared/chat-row";
 import "/src/styles.css";
+const params = new URLSearchParams(location.search);
 const pr = { number: 409, title: "Fix mobile chat archiving navigation", url: "https://github.com/x/y/pull/409", state: "OPEN" };
 const state = (id, body, path) => ({
   sessions: { [id]: { id, worktree_id: 1, agent_name: "Claude", status: "Idle", summary: { count: 1, firstId: id, lastId: id, titleLine: body, lastAt: Date.now() - 5 * 60000 } } },
@@ -27,29 +28,38 @@ let recent = [
   { path: "/work/api", name: "api", hidden: true },
 ];
 window.milagre = {
-  listRecentProjects: async () => recent,
+  listRecentProjects: async () => params.has("single") ? recent.slice(0, 1) : recent,
   setProjectHidden: async (path, hidden) => (recent = recent.map((project) => (project.path === path ? { ...project, hidden } : project))),
   listProjects: async () => [
     { id: "p-arketa", path: "/work/arketa", name: "arketa", position: null, openedAt: "" },
     { id: "p-shop", path: "/work/shop", name: "shop", position: null, openedAt: "" },
     { id: "p-api", path: "/work/api", name: "api", position: null, openedAt: "" },
   ],
-  listNamedLinks: async () => [
-    { id: "link-1", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], createdAt: "", updatedAt: "" },
+  listNamedLinks: async () => params.has("single") ? [] : [
+    { id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], createdAt: "", updatedAt: "" },
   ],
   getProjectImage: async () => null,
   listEditors: async () => [],
-  readProject: async (path) => ({ path, name: path, state: path === "/work/shop" ? state(7, "Shop chat", "/work/shop") : state(1, "Fix the login flow", "/work/arketa") }),
-  readNamedLink: async () => ({ id: "link-1", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], state: { sessions: {}, worktrees: {}, messages: [] } }),
+  chatsHome: async () => ({ path: "/work/chats", exists: params.has("home") }),
+  readProject: async (path) => ({ path, name: path, state: path === "/work/chats" ? state(11, "Chat without a Project", "") : path === "/work/shop" ? state(7, "Shop chat", "/work/shop") : state(1, "Fix the login flow", "/work/arketa") }),
+  readLink: async () => ({ id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], state: state(7, "Link chat", "") }),
   onProjectState: () => () => {},
   onLinkState: () => () => {},
   patchChat: async () => {},
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre.sidebarScopeOrder");
-updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: "grouped" });
+updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: params.size ? "list" : "grouped" });
 const root = createRoot(document.getElementById("root"));
 const arketaRows = [{ id: "1", label: "Fix the login flow", mark: "running", details: { path: "/work/arketa", branch: "main", pullRequests: [pr] } }];
+arketaRows.push(
+  { id: "2", label: "Idle current chat", details: { lastAt: 10 } },
+  { id: "3", label: "Pinned current chat", pinned: true, pinOrder: 1 },
+  { id: "4", label: "Done current chat", doneAt: Date.now() },
+);
+if (params.has("empty")) arketaRows.length = 0;
+window.oneList = () => updateSettings({ chatList: "list" });
+window.grouped = () => updateSettings({ chatList: "grouped" });
 const shopRows = [{ id: "7", label: "Shop chat", details: { path: "/work/shop", branch: "main" } }];
 window.render = (projectPath) =>
   root.render(
@@ -179,13 +189,13 @@ async function browserChecks() {
       [
         ["/work/arketa", "running", "true"],
         ["/work/shop", "attention", null],
-        ["milagre-link:link-1", "idle", null],
+        ["milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76", "idle", null],
       ],
       "One icon per Project and Link with its chats' state; a waiting chat shows attention over running",
     );
     assert.deepEqual(
       await evaluate(`(() => {
-        const button = document.querySelector('[data-rail-scope="milagre-link:link-1"]');
+        const button = document.querySelector('[data-rail-scope="milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76"]');
         const icon = button?.querySelector('[data-rail-link-icon]');
         if (!button || !icon) return null;
         const br = button.getBoundingClientRect();
@@ -241,10 +251,98 @@ async function browserChecks() {
     // Expanded again, the groups are back.
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
     await waitFor(`!document.querySelector("[data-scope-rail]") && !!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id]')`);
+    // One list: every Chat, including idle and pinned, keeps its expanded position and opens directly.
+    await evaluate(`window.oneList()`);
+    await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
+    const labels = await evaluate(
+      `[...document.querySelectorAll("aside [data-all-pinned] [data-chat-id], aside [data-chat-list-flat] [data-chat-id]")].map((node) => node.querySelector("[data-chat-title] .sr-only").textContent.trim())`,
+    );
+    assert.equal(labels.length, 5);
+    await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 5`);
+    const rail = await evaluate(
+      `[...document.querySelectorAll("[data-rail-scope]")].map((node) => ({ key: node.dataset.railScope, label: node.getAttribute("aria-label"), status: node.dataset.railStatus, current: node.getAttribute("aria-current") }))`,
+    );
+    assert.ok(
+      rail.every((entry, index) => entry.label.includes(labels[index])),
+      `Collapsed Chats keep the expanded One list order, pinned first: ${JSON.stringify({ labels, rail })}`,
+    );
+    assert.deepEqual(
+      rail.filter((entry) => entry.current).map((entry) => entry.key),
+      ["/work/arketa#1"],
+      "Only the active Chat is marked current",
+    );
+    assert.equal(rail.find((entry) => entry.key === "/work/arketa#1").status, "running");
+    assert.equal(rail.find((entry) => entry.key === "/work/shop#7").status, "attention");
+    assert.equal(
+      rail.find((entry) => entry.key === "milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76#7").status,
+      "idle",
+      "Identical Chat IDs in different scopes keep their own mark",
+    );
+    assert.ok(!rail.some((entry) => entry.key.endsWith("#4")), "Done Chats stay out of the rail");
+    const modifier = process.platform === "darwin" ? { key: "Meta", metaKey: true } : { key: "Control", ctrlKey: true };
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keydown", ${JSON.stringify(modifier)}))`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope] [data-shortcut-hint]").length === 3`);
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll("[data-rail-scope]")].filter(node => node.querySelector("[data-shortcut-hint]")).map(node => node.dataset.railScope)`,
+      ),
+      ["/work/arketa#3", "/work/arketa#1", "/work/arketa#2"],
+      "Shortcut hints belong only to the current scope, including pinned Chats",
+    );
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifier.key)} }))`);
+
+    await evaluate(`document.querySelector('[data-rail-scope="/work/arketa#2"]').click()`);
+    assert.equal(await evaluate("window.picked"), "2", "An idle Chat in the current Project opens directly");
+    await evaluate(`document.querySelector('[data-rail-scope="/work/shop#7"]').click()`);
+    assert.equal(await evaluate("window.opened"), "/work/shop#7", "Another Project's Chat opens directly");
+    await evaluate(`document.querySelector('[data-rail-scope="milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76#7"]').click()`);
+    assert.equal(await evaluate("window.opened"), "milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76#7", "A Link Chat opens directly with its scope");
+    await waitFor(`Math.round(document.querySelector("aside").getBoundingClientRect().width) === 44`);
+    await hover('[data-rail-scope="/work/arketa#2"]');
+    await waitFor(`!!document.querySelector('[data-scope-rail-popover="/work/arketa#2"]')`);
+    assert.match(await evaluate(`document.querySelector('[data-scope-rail-popover="/work/arketa#2"]').textContent`), /arketa.*Idle current chat/);
+    await evaluate(`document.querySelector('[data-scope-rail-popover="/work/arketa#2"] [data-rail-chat]').click()`);
+    assert.equal(await evaluate("window.picked"), "2", "Idle Chat also opens from its hover popover");
+    await screenshot("one-list-rail");
+    // Switching settings while collapsed changes the rail immediately and preserves the grouped behavior.
+    await evaluate(`window.grouped()`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 3 && !!document.querySelector('[data-rail-scope="/work/arketa"]')`);
+    await evaluate(`window.oneList()`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 5`);
+    // Narrow-window auto collapse uses the same list, then restores the expanded list when widened.
+    await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
+    await waitFor(`!document.querySelector("[data-scope-rail]")`);
+    window.setSize(900, 640);
+    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 5`);
+    window.setSize(1280, 640);
+    await waitFor(`!document.querySelector("[data-scope-rail]") && document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
+    // A single Project still uses its Project icons, and no-project Chats keep a place before Project Chats.
+    await window.loadURL(process.argv[2] + "?single");
+    await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 2`);
+    await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 3`);
+    assert.ok(await evaluate(`[...document.querySelectorAll("[data-rail-scope]")].every((node) => node.dataset.railScope.startsWith("/work/arketa#"))`));
+    await window.loadURL(process.argv[2] + "?single&empty");
+    await waitFor(`!!document.querySelector('[aria-label="Collapse sidebar"]')`);
+    await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
+    await waitFor(`!!document.querySelector("[data-scope-rail]")`);
+    assert.equal(await evaluate(`document.querySelectorAll("[data-rail-scope]").length`), 0, "No Chats means an empty One list rail");
+    await window.loadURL(process.argv[2] + "?home");
+    await waitFor(`!!document.querySelector('[data-sidebar-chats] [data-chat-id="11"]')`);
+    await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 6`);
+    assert.equal(
+      await evaluate(`document.querySelectorAll("[data-rail-scope]")[1].dataset.railScope`),
+      "/work/chats#11",
+      "No-project Chats follow pinned Chats and precede the merged Project list",
+    );
+    await evaluate(`document.querySelector('[data-rail-scope="/work/chats#11"]').click()`);
+    assert.equal(await evaluate("window.opened"), "/work/chats#11");
     assert.deepEqual(errors, []);
     await reset();
     console.log(
-      "PASS: a Project left for another keeps its rows' PR chips; collapsed with several Projects the rail shows one icon per Project with attention over running, lists live chats on hover and opens them, switches Projects on click; the Filters icon fills while a Project is hidden",
+      "PASS: a Project left for another keeps its rows' PR chips; collapsed with several Projects the rail shows one icon per Project with attention over running, lists live chats on hover and opens them, switches Projects on click; the Filters icon fills while a Project is hidden; One list keeps Chat order, direct navigation, per-Chat status and active selection through collapse, setting changes and narrow windows",
     );
     app.exit(0);
   } catch (error) {
@@ -272,7 +370,7 @@ async function main() {
         },
         configureServer(server) {
           useAsyncMiddleware(server.middlewares, async (request, response, next) => {
-            if (request.url !== "/__sidebar-rail") return next();
+            if (request.url.split("?")[0] !== "/__sidebar-rail") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(
               await server.transformIndexHtml(
