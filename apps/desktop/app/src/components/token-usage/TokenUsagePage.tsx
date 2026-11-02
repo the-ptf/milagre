@@ -599,7 +599,7 @@ export function TokenUsagePage({
           <div
             role="tablist"
             aria-label="Usage view"
-            className="flex min-w-0 flex-1 gap-6 border-b border-line"
+            className="flex min-w-0 flex-1 gap-6"
             onKeyDown={(event) => {
               const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
               const index = tabs.indexOf(document.activeElement as HTMLButtonElement);

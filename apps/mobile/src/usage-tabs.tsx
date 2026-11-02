@@ -7,11 +7,7 @@ import { type } from "./design-tokens";
 export function UsageTabs({ value }: { value: "plan" | "analytics" }) {
   const { colors } = useTheme();
   return (
-    <View
-      accessibilityRole="tablist"
-      accessibilityLabel="Usage view"
-      style={{ flexDirection: "row", gap: 16, borderBottomWidth: 1, borderBottomColor: colors.line }}
-    >
+    <View accessibilityRole="tablist" accessibilityLabel="Usage view" style={{ flexDirection: "row", gap: 16 }}>
       {(["plan", "analytics"] as const).map((tab) => (
         <Pressable
           key={tab}
