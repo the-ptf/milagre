@@ -736,8 +736,8 @@ export function StepInspector({
       {step.kind === "agent" && (
         <p data-flow-test-note className="flex items-start gap-2 rounded-control bg-page px-3 py-2 text-12 text-ink-2">
           <HugeiconsIcon icon={TestTube01Icon} size={14} strokeWidth={1.8} color="currentColor" className="mt-px shrink-0 text-ink-3" />
-          {testIssue ? `Test run uses ${testIssue}, the last issue this flow ran on.` : "Test run uses the last issue this flow ran on."} It is a dry run:
-          agents use sample or saved fields; actions and waits do not run.
+          {testIssue ? `Test run uses ${testIssue}, the last issue this flow ran on.` : "Test run uses sample or saved fields."} It is a dry run: agents use
+          sample or saved fields; actions and waits do not run.
         </p>
       )}
     </InspectorCard>

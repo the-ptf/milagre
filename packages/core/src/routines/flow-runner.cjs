@@ -677,7 +677,7 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
   async function test(routineId) {
     const routine = store.get(routineId);
     if (!routine?.flow) throw new Error("This Routine isn't a flow");
-    const last = store.runs(routineId).find((run) => run.event && !run.flow?.dryRun && !run.rejected);
+    const last = store.runs(routineId).find((run) => !run.flow?.dryRun && !run.rejected);
     const event =
       last?.event ??
       (routine.trigger.kind === "linear"

@@ -551,3 +551,22 @@ test("a successful turn waits for background work before completing its step", a
   assert.equal(ctx.run().flow.state.classify.status, "done");
   assert.equal(ctx.run().flow.state.ask.status, "waiting");
 });
+
+test("a schedule simulation can reuse completed fields even though its real Run has no event", async () => {
+  const ctx = setup({
+    steps: [
+      { id: "a", name: "Agent", kind: "agent", prompt: "Inspect", output: [{ name: "ready", type: "yes-no" }], retries: 0, chat: "run", onInvalid: "stop" },
+    ],
+    trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+  });
+  await ctx.scheduler.runNow(ctx.routine.id);
+  await ctx.settle();
+  ctx.scheduler.flowOutput("chat1", { ready: true });
+  await ctx.turn("chat1");
+  const started = await ctx.scheduler.flowTest(ctx.routine.id);
+  await ctx.settle();
+  const run = ctx.store.getRun(started.id).run;
+  assert.equal(run.flow.state.a.output.ready, true);
+  assert.match(run.flow.state.a.summary, /Saved fields/);
+  assert.equal(ctx.calls.send.length, 1);
+});
