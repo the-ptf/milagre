@@ -17,6 +17,7 @@ import { withAlpha } from "@milagre/shared/themes";
 import { radius } from "./design-tokens";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
+import { useReducedMotion } from "./motion";
 import type { DictationPhase } from "@milagre/shared/voice-dictation";
 
 export const MIC_SIZE = 44;
@@ -243,22 +244,23 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
 /** A loading border. Reduced motion keeps a stepped fade without rotation. */
 function MicLoadingRing({ size = 20, stroke = 2, color }: { size?: number; stroke?: number; color?: string }) {
   const { colors, motionScale } = useTheme();
+  const reducedMotion = useReducedMotion();
   const turn = useSharedValue(0);
   const opacity = useSharedValue(1);
   useEffect(() => {
     turn.set(0);
     opacity.set(1);
-    if (motionScale <= 0) {
+    if (reducedMotion) {
       const timing = { duration: 800, easing: Easing.steps(2), reduceMotion: ReduceMotion.Never };
       opacity.set(withRepeat(withSequence(withTiming(0.45, timing), withTiming(1, timing)), -1, false, undefined, ReduceMotion.Never));
     } else {
-      turn.set(withRepeat(withTiming(1, { duration: 900, easing: Easing.linear, reduceMotion: ReduceMotion.System }), -1, false));
+      turn.set(withRepeat(withTiming(1, { duration: Math.round(900 * motionScale), easing: Easing.linear, reduceMotion: ReduceMotion.System }), -1, false));
     }
     return () => {
       cancelAnimation(turn);
       cancelAnimation(opacity);
     };
-  }, [motionScale, opacity, turn]);
+  }, [motionScale, opacity, reducedMotion, turn]);
   const spin = useAnimatedStyle(() => ({ opacity: opacity.get(), transform: [{ rotate: `${turn.get() * 360}deg` }] }));
   const RING = size;
   return (
