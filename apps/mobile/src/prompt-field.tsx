@@ -96,6 +96,8 @@ export function PromptField({
   onAcceptSuggestion,
   chatTitle,
   provider,
+  focusRequest = 0,
+  onTouchStart,
 }: {
   chats?: readonly MentionChat[];
   currentId?: number;
@@ -124,6 +126,10 @@ export function PromptField({
   /** The Chat's title and agent: dictation's fix-up asks that agent, with the title as context. */
   chatTitle?: string;
   provider?: string;
+  /** Each new value takes the keyboard with the caret at the end of the draft (Ask from a message selection). */
+  focusRequest?: number;
+  /** A finger came down on the field, before it focuses and the keyboard starts to open. */
+  onTouchStart?: () => void;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
   // Text size scales the composer too; 16 stays 16 at the default step.
@@ -164,6 +170,17 @@ export function PromptField({
     [draft, skills, known, projectPath, lookups, images, chats],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
+  const focusDraft = useRef(draft);
+  useEffect(() => {
+    focusDraft.current = draft;
+  });
+  useEffect(() => {
+    if (!focusRequest) return;
+    const end = { start: focusDraft.current.length, end: focusDraft.current.length };
+    setRequested({ draft: focusDraft.current, selection: end });
+    setSelection(end);
+    paste.ref.current?.focus();
+  }, [focusRequest, paste.ref]);
   // Until the field has reported a caret, dictation starts after the restored draft.
   const placed = useRef(false);
   const latestDraft = useRef(draft);
@@ -377,7 +394,7 @@ export function PromptField({
   };
 
   return (
-    <View>
+    <View onTouchStart={onTouchStart}>
       {suggestion && !draft && !query && !fileToken && onAcceptSuggestion && (
         <Pressable
           accessibilityRole="button"

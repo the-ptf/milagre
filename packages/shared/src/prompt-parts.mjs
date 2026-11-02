@@ -1,5 +1,17 @@
 import { promptSkillParts, prosePrompt } from "./prompt-skills.mjs";
 
+/** Appends a selected passage below the existing draft, then a blank line for the question. */
+export function quoteIntoDraft(draft, passage) {
+  const lines = passage
+    .replace(/\r\n?/g, "\n")
+    .replace(/^\n+|\s+$/g, "")
+    .split("\n");
+  if (!lines.some((line) => line.trim())) return draft;
+  const quote = lines.map((line) => (line.trim() ? `> ${line}` : ">")).join("\n");
+  const before = draft.replace(/\s+$/, "");
+  return `${before ? `${before}\n\n` : ""}${quote}\n\n`;
+}
+
 const TRAILING_PUNCTUATION = /[.,!?;:)\]}]+$/;
 const IMAGE_TOKEN = /\[Image #([1-9]\d*)\]/g;
 
