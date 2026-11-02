@@ -143,6 +143,7 @@ import { StepRow } from "./agents/StepRow";
 import { StepDetailsMessage, StepDetailsScope } from "./agents/step-details";
 import { ActivityBlock } from "./agents/ActivityBlock";
 import { GeneratedImage } from "./agents/GeneratedImage";
+import { ViewedImages } from "./agents/ViewedImages";
 import { Markdown, StreamingMarkdown } from "./markdown/Markdown";
 import { replyActivity, unspokenThought } from "../lib/reply-parts";
 import { extractOutdatedProvider } from "../lib/cli-status";
@@ -260,6 +261,7 @@ function UserBody({
 function ReplyContent({
   body,
   steps,
+  attachments,
   streaming,
   asking = false,
   waitingStepIds,
@@ -269,12 +271,13 @@ function ReplyContent({
   body: string;
   copyable?: boolean;
   steps: ChatStep[];
+  attachments?: ImageAttachment[];
   streaming: boolean;
   asking?: boolean;
   waitingStepIds: string[];
   credits?: number;
 }) {
-  const { setup, activity, images, artifacts, heartbeats, desktop, answer } = replyActivity(body, steps);
+  const { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   return (
     <>
@@ -282,6 +285,7 @@ function ReplyContent({
         <StepRow key={step.id} step={step} />
       ))}
       <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />
+      <ViewedImages steps={viewedImages} attachments={attachments} />
       {images.map((step) => (
         <GeneratedImage key={step.id} step={step} />
       ))}
@@ -518,7 +522,14 @@ const MessageSection = memo(function MessageSection({
         ) : recommendation ? (
           <>
             <StepDetailsMessage id={message.id}>
-              <ReplyContent body={recommendation.intro} steps={steps} streaming={false} waitingStepIds={waitingStepIds} copyable={false} />
+              <ReplyContent
+                body={recommendation.intro}
+                steps={steps}
+                attachments={message.images}
+                streaming={false}
+                waitingStepIds={waitingStepIds}
+                copyable={false}
+              />
             </StepDetailsMessage>
             <div className={recommendation.intro ? "mt-2" : undefined}>
               <RecommendationCard
@@ -535,7 +546,15 @@ const MessageSection = memo(function MessageSection({
           </>
         ) : (
           <StepDetailsMessage id={message.id}>
-            <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} credits={message.credits} />
+            <ReplyContent
+              body={message.body}
+              steps={steps}
+              attachments={message.images}
+              streaming={streaming}
+              asking={asking}
+              waitingStepIds={waitingStepIds}
+              credits={message.credits}
+            />
           </StepDetailsMessage>
         )}
         {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-12 text-ink-3">Turn stopped</p>}

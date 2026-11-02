@@ -8,6 +8,7 @@ const { isTurnEnd: isTerminal } = require("@milagre/shared/agent-runs");
 const { applyToolResult, applyToolUse, codexPlanTasks } = require("./tasks.cjs");
 const { claudeStep, claudeStepResult, codexStep, codexStepResult, thinkingEnd, thinkingStep } = require("./steps.cjs");
 const { claudeDesignDrafts } = require("./design-drafts.cjs");
+const { saveToolImage } = require("./tool-image.cjs");
 // The Milagre tools whose results are the Chat's designs and artifact page, whichever agent calls them.
 const SUBAGENT_ARTIFACT_TOOLS = /^mcp__milagre__(design_show|design_apply|artifact_show|html_render)$/;
 
@@ -342,6 +343,7 @@ function mapClaudeMessage(message, state) {
       // tool_use_result belongs to the message, so it can only be matched to a lone result.
       const structured = results.length === 1 ? message.tool_use_result : undefined;
       events.push({ type: "step-completed", ...claudeStepResult(call, block, structured) });
+      if (!message.isReplay) events.push(...claudeReadImages(call, block));
       state.tasks ??= new Map();
       const tasks = applyToolResult(state.tasks, call, block, structured);
       if (tasks) events.push({ type: "tasks-updated", tasks });
@@ -387,6 +389,28 @@ function mapClaudeMessage(message, state) {
 function claudeContextUsage(state, used) {
   state.contextUsed = used;
   return state.contextWindow ? [{ type: "context-usage", used, size: state.contextWindow }] : [];
+}
+
+// Called only after matching and consuming a top-level result. Batched results carry images in
+// content, not in the message-level structured result. Bad media must never lose the Read row.
+function claudeReadImages(call, result) {
+  if (call.name !== "Read" || result.is_error || !Array.isArray(result.content)) return [];
+  const events = [];
+  for (const [index, block] of result.content.entries()) {
+    if (block?.type !== "image" || block.source?.type !== "base64" || typeof block.source.data !== "string") continue;
+    try {
+      const file = saveToolImage(`data:${block.source.media_type};base64,${block.source.data}`);
+      const id = `${call.id}:image:${index}`;
+      const sourceFile = typeof call.input?.file_path === "string" ? call.input.file_path : undefined;
+      events.push(
+        { type: "step-started", step: { id, kind: "image", title: "Viewed an image", imageOrigin: "viewed", sourceFile, file } },
+        { type: "step-completed", id, status: "done", file },
+      );
+    } catch {
+      /* Invalid, unsupported or unwritable blocks do not interrupt their siblings. */
+    }
+  }
+  return events;
 }
 
 // codex app-server notification -> events. Everything not listed is ignored on purpose:

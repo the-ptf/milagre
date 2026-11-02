@@ -143,6 +143,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/LinearIssuePicker.tsx": ["listLinearIssues"],
   "components/Attachments.tsx": ["showImageMenu"],
   "components/agents/GeneratedImage.tsx": ["copyImage", "saveImage", "showImageMenu"],
+  // The thumbnail fetches remote bytes through its scope, then opens this Mac's native image menu.
+  "components/agents/ViewedImages.tsx": ["showImageMenu"],
   "components/agents/UsageLimitCard.tsx": ["onAccountsChanged"],
   // Previews register bytes in this renderer's local Electron protocol, even for remote Chats.
   "components/agents/ArtifactCanvas.tsx": ["createArtifactPreview", "releaseArtifactPreview"],

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatStep } from "../model";
 import { desktopStepApps, desktopStepLabel } from "@milagre/shared/desktop-steps";
-import { activitySummary, isHeartbeatCard, replyActivity, replyParts, titleSpans, unspokenThought } from "./reply-parts.ts";
+import { activitySummary, isHeartbeatCard, replyActivity, replyImageFile, viewedImageName, replyParts, titleSpans, unspokenThought } from "./reply-parts.ts";
 
 const step = (id: string, offset?: number): ChatStep => ({
   id,
@@ -83,6 +83,7 @@ test("a reply's last text is its answer; everything before it is activity, in or
       { type: "step", step: step("c", 23) },
     ],
     images: [],
+    viewedImages: [],
     artifacts: [],
     heartbeats: [],
     desktop: [],
@@ -91,11 +92,21 @@ test("a reply's last text is its answer; everything before it is activity, in or
 });
 
 test("a reply without steps is all answer; steps alone are all activity", () => {
-  assert.deepEqual(replyActivity("Hello"), { setup: [], activity: [], images: [], artifacts: [], heartbeats: [], desktop: [], answer: "Hello" });
+  assert.deepEqual(replyActivity("Hello"), {
+    setup: [],
+    activity: [],
+    images: [],
+    viewedImages: [],
+    artifacts: [],
+    heartbeats: [],
+    desktop: [],
+    answer: "Hello",
+  });
   assert.deepEqual(replyActivity("", [step("a", 0)]), {
     setup: [],
     activity: [{ type: "step", step: step("a", 0) }],
     images: [],
+    viewedImages: [],
     artifacts: [],
     heartbeats: [],
     desktop: [],
@@ -108,6 +119,7 @@ test("text before steps that end the reply is still its answer", () => {
     setup: [],
     activity: [{ type: "step", step: step("a", 15) }],
     images: [],
+    viewedImages: [],
     artifacts: [],
     heartbeats: [],
     desktop: [],
@@ -187,6 +199,7 @@ test("the worktree setup is pulled out of the activity and left out of its summa
       { type: "step", step: step("a", 0) },
     ],
     images: [],
+    viewedImages: [],
     artifacts: [],
     heartbeats: [],
     desktop: [],
@@ -198,6 +211,7 @@ test("the worktree setup is pulled out of the activity and left out of its summa
     setup: [setupStep()],
     activity: [],
     images: [],
+    viewedImages: [],
     artifacts: [],
     heartbeats: [],
     desktop: [],
@@ -212,6 +226,33 @@ test("replyActivity: generated images come back apart from the activity", () => 
   assert.deepEqual(images, [image]);
   assert.deepEqual(activity, [{ type: "step", step: read }]);
   assert.equal(answer, "Done. Here it is.");
+});
+
+test("viewed snapshots form their own strip without repeating Read rows or replacing untagged images", () => {
+  const read: ChatStep = { id: "r", kind: "read", title: "Read `source.png`", status: "done" };
+  const viewed: ChatStep = {
+    id: "r:image:0",
+    kind: "image",
+    title: "Viewed an image",
+    status: "done",
+    imageOrigin: "viewed",
+    sourceFile: "/work/source.png",
+    file: "/tmp/snapshot.png",
+  };
+  const generated: ChatStep = { id: "g", kind: "image", title: "Generated an image", status: "done", file: "/tmp/generated.png" };
+  const reply = replyActivity("See [source.png](/work/source.png).", [read, viewed, generated]);
+  assert.deepEqual(reply.viewedImages, [viewed]);
+  assert.deepEqual(reply.images, [generated]);
+  assert.deepEqual(reply.activity, [{ type: "step", step: read }]);
+  assert.equal(viewedImageName(viewed), "source.png");
+  const attachments = [
+    { id: "saved", name: "saved.png", sourcePath: "/tmp/snapshot.png", path: "/stored/captured.png" },
+    { id: "source", name: "wrong.png", sourcePath: "/work/source.png", path: "/stored/wrong.png" },
+  ];
+  assert.equal(replyImageFile(viewed, attachments), "/stored/captured.png");
+  assert.equal(replyImageFile(viewed), "/tmp/snapshot.png");
+  assert.equal(replyImageFile({ ...viewed, file: undefined }, attachments), undefined);
+  assert.equal(viewedImageName({ ...viewed, sourceFile: "C:\\work\\original.png" }), "original.png");
 });
 
 test("a heartbeat_create step that set a Heartbeat comes out of the activity as its own card", () => {

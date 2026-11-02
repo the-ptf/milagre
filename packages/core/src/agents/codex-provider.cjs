@@ -2,8 +2,7 @@ const { isDeepStrictEqual } = require("node:util");
 const { readMcpExtras } = require("../mcp/extras.cjs");
 const { active: activeSubagent, settleSubagents } = require("./subagents.cjs");
 const fs = require("node:fs/promises");
-const { createHash } = require("node:crypto");
-const { decodeImages } = require("../image-input.cjs");
+const { saveToolImage } = require("./tool-image.cjs");
 const { mkdirSync, writeFileSync } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -103,12 +102,7 @@ function toolImageEvents(item) {
     if (!["image", "inputImage"].includes(block?.type)) continue;
     try {
       const dataUrl = block.data ? `data:${block.mimeType};base64,${block.data}` : block.imageUrl || block.image_url;
-      const [{ bytes, mime }] = decodeImages([{ dataUrl }]);
-      const hash = createHash("sha256").update(bytes).digest("hex");
-      const directory = path.join(os.tmpdir(), "milagre-generated-images");
-      mkdirSync(directory, { recursive: true });
-      const file = path.join(directory, `${hash}.${mime === "image/jpeg" ? "jpg" : mime.slice(6)}`);
-      writeFileSync(file, bytes, { mode: 0o600 });
+      const file = saveToolImage(dataUrl);
       const id = `${item.id}:image:${index}`;
       events.push({ type: "step-started", step: { id, kind: "image", title: "Image from tool", file } }, { type: "step-completed", id, status: "done", file });
     } catch {

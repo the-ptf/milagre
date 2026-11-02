@@ -229,3 +229,75 @@ test("failed snapshot copies preserve Read rows, the reply and unrelated images"
   assert.equal(await images.capture(project, state, onlyFailed), onlyFailed);
   assert.equal(await images.capture(project, state, { ...reply, role: "user" }).then((message) => message.images), undefined);
 });
+
+test("Claude-produced snapshots and five late Markdown images reopen durably after deleting all sources", async (t) => {
+  const { mapClaudeMessage } = require("./agents/events.cjs");
+  const { applyRunEvent } = require("@milagre/shared/agent-runs");
+  const { replyActivity, replyImageFile } = require("@milagre/shared/reply-parts");
+  const { project, file, state, images } = await fixture(t);
+  const provider = {};
+  const key = `${project}#1`;
+  let runs = applyRunEvent({}, key, { type: "turn-started", turnId: "snapshots" });
+  const snapshots = [];
+  const expected = new Map();
+  t.after(async () => {
+    for (const snapshot of snapshots) await fs.rm(snapshot, { force: true });
+  });
+  for (let i = 0; i < 16; i++) {
+    const bytes = Buffer.concat([png, Buffer.from(`${project}-${i}`)]);
+    const start = {
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { content: [{ type: "tool_use", id: `r${i}`, name: "Read", input: { file_path: file } }] },
+    };
+    const end = {
+      type: "user",
+      parent_tool_use_id: null,
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: `r${i}`,
+            content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: bytes.toString("base64") } }],
+          },
+        ],
+      },
+    };
+    for (const event of [...mapClaudeMessage(start, provider), ...mapClaudeMessage(end, provider)]) {
+      if (event.step?.kind === "image") {
+        snapshots.push(event.step.file);
+        expected.set(event.step.file, bytes);
+      }
+      runs = applyRunEvent(runs, key, event);
+    }
+  }
+  const late = await imageFiles(project, "late-markdown", 5);
+  const body = `[Source](<${file}>)\n` + late.map((image) => `![Late](<${image}>)`).join("\n");
+  const reply = { ...state.messages[0], body, steps: runs[key].steps };
+  const captured = await images.capture(project, state, reply);
+  assert.equal(captured.images.length, 21);
+  assert.deepEqual(
+    captured.images.slice(0, 5).map((image) => image.sourcePath),
+    late,
+  );
+  const saved = path.join(project, "producer-state.json");
+  const serialized = JSON.stringify({ ...state, messages: [captured] });
+  assert.doesNotMatch(serialized, /base64|data:image/);
+  await fs.writeFile(saved, serialized);
+  for (const source of [file, ...late, ...snapshots]) await fs.unlink(source);
+  const reopened = new ProjectStates({ read: async () => JSON.parse(await fs.readFile(saved, "utf8")), save: async () => {} });
+  t.after(() => reopened.close());
+  const restored = (await reopened.get(project)).messages[0];
+  const fresh = new ChatImages({ states: reopened, runs: () => ({}), broadcast() {} });
+  const replyParts = replyActivity(restored.body, restored.steps);
+  assert.equal(replyParts.viewedImages.length, 16);
+  assert.equal(replyParts.activity.length, 16);
+  assert.equal(await fresh.resolve(project, file), null, "the answer's provenance link grants no media access");
+  for (const step of replyParts.viewedImages) {
+    const stored = replyImageFile(step, restored.images);
+    assert.notEqual(stored, step.file);
+    assert.equal(await fresh.resolve(project, step.file), stored);
+    assert.deepEqual(await fs.readFile(stored), expected.get(step.file));
+  }
+  assert.equal(fresh.copies.size, 0, "fresh resolution uses durable mappings, never cached copy promises");
+});
