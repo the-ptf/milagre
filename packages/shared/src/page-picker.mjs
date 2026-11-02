@@ -23,36 +23,37 @@ const STYLES = [
 ];
 
 /** The page background covers the whole document, including blank space below a short body. */
-function bounds(el) {
+// Keep injected functions as source: Hermes does not preserve Function.prototype.toString() bodies.
+const BOUNDS = `function bounds(el) {
   return el === document.documentElement
     ? { left: -scrollX, top: -scrollY, width: Math.max(innerWidth, el.scrollWidth), height: Math.max(innerHeight, el.scrollHeight) }
     : el.getBoundingClientRect();
-}
+}`;
 
 /** Reads an element into the shape PageElement describes. Runs in the page; kept as source for the scripts below. */
-function describe(el, styleNames, bounds) {
+const DESCRIBE = `function describe(el, styleNames, bounds) {
   const DEBUG_SOURCE = "_debugSource";
   const SECRET_NAME = /token|secret|password|passwd|api[-_]?key|auth|session|cookie|signature/i;
-  const SECRET_VALUE = /^(?:[A-Za-z0-9+/_-]{32,}={0,2}|eyJ[\w-]+\.[\w-]+\.[\w-]+)$/;
-  const clip = (text, max) => (text || "").replace(/\s+/g, " ").trim().slice(0, max);
+  const SECRET_VALUE = /^(?:[A-Za-z0-9+/_-]{32,}={0,2}|eyJ[\\w-]+\\.[\\w-]+\\.[\\w-]+)$/;
+  const clip = (text, max) => (text || "").replace(/\\s+/g, " ").trim().slice(0, max);
   const tag = el.tagName.toLowerCase();
-  const cssEscape = (value) => (window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/[^\w-]/g, "\\$&"));
+  const cssEscape = (value) => (window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/[^\\w-]/g, "\\\\$&"));
   // An id that is unique and doesn't look generated, else a path of tags (with a class or two) and nth-of-type.
   const selector = (() => {
-    if (el.id && !/\d{3,}|:/.test(el.id) && document.querySelectorAll(`#${cssEscape(el.id)}`).length === 1) return `#${cssEscape(el.id)}`;
+    if (el.id && !/\\d{3,}|:/.test(el.id) && document.querySelectorAll(\`#\${cssEscape(el.id)}\`).length === 1) return \`#\${cssEscape(el.id)}\`;
     const steps = [];
     for (let node = el; node && node.nodeType === 1 && node !== document.documentElement && steps.length < 6; node = node.parentElement) {
       let step = node.tagName.toLowerCase();
-      if (node.id && !/\d{3,}|:/.test(node.id) && document.querySelectorAll(`#${cssEscape(node.id)}`).length === 1) {
-        steps.unshift(`#${cssEscape(node.id)}`);
+      if (node.id && !/\\d{3,}|:/.test(node.id) && document.querySelectorAll(\`#\${cssEscape(node.id)}\`).length === 1) {
+        steps.unshift(\`#\${cssEscape(node.id)}\`);
         break;
       }
-      const classes = [...node.classList].filter((name) => /^[a-zA-Z][\w-]{1,30}$/.test(name) && !/\d{3,}|^css-|^sc-|^_/.test(name)).slice(0, 2);
-      if (classes.length) step += classes.map((name) => `.${cssEscape(name)}`).join("");
+      const classes = [...node.classList].filter((name) => /^[a-zA-Z][\\w-]{1,30}$/.test(name) && !/\\d{3,}|^css-|^sc-|^_/.test(name)).slice(0, 2);
+      if (classes.length) step += classes.map((name) => \`.\${cssEscape(name)}\`).join("");
       const parent = node.parentElement;
       if (parent) {
         const same = [...parent.children].filter((child) => child.tagName === node.tagName);
-        if (same.length > 1) step += `:nth-of-type(${same.indexOf(node) + 1})`;
+        if (same.length > 1) step += \`:nth-of-type(\${same.indexOf(node) + 1})\`;
       }
       steps.unshift(step);
     }
@@ -91,8 +92,8 @@ function describe(el, styleNames, bounds) {
         // React's own field name (development builds before React 19).
         const debug = fiber[DEBUG_SOURCE];
         if (!source && debug?.fileName) {
-          const file = String(debug.fileName).replace(/^.*?\/(?=(src|app|pages|components|lib)\/)/, "");
-          source = `${file}:${debug.lineNumber}`;
+          const file = String(debug.fileName).replace(/^.*?\\/(?=(src|app|pages|components|lib)\\/)/, "");
+          source = \`\${file}:\${debug.lineNumber}\`;
         }
       }
     }
@@ -101,19 +102,19 @@ function describe(el, styleNames, bounds) {
   const label =
     el === document.documentElement
       ? "Page background"
-      : `${components ? `<${components.at(-1)}> ` : ""}${tag}${name ? ` "${clip(name, 40).replace(/"/g, "'")}"` : ""}`;
+      : \`\${components ? \`<\${components.at(-1)}> \` : ""}\${tag}\${name ? \` "\${clip(name, 40).replace(/"/g, "'")}"\` : ""}\`;
   // The HTML with values that look like secrets taken out, and form values never included.
   const copy = el.cloneNode(true);
   for (const node of [copy, ...copy.querySelectorAll("*")]) {
     // oxlint-disable-next-line unicorn/no-useless-spread -- a copy: setAttribute below changes the live attribute list
     for (const attribute of [...node.attributes]) {
       if (attribute.name === "value" || SECRET_NAME.test(attribute.name) || SECRET_VALUE.test(attribute.value)) node.setAttribute(attribute.name, "[redacted]");
-      else if (attribute.value.length > 200) node.setAttribute(attribute.name, `${attribute.value.slice(0, 200)}…`);
+      else if (attribute.value.length > 200) node.setAttribute(attribute.name, \`\${attribute.value.slice(0, 200)}…\`);
     }
     if (node.tagName === "SCRIPT" || node.tagName === "STYLE" || node.tagName === "SVG" || node.tagName === "svg") node.replaceChildren();
   }
-  let html = copy.outerHTML.replace(/\s+/g, " ");
-  if (html.length > 1500) html = `${html.slice(0, 1500)}…`;
+  let html = copy.outerHTML.replace(/\\s+/g, " ");
+  if (html.length > 1500) html = \`\${html.slice(0, 1500)}…\`;
   const computed = getComputedStyle(el);
   const styles = {};
   for (const style of styleNames) {
@@ -135,7 +136,7 @@ function describe(el, styleNames, bounds) {
     ...(components ? { components } : {}),
     ...(source ? { source } : {}),
   };
-}
+}`;
 
 /**
  * Arms the picker in the page: the element under the pointer is outlined and labelled, a click (or Enter) picks it, and
@@ -144,8 +145,8 @@ function describe(el, styleNames, bounds) {
  */
 export function pagePickScript(accent = "#007df3") {
   return `(() => new Promise((resolve) => {
-  const bounds = ${bounds.toString()};
-  const describe = ${describe.toString()};
+  const bounds = ${BOUNDS};
+  const describe = ${DESCRIBE};
   // A picker already on the page ends quietly: it was replaced, not cancelled.
   window.__milagrePick?.replace?.();
   const host = document.createElement("milagre-pick");
@@ -248,8 +249,8 @@ export function pagePickScript(accent = "#007df3") {
 export function pageDescribeAtScript(x, y) {
   const fraction = (value) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5);
   return `(() => {
-  const bounds = ${bounds.toString()};
-  const describe = ${describe.toString()};
+  const bounds = ${BOUNDS};
+  const describe = ${DESCRIBE};
   const px = ${fraction(x)} * innerWidth, py = ${fraction(y)} * innerHeight;
   const layers = [...document.querySelectorAll("milagre-pins, milagre-pick")];
   for (const layer of layers) layer.style.visibility = "hidden";
@@ -281,7 +282,7 @@ export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
  */
 export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } = {}) {
   return `(() => {
-  const bounds = ${bounds.toString()};
+  const bounds = ${BOUNDS};
   const pins = ${JSON.stringify(pins)};
   let layer = window.__milagrePins;
   if (!layer) {

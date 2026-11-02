@@ -304,7 +304,7 @@ function createRuntime(options) {
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
   // Comments the user left on Browser panel pages (spec docs/superpowers/specs/2026-10-28-internal-browser-design.md).
-  const { commentAtPoint, createChatPageComments, pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
+  const { commentAtPoint, createChatPageComments, pageCommentToolDefinitions, pageElement } = require("./chat-page-comments.cjs");
   const pageComments = createChatPageComments({
     directory: path.join(dataDir, "page-comments"),
     validateChat: existingChat("commenting on a page"),
@@ -318,14 +318,19 @@ function createRuntime(options) {
     const text = typeof request?.text === "string" ? request.text.trim().slice(0, 4000) : "";
     const point = [request?.x, request?.y];
     if (!chatId || !text) throw new Error("Write the comment first.");
-    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap the page to place a comment pin.");
+    if (!request.page && !point.every((value) => typeof value === "number" && value >= 0 && value <= 1))
+      throw new Error("Tap the page to place a comment pin.");
     const scope = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
     if (!session) throw new Error("Open an existing Chat before commenting on a page.");
-    const { target, session: page } = await browsers.devtools({ chatId, page: typeof request.targetId === "string" ? request.targetId : undefined });
+    // A native page describes its own element. Never read coordinates from a different page on the computer.
+    const local = request.page;
+    const remote = local ? null : await browsers.devtools({ chatId, page: typeof request.targetId === "string" ? request.targetId : undefined });
+    const target = local ? { url: String(local.url ?? "").slice(0, 2000), title: String(local.title ?? "").slice(0, 200) } : remote.target;
     const { pageCommentId, pageCommentsMessage } = await import("@milagre/shared/page-comments");
-    const { element, shot } = await commentAtPoint(page, point[0], point[1]);
+    const { element, shot } = local ? { element: pageElement(local.element), shot: null } : await commentAtPoint(remote.session, point[0], point[1]);
+    if (!element) throw new Error("Tap an element on the page before sending a comment.");
     const id = pageCommentId();
     const comment = { id, url: target.url, title: target.title, element, text };
     // Recorded first: a comment the store refuses is never sent, and the agent can resolve every one it reads.

@@ -24,6 +24,16 @@ test("a tapped point can't carry code into the page", () => {
   assert.match(script, /const px = 0\.5 \* innerWidth, py = 0\.5 \* innerHeight;/);
 });
 
+test("injected scripts work when the native JS engine does not retain function source", (t) => {
+  const source = t.mock.method(Function.prototype, "toString", () => "function () { [bytecode] }");
+  const scripts = [pagePickScript(), pageDescribeAtScript(0.5, 0.5), pagePinsScript([])];
+  source.mock.restore();
+  for (const script of scripts) {
+    assert.doesNotMatch(script, /\[bytecode\]/);
+    assert.doesNotThrow(() => new Function(`return ${script}`));
+  }
+});
+
 test("blank page space gets an exact pin even below a short body or after scrolling", () => {
   const root = {
     tagName: "HTML",
