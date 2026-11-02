@@ -65,6 +65,7 @@ export function placeholders(value: string): string[];
 export function stepReads(step: FlowStep | null | undefined): string[];
 export function usedBy(steps: FlowStep[], ref: string): number;
 export function checkFlowSteps(value: unknown, triggerKind: TriggerKind | undefined): FlowStep[];
+export function checkDraftSteps(value: unknown): FlowStep[];
 export function flowProblems(steps: FlowStep[], triggerKind: TriggerKind | undefined): Array<{ stepId: string | null; message: string }>;
 export function triggerValues(event: RoutineEvent | undefined, at?: number): Record<string, unknown>;
 export function readRef(values: Record<string, unknown>, ref: string): unknown;

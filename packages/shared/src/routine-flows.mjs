@@ -361,6 +361,29 @@ export function checkFlowSteps(value, triggerKind) {
   return steps;
 }
 
+/**
+ * A draft as saved while it is edited: a list of steps of known types with ids, at most 200 kB, and nothing else checked
+ * (a step may still lack its prompt). Publishing runs checkFlowSteps.
+ */
+export function checkDraftSteps(value) {
+  if (!Array.isArray(value)) throw new Error("Steps must be a list");
+  if (JSON.stringify(value).length > 200_000) throw new Error("The flow is too big");
+  const visit = (list, depth) => {
+    if (depth > FLOW_LIMITS.depth) throw new Error(`Ifs nest ${FLOW_LIMITS.depth} deep at most`);
+    for (const step of list) {
+      if (!isObject(step) || !STEP_ID.test(text(step.id)) || !STEP_KINDS.has(step.kind)) throw new Error("A step is missing its id or type");
+      if (step.kind === "if") {
+        if (!Array.isArray(step.yes) || !Array.isArray(step.otherwise)) throw new Error("An If needs both paths");
+        visit(step.yes, depth + 1);
+        visit(step.otherwise, depth + 1);
+      }
+    }
+  };
+  visit(value, 0);
+  if (flattenSteps(value).length > FLOW_LIMITS.steps) throw new Error(`A flow has ${FLOW_LIMITS.steps} steps at most`);
+  return structuredClone(value);
+}
+
 /** Every problem with a flow, as `{ stepId, message }`; empty when it can run. */
 export function flowProblems(steps, triggerKind) {
   const problems = [];
