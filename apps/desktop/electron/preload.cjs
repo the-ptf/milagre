@@ -425,6 +425,8 @@ function makeBridge(invoke, listen, send) {
     readUsage: (scopeKey) => invoke("usage:read", scopeKey),
     setKeepAwake: (enabled) => invoke("app:set-keep-awake", enabled),
     getCachedUsage: (scopeKey) => invoke("usage:cached", scopeKey),
+    readAccountUsage: () => invoke("usage:accounts:read"),
+    getCachedAccountUsage: () => invoke("usage:accounts:cached"),
     readTokenUsage: (request) => invoke("token-usage:read", request),
     onTokenUsageChanged: (callback) => listen("token-usage:changed", () => callback()),
     setNotifyWhenWaiting: (on) => invoke("settings:notify-when-waiting", on),

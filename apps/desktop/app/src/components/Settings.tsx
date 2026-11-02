@@ -2734,7 +2734,7 @@ export function SettingsPanel({
   if (section === "usage")
     return (
       <div ref={content} className="h-full">
-        <TokenUsagePage onOpenChat={onOpenUsageChat} />
+        <TokenUsagePage onOpenChat={onOpenUsageChat} onManageAccounts={() => onSectionChange?.("accounts")} />
       </div>
     );
   return (

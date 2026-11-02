@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { createTokenUsageScan } = require("./token-usage-scan.cjs");
 const { createTokenPricing, priceOf, slimPrices } = require("./token-usage-pricing.cjs");
-const { buildReport, createTokenUsage } = require("./token-usage.cjs");
+const { buildReport, createTokenUsage, readTokenUsageScopes } = require("./token-usage.cjs");
 
 const HOUR = 3_600_000;
 // Noon UTC on 2026-10-30, 9 AM in São Paulo.
@@ -206,6 +206,122 @@ const projects = [
   },
 ];
 
+test("attribution reads Chats home and named Links even when neither is an open Project", async () => {
+  const home = "/home/.milagre/chats";
+  const linkId = "12345678-1234-1234-1234-123456789abc";
+  const listed = [{ path: "/code/app", name: "app" }];
+  const reads = [];
+  const options = {
+    registry: { list: async () => listed, listProjectGroups: async () => [{ id: linkId, name: "App and API" }] },
+    chatsHome: { path: home, exists: async () => true, isHome: (folder) => folder === home },
+    projectState: async (folder) => {
+      reads.push(folder);
+      return { sessions: {} };
+    },
+    linkState: async (id) => {
+      reads.push(id);
+      return { sessions: { 7: { id: 7, native_session_id: "link-native" } } };
+    },
+  };
+  const scopes = await readTokenUsageScopes(options);
+  assert.deepEqual(
+    scopes.map(({ path, name }) => [path, name]),
+    [
+      ["/code/app", "app"],
+      [home, "Chats without a Project"],
+      [`milagre-link:${linkId}`, "App and API"],
+    ],
+  );
+  assert.deepEqual(reads, ["/code/app", home, linkId]);
+  assert.equal(listed.length, 1, "reading analytics doesn't change the registry");
+  assert.equal(scopes[2].state.sessions[7].native_session_id, "link-native");
+  const again = await readTokenUsageScopes({ ...options, registry: { ...options.registry, list: async () => [...listed, { path: home }] } });
+  assert.equal(again.filter((entry) => entry.path === home).length, 1);
+  const absent = await readTokenUsageScopes({ ...options, chatsHome: { ...options.chatsHome, exists: async () => false } });
+  assert.equal(
+    absent.some((entry) => entry.path === home),
+    false,
+    "reading usage doesn't create Chats home",
+  );
+  const failed = await readTokenUsageScopes({
+    ...options,
+    linkState: () => {
+      throw new Error("Unavailable");
+    },
+  });
+  assert.equal(failed[0].state.sessions !== undefined, true, "one unavailable scope doesn't discard all attribution");
+  assert.equal(failed[2].state, null);
+});
+
+test("Chats home and named Link usage keeps canonical Chat titles and links across providers", () => {
+  const home = "/home/.milagre/chats";
+  const link = "milagre-link:12345678-1234-1234-1234-123456789abc";
+  const workspace = "/profile/links/12345678-1234-1234-1234-123456789abc/workspaces/7";
+  const report = buildReport({
+    rows: [
+      row({ cwd: "/home/.milagre/worktrees/chats/help-me-ab12", session: "home-native", milagre: false }),
+      row({ cwd: workspace, session: "link-native" }),
+      row({ cwd: "/code/app", provider: "codex", model: "gpt-6-astra", session: "link-codex" }),
+      row({ cwd: `${workspace}/app`, session: "old-link-session" }),
+      row({ cwd: "/home/.milagre/worktrees/chats/removed-ab12", session: "deleted-home" }),
+      row({ cwd: "/terminal", session: "terminal", milagre: false }),
+    ],
+    prices,
+    projects: [
+      ...projects,
+      {
+        path: home,
+        name: "Chats without a Project",
+        state: { sessions: { 7: { id: 7, native_session_id: "home-native" } }, messages: [{ session_id: 7, role: "user", body: "Help me plan the release" }] },
+      },
+      {
+        path: link,
+        name: "App and API",
+        state: {
+          sessions: {
+            7: { id: 7, title: "Update both apps", native_session_id: "link-native", native_sessions: { codex: "link-codex" }, workspacePath: workspace },
+          },
+          messages: { storage: "sqlite" },
+        },
+      },
+    ],
+    range: "7d",
+    timeZone: "UTC",
+    now: NOW,
+    worktreeRoot: "/home/.milagre/worktrees",
+  });
+  const homeGroup = report.projects.find((entry) => entry.path === home);
+  assert.deepEqual(
+    homeGroup.chats.map(({ kind, title, sessionId }) => [kind, title, sessionId]),
+    [
+      ["chat", "Help me plan the release", 7],
+      ["archived", "Removed", undefined],
+    ],
+  );
+  const linkGroup = report.projects.find((entry) => entry.path === link);
+  assert.equal(linkGroup.milagre, true);
+  assert.equal(linkGroup.chats[0].sessionId, 7);
+  assert.equal(linkGroup.chats[0].kind, "chat");
+  assert.equal(linkGroup.chats[0].title, "Update both apps");
+  assert.deepEqual(linkGroup.chats[0].providers, ["claude", "codex"]);
+  assert.equal(linkGroup.chats[0].totals.requests, 2);
+  assert.equal(linkGroup.chats[1].kind, "archived");
+  assert.equal(
+    report.projects.find((entry) => entry.path === "/code/app"),
+    undefined,
+    "Link usage isn't also counted against a member Project",
+  );
+  assert.deepEqual(
+    report.projects.find((entry) => !entry.milagre).chats.map((chat) => chat.detail),
+    ["/terminal"],
+  );
+  assert.equal(report.totals.requests, 6);
+  assert.equal(
+    report.projects.reduce((sum, project) => sum + project.totals.requests, 0),
+    6,
+  );
+});
+
 test("the report prices rows and credits them to Chats, archived sessions, Worktrees and outside folders", () => {
   const report = buildReport({
     rows: [
@@ -314,4 +430,34 @@ test("a read answers from the cache, starts one scan and says when it changed so
   done();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(events, ["token-usage:changed"]);
+});
+
+test("folder attribution prefers the longest path and a real Project over a Link sharing that folder", () => {
+  const link = {
+    path: "milagre-link:12345678-1234-1234-1234-123456789abc",
+    name: "App and API",
+    state: { sessions: { 7: { id: 7, title: "Shared", native_session_id: "shared-native", workspacePath: "/code/app" } } },
+  };
+  const project = { path: "/code/app", name: "App", state: {} };
+  const nested = { path: "/code/app/nested", name: "Nested", state: {} };
+  for (const projects of [
+    [link, project, nested],
+    [nested, project, link],
+  ]) {
+    const report = buildReport({
+      now: NOW,
+      range: "7d",
+      timeZone: "UTC",
+      prices: null,
+      projects,
+      rows: [
+        row({ session: "terminal-app", milagre: false, cwd: "/code/app" }),
+        row({ session: "terminal-nested", milagre: false, cwd: "/code/app/nested/src" }),
+        row({ session: "shared-native", cwd: "/code/app" }),
+      ],
+    });
+    assert.equal(report.projects.find((entry) => entry.path === project.path).chats[0].kind, "outside");
+    assert.equal(report.projects.find((entry) => entry.path === nested.path).chats[0].kind, "outside");
+    assert.equal(report.projects.find((entry) => entry.path === link.path).chats[0].sessionId, 7);
+  }
 });

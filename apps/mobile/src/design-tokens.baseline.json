@@ -31,7 +31,6 @@
     "undo-panel.tsx": 1,
     "update-sheet.tsx": 1,
     "usage-limit-card.tsx": 2,
-    "usage-section.tsx": 2,
     "viewer-chrome.tsx": 2,
     "worktree-link-divider.tsx": 1
   },
@@ -109,7 +108,6 @@
     "undo-panel.tsx": 4,
     "update-sheet.tsx": 1,
     "usage-limit-card.tsx": 1,
-    "usage-section.tsx": 2,
     "use-skills.ts": 1,
     "viewer-chrome.tsx": 6
   }

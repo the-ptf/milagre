@@ -74,10 +74,10 @@ export interface TokenUsageModel {
 }
 
 export interface TokenUsageChat {
-  /** The Milagre Chat's id in its Project, for a `chat`. */
+  /** The Milagre Chat's id in its Project, Chats home or named Link, for a `chat`. */
   sessionId?: number;
   /**
-   * `chat`, a Chat in the Project now; `archived`, a session Milagre started that no Chat holds now (archived or
+   * `chat`, an existing Chat in a Project, Chats home or named Link; `archived`, a session Milagre started that no Chat holds now (archived or
    * deleted), titled from its transcript or Worktree; `outside`, a session started outside Milagre in the Project's
    * folders; `folder`, under Outside Milagre, a folder no Project holds.
    */
@@ -92,10 +92,10 @@ export interface TokenUsageChat {
 }
 
 export interface TokenUsageProject {
-  /** The Project's folder; empty for Outside Milagre, whose rows are the folders no Project holds. */
+  /** The Project/Chats home folder or named Link's scope key; empty for Outside Milagre. */
   path: string;
   name: string;
-  /** A Project registered in Milagre; false for Outside Milagre. */
+  /** A Project, Chats home or named Link in Milagre; false for Outside Milagre. */
   milagre: boolean;
   totals: TokenUsageTotals;
   providers: TokenUsageSplit;
