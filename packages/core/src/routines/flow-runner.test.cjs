@@ -404,6 +404,20 @@ test("an approval pauses immediately and an answer holds the next step until res
   assert.equal(ctx.run().flow.state.work.status, "running");
 });
 
+test("pausing an approval does not extend its deadline", async () => {
+  const steps = [{ id: "ask", name: "Ask", kind: "ask", message: "Continue?", expiresInHours: 24 }];
+  const ctx = setup({ steps, trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" } });
+  await ctx.scheduler.runNow(ctx.routine.id);
+  await ctx.settle();
+  const id = ctx.run().id;
+  await ctx.scheduler.flowAct(id, "pause");
+  ctx.clock.t += 24 * 3_600_000;
+  await ctx.tick();
+  const run = ctx.store.getRun(id).run;
+  assert.equal(run.status, "ended");
+  assert.equal(run.flow.state.ask.approval.decision, "expired");
+});
+
 test("a draft saves incomplete steps; publishing checks them and bumps the revision", () => {
   const ctx = setup();
   const draft = [...pilot(), { id: "note", name: "Comment", kind: "linear-comment", body: "" }];

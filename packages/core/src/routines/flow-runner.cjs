@@ -741,7 +741,9 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     const at = now();
     for (const { run } of store.runningFlows()) {
       const flow = run.flow;
-      if (flow.status === "paused") continue;
+      const pausedStep = flow.status === "paused" ? waitingStep(run) : null;
+      // Pausing holds execution, not the approval's absolute deadline.
+      if (flow.status === "paused" && !flow.state[pausedStep?.id]?.approval) continue;
       const agent = runningAgent(run);
       if (agent) {
         const state = flow.state[agent.step.id];
