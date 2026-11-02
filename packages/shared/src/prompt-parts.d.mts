@@ -3,11 +3,18 @@ export type PromptPart =
   | { kind: "skill"; text: string; name: string }
   | { kind: "file"; text: string; path: string }
   | { kind: "chat"; text: string; id: number; start: number }
+  | { kind: "computer"; text: string; name: string }
   | { kind: "image"; text: string; index: number };
 export type PromptImageBlock<T> = { type: "text"; text: string } | { type: "image"; index: number; image: T };
 export function promptParts(
   prompt: string,
-  opts: { skills: readonly string[]; files: (path: string) => boolean; images?: number | ((index: number) => boolean); chats?: (id: number) => boolean },
+  opts: {
+    skills: readonly string[];
+    files: (path: string) => boolean;
+    images?: number | ((index: number) => boolean);
+    chats?: (id: number) => boolean;
+    computers?: (name: string) => boolean;
+  },
 ): PromptPart[];
 export function promptImageBlocks<T>(prompt: string, images?: readonly T[]): PromptImageBlock<T>[];
 export function formatFileMention(path: string): string;
@@ -22,3 +29,5 @@ export function quoteIntoDraft(draft: string, passage: string): string;
 
 export function formatChatMention(id: number): string;
 export function chatMentionTokens(prompt: string): { id: number; start: number; end: number }[];
+export function formatComputerMention(name: string): string;
+export function computerMentionTokens(prompt: string): { name: string; start: number; end: number }[];

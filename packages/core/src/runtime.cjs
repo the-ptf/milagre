@@ -1,4 +1,5 @@
 const { chatMentionsContext } = require("./chat-mentions.cjs");
+const { computerMentionsContext } = require("./computer-mentions.cjs");
 const { createAccountRouting } = require("./account-routing.cjs");
 const { createLimitSwitch } = require("./limit-switch.cjs");
 const { createLimitResume } = require("./limit-resume.cjs");
@@ -1456,7 +1457,11 @@ function createRuntime(options) {
     const milagreNotes = agentNotes.get(request.chatId) ?? [];
     agentNotes.delete(request.chatId);
     const mentions = await chatMentionsContext(request, (key) => scopeStates.get(key)).catch(() => "");
-    const text = [prompt, ...setupNotes, ...milagreNotes, context, mentions, reports?.text].filter(Boolean).join("\n\n");
+    const computerMentions = await computerMentionsContext(request, {
+      remote,
+      thisMac: options.hostNetwork?.().name ?? remoteComputers?.thisMac(),
+    }).catch(() => "");
+    const text = [prompt, ...setupNotes, ...milagreNotes, context, mentions, computerMentions, reports?.text].filter(Boolean).join("\n\n");
     try {
       if (cancelled()) {
         if (request.canStart) return { turnId: null, steered: false, cancelled: true };
@@ -2521,6 +2526,16 @@ function createRuntime(options) {
   const linked = createLinkedWorktrees({
     dataDir,
     remote,
+    // A Delegation from another computer that starts in a new Worktree: made as the New Chat button makes one.
+    createWorktree: async (projectPath, prompt) => {
+      const baseBranch = await git.resolveBase(projectPath).then(
+        (base) => base.name,
+        () => "main",
+      );
+      const { project, worktreeId } = await handlers.get("worktree:create")({}, { projectPath, baseBranch, prompt });
+      const worktree = project.state.worktrees[worktreeId];
+      return { path: worktree.path, branch: worktree.name };
+    },
     registry: projectRegistry,
     grantedProjects: (chatId) => localMcp.grantedProjects(chatId),
     // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
