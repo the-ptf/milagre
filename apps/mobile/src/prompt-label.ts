@@ -12,6 +12,7 @@ export function promptAccessibilityLabel(parts: readonly PromptPart[], chatTitle
       if (part.kind === "skill") return `skill ${skillLabel(part.name)}`;
       if (part.kind === "file") return `file ${part.path.split("/").findLast(Boolean) ?? part.path}`;
       if (part.kind === "chat") return `Chat ${chatTitle(part.id)}`;
+      if (part.kind === "computer") return `computer ${part.name}`;
       if (part.kind === "image") return imageLabel(part.index);
       return part.text;
     })
