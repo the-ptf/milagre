@@ -1,9 +1,9 @@
 import type { PermissionMode, EffortLevel, PersistenceFailure } from "./model.ts";
 
 export const PERMISSION_MODES: Array<{ id: PermissionMode; name: string; description: string }> = [
-  { id: "ask", name: "Ask approval", description: "Approve edits and commands as the agent asks" },
+  { id: "ask", name: "Ask for approval", description: "Approve edits and commands as the agent asks" },
   { id: "auto", name: "Auto mode", description: "Allow changes inside this Worktree" },
-  { id: "full", name: "Full permission", description: "Remove filesystem and network limits" },
+  { id: "full", name: "Full permissions", description: "Remove filesystem and network limits" },
 ];
 
 /** The composer chip's word for each mode. Bot rules is only ever set by a bot, so the picker above never offers it. */

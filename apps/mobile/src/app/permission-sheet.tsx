@@ -9,7 +9,7 @@ import { CheckRow, CircleButton, Group, SheetHeader, useStyles } from "../ui";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { chatPreferences } from "../turn-options";
 
-/** Desktop's permission picker as a sheet: Ask approval, Auto mode, Full permission. A tap applies it and closes. */
+/** Desktop's permission picker as a sheet: Ask for approval, Auto mode, Full permissions, names only. A tap applies it and closes. */
 export default function PermissionSheet() {
   const styles = useStyles();
   const { chatId, busy } = useLocalSearchParams<{ chatId: string; busy?: string }>();
@@ -45,7 +45,6 @@ export default function PermissionSheet() {
             <CheckRow
               key={mode.id}
               title={mode.name}
-              subtitle={mode.description}
               leading={<PermissionIcon mode={mode.id} size={20} />}
               checked={mode.id === current}
               onPress={() => pick(mode.id)}

@@ -1039,7 +1039,7 @@ export function PromptComposer({
         {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
 
         {permissionOpen && !permissionLocked && (
-          <PickerPanel title="Agent permissions" className="absolute w-[340px]" style={anchorStyle}>
+          <PickerPanel title="Agent permissions" className="absolute w-[240px]" style={anchorStyle}>
             {PERMISSION_MODES.map((mode) => (
               <PickerRow
                 key={mode.id}
@@ -1058,7 +1058,6 @@ export function PromptComposer({
                   </span>
                 }
                 label={mode.name}
-                description={mode.description}
                 selected={permissionMode === mode.id}
                 onClick={() => {
                   onPermissionModeChange(mode.id);
