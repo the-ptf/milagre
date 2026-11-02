@@ -147,7 +147,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-chat-id]')`), false, "No Chat rows in Bots");
     assert.match(await text("[data-needs-you]"), /^Needs you/);
     assert.equal((await text("[data-needs-you-count]")).trim(), "1");
-    assert.equal(await evaluate(`document.querySelector('[data-sidebar-mode="bots"]').getAttribute("aria-pressed")`), "true");
+    assert.equal(await evaluate(`document.querySelector('[data-sidebar-mode="bots"]').getAttribute("aria-checked")`), "true");
     await evaluate(`document.querySelector("[data-needs-you]").click()`);
     await waitFor(`document.querySelector('[data-bot-id="ops"]').getAttribute("aria-current") === "page"`);
     assert.deepEqual(await evaluate("window.picked"), ["ops"], "Needs you opens the bot that asks");

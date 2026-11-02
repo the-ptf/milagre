@@ -1,11 +1,13 @@
 import { preferenceStorage as localStorage } from "../lib/preference-storage.ts";
 import { useEffect, useState, type CSSProperties } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { RefreshIcon } from "@hugeicons/core-free-icons";
 import type { LinearIssue, LinearIssuesResult } from "@milagre/shared/linear";
 import { LinearLogo } from "./ProviderLogo";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
-import Tooltip from "./primitives/Tooltip";
+import { IconButton } from "./primitives/Button";
+import { Skeleton } from "./primitives/Skeleton";
+import { SpinnerRing } from "./primitives/SpinnerRing";
+import { Tabs } from "./primitives/Tabs";
 
 type IssueList = { issues: LinearIssue[]; error?: string };
 type WorkspaceTab = { id: string; name: string };
@@ -28,12 +30,12 @@ function IssueSkeleton() {
     <div role="status" data-linear-issue-skeleton className="h-64 overflow-hidden">
       <span className="sr-only">Loading issues</span>
       {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden="true" className="flex items-center gap-2 px-2 py-1.5 motion-safe:animate-pulse">
-          <span className="size-[13px] shrink-0 rounded-full bg-ink/10" />
+        <div key={index} aria-hidden="true" className="flex items-center gap-2 px-2 py-1.5">
+          <Skeleton className="size-3 shrink-0" />
           <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="my-1 h-3 w-11/12 rounded bg-ink/10" />
-            <span className="my-1 h-3 w-1/2 rounded bg-ink/10" />
-            <span className="h-2.5 w-20 rounded bg-ink/5" />
+            <Skeleton className="my-1 h-3 w-11/12" />
+            <Skeleton className="my-1 h-3 w-1/2" />
+            <Skeleton secondary className="h-2.5 w-20" />
           </span>
         </div>
       ))}
@@ -120,43 +122,33 @@ export function LinearIssuePicker({
     <PickerPanel
       title={title}
       titleAction={
-        <Tooltip label="Refresh issues" side="bottom" align="end">
-          <button
-            type="button"
-            aria-label="Refresh issues"
-            data-linear-issues-refresh
-            disabled={refreshing}
-            onClick={() => {
-              setRefreshing(true);
-              setRefreshes((count) => count + 1);
-            }}
-            className="-my-1 flex size-6 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default"
-          >
-            <span className={refreshing ? "animate-spin" : ""}>
-              <HugeiconsIcon icon={RefreshIcon} size={13} strokeWidth={1.8} color="currentColor" />
-            </span>
-          </button>
-        </Tooltip>
+        <IconButton
+          label="Refresh issues"
+          icon={RefreshIcon}
+          size={24}
+          side="bottom"
+          data-linear-issues-refresh
+          disabled={refreshing}
+          onClick={() => {
+            setRefreshing(true);
+            setRefreshes((count) => count + 1);
+          }}
+          className="-my-1"
+        >
+          {refreshing ? <SpinnerRing size={12} /> : undefined}
+        </IconButton>
       }
       header={
         tabs.length > 1 && (
-          <div role="tablist" aria-label="Linear workspaces" data-linear-workspace-tabs className="flex shrink-0 flex-wrap gap-1 px-1.5 pb-1.5">
-            {tabs.map((tab) => {
-              const selected = tab.id === (listed ?? tabs[0]?.id);
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  data-linear-workspace-tab={tab.id}
-                  onClick={() => choose(tab.id)}
-                  className={`rounded-chip border px-2 py-1 text-xs font-medium transition-colors ${selected ? "border-line-strong text-ink" : "border-transparent text-ink-3 hover:text-ink-2"}`}
-                >
-                  {tab.name}
-                </button>
-              );
-            })}
+          <div data-linear-workspace-tabs className="shrink-0 px-1.5 pb-1.5">
+            <Tabs
+              label="Linear workspaces"
+              dataKey="linear-workspace-tab"
+              value={listed ?? tabs[0]?.id ?? ""}
+              options={tabs.map((tab) => ({ value: tab.id, label: tab.name }))}
+              onChange={choose}
+              className="flex-wrap"
+            />
           </div>
         )
       }
@@ -179,7 +171,7 @@ export function LinearIssuePicker({
       {issueRows.map((issue) => (
         <div key={issue.key} data-linear-issue-row>
           <PickerRow
-            icon={<LinearLogo size={13} />}
+            icon={<LinearLogo size={14} />}
             label={`${issue.key} ${issue.title}`}
             description={issue.state.name}
             selected={false}

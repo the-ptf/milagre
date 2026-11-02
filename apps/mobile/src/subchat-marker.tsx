@@ -46,7 +46,7 @@ export function SubchatMarker({
           hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
           style={{ flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 6 }}
         >
-          <Icon icon={CornerDownRightIcon} color={failed ? colors.red : colors.ink3} size={14} />
+          <Icon icon={CornerDownRightIcon} color={failed ? colors.red : colors.ink3} size={12} />
           <Text numberOfLines={1} style={{ flexShrink: 1, color: ink, fontSize: type.footnote, fontWeight: "500" }}>
             {marker.text}
           </Text>
@@ -59,7 +59,7 @@ export function SubchatMarker({
             onPress={() => setExpanded((value) => !value)}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 16 }}
           >
-            <Icon icon={expanded ? ArrowDown01Icon : ArrowRight01Icon} color={ink} size={14} />
+            <Icon icon={expanded ? ArrowDown01Icon : ArrowRight01Icon} color={ink} size={12} />
           </Pressable>
         )}
       </View>

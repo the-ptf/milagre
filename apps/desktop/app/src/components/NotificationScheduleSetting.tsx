@@ -18,8 +18,8 @@ export function NotificationScheduleSetting() {
     <div className="space-y-4 px-4 py-3" data-notification-schedule>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">Notification schedule</p>
-          <p className="mt-1 text-[12px] text-ink-3">Quiet outside these hours. Unread Chats stay in your inbox.</p>
+          <p className="text-13 font-medium text-ink">Notification schedule</p>
+          <p className="mt-1 text-12 text-ink-3">Quiet outside these hours. Unread Chats stay in your inbox.</p>
         </div>
         <Select
           label="Notification schedule"
@@ -51,7 +51,8 @@ export function NotificationScheduleSetting() {
                 aria-label={day}
                 aria-pressed={schedule.days.includes(index)}
                 disabled={schedule.days.length === 1 && schedule.days.includes(index)}
-                className={`rounded-control border px-3 py-2 text-[12px] disabled:opacity-60 ${schedule.days.includes(index) ? "border-accent bg-accent/15 text-ink" : "border-line text-ink-2 hover:bg-hover"}`}
+                // Picked days in ink, like a checked box or a picked filter chip.
+                className={`h-8 rounded-control border px-3 text-12 font-medium transition-colors disabled:opacity-40 ${schedule.days.includes(index) ? "border-ink bg-ink text-on-ink" : "border-line text-ink-2 hover:bg-hover hover:text-ink"}`}
                 onClick={() =>
                   save({
                     ...schedule,
@@ -80,7 +81,7 @@ export function NotificationScheduleSetting() {
                 })
               }
             />
-            <span className="text-[12px] text-ink-3">to</span>
+            <span className="text-12 text-ink-3">to</span>
             <Select
               label="Notification end time"
               value={schedule.end}
@@ -98,7 +99,7 @@ export function NotificationScheduleSetting() {
               onChange={(timeZone) => save({ ...schedule, timeZone })}
             />
           </div>
-          <p className="text-[12px] text-ink-3">
+          <p className="text-12 text-ink-3">
             {schedule.start > schedule.end ? "Ends the next day. " : ""}Applies to Chat alerts and sounds on {thisComputer}. Quiet-hour alerts are not sent
             later.
           </p>

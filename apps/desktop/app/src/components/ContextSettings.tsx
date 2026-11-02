@@ -158,7 +158,11 @@ export function ContextSettings() {
         </div>
         <div className="mt-4 flex justify-between gap-3 text-11 text-ink-3">
           <span>Auto compact stays at least 5% above the button.</span>
-          <button disabled={disabled} className="text-accent-ink" onClick={() => save(CONTEXT_DEFAULTS)}>
+          <button
+            disabled={disabled}
+            className="text-accent-ink"
+            onClick={() => save({ buttonThreshold: CONTEXT_DEFAULTS.buttonThreshold, autoThreshold: CONTEXT_DEFAULTS.autoThreshold })}
+          >
             Reset to defaults
           </button>
         </div>

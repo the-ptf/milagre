@@ -21,6 +21,7 @@ import { Icon } from "./icons";
 import { scaledTiming, useMotionScale } from "./motion";
 import { GlassIconButton, PullDown } from "./ui";
 import type { MenuSection } from "./primitives/menu";
+import { duration, easing, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { pinsControls, shownHidden } from "./chat-list-controls-pin";
 import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
@@ -54,7 +55,9 @@ export function useControlsVisibility() {
     (next: boolean) => {
       if (state.current.hidden === next) return;
       state.current.hidden = next;
-      hidden.set(withTiming(next ? 1 : 0, scaledTiming({ duration: 220, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, scale)));
+      hidden.set(
+        withTiming(next ? 1 : 0, scaledTiming({ duration: duration.base, easing: Easing.bezier(...easing.enter), reduceMotion: ReduceMotion.System }, scale)),
+      );
     },
     [hidden, scale],
   );
@@ -120,7 +123,9 @@ export function ChatListControls({
   const pin = pinsControls(dictation.phase, focused);
   const scale = useMotionScale();
   useEffect(() => {
-    pinned.set(withTiming(pin ? 1 : 0, scaledTiming({ duration: 220, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, scale)));
+    pinned.set(
+      withTiming(pin ? 1 : 0, scaledTiming({ duration: duration.base, easing: Easing.bezier(...easing.enter), reduceMotion: ReduceMotion.System }, scale)),
+    );
   }, [pin, pinned, scale]);
   useEffect(() => {
     if (!visible) cancel();
@@ -151,15 +156,15 @@ export function ChatListControls({
         </Animated.View>
         <Animated.View pointerEvents="box-none" style={[s.row, { paddingBottom: bottom }, slide]}>
           <PullDown label={filters.active ? "Filters, on" : "Filters"} title="Filters" sections={filters.sections} onSelect={filters.onSelect} style={s.circle}>
-            <View style={[s.circle, filters.active && { borderWidth: 1.5, borderColor: colors.accent, borderRadius: CONTROLS_HEIGHT / 2 }]}>
+            <View style={[s.circle, filters.active && { borderWidth: 1, borderColor: colors.ink, borderRadius: radius.full }]}>
               <LiquidGlassView
                 pointerEvents="none"
                 glassType="regular"
                 isInteractive={false}
                 reducedTransparencyFallbackColor={colors.surface}
-                style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
+                style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
               />
-              <Icon icon={FilterHorizontalIcon} tone={filters.active ? "accent" : "ink"} size={20} />
+              <Icon icon={FilterHorizontalIcon} tone="ink" size={20} />
             </View>
           </PullDown>
           <View style={s.search}>
@@ -168,12 +173,12 @@ export function ChatListControls({
               glassType="regular"
               isInteractive={false}
               reducedTransparencyFallbackColor={colors.surface}
-              style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
+              style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
             />
             <Icon icon={Search01Icon} tone="ink3" size={18} />
             <TextInput
               ref={inputRef}
-              accessibilityLabel="Search chats, messages and projects"
+              accessibilityLabel="Search Chats, messages and Projects"
               placeholder="Search"
               placeholderTextColor={colors.ink3}
               selectionColor={colors.accent}
@@ -191,7 +196,7 @@ export function ChatListControls({
               autoCorrect={false}
               returnKeyType="search"
               clearButtonMode="while-editing"
-              style={{ flex: 1, color: colors.ink, fontSize: 16, paddingVertical: 0, height: CONTROLS_HEIGHT }}
+              style={{ flex: 1, color: colors.ink, fontSize: type.body, paddingVertical: 0, height: CONTROLS_HEIGHT }}
             />
             {dictation.available ? (
               <View>
@@ -258,7 +263,7 @@ export function ChatListControls({
 }
 
 const s = StyleSheet.create({
-  row: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16 },
+  row: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16 },
   circle: { width: CONTROLS_HEIGHT, height: CONTROLS_HEIGHT, alignItems: "center", justifyContent: "center" },
   search: {
     flex: 1,
@@ -267,7 +272,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
-    borderRadius: CONTROLS_HEIGHT / 2,
+    borderRadius: radius.full,
     borderCurve: "continuous",
   },
 });

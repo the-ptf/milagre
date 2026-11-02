@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { afterPaint } from "@milagre/shared/after-paint";
-import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -22,7 +22,9 @@ import { ClosesLeftContext, hideRevealed } from "./chat-swipe-row";
 import { ChangesView } from "./app/changes";
 import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { GlassIconButton, IconButton, tap } from "./ui";
+import { GlassIconButton, IconButton, PageScroll, tap } from "./ui";
+import { chrome, duration, easing, lineHeight, radius, type } from "./design-tokens";
+import { PR_TONE } from "@milagre/shared/pr-blockers";
 import { Icon, type IconData, type Tone } from "./icons";
 import { PrOverview } from "./pr-overview";
 import { openPrFile, openPrPage } from "./pr-nav";
@@ -141,9 +143,13 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     (then?: () => void) => {
       setOpen(null);
       progress.set(
-        withTiming(0, scaledTiming({ duration: 180, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, getMotionScale()), () => {
-          if (then) scheduleOnRN(then);
-        }),
+        withTiming(
+          0,
+          scaledTiming({ duration: duration.base, easing: Easing.bezier(...easing.enter), reduceMotion: ReduceMotion.System }, getMotionScale()),
+          () => {
+            if (then) scheduleOnRN(then);
+          },
+        ),
       );
     },
     [progress],
@@ -651,7 +657,7 @@ export function SidePanelsHost() {
           bottom: Math.max(insets.bottom, CARD_MARGIN),
           [side]: CARD_MARGIN,
           width: side === "left" ? SIDEBAR_WIDTH : CHANGES_WIDTH,
-          borderRadius: 18,
+          borderRadius: radius.sheet,
           borderCurve: "continuous",
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.line,
@@ -662,9 +668,14 @@ export function SidePanelsHost() {
   const hidden = (side: Side) =>
     ({ accessibilityElementsHidden: open !== side, importantForAccessibility: open === side ? "auto" : "no-hide-descendants" }) as const;
   return (
-    <View pointerEvents={open ? "auto" : "none"} accessibilityViewIsModal={!!open} style={StyleSheet.absoluteFill}>
+    <View
+      pointerEvents={open ? "auto" : "none"}
+      accessibilityViewIsModal={!!open}
+      onAccessibilityEscape={open ? () => show(null) : undefined}
+      style={StyleSheet.absoluteFill}
+    >
       {/* Outside a card (an iPad's panels), a tap on the dimmed screen closes the panel, as a sheet's backdrop does. */}
-      <Animated.View pointerEvents={open && card ? "auto" : "none"} style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, shade]}>
+      <Animated.View pointerEvents={open && card ? "auto" : "none"} style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, shade]}>
         <Pressable accessibilityLabel="Close panel" accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => show(null)} />
       </Animated.View>
       <GestureDetector gesture={close}>
@@ -734,14 +745,14 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
   return (
     <View style={{ flex: 1 }}>
       {/* One compact row: the tabs scroll sideways, the close button keeps its place at the end, centred with them. */}
-      <View style={{ marginTop: insets.top, height: 52, paddingLeft: 8, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <ScrollView
+      <View style={{ marginTop: insets.top, height: TAB_BAR_HEIGHT, paddingLeft: 8, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <PageScroll
           horizontal
           showsHorizontalScrollIndicator={false}
           contentInsetAdjustmentBehavior="never"
           automaticallyAdjustContentInsets={false}
           style={{ flex: 1, alignSelf: "stretch" }}
-          contentContainerStyle={{ gap: 2, alignItems: "center" }}
+          contentContainerStyle={{ padding: 0, paddingBottom: 0, gap: 2, alignItems: "center" }}
         >
           {tabs.includes("changes") && (
             <PanelTab label="Changes" icon={FileDiffIcon} tone="ink2" selected={shownTab === "changes"} onPress={() => onTab("changes")} />
@@ -752,11 +763,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
                 key={prChoiceKey(choice)}
                 label={`#${choice.number}`}
                 icon={PR_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : choice.state === "CLOSED" ? "closed" : "open")]}
-                tone={
-                  choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED")
-                    ? "purpleInk"
-                    : (choice.look?.tone ?? (choice.state === "CLOSED" ? "ink3" : "green"))
-                }
+                tone={PR_TONE[choice.look?.tone ?? (choice.state === "MERGED" ? "purple" : choice.state === "CLOSED" ? "ink3" : "green")].icon}
                 selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
                 onPress={() => {
                   onPick(prChoiceKey(choice));
@@ -777,13 +784,17 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               onPress={() => onTab("designs")}
             />
           )}
-        </ScrollView>
+        </PageScroll>
         <GlassIconButton label={closeLabel} systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
       </View>
       {file && shownTab === "changes" && (
         <View style={{ paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
           <IconButton label="Back to Changes" icon={ArrowLeft01Icon} size={44} onPress={() => setFile(null)} />
-          <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+          <Text
+            accessibilityRole="header"
+            numberOfLines={1}
+            style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}
+          >
             {file.path.split("/").pop() || file.path}
           </Text>
         </View>
@@ -851,7 +862,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           pointerEvents={shownTab === "designs" ? "auto" : "none"}
           accessibilityElementsHidden={shownTab !== "designs"}
           importantForAccessibility={shownTab === "designs" ? "auto" : "no-hide-descendants"}
-          style={shownTab === "designs" ? { flex: 1 } : { position: "absolute", top: insets.top + 52, left: 0, right: 0, bottom: 0, opacity: 0 }}
+          style={shownTab === "designs" ? { flex: 1 } : { position: "absolute", top: insets.top + TAB_BAR_HEIGHT, left: 0, right: 0, bottom: 0, opacity: 0 }}
         >
           {designs.html ? (
             <ArtifactSheet
@@ -881,6 +892,9 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
   );
 }
 
+/** The right panel's tab row, the chat header's height; the hidden designs canvas sits under it. */
+const TAB_BAR_HEIGHT = chrome.header;
+
 /** A tab of the right panel: Changes, one of the Chat's PRs with its state's icon, or the Chat's simulators or designs. */
 function PanelTab({ label, icon, tone, selected, onPress }: { label: string; icon: IconData; tone: Tone; selected: boolean; onPress: () => void }) {
   const { colors } = useTheme();
@@ -889,22 +903,34 @@ function PanelTab({ label, icon, tone, selected, onPress }: { label: string; ico
       accessibilityRole="tab"
       accessibilityLabel={label}
       accessibilityState={{ selected }}
+      hitSlop={{ top: 6, bottom: 6 }}
       onPress={() => {
         tap();
         onPress();
       }}
       style={({ pressed }) => ({
-        height: 32,
-        paddingHorizontal: 11,
-        borderRadius: 16,
+        minHeight: 32,
+        paddingHorizontal: 12,
+        borderRadius: radius.full,
+        borderCurve: "continuous",
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        backgroundColor: selected || pressed ? colors.hover : "transparent",
+        // The open tab holds hover2 (an open state), a press the lighter hover.
+        backgroundColor: selected ? colors.hover2 : pressed ? colors.hover : "transparent",
       })}
     >
-      <Icon icon={icon} tone={tone} size={15} />
-      <Text style={{ color: selected ? colors.ink : colors.ink2, fontSize: 15, fontWeight: selected ? "600" : "400" }}>{label}</Text>
+      <Icon icon={icon} tone={tone} size={16} />
+      <Text
+        style={{
+          color: selected ? colors.ink : colors.ink2,
+          fontSize: type.subheadline,
+          lineHeight: lineHeight.subheadline,
+          fontWeight: selected ? "600" : "400",
+        }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }

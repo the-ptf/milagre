@@ -6,15 +6,14 @@ import { SKILL_SCOPES, shadowedBy, shortenHome, skillBody, skillProviderLabel } 
 import { useSession } from "../../session";
 import { useRpc } from "../../use-rpc";
 import { Markdown } from "../../markdown";
-import { ErrorNotice, PageScroll, PillButton, useStyles } from "../../ui";
-import { overrides, useSkillBadge, useSkillCatalog } from "../../use-skills";
+import { ErrorNotice, PageScroll, PillButton, SectionLabel, Tag, announce, useStyles } from "../../ui";
+import { overrides, useSkillCatalog } from "../../use-skills";
 
 const scopeLabel = (scope: string) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
 
 /** One skill: where it lives, the same-named skills it hides and its SKILL.md. Editor and Finder stay on the Mac. */
 export default function SkillScreen() {
   const styles = useStyles();
-  const skillBadge = useSkillBadge();
   const { name } = useLocalSearchParams<{ name: string }>();
   const { client } = useSession();
   const { projectPath, data, error: listError, refresh: reload } = useSkillCatalog();
@@ -23,6 +22,7 @@ export default function SkillScreen() {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
+    announce("Copied");
     const timer = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [copied]);
@@ -44,8 +44,8 @@ export default function SkillScreen() {
                 <Text selectable numberOfLines={1} style={[styles.subtitle, { flexShrink: 1 }]}>
                   /{skill.name}
                 </Text>
-                <Text style={skillBadge}>{skillProviderLabel(skill.provider)}</Text>
-                <Text style={skillBadge}>{scopeLabel(skill.scope)}</Text>
+                <Tag label={skillProviderLabel(skill.provider)} />
+                <Tag label={scopeLabel(skill.scope)} />
               </View>
               <Text selectable style={styles.muted}>
                 {skill.description}
@@ -69,14 +69,12 @@ export default function SkillScreen() {
             </View>
             {hidden.length > 0 && (
               <View style={{ gap: 8 }}>
-                <Text accessibilityRole="header" style={styles.section}>
-                  {overrides(hidden.length)}
-                </Text>
-                <View style={[styles.card, { gap: 10 }]}>
+                <SectionLabel>{overrides(hidden.length)}</SectionLabel>
+                <View style={[styles.card, { gap: 12 }]}>
                   {hidden.map((item) => (
-                    <View key={item.path} style={{ gap: 3 }}>
+                    <View key={item.path} style={{ gap: 4 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Text style={skillBadge}>{skillProviderLabel(item.provider)}</Text>
+                        <Tag label={skillProviderLabel(item.provider)} />
                         <Text style={styles.caption}>{scopeLabel(item.scope)}</Text>
                       </View>
                       <Text selectable style={styles.caption}>

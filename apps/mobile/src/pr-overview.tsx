@@ -160,7 +160,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
     />
   ) : pr.autoMerge ? (
     <View accessible accessibilityLabel="Merges when ready" style={{ flexDirection: "row", alignItems: "center", gap: 5, height: 36, paddingHorizontal: 4 }}>
-      <Icon icon={GitMergeIcon} tone="ink2" size={15} />
+      <Icon icon={GitMergeIcon} tone="ink2" size={16} />
       <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.footnote }}>
         Merges when ready
       </Text>
@@ -265,10 +265,10 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             onPress={openGitHub}
             style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.6 : 1 })}
           >
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: 14 }}>
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: type.subheadline }}>
               {repoOf(pr.url)}
             </Text>
-            <Text style={{ color: colors.accentInk, fontSize: 14 }}>#{pr.number}</Text>
+            <Text style={{ color: colors.accentInk, fontSize: type.subheadline }}>#{pr.number}</Text>
             <Icon icon={LinkSquare02Icon} tone="accentInk" size={12} />
           </Pressable>
           {action}
@@ -278,18 +278,18 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
         {project && (
           <View accessible accessibilityLabel={`Project ${project.name}`} style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
             <ProjectIcon client={client} path={project.path} size={20} />
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: 14, fontWeight: "600" }}>
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: type.subheadline, fontWeight: "600" }}>
               {project.name}
             </Text>
           </View>
         )}
-        <Text selectable accessibilityRole="header" style={{ color: colors.ink, fontSize: 20, fontWeight: "700", lineHeight: 26 }}>
+        <Text selectable accessibilityRole="header" style={{ color: colors.ink, fontSize: 20, fontWeight: "600", lineHeight: 26 }}>
           {pr.title}
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <StatePill pr={pr} />
           <Avatar login={pr.author} size={20} />
-          <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: 14 }}>
+          <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: type.subheadline }}>
             <Text style={{ color: colors.ink, fontWeight: "600" }}>{pr.author}</Text>
             {pr.updatedAt ? ` · updated ${agoLabel(pr.updatedAt)}` : ""}
           </Text>
@@ -318,8 +318,8 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
         </View>
         {STATUS_LINE[status.tone] && (
           <View accessible accessibilityLabel={`${status.title}. ${status.detail}`} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Icon icon={STATUS_LINE[status.tone]!.icon} tone={STATUS_LINE[status.tone]!.tone} size={14} />
-            <Text numberOfLines={2} style={{ flex: 1, color: colors.ink2, fontSize: 14 }}>
+            <Icon icon={STATUS_LINE[status.tone]!.icon} tone={STATUS_LINE[status.tone]!.tone} size={12} />
+            <Text numberOfLines={2} style={{ flex: 1, color: colors.ink2, fontSize: type.subheadline }}>
               <Text style={{ color: colors[STATUS_LINE[status.tone]!.title], fontWeight: "600" }}>{status.title}</Text> · {status.detail}
             </Text>
           </View>
@@ -334,8 +334,8 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             }}
             style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
           >
-            <Icon icon={CloudUploadIcon} tone="orange" size={14} />
-            <Text style={{ color: colors.orangeInk, fontSize: 14 }}>{localLine}</Text>
+            <Icon icon={CloudUploadIcon} tone="orange" size={12} />
+            <Text style={{ color: colors.orangeInk, fontSize: type.subheadline }}>{localLine}</Text>
             <Icon icon={ArrowRight01Icon} tone="orange" size={12} />
           </Pressable>
         )}
@@ -483,13 +483,13 @@ function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> 
         {progress.tone === "running" ? (
           <ActivityIndicator size="small" color={colors.orange} />
         ) : progress.tone === "pass" || progress.tone === "fail" ? (
-          <Icon icon={PROGRESS_ICON[progress.tone]} tone={tone} size={15} />
+          <Icon icon={PROGRESS_ICON[progress.tone]} tone={tone} size={16} />
         ) : null}
-        <Text style={{ color: colors[tone], fontSize: 14 }}>{progress.label}</Text>
+        <Text style={{ color: colors[tone], fontSize: type.subheadline }}>{progress.label}</Text>
       </View>
       <View style={{ flexDirection: "row", gap: 2, height: 3 }}>
         {parts.map((part) => (
-          <View key={part.key} style={{ flex: part.count, borderRadius: 2, backgroundColor: part.color, opacity: part.opacity }} />
+          <View key={part.key} style={{ flex: part.count, borderRadius: radius.full, backgroundColor: part.color, opacity: part.opacity }} />
         ))}
       </View>
     </View>
@@ -555,7 +555,7 @@ function PropertyRow({
       <Icon icon={icon} tone="ink3" size={18} />
       <Text style={{ width: 78, color: colors.ink2, fontSize: 15 }}>{title}</Text>
       <View style={{ flex: 1 }}>{children}</View>
-      {onPress && <Icon icon={add} tone="ink3" size={17} />}
+      {onPress && <Icon icon={add} tone="ink3" size={16} />}
     </Pressable>
   );
 }
@@ -598,10 +598,10 @@ function Section({
             opacity: pressed ? 0.6 : 1,
           })}
         >
-          <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
+          <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
           <Text style={{ color: colors.ink2, fontSize: 15, fontWeight: "600" }}>{title}</Text>
           {!!value && (
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink3, fontSize: 14 }}>
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink3, fontSize: type.subheadline }}>
               {value}
             </Text>
           )}
@@ -646,7 +646,7 @@ function ActionButton({
       style={({ pressed }) => ({
         height: 36,
         paddingHorizontal: 12,
-        borderRadius: 18,
+        borderRadius: radius.sheet,
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
@@ -657,8 +657,8 @@ function ActionButton({
         opacity: pressed ? 0.6 : 1,
       })}
     >
-      {busy ? <ActivityIndicator size="small" color={ink} /> : icon ? <Icon icon={icon} color={ink} size={15} strokeWidth={2} /> : null}
-      <Text numberOfLines={1} style={{ color: ink, fontSize: 14, fontWeight: "600" }}>
+      {busy ? <ActivityIndicator size="small" color={ink} /> : icon ? <Icon icon={icon} color={ink} size={16} strokeWidth={2} /> : null}
+      <Text numberOfLines={1} style={{ color: ink, fontSize: type.subheadline, fontWeight: "600" }}>
         {title}
       </Text>
     </Pressable>
@@ -675,7 +675,7 @@ function RoundButton({ label, icon, onPress }: { label: string; icon: IconData; 
       style={{
         width: 36,
         height: 36,
-        borderRadius: 18,
+        borderRadius: radius.sheet,
         backgroundColor: colors.surface,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.lineStrong,

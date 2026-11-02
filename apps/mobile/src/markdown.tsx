@@ -26,7 +26,8 @@ import { splitStreamingBlocks } from "@milagre/shared/streaming-blocks";
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
 import { ChatLinkContext } from "./chat-link-context";
 import { cachedMarkdownTokens, markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
-import { PageScroll, useStyles, type Styles } from "./ui";
+import { radius, space } from "./design-tokens";
+import { PageScroll, pressStyle, useStyles, type Styles } from "./ui";
 import { showImages, type MediaValue, type ThumbRect } from "./viewer-store";
 
 import { resolveMarkdownImage } from "./markdown-image";
@@ -52,10 +53,13 @@ type MarkdownTheme = {
   /** Selects the message text in place; set, it is also the VoiceOver action on each text block. */
   onMessageAction?: () => void;
   tableHeader?: boolean;
+  /** The paragraph, list and heading ink: ink2 for an agent's thoughts. Links, code and images keep their own colours. */
+  tone: TextTone;
 };
+type TextTone = "ink" | "ink2";
 
 // Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger. `textPx` follows Settings > Appearance > Text size.
-const bodyOf = (colors: Palette, textPx = 15) => ({ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
+const bodyOf = (colors: Palette, textPx = 15, tone: TextTone = "ink") => ({ color: colors[tone], fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
 
 /** Each retry reads the computer again, including when its target and media callback are unchanged. */
 function readImage(target: ReturnType<typeof resolveMarkdownImage>, media: ImageOptions["media"], remote: ImageOptions["remote"], attempt: number) {
@@ -106,7 +110,7 @@ function MarkdownImage({ src, alt, media, basePath, remote }: { src: string; alt
     return "url" in target ? (
       <Text
         accessibilityRole="link"
-        style={[styles.muted, { color: colors.accent, textDecorationLine: "underline" }]}
+        style={[styles.muted, { color: colors.accentInk, textDecorationLine: "underline" }]}
         onPress={() => void Linking.openURL(target.url).catch(() => Alert.alert("Cannot open image", "Try opening this address in your browser."))}
       >
         Cannot load {alt}. Open image
@@ -123,12 +127,7 @@ function MarkdownImage({ src, alt, media, basePath, remote }: { src: string; alt
         <Text style={styles.muted}>Cannot load {alt} from your computer. Tap to retry.</Text>
       </Pressable>
     );
-  if (!ready)
-    return (
-      <Text accessibilityLiveRegion="polite" style={styles.muted}>
-        Loading {alt}...
-      </Text>
-    );
+  if (!ready) return <Text style={styles.muted}>Loading {alt}…</Text>;
   const open = () => {
     const show = (from?: ThumbRect) => {
       showImages([{ name: alt, source: ready, from }], 0);
@@ -146,7 +145,7 @@ function MarkdownImage({ src, alt, media, basePath, remote }: { src: string; alt
       style={{
         width: "100%",
         maxWidth: Math.min(320, 300 * ratio),
-        borderRadius: 14,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         overflow: "hidden",
         borderWidth: 1,
@@ -187,7 +186,7 @@ function inline(tokens: Token[], t: MarkdownTheme) {
   return inlineNodes(tree(tokens), t);
 }
 /** Images need their own native View; split text runs while preserving open emphasis and links. */
-function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bodyOf(t.colors, t.textPx), heading = false, images: ImageOptions = {}) {
+function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bodyOf(t.colors, t.textPx, t.tone), heading = false, images: ImageOptions = {}) {
   const parts: React.ReactNode[] = [];
   const open: Token[] = [];
   let text: Token[] = [];
@@ -232,7 +231,7 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
           : token.type === "s_open"
             ? { textDecorationLine: "line-through" }
             : token.type === "code_inline"
-              ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: t.codeSize + 1.5 }
+              ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: Math.round(t.codeSize + 1.5) }
               : {};
     const written = token.type === "link_open" ? String(token.attrGet("href") || "") : "";
     // A localhost link is the Chat's computer, never the phone: it opens at that computer's IP (unless the Chat's ports
@@ -254,7 +253,7 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
     return (
       <Text
         key={i}
-        style={[style, onPress ? { color: t.colors.accent, textDecorationLine: "underline" } : {}]}
+        style={[style, onPress ? { color: t.colors.accentInk, textDecorationLine: "underline" } : {}]}
         accessibilityRole={onPress ? "link" : undefined}
         onPress={onPress}
       >
@@ -292,7 +291,7 @@ const CodeBlock = memo(function CodeBlock({ code, language, t }: { code: string;
     );
   };
   return (
-    <View style={{ backgroundColor: t.colors.field, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}>
+    <View style={{ backgroundColor: t.colors.field, borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden" }}>
       <View
         style={{
           flexDirection: "row",
@@ -310,7 +309,7 @@ const CodeBlock = memo(function CodeBlock({ code, language, t }: { code: string;
           accessibilityRole="button"
           accessibilityLabel={copied ? "Copied" : "Copy code"}
           onPress={copy}
-          style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+          style={({ pressed }) => [{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
         >
           <Icon icon={copied ? Tick02Icon : Copy01Icon} size={16} />
         </Pressable>
@@ -337,7 +336,7 @@ const MarkdownTable = memo(function MarkdownTable({ nodes, images, t }: { nodes:
   return (
     <View
       onLayout={({ nativeEvent }) => setAvailable(Math.max(0, nativeEvent.layout.width - line * 2))}
-      style={{ borderWidth: line, borderColor: t.colors.line, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}
+      style={{ borderWidth: line, borderColor: t.colors.line, borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden" }}
     >
       <PageScroll horizontal directionalLockEnabled bounces={false} contentContainerStyle={{ padding: 0, paddingBottom: 0, gap: 0 }}>
         <View>
@@ -371,7 +370,7 @@ const MarkdownTable = memo(function MarkdownTable({ nodes, images, t }: { nodes:
 
 function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.ReactNode {
   const { colors } = t;
-  const body = { ...bodyOf(colors, t.textPx), ...(t.tableHeader ? { fontWeight: "600" as const } : {}) };
+  const body = { ...bodyOf(colors, t.textPx, t.tone), ...(t.tableHeader ? { fontWeight: "600" as const } : {}) };
   return nodes.map(({ token, children }, index) => {
     const key = `${token.type}-${index}`;
     if (token.type === "inline") return <View key={key}>{inlineContent(token.children || [], t, body, false, images)}</View>;
@@ -396,7 +395,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
             children.flatMap((n) => n.token.children || []),
             t,
             {
-              color: colors.ink,
+              color: colors[t.tone],
               fontWeight: "600",
               lineHeight: Math.round(t.textPx * 1.5),
               fontSize: t.textPx + (token.tag === "h1" ? 2 : token.tag === "h2" ? 1 : 0),
@@ -410,7 +409,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
       return (
         <View key={key} style={{ gap: 8 }}>
           {children.map((child, i) => (
-            <View key={i} style={{ flexDirection: "row", gap: 10 }}>
+            <View key={i} style={{ flexDirection: "row", gap: space.lg }}>
               <Text style={body}>{token.type === "ordered_list_open" ? `${Number(token.attrGet("start") || 1) + i}.` : "•"}</Text>
               <View style={{ flex: 1, gap: 8 }}>{blocks(child.children, images, t)}</View>
             </View>
@@ -419,7 +418,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
       );
     if (token.type === "blockquote_open")
       return (
-        <View key={key} style={{ borderLeftWidth: 3, borderColor: colors.line, paddingLeft: 14, gap: 8 }}>
+        <View key={key} style={{ borderLeftWidth: 3, borderColor: colors.line, paddingLeft: space.lg, gap: space.md }}>
           {blocks(children, images, t)}
         </View>
       );
@@ -439,15 +438,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
   });
 }
 /** One top-level block; unchanged blocks skip parsing and rendering while the reply streams. */
-const Chunk = memo(function Chunk({
-  text,
-  streaming,
-  media,
-  basePath,
-  remote,
-  selectable,
-  onMessageAction,
-}: { text: string; streaming: boolean; selectable: boolean; onMessageAction?: () => void } & ImageOptions) {
+const Chunk = memo(function Chunk({ text, streaming, media, basePath, remote, selectable, onMessageAction, tone }: BlockProps) {
   const { colors, textPx, codeSize } = useTheme();
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
@@ -455,12 +446,12 @@ const Chunk = memo(function Chunk({
   const nodes = useMemo(() => tree(streaming ? markdownTokens(text, true) : cachedMarkdownTokens(text)), [text, streaming]);
   const images = useMemo(() => ({ media, basePath, remote }), [media, basePath, remote]);
   const theme = useMemo(
-    () => ({ colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction }),
-    [colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction],
+    () => ({ colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction, tone }),
+    [colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction, tone],
   );
   return <MarkdownStreamingContext value={streaming}>{blocks(nodes, images, theme)}</MarkdownStreamingContext>;
 });
-type BlockProps = { text: string; streaming: boolean; selectable: boolean; onMessageAction?: () => void } & ImageOptions;
+type BlockProps = { text: string; streaming: boolean; selectable: boolean; onMessageAction?: () => void; tone: TextTone } & ImageOptions;
 /**
  * One block of the shared split, cut where the phone also sets list items apart. A finished block keeps its text from
  * batch to batch, so it never splits or renders again while the reply streams.
@@ -506,7 +497,8 @@ export const Markdown = memo(function Markdown({
   remote,
   selectable = true,
   onMessageAction,
-}: { text: string; streaming?: boolean; selectable?: boolean; onMessageAction?: () => void } & ImageOptions) {
+  tone = "ink",
+}: { text: string; streaming?: boolean; selectable?: boolean; onMessageAction?: () => void; tone?: TextTone } & ImageOptions) {
   const shown = useThrottledText(text, streaming);
   const parts = useMemo(() => splitStreamingBlocks(shown), [shown]);
   return (
@@ -520,6 +512,7 @@ export const Markdown = memo(function Markdown({
           remote={remote}
           selectable={selectable}
           onMessageAction={onMessageAction}
+          tone={tone}
           streaming={streaming && index === parts.length - 1}
         />
       ))}

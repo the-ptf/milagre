@@ -65,7 +65,8 @@ async function browserChecks() {
     await require("node:fs/promises").mkdir(shots, { recursive: true });
     await require("node:fs/promises").writeFile(path.join(shots, name), (await win.webContents.capturePage()).toPNG());
   };
-  const archiveRow = '[data-chat-menu] [role="menuitem"]:last-of-type';
+  // `div >` skips the Reload row, which sits alone inside its Tooltip wrapper.
+  const archiveRow = '[data-chat-menu] div > [role="menuitem"]:last-of-type';
   const openMenu = async () => {
     await click('[aria-label="Chat actions"]');
     await waitFor('document.querySelector("[data-chat-menu]")');

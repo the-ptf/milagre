@@ -1,40 +1,35 @@
 import { Pressable, Text, View } from "react-native";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
-import { BubbleChatIcon, GitMergeIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, GitMergeIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon, Link04Icon } from "@hugeicons/core-free-icons";
+
 import type { PullRequest, Subagent } from "@milagre/shared/model";
-import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@milagre/shared/pr-blockers";
+import { PR_TONE, BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@milagre/shared/pr-blockers";
 import { PR_ICONS } from "./pr-look";
-import { chatMarkTone } from "@milagre/shared/chats";
+import { chatMarkPresentation } from "@milagre/shared/chats";
 import { agentCounts, MARK_LABEL, type ChatMark } from "./indicators";
 import { Icon, SpinnerRing } from "./icons";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
+import { pressStyle } from "./ui";
 import { StatusPill } from "./status-pill";
 
-/** Desktop's chat mark slot: a question bubble, an approval shield, a spinning ring, an unread dot, or a faint idle dot. */
+const MARK_ICONS = { bubble: BubbleChatIcon, "shield-alert": ShieldAlertIcon, link: Link04Icon, alert: Alert02Icon } as const;
+
+/** Desktop's chat mark slot (chatMarkPresentation): an asking icon, a spinning ring, the background ring, an 8pt unread
+ * or failed dot, or a solid 6pt ink4 idle dot. */
 export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; background?: number }) {
   const { colors } = useTheme();
-  const tone = chatMarkTone(mark);
+  const { icon, tone } = chatMarkPresentation(mark);
   const label = mark === "background" && background ? `${backgroundLabel(background)} running` : MARK_LABEL[mark];
   const body =
-    mark === "background" ? (
+    icon === "ring" ? (
       <BackgroundRing count={background} />
-    ) : mark === "question" ? (
-      <Icon icon={BubbleChatIcon} tone={tone} size={15} strokeWidth={2} />
-    ) : mark === "waiting" ? (
-      <Icon icon={ShieldAlertIcon} tone={tone} size={15} strokeWidth={2} />
-    ) : mark === "interrupted" ? (
-      <Icon icon={Alert02Icon} tone={tone} size={15} strokeWidth={2} />
-    ) : mark === "running" ? (
-      <SpinnerRing size={14} tone={tone} />
+    ) : icon === "spinner" ? (
+      <SpinnerRing size={16} tone={tone} />
+    ) : icon === "dot" ? (
+      <View style={{ width: mark === "idle" ? 6 : 8, height: mark === "idle" ? 6 : 8, borderRadius: radius.full, backgroundColor: colors[tone] }} />
     ) : (
-      <View
-        style={{
-          width: mark === "idle" ? 6 : 8,
-          height: mark === "idle" ? 6 : 8,
-          borderRadius: 4,
-          backgroundColor: mark === "idle" ? colors.idleDot : colors[tone],
-        }}
-      />
+      <Icon icon={MARK_ICONS[icon]} tone={tone} size={16} />
     );
   return (
     <View
@@ -47,15 +42,17 @@ export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; backgro
   );
 }
 
-/** Desktop's background mark: a still accent ring around how many background tasks still run. */
-export function BackgroundRing({ count = 0, size = 15 }: { count?: number; size?: number }) {
+/** Desktop's background mark: a still accent ring around how many background tasks still run, its count in caption2
+ * accentInk. It grows with the text size (to 1.3x), past the 20pt slot if it must. */
+export function BackgroundRing({ count = 0 }: { count?: number }) {
   const { colors } = useTheme();
   return (
     <View
       style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
+        minWidth: 20,
+        minHeight: 20,
+        paddingHorizontal: 2,
+        borderRadius: radius.full,
         borderWidth: 1.5,
         borderColor: colors.accent,
         alignItems: "center",
@@ -63,7 +60,10 @@ export function BackgroundRing({ count = 0, size = 15 }: { count?: number; size?
       }}
     >
       {count > 0 && (
-        <Text allowFontScaling={false} style={{ color: colors.accent, fontSize: size * 0.55, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
+        <Text
+          maxFontSizeMultiplier={1.3}
+          style={{ color: colors.accentInk, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600", fontVariant: ["tabular-nums"] }}
+        >
           {count > 9 ? "9+" : count}
         </Text>
       )}
@@ -119,12 +119,14 @@ export function HeaderPullRequestChip({ pr, onPress }: { pr: PullRequest; onPres
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={spoken.charAt(0).toUpperCase() + spoken.slice(1)}
-      hitSlop={8}
+      hitSlop={{ top: 14, bottom: 14, left: 6, right: 6 }}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 2, opacity: pressed ? 0.55 : 1 })}
+      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 4, marginLeft: 2 }, pressStyle({ pressed })]}
     >
-      <Icon icon={PR_ICONS[icon]} tone={tone} size={11} strokeWidth={2} />
-      <Text style={{ color: colors[tone], fontSize: 12, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
+      <Icon icon={PR_ICONS[icon]} tone={tone} size={12} />
+      <Text style={{ color: colors[PR_TONE[tone].label], fontSize: type.caption1, lineHeight: lineHeight.caption1, fontVariant: ["tabular-nums"] }}>
+        #{pr.number}
+      </Text>
     </Pressable>
   );
 }
@@ -137,7 +139,7 @@ export function SubagentChip({ agents, onPress }: { agents: Subagent[]; onPress:
     <StatusPill
       label="Subagents"
       count={count.total}
-      leading={count.running > 0 ? <SpinnerRing size={11} /> : undefined}
+      leading={count.running > 0 ? <SpinnerRing size={12} /> : undefined}
       tone={count.failed ? "red" : "ink2"}
       accessibilityLabel={`Subagents, ${count.total}${count.running ? `, ${count.running} running` : ""}`}
       onPress={onPress}

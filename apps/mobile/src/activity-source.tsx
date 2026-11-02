@@ -3,6 +3,7 @@ import { AiBrainIcon, CommandLineIcon, File01Icon, FileEditIcon, Image01Icon, Se
 import { activitySources, type ActivitySource as Source } from "@milagre/shared/tool-activity";
 import type { ChatStep, StepKind } from "@milagre/shared/model";
 import { Icon, LinearLogo, type IconData } from "./icons";
+import { radius } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const icons: Record<StepKind, IconData> = {
@@ -31,7 +32,7 @@ export function ActivitySources({ steps }: { steps: ChatStep[] }) {
           style={{
             width: 22,
             height: 22,
-            borderRadius: 11,
+            borderRadius: radius.full,
             borderWidth: 2,
             borderColor: colors.page,
             backgroundColor: colors.field,
@@ -40,7 +41,7 @@ export function ActivitySources({ steps }: { steps: ChatStep[] }) {
             marginLeft: -6,
           }}
         >
-          <ActivityIcon source={source} size={13} />
+          <ActivityIcon source={source} size={12} />
         </View>
       ))}
     </View>

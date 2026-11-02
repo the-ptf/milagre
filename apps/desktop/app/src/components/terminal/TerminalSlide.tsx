@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useMotionValue, useMotionValueEvent, usePresence } from "motion/react";
-import { SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { DURATION, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 
 // The gap between the Chat and the panel, part of the room that opens.
 const GAP = 8;
@@ -38,7 +38,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
     }
     if (!isPresent && element.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
     const room = (element.parentElement?.clientHeight ?? window.innerHeight) * 0.75;
-    // Fractional, as CSS laid it out: a rounded height would refit the Terminal by a pixel as it starts to close.
+    // Fractional, as CSS laid it out: a rounded-control height would refit the Terminal by a pixel as it starts to close.
     const resting = element.getBoundingClientRect().height;
     const cardHeight = isPresent ? Math.min(latestHeight.current, room) : resting - GAP;
     // At rest the slot is laid out by CSS: start from the height it has (turned around mid-slide, it is already there).
@@ -72,7 +72,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
         style={moving ? { height: card, flexShrink: 0 } : { flex: "1 1 0%" }}
         initial={reduced ? false : { opacity: 0 }}
         animate={{ opacity: isPresent ? 1 : 0 }}
-        transition={reduced ? { duration: 0 } : { duration: scaled(isPresent ? 0.24 : 0.16, scale) }}
+        transition={reduced ? { duration: 0 } : { duration: scaled(isPresent ? DURATION.slow : DURATION.base, scale) }}
       >
         {children}
       </motion.div>

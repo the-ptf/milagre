@@ -10,7 +10,8 @@ import { listensBeyondLoopback, reachableUrl } from "@milagre/shared/loopback-ur
 import { useSession } from "./session";
 import { useReachableHost } from "./routes-native";
 import { Icon } from "./icons";
-import { CircleButton, ErrorNotice, PageScroll, PillButton, useStyles } from "./ui";
+import { announce, CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, useStyles } from "./ui";
+import { lineHeight, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 import { useInternalBrowser } from "./browser-setting";
@@ -128,6 +129,7 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
     try {
       await Clipboard.setStringAsync(linkOf(port) ?? `http://${port.address === "::1" ? "[::1]" : "localhost"}:${port.port}`);
       setCopied(port.port);
+      announce("Computer address copied.");
     } catch {
       setActionError("Could not copy the address.");
     }
@@ -135,9 +137,11 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
   return (
     <View style={{ flex: 1, backgroundColor: colors.page, paddingBottom: insets.bottom }}>
       <View style={{ flexDirection: "row", alignItems: "center", padding: 16, gap: 12 }}>
-        <Icon icon={EthernetPortIcon} tone="ink2" size={22} />
+        <Icon icon={EthernetPortIcon} tone="ink2" size={24} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.subtitle}>Ports</Text>
+          <Text accessibilityRole="header" style={styles.subtitle}>
+            Ports
+          </Text>
           <Text style={styles.muted}>This Chat</Text>
         </View>
         <CircleButton label="Close ports" icon={Cancel01Icon} onPress={() => router.back()} />
@@ -175,7 +179,16 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
                       }
                     }}
                   >
-                    <Text style={{ fontSize: 17, color: colors.accent, fontVariant: ["tabular-nums"] }}>:{port.port}</Text>
+                    <Text
+                      style={{
+                        fontSize: type.body,
+                        lineHeight: lineHeight.body,
+                        color: colors.accentInk,
+                        fontVariant: ["tabular-nums"],
+                      }}
+                    >
+                      :{port.port}
+                    </Text>
                     <Text style={styles.muted}>
                       {port.command}
                       {/* Bound to the computer's loopback: only the computer itself opens it. */}
@@ -186,26 +199,23 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
                     accessibilityRole="button"
                     accessibilityLabel={copied === port.port ? `Copied address for port ${port.port}` : `Copy address for port ${port.port}`}
                     onPress={() => void copy(port)}
-                    style={{ padding: 12 }}
+                    style={({ pressed }) => [{ padding: 12 }, pressStyle({ pressed })]}
                   >
                     <Icon icon={Copy01Icon} tone="ink2" size={20} />
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Stop port ${port.port}`}
+                    accessibilityState={{ disabled: stopping.includes(port.pid) }}
                     disabled={stopping.includes(port.pid)}
                     onPress={() => stop([port.pid])}
-                    style={{ padding: 12, opacity: stopping.includes(port.pid) ? 0.4 : 1 }}
+                    style={({ pressed }) => [{ padding: 12 }, pressStyle({ pressed, disabled: stopping.includes(port.pid) })]}
                   >
                     <Icon icon={StopCircleIcon} tone="ink2" size={20} />
                   </Pressable>
                 </View>
               ))}
-              {copied !== null && (
-                <Text accessibilityLiveRegion="polite" style={styles.muted}>
-                  Computer address copied.
-                </Text>
-              )}
+              {copied !== null && <Text style={styles.muted}>Computer address copied.</Text>}
             </>
           )}
         </PageScroll>

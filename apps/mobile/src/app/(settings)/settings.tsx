@@ -41,7 +41,8 @@ import { Group, Row } from "../../settings-list";
 import { searchSettings, searchTrail } from "@milagre/shared/settings-search";
 import { SETTINGS_INDEX, SETTINGS_PAGES, type PhoneSettingsEntry, type SettingsRoute } from "../../settings-index";
 import { useTheme } from "../../theme";
-import { HeaderButton, PageScroll, useStyles } from "../../ui";
+import { HeaderButton, PageScroll, pressStyle, useStyles } from "../../ui";
+import { lineHeight, radius, type } from "../../design-tokens";
 
 // Every page Settings opens, from its list or from search.
 type SettingsPage = SettingsRoute;
@@ -91,7 +92,7 @@ function Marked({ text, ranges, color }: { text: string; ranges: [number, number
   for (const [start, end] of ranges) {
     if (start > at) parts.push(text.slice(at, start));
     parts.push(
-      <Text key={start} style={{ fontWeight: "700", color }}>
+      <Text key={start} style={{ fontWeight: "600", color }}>
         {text.slice(start, end)}
       </Text>,
     );
@@ -192,16 +193,16 @@ function Tile({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.card, { flex: 1, minHeight: 101, gap: 6, padding: 14, borderRadius: 18, opacity: disabled ? 0.4 : pressed ? 0.5 : 1 }]}
+      style={({ pressed }) => [styles.card, { flex: 1, minHeight: 101, gap: 6, padding: 16 }, pressStyle({ pressed, disabled })]}
     >
-      <Icon icon={icon} tone="ink" size={22} />
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}>
+      <Icon icon={icon} tone="ink" size={20} />
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>
         {title}
       </Text>
       {value ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          {dot ? <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: dot }} /> : null}
-          <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: 13 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          {dot ? <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: dot }} /> : null}
+          <Text numberOfLines={1} style={[styles.footnote, { flex: 1 }]}>
             {value}
           </Text>
         </View>
@@ -218,6 +219,7 @@ function openSite(url: string) {
 /** The first page of the Settings sheet; each row opens a page inside the same sheet. */
 export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void }) {
   const { colors, settings: theme } = useTheme();
+  const styles = useStyles();
   const push = usePush();
   const updates = useAppUpdates();
   const session = useSession();
@@ -281,13 +283,14 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
   const routinesOn = routines.routines.filter((routine) => routine.enabled).length;
   const routinesValue = !client ? "No computer connected" : !routinesAvailable ? "Update your Mac" : routines.loading ? undefined : `${routinesOn} on`;
   return (
-    <View style={{ gap: 28 }}>
-      <View style={{ flexDirection: "row", gap: 10 }}>
+    <View style={{ gap: 24 }}>
+      <View style={{ flexDirection: "row", gap: 12 }}>
         <Tile
           title="Computers"
           icon={ComputerIcon}
           value={computersValue}
-          dot={online > 0 ? colors.green : colors.lineStrong}
+          // The presence palette (presenceTone): green while one answers, ink4 when none does.
+          dot={online > 0 ? colors.green : colors.ink4}
           onPress={() => onOpen("computers")}
         />
         <Tile title="Routines" icon={RepeatIcon} value={routinesValue} disabled={!routinesAvailable} onPress={() => onOpen("routines")} />
@@ -328,7 +331,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
             <Row
               key={project.path}
               title={project.name || project.path.split("/").findLast(Boolean) || project.path}
-              leading={<ProjectIcon client={client} path={project.path} size={22} />}
+              leading={<ProjectIcon client={client} path={project.path} size={20} />}
               onPress={() => router.push({ pathname: "/project-settings", params: { path: project.path, name: project.name ?? "" } })}
             />
           ))}
@@ -350,7 +353,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         />
       </Group>
       {/* Version · build · runtime, and the running update's commit: what to quote when reporting a bug. */}
-      <Text selectable style={{ color: colors.ink2, fontSize: 13, textAlign: "center", marginTop: -8 }}>
+      <Text selectable style={[styles.footnote, { textAlign: "center", marginTop: -8 }]}>
         {appVersionLine()}
       </Text>
     </View>

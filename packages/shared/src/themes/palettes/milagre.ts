@@ -66,17 +66,15 @@ const darkSyntax = syntax({
   punctuation: "#e1e4e8",
 });
 
-// Gray: today's colors, from apps/mobile/src/theme.ts. hover2 comes from desktop's oklch tokens.
+// Gray: today's colors, from apps/mobile/src/theme.ts, except ink-2 (derived, a clear step above ink-3) and
+// hover and hover-2, which are translucent ink in every theme.
 const grayLight: ThemeSource = {
   page: "#fafafb",
   canvas: "#f1f2f3",
   surface: "#ffffff",
   inset: "#f7f8f9",
-  hover: "#f4f5f6",
-  hover2: fromOklch(0.933, 0.003, 247.86),
   field: "#f2f2f3",
   ink: "#1f2124",
-  ink2: "#62656b",
   ink3: "#9a9da3",
   onAccent: "#ffffff",
   line: "#ecedef",
@@ -103,11 +101,8 @@ const grayDark: ThemeSource = {
   canvas: "#1c1d1f",
   surface: "#232427",
   inset: "#1f2022",
-  hover: "#2a2b2e",
-  hover2: fromOklch(0.318, 0.007, 274.747),
   field: "#2b2c2f",
   ink: "#f2f3f4",
-  ink2: "#a5a8ad",
   ink3: "#6c6f75",
   onAccent: "#ffffff",
   line: "#2e3033",

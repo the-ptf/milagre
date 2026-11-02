@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Cancel01Icon, FitToScreenIcon, MinusSignIcon, RedoIcon, UndoIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, RedoIcon, UndoIcon } from "@hugeicons/core-free-icons";
 import { designGroups, type DesignArtifact as Artifact } from "@milagre/shared/artifact";
 import type { DesignDocument } from "@milagre/shared/design";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -9,6 +8,10 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { stateEvents } from "../../lib/state-events";
 import Tooltip from "../primitives/Tooltip";
+import { Button, IconButton } from "../primitives/Button";
+import { Dialog } from "../primitives/Dialog";
+import { InlineError } from "../primitives/InlineError";
+import { ZoomBar } from "../primitives/ZoomBar";
 import { DESIGN_SAVED, DesignDocumentEditor, type DesignSaved } from "./DesignEditor";
 import { DesignExportDialog } from "./DesignExportDialog";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
@@ -23,11 +26,6 @@ const GROUP_PADDING = 48;
 const MIN_SCALE = 0.025;
 const MAX_SCALE = 3;
 const clamp = (value: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
-const iconButton =
-  "flex size-8 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-35";
-const textButton =
-  "rounded-full px-3 py-1.5 text-[12px] font-medium text-ink-2 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-35";
-const dialogButton = "rounded-control border border-line px-3 py-1.5 text-[12px] hover:bg-hover disabled:opacity-40";
 const isTextField = (element: Element | null) =>
   element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || (element instanceof HTMLElement && element.isContentEditable);
 
@@ -88,7 +86,6 @@ export function DesignPageEditor({
   const [dragging, setDragging] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
-  const closeDialog = useRef<HTMLDialogElement>(null);
   const sessions = useRef(new Map<string, RefObject<DesignEditorSession | null>>());
   const loaded = useRef(new Set([artifact.id]));
   const moved = useRef(false);
@@ -354,12 +351,6 @@ export function DesignPageEditor({
     return () => previousFocus?.focus();
   }, [root]);
   useEffect(() => {
-    if (!confirmClose) return;
-    const element = closeDialog.current;
-    element?.showModal();
-    return () => element?.close();
-  }, [confirmClose]);
-  useEffect(() => {
     const release = () => {
       setSpacePanning(false);
       setDragging(false);
@@ -384,12 +375,12 @@ export function DesignPageEditor({
     );
   };
   const status = saving
-    ? "Saving..."
+    ? "Saving…"
     : changed.length
       ? `Unsaved changes${artifacts.length > 1 ? ` in ${changed.length} ${changed.length === 1 ? "design" : "designs"}` : ""}`
       : active
         ? `Saved · version ${active.saved.version}`
-        : "Opening page...";
+        : "Opening page…";
 
   return createPortal(
     <div
@@ -425,14 +416,14 @@ export function DesignPageEditor({
       }}
     >
       <div aria-hidden className="title-drag absolute inset-x-0 top-0 h-[var(--window-chrome-height)]" />
-      <div className="pointer-events-none absolute left-6 right-[440px] top-[calc(var(--window-chrome-height)+11px)] min-w-0">
-        <h1 className="text-[14px] font-medium">
+      <div className="pointer-events-none absolute left-6 right-[440px] top-[calc(var(--window-chrome-height)+12px)] min-w-0">
+        <h1 className="text-13 font-medium">
           Designs{" "}
-          <span className="ml-1.5 text-[11px] font-normal text-ink-3">
+          <span className="ml-1.5 text-11 font-normal text-ink-3">
             {artifacts.length} {artifacts.length === 1 ? "design" : "designs"}
           </span>
         </h1>
-        <p data-slot="design-save-status" aria-live="polite" className="mt-0.5 truncate text-[11px] text-ink-3">
+        <p data-slot="design-save-status" aria-live="polite" className="mt-0.5 truncate text-11 text-ink-3">
           {status}
         </p>
       </div>
@@ -440,59 +431,36 @@ export function DesignPageEditor({
         role="toolbar"
         aria-label="Design page actions"
         data-slot="design-page-actions"
-        className="absolute right-4 top-[calc(var(--window-chrome-height)+8px)] z-30 flex items-center gap-0.5 rounded-full border border-line bg-surface p-1.5 shadow-overlay"
+        className="absolute right-4 top-[calc(var(--window-chrome-height)+8px)] z-30 flex items-center gap-0.5 rounded-full bg-surface p-1 shadow-raised"
       >
-        <Tooltip label="Undo" shortcut="⌘Z" side="bottom">
-          <button
-            type="button"
-            aria-label="Undo design edit"
-            className={iconButton}
-            disabled={blocked || saving || !active?.canUndo}
-            onClick={() => active?.undo()}
-          >
-            <HugeiconsIcon icon={UndoIcon} size={17} strokeWidth={1.7} aria-hidden />
-          </button>
+        <Tooltip label="Undo" shortcut="⌘Z" side="bottom" asChild>
+          <IconButton label="Undo design edit" icon={UndoIcon} shape="pill" disabled={blocked || saving || !active?.canUndo} onClick={() => active?.undo()} />
         </Tooltip>
-        <Tooltip label="Redo" shortcut="⌘⇧Z" side="bottom">
-          <button
-            type="button"
-            aria-label="Redo design edit"
-            className={iconButton}
-            disabled={blocked || saving || !active?.canRedo}
-            onClick={() => active?.redo()}
-          >
-            <HugeiconsIcon icon={RedoIcon} size={17} strokeWidth={1.7} aria-hidden />
-          </button>
+        <Tooltip label="Redo" shortcut="⌘⇧Z" side="bottom" asChild>
+          <IconButton label="Redo design edit" icon={RedoIcon} shape="pill" disabled={blocked || saving || !active?.canRedo} onClick={() => active?.redo()} />
         </Tooltip>
-        <span aria-hidden className="mx-1 h-4 border-l border-line" />
+        <span aria-hidden className="mx-0.5 h-4 w-px bg-line" />
         {sharingAvailable && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size={28}
+            shape="pill"
             aria-label="Share Designs page"
-            className={textButton}
             disabled={blocked || saving || loading || !!loadError}
             onClick={() => setSharing(true)}
           >
             Share
-          </button>
+          </Button>
         )}
-        <button type="button" aria-label="Export design" className={textButton} disabled={blocked || saving || loading || !!loadError} onClick={openExport}>
+        <Button variant="quiet" size={28} shape="pill" aria-label="Export design" disabled={blocked || saving || loading || !!loadError} onClick={openExport}>
           Export
-        </button>
-        <button
-          type="button"
-          data-slot="design-save"
-          className="ml-0.5 rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-35"
-          disabled={blocked || !canSave}
-          onClick={() => void saveAll()}
-        >
-          {saving ? "Saving..." : "Save"}
-        </button>
-        <span aria-hidden className="mx-1 h-4 border-l border-line" />
-        <Tooltip label="Back to Milagre" side="bottom" align="end">
-          <button type="button" aria-label="Close design editor" className={iconButton} disabled={blocked || saving} onClick={close}>
-            <HugeiconsIcon icon={Cancel01Icon} size={17} strokeWidth={1.7} aria-hidden />
-          </button>
+        </Button>
+        <Button size={28} shape="pill" data-slot="design-save" className="ml-0.5" disabled={blocked || !canSave} onClick={() => void saveAll()}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+        <span aria-hidden className="mx-0.5 h-4 w-px bg-line" />
+        <Tooltip label="Back to Milagre" side="bottom" align="end" asChild>
+          <IconButton label="Close design editor" icon={Cancel01Icon} shape="pill" disabled={blocked || saving} onClick={close} />
         </Tooltip>
       </div>
       <div className="absolute inset-x-0 bottom-0 top-[calc(var(--window-chrome-height)+56px)]">
@@ -573,7 +541,7 @@ export function DesignPageEditor({
                   <div data-pan-canvas className="relative shrink-0" style={{ height: GROUP_LABEL / view.scale }}>
                     <div
                       data-pan-canvas
-                      className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-[13px] whitespace-nowrap"
+                      className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-13 whitespace-nowrap"
                       style={{ transform: `scale(${1 / view.scale})` }}
                     >
                       <span className={`font-medium ${row.group ? "text-ink" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
@@ -583,7 +551,7 @@ export function DesignPageEditor({
                 )}
                 <div
                   data-pan-canvas
-                  className={`flex items-start ${grouped ? "rounded-[40px] bg-hover/60" : ""}`}
+                  className={`flex items-start ${grouped ? "rounded-card bg-hover" : ""}`}
                   style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}
                 >
                   {row.designs.map((item) => (
@@ -609,96 +577,77 @@ export function DesignPageEditor({
           style={{ left: layersOpen ? 312 : 88 }}
         >
           {loadError && (
-            <div role="alert" className="rounded-control border border-red/30 bg-surface p-3 text-[12px]">
-              <p className="text-red-ink">{loadError}</p>
-              <button type="button" className={`${dialogButton} mt-2`} disabled={loading} onClick={() => setReload((value) => value + 1)}>
-                Retry loading designs
-              </button>
+            // The card's tint is translucent in dark, so it sits on a surface over the canvas.
+            <div className="rounded-card bg-surface shadow-raised">
+              <InlineError
+                variant="card"
+                action={
+                  <Button variant="secondary" size={28} disabled={loading} onClick={() => setReload((value) => value + 1)}>
+                    Retry loading designs
+                  </Button>
+                }
+              >
+                {loadError}
+              </InlineError>
             </div>
           )}
-          {loading && <p className="self-start rounded-full border border-line bg-surface px-3 py-1.5 text-[11px] text-ink-3">Loading Designs page...</p>}
-          {saveError && (
-            <p role="alert" className="rounded-control border border-red/30 bg-surface p-3 text-[12px] text-red-ink">
-              {saveError}
-            </p>
-          )}
+          {loading && <p className="self-start rounded-full bg-surface px-3 py-1.5 text-11 text-ink-3 shadow-raised">Loading Designs page…</p>}
+          <InlineError variant="floating">{saveError}</InlineError>
           <div ref={setNotices} className="flex flex-col overflow-hidden rounded-control bg-surface empty:hidden" />
         </div>
         <div
           ref={setInspector}
           data-slot="design-editor-inspector"
-          className="absolute bottom-4 right-4 top-4 z-20 flex w-[248px] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-overlay"
+          className="absolute bottom-4 right-4 top-4 z-20 flex w-[248px] flex-col overflow-hidden rounded-window bg-surface shadow-overlay"
         />
-        <div
+        <ZoomBar
           role="toolbar"
           aria-label="Canvas zoom"
-          className="absolute bottom-5 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-surface p-1 shadow-overlay"
+          className="absolute bottom-5 z-20 -translate-x-1/2"
           style={{ left: layersOpen ? "calc(50% + 16px)" : "calc(50% - 96px)" }}
-        >
-          <Tooltip label="Zoom out">
-            <button type="button" aria-label="Zoom out" className={iconButton} disabled={blocked || view.scale <= MIN_SCALE} onClick={() => zoom(1 / 1.25)}>
-              <HugeiconsIcon icon={MinusSignIcon} size={16} aria-hidden />
-            </button>
-          </Tooltip>
-          <span aria-live="polite" className="min-w-11 text-center text-[11px] tabular-nums text-ink-2">
-            {Math.round(view.scale * 100)}%
-          </span>
-          <Tooltip label="Zoom in">
-            <button type="button" aria-label="Zoom in" className={iconButton} disabled={blocked || view.scale >= MAX_SCALE} onClick={() => zoom(1.25)}>
-              <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden />
-            </button>
-          </Tooltip>
-          <span aria-hidden className="mx-1 h-4 border-l border-line" />
-          <Tooltip label="Fit page">
-            <button
-              type="button"
-              aria-label="Fit Designs page"
-              className={iconButton}
-              disabled={blocked}
-              onClick={() => {
-                moved.current = false;
-                fit();
-              }}
-            >
-              <HugeiconsIcon icon={FitToScreenIcon} size={16} aria-hidden />
-            </button>
-          </Tooltip>
-        </div>
+          zoom={view.scale}
+          canZoomOut={!blocked && view.scale > MIN_SCALE}
+          canZoomIn={!blocked && view.scale < MAX_SCALE}
+          onZoomOut={() => zoom(1 / 1.25)}
+          onZoomIn={() => zoom(1.25)}
+          onReset={() => zoom(1 / view.scale)}
+          fitLabel="Fit Designs page"
+          onFit={() => {
+            if (blocked) return;
+            moved.current = false;
+            fit();
+          }}
+        />
       </div>
       {confirmClose && (
-        <dialog
-          ref={closeDialog}
-          aria-label="Unsaved design changes"
-          data-slot="design-close-confirmation"
-          onCancel={(event) => {
-            event.preventDefault();
-            if (!pageSaving) setConfirmClose(false);
-          }}
-          onKeyDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (event.target === event.currentTarget && !pageSaving) setConfirmClose(false);
-          }}
-          className="m-auto w-[420px] max-w-[calc(100vw-32px)] rounded-window border border-line bg-surface p-5 text-ink shadow-overlay backdrop:bg-black/30 backdrop:backdrop-blur-overlay"
-        >
-          <h2 className="text-[15px] font-semibold">Your changes have not been saved</h2>
-          <p className="mt-2 text-[12px] leading-5 text-ink-3">Keep editing this page, or discard its unsaved changes and return to Milagre.</p>
-          <div className="mt-5 flex justify-end gap-2">
-            <button type="button" className={dialogButton} onClick={() => setConfirmClose(false)}>
-              Keep editing
-            </button>
-            <button
-              type="button"
-              className={`${dialogButton} border-red/30 text-red-ink`}
-              onClick={() => {
-                for (const session of sessionList()) session.discard();
-                current.current.onClose();
-              }}
-            >
-              Discard changes
-            </button>
-          </div>
-        </dialog>
+        // The dialog is portalled; its keys still bubble through React to the canvas, so they stop here.
+        <div role="presentation" className="contents" onKeyDown={(event) => event.stopPropagation()}>
+          <Dialog
+            data-slot="design-close-confirmation"
+            width={420}
+            title="Your changes have not been saved"
+            description="Keep editing this page, or discard its unsaved changes and return to Milagre."
+            onClose={() => {
+              if (!pageSaving) setConfirmClose(false);
+            }}
+            actions={
+              <>
+                <Button variant="ghost" onClick={() => setConfirmClose(false)}>
+                  Keep editing
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    for (const session of sessionList()) session.discard();
+                    current.current.onClose();
+                  }}
+                >
+                  Discard changes
+                </Button>
+              </>
+            }
+          />
+        </div>
       )}
       {sharing && <DesignPageShareDialog chatId={chatId} onClose={() => setSharing(false)} />}
       {exporting && <DesignExportDialog designs={exporting} onClose={() => setExporting(null)} />}

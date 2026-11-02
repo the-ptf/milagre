@@ -8,9 +8,19 @@ export {
   type PullRequestRef,
 } from "./chat-pull-requests.mjs";
 
-export function chatMarkTone(
-  mark: "question" | "waiting" | "delegated" | "interrupted" | "running" | "background" | "failed" | "unread" | "idle",
-): "accent" | "orange" | "red" | "ink3";
+export type ChatMarkKind = "question" | "waiting" | "delegated" | "interrupted" | "running" | "background" | "failed" | "unread" | "idle";
+/** The mark's tone as text (status words); idle reads ink3. */
+export function chatMarkTone(mark: ChatMarkKind): "accent" | "orange" | "red" | "ink3";
+/**
+ * A Chat mark as both apps draw it. `icon`: bubble (BubbleChatIcon), shield-alert (ShieldAlertIcon), link (Link04Icon),
+ * alert (Alert02Icon), spinner (SpinnerRing), ring (the background count ring), dot (8px; idle 6px). `tone`: the
+ * glyph's palette key, idle a solid ink4 dot. `label`: tooltip and accessibility words, empty for idle.
+ */
+export function chatMarkPresentation(mark: ChatMarkKind): {
+  icon: "bubble" | "shield-alert" | "link" | "alert" | "spinner" | "ring" | "dot";
+  tone: "accent" | "orange" | "red" | "ink4";
+  label: string;
+};
 
 /** A one-line title of at most 60 characters: a longer line keeps its first 57 and an ellipsis. */
 export function shortTitle(line: string): string;

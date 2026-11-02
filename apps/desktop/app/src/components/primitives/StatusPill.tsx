@@ -1,18 +1,19 @@
 import { useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type Ref } from "react";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import { AnimatePresence, motion, type Transition } from "motion/react";
-import { useMotionScale } from "../../lib/ease";
+import { EASE_OUT as EASE, useMotionScale } from "../../lib/ease";
+import { Icon } from "./Icon";
 
-const EASE_OUT: Transition["ease"] = [0.23, 1, 0.32, 1];
+const EASE_OUT: Transition["ease"] = [...EASE];
 const PILL_IN: Transition = { duration: 0.26, ease: EASE_OUT };
 
-// Each tone sets the glass tint and ring the .status-pill surface draws (styles.css), and the text colour.
+// Each tone sets the glass tint and ring the .status-pill surface draws (styles.css), and the text colour. Focus stays the
+// base accent outline whatever the tone.
 export const PILL_TONES = {
   ink: "text-ink-2",
-  orange:
-    "text-orange-ink [--status-pill-tint:var(--orange)] [--status-pill-ring:color-mix(in_oklab,var(--orange)_25%,transparent)] focus-visible:outline-orange",
-  green: "text-green-ink [--status-pill-tint:var(--green)] [--status-pill-ring:color-mix(in_oklab,var(--green)_25%,transparent)] focus-visible:outline-green",
-  red: "text-red-ink [--status-pill-tint:var(--red)] [--status-pill-ring:color-mix(in_oklab,var(--red)_25%,transparent)] focus-visible:outline-red",
+  orange: "text-orange-ink [--status-pill-tint:var(--orange)] [--status-pill-ring:color-mix(in_oklab,var(--orange)_25%,transparent)]",
+  green: "text-green-ink [--status-pill-tint:var(--green)] [--status-pill-ring:color-mix(in_oklab,var(--green)_25%,transparent)]",
+  red: "text-red-ink [--status-pill-tint:var(--red)] [--status-pill-ring:color-mix(in_oklab,var(--red)_25%,transparent)]",
 } as const;
 
 /** Motion Off in Appearance, or the system asking for reduced motion (motion's own useReducedMotion ignores the app setting). */
@@ -60,7 +61,7 @@ export function PillSlot({
 }
 
 /**
- * The composer row's pill: 24px, frosted glass over the transcript, its count rolling to each new value and a
+ * The composer row's pill: 28px like a Chip, 12px text, frosted glass over the transcript, its count rolling to each new value and a
  * changed label fading in letter by letter. `count` and `total` show as "count" or "count/total".
  */
 export function StatusPill({
@@ -90,10 +91,10 @@ export function StatusPill({
       ref={ref}
       type="button"
       {...props}
-      className={`flex h-6 items-center gap-1.5 rounded-full px-2 text-[11px] whitespace-nowrap transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50 ${bare ? "hover:bg-hover focus-visible:-outline-offset-2" : "status-pill"} ${PILL_TONES[tone]} ${className}`}
+      className={`flex h-7 items-center gap-1.5 rounded-full px-2.5 text-12 whitespace-nowrap transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40 ${bare ? "hover:bg-hover focus-visible:-outline-offset-2" : "status-pill"} ${PILL_TONES[tone]} ${className}`}
     >
       {leading}
-      {icon && <HugeiconsIcon icon={icon} size={12} aria-hidden />}
+      {icon && <Icon icon={icon} size={12} />}
       {label !== undefined && <Letters text={label} />}
       {/* A space for textContent and screen readers; flex layout drops it and the gap spaces the two. */}
       {label !== undefined && count !== undefined && " "}

@@ -1,8 +1,8 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { EASE_OUT } from "../../lib/ease";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { DURATION, EASE_OUT } from "../../lib/ease";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import { SIMLOCK_DEVICE_PREFIX, type SimlockModel, type SimulatorApi, type SimulatorDevice, type SimulatorList } from "@milagre/shared/simulator";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -15,6 +15,10 @@ import {
 } from "@milagre/shared/simulator-receiver";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
+import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
+import { EmptyState } from "../primitives/EmptyState";
+import { InlineError } from "../primitives/InlineError";
 import { PillSlot, StatusPill } from "../primitives/StatusPill";
 import { useAnchoredPopover } from "./useAnchoredPopover";
 import { viewerTheme } from "./viewerTheme";
@@ -214,81 +218,67 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
         <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
           {attaching ? (
             <Tooltip label="Back to devices">
-              <button
-                type="button"
-                aria-label="Back to devices"
+              <IconButton
+                label="Back to devices"
+                icon={ArrowLeft01Icon}
+                size={24}
                 onClick={() => {
                   setSelected(null);
                   setAttaching(false);
                 }}
-                className="rounded p-1 text-ink-2 hover:bg-hover"
-              >
-                <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
-              </button>
+              />
             </Tooltip>
           ) : (
-            <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
+            <Icon icon={SmartphoneIcon} size={16} />
           )}
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px]">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
-            {!selected && <div className="text-[11px] text-ink-3">{attaching ? `Other devices on ${thisComputer}` : "This Chat"}</div>}
+            <div className="truncate text-13">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
+            {!selected && <div className="text-11 text-ink-3">{attaching ? `Other devices on ${thisComputer}` : "This Chat"}</div>}
           </div>
           <Tooltip label="Close simulator">
-            <button type="button" aria-label="Close simulator" onClick={close} className="rounded p-1 text-ink-2 hover:bg-hover">
-              <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
-            </button>
+            <IconButton label="Close simulator" icon={Cancel01Icon} size={24} onClick={close} />
           </Tooltip>
         </header>
       )}
       {selected ? (
         <>
-          <header className="flex shrink-0 items-center justify-between gap-3 px-[18px] pb-1 pt-4">
+          <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-1 pt-4">
             <div className="min-w-0 flex-1">
               <button
                 type="button"
                 aria-label={`${selected.name}, choose simulator`}
                 onClick={() => setSelected(null)}
-                className="-ml-1 flex max-w-full items-center gap-1 rounded px-1 text-[13px] font-medium hover:bg-hover"
+                className="-ml-1 flex max-w-full items-center gap-1 rounded-chip px-1 text-13 font-medium transition-colors duration-fast hover:bg-hover"
               >
                 <span className="truncate">{selected.name}</span>
-                <HugeiconsIcon icon={ArrowDown01Icon} size={14} className="shrink-0 text-ink-3" aria-hidden />
+                <Icon icon={ArrowDown01Icon} size={14} className="shrink-0 text-ink-3" />
               </button>
-              <div className="mt-1 text-[11px] text-ink-3">
+              <div className="mt-1 text-11 text-ink-3">
                 {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
                 {selected.id.startsWith(SIMLOCK_DEVICE_PREFIX) && " · Leased from Simlock"}
               </div>
             </div>
-            <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-2">
+            <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-11 text-ink-2">
               <span
                 aria-hidden
-                className={`h-1.5 w-1.5 rounded-full ${connectionState === "live" ? "bg-green" : connectionState === "error" ? "bg-red" : "bg-ink-3"}`}
+                className={`size-1.5 rounded-full ${connectionState === "live" ? "bg-green" : connectionState === "error" ? "bg-red" : "bg-ink-4"}`}
               />
               {SIMULATOR_CONNECTION_LABELS[connectionState]}
             </div>
             <Tooltip label="Close simulator">
-              <button type="button" aria-label="Close simulator" onClick={close} className="rounded p-2 text-ink-2 hover:bg-hover">
-                <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
-              </button>
+              <IconButton label="Close simulator" icon={Cancel01Icon} size={32} onClick={close} />
             </Tooltip>
           </header>
           <SimulatorFrame key={selected.id} api={api} device={selected} chatId={chatId} onClose={close} onConnection={setConnection} />
         </>
       ) : (
         <ScrollArea className="p-1">
-          {loading && (
-            <p role="status" className="p-3 text-[13px] text-ink-2">
-              Finding running simulators...
-            </p>
-          )}
-          {list.error && (
-            <p role="alert" className="p-3 text-[13px] text-red-ink">
-              {list.error}
-            </p>
-          )}
+          {loading && <EmptyState size="compact" title="Finding running simulators…" />}
+          <InlineError size={12} className="p-3">
+            {list.error}
+          </InlineError>
           {!loading && !list.error && !(attaching ? list.available : list.attached)?.length && (
-            <p className="p-3 text-[13px] text-ink-2">
-              {attaching ? `No other devices are running on ${thisComputer}.` : "No simulators attached to this Chat."}
-            </p>
+            <EmptyState size="compact" title={attaching ? `No other devices are running on ${thisComputer}` : "No simulators attached to this Chat"} />
           )}
           {(attaching ? (list.available ?? []) : (list.attached ?? [])).map((device) => {
             const running = attaching || list.devices.some((d) => d.id === device.id);
@@ -299,13 +289,11 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   disabled={busy || !running}
                   data-simulator-device={device.id}
                   onClick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50"
+                  className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
                 >
-                  <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-[13px]">{device.name}</span>
-                  <span className="text-[11px] text-ink-3">
-                    {running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}
-                  </span>
+                  <Icon icon={SmartphoneIcon} size={16} />
+                  <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
+                  <span className="text-11 text-ink-3">{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</span>
                 </button>
                 {!attaching &&
                   (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
@@ -327,7 +315,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                         disabled={busy}
                         aria-label={`Detach ${device.name} from Chat`}
                         onClick={() => void mutate("detach", device)}
-                        className="rounded p-2 text-ink-3 hover:bg-hover"
+                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
                       >
                         <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
                       </button>
@@ -337,7 +325,11 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             );
           })}
           {!attaching && (
-            <button type="button" onClick={() => setAttaching(true)} className="w-full rounded-md px-3 py-2 text-left text-[13px] text-ink-2 hover:bg-hover">
+            <button
+              type="button"
+              onClick={() => setAttaching(true)}
+              className="flex h-8 w-full items-center rounded-control px-3 text-left text-13 text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink active:bg-hover-2"
+            >
               Attach simulator
             </button>
           )}
@@ -415,7 +407,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   data-docked
                   style={{ top: dock?.top ?? 40, right: (dock?.right ?? 0) + 12, bottom: dock?.bottom ?? 12 }}
                   className="fixed z-[42] focus:outline-none"
-                  panelClassName="overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised"
+                  panelClassName="overflow-hidden rounded-card bg-surface text-ink shadow-raised"
                 >
                   {panelContent}
                 </ResizableDockSlide>
@@ -426,7 +418,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   initial={reduced ? false : { opacity: 0, y: 6, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: 6, scale: 0.98 }}
-                  transition={{ duration: 0.18, ease: EASE_OUT }}
+                  transition={{ duration: DURATION.base, ease: EASE_OUT }}
                   ref={panel}
                   id={panelId}
                   role="dialog"
@@ -435,7 +427,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   tabIndex={-1}
                   data-slot="simulator-popover"
                   style={{ ...bounds, height: selected ? 650 : undefined }}
-                  className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised focus:outline-none"
+                  className="fixed z-50 flex flex-col overflow-hidden rounded-card bg-surface text-ink shadow-raised focus:outline-none"
                 >
                   {panelContent}
                 </motion.div>

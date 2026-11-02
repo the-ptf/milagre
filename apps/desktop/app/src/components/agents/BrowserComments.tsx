@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { CommentAdd01Icon, Comment01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { ImageAttachment } from "../../model";
 import type { PageElement, ParsedPageComment } from "@milagre/shared/page-comments";
 import { pageCommentsMessage } from "@milagre/shared/page-comments";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import Tooltip from "../primitives/Tooltip";
+import { Button, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { ShortcutKeys } from "../primitives/ShortcutKeys";
+import { TOAST } from "../../lib/toast";
 import { isRemoteKey, onAnyAgentEvent, useBridge, useScope } from "../../lib/computer-bridge";
 import { mediaUrl } from "../../lib/media";
 import { useRemoteMedia } from "../../lib/remote-media";
-import { ipcErrorMessage } from "@milagre/shared/result";
-import type { StreamedPoint } from "./BrowserViewer";
 import type { BrowserTab } from "../../lib/browser-panel";
 import { browserOverlay, cancelPagePick, capturePageElement, pickOnPage, setPagePins } from "../../lib/browser-webviews";
 import {
@@ -82,30 +83,32 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
           side="bottom"
           align="end"
         >
-          <button
-            type="button"
+          <Button
+            variant={failed ? "danger" : "primary"}
+            size={28}
             data-slot="browser-send-comments"
             disabled={!onSend || sending}
             onClick={() => void send()}
-            className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control pr-1.5 pl-2.5 text-12 font-medium disabled:opacity-50 ${failed ? "bg-red text-white" : "bg-ink text-surface"}`}
+            className="pr-1.5"
           >
             {failed ? "Retry" : "Send"}
-            <span className="rounded-full bg-surface/20 px-1.5 text-11 tabular-nums">{pending.length > count ? `${count} of ${pending.length}` : count}</span>
-          </button>
+            <span className={`rounded-full px-1.5 text-11 tabular-nums ${failed ? "bg-on-red/20" : "bg-on-ink/20"}`}>
+              {pending.length > count ? `${count} of ${pending.length}` : count}
+            </span>
+          </Button>
         </Tooltip>
       )}
       <Tooltip label={label} side="bottom" align="end">
-        <button
-          type="button"
-          aria-label={label}
+        {/* Comment mode changes what a click on the page does: the armed accent look. */}
+        <IconButton
+          label={label}
+          icon={CommentAdd01Icon}
+          tone="accent"
           aria-pressed={commenting}
           data-slot="browser-comment-toggle"
           disabled={!live}
           onClick={() => setCommenting(chatKey, !commenting)}
-          className={`flex size-7 shrink-0 items-center justify-center rounded-control disabled:opacity-35 ${commenting ? "bg-accent/10 text-accent" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
-        >
-          <HugeiconsIcon icon={CommentAdd01Icon} size={16} aria-hidden />
-        </button>
+        />
       </Tooltip>
     </>
   );
@@ -190,10 +193,7 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
   if (!draft)
     return picking
       ? createPortal(
-          <div
-            data-slot="browser-comment-hint"
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink/90 px-3 py-1.5 text-12 whitespace-nowrap text-surface shadow-md"
-          >
+          <div data-slot="browser-comment-hint" className={`absolute bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap ${TOAST}`}>
             Click anywhere to place a comment pin · Esc to stop
           </div>,
           overlay,
@@ -224,111 +224,6 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
 }
 
 const BOX_WIDTH = 300;
-
-/**
- * Comment mode on a streamed Browser panel page (another computer's): the hint until a point is picked, then the box its
- * comment is written in. Send has that computer read the element at the point, screenshot it and send the comment to the
- * Chat's agent, as the phone does; the page's own comments and pins stay on that computer.
- */
-export function StreamedPageComment({
-  chatId,
-  targetId,
-  picked,
-  onCancel,
-  onSent,
-}: {
-  chatId: string;
-  targetId: string;
-  picked: StreamedPoint | null;
-  onCancel: () => void;
-  onSent: () => void;
-}) {
-  const bridge = useBridge();
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const field = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (picked) field.current?.focus();
-  }, [picked]);
-  if (!picked)
-    return (
-      <div
-        data-slot="browser-comment-hint"
-        className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink/90 px-3 py-1.5 text-12 whitespace-nowrap text-surface shadow-md"
-      >
-        Click anywhere to place a comment pin · Esc to stop
-      </div>
-    );
-  const send = async () => {
-    const body = text.trim();
-    if (!body || sending) return;
-    const api = bridge?.pageComments;
-    if (typeof api?.sendFromPage !== "function") {
-      setError("This computer's Milagre is too old to take comments from here. Update it, then try again.");
-      return;
-    }
-    setSending(true);
-    setError("");
-    try {
-      await api.sendFromPage({ chatId, targetId, x: picked.x, y: picked.y, text: body });
-      onSent();
-    } catch (failure) {
-      setError(ipcErrorMessage(failure) || "The comment didn't send.");
-    } finally {
-      setSending(false);
-    }
-  };
-  const below = picked.top + 8 + 140 <= picked.viewport.height;
-  const left = Math.max(8, Math.min(picked.left + 24, picked.viewport.width - BOX_WIDTH - 8));
-  const top = below ? picked.top + 8 : Math.max(8, picked.top - 8 - 140);
-  return (
-    <div
-      data-slot="browser-comment-box"
-      role="dialog"
-      aria-label="Comment at this pin"
-      style={{ left, top, width: Math.min(BOX_WIDTH, picked.viewport.width - 16), borderRadius: below ? "3px 10px 10px 10px" : "10px 10px 10px 3px" }}
-      className="absolute flex flex-col gap-2 border border-line-strong bg-surface p-3 text-ink shadow-raised"
-    >
-      <textarea
-        ref={field}
-        value={text}
-        rows={2}
-        placeholder="What should change here?"
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            void send();
-          }
-        }}
-        className="min-h-[38px] w-full resize-none bg-transparent text-13 leading-[1.45] outline-none placeholder:text-ink-3"
-      />
-      {error && (
-        <p role="alert" className="text-12 text-red-ink">
-          {error}
-        </p>
-      )}
-      <div className="flex items-center justify-end gap-2">
-        <button type="button" disabled={sending} onClick={onCancel} className="rounded-control px-2 py-1 text-12 text-ink-2 hover:bg-hover">
-          Cancel
-        </button>
-        <button
-          type="button"
-          data-slot="browser-comment-send"
-          disabled={!text.trim() || sending}
-          onClick={() => void send()}
-          className="flex items-center gap-1.5 rounded-control bg-accent px-2.5 py-1 text-12 font-medium text-white disabled:opacity-50"
-        >
-          {sending ? "Sending" : "Send"} <span className="text-11 text-white/75">{SEND_KEYS}</span>
-        </button>
-      </div>
-    </div>
-  );
-}
 
 /** The box a comment is written in, beside the element it is on: below it when there is room, above otherwise. */
 function CommentBox({
@@ -361,8 +256,13 @@ function CommentBox({
       data-slot="browser-comment-box"
       role="dialog"
       aria-label="Comment at this pin"
-      style={{ left, top, width: BOX_WIDTH, borderRadius: below ? "3px 10px 10px 10px" : "10px 10px 10px 3px" }}
-      className="pointer-events-auto absolute flex flex-col gap-2 border border-line-strong bg-surface p-3 text-ink shadow-raised"
+      style={{
+        left,
+        top,
+        width: BOX_WIDTH,
+        borderRadius: below ? "3px var(--radius-card) var(--radius-card) var(--radius-card)" : "var(--radius-card) var(--radius-card) var(--radius-card) 3px",
+      }}
+      className="pointer-events-auto absolute flex flex-col gap-2 bg-surface p-3 text-ink shadow-raised"
     >
       <textarea
         ref={field}
@@ -379,24 +279,18 @@ function CommentBox({
             add();
           }
         }}
-        className="min-h-[38px] w-full resize-none bg-transparent text-13 leading-[1.45] outline-none placeholder:text-ink-3"
+        className="min-h-9 w-full resize-none rounded-inline bg-transparent text-13 outline-none placeholder:text-ink-3 focus-visible:ring-2 focus-visible:ring-accent"
       />
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-11 text-ink-3" title={element.selector}>
-          On {where}
-        </span>
-        <button type="button" onClick={onCancel} className="rounded-control px-2 py-1 text-12 text-ink-2 hover:bg-hover">
+        <Tooltip label={element.selector} wrap className="min-w-0 flex-1">
+          <span className="min-w-0 flex-1 truncate text-11 text-ink-3">On {where}</span>
+        </Tooltip>
+        <Button variant="ghost" size={24} onClick={onCancel}>
           Cancel
-        </button>
-        <button
-          type="button"
-          data-slot="browser-comment-add"
-          disabled={!text.trim()}
-          onClick={add}
-          className="flex items-center gap-1.5 rounded-control bg-accent px-2.5 py-1 text-12 font-medium text-white disabled:opacity-50"
-        >
-          Add <span className="text-11 text-white/75">{SEND_KEYS}</span>
-        </button>
+        </Button>
+        <Button size={24} data-slot="browser-comment-add" disabled={!text.trim()} onClick={add}>
+          Add <ShortcutKeys plain shortcut={SEND_KEYS} />
+        </Button>
       </div>
     </div>
   );
@@ -415,7 +309,7 @@ export function PageCommentsCard({ comments, images }: { comments: ParsedPageCom
   return (
     <div data-slot="page-comments" className="w-full max-w-md overflow-hidden rounded-card border border-line bg-surface text-13">
       <div className="flex items-start gap-2 border-b border-line px-3 py-2">
-        <HugeiconsIcon icon={Comment01Icon} size={15} className="mt-0.5 shrink-0 text-ink-2" aria-hidden />
+        <Icon icon={Comment01Icon} size={16} className="mt-px shrink-0 text-ink-2" />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">
             {comments.length === 1 ? "A comment" : `${comments.length} comments`} on {pages.length === 1 ? pages[0] : `${pages.length} pages`}
@@ -438,22 +332,22 @@ function PageCommentRow({ comment, image }: { comment: ParsedPageComment; image?
   const { sources } = useRemoteMedia(remote && !image?.dataUrl && image?.path ? scope : null, image?.path ? [image.path] : []);
   const src = image?.dataUrl ?? (image?.path ? (remote ? sources[image.path] : mediaUrl(image.path)) : undefined);
   return (
-    <div data-slot="page-comment" data-resolved={saved?.resolved ? "" : undefined} className="flex gap-3 border-b border-line px-3 py-2.5 last:border-b-0">
+    <div data-slot="page-comment" data-resolved={saved?.resolved ? "" : undefined} className="flex gap-3 border-b border-line px-3 py-3 last:border-b-0">
       <div className="relative h-10 w-14 shrink-0">
-        <div className="h-full w-full overflow-hidden rounded-chip border border-line-strong bg-white">
+        <div className="h-full w-full overflow-hidden rounded-chip border border-line-strong bg-paper">
           {src ? <img src={src} alt="" className="h-full w-full object-contain" /> : null}
         </div>
         <span
-          className={`absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full text-10 font-semibold text-white ring-[1.5px] ring-surface ${saved?.resolved ? "bg-green" : "bg-accent"}`}
+          className={`absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full text-10 font-semibold shadow-pin ${saved?.resolved ? "bg-green-ink text-on-green" : "bg-accent-ink text-on-accent"}`}
         >
-          {saved?.resolved ? <HugeiconsIcon icon={Tick02Icon} size={10} strokeWidth={3} aria-hidden /> : comment.number}
+          {saved?.resolved ? <Icon icon={Tick02Icon} size={12} /> : comment.number}
         </span>
       </div>
       <div className="min-w-0 flex-1">
         <div className="line-clamp-6 whitespace-pre-wrap break-words" title={comment.text.length > 300 ? comment.text : undefined}>
           {comment.text}
         </div>
-        <div className={`mt-0.5 truncate text-12 ${saved?.resolved ? "text-green" : "text-ink-3"}`} title={saved?.resolved?.note}>
+        <div className={`mt-0.5 truncate text-12 ${saved?.resolved ? "text-green-ink" : "text-ink-3"}`} title={saved?.resolved?.note}>
           {saved?.resolved ? `Resolved · ${saved.resolved.note}` : `${comment.label} · not resolved yet`}
         </div>
       </div>

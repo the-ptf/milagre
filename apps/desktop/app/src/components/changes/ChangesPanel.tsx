@@ -153,7 +153,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
   const fallback = data?.projectDefault;
   return (
     <div className="@container border-b border-line" data-comparison-controls>
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-[12px] text-ink-3">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-12 text-ink-3">
         <Select
           label="Comparison branch"
           value={c.selected}
@@ -168,7 +168,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         <span className="flex min-w-0 flex-1 items-center gap-1.5" aria-label={`Current branch: ${data?.branch ?? `detached HEAD ${current}`}`}>
           <HugeiconsIcon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
           <BranchLabel name={current} />
-          {data && !data.branch && <span className="shrink-0 rounded bg-hover px-1 text-[10px]">detached</span>}
+          {data && !data.branch && <span className="shrink-0 rounded-inline bg-field px-1 text-10 text-ink-2">detached</span>}
         </span>
       </div>
       <div className="flex gap-5 px-3" aria-label="Changes view" role="tablist" onKeyDown={moveTab}>
@@ -181,7 +181,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
             tabIndex={c.view === view ? 0 : -1}
             data-comparison-view={view}
             onClick={() => c.setView(view)}
-            className={`flex items-center gap-1.5 border-b-2 py-2 text-[12px] ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
+            className={`flex items-center gap-1.5 border-b-2 py-2 text-12 ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
           >
             {view === "files" ? "Files" : "Commits"}
             <span className="font-normal tabular-nums text-ink-3">{view === "files" ? fileCount : data?.total}</span>
@@ -189,7 +189,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         ))}
       </div>
       {c.missing && (
-        <div role="status" className="flex items-start gap-2 px-3 py-2 text-[11px] text-ink-3">
+        <div role="status" className="flex items-start gap-2 px-3 py-2 text-11 text-ink-3">
           <p className="min-w-0 flex-1 break-words">
             {c.missing} no longer exists. {data?.base ? `Showing changes since ${data.base}.` : "Restoring the automatic base…"}
           </p>
@@ -199,7 +199,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         </div>
       )}
       {data?.message && (
-        <div className="px-3 py-2 text-[11px] text-ink-3">
+        <div className="px-3 py-2 text-11 text-ink-3">
           <p>{data.message}</p>
           {fallback?.ref && fallback.ref !== data.comparisonRef && (
             <button type="button" onClick={() => c.select(fallback.ref!)} className="mt-1 text-accent-ink hover:underline">
@@ -209,7 +209,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         </div>
       )}
       {c.error && (
-        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-left text-[11px] text-red-ink">
+        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-11 text-ink-3">
           {c.error}. Retry
         </button>
       )}
@@ -229,7 +229,7 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
         <CommitRow key={`${c.cwd}:${commit.sha}`} commit={commit} comparison={c} />
       ))}
       {c.data.hasMore && c.limit < 300 && (
-        <button type="button" onClick={c.more} disabled={c.loading} className="w-full rounded-control p-2 text-[12px] text-ink-2 hover:bg-hover">
+        <button type="button" onClick={c.more} disabled={c.loading} className="w-full rounded-control p-2 text-12 text-ink-2 hover:bg-hover">
           Show more commits
         </button>
       )}
@@ -242,11 +242,11 @@ function CommitRow({ commit, comparison }: { commit: GitCommit; comparison: Comp
   const [showFiles, setShowFiles] = useState(false);
   const [copy, setCopy] = useState("Copy SHA");
   return (
-    <details className="py-2.5 text-[12px]">
+    <details className="py-3 text-12">
       <summary className="cursor-pointer list-none font-medium text-ink">
         <span className="line-clamp-2 break-words">{commit.message.split("\n")[0]}</span>
-        <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] font-normal text-ink-3">
-          <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-hover text-[8px] text-ink-2">
+        <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-11 font-normal text-ink-3">
+          <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-hover-2 text-10 leading-none text-ink-2">
             {commitInitials(commit.author)}
           </span>
           <span className="min-w-0 truncate" title={`${commit.author} <${commit.email}>`}>
@@ -269,10 +269,10 @@ function CommitRow({ commit, comparison }: { commit: GitCommit; comparison: Comp
           )}
         </span>
       </summary>
-      <div className="mt-2 border-l-2 border-line pl-2.5">
-        {commit.statsUnavailable && <p className="mb-2 text-[11px] text-ink-3">{commitStatsNotice(commit.statsUnavailable)}</p>}
+      <div className="mt-2 border-l-2 border-line pl-3">
+        {commit.statsUnavailable && <p className="mb-2 text-11 text-ink-3">{commitStatsNotice(commit.statsUnavailable)}</p>}
         <p className="whitespace-pre-wrap break-words text-ink-2">{commit.message}</p>
-        <p className="mt-2 break-words text-[11px] text-ink-3">
+        <p className="mt-2 break-words text-11 text-ink-3">
           {commit.author} &lt;{commit.email}&gt; · {new Date(commit.date).toLocaleString()}
         </p>
         <button
@@ -285,7 +285,7 @@ function CommitRow({ commit, comparison }: { commit: GitCommit; comparison: Comp
               () => setCopy("Copy failed. Retry"),
             )
           }
-          className="mt-2 flex items-center gap-1.5 rounded-control bg-hover px-2 py-1 font-mono text-[11px] text-ink-2"
+          className="flex h-6 items-center gap-1.5 rounded-control bg-field px-2 font-mono text-11 text-ink-2 transition-colors hover:text-ink"
         >
           {commit.sha.slice(0, 8)}
           <HugeiconsIcon icon={Copy01Icon} size={12} />
@@ -396,7 +396,7 @@ export function ChangesTabs({
         >
           <HugeiconsIcon icon={FileDiffIcon} size={13} strokeWidth={1.8} color="currentColor" className="shrink-0" />
           Changes
-          {count > 0 && <span className="text-[11.5px] font-normal text-ink-3 tabular-nums">{count}</span>}
+          {count > 0 && <span className="text-11 font-normal text-ink-3 tabular-nums">{count}</span>}
         </PanelTab>
         {prs.map((tab) => {
           const look = tabLook(tab.pr);
@@ -438,7 +438,7 @@ function PanelTab({
       role="tab"
       aria-selected={selected}
       tabIndex={selected ? 0 : -1}
-      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-[12.5px] whitespace-nowrap transition-colors ${selected ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-12 whitespace-nowrap transition-colors ${selected ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
       {...props}
     >
       {children}
@@ -500,10 +500,10 @@ function ChangesSection({ label, list, compactComparison, ...treeProps }: { labe
   const base = list.state === "ready" && list.isRepo ? list.base : null;
   return (
     <section aria-label={label} data-changes-section={label} className="pb-1.5">
-      <h3 className="flex h-7 items-center gap-1.5 px-3 text-[11.5px] text-ink-3">
+      <h3 className="flex h-7 items-center gap-1.5 px-3 text-11 text-ink-3">
         <span className="font-medium text-ink-2">{label}</span>
         <span className="tabular-nums">{files.length}</span>
-        {label === "Not committed" && <span className="text-[10px]">vs HEAD</span>}
+        {label === "Not committed" && <span className="text-10">vs HEAD</span>}
         {base && !compactComparison && (
           <span data-diff-base className="min-w-0 truncate">
             since <span className="font-mono">{base}</span>
@@ -518,7 +518,7 @@ function ChangesSection({ label, list, compactComparison, ...treeProps }: { labe
 }
 
 function Notice({ children }: { children: string }) {
-  return <p className="px-4 py-6 text-center text-[12px] text-ink-3">{children}</p>;
+  return <p className="px-3 py-2 text-11 text-ink-3">{children}</p>;
 }
 
 /** Spins from the click until the read is done; see useRefreshSpin. */

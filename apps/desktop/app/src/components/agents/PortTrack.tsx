@@ -72,7 +72,7 @@ export function PortTrack({
                 data-port-stop-all
                 disabled={!onStop || ports.every((port) => stopping.has(port.pid))}
                 onClick={() => stop([...new Set(ports.map((port) => port.pid))])}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-ink-2 hover:bg-hover focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent"
+                className="flex w-full items-center gap-2 rounded-chip px-2 py-2 text-left text-13 text-ink-2 hover:bg-hover focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 <HugeiconsIcon icon={StopCircleIcon} size={14} aria-hidden />
                 Stop all
@@ -85,7 +85,7 @@ export function PortTrack({
                 key={port.port}
                 data-port-row
                 data-stopping={stopping.has(port.pid) || undefined}
-                className="group flex items-center gap-1 rounded-md pr-1 hover:bg-hover focus-within:bg-hover"
+                className="group flex items-center gap-1 rounded-inline pr-1 transition-colors hover:bg-hover-2 focus-within:bg-hover-2"
               >
                 {(() => {
                   const computer = portComputer(port);
@@ -93,7 +93,7 @@ export function PortTrack({
                   // In the Browser panel another computer's port opens at its own localhost: the Chat's pages reach the
                   // web from that computer (#832), so a server on its loopback alone opens too.
                   const panelUrl = computer ? `http://localhost:${port.port}` : url;
-                  const rowClass = "flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-[13px] text-ink no-underline focus-visible:outline-2";
+                  const rowClass = "flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-13 text-ink no-underline focus-visible:outline-2";
                   // Outside the panel another computer's port opens at its LAN or tailnet IP; one this Mac can't reach
                   // that way is shown, not linked, unless the panel can open it.
                   if (computer && !url && !onOpen)
@@ -120,7 +120,7 @@ export function PortTrack({
                         onOpen(panelUrl);
                       }}
                       {...(computer ? { "data-port-remote": true } : {})}
-                      className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-[13px] text-ink no-underline focus-visible:outline-2"
+                      className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-13 text-ink no-underline focus-visible:outline-2"
                     >
                       <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                       <span className="min-w-0 flex-1 truncate text-ink-3">
@@ -149,7 +149,7 @@ export function PortTrack({
                         aria-label={`Stop port ${port.port}`}
                         disabled={!onStop}
                         onClick={() => stop([port.pid])}
-                        className="flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-red-ink focus-visible:outline-2 disabled:opacity-40"
+                        className="flex size-6 items-center justify-center rounded-control text-ink-3 hover:bg-hover hover:text-red-ink focus-visible:outline-2 disabled:opacity-40"
                       >
                         <HugeiconsIcon icon={StopCircleIcon} size={14} />
                       </button>

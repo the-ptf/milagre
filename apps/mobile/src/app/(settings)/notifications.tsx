@@ -1,16 +1,17 @@
 import { Linking, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
-import { ArrowRight01Icon, Notification01Icon } from "@hugeicons/core-free-icons";
+import { Notification01Icon } from "@hugeicons/core-free-icons";
 import { notificationChimeLabel } from "@milagre/shared/notification-chimes";
 import { useAttentionButton } from "../../attention";
 import { useActivity } from "../../live-activity";
 import { usePush } from "../../push";
 import { useSession } from "../../session";
 import { Icon } from "../../icons";
-import { ErrorNotice, ListRow, PillButton, PullDown, Toggle, useStyles } from "../../ui";
+import { ErrorNotice, InlineError, ListRow, PillButton, PullDown, Toggle, useStyles } from "../../ui";
 import { SettingsScroll } from "../../settings-find";
 import { NotificationScheduleSetting } from "../../notification-schedule-setting";
 import { useTheme } from "../../theme";
+import { radius } from "../../design-tokens";
 
 export default function NotificationsScreen() {
   return (
@@ -34,10 +35,20 @@ export function NotificationsView() {
     <SettingsScroll>
       <View style={[styles.card, { gap: 16 }]}>
         <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-          <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.field, alignItems: "center", justifyContent: "center" }}>
+          <View
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: radius.control,
+              borderCurve: "continuous",
+              backgroundColor: colors.field,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
             <Icon icon={Notification01Icon} size={24} tone="ink" />
           </View>
-          <View style={{ flex: 1, gap: 3 }}>
+          <View style={{ flex: 1, gap: 2 }}>
             <Text style={styles.subtitle}>Chat notifications</Text>
             <Text style={styles.muted}>{state?.enabled ? "On" : "Off"}</Text>
           </View>
@@ -78,16 +89,7 @@ export function NotificationsView() {
       </View>
       <NotificationScheduleSetting />
       <View style={[styles.card, { gap: 4 }]}>
-        <ListRow
-          title="Notification chime"
-          onPress={() => router.push("/chime-sheet")}
-          trailing={
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Text style={{ color: colors.ink3, fontSize: 17 }}>{notificationChimeLabel(state?.chime)}</Text>
-              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-            </View>
-          }
-        />
+        <ListRow title="Notification chime" onPress={() => router.push("/chime-sheet")} value={notificationChimeLabel(state?.chime)} />
         <Text style={styles.muted}>Plays when a Chat finishes or needs you, on this phone. Picking one plays it.</Text>
       </View>
       <View style={styles.card}>
@@ -99,7 +101,7 @@ export function NotificationsView() {
         />
         <View style={styles.separator} />
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ color: colors.ink, fontSize: 17, flex: 1 }}>Show in Live Activities</Text>
+          <Text style={[styles.text, { flex: 1 }]}>Show in Live Activities</Text>
           <PullDown
             label="Show in Live Activities"
             title="Show in Live Activities"
@@ -126,7 +128,7 @@ export function NotificationsView() {
           </PullDown>
         </View>
         {!activity.available ? <Text style={styles.muted}>Live Activities are unavailable in this build or disabled in system settings.</Text> : null}
-        {activity.error ? <ErrorNotice message={activity.error} /> : null}
+        <InlineError message={activity.error} />
       </View>
       {push.error ? <ErrorNotice message={push.error} /> : null}
       {state?.pending.length ? (

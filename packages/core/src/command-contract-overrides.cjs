@@ -20,6 +20,9 @@ module.exports = {
   "project:open": [p("folder"), p("options", object({ takeNotice: b }, []), true)],
   "chat:ports": [p("chatId")],
   "browser:open-page": request({ chatId: s, url: s }),
+  "browser:page-url": request({ url: s }),
+  "browser:release-page-url": request({ id: s }),
+  "browser:keep-page-url": request({ id: s }),
   "chat:send-status": [p("projectPath"), p("clientMessageId")],
   "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n, transferId: s, offset: n, totalBytes: n }, ["projectPath"]),
   "chat:inbox": [],
@@ -28,7 +31,10 @@ module.exports = {
   // Every computer runs Routines; older apps still save the old switch, which changes nothing.
   "routines:enabled:save": [p("value", b)],
   // A comment from the phone's view of a Browser panel page, at a point given as fractions of the page.
-  "browser-comments:send-from-page": request({ chatId: s, targetId: s, x: n, y: n, text: s }, ["chatId", "x", "y", "text"]),
+  "browser-comments:send-from-page": request({ chatId: s, targetId: s, x: n, y: n, text: s, page: object({ url: s, title: s, element: any }) }, [
+    "chatId",
+    "text",
+  ]),
   // The desktop's Browser panel pages and their loopback DevTools endpoint; its main process sends them (browser-panel-pages.cjs).
   "browser:panel-pages": request({ port: n, prefix: s, pages: array(object({ id: s, chatId: s, title: s, url: s })) }, ["pages"]),
   // The Browser panel's sign-ins on this Mac and signing one out, forwarded to the desktop app (host-browser-sign-ins.cjs).
@@ -50,8 +56,8 @@ module.exports = {
   "peer:routes": [],
   // Another computer's daemon delegating to this Mac's Projects (spec 2026-10-23).
   "delegation:targets": [],
-  "delegation:prepare": request({ worktree: s, chat: s, mode: s }, ["worktree", "chat"]),
-  "delegation:receive": request({ id: s, worktree: s, chat: s, message: s, mode: s, from: object({ label: s, computer: s }, []) }, [
+  "delegation:prepare": request({ worktree: s, chat: s, mode: s, newWorktree: b }, ["worktree", "chat"]),
+  "delegation:receive": request({ id: s, worktree: s, chat: s, message: s, mode: s, newWorktree: b, from: object({ label: s, computer: s }, []) }, [
     "id",
     "worktree",
     "chat",

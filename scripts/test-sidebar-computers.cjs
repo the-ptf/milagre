@@ -186,6 +186,8 @@ async function browserChecks() {
     const openPopover = async () => {
       await evaluate(`document.querySelector('[data-computers-button]').click()`);
       await waitFor(`!!document.querySelector('[data-computers-panel]')`);
+      // Measure rows after the pop-in scale settles, so a hover lands where the row ends up.
+      await waitFor(`document.querySelector('[data-computers-panel]').getAnimations().every((a) => a.playState === "finished")`);
     };
     const lines = () =>
       evaluate(
@@ -263,12 +265,12 @@ async function browserChecks() {
       "the offline computer's Project is dimmed",
     );
     assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"]').hasAttribute('data-offline')`), false);
-    // Dimmed once: the section is at 0.5 and its row adds no opacity of its own.
+    // Dimmed once: the section is at 0.6 and its row adds no opacity of its own.
     assert.deepEqual(
       await evaluate(
         `(() => { const section = document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]'); return [getComputedStyle(section).opacity, getComputedStyle(section.querySelector('[data-chat-id]')).opacity]; })()`,
       ),
-      ["0.5", "1"],
+      ["0.6", "1"],
       "an offline row is dimmed once",
     );
     await screenshot("merged-list");
@@ -530,7 +532,7 @@ async function browserChecks() {
       `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/notes"] [data-chat-id] button')].find((b) => b.textContent.includes('Never opened here')).click()`,
     );
     await waitFor(`!!document.querySelector('[data-offline-empty]')`);
-    assert.equal(await evaluate(`document.querySelector('[data-offline-empty]').textContent.trim()`), `No copy of this chat on ${thisComputer} yet.`);
+    assert.equal(await evaluate(`document.querySelector('[data-offline-empty]').textContent.trim()`), `No copy of this Chat on ${thisComputer} yet.`);
     // A host that keeps messages by Chat: the Chat's page read goes out first, then the Project's read, so it isn't queued
     // behind everything the switch's render asks the other Mac for.
     const notesCalls = await evaluate(

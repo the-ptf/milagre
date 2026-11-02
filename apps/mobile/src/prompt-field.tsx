@@ -5,15 +5,16 @@ import * as Font from "expo-font";
 import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
-import { formatChatMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
-import { matchingMentionChats, type MentionChat, editImageMentions } from "@milagre/shared/prompt-mentions";
+import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { matchingMentionChats, matchingMentionComputers, type MentionChat, type MentionComputer, editImageMentions } from "@milagre/shared/prompt-mentions";
 import { withAlpha } from "@milagre/shared/themes";
-import { fileKind } from "@milagre/shared/file-kinds";
+import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
 import type { Client } from "./client";
 import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
-import { Field, ListRow, PageScroll } from "./ui";
+import { Field, ListRow, PageScroll, SectionLabel, useAnnounce, useStyles } from "./ui";
+import { duration, easing, lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import { useOnScreenReturn, useReturnKey } from "./hardware-keys";
@@ -36,13 +37,13 @@ import { CAPSULE_INSET, CAPSULE_WIDTH, DictationCapsule, MIC_INSET, MIC_SIZE, Vo
 import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
+const NO_COMPUTERS: readonly MentionComputer[] = [];
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 // Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
 // nothing, so `[Image #1]` reads as an image chip in a field that can only style its own characters. Loaded at runtime,
 // so it ships over the air.
 const GLYPHS = "MilagreChipGlyphs";
 const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
-const IMAGE_ICON = "#26a69a";
 // The mic sits over the field's trailing edge; the text stops short of it, 8pt before the mic and 6pt before the capsule.
 const MIC_ROOM = MIC_INSET.right + MIC_SIZE + 8;
 const CAPSULE_ROOM = CAPSULE_INSET.right + CAPSULE_WIDTH + 6;
@@ -70,8 +71,8 @@ function readMarks(draft: string, options: Parameters<typeof promptParts>[1], lo
 const openSkills = (scale: number) =>
   scale <= 0
     ? undefined
-    : FadeInDown.duration(Math.round(140 * scale))
-        .easing(Easing.bezier(0.23, 1, 0.32, 1))
+    : FadeInDown.duration(Math.round(duration.fast * scale))
+        .easing(Easing.bezier(...easing.enter))
         .withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] })
         .reduceMotion(ReduceMotion.System);
 
@@ -79,6 +80,7 @@ const openSkills = (scale: number) =>
 export function PromptField({
   client,
   chats = NO_CHATS,
+  computers = NO_COMPUTERS,
   currentId,
   projectPath,
   draft,
@@ -100,6 +102,8 @@ export function PromptField({
   onTouchStart,
 }: {
   chats?: readonly MentionChat[];
+  /** The computers an `@` can name; offered only with more than this one. */
+  computers?: readonly MentionComputer[];
   currentId?: number;
   client: Client;
   projectPath: string;
@@ -132,10 +136,11 @@ export function PromptField({
   onTouchStart?: () => void;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
+  const styles = useStyles();
   // Text size scales the composer too; 16 stays 16 at the default step.
   const inputSize = Math.round(16 * typeScale);
   // The menus sit inside the translucent glass composer; an opaque surface keeps the transcript from showing through the rows.
-  const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous" as const };
+  const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
   const enter = useReturnKey(paste.ref, onSubmit);
   const onScreenReturn = useOnScreenReturn(onSubmit);
@@ -153,7 +158,9 @@ export function PromptField({
   );
   const [selection, setSelection] = useState({ start: draft.length, end: draft.length });
   const [focused, setFocused] = useState(false);
-  const typing = (onMention || chats.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
+  // This computer alone is no choice: computers join the @ menu once there is another one to name.
+  const nameable = computers.length > 1 ? computers : NO_COMPUTERS;
+  const typing = (onMention || chats.length || nameable.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
   const lookups = useMentionLookups(client, projectPath, draft, known, typing);
   const { parts: marks } = useMemo(
     () =>
@@ -164,10 +171,11 @@ export function PromptField({
           files: (path) => !!known?.has(projectPath, path),
           images,
           chats: (id) => chats.some((chat) => chat.id === id && chat.available),
+          computers: (name) => computers.some((computer) => computer.name.toLowerCase() === name.toLowerCase()),
         },
         lookups,
       ),
-    [draft, skills, known, projectPath, lookups, images, chats],
+    [draft, skills, known, projectPath, lookups, images, chats, computers],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
   const focusDraft = useRef(draft);
@@ -364,9 +372,10 @@ export function PromptField({
         .filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.query))
         .sort((a, b) => Number(b.name.toLowerCase().startsWith(query.query)) - Number(a.name.toLowerCase().startsWith(query.query)))
     : [];
-  const fileToken = focused && (onMention || chats.length) && !query ? fileQueryAt(draft, selection.start) : null;
+  const fileToken = focused && (onMention || chats.length || nameable.length) && !query ? fileQueryAt(draft, selection.start) : null;
   const files = useFileSearch(client, projectPath, onMention ? (fileToken?.query ?? null) : null);
   const chatRows = fileToken ? matchingMentionChats(chats, fileToken.query, currentId) : [];
+  const computerRows = fileToken ? matchingMentionComputers(nameable, fileToken.query) : [];
   const chooseMention = (mention: string, path?: string) => {
     if (!fileToken) return;
     const suffix = draft.slice(fileToken.end);
@@ -392,6 +401,9 @@ export function PromptField({
     setSelection(selection);
     onChangeText(next);
   };
+  // Read once as the download starts and as a skill is picked, on both platforms (a live region speaks only on Android).
+  useAnnounce(dictation.download !== null ? "Downloading the speech model" : null);
+  useAnnounce(skill && !query ? `/${skill.name}. ${skill.description}` : null);
 
   return (
     <View onTouchStart={onTouchStart}>
@@ -410,9 +422,10 @@ export function PromptField({
           style={({ pressed }) => ({
             minHeight: 44,
             justifyContent: "center",
-            paddingHorizontal: 10,
+            paddingHorizontal: 12,
             marginBottom: 4,
-            borderRadius: 12,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
             backgroundColor: pressed ? colors.hover : colors.surface,
           })}
         >
@@ -433,11 +446,11 @@ export function PromptField({
               <ListRow key={item.name} title={`/${item.name}`} subtitle={item.description} subtitleLines={3} onPress={() => choose(item.name)} />
             ))}
             {loading ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>Loading skills...</Text>
+              <Text style={[styles.muted, { padding: 12 }]}>Loading skills…</Text>
             ) : error ? (
               <ListRow title="Could not load skills" subtitle="Tap to retry" onPress={refresh} />
             ) : !suggestions.length ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>No matching skills</Text>
+              <Text style={[styles.muted, { padding: 12 }]}>No matching skills</Text>
             ) : null}
           </PageScroll>
         </Animated.View>
@@ -445,19 +458,36 @@ export function PromptField({
       {fileToken ? (
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
-            accessibilityLabel="Files and Chats"
+            accessibilityLabel={nameable.length ? "Files, Chats and computers" : "Files and Chats"}
             style={menuStyle}
             contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
             keyboardShouldPersistTaps="always"
           >
-            {(onMention ? files.items : []).slice(0, chatRows.length ? 1 : 40).map((path) => (
+            {(onMention ? files.items : []).slice(0, chatRows.length || computerRows.length ? 1 : 40).map((path) => (
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
-            {chatRows.length > 0 && <Text style={{ paddingHorizontal: 12, paddingVertical: 6, color: colors.ink2 }}>Chats</Text>}
+            {chatRows.length > 0 && (
+              <SectionLabel flush style={{ paddingVertical: 6 }}>
+                Chats
+              </SectionLabel>
+            )}
             {chatRows.map((chat) => (
               <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
             ))}
-            {!onMention && !chatRows.length && <Text style={{ padding: 12, color: colors.ink2 }}>No matching Chats</Text>}
+            {computerRows.length > 0 && (
+              <SectionLabel flush style={{ paddingVertical: 6 }}>
+                Computers
+              </SectionLabel>
+            )}
+            {computerRows.map((computer) => (
+              <ListRow
+                key={`computer:${computer.id}`}
+                title={computer.name}
+                subtitle={computer.self ? "This computer" : computer.online ? "Online" : "Offline"}
+                onPress={() => chooseMention(formatComputerMention(computer.name))}
+              />
+            ))}
+            {!onMention && !chatRows.length && !computerRows.length && <Text style={[styles.muted, { padding: 12 }]}>No matches</Text>}
             {onMention &&
               (files.error ? (
                 isOldMacError(files.error) ? (
@@ -466,9 +496,9 @@ export function PromptField({
                   <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
                 )
               ) : files.loading && !files.items.length ? (
-                <Text style={{ padding: 12, color: colors.ink2 }}>Loading files...</Text>
-              ) : !files.items.length && !chatRows.length ? (
-                <Text style={{ padding: 12, color: colors.ink2 }}>No matching files or Chats</Text>
+                <Text style={[styles.muted, { padding: 12 }]}>Loading files...</Text>
+              ) : !files.items.length && !chatRows.length && !computerRows.length ? (
+                <Text style={[styles.muted, { padding: 12 }]}>No matching files or Chats</Text>
               ) : null)}
           </PageScroll>
         </Animated.View>
@@ -476,6 +506,7 @@ export function PromptField({
       {/* TextInput cannot receive value and attributed children together. The children mirror every accepted edit. */}
       <View>
         <Field
+          bare
           {...paste}
           onLayout={() => {
             paste.onLayout();
@@ -514,11 +545,11 @@ export function PromptField({
             onBlur?.();
           }}
           style={{
-            backgroundColor: "transparent",
             fontSize: inputSize,
+            lineHeight: Math.round(inputSize * 1.375),
             minHeight: 44,
             maxHeight: 140,
-            paddingHorizontal: 10,
+            paddingHorizontal: 12,
             paddingVertical: 6,
             ...(dictation.available ? { paddingRight: capsule ? CAPSULE_ROOM : MIC_ROOM } : null),
           }}
@@ -543,7 +574,7 @@ export function PromptField({
                   <Text
                     style={{
                       fontFamily: GLYPHS,
-                      color: part.kind === "image" ? IMAGE_ICON : part.kind === "file" ? fileKind(part.path).color : colors.accentInk,
+                      color: part.kind === "image" ? IMAGE_COLOR : part.kind === "file" ? fileKind(part.path).color : colors.accentInk,
                     }}
                   >
                     {part.text[0]}
@@ -602,11 +633,18 @@ export function PromptField({
       </View>
       {skill && !query ? (
         <View
-          accessibilityLiveRegion="polite"
-          style={{ marginHorizontal: 10, marginBottom: 6, padding: 10, borderRadius: 10, backgroundColor: colors.accentTint, gap: 4 }}
+          style={{
+            marginHorizontal: 12,
+            marginBottom: 6,
+            padding: 12,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
+            backgroundColor: colors.accentTint,
+            gap: 4,
+          }}
         >
-          <Text style={{ color: colors.accentInk, fontSize: 13, fontWeight: "600" }}>/{skill.name}</Text>
-          <Text style={{ color: colors.ink2, fontSize: 13, lineHeight: 18 }}>{skill.description}</Text>
+          <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>/{skill.name}</Text>
+          <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{skill.description}</Text>
         </View>
       ) : null}
     </View>

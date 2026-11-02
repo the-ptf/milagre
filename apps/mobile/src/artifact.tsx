@@ -11,6 +11,7 @@ import {
   File01Icon,
   MoreHorizontalIcon,
   PaintBoardIcon,
+  Sent02Icon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -36,12 +37,14 @@ import { File, Paths } from "expo-file-system";
 import { useSession } from "./session";
 import { useArtifactCatalog } from "./use-design-catalog";
 import { Icon } from "./icons";
-import { PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
+import { over } from "@milagre/shared/themes";
+import { lineHeight, radius, space, type } from "./design-tokens";
+import { CircleButton, ErrorNotice, PullDown, PillButton, tap, useStyles, type MenuSection } from "./ui";
 import { useTheme } from "./theme";
 import { PELE_SCRIPT } from "./pele-script";
 import { onShareAvailability } from "./share-availability";
 import { pageWithFiles, usePageFiles } from "./artifact-files";
-import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
+import { CommentBox } from "./viewer-chrome";
 
 let feedbackRequestId = 0;
 
@@ -90,17 +93,17 @@ export function DesignFeedbackCard({
   }, [client, chatId, ids, moved]);
   if (!choice && !comments.length)
     return (
-      <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>
+      <Text selectable style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
         {designFeedbackText(feedback)}
       </Text>
     );
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: space.md }}>
       <View
         accessibilityLabel={feedbackLabel}
         style={{
           minWidth: 240,
-          borderRadius: 18,
+          borderRadius: radius.sheet,
           borderCurve: "continuous",
           borderWidth: 1,
           borderColor: colors.line,
@@ -112,31 +115,33 @@ export function DesignFeedbackCard({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: 6,
-            paddingHorizontal: 14,
-            paddingVertical: 8,
+            gap: space.sm,
+            paddingHorizontal: space.xl,
+            paddingVertical: space.md,
             borderBottomWidth: 1,
             borderColor: colors.line,
           }}
         >
-          <Icon icon={PaintBoardIcon} tone="ink2" size={14} />
-          <Text style={{ color: colors.ink2, fontSize: 12 }}>{feedbackLabel}</Text>
+          <Icon icon={PaintBoardIcon} tone="ink2" size={12} />
+          <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>{feedbackLabel}</Text>
         </View>
         {choice && (
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
-              gap: 8,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
+              gap: space.md,
+              paddingHorizontal: space.xl,
+              paddingVertical: space.lg,
             }}
           >
             <Icon icon={CheckmarkCircle02Icon} tone="accent" size={16} />
-            <Text style={{ flex: 1, color: colors.ink, fontSize: 15 }} numberOfLines={1}>
+            <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }} numberOfLines={1}>
               Chose {choice.title}
             </Text>
-            <Text style={{ color: colors.ink3, fontSize: 12 }}>{format(choice) === "design" ? `v${choice.version}` : "Artifact"}</Text>
+            <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
+              {format(choice) === "design" ? `v${choice.version}` : "Artifact"}
+            </Text>
           </View>
         )}
         {comments.map((comment, index) => {
@@ -162,34 +167,45 @@ export function DesignFeedbackCard({
               }}
               style={{
                 flexDirection: "row",
-                gap: 10,
-                paddingHorizontal: 14,
-                paddingVertical: 10,
+                gap: space.lg,
+                paddingHorizontal: space.xl,
+                paddingVertical: space.lg,
                 borderTopWidth: 1,
                 borderColor: colors.line,
               }}
             >
               <View
                 style={{
-                  width: 20,
-                  height: 20,
-                  // The desktop canvas's pin: round, its point the top-left corner.
-                  borderRadius: 10,
+                  minWidth: 20,
+                  minHeight: 20,
+                  paddingHorizontal: 4,
+                  // The desktop canvas's pin: round, its point the top-left corner; a number on it takes the -ink fill.
+                  borderRadius: radius.full,
                   borderTopLeftRadius: 0,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: resolved === undefined ? colors.accent : colors.green,
+                  backgroundColor: resolved === undefined ? colors.accentInk : colors.greenInk,
                 }}
               >
-                <Text style={{ color: "#ffffff", fontSize: 11, fontWeight: "600" }}>{index + 1}</Text>
+                <Text
+                  maxFontSizeMultiplier={1.3}
+                  style={{
+                    color: resolved === undefined ? colors.onAccent : colors.onGreen,
+                    fontSize: type.caption2,
+                    lineHeight: lineHeight.caption2,
+                    fontWeight: "600",
+                  }}
+                >
+                  {index + 1}
+                </Text>
               </View>
-              <View style={{ flex: 1, gap: 2 }}>
+              <View style={{ flex: 1, gap: space.xxs }}>
                 <Text
                   selectable
                   style={{
                     color: resolved === undefined ? colors.ink : colors.ink3,
-                    fontSize: 15,
-                    lineHeight: 21,
+                    fontSize: type.subheadline,
+                    lineHeight: lineHeight.subheadline,
                     textDecorationLine: resolved === undefined ? "none" : "line-through",
                   }}
                 >
@@ -204,13 +220,13 @@ export function DesignFeedbackCard({
                       alignItems: "flex-start",
                     }}
                   >
-                    <Icon icon={CheckmarkCircle02Icon} tone="green" size={14} />
-                    <Text selectable style={{ flex: 1, color: colors.greenInk, fontSize: 13 }}>
+                    <Icon icon={CheckmarkCircle02Icon} tone="green" size={12} />
+                    <Text selectable style={{ flex: 1, color: colors.greenInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                       {resolved}
                     </Text>
                   </View>
                 )}
-                <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12 }}>
+                <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
                   {comment.design.title}
                   {format(comment.design) === "design" ? ` · v${comment.design.version}` : " · Artifact"}
                 </Text>
@@ -220,7 +236,7 @@ export function DesignFeedbackCard({
         })}
       </View>
       {plain ? (
-        <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>
+        <Text selectable style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
           {plain}
         </Text>
       ) : null}
@@ -253,7 +269,7 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
   const designs = steps.filter((step) => format(step.artifact) === "design");
   if (html)
     return (
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: space.md }}>
         <ArtifactCard step={html} chatId={chatId} kind="html" />
         {designs.length > 0 && <ArtifactCards steps={designs} chatId={chatId} chosen={chosen} />}
       </View>
@@ -275,13 +291,13 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
-        padding: 12,
-        borderRadius: 14,
+        gap: space.lg,
+        padding: space.lg,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.line,
-        backgroundColor: pressed ? colors.hover : colors.surface,
+        backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
         opacity: openable ? 1 : 0.6,
       })}
     >
@@ -289,7 +305,8 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
         style={{
           width: 36,
           height: 36,
-          borderRadius: 10,
+          borderRadius: radius.control,
+          borderCurve: "continuous",
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: colors.canvas,
@@ -297,9 +314,9 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
       >
         <Icon icon={PaintBoardIcon} tone="ink2" size={18} />
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>{steps.length} designs</Text>
-        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12 }}>
+      <View style={{ flex: 1, gap: space.xxs }}>
+        <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>{steps.length} designs</Text>
+        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
           {titles}
         </Text>
       </View>
@@ -346,13 +363,13 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
-        padding: 12,
-        borderRadius: 14,
+        gap: space.lg,
+        padding: space.lg,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: isChosen ? colors.accent : colors.line,
-        backgroundColor: pressed ? colors.hover : colors.surface,
+        backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
         opacity: openable ? 1 : 0.6,
       })}
     >
@@ -360,7 +377,8 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
         style={{
           width: 36,
           height: 36,
-          borderRadius: 10,
+          borderRadius: radius.control,
+          borderCurve: "continuous",
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: colors.canvas,
@@ -368,11 +386,11 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
       >
         <Icon icon={kind === "html" ? File01Icon : PaintBoardIcon} tone="ink2" size={18} />
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>
+      <View style={{ flex: 1, gap: space.xxs }}>
+        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>
           {title}
         </Text>
-        <Text style={{ color: colors.ink3, fontSize: 12 }}>
+        <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
           {kind === "html" ? "Artifact" : `Design · version ${version}`}
           {isChosen ? " · chosen" : ""}
         </Text>
@@ -565,8 +583,8 @@ export function ArtifactSheet({
               y: comment.y,
               ...(comment.anchor ? { a: comment.anchor } : {}),
               n: numbers.get(comment.id) ?? 1,
-              fill: comment.resolved ? colors.green : colors.ink2,
-              ink: colors.page,
+              fill: comment.resolved ? colors.greenInk : colors.ink2,
+              ink: comment.resolved ? colors.onGreen : colors.page,
               label: `Sent comment${comment.resolved ? ", resolved" : ""}: ${comment.text}`,
             },
           ],
@@ -581,14 +599,14 @@ export function ArtifactSheet({
               y: note.y,
               ...(note.anchor ? { a: note.anchor } : {}),
               n: index + 1,
-              fill: colors.accent,
+              fill: colors.accentInk,
               ink: colors.onAccent,
               label: `Comment ${index + 1}`,
             },
           ],
     );
     return [...done, ...waiting].map((pin) => (pin.k === composer?.key ? { ...pin, hide: true } : pin));
-  }, [artifact, tab, sent, notes, numbers, composer?.key, colors.green, colors.ink2, colors.page, colors.accent, colors.onAccent]);
+  }, [artifact, tab, sent, notes, numbers, composer?.key, colors.greenInk, colors.onGreen, colors.ink2, colors.page, colors.accentInk, colors.onAccent]);
   // A pin just opened scrolls near the top once the page has it, out of the keyboard's way; the page then says where it
   // landed, and the box opens there.
   const revealing = useRef<string | null>(null);
@@ -708,7 +726,7 @@ export function ArtifactSheet({
   const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
   const [room, setRoom] = useState({ width: 0, height: 0 });
   const heading = (
-    <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>
+    <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, fontWeight: "600" }}>
       {artifact?.title ?? "Artifact"}
     </Text>
   );
@@ -717,7 +735,7 @@ export function ArtifactSheet({
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
         <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
           {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
-          {!onClose && <RoundButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
+          {!onClose && <CircleButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
         </View>
         {tabs && tab ? (
           // A page split into tabs: its title opens the menu of its tabs, and the line under it names the one shown.
@@ -751,23 +769,22 @@ export function ArtifactSheet({
           </View>
         )}
         <View style={{ flexDirection: "row", gap: 8, width: 76, justifyContent: "flex-end" }}>
-          {source && written.length > 0 && <SendButton count={written.length} onPress={send} />}
+          {source && written.length > 0 && (
+            <CircleButton label={`Send ${written.length} to the agent`} icon={Sent02Icon} filled badge={written.length} onPress={send} />
+          )}
           {menu.length > 0 && (
             <PullDown label="Page actions" sections={menu} onSelect={(action) => action === "share" && openShare()}>
-              <RoundButton label="Page actions" icon={MoreHorizontalIcon} />
+              <CircleButton asTrigger label="Page actions" icon={MoreHorizontalIcon} />
             </PullDown>
           )}
         </View>
       </View>
       <View style={{ flex: 1, backgroundColor: "#ffffff" }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
         {!source ? (
-          <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open this page.</Text>
+          <Text style={[styles.muted, { padding: space.xl }]}>Reconnect to this Mac to open this page.</Text>
         ) : state.error ? (
-          <View style={{ padding: 20, gap: 16 }}>
-            <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-              {state.error}
-            </Text>
-            <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
+          <View style={{ padding: space.xl }}>
+            <ErrorNotice message={state.error} retry={() => setRevision((value) => value + 1)} retryTitle="Retry" />
           </View>
         ) : artifact && tab && files.error ? (
           <View style={{ padding: 20, gap: 16 }}>
@@ -789,11 +806,11 @@ export function ArtifactSheet({
             {`Loading the page's files… ${files.total ? Math.floor((files.received / files.total) * 100) : 0}%`}
           </Text>
         ) : (
-          <Text style={[styles.muted, { padding: 20 }]}>Loading page...</Text>
+          <Text style={[styles.muted, { padding: space.xl }]}>Loading page…</Text>
         )}
         {composer && (
           <>
-            <Pressable accessibilityLabel="Close the comment" style={StyleSheet.absoluteFill} onPress={() => closeComposer()} />
+            <Pressable accessibilityRole="button" accessibilityLabel="Close the comment" style={StyleSheet.absoluteFill} onPress={() => closeComposer()} />
             {composer.at && (openNote || openSent) && (
               <CommentBox
                 // Inside the screen, and high enough to stay clear of the keyboard: a pin the page can't scroll up that far
@@ -839,7 +856,6 @@ function ArtifactWebView({
   files?: boolean;
   onMessage?: (data: string) => void;
 }) {
-  const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
   // Written while rendering, so the page is there on the first frame; each page gets a file of its own, removed when
   // the page changes or goes. Named for this view and the page's content: two views never share a file.
@@ -869,15 +885,16 @@ function ArtifactWebView({
   const uri = prepared?.uri;
   if (crashed || !prepared)
     return (
-      <Text accessibilityRole="alert" style={{ color: colors.redInk, padding: 20 }}>
-        Could not prepare this page.
-      </Text>
+      <View style={{ padding: space.xl }}>
+        <ErrorNotice message="Could not prepare this page." />
+      </View>
     );
   if (!uri) return null;
   return (
     <DomWebView
       ref={ref}
       source={{ uri }}
+      // ponytail: an HTML page's own default paper is white in every theme; a page that wants dark sets its own.
       style={{ flex: 1, backgroundColor: "#ffffff" }}
       containerStyle={{ flex: 1 }}
       useExpoModulesBridge={false}

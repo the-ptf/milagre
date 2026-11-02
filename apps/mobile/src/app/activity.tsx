@@ -8,13 +8,11 @@ import { waitingStepIds } from "@milagre/shared/tool-activity";
 import { ToolRow } from "../tool-row";
 import { Markdown } from "../markdown";
 import { useSession } from "../session";
-import { CircleButton, PageScroll, PillButton, useStyles } from "../ui";
+import { CircleButton, PageScroll, PillButton, SheetHeader, useStyles } from "../ui";
 import { useChatPage } from "../chat-pages";
-import { useTheme } from "../theme";
 
 /** A reply's tools and notes, like desktop's expanded ActivityBlock; live while the turn runs. Each tool expands to its output. */
 export default function ActivitySheet() {
-  const { colors } = useTheme();
   const styles = useStyles();
   const { id, message, stepId } = useLocalSearchParams<{ id: string; message: string; stepId?: string }>();
   const session = useSession();
@@ -65,24 +63,15 @@ export default function ActivitySheet() {
   const selected = stepId ? steps.find((step) => step.id === stepId) : undefined;
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: 40, flexGrow: 1 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
-        <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-        <View style={{ alignItems: "center", flexShrink: 1 }}>
-          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-            {selected ? "Tool call" : "Activity"}
-          </Text>
-          {!selected && !!summary.text && (
-            <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12 }}>
-              {run ? "Running" : summary.text}
-            </Text>
-          )}
-        </View>
-        <View style={{ width: 40 }} />
-      </View>
-      <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
+      <SheetHeader
+        title={selected ? "Tool call" : "Activity"}
+        subtitle={!selected && summary.text ? (run ? "Running" : summary.text) : undefined}
+        leading={<CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />}
+      />
+      <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
         {outputPending && (
           <Text accessibilityRole="status" style={styles.muted}>
-            {readError ? "Could not load tool output." : "Loading output..."}
+            {readError ? "Could not load tool output." : "Loading output…"}
           </Text>
         )}
         {readError && <PillButton title="Try again" secondary onPress={() => setRetry((value) => value + 1)} />}

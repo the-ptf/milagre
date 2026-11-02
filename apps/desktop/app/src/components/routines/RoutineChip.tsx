@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { Routine } from "@milagre/shared/model";
 import Tooltip from "../primitives/Tooltip";
+import { Chip } from "../primitives/Chip";
 import { chatRoutine } from "@milagre/shared/routines";
 import { chipStripInsets, useRoutines } from "../../lib/routines";
 import { useWindowChrome } from "../../lib/window-chrome";
@@ -32,43 +32,30 @@ export function RoutineChip({
   const { routines } = useRoutines();
   const routine = chatRoutine(routines, chatKey, run);
   if (!routine) return null;
-  if (place === "tile")
-    return (
-      <Pill
-        routine={routine}
-        onOpen={onOpen}
-        wrapper="min-w-0 max-w-[45%] shrink"
-        className="h-6 border border-line pr-2 pl-1.5 text-[11.5px] hover:bg-hover"
-      />
-    );
+  if (place === "tile") return <Pill routine={routine} onOpen={onOpen} wrapper="min-w-0 max-w-[45%] shrink" />;
   return (
     <Strip>
-      <Pill
-        routine={routine}
-        onOpen={onOpen}
-        wrapper="pointer-events-auto min-w-0 max-w-[320px]"
-        className="h-7 bg-surface pr-3 pl-2.5 text-[12px] shadow-card"
-      />
+      {/* Over the top strip the chip floats: a surface under it, which the translucent hover darkens. */}
+      <Pill routine={routine} onOpen={onOpen} wrapper="pointer-events-auto min-w-0 max-w-[320px] rounded-full bg-surface shadow-card" />
     </Strip>
   );
 }
 
-function Pill({ routine, onOpen, wrapper, className }: { routine: Routine; onOpen: (routineId: string) => void; wrapper: string; className: string }) {
+function Pill({ routine, onOpen, wrapper }: { routine: Routine; onOpen: (routineId: string) => void; wrapper: string }) {
   return (
     <Tooltip label="Open Routine" side="bottom" className={wrapper}>
-      <button
-        type="button"
+      <Chip
         data-routine-chip={routine.id}
+        icon={routineIcon(routine)}
         onClick={(event) => {
           // A grid tile focuses its Chat on a click; this click goes to the Routine instead.
           event.stopPropagation();
           onOpen(routine.id);
         }}
-        className={`flex max-w-full min-w-0 items-center gap-1.5 rounded-full font-medium text-ink-2 transition-colors hover:text-ink [-webkit-app-region:no-drag] ${className}`}
+        className="no-drag max-w-full"
       >
-        <HugeiconsIcon icon={routineIcon(routine)} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />
         <span className="truncate">{routine.name}</span>
-      </button>
+      </Chip>
     </Tooltip>
   );
 }

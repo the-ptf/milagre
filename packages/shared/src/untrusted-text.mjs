@@ -5,6 +5,7 @@
 // untrusted-data is a Routine's fence (routine-prompt.mjs), which escapes every bracket of what it fences itself.
 const MILAGRE_TAGS = [
   "chat_mentions",
+  "computer_mentions",
   "linked_worktrees",
   "delegation_reports",
   "handoff_brief",

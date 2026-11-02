@@ -16,11 +16,12 @@ import { chatShortcutIndex, useHardwareShortcuts } from "./hardware-keys";
 import { rulesOf, useHostKeybindings } from "./keybindings-store";
 import { isOpenChat, requestNavigation } from "./navigation-commands";
 import { useSession } from "./session";
+import { duration, easing, radius } from "./design-tokens";
 import { useTheme } from "./theme";
 import * as Haptics from "expo-haptics";
 import { ArrowHorizontalIcon } from "@hugeicons/core-free-icons";
 import { Icon } from "./icons";
-import { radius } from "./design-tokens";
+
 import { scaledTiming, useMotionScale } from "./motion";
 
 /**
@@ -54,7 +55,7 @@ export function SplitShell({ children }: { children: React.ReactNode }) {
 /** The room the pinned sidebar takes beside the Chat: its card and the gap to its left. */
 const SLOT = SIDEBAR_WIDTH + CARD_MARGIN;
 /** iOS's own sidebar timing: quick off the mark, settling gently. */
-const SLIDE = { duration: 320, easing: Easing.bezier(0.32, 0.72, 0, 1), reduceMotion: ReduceMotion.System };
+const SLIDE = { duration: duration.slow, easing: Easing.bezier(...easing.slide), reduceMotion: ReduceMotion.System };
 
 function PinnedSidebar({ shown }: { shown: boolean }) {
   const { colors } = useTheme();
@@ -171,8 +172,8 @@ function RightDock() {
   // only an icon, so sizing it every frame costs nothing; the panel itself lays out once, at the width it is let go at.
   const standIn = useAnimatedStyle(() => ({ width: preview.get(), opacity: withTiming(dragging.get() ? 1 : 0, { duration: dragging.get() ? 100 : 200 }) }));
   const real = useAnimatedStyle(() => ({ opacity: withTiming(dragging.get() ? 0 : 1, { duration: dragging.get() ? 100 : 200 }) }));
-  const grip = useAnimatedStyle(() => ({ transform: [{ scaleY: withTiming(dragging.get() ? 1.6 : 1, { duration: 160 }) }] }));
-  const held = useAnimatedStyle(() => ({ opacity: withTiming(dragging.get() ? 1 : 0, { duration: 160 }) }));
+  const grip = useAnimatedStyle(() => ({ transform: [{ scaleY: withTiming(dragging.get() ? 1.6 : 1, { duration: duration.base }) }] }));
+  const held = useAnimatedStyle(() => ({ opacity: withTiming(dragging.get() ? 1 : 0, { duration: duration.base }) }));
   if (!mounted || !kept) return null;
   const step = (by: number) => setPanelWidth(clampPanelWidth(window.width, target + by));
   return (
@@ -207,7 +208,7 @@ function RightDock() {
         style={[s.standIn, { top: top.top, bottom: Math.max(insets.bottom, CARD_MARGIN), backgroundColor: colors.surface, borderColor: colors.line }, standIn]}
       >
         <View style={[s.standInBadge, { backgroundColor: colors.page }]}>
-          <Icon icon={ArrowHorizontalIcon} tone="ink3" size={22} />
+          <Icon icon={ArrowHorizontalIcon} tone="ink3" size={20} />
         </View>
       </Animated.View>
       <GestureDetector gesture={resize}>
@@ -328,7 +329,7 @@ export function HardwareShortcuts() {
 }
 
 /** The corners of the pinned sidebar's and the docked panel's cards, which the panel's stand-in matches while it is dragged. */
-const CARD_CORNERS = { borderRadius: 18, borderCurve: "continuous" } as const;
+const CARD_CORNERS = { borderRadius: radius.sheet, borderCurve: "continuous" } as const;
 
 const s = StyleSheet.create({
   slot: { overflow: "hidden" },

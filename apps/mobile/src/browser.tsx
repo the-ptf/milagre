@@ -1,19 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, Linking, Pressable, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, AppState, Linking, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
-import { File, Paths } from "expo-file-system";
-import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, CommentAdd01Icon, Link01Icon, LinkSquare02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
-import { openablePageUrl } from "@milagre/shared/loopback-url";
-import type { BrowserFrame, BrowserList, BrowserTarget } from "@milagre/shared/browser";
-import { createBrowserBridge, createBrowserReceiverHtml } from "@milagre/shared/browser-receiver";
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  BrowserIcon,
+  Cancel01Icon,
+  CommentAdd01Icon,
+  Link01Icon,
+  LinkSquare02Icon,
+  Refresh01Icon,
+  Unlink04Icon,
+} from "@hugeicons/core-free-icons";
+import type { BrowserList, BrowserTarget } from "@milagre/shared/browser";
+import { PAGE_PICK_CANCEL, pagePickScript } from "@milagre/shared/page-picker";
+import type { PageElement } from "@milagre/shared/page-comments";
+import { directPageUrl, externalPageUrl, originalPageUrl, pairedPageHost, privatePage } from "./browser-page-url";
 import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
-import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
-import { radius, type } from "./design-tokens";
+import { announce, CircleButton, EmptyState, ErrorNotice, Field, InlineError, PageScroll, PillButton, SectionLabel, SheetHeader, useStyles } from "./ui";
+import { over } from "@milagre/shared/themes";
+import { lineHeight, radius, type } from "./design-tokens";
 import type { ChatTab } from "./panel-tabs";
 import { useReachableHost } from "./routes-native";
 
@@ -99,60 +110,25 @@ export function BrowserSheet({
   const insets = useSafeAreaInsets();
   const source = client && (!hostId || hostId === client.url) ? client : null;
   const { list, setList, refresh } = useBrowsers(source, chatId, visible);
-  const [chosen, setChosen] = useState<BrowserTarget | null>(null);
+  // Each link is a local page, even when the host has no desktop window open.
+  const requested = url ? { id: `link:${requestId ?? url}`, title: "", url, browser: "Browser", source: "panel" as const } : null;
+  const linkKey = `${hostId}:${chatId}:${url}:${requestId}`;
+  const [lastLink, setLastLink] = useState(linkKey);
+  const [chosen, setChosen] = useState<BrowserTarget | null>(requested);
   const [page, setPage] = useState<{ title: string; url: string } | null>(null);
-  const [openAttempt, setOpenAttempt] = useState(0);
-  const [opened, setOpened] = useState<{ source: Client; chatId: string; url: string; attempt: number; requestId?: number; error: string } | null>(null);
-  const openFinished =
-    opened?.source === source && opened?.chatId === chatId && opened?.url === url && opened?.attempt === openAttempt && opened?.requestId === requestId;
-  const opening = !!url && !openFinished;
-  const openError = openFinished ? opened.error : "";
-  useEffect(() => {
-    if (!source || !chatId || !url) return;
-    let disposed = false;
-    void source.call<BrowserTarget>("browser:open-page", [{ chatId, url }]).then(
-      (target) => {
-        if (disposed) return;
-        setChosen(target);
-        setPage(null);
-        setOpened({ source, chatId, url, attempt: openAttempt, requestId, error: "" });
-      },
-      (error) => {
-        if (disposed) return;
-        setOpened({
-          source,
-          chatId,
-          url,
-          attempt: openAttempt,
-          requestId,
-          error: error instanceof Error ? error.message : "Could not open the page. Open Milagre on your computer and retry.",
-        });
-      },
-    );
-    return () => {
-      disposed = true;
-    };
-  }, [source, chatId, url, openAttempt, requestId]);
+  if (lastLink !== linkKey) {
+    setLastLink(linkKey);
+    setChosen(requested);
+    setPage(null);
+  }
   const [choosing, setChoosing] = useState(false);
   const [attaching, setAttaching] = useState<string | null>(null);
-  const selected = chosen ?? (!choosing && list?.targets.length === 1 ? list.targets[0] : null);
+  const automatic = !choosing && list?.targets.length === 1 ? list.targets[0] : null;
+  if (lastLink === linkKey && !chosen && automatic) setChosen({ ...automatic });
+  const selected = chosen ?? automatic;
   const canChoose = (list?.targets.length ?? 0) > 1 || (list?.others.length ?? 0) > 0;
-  const [paused, setPaused] = useState(AppState.currentState !== "active");
-  const [revision, setRevision] = useState(0);
-  // Comment mode on a Browser panel page: the next tap picks the element under it instead of clicking it.
   const [commenting, setCommenting] = useState(false);
-  const [picked, setPicked] = useState<{ x: number; y: number } | null>(null);
-  useFocusEffect(
-    useCallback(() => {
-      const subscription = AppState.addEventListener("change", (state) => {
-        if (state !== "active") setPaused(true);
-      });
-      return () => {
-        subscription.remove();
-        setPaused(true);
-      };
-    }, []),
-  );
+  const [picked, setPicked] = useState<PageElement | null>(null);
   const attach = async (browserId: string) => {
     if (!source || !chatId) return;
     setAttaching(browserId);
@@ -189,81 +165,56 @@ export function BrowserSheet({
       setAttaching(null);
     }
   };
-  const shown = opening || openError ? { title: "Browser", url: url ?? "" } : selected ? (page ?? { title: selected.title, url: selected.url }) : null;
-  // The page in the phone's browser: the computer's localhost is reached at its address on this network, as reply links are.
-  const reachableHost = useReachableHost(source?.url);
+  const shown = selected ? (page ?? { title: selected.title, url: selected.url }) : null;
+  const reachableHost = useReachableHost(source?.url) ?? pairedPageHost(source?.url);
+  const [externalUrl, setExternalUrl] = useState<string | null>(null);
   const openExternally = () => {
-    if (!shown) return;
-    const { href, reason } = openablePageUrl(shown.url, { remote: true, host: reachableHost });
-    if (href) void Linking.openURL(href).catch(() => Alert.alert("Could not open this page", `Visit ${href} in your browser.`));
-    else Alert.alert("This page can't open here", reason);
+    if (externalUrl) void Linking.openURL(externalUrl).catch(() => Alert.alert("Could not open this page", "Try opening the page again."));
   };
   return (
     <View style={{ flex: 1, backgroundColor: onClose === goBack ? colors.page : colors.surface, paddingBottom: insets.bottom }}>
       {/* Keep the header as one native view: form-sheet scroll sizing cannot account for a flattened header. */}
-      <View
-        collapsable={false}
-        style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}
-      >
-        {selected && canChoose ? (
-          <CircleButton
-            label="Back to pages"
-            icon={ArrowLeft01Icon}
-            onPress={() => {
-              setCommenting(false);
-              setPicked(null);
-              setChoosing(true);
-              setChosen(null);
-              setPage(null);
-              void refresh();
-            }}
-          />
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
-        {/* Balances the Open button beside Close, so the title stays centred. */}
-        {selected && <View style={{ width: 40 }} />}
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-            {shown?.title || "Browser"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 11 }}>
-            {shown?.url || "This Chat"}
-          </Text>
-        </View>
-        {selected && <CircleButton label="Open in your browser" icon={LinkSquare02Icon} onPress={openExternally} />}
-        <CircleButton label="Close browser" icon={Cancel01Icon} onPress={onClose} />
+      <View collapsable={false} style={{ flexShrink: 0 }}>
+        <SheetHeader
+          title={shown?.title || "Browser"}
+          subtitle={shown?.url || "This Chat"}
+          subtitleEllipsis={shown?.url ? "middle" : "tail"}
+          leading={
+            selected && canChoose ? (
+              <CircleButton
+                label="Back to pages"
+                icon={ArrowLeft01Icon}
+                onPress={() => {
+                  setCommenting(false);
+                  setPicked(null);
+                  setChoosing(true);
+                  setChosen(null);
+                  setPage(null);
+                  void refresh();
+                }}
+              />
+            ) : null
+          }
+          trailing={
+            <>
+              {selected && <CircleButton label="Open in browser" icon={LinkSquare02Icon} onPress={openExternally} />}
+              <CircleButton label="Close browser" icon={Cancel01Icon} onPress={onClose} />
+            </>
+          }
+        />
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!visible ? null : !source || !chatId ? (
-          <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this computer to open its browsers.</Text>
-        ) : opening ? (
-          <Text style={[styles.muted, { padding: 20 }]}>Opening page in this Chat...</Text>
-        ) : openError ? (
-          <View style={{ padding: 20, gap: 16 }}>
-            <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-              {openError}
-            </Text>
-            <PillButton title="Retry" onPress={() => setOpenAttempt((value) => value + 1)} />
-          </View>
-        ) : paused ? (
-          <View style={{ padding: 20, gap: 16 }}>
-            <Text style={styles.muted}>Viewer paused while the app was hidden.</Text>
-            <PillButton
-              title="Retry"
-              onPress={() => {
-                setRevision((value) => value + 1);
-                setPaused(false);
-              }}
-            />
-          </View>
+          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this computer to open its browsers.</Text>
         ) : selected ? (
           <View style={{ flex: 1, minHeight: 0 }}>
             <BrowserWebView
-              key={`${selected.id}:${revision}`}
+              key={`page:${selected.id}`}
               client={source}
               chatId={chatId}
-              targetId={selected.id}
+              url={selected.url}
+              host={reachableHost}
+              onExternalUrl={setExternalUrl}
               onPage={(next) => {
                 if (page && page.url !== next.url) {
                   setCommenting(false);
@@ -273,7 +224,6 @@ export function BrowserSheet({
               }}
               commenting={selected.source === "panel" && commenting}
               picked={picked}
-              onClose={onClose}
               onPick={setPicked}
             />
             {selected.source === "panel" && (
@@ -281,7 +231,7 @@ export function BrowserSheet({
                 key={selected.id}
                 client={source}
                 chatId={chatId}
-                targetId={selected.id}
+                page={shown ?? selected}
                 commenting={commenting}
                 picked={picked}
                 onCommenting={(on) => {
@@ -296,17 +246,15 @@ export function BrowserSheet({
             style={{ flex: 1 }}
             contentInsetAdjustmentBehavior="never"
             automaticallyAdjustContentInsets={false}
-            contentContainerStyle={{ padding: 20, gap: 12 }}
+            contentContainerStyle={{ padding: 16, gap: 12 }}
           >
-            {!list && <Text style={styles.muted}>Finding browser pages...</Text>}
-            {!!list?.error && (
-              <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-                {list.error}
-              </Text>
-            )}
+            {!list && <Text style={styles.muted}>Finding browser pages…</Text>}
+            {!!list?.error && <ErrorNotice message={list.error} />}
             {list?.supported === false && <Text style={styles.muted}>Browsers are unavailable on this computer.</Text>}
             {list?.supported && !list.error && !list.targets.length && (
-              <Text style={styles.muted}>{"This Chat's agent has no open pages. Attach a browser below to view it here."}</Text>
+              <EmptyState icon={BrowserIcon} title="This Chat's agent has no open pages">
+                Attach a browser below to view it here.
+              </EmptyState>
             )}
             {list?.targets.map((target) => (
               <Pressable
@@ -320,15 +268,16 @@ export function BrowserSheet({
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "center",
-                  padding: 14,
-                  gap: 10,
-                  borderRadius: 12,
-                  backgroundColor: pressed ? colors.hover : colors.surface,
+                  padding: 12,
+                  gap: 12,
+                  borderRadius: radius.control,
+                  borderCurve: "continuous",
+                  backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
                 })}
               >
                 <Icon icon={BrowserIcon} size={18} tone="ink2" />
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15 }}>
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
                     {target.title || target.url}
                   </Text>
                   <Text numberOfLines={1} style={styles.muted}>
@@ -350,18 +299,26 @@ export function BrowserSheet({
               </Pressable>
             ))}
             {!!list?.others.length && (
-              <Text accessibilityRole="header" style={[styles.muted, { paddingTop: 8 }]}>
+              <SectionLabel flush style={{ paddingTop: 8 }}>
                 Other browsers on this computer
-              </Text>
+              </SectionLabel>
             )}
             {list?.others.map((other) => (
               <View
                 key={other.id}
-                style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 10, borderRadius: 12, backgroundColor: colors.surface }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  padding: 12,
+                  gap: 12,
+                  borderRadius: radius.control,
+                  borderCurve: "continuous",
+                  backgroundColor: colors.surface,
+                }}
               >
                 <Icon icon={BrowserIcon} size={18} tone="ink3" />
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15 }}>
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
                     {other.title || other.browser}
                   </Text>
                   <Text numberOfLines={1} style={styles.muted}>
@@ -393,16 +350,16 @@ export function BrowserSheet({
 function PageComment({
   client,
   chatId,
-  targetId,
+  page,
   commenting,
   picked,
   onCommenting,
 }: {
   client: Client;
   chatId: string;
-  targetId: string;
+  page: { url: string; title: string };
   commenting: boolean;
-  picked: { x: number; y: number } | null;
+  picked: PageElement | null;
   onCommenting(on: boolean): void;
 }) {
   const { colors } = useTheme();
@@ -416,9 +373,10 @@ function PageComment({
     setSending(true);
     setError("");
     try {
-      await client.call("browser-comments:send-from-page", [{ chatId, targetId, x: picked.x, y: picked.y, text: text.trim() }]);
+      await client.call("browser-comments:send-from-page", [{ chatId, page: { ...page, element: picked }, text: text.trim() }]);
       setText("");
       setSent(true);
+      announce("Sent to the agent.");
       onCommenting(false);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The comment didn't send.");
@@ -428,7 +386,7 @@ function PageComment({
   };
   if (!commenting)
     return (
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 }}>
         <PillButton
           title="Comment"
           icon={CommentAdd01Icon}
@@ -444,7 +402,7 @@ function PageComment({
   return (
     <View
       style={{
-        gap: 10,
+        gap: 12,
         paddingHorizontal: 16,
         paddingVertical: 12,
         backgroundColor: colors.surface,
@@ -453,33 +411,26 @@ function PageComment({
       }}
     >
       {!picked ? (
-        <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>Tap anywhere on the page to place a comment pin.</Text>
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
+          Tap anywhere on the page to place a comment pin.
+        </Text>
       ) : (
-        <TextInput
+        <Field
+          label="Comment"
+          hideLabel
           autoFocus
           multiline
+          autoCapitalize="sentences"
+          autoCorrect
           value={text}
           onChangeText={setText}
           placeholder="What should change here?"
-          placeholderTextColor={colors.ink3}
-          accessibilityLabel="Comment"
-          style={{
-            minHeight: 64,
-            color: colors.ink,
-            fontSize: type.body,
-            padding: 10,
-            borderRadius: radius.control,
-            backgroundColor: colors.page,
-          }}
+          style={{ minHeight: 64, backgroundColor: colors.page }}
         />
       )}
-      {!!error && (
-        <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote }}>
-          {error}
-        </Text>
-      )}
-      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
-        <PillButton title="Cancel" secondary disabled={sending} onPress={() => onCommenting(false)} />
+      <InlineError message={error} />
+      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12 }}>
+        <PillButton title="Cancel" variant="plain" muted disabled={sending} onPress={() => onCommenting(false)} />
         {picked && <PillButton title="Send" loading={sending} disabled={!text.trim() || sending} onPress={() => void send()} />}
       </View>
     </View>
@@ -488,178 +439,176 @@ function PageComment({
 
 function BrowserWebView({
   client,
-  chatId,
-  targetId,
+  url,
+  host,
   onPage,
-  onClose = goBack,
+  onExternalUrl,
   commenting = false,
   onPick,
   picked = null,
 }: {
   client: Client;
   chatId: string;
-  targetId: string;
+  url: string;
+  host: string | null;
   onPage(page: { title: string; url: string }): void;
-  onClose?: () => void;
-  /** While set, a tap picks a point on the page (onPick, as fractions of it) instead of clicking it. */
+  onExternalUrl(url: string | null): void;
   commenting?: boolean;
-  onPick?(point: { x: number; y: number }): void;
-  picked?: { x: number; y: number } | null;
+  onPick(element: PageElement | null): void;
+  picked?: PageElement | null;
 }) {
-  // Read by the bridge, which lives as long as the viewer: kept current without reconnecting it.
-  const commentingRef = useRef(commenting);
-  const onPickRef = useRef(onPick);
-  const pickedRef = useRef(picked);
-  useEffect(() => {
-    commentingRef.current = commenting;
-    onPickRef.current = onPick;
-    pickedRef.current = picked;
-  }, [commenting, onPick, picked]);
-  const { colors, scheme } = useTheme();
   const styles = useStyles();
-  const theme = useMemo(() => {
-    // The sheet and its bottom safe area use page, not the raised surface color.
-    return { ...colors, surface: colors.page, scheme };
-  }, [colors, scheme]);
-  const latestTheme = useRef(theme);
   const view = useRef<DomWebViewRef>(null);
-  const syncTheme = useCallback(
-    () => view.current?.injectJavaScript(`window.browserTheme?.(${JSON.stringify(latestTheme.current).replace(/</g, "\\u003c")});true;`),
-    [],
-  );
+  const [route, setRoute] = useState<{ uri: string; origin: string; external: string } | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [forceProxy, setForceProxy] = useState(false);
+  const ready = useRef(false);
+  const latest = useRef({ onPage, onPick, onExternalUrl });
   useEffect(() => {
-    latestTheme.current = theme;
-    syncTheme();
-  }, [theme, syncTheme]);
-  const syncPin = useCallback(() => {
-    view.current?.injectJavaScript(`window.browserCommentPoint?.(${JSON.stringify(pickedRef.current)});true;`);
-  }, []);
-  useEffect(syncPin, [picked, syncPin]);
-  const [uri, setUri] = useState<string | null>(null),
-    [error, setError] = useState(""),
-    [revision, setRevision] = useState(0);
-  const bridge = useRef<ReturnType<typeof createBrowserBridge> | null>(null);
+    latest.current = { onPage, onPick, onExternalUrl };
+  });
   useEffect(() => {
-    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const frames: File[] = [];
-    const drop = (file: File) => {
+    let disposed = false;
+    let lease: string | undefined;
+    const renew = async () => {
+      if (!lease || AppState.currentState !== "active" || disposed) return;
       try {
-        if (file.exists) file.delete();
+        const alive = await client.call<boolean>("browser:keep-page-url", [{ id: lease }]);
+        if (!alive && !disposed) setAttempt((value) => value + 1);
       } catch {
-        /* The OS may purge cache files. */
+        /* Reconnect or the next heartbeat retries. */
       }
     };
-    // Frames go to a local file and only its address crosses into the WebView, so image bytes never pass through injected script.
-    const store = (method: string, result: unknown) => {
-      if (method !== "frame" || !result) return result;
-      const frame = result as BrowserFrame;
-      const file = new File(Paths.cache, `browser-${token}-${frame.sequence}.jpg`);
-      file.writeSync(frame.data, { encoding: "base64" });
-      frames.push(file);
-      while (frames.length > 2) drop(frames.shift()!);
-      return { ...frame, data: "", uri: file.uri };
+    const heartbeat = setInterval(() => void renew(), 60_000);
+    const subscription = AppState.addEventListener("change", () => void renew());
+    ready.current = false;
+    latest.current.onExternalUrl(null);
+    const direct = !forceProxy && directPageUrl(url, host);
+    const open = async () => {
+      if (!/^https?:\/\//i.test(url)) throw new Error("Only HTTP and HTTPS pages open in Browser.");
+      if (direct) return { uri: direct, origin: new URL(direct).origin, external: direct };
+      const result = await client.call<{ id: string; url: string; origin: string }>("browser:page-url", [{ url }]);
+      lease = result.id;
+      if (disposed) {
+        void client.call("browser:release-page-url", [{ id: lease }]).catch(() => {});
+        return null;
+      }
+      return { uri: result.url, origin: result.origin, external: result.url };
     };
-    const currentBridge = createBrowserBridge(
-      (method, args) => {
-        // In comment mode a tap names a point instead of clicking: the receiver's mouse press and release stay here.
-        // A swipe still scrolls the page (wheel input).
-        const event = method === "input" ? (args as { event?: { kind?: string; phase?: string; x?: number; y?: number } }).event : undefined;
-        // Keep the chosen point stable while its comment is being written.
-        if (commentingRef.current && pickedRef.current && event?.kind === "wheel") return Promise.resolve({ accepted: true });
-        if (commentingRef.current && event?.kind === "mouse") {
-          if (event.phase === "up" && typeof event.x === "number" && typeof event.y === "number") onPickRef.current?.({ x: event.x, y: event.y });
-          return Promise.resolve({ accepted: true });
-        }
-        return client.call(`browser:${method}`, [args]);
-      },
-      (reply) => {
-        // Data stays JSON, never an executable string supplied by the remote peer.
-        view.current?.injectJavaScript(`window.browserReply?.(${JSON.stringify(reply).replace(/</g, "\\u003c")});true;`);
-      },
-      store,
-    );
-    bridge.current = currentBridge;
-    let cancelled = false;
-    const file = new File(Paths.cache, `browser-${token}.html`);
     void Promise.resolve()
       .then(() => {
-        if (cancelled) return;
-        file.writeSync(createBrowserReceiverHtml({ chatId, targetId, theme: latestTheme.current }));
-        setUri(file.uri);
+        if (disposed) return null;
+        setError("");
+        setRoute(null);
+        return open();
       })
-      .catch((failure) => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : "Could not prepare the browser viewer.");
-      });
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active") {
-        view.current?.injectJavaScript("window.browserDispose?.();true;");
-        currentBridge.dispose();
-      }
-    });
+      .then(
+        (result) => {
+          if (!disposed && result) {
+            setRoute(result);
+            latest.current.onExternalUrl(result.external);
+          }
+        },
+        (failure) => {
+          if (!disposed) setError(failure instanceof Error ? failure.message : "Could not reach this page.");
+        },
+      );
     return () => {
-      cancelled = true;
-      currentBridge.dispose();
+      disposed = true;
+      clearInterval(heartbeat);
       subscription.remove();
-      drop(file);
-      frames.forEach(drop);
+      latest.current.onExternalUrl(null);
+      if (lease) void client.call("browser:release-page-url", [{ id: lease }]).catch(() => {});
     };
-  }, [client, chatId, targetId, revision]);
-  const failed = () => {
-    bridge.current?.dispose();
-    setError("The browser viewer stopped. Retry to reconnect.");
-  };
+  }, [client, url, host, forceProxy, attempt]);
+  useEffect(() => {
+    if (!route) return;
+    const timer = setTimeout(() => {
+      if (ready.current) return;
+      if (!forceProxy && privatePage(url)) setForceProxy(true);
+      else setError("The page did not load. Check that its server is running, then retry.");
+    }, 20_000);
+    return () => clearTimeout(timer);
+  }, [route, forceProxy, url]);
+  useEffect(() => {
+    if (!commenting || picked) {
+      view.current?.injectJavaScript(PAGE_PICK_CANCEL + ";true;");
+      return;
+    }
+    view.current?.injectJavaScript(
+      `Promise.resolve(${pagePickScript()}).then(element => window.ReactNativeWebView.postMessage(JSON.stringify({kind:'pick',element})));true;`,
+    );
+    const current = view.current;
+    return () => current?.injectJavaScript(PAGE_PICK_CANCEL + ";true;");
+  }, [commenting, picked]);
   if (error)
     return (
-      <View style={{ padding: 20, gap: 16 }}>
-        <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-          {error}
-        </Text>
-        <PillButton
-          title="Retry"
-          onPress={() => {
-            setError("");
-            setUri(null);
-            setRevision((value) => value + 1);
-          }}
-        />
+      <View style={{ padding: 16 }}>
+        <ErrorNotice message={error} retryTitle="Retry" retry={() => setAttempt((value) => value + 1)} />
       </View>
     );
-  if (!uri) return <Text style={[styles.muted, { padding: 20 }]}>Preparing viewer...</Text>;
+  if (!route) return <Text style={[styles.muted, { padding: 16 }]}>Connecting to page...</Text>;
+  const failed = () => setError("The page stopped. Retry to reload it.");
   return (
-    <DomWebView
-      key={uri}
-      ref={view}
-      source={{ uri }}
-      style={{ flex: 1 }}
-      containerStyle={{ flex: 1 }}
-      useExpoModulesBridge={false}
-      scrollEnabled={false}
-      bounces={false}
-      automaticallyAdjustContentInsets={false}
-      contentInsetAdjustmentBehavior="never"
-      onMessage={(event) => {
-        try {
-          const message = JSON.parse(event.nativeEvent.data);
-          if (message.channel !== "milagre-browser") return;
-          if (message.event === "close") {
-            onClose();
-            return;
-          }
-          if (message.event === "page") {
-            onPage({ title: String(message.title ?? ""), url: String(message.url ?? "") });
-            return;
-          }
-          if (message.method === "open") {
-            syncTheme();
-            syncPin();
-          }
-          void bridge.current?.receive(message);
-        } catch {
-          /* Only typed browser RPC messages enter the host. */
+    <View style={{ flex: 1 }}>
+      <DomWebView
+        key={route.external + attempt}
+        ref={view}
+        source={{ uri: route.uri }}
+        style={{ flex: 1 }}
+        containerStyle={{ flex: 1 }}
+        useExpoModulesBridge={false}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        injectedJavaScriptBeforeContentLoaded={`(() => {
+      // WKWebView has no popup destination. Keep link/form navigation in this page.
+      document.addEventListener('click', event => {
+        const link = event.target?.closest?.('a[target]');
+        if (link && !['_self', '_top', '_parent'].includes(link.target.toLowerCase())) link.target = '_self';
+      }, true);
+      document.addEventListener('submit', event => { if (event.target?.target) event.target.target = '_self'; }, true);
+      window.open = function(url) {
+        if (url) {
+          const destination = new URL(url, location.href);
+          if (/^https?:$/.test(destination.protocol)) location.assign(destination.href);
         }
-      }}
-      onContentProcessDidTerminate={failed}
-      onRenderProcessGone={failed}
-    />
+        return window;
+      };
+    })();true;`}
+        injectedJavaScript={`(() => {
+      if (window.top !== window) return;
+      const report = () => window.ReactNativeWebView.postMessage(JSON.stringify({kind:'page',url:location.href,title:document.title}));
+      report(); addEventListener('pageshow', report); addEventListener('popstate', report); addEventListener('hashchange', report);
+      for (const name of ['pushState','replaceState']) { const original = history[name]; history[name] = function(...args) { const result = original.apply(this,args); report(); return result; }; }
+      new MutationObserver(report).observe(document.querySelector('title') || document.head, {subtree:true,childList:true,characterData:true});
+    })();true;`}
+        onMessage={(event) => {
+          try {
+            const message = JSON.parse(event.nativeEvent.data);
+            if (message.kind === "page" && typeof message.url === "string" && /^https?:\/\//i.test(message.url)) {
+              ready.current = true;
+              // The native WebView compares its source with its current URL on prop updates. Follow navigation so a
+              // title/comment render cannot reload the initial address (or the tunnel's bootstrap redirect).
+              setRoute((current) => (current && current.uri !== message.url ? { ...current, uri: message.url } : current));
+              const address = originalPageUrl(message.url, url, route.origin);
+              latest.current.onPage({ title: String(message.title ?? ""), url: address });
+              // An external browser needs its own authentication cookie; always enter a proxy through its login URL.
+              latest.current.onExternalUrl(forceProxy || !directPageUrl(url, host) ? externalPageUrl(message.url, route.external, route.origin) : message.url);
+            } else if (message.kind === "pick" && commenting && !picked && message.element?.selector && message.element?.box)
+              latest.current.onPick(message.element);
+          } catch {
+            /* Web content cannot issue RPCs. Only a page title/address or a picked element is read. */
+          }
+        }}
+        onContentProcessDidTerminate={failed}
+        onRenderProcessGone={failed}
+      />
+      <View style={{ flexDirection: "row", justifyContent: "center", gap: 16, paddingVertical: 6 }}>
+        <CircleButton label="Back" icon={ArrowLeft01Icon} onPress={() => view.current?.injectJavaScript("history.back();true;")} />
+        <CircleButton label="Forward" icon={ArrowRight01Icon} onPress={() => view.current?.injectJavaScript("history.forward();true;")} />
+        <CircleButton label="Reload page" icon={Refresh01Icon} onPress={() => view.current?.reload()} />
+      </View>
+    </View>
   );
 }

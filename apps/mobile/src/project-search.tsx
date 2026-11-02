@@ -4,7 +4,8 @@ import { Search01Icon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { ProjectIcon } from "./project-icon";
-import { Field, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
+import { Field, InlineError, pressStyle, useStyles } from "./ui";
 import { createStylesHook, useTheme, type Palette } from "./theme";
 
 type Found = { path: string; name: string };
@@ -18,8 +19,6 @@ const shortPath = (value: string) => value.replace(/^\/Users\/[^/]+(?=\/|$)/, "~
  * opens directly, for a folder outside the home or a Mac whose Milagre can't search yet.
  */
 export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
-  const s = useS();
-  const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
   const client = session.client;
@@ -42,7 +41,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
                 query,
                 items: [],
                 error: /not available from mobile/i.test((e as Error).message)
-                  ? "Update Milagre on your Mac to search its projects. You can still type a full path."
+                  ? "Update Milagre on your Mac to search its Projects. You can still type a full path."
                   : (e as Error).message,
               });
           });
@@ -60,39 +59,34 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   const current = results?.query === query ? results : null;
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 10 }}>
-        <View style={s.search}>
-          <Icon icon={Search01Icon} tone="ink3" size={18} />
-          <View style={{ flex: 1 }}>
-            <Field
-              label="Search projects on your computer"
-              hideLabel
-              placeholder="Search projects on your computer"
-              value={query}
-              onChangeText={setQuery}
-              autoFocus
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-              autoComplete="off"
-              clearButtonMode="while-editing"
-              returnKeyType="go"
-              onSubmitEditing={() => {
-                if (path) onOpen(path);
-                else if (current?.items[0]) onOpen(current.items[0].path);
-              }}
-              style={{ backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 8 }}
-            />
-          </View>
-        </View>
-        {current?.error ? <Text style={[styles.muted, { color: colors.orangeInk }]}>{current.error}</Text> : null}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 12 }}>
+        <Field
+          label="Search Projects on your computer"
+          hideLabel
+          leading={<Icon icon={Search01Icon} tone="ink3" size={18} />}
+          placeholder="Search Projects on your computer"
+          value={query}
+          onChangeText={setQuery}
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          autoComplete="off"
+          clearButtonMode="while-editing"
+          returnKeyType="go"
+          onSubmitEditing={() => {
+            if (path) onOpen(path);
+            else if (current?.items[0]) onOpen(current.items[0].path);
+          }}
+        />
+        <InlineError warning message={current?.error} />
       </View>
       <FlatList
         data={current?.items ?? []}
         keyExtractor={(item) => item.path}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 24 }}
         ListHeaderComponent={path ? <Row title={`Open ${shortPath(path)}`} detail="Full path" onPress={() => onOpen(path)} /> : undefined}
         ListEmptyComponent={
           path ? undefined : (
@@ -128,14 +122,14 @@ function Row({ icon, title, detail, onPress }: { icon?: React.ReactNode; title: 
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${detail}`}
       onPress={onPress}
-      style={({ pressed }) => [s.row, { backgroundColor: pressed ? colors.hover : "transparent" }]}
+      style={({ pressed }) => [s.row, pressStyle({ pressed, kind: "row" })]}
     >
       {icon}
-      <View style={{ flex: 1, gap: 3 }}>
-        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" }}>
           {title}
         </Text>
-        <Text numberOfLines={1} ellipsizeMode="head" style={{ color: colors.ink2, fontSize: 12 }}>
+        <Text numberOfLines={1} ellipsizeMode="head" style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
           {detail}
         </Text>
       </View>
@@ -143,17 +137,8 @@ function Row({ icon, title, detail, onPress }: { icon?: React.ReactNode; title: 
   );
 }
 
-const makeS = (colors: Palette) =>
+const makeS = (_colors: Palette) =>
   StyleSheet.create({
-    search: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      paddingHorizontal: 12,
-      borderRadius: 10,
-      borderCurve: "continuous",
-      backgroundColor: colors.field,
-    },
     row: {
       flexDirection: "row",
       alignItems: "center",
@@ -161,7 +146,7 @@ const makeS = (colors: Palette) =>
       minHeight: 56,
       paddingHorizontal: 12,
       paddingVertical: 8,
-      borderRadius: 8,
+      borderRadius: radius.control,
       borderCurve: "continuous",
     },
   });

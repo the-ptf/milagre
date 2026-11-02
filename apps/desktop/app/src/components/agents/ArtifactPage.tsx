@@ -23,7 +23,16 @@ function usePinColors() {
   const read = () => {
     const style = getComputedStyle(document.documentElement);
     const value = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-    return { accent: value("--accent", "#007df3"), ink: value("--ink", "#191919"), surface: value("--surface", "#ffffff"), green: value("--green", "#199a4d") };
+    return {
+      accent: value("--accent", "#007df3"),
+      // A pin carries a number: its fill is the -ink shade, so the label reaches 4.5:1.
+      accentInk: value("--accent-ink", "#0068cd"),
+      ink: value("--ink", "#191919"),
+      surface: value("--surface", "#ffffff"),
+      greenInk: value("--green-ink", "#007e33"),
+      onAccent: value("--on-accent", "#ffffff"),
+      onGreen: value("--on-green", "#ffffff"),
+    };
   };
   const [colors, setColors] = useState(read);
   useEffect(() => {
@@ -187,8 +196,8 @@ export const ArtifactPage = forwardRef<
           y: pin.y,
           ...(pin.anchor ? { a: pin.anchor } : {}),
           n: number,
-          fill: resolved ? colors.green : colors.ink,
-          ink: resolved ? "#ffffff" : colors.surface,
+          fill: resolved ? colors.greenInk : colors.ink,
+          ink: resolved ? colors.onGreen : colors.surface,
           label: `Sent comment ${number}${resolved ? ", resolved" : ""}: ${pin.text}`,
           hide: pin.key === open,
         };
@@ -201,8 +210,8 @@ export const ArtifactPage = forwardRef<
           y: pin.y,
           ...(pin.anchor ? { a: pin.anchor } : {}),
           n: number,
-          fill: colors.accent,
-          ink: "#ffffff",
+          fill: colors.accentInk,
+          ink: colors.onAccent,
           label: `Comment ${number}${pin.text.trim() ? `: ${pin.text.trim()}` : ""}`,
           hide: pin.key === open,
         };
@@ -229,7 +238,7 @@ export const ArtifactPage = forwardRef<
 
   const tabs = page.tabs && page.tabs.length > 1 ? page.tabs : null;
   return (
-    <div ref={box} data-slot="artifact-page" className="relative min-h-0 flex-1 overflow-hidden bg-white">
+    <div ref={box} data-slot="artifact-page" className="relative min-h-0 flex-1 overflow-hidden bg-paper">
       <div
         className="absolute top-0 left-0 origin-top-left"
         style={room.width ? { width: room.width / scale, height: room.height / scale, transform: `scale(${scale})` } : { width: "100%", height: "100%" }}

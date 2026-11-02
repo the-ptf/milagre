@@ -11,7 +11,7 @@ export function NextCheck({ chatKey }: { chatKey: string }) {
     .reduce<number | null>((soonest, at) => (soonest === null || at < soonest ? at : soonest), null);
   if (next === null) return null;
   return (
-    <p data-next-check className="w-full text-center text-[12px] text-ink-3">
+    <p data-next-check className="w-full text-center text-12 text-ink-3">
       Next check {clock(next)}
     </p>
   );

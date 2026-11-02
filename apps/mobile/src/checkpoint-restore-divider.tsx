@@ -1,11 +1,11 @@
-import { Pressable, Text, View } from "react-native";
 import { Redo02Icon, Undo02Icon } from "@hugeicons/core-free-icons";
 import type { CheckpointRestoreContext } from "@milagre/shared/model";
 import { checkpointRestoreAction, checkpointRestoreText } from "@milagre/shared/checkpoint-restore";
-import { Icon } from "./icons";
-import { useTheme } from "./theme";
+import { PillButton } from "./primitives/pill-button";
+import { TranscriptDivider } from "./primitives/transcript-divider";
 
-/** Where Undo changes wrote files, as on desktop: "Undid 2 files" with a Redo button that opens its preview. */
+/** Where Undo changes wrote files, as on desktop: "Undid 2 files" with a Redo button that opens its preview. The phone
+ * keeps the action a small pill (desktop's inline link) for its touch target. */
 export function CheckpointRestoreDivider({
   context,
   onPreview,
@@ -13,38 +13,23 @@ export function CheckpointRestoreDivider({
   context: CheckpointRestoreContext;
   onPreview?: (recoveryId: string, action: "Undo" | "Redo") => void;
 }) {
-  const { colors } = useTheme();
   const text = checkpointRestoreText(context);
   const action = checkpointRestoreAction(context) as "Undo" | "Redo";
   return (
-    <View accessibilityLabel={text} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
-      <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 }}>
-        <Icon icon={context.redo ? Redo02Icon : Undo02Icon} tone="ink3" size={13} />
-        <Text style={{ color: colors.ink3, fontSize: 13 }}>{text}</Text>
-      </View>
-      {onPreview && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${action}: preview the files first`}
-          hitSlop={8}
-          onPress={() => onPreview(context.recoveryId, action)}
-          style={({ pressed }) => ({
-            paddingHorizontal: 14,
-            height: 30,
-            borderRadius: 15,
-            borderCurve: "continuous",
-            justifyContent: "center",
-            borderWidth: 1,
-            borderColor: colors.lineStrong,
-            backgroundColor: colors.surface,
-            opacity: pressed ? 0.5 : 1,
-          })}
-        >
-          <Text style={{ color: colors.ink, fontSize: 13, fontWeight: "600" }}>{action}</Text>
-        </Pressable>
-      )}
-      <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
-    </View>
+    <TranscriptDivider
+      label={text}
+      icon={context.redo ? Redo02Icon : Undo02Icon}
+      trailing={
+        onPreview && (
+          <PillButton
+            size="small"
+            variant="secondary"
+            title={action}
+            accessibilityLabel={`${action}: preview the files first`}
+            onPress={() => onPreview(context.recoveryId, action)}
+          />
+        )
+      }
+    />
   );
 }

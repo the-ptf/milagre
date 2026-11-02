@@ -5,7 +5,7 @@ function ImageIcon({ src, fallback }: { src: string; fallback: ReactNode }) {
   return failed ? (
     fallback
   ) : (
-    <img src={src} alt="" className="size-full rounded-[4px] object-contain" onError={() => setFailed(true)} referrerPolicy="no-referrer" />
+    <img src={src} alt="" className="size-full rounded-inline object-contain" onError={() => setFailed(true)} referrerPolicy="no-referrer" />
   );
 }
 

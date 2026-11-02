@@ -1,22 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { privatePairingLink } from "@milagre/shared/pairing-link";
 import { SettingCheckbox } from "./primitives/Checkbox";
+import { Button } from "./primitives/Button";
+import { Dialog } from "./primitives/Dialog";
+import { FIELD, FIELD_LABEL, FieldGroup } from "./primitives/Field";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
 import { thisComputer } from "../lib/shortcut-hints";
-
-const FIELD =
-  "h-9 w-full rounded-[9px] bg-field px-2.5 text-[12.5px] text-ink outline-none ring-1 ring-line-strong focus-visible:ring-accent placeholder:text-ink-3";
 
 /**
  * Add computer (design add-computer v1): paste another Mac's pairing link, see the computer it names, and pair with it,
  * waiting while its owner clicks Allow there. Mounted only while open: other screens look for the page's one dialog.
  */
 export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (computer: ComputerView) => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [link, setLink] = useState("");
   const [privateOnly, setPrivateOnly] = useState(false);
   let selectedLink = link.trim();
@@ -34,9 +33,6 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
   const [waiting, setWaiting] = useState(false);
   const reads = useRef(0);
 
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
   useEffect(() => window.milagre.onComputerAddPending(() => setWaiting(true)), []);
   // A parent that unmounts the dialog mid-pairing still stops it: nothing is left waiting on the other Mac's Allow.
   const addingNow = useRef(false);
@@ -99,132 +95,111 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
     }
   }
 
-  return createPortal(
-    <dialog
-      ref={dialog}
+  return (
+    <Dialog
       data-add-computer
-      aria-labelledby="add-computer-title"
-      onCancel={(event) => {
-        event.preventDefault();
-        close();
-      }}
-      onClick={(event) => {
-        // A press on the scrim (the dialog itself, outside its padded content) closes it, unless a pairing is under way.
-        if (event.target === dialog.current && !adding) close();
-      }}
-      className="m-auto w-[460px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[14px] bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
-    >
-      <div className="p-5">
-        <h2 id="add-computer-title" className="text-[16px] font-semibold">
-          Add computer
-        </h2>
-        <p className="mt-1 text-[13px] text-ink-2">See and drive another computer's chats from this window.</p>
-        <ol className="mt-4 list-decimal space-y-1 pl-[18px] text-[13px] text-ink-2">
-          <li>On the other computer, open Milagre Settings › Devices.</li>
-          <li>Click Pair a device, then Copy link.</li>
-          <li>Paste it here. The link works for 10 minutes.</li>
-        </ol>
-        <label className="mt-4 block text-[12px] text-ink-3" htmlFor="add-computer-link">
-          Pairing link
-        </label>
-        <div className="mt-1.5 flex gap-2">
-          <input
-            id="add-computer-link"
-            aria-label="Pairing link"
-            value={link}
-            disabled={adding}
-            spellCheck={false}
-            autoFocus
-            placeholder="milagre://pair?…"
-            onChange={(event) => setLink(event.target.value)}
-            className={`${FIELD} font-mono`}
-          />
-          <button
-            type="button"
-            disabled={adding}
-            onClick={() => void paste()}
-            className="shrink-0 rounded-control px-3 text-[13px] ring-1 ring-line-strong hover:bg-hover-2"
-          >
-            Paste
-          </button>
-        </div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-[13px]">
-          <span>LAN or Tailscale only</span>
-          <SettingCheckbox
-            label="LAN or Tailscale only"
-            checked={privateOnly}
-            disabled={adding}
-            onChange={(value) => {
-              if (!adding) setPrivateOnly(value);
-            }}
-          />
-        </div>
-        <p className="mt-1 text-[12px] text-ink-3">Automatic tries private routes first. Private pairing needs both devices on the same network or tailnet.</p>
-        {preview && (
-          <div data-add-computer-found className="mt-3 flex items-center gap-3 rounded-[10px] bg-hover px-3 py-2.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-hover-2 text-ink-2">
-              <HugeiconsIcon icon={LaptopIcon} size={17} strokeWidth={1.8} color="currentColor" />
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-[13px] font-medium">{preview.name}</span>
-              <span className="block text-[12px] text-ink-3">Reached through {preview.relayHost} · end-to-end encrypted</span>
-            </span>
-          </div>
-        )}
-        {preview && (
+      title="Add computer"
+      description="See and drive another computer's Chats from this window."
+      onClose={close}
+      // A press on the scrim closes it, unless a pairing is under way; Esc and the × cancel the pairing.
+      dismissOnScrim={!adding}
+      width={460}
+      actions={
+        waiting && preview ? (
           <>
-            <label className="mt-3.5 block text-[12px] text-ink-3" htmlFor="add-computer-name">
-              Show it as
-            </label>
-            <input
-              id="add-computer-name"
-              aria-label="Show it as"
-              value={name}
-              disabled={adding}
-              onChange={(event) => {
-                typedName.current = true;
-                setName(event.target.value);
-              }}
-              className={`${FIELD} mt-1.5`}
-            />
-          </>
-        )}
-        {error && (
-          <p role="alert" data-add-computer-error className="mt-3 text-[13px] text-red-ink">
-            {error}
-          </p>
-        )}
-        {waiting && preview ? (
-          <div className="mt-[18px] flex items-center justify-between gap-3">
-            <p role="status" data-add-computer-waiting className="text-[13px] text-ink-2">
+            <p role="status" data-add-computer-waiting className="mr-auto self-center text-13 text-ink-2">
               Waiting for {preview.name} to allow {thisComputer}…
             </p>
-            <button type="button" onClick={() => void window.milagre.computers.cancelAdd()} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
+            <Button variant="ghost" onClick={() => void window.milagre.computers.cancelAdd()}>
               Cancel
-            </button>
-          </div>
+            </Button>
+          </>
         ) : (
-          <div className="mt-[18px] flex justify-end gap-2">
-            <button type="button" onClick={close} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
+          <>
+            <Button variant="ghost" onClick={close}>
               Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!preview || adding}
-              onClick={() => void add()}
-              className="rounded-control bg-ink px-3 py-2 text-[13px] font-medium text-surface disabled:opacity-40"
-            >
+            </Button>
+            <Button disabled={!preview || adding} onClick={() => void add()}>
               {adding ? "Connecting…" : "Add computer"}
-            </button>
-          </div>
-        )}
-        {preview && (
-          <p className="mt-3.5 text-[12px] text-ink-3">
-            This window gets full control of {preview.name}'s Projects, like its own window. Remove it any time from {preview.name}'s Settings › Devices.
-          </p>
-        )}
+            </Button>
+          </>
+        )
+      }
+    >
+      <ol className="mt-4 list-decimal space-y-1 pl-5 text-13 text-ink-2">
+        <li>On the other computer, open Milagre Settings › Devices.</li>
+        <li>Click Pair a device, then Copy link.</li>
+        <li>Paste it here. The link works for 10 minutes.</li>
+      </ol>
+      <label className={`mt-4 block ${FIELD_LABEL}`} htmlFor="add-computer-link">
+        Pairing link
+      </label>
+      <FieldGroup
+        className="mt-1.5 pr-1"
+        inputClassName="font-mono"
+        id="add-computer-link"
+        aria-label="Pairing link"
+        value={link}
+        disabled={adding}
+        spellCheck={false}
+        autoFocus
+        placeholder="milagre://pair?…"
+        onChange={(event) => setLink(event.target.value)}
+        trailing={
+          <Button variant="secondary" size={28} disabled={adding} onClick={() => void paste()}>
+            Paste
+          </Button>
+        }
+      />
+      <div className="mt-3 flex items-center justify-between gap-3 text-13">
+        <span>LAN or Tailscale only</span>
+        <SettingCheckbox
+          label="LAN or Tailscale only"
+          checked={privateOnly}
+          disabled={adding}
+          onChange={(value) => {
+            if (!adding) setPrivateOnly(value);
+          }}
+        />
       </div>
-    </dialog>,
-    document.body,
+      <p className="mt-1 text-12 text-ink-3">Automatic tries private routes first. Private pairing needs both devices on the same network or tailnet.</p>
+      {preview && (
+        <div data-add-computer-found className="mt-3 flex items-center gap-3 rounded-card bg-hover p-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-hover-2 text-ink-2">
+            <Icon icon={LaptopIcon} size={18} />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-13 font-medium">{preview.name}</span>
+            <span className="block text-12 text-ink-3">Reached through {preview.relayHost} · end-to-end encrypted</span>
+          </span>
+        </div>
+      )}
+      {preview && (
+        <>
+          <label className={`mt-4 block ${FIELD_LABEL}`} htmlFor="add-computer-name">
+            Show it as
+          </label>
+          <input
+            id="add-computer-name"
+            aria-label="Show it as"
+            value={name}
+            disabled={adding}
+            onChange={(event) => {
+              typedName.current = true;
+              setName(event.target.value);
+            }}
+            className={`${FIELD} mt-1.5`}
+          />
+        </>
+      )}
+      {preview && (
+        <p className="mt-3 text-12 text-ink-3">
+          This window gets full control of {preview.name}'s Projects, like its own window. Remove it any time from {preview.name}'s Settings › Devices.
+        </p>
+      )}
+      <InlineError size={12} data-add-computer-error className="mt-3">
+        {error}
+      </InlineError>
+    </Dialog>
   );
 }

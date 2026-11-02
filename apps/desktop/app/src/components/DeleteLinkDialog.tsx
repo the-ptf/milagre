@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { NamedLinkDeleteCheck, NamedLinkDeleted, NamedProjectLink } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { computerOfKey, LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
@@ -8,6 +7,9 @@ import { bridgeForKey } from "../lib/computer-bridge";
 import { computerNameOf } from "../lib/computers";
 import { stateEvents } from "../lib/state-events";
 import { useEvent } from "../lib/stable";
+import { Button } from "./primitives/Button";
+import { Dialog } from "./primitives/Dialog";
+import { InlineError } from "./primitives/InlineError";
 
 /** How often a Link with a running Chat is checked again, so Delete enables once the Chat stops. */
 const RECHECK_MS = 2000;
@@ -32,7 +34,6 @@ export function DeleteLinkDialog({
   onClose: () => void;
   onDeleted: (link: NamedProjectLink, result: NamedLinkDeleted) => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [check, setCheck] = useState<NamedLinkDeleteCheck | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -56,13 +57,10 @@ export function DeleteLinkDialog({
     }
   });
   useEffect(() => {
-    const element = dialog.current;
     const asked = checks;
-    element?.showModal();
     void read();
     return () => {
       asked.current++;
-      element?.close();
     };
   }, [read]);
   const waiting = !!check?.running.length && !busy;
@@ -100,48 +98,31 @@ export function DeleteLinkDialog({
       setBusy(false);
     }
   }
-  return createPortal(
-    <dialog
-      ref={dialog}
+  return (
+    <Dialog
       data-link-delete-dialog
-      aria-labelledby="delete-link-title"
-      aria-describedby="delete-link-description"
       aria-busy={!check && !error}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === dialog.current && !busy) onClose();
-      }}
-      className="m-auto w-[440px] max-w-[calc(100vw-32px)] rounded-window bg-surface p-5 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+      title={
+        <span id="delete-link-title" className="break-words">
+          {text.title}
+        </span>
+      }
+      description={<span id="delete-link-description">{check ? text.message : error ? "" : "Checking the Link's Chats…"}</span>}
+      onClose={busy ? undefined : onClose}
+      actions={
+        <>
+          <Button variant="ghost" autoFocus disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" data-link-delete-confirm disabled={busy || !check || !!running} onClick={() => void remove()}>
+            {busy ? "Deleting…" : text.action}
+          </Button>
+        </>
+      }
     >
-      <h2 id="delete-link-title" className="break-words text-17 font-semibold">
-        {text.title}
-      </h2>
-      <p id="delete-link-description" className="mt-2 text-13 text-ink-3">
-        {check ? text.message : error ? "" : "Checking the Link's Chats…"}
-      </p>
-      {(running || error) && (
-        <p role="alert" className="mt-3 whitespace-pre-wrap break-words text-12 text-red-ink">
-          {error || running}
-        </p>
-      )}
-      <div className="mt-4 flex justify-end gap-2">
-        <button type="button" autoFocus disabled={busy} onClick={onClose} className="rounded-control px-3 py-2 text-13 hover:bg-hover-2">
-          Cancel
-        </button>
-        <button
-          type="button"
-          data-link-delete-confirm
-          disabled={busy || !check || !!running}
-          onClick={() => void remove()}
-          className="rounded-control bg-red px-3 py-2 text-13 font-medium text-white disabled:opacity-40"
-        >
-          {busy ? "Deleting…" : text.action}
-        </button>
-      </div>
-    </dialog>,
-    document.body,
+      <InlineError size={12} className="mt-3 whitespace-pre-wrap break-words">
+        {error || running}
+      </InlineError>
+    </Dialog>
   );
 }

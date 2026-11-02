@@ -62,7 +62,7 @@ export default function FlowPublishSheet() {
   return (
     <View style={{ paddingTop: 24, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: 16 }}>
       <View style={{ gap: 4 }}>
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, fontWeight: "700" }}>
+        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, fontWeight: "600" }}>
           {`Publish revision ${next}`}
         </Text>
         <Text style={[styles.muted, { fontSize: 15 }]}>
@@ -80,7 +80,7 @@ export default function FlowPublishSheet() {
               <View key={`${index}:${line}`}>
                 {index > 0 ? <View style={styles.separator} /> : null}
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44, paddingHorizontal: 14, paddingVertical: 10 }}>
-                  <Icon icon={kind === "added" ? Add01Icon : kind === "removed" ? MinusSignIcon : PencilEdit02Icon} tone="ink2" size={17} />
+                  <Icon icon={kind === "added" ? Add01Icon : kind === "removed" ? MinusSignIcon : PencilEdit02Icon} tone="ink2" size={16} />
                   <Text style={{ flex: 1, color: colors.ink, fontSize: 15, lineHeight: 20 }}>{line}</Text>
                 </View>
               </View>

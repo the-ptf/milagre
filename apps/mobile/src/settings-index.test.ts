@@ -59,7 +59,6 @@ const NOT_INDEXED: Record<string, string> = {
   "simlock: Simlock devices": "the page's own name",
   "computer-use: Computer use": "the page's own name",
   // A state of the page, not a setting.
-  "project-accounts: Retry": "appears only after a failed load",
 };
 
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");

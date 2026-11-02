@@ -262,7 +262,12 @@ async function browserChecks() {
     );
     await evaluate('window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))');
     await waitFor('!!document.querySelector("[data-diff-comment-input]")');
-    assert.equal(await text("[data-diff-comment-save]"), "Add to review⌘↵");
+    assert.equal(await text("[data-diff-comment-save]"), "Add to review");
+    assert.equal(
+      await evaluate('document.querySelector("[data-diff-comment-save] [data-shortcut-hint]")?.getAttribute("aria-label")'),
+      "Command + Enter",
+      "The save button still shows its Command Enter hint",
+    );
     assert.ok(await evaluate('!!document.querySelector("[data-diff-comment-chat]")'), "Send to Chat sits beside it");
     await evaluate(
       `(() => { const field = document.querySelector("[data-diff-comment-input]"); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, "Why pick first?"); field.dispatchEvent(new Event("input", { bubbles: true })); })()`,
@@ -303,19 +308,19 @@ async function browserChecks() {
 
     // A slow read (another computer's PR, a Link's) still answers the click at once: the icon spins from the click,
     // past a full turn while GitHub hasn't answered, and stops once it has.
-    const spinClass = () => evaluate('document.querySelector("[data-diff-refresh] > span").className');
+    const spinning = () => evaluate('document.querySelector("[data-diff-refresh] > span").classList.contains("animate-spin")');
     await evaluate("void (window.heldDetail = new Promise((resolve) => { window.releaseDetail = resolve; }))");
     // Read in the click's own task, once React's microtask has rendered: before the next paint, without the read.
     const onClick = await evaluate(
-      '(async () => { document.querySelector("[data-diff-refresh]").click(); await null; return document.querySelector("[data-diff-refresh] > span").className; })()',
+      '(async () => { document.querySelector("[data-diff-refresh]").click(); await null; return document.querySelector("[data-diff-refresh] > span").classList.contains("animate-spin"); })()',
     );
-    assert.equal(onClick, "animate-spin", "The icon spins on the click");
+    assert.equal(onClick, true, "The icon spins on the click");
     assert.equal(await evaluate('document.querySelector("[data-diff-refresh]").getAttribute("aria-busy")'), "true");
     await delay(1300);
-    assert.equal(await spinClass(), "animate-spin", "It keeps spinning while the read runs");
+    assert.equal(await spinning(), true, "It keeps spinning while the read runs");
     await evaluate("window.heldDetail = null; window.releaseDetail()");
     await waitFor('!document.querySelector("[data-diff-refresh]").hasAttribute("aria-busy")');
-    await waitFor('document.querySelector("[data-diff-refresh] > span").className === ""');
+    await waitFor('!document.querySelector("[data-diff-refresh] > span").classList.contains("animate-spin")');
 
     // A conflicting PR says so under its branch, and offers no merge when ready.
     await evaluate('window.prDetail = { ...window.prDetailBase, mergeStateStatus: "DIRTY", reviewDecision: "REVIEW_REQUIRED", viewerCanMergeAsAdmin: true }');

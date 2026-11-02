@@ -156,7 +156,7 @@ async function browserChecks() {
       const expected = document.createElement('span');
       expected.style.color = 'var(--red)';
       document.body.append(expected);
-      const matches = dot?.getAttribute('aria-label') === 'Last turn failed' && getComputedStyle(dot).backgroundColor === getComputedStyle(expected).color;
+      const matches = dot?.getAttribute('aria-label') === 'Failed' && getComputedStyle(dot).backgroundColor === getComputedStyle(expected).color;
       expected.remove();
       return matches;
     })()`),
@@ -259,7 +259,8 @@ async function browserChecks() {
       await evaluate(`[...document.querySelectorAll("[data-scope-menu-panel] [data-scope-menu-item]")].map((item) => item.textContent.trim())`),
       ["Copy Link name", "Edit Link…", "Delete Link…"],
     );
-    assert.match(await evaluate(`document.querySelector('[data-scope-menu-item="delete"] span.text-red-ink')?.textContent ?? ""`), /Delete Link/);
+    assert.equal(await evaluate(`document.querySelector('[data-scope-menu-item="delete"]').classList.contains("text-red-ink")`), true, "Delete is red");
+    assert.equal(await evaluate(`document.querySelector('[data-scope-menu-item="edit"]').classList.contains("text-red-ink")`), false);
     await screenshot("link-scope-menu");
     await evaluate(`document.querySelector('[data-scope-menu-item="delete"]').click()`);
     await waitFor(`window.deletedLink === "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"`);

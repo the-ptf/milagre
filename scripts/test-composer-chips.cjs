@@ -35,9 +35,12 @@ window.milagre = new Proxy({
     window.listeners.forEach(fn => fn({ chatId: '/fixture#' + request.sessionId, event: { type: 'turn-completed' }, state: { ...state } }));
     return { sessionId: request.sessionId };
   },
+  // The paired computer answers nothing: only its name reaches the @ menu.
+  on: () => new Proxy({}, { get: (_target, key) => (String(key).startsWith('on') ? () => () => {} : async () => null) }),
+  computers: { list: async () => ({ thisMac: 'Desk', enabled: true, computers: [{ id: 'c1', name: 'Santo', state: 'online', route: 'lan', relayHost: '', lastSeen: Date.now() }] }), setEnabled: async () => {} },
   onAgentEvent: fn => { window.listeners.push(fn); return () => { window.listeners = window.listeners.filter(x => x !== fn); }; },
 }, { get(target, key) { return target[key] ?? (String(key).startsWith('on') ? () => () => {} : async () => null); } });
-localStorage.setItem('milagre-settings', JSON.stringify({ theme: 'light' }));
+localStorage.setItem('milagre-settings', JSON.stringify({ theme: 'light', otherComputers: true }));
 const { default: App } = await import('/src/App');
 createRoot(document.getElementById('root')).render(<App />);
 `;
@@ -464,6 +467,24 @@ async function browserChecks() {
     await visibleLine(2, "empty line scrolled upward");
     assert.equal(await evaluate("window.calls.length"), sendsBeforeScrolling, "newlines and undo never send");
     console.log("PASS: capped composer reveals every empty line after text, wraps and chips, including interior edits and undo/redo");
+
+    // An @ pick of another computer: a computer chip, `@computer:Name` in the draft, and the computer chip in the sent bubble.
+    // The capped draft goes out first, so the computer's message starts from an empty composer.
+    await sendNow();
+    await typeText("run it on @San");
+    await waitFor(`[...document.querySelectorAll('[data-skill-group]')].some(group => group.textContent === 'Computers')`, "the Computers group");
+    await screenshot("composer-computer-menu");
+    await keydown("Enter");
+    await draftIs("run it on @computer:Santo ");
+    assert.deepEqual(await chips("computer"), ["Santo"]);
+    await screenshot("composer-computer-chip");
+    const sentComputer = await sendNow();
+    assert.equal(sentComputer.body, "run it on @computer:Santo");
+    await waitFor(
+      `[...document.querySelectorAll('[aria-label="Conversation"] [data-chip="computer"]')].some(chip => chip.textContent.includes('Santo'))`,
+      "the sent computer chip",
+    );
+    console.log("PASS: an @ pick of a computer makes a computer chip and sends @computer:Name");
 
     assert.deepEqual(errors, []);
     app.exit(0);

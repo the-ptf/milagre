@@ -98,8 +98,16 @@ export const useStyles = () => new Proxy({}, { get: () => ({}) });
 export const ErrorNotice = ({message}) => <span>{message}</span>;
 export const Field = ({value, onChangeText, label}) => <input aria-label={label} value={value} onChange={e => onChangeText(e.target.value)} />;
 export const IconButton = ({label, onPress}) => <button aria-label={label} onClick={onPress} />;
+export const CircleButton = IconButton;
+export const EmptyState = ({title, action}) => <div>{title}{action && <button onClick={action.onPress}>{action.title}</button>}</div>;
 export const PageScroll = ({children}) => <div>{children}</div>;
 export const PullDown = ({children, label, onPress}) => <div role="button" aria-label={label} onClick={onPress}>{children}</div>;
+export const SectionLabel = ({children}) => <span>{children}</span>;
+export const Toast = ({text}) => <span>{text}</span>;
+export const DISABLED_OPACITY = { row: 0.4 };
+export const pressStyle = () => ({});
+export const announce = () => {};
+export const useAnnounce = () => {};
 `;
 const stubs = {
   "react-native": native,
@@ -112,7 +120,7 @@ const stubs = {
   "./live": "export const syncProject = () => () => {};",
   "./ui": ui,
   "./theme":
-    "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
+    "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const inkFor = (colors, tone) => ['ink', 'ink2', 'ink3'].includes(tone) ? colors[tone] : colors[tone + 'Ink']; export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
   "./primitives/tap": "export const tap = () => {};",
   // The toast pill draws the phone's icons and theme, native-only: here it is its text and Undo.
   "./primitives/toast":
@@ -157,7 +165,12 @@ async function browserChecks() {
   }, 90_000).unref();
   await app.whenReady();
   // App waits for the splash animation to finish; a shown window keeps its compositor painting under Xvfb.
-  const window = new BrowserWindow({ width: 1200, height: 800, show: true, webPreferences: { backgroundThrottling: false } });
+  const window = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    show: true,
+    webPreferences: { backgroundThrottling: false },
+  });
   const errors = [];
   window.webContents.on("console-message", (event) => {
     if (event.level === "error") {
@@ -242,7 +255,7 @@ async function browserChecks() {
     await delay(50);
     await evaluate("window.hold = true; window.drawer(true)");
     await waitFor(contains("alpha Chat"));
-    assert.equal(await evaluate(contains("Loading chats...")), false, "drawer remount renders cached list");
+    assert.equal(await evaluate(contains("Loading Chats…")), false, "drawer remount renders cached list");
     await waitFor("['/alpha', '/beta'].every(path => window.requests.some(request => request.path === path))");
     await evaluate("window.drawer(false)");
     await delay(50);
@@ -254,9 +267,9 @@ async function browserChecks() {
     await waitFor(contains("Fresh alpha Chat"));
     assert.equal(await evaluate(contains("beta Chat")), true);
     await evaluate("window.fail('/beta')");
-    await waitFor(contains("Could not refresh chats. Tap to retry."));
+    await waitFor(contains("Could not refresh Chats. Tap to retry."));
     assert.equal(await evaluate(contains("beta Chat")), true);
-    await evaluate("[...document.querySelectorAll('button')].find(node => node.textContent.includes('Could not refresh chats')).click()");
+    await evaluate("[...document.querySelectorAll('button')].find(node => node.textContent.includes('Could not refresh Chats')).click()");
     await waitFor("window.requests.some(request => request.path === '/beta')");
     await evaluate("window.finish('/beta', 'Retried beta')");
     await waitFor(contains("Retried beta Chat"));
@@ -303,8 +316,8 @@ async function browserChecks() {
     })()`);
     await delay(50);
     await evaluate("window.drawer(true)");
-    await waitFor(contains("No chats yet. Start one with +."));
-    assert.equal(await evaluate(contains("Loading chats...")), false, "an empty list fetched while unmounted is still a loaded cache entry");
+    await waitFor(contains("No Chats yet. Start one with +."));
+    assert.equal(await evaluate(contains("Loading Chats…")), false, "an empty list fetched while unmounted is still a loaded cache entry");
     await evaluate("window.drawer(false)");
     await delay(50);
     await evaluate("window.finish('/alpha', 'Warm alpha'); window.hold = false; window.compactPreviews = true");

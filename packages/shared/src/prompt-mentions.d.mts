@@ -14,3 +14,6 @@ export function editImageMentions(
 export type MentionChat = { id: number; title: string; branch: string; at: number; lastAt?: number; available: boolean };
 export function chatMentionChoices(state: Pick<import("./model.ts").CoordinatorState, "sessions" | "worktrees">): MentionChat[];
 export function matchingMentionChats(chats: readonly MentionChat[], query: string, currentId?: number): MentionChat[];
+
+export type MentionComputer = { id: string; name: string; online: boolean; self?: boolean };
+export function matchingMentionComputers(computers: readonly MentionComputer[], query: string): MentionComputer[];

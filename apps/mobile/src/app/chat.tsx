@@ -1,3 +1,4 @@
+import { radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { compactionContext } from "@milagre/shared/compaction";
@@ -66,7 +67,7 @@ import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useS
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
-import { chatMentionChoices, shiftImageMentions } from "@milagre/shared/prompt-mentions";
+import { chatMentionChoices, shiftImageMentions, type MentionComputer } from "@milagre/shared/prompt-mentions";
 import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
 import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "../status-indicators";
 import { usePrDetail } from "../pr-store";
@@ -123,7 +124,7 @@ import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
 import { QueuedMessages } from "../queued-messages";
-import { DEFAULT_MESSAGE_DELIVERY, deliveryOptions, type MessageDelivery } from "@milagre/shared/queued-messages";
+import { followUpDelivery } from "@milagre/shared/queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 import { Icon, LinearLogo } from "../icons";
@@ -157,7 +158,7 @@ import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
-import { allComputers, chatsHomePath, useNewChatProjects, useNoProjectChoice } from "../all-computers";
+import { allComputers, chatsHomePath, useComputerViews, useNewChatProjects, useNoProjectChoice } from "../all-computers";
 import {
   CHATS_PLACEHOLDER,
   CHATS_TRAY_LABEL,
@@ -457,7 +458,6 @@ function ChatPane({
   );
   const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
   const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
-  const [delivery, setDelivery] = useState<MessageDelivery>(DEFAULT_MESSAGE_DELIVERY);
   const targetHost = params.hostId || session.client?.url || "";
   const reachableHost = useReachableHost(session.client?.url);
   const targetProject = params.projectPath || session.snapshot?.project.path || "";
@@ -562,6 +562,16 @@ function ChatPane({
   const liveRun = useRun(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
+  // The computers an @ can name: this Chat's computer first, then the others this phone reaches.
+  const computerViews = useComputerViews();
+  const mentionHost = connected?.url;
+  const mentionComputerKey = JSON.stringify([
+    ...(session.hostName && !computerViews.some((view) => view.hostId === mentionHost)
+      ? [{ id: mentionHost ?? "this", name: session.hostName, online: true, self: true }]
+      : []),
+    ...computerViews.map((view) => ({ id: view.hostId, name: view.name, online: view.state === "online", self: view.hostId === mentionHost })),
+  ]);
+  const mentionComputers = useMemo(() => JSON.parse(mentionComputerKey) as MentionComputer[], [mentionComputerKey]);
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
   // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
@@ -1168,8 +1178,9 @@ function ChatPane({
   const compactQueued = chat?.queued?.find((item) => compactionContext(item));
   const compacting = compactionContext(messages.findLast((item) => compactionContext(item)))?.status === "preparing";
   const canSteer = !compacting && providerCapabilities(chat?.provider ?? actualProvider).steer;
-  const followUpChoices = deliveryOptions(canSteer);
-  const followUpLabel = delivery === "queue" ? followUpChoices[0].label : followUpChoices[1].label;
+  // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
+  const delivery = followUpDelivery(contextSettings.followUps);
+  const queuesFollowUp = delivery === "queue" || !canSteer;
   const compactBlocked = compacting || busy || Boolean(session.error) || Boolean(chat?.archived) || unavailable;
   const compactButton =
     !quietContext && (compactState.visible || compactQueued || compacting) ? (
@@ -1193,7 +1204,7 @@ function ChatPane({
           opacity: compactBlocked ? 0.4 : pressed ? 0.6 : 1,
         })}
       >
-        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={14} />
+        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={12} />
         <Text style={{ fontSize: 12, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}>
           {compacting ? "Compacting…" : compactQueued ? "Queued" : run ? "After turn" : "Compact"}
         </Text>
@@ -1950,7 +1961,7 @@ function ChatPane({
       <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
         {title}
       </Text>
-      {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={13} />}
+      {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={12} />}
     </View>
   );
   const header = (
@@ -1984,7 +1995,7 @@ function ChatPane({
             )}
             {!project.link && !chatsHomeOpen && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
-                <Icon icon={GitBranchIcon} tone="ink3" size={11} />
+                <Icon icon={GitBranchIcon} tone="ink3" size={12} />
                 <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
                   {chatBranchLabel(chat, worktree?.name) ?? ""}
                 </Text>
@@ -2605,7 +2616,7 @@ function ChatPane({
                           {startTray && chatsHomeOpen ? (
                             // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
-                              <Icon icon={BubbleChatIcon} tone="ink2" size={14} />
+                              <Icon icon={BubbleChatIcon} tone="ink2" size={12} />
                               <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
                             </View>
                           ) : (
@@ -2660,7 +2671,7 @@ function ChatPane({
                                         opacity: targetDisabled ? 0.35 : 1,
                                       }}
                                     >
-                                      <Icon icon={ComputerIcon} tone="ink2" size={14} />
+                                      <Icon icon={ComputerIcon} tone="ink2" size={12} />
                                       <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                         {computerName}
                                       </Text>
@@ -2671,7 +2682,7 @@ function ChatPane({
                                 <PullDown
                                   label="Choose isolation"
                                   nativeTrigger={{
-                                    title: isolation === "local" ? "Local" : "New worktree",
+                                    title: isolation === "local" ? "Local" : "New Worktree",
                                     systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
                                     icon: isolation === "local" ? "laptop" : "fork",
                                     disabled: targetDisabled,
@@ -2690,7 +2701,7 @@ function ChatPane({
                                         },
                                         {
                                           id: "worktree",
-                                          title: "New worktree",
+                                          title: "New Worktree",
                                           systemImage: "arrow.triangle.branch",
                                           icon: "fork",
                                           checked: isolation === "worktree",
@@ -2714,9 +2725,9 @@ function ChatPane({
                                       opacity: targetDisabled ? 0.35 : 1,
                                     }}
                                   >
-                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
+                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={12} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                      {isolation === "local" ? "Local" : "New worktree"}
+                                      {isolation === "local" ? "Local" : "New Worktree"}
                                     </Text>
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
@@ -2725,13 +2736,13 @@ function ChatPane({
                                   label="Choose branch"
                                   style={{ flexShrink: 1 }}
                                   searchable={{
-                                    placeholder: newWorktree ? "Search branches" : "Search worktrees",
+                                    placeholder: newWorktree ? "Search branches" : "Search Worktrees",
                                     emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
                                   }}
                                   nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
                                   sections={[
                                     {
-                                      title: newWorktree ? "Branch from" : "Choose a worktree",
+                                      title: newWorktree ? "Branch from" : "Choose a Worktree",
                                       items: newWorktree
                                         ? (branches?.items || []).map((item) => ({
                                             id: item,
@@ -2769,7 +2780,7 @@ function ChatPane({
                                       opacity: branchDisabled ? 0.35 : 1,
                                     }}
                                   >
-                                    <Icon icon={GitBranchIcon} tone="ink2" size={14} />
+                                    <Icon icon={GitBranchIcon} tone="ink2" size={12} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                       {branchName}
                                     </Text>
@@ -2830,7 +2841,7 @@ function ChatPane({
                                       key={item.id}
                                       style={{
                                         backgroundColor: colors.field,
-                                        borderRadius: 12,
+                                        borderRadius: radius.card,
                                         borderCurve: "continuous",
                                         paddingLeft: item.image ? 4 : 10,
                                         flexDirection: "row",
@@ -2839,7 +2850,11 @@ function ChatPane({
                                       }}
                                     >
                                       {item.image ? (
-                                        <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
+                                        <Image
+                                          source={{ uri: item.uri }}
+                                          accessibilityLabel={item.name}
+                                          style={{ width: 44, height: 44, borderRadius: radius.control }}
+                                        />
                                       ) : (
                                         <Pressable
                                           accessibilityRole="button"
@@ -2892,6 +2907,7 @@ function ChatPane({
                               // keyboard focus and the caret. Saved Chats still get an input of their own.
                               key={params.id ? chatId : "new"}
                               chats={mentionChats}
+                              computers={mentionComputers}
                               currentId={chat?.id}
                               client={client}
                               projectPath={worktree?.path || (project.link ? "" : project.path)}
@@ -2920,9 +2936,9 @@ function ChatPane({
                                 offline
                                   ? `Queue a message for ${computerName || "this computer"}`
                                   : run
-                                    ? delivery === "queue"
+                                    ? queuesFollowUp
                                       ? "Queue a message for the next turn"
-                                      : "Send a message now"
+                                      : "Steer the agent"
                                     : chatsHomeOpen && !params.id
                                       ? CHATS_PLACEHOLDER
                                       : undefined
@@ -2945,28 +2961,6 @@ function ChatPane({
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
                             />
-                            {run && !offline && (
-                              <PullDown
-                                label="Follow-up delivery"
-                                nativeTrigger={{ title: followUpLabel, systemImage: "clock", disabled: busy, minHeight: 44, fontSize: 15 }}
-                                sections={[
-                                  {
-                                    items: followUpChoices.map((item) => ({
-                                      id: item.value,
-                                      title: item.label,
-                                      subtitle: item.description,
-                                      checked: item.value === delivery,
-                                    })),
-                                  },
-                                ]}
-                                onSelect={(id) => setDelivery(id as MessageDelivery)}
-                                style={{ alignSelf: "flex-end" }}
-                              >
-                                <View style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 10 }}>
-                                  <Text style={{ color: colors.ink2, fontSize: 15 }}>{followUpLabel}</Text>
-                                </View>
-                              </PullDown>
-                            )}
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                               <PullDown
                                 label="Add photos or files"
@@ -2984,7 +2978,7 @@ function ChatPane({
                                 onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
                               >
                                 <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
-                                  <Icon icon={Add01Icon} tone="ink2" size={21} />
+                                  <Icon icon={Add01Icon} tone="ink2" size={20} />
                                 </View>
                               </PullDown>
                               <AgentControls
@@ -3054,30 +3048,20 @@ function ChatPane({
                               )}
                               {run && !offline && !draft.trim() && !attachments.length && (
                                 <IconButton
-                                  label="Stop"
+                                  label="Stop agent"
                                   icon={StopIcon}
                                   filled
-                                  size={34}
+                                  size={36}
                                   disabled={actionBusy}
                                   onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
                                 />
                               )}
                               {(offline || !run || !!draft.trim() || !!attachments.length) && (
                                 <IconButton
-                                  label={
-                                    busy
-                                      ? "Sending..."
-                                      : offline
-                                        ? "Queue message"
-                                        : run
-                                          ? delivery === "queue"
-                                            ? "Queue message"
-                                            : followUpChoices[1].label
-                                          : "Send message"
-                                  }
+                                  label={busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"}
                                   icon={ArrowUp01Icon}
                                   filled
-                                  size={34}
+                                  size={36}
                                   loading={busy}
                                   disabled={sendDisabled}
                                   onPress={() => void send()}

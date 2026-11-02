@@ -44,7 +44,7 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
       transition={{ duration: SECONDS, times: [0, 0.06, 0.82, 1], ease: "easeOut" }}
       onAnimationComplete={onDone}
     >
-      <div className="absolute inset-0 bg-black/80" />
+      <div className="absolute inset-0 bg-media/80" />
       <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at center, transparent 30%, rgba(76,29,149,0.6) 100%)" }} />
       <motion.div
         className="relative"
@@ -63,8 +63,8 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
               className="text-[min(13vw,160px)] leading-none tracking-[0.04em]"
               style={{
                 fontFamily: "Creepster, Impact, sans-serif",
-                color: "#a855f7",
-                backgroundImage: "linear-gradient(180deg, #f0abfc 0%, #a855f7 45%, #4c1d95 100%)",
+                color: "var(--purple)",
+                backgroundImage: "linear-gradient(180deg, #f0abfc 0%, var(--purple) 45%, #4c1d95 100%)",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 // The stroke paints over the fill and eats into Creepster's heavy strokes, so the letters read thinner.

@@ -63,6 +63,10 @@ import { isModalOpen } from "../lib/modal";
 import { GitActionsDialog } from "./GitActionsDialog";
 import { gitChatContext } from "../lib/git-dialog";
 import { Select } from "./primitives/Select";
+import { Button } from "./primitives/Button";
+import { InlineError } from "./primitives/InlineError";
+import { Dialog } from "./primitives/Dialog";
+import { Notice } from "./Notice";
 import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
@@ -251,7 +255,6 @@ export function LinkWorkspace({
   const [gitMemberId, setGitMemberId] = useState("");
   const [gitDialog, setGitDialog] = useState<{ sessionId: number; member: WorktreeBinding } | null>(null);
   const [gitChoice, setGitChoice] = useState<number | null>(null);
-  const memberDialog = useRef<HTMLDialogElement>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const terminalChatId = canvasOpen || session?.archived ? null : chatId;
@@ -289,9 +292,6 @@ export function LinkWorkspace({
   const committedLists = useLinkDiffLists({ members: comparisonMembers, chatId, mode: "committed", active: changes.open });
   const diffPrefs = useDiffPreferences();
   const comments = useDiffComments(chosen && chatId ? `${chatId}:${chosen.projectId}` : null, changes);
-  useEffect(() => {
-    if (gitChoice !== null) memberDialog.current?.showModal();
-  }, [gitChoice]);
   const latest = useRef({ sessionId, text: "", active: true, selection: 0 });
   latest.current.sessionId = sessionId;
   useEffect(() => {
@@ -615,14 +615,10 @@ export function LinkWorkspace({
         <DotBackground>
           <PersistenceNotices scopes={saveScopes.filter((entry) => entry.scope !== owner || canvasOpen || changes.diffOpen)}>
             {!hostConnection.connected && (
-              <div
-                role="status"
-                data-host-disconnected
-                className="w-full rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
-              >
+              <Notice data-host-disconnected className="no-drag">
                 <p>Reconnecting to your computer</p>
                 <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
-              </div>
+              </Notice>
             )}
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
@@ -730,13 +726,10 @@ export function LinkWorkspace({
                 />
               ) : (
                 <>
-                  {error && session && (
-                    <p
-                      role="alert"
-                      className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red-ink shadow-overlay"
-                    >
+                  {session && (
+                    <InlineError variant="floating" className="absolute inset-x-5 top-14 z-30">
                       {error}
-                    </p>
+                    </InlineError>
                   )}
 
                   <DiffBar
@@ -959,19 +952,34 @@ export function LinkWorkspace({
             />
           )}
           {gitChoice !== null && (
-            <dialog
-              ref={memberDialog}
+            <Dialog
               aria-label="Choose Project for Git"
-              onCancel={() => setGitChoice(null)}
-              className="m-auto w-[380px] rounded-card bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+              title="Choose a Project"
+              description={
+                state.sessions[gitChoice]?.worktrees.length
+                  ? "Git actions apply to one Worktree."
+                  : "This Chat has no Worktree yet. It creates one when it changes a Project."
+              }
+              width={380}
+              onClose={() => setGitChoice(null)}
+              actions={
+                <>
+                  <Button variant="ghost" onClick={() => setGitChoice(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={!gitMemberId}
+                    onClick={() => {
+                      setGitDialog({ sessionId: gitChoice, member: memberWorktreeForAction(state, gitChoice, gitMemberId) });
+                      setGitChoice(null);
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </>
+              }
             >
-              <div className="p-5" onClick={(event) => event.stopPropagation()}>
-                <h2 className="text-[16px] font-semibold">Choose a Project</h2>
-                <p className="mt-1 mb-4 text-[13px] text-ink-2">
-                  {state.sessions[gitChoice]?.worktrees.length
-                    ? "Git actions apply to one Worktree."
-                    : "This Chat has no Worktree yet. It creates one when it changes a Project."}
-                </p>
+              <div className="mt-4">
                 <Select
                   label="Project"
                   value={gitMemberId}
@@ -985,30 +993,14 @@ export function LinkWorkspace({
                     })),
                   ]}
                 />
-                <div className="mt-4 flex justify-end gap-2">
-                  <button type="button" className="rounded-control px-3 py-2 text-sm hover:bg-hover-2" onClick={() => setGitChoice(null)}>
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!gitMemberId}
-                    className="rounded-control bg-ink px-3 py-2 text-sm text-surface disabled:opacity-40"
-                    onClick={() => {
-                      setGitDialog({ sessionId: gitChoice, member: memberWorktreeForAction(state, gitChoice, gitMemberId) });
-                      setGitChoice(null);
-                    }}
-                  >
-                    Continue
-                  </button>
-                </div>
               </div>
-            </dialog>
+            </Dialog>
           )}
           {commandsOpen && (
             <CommandPalette
               commands={[
                 { id: "new", label: "New Chat", group: "Actions", icon: "chat", run: onNewChat ? () => onNewChat() : () => pick(null) },
-                { id: "link", label: "Link projects…", group: "Actions", icon: "folder", run: onLinkProject },
+                { id: "link", label: "Link Projects…", group: "Actions", icon: "folder", run: onLinkProject },
                 { id: "edit-link", label: "Edit Link…", group: "Actions", icon: "folder", run: () => onEditLink(opened.link.id) },
                 ...recents.map((row) => ({ id: row.id, label: row.label, group: "Chats", icon: "chat" as const, run: () => pick(Number(row.id)) })),
                 ...opened.projects.map((project) => ({

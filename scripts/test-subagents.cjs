@@ -162,7 +162,10 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     assert.equal(await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true]").length'), 0);
     assert.equal(await evaluate('document.querySelectorAll("[data-subagent-row]").length'), 2);
-    assert.ok(await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").getBoundingClientRect().height <= 24'));
+    assert.ok(
+      await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").getBoundingClientRect().height <= 28'),
+      "the composer-row pill is 28px, like a Chip",
+    );
     const rowPosition = await evaluate(
       '(() => {const r=document.querySelector("[data-subagent-row]").getBoundingClientRect();return {x:Math.round(r.right-38),y:Math.round(r.top+r.height/2)}})()',
     );
