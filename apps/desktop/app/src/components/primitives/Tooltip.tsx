@@ -21,7 +21,7 @@ import { ShortcutKeys } from "./ShortcutKeys";
 export const TOOLTIP_SHOW_DELAY = 400;
 
 /** Set inside a Tooltip, so an IconButton in it doesn't add a second one. */
-export const InTooltip = createContext(false);
+const InTooltip = createContext(false);
 
 /** Where a trigger's floating layers go: an open modal dialog or a popover host sits above body, so they go into it. */
 export const layerHost = (trigger: Element | null | undefined) => trigger?.closest("dialog, [data-popover-host]") ?? document.body;

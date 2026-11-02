@@ -44,7 +44,7 @@ Two weights: 500 (medium) and 600 (semibold). 700 only for the phone's 34pt larg
   `paper` (a page that stays white), `purple` / `purple-ink` / `purple-tint` (`ULTRACODE_PURPLE`, which themes don't
   override), `shadow-pin`. Never a Tailwind palette colour (`purple-500`, `black/40`) or a hex in a component.
 - A bare `transition` runs at `duration-fast` on `ease-enter` (the `@theme` default). JS motion: `EASE_OUT`,
-  `EASE_SLIDE`, `DURATION` (`lib/ease.ts`).
+  `DURATION` (`lib/ease.ts`).
 - Phone sizes, radii and motion come from `apps/mobile/src/design-tokens.ts` (`type.footnote`, `radius.card`,
   `duration.base`, `Easing.bezier(...easing.enter)`, `chrome.header`), colours from `theme.ts` (`inkFor(colors, tone)`
   for a status tone as text).

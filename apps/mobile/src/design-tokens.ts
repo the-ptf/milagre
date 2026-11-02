@@ -67,5 +67,5 @@ export const easing = {
 export const chrome = { header: 52 } as const;
 
 /** The 44pt touch floor; a smaller visual makes it up with `hitSlop={hitSlopFor(size)}`. */
-export const minTarget = 44;
+const minTarget = 44;
 export const hitSlopFor = (size: number) => Math.max(0, (minTarget - size) / 2);
