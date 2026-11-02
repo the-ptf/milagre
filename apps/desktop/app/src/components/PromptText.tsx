@@ -1,7 +1,7 @@
 import { Fragment, useMemo } from "react";
 import { promptParts } from "@milagre/shared/prompt-parts";
 import { useChatMentions } from "./ChatMentions";
-import { ChatChip, FileChip, ImageChip, SkillChip } from "./PromptChip";
+import { ChatChip, ComputerChip, FileChip, ImageChip, SkillChip } from "./PromptChip";
 
 /**
  * A prompt as typed, with its skills, file mentions and inline images as chips.
@@ -27,7 +27,8 @@ export function PromptText({
 }) {
   const mentions = useChatMentions();
   const parts = useMemo(
-    () => promptParts(text, { skills: [...skills.keys()], files, images, chats: (id) => mentions.chats.some((chat) => chat.id === id) }),
+    // A sent `@computer:` token was a chip when it was written: it stays one even once that computer is gone.
+    () => promptParts(text, { skills: [...skills.keys()], files, images, chats: (id) => mentions.chats.some((chat) => chat.id === id), computers: () => true }),
     [text, skills, files, images, mentions.chats],
   );
   return (
@@ -47,6 +48,8 @@ export function PromptText({
                 : undefined
             }
           />
+        ) : part.kind === "computer" ? (
+          <ComputerChip key={index} name={part.name} />
         ) : part.kind === "image" ? (
           <ImageChip key={index} index={part.index} name={imageNames?.[part.index - 1]} onOpen={onOpenImage ? () => onOpenImage(part.index) : undefined} />
         ) : (

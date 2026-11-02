@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BubbleChatIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, ComputerIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
@@ -143,6 +143,20 @@ export function ChatChip({ title, onOpen }: { title: string; onOpen?: () => void
   ) : (
     <span data-chip="chat" className={className}>
       {content}
+    </span>
+  );
+}
+
+/** A computer the message names: the agent is told about it, and can hand work there. */
+export function ComputerChip({ name, online = true }: { name: string; online?: boolean }) {
+  return (
+    <span
+      data-chip="computer"
+      className={`${CHIP} border-line-strong bg-hover ${online ? "text-ink" : "text-ink-3"}`}
+      title={online ? name : `${name} is offline`}
+    >
+      <HugeiconsIcon icon={ComputerIcon} size={ICON_SIZE} strokeWidth={1.8} aria-hidden />
+      <span className={LABEL}>{name}</span>
     </span>
   );
 }
