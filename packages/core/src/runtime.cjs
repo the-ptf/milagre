@@ -1671,6 +1671,11 @@ function createRuntime(options) {
     botHome: (projectPath) => Boolean(bots?.isHome(projectPath)),
     // A Run that ends is named from its final reply, with the models that name Chats.
     generateRunTitle: (request) => generateRunTitle(request, { models: titleModels(request.projectPath), isClosing: () => closing }),
+    // Flow steps: Linear reads and comments (made further down), the Stop button, and the "waits for you" notification.
+    linearIssues: () => linearIssues,
+    linearTools: () => linearTools,
+    stopChat: (chatId) => stopChat(chatId),
+    notifyWaiting: (notice) => options.notifyWaiting?.(notice),
     timers: options.routines,
   });
   routines.start();
@@ -1715,6 +1720,9 @@ function createRuntime(options) {
   commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
   commands.handle("routines:delete", (_event, id) => routines.remove(id));
   commands.handle("routines:run-now", (_event, id) => routines.runNow(id));
+  // A flow Run's owner actions. The Routine's id comes first so a paired computer's window routes it to the right Mac.
+  commands.handle("routines:flow-act", (_event, _routineId, runId, action, options) => routines.flowAct(runId, action, options));
+  commands.handle("routines:flow-test", (_event, id) => routines.flowTest(id));
   // A Routine the user made in the Routines form; routines.create checks its target (a Project Milagre lists).
   commands.handle("routines:create", async (_event, input) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");

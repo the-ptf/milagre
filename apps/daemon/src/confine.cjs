@@ -200,6 +200,8 @@ const PATHS = Object.freeze({
   "routines:update": denied,
   "routines:delete": denied,
   "routines:run-now": denied,
+  "routines:flow-act": denied,
+  "routines:flow-test": denied,
   "routines:create": denied,
   // A webhook URL reaches this Mac from anywhere: a confined phone neither reads nor makes one.
   "routines:hook": denied,

@@ -20,6 +20,7 @@ import type {
   ChatMessage,
   Routine,
   RoutineFallback,
+  FlowStep,
   RoutineRun,
   RoutineTarget,
   RoutineTrigger,
@@ -115,6 +116,10 @@ export type RoutineUpdate = Partial<Pick<Routine, "name" | "prompt" | "enabled">
   /** Webhook Routines: a new HMAC secret (write-only, never read back) and the header the signature comes in (null or blank: the default). */
   signingSecret?: string;
   signingHeader?: string | null;
+  /** A flow's draft steps, saved as they are edited; null drops the draft. */
+  flowDraft?: FlowStep[] | null;
+  /** Makes the draft the steps new Runs use (the next revision). */
+  publishFlow?: true;
 };
 
 /** A Routine the user makes in the Routines form. It is always theirs (`createdBy` is set by the Mac). */
@@ -123,7 +128,12 @@ export type RoutineCreate = Pick<Routine, "name" | "prompt" | "trigger" | "targe
     /** Webhook Routines: the HMAC secret, write-only (signs the Routine), and the header the signature comes in. */
     signingSecret?: string;
     signingHeader?: string;
+    /** A flow: its steps, published at revision 1, or with `publish: false` kept as a draft (the Routine stays off). */
+    flow?: { steps: FlowStep[]; publish?: boolean };
   };
+
+/** What the owner does to a flow Run. */
+export type FlowRunAction = "approve" | "reject" | "pause" | "resume" | "end" | "retry";
 
 /** The Routines form's Linear choices. `error` says why a read failed. */
 export type RoutineLinearOptions = {
@@ -466,6 +476,10 @@ export type MilagreBridge = {
   updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;
   deleteRoutine: (id: string) => Promise<{ removed: boolean }>;
   runRoutineNow: (id: string) => Promise<RoutineRun | undefined>;
+  /** Approve, reject (with `reason`), pause, resume, end or retry (with `note`) a flow Run of Routine `routineId`. */
+  flowRunAct: (routineId: string, runId: string, action: FlowRunAction, options?: { reason?: string; note?: string }) => Promise<{ run: RoutineRun | null }>;
+  /** A Test run of the flow's draft. */
+  testFlow: (id: string) => Promise<{ run: RoutineRun }>;
   /** `hookUrl` comes with a webhook Routine (a later update). */
   createRoutine: (input: RoutineCreate) => Promise<{ routine: Routine; hookUrl?: string }>;
   routineTargets: () => Promise<RoutineTargets>;

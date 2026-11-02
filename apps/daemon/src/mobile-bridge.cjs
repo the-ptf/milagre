@@ -75,6 +75,8 @@ const METHODS = new Set([
   "routines:update",
   "routines:delete",
   "routines:run-now",
+  "routines:flow-act",
+  "routines:flow-test",
   "routines:create",
   "routines:targets",
   "routines:linear-options",
