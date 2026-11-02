@@ -435,6 +435,8 @@ async function startDaemon({
     isChatFocused,
     notifyWaiting(notice) {
       broadcast("notification:waiting", notice);
+      // A flow Run waiting for approval raised no agent event, so the phone hears it here (agent ones go through observe).
+      if (String(notice?.requestId ?? "").startsWith("flow:")) push.notice(notice.chatId, notice);
       runtimeOptions.notifyWaiting?.(notice);
     },
     emit(channel, payload) {
