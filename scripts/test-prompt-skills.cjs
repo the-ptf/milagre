@@ -318,6 +318,23 @@ async function browserChecks() {
     await evaluate(keyDown);
     await waitFor("window.micStops === 2");
     await evaluate(keyUp);
+    await type("open miracle");
+    await evaluate("window.setDictationPhase('recording')");
+    await waitFor("!!document.querySelector('[data-dictation-capsule]')");
+    const recordingHeight = await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height");
+    await evaluate("window.setDictationPhase('transcribing')");
+    await waitFor("document.querySelector('[data-dictation-status]')?.textContent.includes('Finishing the last words')");
+    assert.equal(
+      await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height"),
+      recordingHeight,
+      "Stop never inserts a row or moves the text area",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('[data-dictation-status]').classList.contains('sr-only')"),
+      true,
+      "finishing remains announced without a visible flash",
+    );
+    await evaluate("window.setDictationPhase('idle')");
     await type("");
     await evaluate(
       "window.deliverTranscript('open miracle', {selection:{start:0,end:0}}, {model:'GPT-6 Luna',text:new Promise(resolve=>{window.finishCorrection=resolve})})",
@@ -396,7 +413,7 @@ async function main() {
           return `import { useEffect, useState } from 'react';
             export function useDictation(cwd, scope, deliver) {
               const [phase, setPhase] = useState('idle');
-              window.startRecording = () => setPhase('recording');
+              window.startRecording = () => setPhase('recording'); window.setDictationPhase = setPhase;
               useEffect(() => { window.deliverTranscript = (text, anchor, correction = null) => deliver(text, anchor, correction); });
               return { phase, error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() { window.micStarts = (window.micStarts || 0) + 1; setPhase('preparing'); }, stop() { window.micStops = (window.micStops || 0) + 1; setPhase('idle'); }, cancel() { setPhase('idle'); }, dismiss() {}, openSettings() {} };
             }`;

@@ -231,6 +231,7 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
       ) : (
         <View
           accessibilityRole="progressbar"
+          accessibilityLiveRegion="polite"
           accessibilityLabel={phase === "preparing" ? "Preparing the microphone" : "Finishing the last words"}
           style={{ width: CONTROL, height: CONTROL, alignItems: "center", justifyContent: "center" }}
         >
