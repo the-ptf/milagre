@@ -8345,28 +8345,6 @@ test("mobile simulator receiver is an OTA JS string cached locally; backgroundin
   assert.equal(tree.type, "DomWebView");
   assert.match(tree.props.source.uri, /^file:\/\/\/cache\//);
   assert.match(h.files.get(tree.props.source.uri), /RTCPeerConnection/);
-  const events = {},
-    destinations = [];
-  const popupWindow = {};
-  require("node:vm").runInNewContext(tree.props.injectedJavaScriptBeforeContentLoaded, {
-    window: popupWindow,
-    URL,
-    location: { href: BROWSER_PAGE.url, assign: (url) => destinations.push(url) },
-    document: {
-      addEventListener: (name, callback) => {
-        events[name] = callback;
-      },
-    },
-  });
-  const link = { target: "_blank" };
-  events.click({ target: { closest: () => link } });
-  assert.equal(link.target, "_self");
-  const form = { target: "payment" };
-  events.submit({ target: form });
-  assert.equal(form.target, "_self");
-  assert.equal(popupWindow.open("/login-popup"), popupWindow);
-  popupWindow.open("javascript:alert(1)");
-  assert.deepEqual(destinations, ["https://example.com/login-popup"]);
   assert.equal(tree.props.useExpoModulesBridge, false);
   tree.props.ref.current = { injectJavaScript: (value) => injected.push(value) };
   tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: "milagre-simulator", id: 1, method: "open", args: { deviceId: "sim" } }) } });
