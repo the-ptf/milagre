@@ -16,10 +16,11 @@ import "/src/fonts.css";
 import "/src/styles.css";
 localStorage.setItem("milagre.tokenUsage", JSON.stringify({ metric: "tokens", range: "7d" }));
 window.accountUsageReads = 0;
+window.analyticsReads = 0;
 window.accountData = ${JSON.stringify(accountUsage)};
 window.defaultActions = [];
 window.milagre = {
-  readTokenUsage: async () => (${JSON.stringify(report)}),
+  readTokenUsage: async () => { window.analyticsReads++; return (${JSON.stringify(report)}); },
   getCachedAccountUsage: async () => window.accountData,
   readAccountUsage: async () => { window.accountUsageReads++; return window.accountData; },
   accountAction: async (...args) => {
@@ -54,10 +55,15 @@ async function check() {
   }
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`document.querySelectorAll("[data-usage-project]").length === 2`);
     await waitFor(`document.querySelectorAll("[data-account-usage] [data-usage-account]").length === 3`);
-    assert.equal(await evaluate(`document.querySelectorAll("[data-usage-model]").length`), 1, "Activity model details stay visible");
-    assert.equal(await evaluate(`document.querySelectorAll("[data-usage-day]").length > 0`), true, "Activity calendar stays visible");
+    assert.equal(await evaluate("window.analyticsReads"), 0, "Plan usage does not read analytics");
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Usage view"] [aria-selected=true]').textContent`), "Plan usage");
+    assert.equal(
+      await evaluate(`document.querySelector('[data-usage-provider=claude]').classList.contains('bg-surface')`),
+      true,
+      "each provider has its own surface",
+    );
+    assert.equal(await evaluate(`document.querySelector('[data-usage-provider=codex]').classList.contains('shadow-card')`), true);
     assert.equal(await evaluate(`document.querySelectorAll("[data-usage-provider=claude] [data-usage-account]").length`), 2);
     for (const [id, percent] of [
       ["personal", 21],
@@ -72,6 +78,14 @@ async function check() {
     await waitFor(`!document.querySelector(${refreshSelector}).disabled`);
     await evaluate(`document.querySelector(${refreshSelector}).click()`);
     await waitFor("window.accountUsageReads === 2");
+    await evaluate(`document.querySelector('[aria-label="Usage view"] [aria-selected=true]').focus()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
+    await waitFor(`document.querySelectorAll("[data-usage-project]").length === 2`);
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Usage view"] [aria-selected=true]').textContent`), "Analytics");
+    assert.equal(await evaluate(`document.querySelector('[data-account-usage]')`), null, "analytics is separate from account limits");
+    assert.equal(await evaluate(`document.querySelectorAll("[data-usage-model]").length`), 1, "Activity model details stay visible");
+    assert.equal(await evaluate(`document.querySelectorAll("[data-usage-day]").length > 0`), true, "Activity calendar stays visible");
     for (const owner of [home, link]) {
       const selector = `[data-usage-project="${owner}"]`;
       await evaluate(
@@ -92,6 +106,9 @@ async function check() {
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "chat-attribution.png"), (await window.webContents.capturePage()).toPNG());
     }
+    await evaluate(`document.querySelector('[aria-label="Usage view"] [role=tab]').click()`);
+    await waitFor(`document.querySelectorAll("[data-account-usage] [data-usage-account]").length === 3`);
+    const readsBeforeDefault = await evaluate("window.accountUsageReads");
     const actionSelector = '[data-usage-account="work"] button';
     assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(actionSelector)})).opacity`), "0", "action is hidden at rest");
     const actionRect = await evaluate(
@@ -111,7 +128,7 @@ async function check() {
     await waitFor(`!document.querySelector('[data-usage-account="work"] button')`);
     assert.deepEqual(await evaluate("window.defaultActions"), [["select", "claude", "work"]]);
     assert.match(await evaluate(`document.querySelector('[data-usage-account="work"]').textContent`), /Default/);
-    assert.equal(await evaluate("window.accountUsageReads"), 2, "changing the default reuses cached windows");
+    assert.equal(await evaluate("window.accountUsageReads"), readsBeforeDefault, "changing the default reuses cached windows");
     await evaluate(`window.failSelection = true; document.querySelector('[data-usage-account="personal"] button').click()`);
     await waitFor(`document.querySelector("[role=alert]")?.textContent.includes("Selection failed")`);
     assert.match(await evaluate(`document.querySelector('[data-usage-account="work"]').textContent`), /Default/);

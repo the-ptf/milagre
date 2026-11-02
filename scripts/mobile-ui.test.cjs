@@ -11638,6 +11638,27 @@ test("mobile tool output retries after reconnect and clears the failed-read cont
   react.unmount();
 });
 
+test("phone Usage tabs replace the route and keep the current tab selected", () => {
+  const replaced = [];
+  const { UsageTabs } = load("usage-tabs.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "expo-router": { router: { replace: (path) => replaced.push(path) } },
+    "./theme": themeHooks,
+  });
+  for (const value of ["plan", "analytics"]) {
+    const tabs = allNodes(UsageTabs({ value }), (node) => node.props?.accessibilityRole === "tab");
+    assert.deepEqual(
+      tabs.map((tab) => tab.props.accessibilityState.selected),
+      value === "plan" ? [true, false] : [false, true],
+    );
+    tabs.find((tab) => tab.props.accessibilityState.selected).props.onPress();
+    assert.equal(replaced.length, value === "plan" ? 0 : 1, "the active tab does not navigate again");
+    tabs.find((tab) => !tab.props.accessibilityState.selected).props.onPress();
+  }
+  assert.deepEqual(replaced, ["/(settings)/token-usage", "/(settings)/usage"]);
+});
+
 function planUsageHost() {
   const react = hookHost();
   let snapshot = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);

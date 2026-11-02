@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowRight01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
@@ -68,13 +68,14 @@ function readPrefs(): Prefs {
 }
 
 /** One computer's report for a range or picked days, read again when its host says the numbers changed. */
-function useTokenUsage(computerId: string, range: TokenUsageRange, days: TokenUsageDays | null) {
+function useTokenUsage(computerId: string, range: TokenUsageRange, days: TokenUsageDays | null, active: boolean) {
   const [report, setReport] = useState<TokenUsageReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
   const from = days?.from;
   const to = days?.to;
   useEffect(() => {
+    if (!active) return;
     const bridge = bridgeFor(computerId);
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const version = ++generation.current;
@@ -98,7 +99,7 @@ function useTokenUsage(computerId: string, range: TokenUsageRange, days: TokenUs
       clearTimeout(timer);
       off?.();
     };
-  }, [computerId, range, from, to]);
+  }, [computerId, range, from, to, active]);
   return { report, error };
 }
 
@@ -539,12 +540,14 @@ export function TokenUsagePage({
   onOpenChat?: (computerId: string, projectPath: string, sessionId: number) => void;
   onManageAccounts?: () => void;
 }) {
+  const [tab, setTab] = useState<"plan" | "analytics">("plan");
+  const tabId = useId();
   const [prefs, setPrefs] = useState(readPrefs);
   const [days, setDays] = useState<TokenUsageDays | null>(null);
   const { thisMac, computers } = useComputers();
   const [computerId, setComputerId] = useState<string>(LOCAL_COMPUTER);
   const picked = computerId === LOCAL_COMPUTER || computers.some((computer) => computer.id === computerId) ? computerId : LOCAL_COMPUTER;
-  const { report, error } = useTokenUsage(picked, prefs.range, days);
+  const { report, error } = useTokenUsage(picked, prefs.range, days, tab === "analytics");
   const update = (patch: Partial<Prefs>) =>
     setPrefs((current) => {
       const next = { ...current, ...patch };
@@ -553,7 +556,7 @@ export function TokenUsagePage({
     });
   // Escape clears picked days before it leaves the page.
   useEffect(() => {
-    if (!days) return;
+    if (!days || tab !== "analytics") return;
     const clear = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
@@ -561,7 +564,7 @@ export function TokenUsagePage({
     };
     window.addEventListener("keydown", clear, true);
     return () => window.removeEventListener("keydown", clear, true);
-  }, [days]);
+  }, [days, tab]);
   const { metric } = prefs;
   const empty = report && !report.refreshing && tokenTotal(report.totals) === 0;
   const computerName = picked === LOCAL_COMPUTER ? "this Mac" : (computers.find((computer) => computer.id === picked)?.name ?? "that computer");
@@ -588,84 +591,136 @@ export function TokenUsagePage({
                 }}
               />
             )}
-            <Tabs
-              label="Show"
-              value={metric}
-              options={[
-                { value: "cost", label: "Cost" },
-                { value: "tokens", label: "Tokens" },
-              ]}
-              onChange={(value) => update({ metric: value })}
-            />
-            <Tabs
-              label="Period"
-              value={days ? null : prefs.range}
-              options={TOKEN_USAGE_RANGES.map((range) => ({ value: range.value, label: range.short }))}
-              onChange={(value) => {
-                setDays(null);
-                update({ range: value });
-              }}
-            />
           </div>
         </div>
 
-        {error && (
-          <p role="alert" className="text-13 break-words text-red-ink">
-            Couldn't read token usage: {error}
-          </p>
-        )}
-        {report?.refreshing && (
-          <p data-token-usage-refreshing className="flex items-center gap-2 text-12 text-ink-3">
-            <SpinnerRing size={12} />
-            {report.firstScan ? "Reading the Claude Code and Codex transcripts for the first time. This can take a minute…" : "Reading new transcripts…"}
-          </p>
-        )}
-        {report && report.pricing.status !== "ok" && (
-          <p className="text-12 text-ink-3">
-            {report.pricing.status === "loading"
-              ? "Loading model prices…"
-              : report.pricing.status === "stale"
-                ? "Model prices couldn't be refreshed; costs use the last list."
-                : "Model prices couldn't be loaded, so costs show $0 until they are."}
-          </p>
-        )}
-        {!report && !error && (
-          <p className="flex items-center gap-2 text-13 text-ink-3">
-            <SpinnerRing size={14} /> Loading usage…
-          </p>
-        )}
-
-        <AccountUsageSection
-          key={picked}
-          computerId={picked}
-          computerName={picked === LOCAL_COMPUTER ? thisMac || "this Mac" : computerName}
-          onManageAccounts={onManageAccounts}
-        />
-        {report && (
-          <>
-            <TotalCard report={report} metric={metric} onClear={days ? () => setDays(null) : undefined} />
-            <CalendarCard report={report} metric={metric} onPick={setDays} />
-            {empty ? (
-              <section className={`${card} px-4 py-10 text-center`}>
-                <p className="text-13 font-medium text-ink">No usage in this period</p>
-                <p className="mt-1 text-12 text-ink-3">Claude Code and Codex sessions on {computerName} show here as they run.</p>
-              </section>
-            ) : (
-              <div className="flex flex-wrap items-start gap-4">
-                <WhereItWent report={report} metric={metric} onOpenChat={onOpenChat ? (path, id) => onOpenChat(picked, path, id) : undefined} />
-                <div className="flex w-full flex-col gap-4 lg:w-[360px]">
-                  <Models report={report} metric={metric} />
-                  <TokenMix totals={report.totals} metric={metric} />
-                </div>
+        <div
+          role="tablist"
+          aria-label="Usage view"
+          className="flex gap-6 border-b border-line"
+          onKeyDown={(event) => {
+            const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+            const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? tabs.length - 1
+                  : event.key === "ArrowRight"
+                    ? (index + 1) % tabs.length
+                    : event.key === "ArrowLeft"
+                      ? (index - 1 + tabs.length) % tabs.length
+                      : -1;
+            const nextTab = tabs[next];
+            if (!nextTab) return;
+            event.preventDefault();
+            nextTab.focus();
+            nextTab.click();
+          }}
+        >
+          {(["plan", "analytics"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              id={`${tabId}-${value}`}
+              aria-controls={`${tabId}-${value}-panel`}
+              aria-selected={tab === value}
+              tabIndex={tab === value ? 0 : -1}
+              onClick={() => setTab(value)}
+              className={`h-8 border-b-2 text-13 font-medium transition-colors ${tab === value ? "border-ink text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
+            >
+              {value === "plan" ? "Plan usage" : "Analytics"}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" id={`${tabId}-plan-panel`} aria-labelledby={`${tabId}-plan`} hidden={tab !== "plan"}>
+          {tab === "plan" ? (
+            <AccountUsageSection
+              key={picked}
+              computerId={picked}
+              computerName={picked === LOCAL_COMPUTER ? thisMac || "this Mac" : computerName}
+              onManageAccounts={onManageAccounts}
+            />
+          ) : null}
+        </div>
+        <div role="tabpanel" id={`${tabId}-analytics-panel`} aria-labelledby={`${tabId}-analytics`} hidden={tab !== "analytics"}>
+          {tab === "analytics" ? (
+            <div className="flex min-w-0 flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Tabs
+                  label="Show"
+                  value={metric}
+                  options={[
+                    { value: "cost", label: "Cost" },
+                    { value: "tokens", label: "Tokens" },
+                  ]}
+                  onChange={(value) => update({ metric: value })}
+                />
+                <Tabs
+                  label="Period"
+                  value={days ? null : prefs.range}
+                  options={TOKEN_USAGE_RANGES.map((range) => ({ value: range.value, label: range.short }))}
+                  onChange={(value) => {
+                    setDays(null);
+                    update({ range: value });
+                  }}
+                />
               </div>
-            )}
-            <p className="text-11 text-ink-3">
-              Read from the Claude Code and Codex transcripts on {computerName}, including sessions run outside Milagre. Costs are estimates at API prices from
-              LiteLLM's model list{report.pricing.fetchedAt ? ` (updated ${ago(Date.parse(report.pricing.fetchedAt), report.generatedAt)})` : ""}, not your
-              plan's bill. Kiro and Antigravity aren't counted.
-            </p>
-          </>
-        )}
+              {error && (
+                <p role="alert" className="text-13 break-words text-red-ink">
+                  Couldn't read token usage: {error}
+                </p>
+              )}
+              {report?.refreshing && (
+                <p data-token-usage-refreshing className="flex items-center gap-2 text-12 text-ink-3">
+                  <SpinnerRing size={12} />
+                  {report.firstScan ? "Reading the Claude Code and Codex transcripts for the first time. This can take a minute…" : "Reading new transcripts…"}
+                </p>
+              )}
+              {report && report.pricing.status !== "ok" && (
+                <p className="text-12 text-ink-3">
+                  {report.pricing.status === "loading"
+                    ? "Loading model prices…"
+                    : report.pricing.status === "stale"
+                      ? "Model prices couldn't be refreshed; costs use the last list."
+                      : "Model prices couldn't be loaded, so costs show $0 until they are."}
+                </p>
+              )}
+              {!report && !error && (
+                <p className="flex items-center gap-2 text-13 text-ink-3">
+                  <SpinnerRing size={14} /> Loading usage…
+                </p>
+              )}
+
+              {report && (
+                <>
+                  <TotalCard report={report} metric={metric} onClear={days ? () => setDays(null) : undefined} />
+                  <CalendarCard report={report} metric={metric} onPick={setDays} />
+                  {empty ? (
+                    <section className={`${card} px-4 py-10 text-center`}>
+                      <p className="text-13 font-medium text-ink">No usage in this period</p>
+                      <p className="mt-1 text-12 text-ink-3">Claude Code and Codex sessions on {computerName} show here as they run.</p>
+                    </section>
+                  ) : (
+                    <div className="flex flex-wrap items-start gap-4">
+                      <WhereItWent report={report} metric={metric} onOpenChat={onOpenChat ? (path, id) => onOpenChat(picked, path, id) : undefined} />
+                      <div className="flex w-full flex-col gap-4 lg:w-[360px]">
+                        <Models report={report} metric={metric} />
+                        <TokenMix totals={report.totals} metric={metric} />
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-11 text-ink-3">
+                    Read from the Claude Code and Codex transcripts on {computerName}, including sessions run outside Milagre. Costs are estimates at API prices
+                    from LiteLLM's model list{report.pricing.fetchedAt ? ` (updated ${ago(Date.parse(report.pricing.fetchedAt), report.generatedAt)})` : ""},
+                    not your plan's bill. Kiro and Antigravity aren't counted.
+                  </p>
+                </>
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
     </ScrollArea>
   );

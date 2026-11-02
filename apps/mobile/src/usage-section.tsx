@@ -237,7 +237,7 @@ export function UsageSection({ header = false }: { header?: boolean }) {
   return (
     <View style={{ gap: 24 }}>
       {header ? (
-        <Stack.Screen options={{ title: "Plan usage", headerRight: () => refresh }} />
+        <Stack.Screen options={{ title: "Usage", headerRight: () => refresh }} />
       ) : (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text accessibilityRole="header" style={styles.section}>
@@ -283,7 +283,7 @@ export function UsageSection({ header = false }: { header?: boolean }) {
         </View>
       ) : groups.length ? (
         groups.map((group) => (
-          <View key={group.provider} style={{ gap: 16 }}>
+          <View key={group.provider} style={[styles.card, { gap: 16, borderRadius: radius.card }]}>
             <View
               accessible
               accessibilityRole="header"

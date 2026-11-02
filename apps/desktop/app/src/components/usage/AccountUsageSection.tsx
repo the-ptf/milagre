@@ -100,7 +100,7 @@ export function AccountUsageSection({
         </div>
       </div>
       {groups.map((group) => (
-        <div key={group.provider} data-usage-provider={group.provider} className="flex min-w-0 flex-col">
+        <div key={group.provider} data-usage-provider={group.provider} className="flex min-w-0 flex-col rounded-card bg-surface p-4 shadow-card">
           <h3
             aria-label={`${providerName(group.provider)}, ${group.accounts.length} ${group.accounts.length === 1 ? "account" : "accounts"}`}
             className="flex items-center gap-2 border-b border-line pb-3 text-15 font-semibold text-ink"
@@ -120,7 +120,7 @@ export function AccountUsageSection({
               const stale = entry.status === "error" && entry.windows.length > 0;
               const action = computerId === LOCAL_COMPUTER && identity.state === "ready" && !identity.default;
               return (
-                <div key={identity.id} data-usage-account={identity.id} className="group flex min-w-0 flex-col gap-4 py-4 lg:flex-row lg:gap-8">
+                <div key={identity.id} data-usage-account={identity.id} className="group flex min-w-0 flex-col gap-4 py-4 last:pb-0 lg:flex-row lg:gap-8">
                   <div className="min-w-0 lg:w-[302px] lg:shrink-0">
                     <div className="flex min-h-6 items-center gap-2">
                       <div className="flex min-w-0 flex-1 items-baseline gap-2">
