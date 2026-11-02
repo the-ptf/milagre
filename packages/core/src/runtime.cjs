@@ -821,9 +821,9 @@ function createRuntime(options) {
       return [];
     }
   }
-  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider } = {}) => {
+  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
     const models =
       options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
     return polishDictation({ text, terms, chatTitle, provider }, { models });

@@ -35,6 +35,8 @@ type Take = {
   audio: AudioContext;
   processor: AudioWorkletNode;
   transcript: StreamingDictation;
+  /** The fix-up of the take's final words; never rejects. */
+  fixUp: (text: string) => Promise<string>;
   finishCapture: () => Promise<void>;
   limit: ReturnType<typeof setTimeout> | null;
 };
@@ -50,7 +52,8 @@ function closeAudio(audio: AudioContext) {
 export function useDictation(
   cwd: string,
   scope: string,
-  onTranscript: (text: string, anchor: DictationAnchor) => void,
+  /** The final transcript, and its fix-up: the same words with misheard names corrected, or as they were. */
+  onTranscript: (text: string, anchor: DictationAnchor, correction: Promise<string>) => void,
   /** The Chat dictated into (its Project scope and id): the names its last turns used guide the recognizer. */
   chat: { scope?: string; chatId?: number } = {},
 ) {
@@ -127,7 +130,7 @@ export function useDictation(
       setPartial(NO_PARTIAL);
       if (!text) return move({ type: "fail", error: ERRORS["no-speech"] });
       move({ type: "done" });
-      deliver.current(text, current.anchor);
+      deliver.current(text, current.anchor, current.fixUp(text));
     } catch (error) {
       if (live()) fail({ kind: "failed", message: ipcErrorMessage(error) || ERRORS.failed.message });
     }
@@ -217,6 +220,14 @@ export function useDictation(
           audio,
           processor,
           transcript,
+          // A computer without the fix-up (an older paired Mac) leaves the words as heard.
+          fixUp: (text) =>
+            Promise.resolve()
+              .then(() => bridge.polishDictation({ cwd, text, scope: chatRef.current.scope || undefined, chatId: chatRef.current.chatId }))
+              .then(
+                (result) => snapTerms(result?.text || text, vocabulary),
+                () => text,
+              ),
           limit: null,
           finishCapture: () =>
             new Promise<void>((resolve, reject) => {

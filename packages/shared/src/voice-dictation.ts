@@ -169,6 +169,23 @@ export function revertTake(take: DictationTake, draft: string): { value: string;
   return { value: draft.slice(0, start) + draft.slice(end), selection: { start, end: start } };
 }
 
+/**
+ * The draft with a finished take's words replaced by the fix-up's correction, or null when it must not apply: the draft
+ * changed since the take wrote it (the user typed, sent or dictated again), so a late answer never overwrites their
+ * edits, or the correction says the same words.
+ */
+export function correctTake(take: DictationTake, draft: string, fixed: string): { take: DictationTake; value: string; caret: number } | null {
+  if (draft !== take.produced) return null;
+  const words = fixed.trim();
+  if (!words || words === draft.slice(take.start, take.end).trim()) return null;
+  return writeTake(take, draft, words, words.length);
+}
+
+/** The run a finished take wrote, tinted while its fix-up may still rewrite it. */
+export function takeRange(take: DictationTake): Selection {
+  return { start: take.start, end: take.end };
+}
+
 /** The part of the draft the recognizer may still rewrite, or null while every dictated word has settled. */
 export function provisionalRange(take: DictationTake | null): Selection | null {
   return take && take.settled < take.end ? { start: take.settled, end: take.end } : null;

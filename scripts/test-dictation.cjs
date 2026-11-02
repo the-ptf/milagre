@@ -12,7 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useDictation } from '/src/components/useDictation';
 import { updateSettings } from '/src/lib/settings';
-window.calls = []; window.delivered = []; window.hold = false;
+window.calls = []; window.delivered = []; window.corrections = []; window.polishRequests = []; window.hold = false;
 window.requests = []; window.setDictationLanguage = language => updateSettings({dictationLanguage:language});
 window.holdMic = false; window.pendingStreams = []; window.draft = 'original draft';
 window.modelMissing = false; window.downloads = []; window.cancelled = [];
@@ -44,6 +44,8 @@ navigator.mediaDevices.getUserMedia = async () => {
 window.milagre = {
   // A slow/offline computer must not hold up local recognition.
   dictationContext: () => new Promise(() => {}),
+  // The Mac's fix-up of the finished words, as Claude Haiku answers it.
+  polishDictation: async (request) => { window.polishRequests.push(request); return {text: request.text.replace('Corrija', 'Corrige'), polished: true}; },
   dictation: {
     status: async () => [{id:'large-v3-turbo', ready: !window.modelMissing, size: 574041195, received: null}],
     download: (id) => new Promise((resolve, reject) => {
@@ -64,7 +66,7 @@ window.milagre = {
 };
 function Fixture() {
   const [scope,setScope] = useState('first');
-  const dictation = useDictation('/fixture', scope, (text) => { window.delivered.push(text); window.draft += text; });
+  const dictation = useDictation('/fixture', scope, (text, _anchor, correction) => { window.delivered.push(text); window.draft += text; void correction.then(fixed => window.corrections.push(fixed)); }, {scope: '/fixture', chatId: 7});
   useEffect(() => { window.dictation = dictation; window.changeScope = setScope; });
   return <div>
     <p id="phase">{dictation.phase}</p><p id="partial">{dictation.partial.text}</p><p id="settled">{dictation.partial.settled}</p><p id="error">{dictation.error?.message}</p>
@@ -121,7 +123,10 @@ async function checks() {
     await until("window.dictation.partial.text === '' && window.dictation.phase === 'idle'");
     assert.deepEqual(await evaluate("({...window.dictation.partial})"), { text: "", settled: 0 });
     assert.equal(await evaluate("window.dictation.phase"), "idle");
-    assert.equal(await evaluate("window.delivered[0]"), "Corrija o Milagre.");
+    assert.equal(await evaluate("window.delivered[0]"), "Corrija o Milagre.", "the words land before the fix-up answers");
+    await until("window.corrections.length === 1");
+    assert.equal(await evaluate("window.corrections[0]"), "Corrige o Milagre.", "the fix-up's correction follows the delivery");
+    assert.deepEqual(await evaluate("window.polishRequests[0]"), { cwd: "/fixture", text: "Corrija o Milagre.", scope: "/fixture", chatId: 7 });
     await evaluate(
       "window.holdMic = true; window.resolveMic = null; window.draftBeforePending = window.draft; window.callsBeforePending = window.calls.length; window.streamCountBeforePending = window.pendingStreams.length; void window.dictation.start({selection:{start:0,end:0}})",
     );

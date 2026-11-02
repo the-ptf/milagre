@@ -20,6 +20,8 @@ import type { PastedImage } from "./attachment-picker";
 import {
   NOTICE_SECONDS,
   provisionalRange,
+  correctTake,
+  takeRange,
   revertTake,
   splitProvisional,
   startTake,
@@ -204,14 +206,44 @@ export function PromptField({
   };
   const writeLatest = useRef(write);
   const discardLatest = useRef<() => void>(() => {});
+  // A finished take whose fix-up hasn't answered: its words stay tinted until it does, and it rewrites them only if the
+  // draft is still exactly what the take left.
+  const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
+  const corrections = useRef(0);
+  useEffect(() => {
+    const pending = correcting.current;
+    if (!pending || draft === pending.take.produced) return;
+    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
+    correcting.current = null;
+    if (!take.current) setProvisional(null);
+  }, [draft]);
   const dictation = useVoiceDictation(
-    (text, anchor) => {
-      // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
+    (text, anchor, correction) => {
+      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
       take.current ??= startTake(latestDraft.current, anchor.selection);
       const written = writeLatest.current(text, text.length);
       take.current = null;
-      setProvisional(null);
-      if (written && dictationAction === "send") dictatedSend.current = { value: written.value, projectPath, currentId };
+      if (!written) return setProvisional(null);
+      const id = (corrections.current += 1);
+      correcting.current = { id, take: written.take };
+      setProvisional(takeRange(written.take));
+      const sendAfter = dictationAction === "send";
+      const sentFrom = { projectPath, currentId };
+      void correction.then((fixed) => {
+        const pending = correcting.current;
+        if (pending?.id !== id) return;
+        correcting.current = null;
+        if (!take.current) setProvisional(null);
+        const corrected = correctTake(pending.take, latestDraft.current, fixed);
+        if (corrected) {
+          const caret = { start: corrected.caret, end: corrected.caret };
+          setRequested({ draft: corrected.value, selection: caret });
+          setSelection(caret);
+          onChangeText(corrected.value);
+        }
+        // Send now waits for the fix-up, so what goes out is the corrected message.
+        if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, ...sentFrom };
+      });
     },
     projectPath ? { client, cwd: projectPath, chatTitle, provider, chatId: currentId } : undefined,
   );

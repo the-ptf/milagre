@@ -283,7 +283,7 @@ const PATHS = Object.freeze({
   "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
   "dictation:context": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
-  "dictation:polish": ([value]) => [value?.cwd],
+  "dictation:polish": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
   "worktree:create": ([value]) => [value?.projectPath],
   "worktree:link-issue": ([value]) => [value?.projectPath],
   "worktree:unlink-issue": ([value]) => [value?.projectPath],

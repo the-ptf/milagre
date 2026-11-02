@@ -163,7 +163,7 @@ function makeBridge(invoke, listen, send) {
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
     dictationContext: (request) => invoke("dictation:context", request),
-    // The phone's fix-up of an Apple transcript; the desktop transcribes with Whisper and has no use for it.
+    // The fix-up of a finished take's misheard names, which both apps write over the take in place.
     polishDictation: (request) => invoke("dictation:polish", request),
     openSkill: (request) => invoke("skills:open", request),
     revealSkill: (projectPath, file) => invoke("skills:reveal", projectPath, file),

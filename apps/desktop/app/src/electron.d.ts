@@ -323,7 +323,15 @@ export type MilagreBridge = {
   /** `scope` and `chatId` name the Chat dictated into: the names its last turns used join the words. */
   dictationContext: (request: { cwd: string; chatTitle?: string; scope?: string; chatId?: number }) => Promise<{ terms: string[] }>;
   /** A dictated message with misheard names fixed by a small model of the Chat's agent; as dictated when none answers. */
-  polishDictation: (request: { cwd: string; text: string; chatTitle?: string; provider?: string }) => Promise<{ text: string; polished: boolean }>;
+  /** Claude Haiku's fix-up of a finished take's misheard names (the Chat's agent's small model when Claude can't answer). */
+  polishDictation: (request: {
+    cwd: string;
+    text: string;
+    chatTitle?: string;
+    provider?: string;
+    scope?: string;
+    chatId?: number;
+  }) => Promise<{ text: string; polished: boolean }>;
   /** Opens a listed SKILL.md in an editor, wherever it lives (user skills are outside any checkout). */
   openSkill: (request: { projectPath: string; file: string; editor?: string }) => Promise<Result<null>>;
   /** Shows a listed SKILL.md in the file manager. */
