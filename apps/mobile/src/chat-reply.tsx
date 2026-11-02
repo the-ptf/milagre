@@ -16,7 +16,7 @@ import { onlyImageMentions, promptParts } from "@milagre/shared/prompt-parts";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
 import type { MentionChat } from "@milagre/shared/prompt-mentions";
 import { projectOfKey } from "@milagre/shared/agent-runs";
-import { ChatMentionChip, FileMentionChip, ImageMentionChip, SkillChip } from "./prompt-chip";
+import { ChatMentionChip, ComputerMentionChip, FileMentionChip, ImageMentionChip, SkillChip } from "./prompt-chip";
 import { promptAccessibilityLabel } from "./prompt-label";
 import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
@@ -308,6 +308,8 @@ export const ChatReply = memo(function ChatReply({
         files: isMentionOfFile(userFiles ?? [], basePath ?? ""),
         images: userImages,
         chats: (id) => chats.some((chat) => chat.id === id),
+        // A sent `@computer:` token was a chip when it was written: it stays one even once that computer is gone.
+        computers: () => true,
       }),
     [userText, skillNames, userFiles, basePath, userImages, chats],
   );
@@ -425,6 +427,8 @@ export const ChatReply = memo(function ChatReply({
                           <SkillChip key={index} name={part.name} />
                         ) : part.kind === "file" ? (
                           <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                        ) : part.kind === "computer" ? (
+                          <ComputerMentionChip key={index} name={part.name} />
                         ) : part.kind === "chat" ? (
                           <ChatMentionChip
                             key={`chat:${part.id}:${part.start}`}

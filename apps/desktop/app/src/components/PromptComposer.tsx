@@ -34,7 +34,7 @@ import { Attachments } from "./Attachments";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
 import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
-import { formatChatMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -42,8 +42,8 @@ import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
 import { compactButtonState } from "@milagre/shared/chat-display";
-import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
-import { useChatMentions } from "./ChatMentions";
+import { matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
+import { useChatMentions, useMentionComputers } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
 import {
   NOTICE_SECONDS,
@@ -69,7 +69,7 @@ function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number };
+type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number; computer?: string };
 
 type Source = { key: string; name: string; desc: string; icon: IconData };
 
@@ -221,6 +221,7 @@ export function PromptComposer({
   placeholder,
 }: PromptComposerProps) {
   const mentions = useChatMentions();
+  const mentionComputers = useMentionComputers();
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -327,9 +328,10 @@ export function PromptComposer({
         files: (path) => known.has(path),
         images: imageCount,
         chats: (id) => mentions.chats.some((chat) => chat.id === id && chat.available),
+        computers: (name) => mentionComputers.some((computer) => computer.name.toLowerCase() === name.toLowerCase()),
       }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `known` is a Set that grows in place; `knownVersion` counts its growth.
-    [draft, skillKey, known, knownVersion, imageCount, mentions.chats],
+    [draft, skillKey, known, knownVersion, imageCount, mentions.chats, mentionComputers],
   );
   // The @ menu searched the mention being typed: an exact match is a file too.
   const typedFound = typing !== null && fileSearch.files.includes(typing) ? typing : null;
@@ -369,20 +371,30 @@ export function PromptComposer({
   const inputTextClass = expanded
     ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
     : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
+  const chatMatches = menu === "at" && !plusOpen ? matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId) : [];
+  // Only with another computer to name: This Mac alone is no choice.
+  const computerMatches = menu === "at" && !plusOpen && mentionComputers.length > 1 ? matchingMentionComputers(mentionComputers, tokenQuery) : [];
   const rows: MenuRow[] =
     menu === "at"
       ? plusOpen
         ? SOURCES
         : [
             ...fileSearch.files
-              .slice(0, matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId).length ? 3 : undefined)
+              .slice(0, chatMatches.length || computerMatches.length ? 3 : undefined)
               .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
-            ...matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId).map((chat) => ({
+            ...chatMatches.map((chat) => ({
               key: `chat:${chat.id}`,
               name: chat.title,
               desc: chat.branch,
               chatId: chat.id,
               group: "Chats",
+            })),
+            ...computerMatches.map((computer) => ({
+              key: `computer:${computer.id}`,
+              name: computer.name,
+              desc: computer.self ? "This Mac" : computer.online ? "Online" : "Offline",
+              computer: computer.name,
+              group: "Computers",
             })),
           ]
       : menu === "slash"
@@ -717,8 +729,8 @@ export function PromptComposer({
     } else if (source?.key === "paste") {
       insertImages(imageDraft.pasteImage());
     } else if (menu === "at") {
-      if (token && row.chatId !== undefined) {
-        const mention = formatChatMention(row.chatId);
+      if (token && (row.chatId !== undefined || row.computer)) {
+        const mention = row.computer ? formatComputerMention(row.computer) : formatChatMention(row.chatId!);
         onDraftChange(insertPromptToken(draft, token, mention));
         inputRef.current?.setSelection(token.start + mention.length + 1);
       } else if (token && row.path) {
@@ -884,7 +896,13 @@ export function PromptComposer({
               </div>
             )}
             <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-[11px] text-ink-3">
-              {menu === "at" ? "Type to search files and Chats" : skillsLoading ? "Loading skills…" : "Type to search commands & skills"}
+              {menu === "at"
+                ? mentionComputers.length > 1
+                  ? "Type to search files, Chats and computers"
+                  : "Type to search files and Chats"
+                : skillsLoading
+                  ? "Loading skills…"
+                  : "Type to search commands & skills"}
             </div>
           </div>
         )}

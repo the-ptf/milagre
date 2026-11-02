@@ -322,6 +322,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           useArchivedChats: () => ({ chats: [], loading: false }),
           useNewChatProjects: () => [],
           useNoProjectChoice: () => undefined,
+          // The computers an @ can name in a Chat's composer.
+          useComputerViews: () => [],
           chatsHomePath: async (_client, _hostId, home) => home.path,
           allComputers: { clientFor: () => null, hostFor: () => undefined, viewOf: () => undefined },
         };
@@ -5017,6 +5019,7 @@ test("the new Chat computer picker keeps its composer and draft through slow and
     computers: {
       useNewChatProjects: () => projects,
       useNoProjectChoice: () => undefined,
+      useComputerViews: () => [],
       allComputers: { hostFor: () => ({ address: "studio", token: "token" }) },
     },
   });

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   chatMentionTokens,
+  computerMentionTokens,
+  formatComputerMention,
   formatChatMention,
   promptParts,
   promptImageBlocks,
@@ -170,4 +172,25 @@ test("Chat scanner shields complete filenames and quoted paths even when a Chat 
     chatMentionTokens("See @chat:12). Then @chat:5!").map((token) => token.id),
     [12, 5],
   );
+});
+
+test("computer mentions: plain and quoted names, trailing punctuation, never code or a file", () => {
+  const prompt = 'Run it on @computer:Santo, and @computer:"Victor MacBook". `@computer:Code` @computer:';
+  assert.deepEqual(
+    computerMentionTokens(prompt).map((token) => [token.name, prompt.slice(token.start, token.end)]),
+    [
+      ["Santo", "@computer:Santo"],
+      ["Victor MacBook", '@computer:"Victor MacBook"'],
+    ],
+  );
+  const parts = promptParts(prompt, { skills: [], files: () => true, computers: (name) => name === "Santo" });
+  assert.deepEqual(
+    parts.filter((part) => part.kind !== "text"),
+    [{ kind: "computer", text: "@computer:Santo", name: "Santo" }],
+  );
+  assert.equal(parts.map((part) => part.text).join(""), prompt);
+  assert.equal(formatComputerMention("Santo"), "@computer:Santo");
+  assert.equal(formatComputerMention('Victor "Big" MacBook'), '@computer:"Victor Big MacBook"');
+  // A file whose name starts with computer: is quoted, so it never reads as a computer.
+  assert.equal(formatFileMention("computer:notes"), '@"computer:notes"');
 });

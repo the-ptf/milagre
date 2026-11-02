@@ -17,7 +17,7 @@ const IMAGE_TOKEN = /\[Image #([1-9]\d*)\]/g;
 
 /** `@path`, or `@"path"` when the path has whitespace or a quote. */
 export function formatFileMention(path) {
-  return /[\s"]/.test(path) || /^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(path) ? `@"${path}"` : `@${path}`;
+  return /[\s"]/.test(path) || /^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(path) || path.startsWith("computer:") ? `@"${path}"` : `@${path}`;
 }
 
 /** A reference to a Chat in the sending Project. */
@@ -36,6 +36,29 @@ export function chatMentionTokens(prompt) {
     if (!Number.isSafeInteger(id)) continue;
     const start = match.index + match[1].length;
     tokens.push({ id, start, end: start + formatChatMention(id).length });
+  }
+  return tokens;
+}
+
+/** A reference to a computer by its name: `@computer:Santo`, or `@computer:"Victor's MacBook"` when it has a space. */
+export function formatComputerMention(name) {
+  const clean = String(name).replace(/["\n]/g, "").trim();
+  return /\s/.test(clean) ? `@computer:"${clean}"` : `@computer:${clean}`;
+}
+
+/** Computer references in prose, complete tokens only (never code). Names keep the case they were written in. */
+export function computerMentionTokens(prompt) {
+  const tokens = [];
+  const prose = prosePrompt(prompt);
+  for (const match of prose.matchAll(/(^|\s)@computer:(?:"([^"\n]+)"|([^\s"]+))/g)) {
+    const start = match.index + match[1].length;
+    if (match[2] !== undefined) {
+      const name = match[2].trim();
+      if (name) tokens.push({ name, start, end: match.index + match[0].length });
+      continue;
+    }
+    const name = match[3].replace(TRAILING_PUNCTUATION, "");
+    if (name) tokens.push({ name, start, end: start + "@computer:".length + name.length });
   }
   return tokens;
 }
@@ -94,7 +117,7 @@ function fileTokens(prompt, files) {
       if (files(match[2])) tokens.push({ path: match[2], start, end: match.index + match[0].length });
       continue;
     }
-    if (/^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(match[3])) continue;
+    if (/^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(match[3]) || match[3].startsWith("computer:")) continue;
     let path = match[3];
     if (!files(path)) path = path.replace(TRAILING_PUNCTUATION, "");
     if (path && files(path)) tokens.push({ path, start, end: start + 1 + path.length });
@@ -120,8 +143,8 @@ function imageTokens(prompt, images) {
   return tokens;
 }
 
-/** Split a prompt into text, skill, file and image parts. The parts' text joins back into the prompt. */
-export function promptParts(prompt, { skills, files, images = 0, chats = () => false }) {
+/** Split a prompt into text, skill, chat, computer, file and image parts. The parts' text joins back into the prompt. */
+export function promptParts(prompt, { skills, files, images = 0, chats = () => false, computers = () => false }) {
   const marks = [];
   let offset = 0;
   for (const part of promptSkillParts(prompt, skills)) {
@@ -130,6 +153,9 @@ export function promptParts(prompt, { skills, files, images = 0, chats = () => f
   }
   for (const token of chatMentionTokens(prompt)) {
     if (chats(token.id) && !marks.some((mark) => token.start < mark.end && token.end > mark.start)) marks.push({ kind: "chat", ...token });
+  }
+  for (const token of computerMentionTokens(prompt)) {
+    if (computers(token.name) && !marks.some((mark) => token.start < mark.end && token.end > mark.start)) marks.push({ kind: "computer", ...token });
   }
   for (const token of fileTokens(prompt, files)) {
     if (marks.some((mark) => token.start < mark.end && token.end > mark.start)) continue;
@@ -152,7 +178,9 @@ export function promptParts(prompt, { skills, files, images = 0, chats = () => f
           ? { kind: "file", text, path: mark.path }
           : mark.kind === "chat"
             ? { kind: "chat", text, id: mark.id, start: mark.start }
-            : { kind: "image", text, index: mark.index },
+            : mark.kind === "computer"
+              ? { kind: "computer", text, name: mark.name }
+              : { kind: "image", text, index: mark.index },
     );
     end = mark.end;
   }

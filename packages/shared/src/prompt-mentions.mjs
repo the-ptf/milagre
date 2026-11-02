@@ -157,3 +157,24 @@ export function matchingMentionChats(chats, query, currentId) {
       .slice(0, 5)
   );
 }
+
+/**
+ * The computers an `@` menu offers: this one first, then the paired ones, online before offline, by name. A query
+ * matches a name case-insensitively; one name shows once.
+ */
+export function matchingMentionComputers(computers, query) {
+  const needle = query.toLowerCase();
+  const seen = new Set();
+  return (
+    computers
+      .filter((computer) => {
+        const key = computer.name.toLowerCase();
+        if (!computer.name || seen.has(key) || !key.includes(needle)) return false;
+        seen.add(key);
+        return true;
+      })
+      // oxlint-disable-next-line unicorn/no-array-sort -- Hermes lacks toSorted; filter creates a private array.
+      .sort((a, b) => Number(Boolean(b.self)) - Number(Boolean(a.self)) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
+      .slice(0, 5)
+  );
+}

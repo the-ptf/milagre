@@ -27,6 +27,7 @@ function pair({ deskData, studioData, mode = "full", studioMode = "full", decisi
   const delivered = [];
   const approvals = [];
   const reports = [];
+  const made = [];
   let turn = 0;
   const studioStore = memoryStore(studioData);
   const studio = new Delegations({
@@ -35,7 +36,12 @@ function pair({ deskData, studioData, mode = "full", studioMode = "full", decisi
       target: async () => null,
       hostTarget: async (worktree) => (worktree === "/web" ? { projectPath: "/web", projectName: "web", branch: "main" } : null),
       chat: async (key) => (key.startsWith("/web#") ? { label: `web / main / Chat ${key.split("#")[1]}`, worktreePath: "/web", archived: false } : null),
-      openChat: async () => "/web#9",
+      openChat: async (_projectPath, worktree) => (worktree === "/web" ? "/web#9" : `${worktree}#1`),
+      hostProject: async (projectPath) => (projectPath === "/web" ? { projectPath: "/web", projectName: "web" } : null),
+      newWorktree: async (projectPath, prompt) => {
+        made.push({ projectPath, prompt });
+        return { path: "/worktrees/web/health-1", branch: "health-1" };
+      },
       status: () => "idle",
       deliver: async (key, item) => {
         delivered.push({ key, item });
@@ -97,7 +103,7 @@ function pair({ deskData, studioData, mode = "full", studioMode = "full", decisi
     },
   });
   const finish = (key, turnId = "t1") => studio.observe(key, { type: "turn-started", turnId }).then(() => studio.observe(key, { type: "turn-completed" }));
-  return { net, desk, studio, studioStore, deskNotes, studioNotes, delivered, approvals, reports, finish };
+  return { net, desk, studio, studioStore, deskNotes, studioNotes, delivered, approvals, reports, made, finish };
 }
 
 async function waitFor(check, timeoutMs = 5000) {
@@ -151,6 +157,31 @@ test("a Delegation to another computer runs in that computer's Chat, and its rep
   assert.match(reports.text, /Delegation report from web \/ main \/ a new Chat on studio/);
   await waitFor(() => fake.studioStore.saved().delegations[0].collected === true);
   assert.equal(fake.studioStore.saved().delegations[0].report, undefined);
+});
+
+test("a Delegation can start in a new Worktree of a Project on the other computer", async () => {
+  const fake = pair();
+  const result = await send(fake, { newWorktree: true });
+  assert.match(result, /^Delegation sent to web \/ a new Worktree \/ a new Chat on studio \(Chat 0b6f3c2e-[^|]+\|\/worktrees\/web\/health-1#1\)/);
+  assert.deepEqual(fake.made, [{ projectPath: "/web", prompt: "Add the /health endpoint" }]);
+  assert.equal(fake.delivered[0].key, "/worktrees/web/health-1#1");
+  const open = fake.desk.data.delegations[0];
+  assert.equal(open.to_worktree, `${STUDIO}|/worktrees/web/health-1`);
+  assert.equal(open.to_label, "web / health-1 / a new Chat on studio");
+  // The same id again makes no second Worktree.
+  await fake.studio.receiveHosted({ id: open.id, worktree: "/web", chat: "new", message: "Add the /health endpoint", newWorktree: true });
+  assert.equal(fake.made.length, 1);
+});
+
+test("a new Worktree needs a new Chat, a Project path, and another computer", async () => {
+  const fake = pair();
+  await assert.rejects(send(fake, { newWorktree: true, chat: "/web#2" }), /set chat to "new"/);
+  await assert.rejects(
+    send(fake, { newWorktree: true, worktree: "/nowhere" }),
+    /studio can't take this Delegation: That path isn't a Project on this computer\./,
+  );
+  await assert.rejects(fake.desk.delegate("/api#1", { worktree: "/api", chat: "new", message: "x", newWorktree: true }), /newWorktree is for another computer/);
+  assert.equal(fake.made.length, 0);
 });
 
 test("an offline computer fails the call at once and nothing is recorded or queued", async () => {
