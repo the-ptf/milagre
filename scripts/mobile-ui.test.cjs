@@ -17702,7 +17702,15 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   const { MessageActions, messageActionProps } = load("message-actions.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Platform: platform, Pressable: "Pressable", TextInput: "TextInput", View: "View", processColor: (value) => value },
+    "react-native": {
+      Platform: platform,
+      Pressable: "Pressable",
+      TextInput: "TextInput",
+      View: "View",
+      processColor: (value) => value,
+      useWindowDimensions: () => ({ fontScale: 1 }),
+    },
+    "./theme": { fonts: { mono: "Menlo" }, useTheme: () => ({ colors: fakePalette, textPx: 15, codeSize: 12 }) },
     "expo-modules-core": { requireOptionalNativeModule: () => null },
     "./selection-document": require("../apps/mobile/src/selection-document.ts"),
     "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
@@ -17750,6 +17758,9 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
 test("native selection freezes the passage, preserves the formatted view and asks with only the chosen text", () => {
   const react = hookHost({ effects: true });
   const asked = [];
+  let fontScale = 1.35;
+  let textPx = 20;
+  let codeSize = 14;
   const { MessageActions, MessageAskContext } = load("message-actions.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -17759,7 +17770,9 @@ test("native selection freezes the passage, preserves the formatted view and ask
       View: "View",
       processColor: (value) => value,
       StyleSheet: { absoluteFill: { position: "absolute" } },
+      useWindowDimensions: () => ({ fontScale }),
     },
+    "./theme": { fonts: { mono: "Menlo" }, useTheme: () => ({ colors: fakePalette, textPx, codeSize }) },
     "expo-modules-core": { requireOptionalNativeModule: () => ({}), requireNativeViewManager: () => "NativeSelectableText" },
     "expo-clipboard": {},
     "./selection-document": require("../apps/mobile/src/selection-document.ts"),
@@ -17780,6 +17793,9 @@ test("native selection freezes the passage, preserves the formatted view and ask
   let native = find(current.slot, (node) => node.type === "NativeSelectableText");
   assert.deepEqual({ ...native.props.start }, { x: 42, y: 180 });
   assert.equal(native.props.askTitle, "Ask");
+  assert.equal(native.props.look.fontScale, 1.35, "selection follows iOS text scaling instead of shrinking back to unscaled text");
+  assert.equal(native.props.look.codeFontFamily, "Menlo", "inline and block code keep the message's font");
+  assert.deepEqual([native.props.look.fontSize, native.props.look.lineHeight, native.props.look.codeSize], [20, 29, 14]);
   assert.equal(find(current.slot, (node) => node.props.pointerEvents === "none").props.style.opacity, 0, "the original stays mounted in its measured place");
   native.props.onContentHeight({ nativeEvent: { height: 120 } });
   text += " New streamed text.";
@@ -17796,6 +17812,16 @@ test("native selection freezes the passage, preserves the formatted view and ask
     undefined,
   );
   assert.equal(find(current.slot, (node) => node.type === "Formatted").props.text, text);
+  fontScale = 1.6;
+  textPx = 18;
+  codeSize = 16;
+  current.tree.props.onLongPress();
+  native = find(render().slot, (node) => node.type === "NativeSelectableText");
+  assert.deepEqual(
+    [native.props.look.fontScale, native.props.look.fontSize, native.props.look.lineHeight, native.props.look.codeSize],
+    [1.6, 18, 26, 16],
+    "a later selection uses current system and app text settings",
+  );
 });
 
 test("an iPad's on-screen return key sends; a hardware keyboard's shortcut bar and an iPhone keep new lines", () => {
