@@ -324,6 +324,12 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
           .string()
           .optional()
           .describe("Another paired computer's name, for a Worktree on it, as linked_overview lists them. Leave out for this computer."),
+        newWorktree: z
+          .boolean()
+          .optional()
+          .describe(
+            'With computer and chat "new": start in a new Worktree of the Project whose path `worktree` gives, made there from its main branch. For this computer, use worktree_create first instead.',
+          ),
       },
       readOnly: false,
       run: (args) => delegations.delegate(chatId, args),

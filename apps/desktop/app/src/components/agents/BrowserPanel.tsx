@@ -1,5 +1,4 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useContext, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import {
@@ -7,7 +6,6 @@ import {
   ArrowRight01Icon,
   BrowserIcon,
   Cancel01Icon,
-  CommentAdd01Icon,
   Globe02Icon,
   Link01Icon,
   LinkSquare02Icon,
@@ -43,14 +41,11 @@ import {
   type BrowserTab,
 } from "../../lib/browser-panel";
 import { browserWebview, focusBrowserPage, listenToBrowserPages, showBrowserPage, syncBrowserPages } from "../../lib/browser-webviews";
-import { LoopbackPortsContext, portUrl } from "../../lib/ports";
-import { useComputers } from "../../lib/computers";
-import { computerOfKey } from "@milagre/shared/chat-scopes";
-import { openablePageUrl } from "@milagre/shared/loopback-url";
-import { CommentControls, PageCommenting, StreamedPageComment, useSentPageComments, type SendPageComments } from "./BrowserComments";
+import { portUrl } from "../../lib/ports";
+import { CommentControls, PageCommenting, useSentPageComments, type SendPageComments } from "./BrowserComments";
 import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { isRemoteKey } from "../../lib/computer-bridge";
-import { BrowserViewerFrame, targetBrowserId, useChatBrowserTargets, type ChatBrowserTargets, type StreamedPoint } from "./BrowserViewer";
+import { targetBrowserId, useChatBrowserTargets, type ChatBrowserTargets } from "./BrowserViewer";
 
 /** Sent with a Chat key when ⌘L is pressed in one of its pages: its address bar takes the focus. */
 const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
@@ -75,7 +70,7 @@ export function BrowserPages() {
  * the Chat switching. `ports` are the Chat's listening servers, offered on a blank tab.
  *
  * Pages the panel didn't load (a browser the agent started, one attached to the Chat, or a Chat on another computer's
- * own panel pages) show as streamed tabs after its own, read for `viewerChatId`.
+ * own panel pages) supply addresses to load here, read for `viewerChatId`.
  */
 export function BrowserPanel({
   chatKey,
@@ -90,22 +85,21 @@ export function BrowserPanel({
 }) {
   const chat = useChatBrowser(chatKey);
   const listed = useChatBrowserTargets(viewerChatId, chat.open);
-  // The streamed page picked, over the page of its own then on show: another of its own coming on show (picked, opened
-  // from a link or a new tab) takes over.
-  const [picked, setPicked] = useState<{ target: string; over: string | null } | null>(null);
-  const viewing = picked && picked.over === chat.active ? picked.target : null;
-  const setViewing = useCallback((target: string | null) => setPicked(target ? { target, over: chatBrowser(chatKey).active } : null), [chatKey]);
-  // What each streamed page reported last: its title and address follow the page as it navigates.
-  const [pages, setPages] = useState<Record<string, { title: string; url: string }>>({});
-  // A remote Chat's own tab at an address is that page drawn here (#832): the copy streamed from its computer's panel goes.
+  // Each device loads the page itself. A discovered page supplies an address, never a capture.
   const ownPages = new Set(chat.tabs.map((tab) => samePage(tab.url)));
   const streamed: ChatBrowserTargets = {
     ...listed,
-    targets: listed.targets.filter((target) => target.source !== "panel" || !ownPages.has(samePage(pages[target.id]?.url || target.url))),
+    targets: listed.targets.filter((target) => !ownPages.has(samePage(target.url))),
   };
   const own = chat.tabs.find((tab) => tab.id === chat.active) ?? null;
-  // The streamed page on show: the one picked, or the first while the panel has no page of its own.
-  const viewer = streamed.targets.find((target) => target.id === viewing) ?? (own ? null : (streamed.targets[0] ?? null));
+  const first = streamed.targets.find((target) => /^https?:\/\//i.test(target.url));
+  useEffect(() => {
+    if (chat.open && !own && !streamed.loading) openBrowserTab(chatKey, first?.url ?? "about:blank");
+  }, [chat.open, chatKey, own, first, streamed.loading]);
+  const viewTarget = (id: string) => {
+    const target = listed.targets.find((entry) => entry.id === id);
+    if (target && /^https?:\/\//i.test(target.url)) openBrowserTab(chatKey, target.url);
+  };
   const dock = useDockArea();
   const resize = usePanelWidth("browser");
   // Dragged wider than the room left now (the changes panel or a simulator opened beside it), it narrows so the chat
@@ -115,7 +109,7 @@ export function BrowserPanel({
   useCloseWhenDesignsExpand(close);
   useSidePanelRoom("browser", chat.open, width + 12, close);
   const hasStreamed = streamed.targets.length > 0;
-  // Opened with only streamed pages, the panel shows them rather than a blank page.
+  // Opened with only discovered pages, the panel shows them rather than a blank page.
   const open = () => (!chatBrowser(chatKey).tabs.length && hasStreamed ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));
   // Keep opening a blank page available in the menu and by shortcut; promote it once a page exists.
   useSidePanel("browser", {
@@ -123,48 +117,24 @@ export function BrowserPanel({
     promoted: chat.tabs.length > 0 || hasStreamed,
     toggle: () => (chatBrowser(chatKey).open ? close() : open()),
   });
-  // Shown for streamed pages that have all gone, the panel closes.
-  const empty = chat.open && !own && !viewer && !streamed.loading;
-  useEffect(() => {
-    if (empty) close();
-  }, [empty, close]);
   const closeTab = (tabId: string) => {
     closeBrowserTab(chatKey, tabId);
-    // The last page of its own closing leaves the streamed ones on show.
+    // The last page of its own closing leaves the discovered ones on show.
     if (!chatBrowser(chatKey).tabs.length && hasStreamed) showBrowserPanel(chatKey);
   };
-  const selectTab = (tabId: string) => {
-    setViewing(null);
-    selectBrowserTab(chatKey, tabId);
-  };
-  const onPage = useCallback(
-    (targetId: string, page: { title: string; url: string }) =>
-      setPages((current) => (current[targetId]?.title === page.title && current[targetId]?.url === page.url ? current : { ...current, [targetId]: page })),
-    [],
-  );
+  const selectTab = (tabId: string) => selectBrowserTab(chatKey, tabId);
   const attached = async (browserId: string) => {
     const next = await streamed.attach(browserId);
-    const page = next?.targets.find((target) => targetBrowserId(target.id) === browserId);
-    if (page) setViewing(page.id);
+    const page = next?.targets.find((target) => targetBrowserId(target.id) === browserId && /^https?:\/\//i.test(target.url));
+    if (page && /^https?:\/\//i.test(page.url)) openBrowserTab(chatKey, page.url);
   };
   // Localhost links in this Chat's replies open here while it is on screen.
   useEffect(() => registerBrowserHost(chatKey), [chatKey]);
   useSentPageComments(chatKey);
-  const active = viewer ? null : own;
-  // Comment mode on the streamed page on show (another computer's panel page), and the point picked on it. Another page
-  // or address ends it.
-  const [streamComment, setStreamComment] = useState<{ target: string; url: string; point: StreamedPoint | null } | null>(null);
-  const viewerUrl = viewer ? pages[viewer.id]?.url || viewer.url : "";
-  const commenting = !!viewer && streamComment?.target === viewer.id && streamComment.url === viewerUrl ? streamComment : null;
-  const [sentNote, setSentNote] = useState(false);
-  useEffect(() => {
-    if (!sentNote) return;
-    const timer = setTimeout(() => setSentNote(false), 2500);
-    return () => clearTimeout(timer);
-  }, [sentNote]);
+  const active = own;
   return createPortal(
     <AnimatePresence>
-      {chat.open && (active || viewer) && (
+      {chat.open && active && (
         <ResizableDockSlide
           key="browser-dock"
           // Opens like the git changes panel and lines up with the sidebar's card, left of a docked simulator; the chat
@@ -189,68 +159,16 @@ export function BrowserPanel({
             tabs={chat.tabs}
             active={active?.id ?? null}
             streamed={streamed}
-            viewing={viewer?.id ?? null}
-            pages={pages}
+            attachedTargets={listed.targets.filter((target) => target.source === "attached")}
+            viewing={null}
+            pages={{}}
             onSelect={selectTab}
             onCloseTab={closeTab}
-            onView={setViewing}
+            onView={viewTarget}
             onClose={close}
           />
-          {active ? (
-            <>
-              <BrowserToolbar key={active.id} chatKey={chatKey} tab={active} onSendComments={onSendComments} />
-              <BrowserPage chatKey={chatKey} tab={active} ports={ports} streamed={streamed} onAttach={attached} />
-            </>
-          ) : (
-            viewer &&
-            streamed.api &&
-            viewerChatId && (
-              <>
-                <ViewerToolbar
-                  chatKey={chatKey}
-                  target={viewer}
-                  page={pages[viewer.id]}
-                  commenting={!!commenting}
-                  onComment={() => setStreamComment(commenting ? null : { target: viewer.id, url: viewerUrl, point: null })}
-                />
-                <div data-slot="browser-page" className="relative min-h-0 flex-1 bg-surface">
-                  <BrowserViewerFrame
-                    key={viewer.id}
-                    api={streamed.api}
-                    chatId={viewerChatId}
-                    targetId={viewer.id}
-                    onPage={(page) => onPage(viewer.id, page)}
-                    commenting={!!commenting}
-                    picked={commenting?.point ?? null}
-                    onPick={(point) => setStreamComment((current) => (current ? { ...current, point } : current))}
-                    onEscape={() => setStreamComment(null)}
-                  />
-                  {commenting && (
-                    <StreamedPageComment
-                      key={`${commenting.point?.x}:${commenting.point?.y}`}
-                      chatId={viewerChatId}
-                      targetId={viewer.id}
-                      picked={commenting.point}
-                      onCancel={() => setStreamComment(null)}
-                      onSent={() => {
-                        setStreamComment(null);
-                        setSentNote(true);
-                      }}
-                    />
-                  )}
-                  {sentNote && !commenting && (
-                    <div
-                      role="status"
-                      data-slot="browser-comment-sent"
-                      className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink/90 px-3 py-1.5 text-12 whitespace-nowrap text-surface shadow-md"
-                    >
-                      Sent to the agent
-                    </div>
-                  )}
-                </div>
-              </>
-            )
-          )}
+          <BrowserToolbar key={active.id} chatKey={chatKey} tab={active} onSendComments={onSendComments} />
+          <BrowserPage chatKey={chatKey} tab={active} ports={ports} streamed={streamed} onAttach={attached} />
         </ResizableDockSlide>
       )}
     </AnimatePresence>,
@@ -261,6 +179,7 @@ export function BrowserPanel({
 function BrowserTabs({
   chatKey,
   tabs,
+  attachedTargets,
   active,
   streamed,
   viewing,
@@ -272,6 +191,7 @@ function BrowserTabs({
 }: {
   chatKey: string;
   tabs: BrowserTab[];
+  attachedTargets: BrowserTarget[];
   active: string | null;
   streamed: ChatBrowserTargets;
   viewing: string | null;
@@ -293,6 +213,7 @@ function BrowserTabs({
       >
         {tabs.map((tab) => {
           const selected = tab.id === active;
+          const attached = attachedTargets.find((target) => samePage(target.url) === samePage(tab.url));
           const name = tab.title || (tab.url === "about:blank" ? "New page" : hostLabel(tab.url));
           return (
             <div
@@ -317,6 +238,16 @@ function BrowserTabs({
                   <span className="min-w-0 flex-1 truncate">{name}</span>
                 </button>
               </Tooltip>
+              {attached && (
+                <IconButton
+                  label={`Detach ${name} from this Chat`}
+                  icon={Unlink04Icon}
+                  size={20}
+                  data-browser-detach={targetBrowserId(attached.id)}
+                  disabled={streamed.attaching !== null}
+                  onClick={() => void streamed.detach(targetBrowserId(attached.id))}
+                />
+              )}
               <IconButton
                 label={`Close ${name}`}
                 icon={Cancel01Icon}
@@ -328,7 +259,7 @@ function BrowserTabs({
           );
         })}
         {streamed.targets.map((target) => (
-          <StreamedTab
+          <DiscoveredTab
             key={target.id}
             target={target}
             page={pages[target.id]}
@@ -353,8 +284,8 @@ const SOURCE_LABEL: Record<BrowserTarget["source"], string> = {
   panel: "Its computer's panel",
 };
 
-/** A page the panel streams: the agent's own browser, an attached one or another computer's panel. */
-function StreamedTab({
+/** An address offered by the agent's own browser, an attached one or another computer's panel. */
+function DiscoveredTab({
   target,
   page,
   selected,
@@ -384,7 +315,7 @@ function StreamedTab({
         onClick={onView}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        <HugeiconsIcon icon={BrowserIcon} size={14} className="shrink-0 text-ink-3" aria-hidden />
+        <Icon icon={BrowserIcon} size={14} className="shrink-0 text-ink-3" />
         <span className="min-w-0 flex-1 truncate">{name}</span>
       </button>
       {/* Only an attachment can end here: the agent's browser and another computer's panel close where they run. */}
@@ -398,79 +329,10 @@ function StreamedTab({
             onClick={onDetach}
             className={`flex size-5 shrink-0 items-center justify-center rounded-inline text-ink-3 hover:bg-hover hover:text-ink disabled:opacity-40 ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
           >
-            <HugeiconsIcon icon={Unlink04Icon} size={12} aria-hidden />
+            <Icon icon={Unlink04Icon} size={12} />
           </button>
         </Tooltip>
       )}
-    </div>
-  );
-}
-
-/**
- * A streamed page's address, read only (the page's own controls are under it, in the stream), with the actions a page of
- * the panel's own has: comments on another computer's panel page, and opening the page in this Mac's browser.
- */
-function ViewerToolbar({
-  chatKey,
-  target,
-  page,
-  commenting,
-  onComment,
-}: {
-  chatKey: string;
-  target: BrowserTarget;
-  page?: { title: string; url: string };
-  commenting: boolean;
-  onComment: () => void;
-}) {
-  const url = page?.url || target.url;
-  const { computers } = useComputers();
-  const loopbackOnly = useContext(LoopbackPortsContext);
-  const external = openablePageUrl(url, {
-    remote: isRemoteKey(chatKey),
-    host: computers.find((computer) => computer.id === computerOfKey(chatKey))?.address,
-    loopbackOnly,
-  });
-  const commentLabel = commenting ? "Stop commenting" : "Comment on the page";
-  const openLabel = external.href ? "Open in your default browser" : external.reason;
-  return (
-    <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
-      <div
-        data-slot="browser-viewer-address"
-        title={`${target.source === "agent" ? target.browser : SOURCE_LABEL[target.source]} · ${url}`}
-        className="mr-1 h-7 min-w-0 flex-1 truncate rounded-control border border-transparent bg-hover px-2.5 text-12 leading-7 text-ink-2"
-      >
-        {addressText(url)}
-      </div>
-      {target.source !== "panel" && (
-        <span className="shrink-0 pr-1 text-11 text-ink-3">{target.source === "agent" ? target.browser : SOURCE_LABEL[target.source]}</span>
-      )}
-      {target.source === "panel" && (
-        <Tooltip label={commentLabel} side="bottom" align="end">
-          <button
-            type="button"
-            aria-label={commentLabel}
-            aria-pressed={commenting}
-            data-slot="browser-comment-toggle"
-            onClick={onComment}
-            className={`flex size-7 shrink-0 items-center justify-center rounded-control ${commenting ? "bg-accent/10 text-accent" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
-          >
-            <HugeiconsIcon icon={CommentAdd01Icon} size={16} aria-hidden />
-          </button>
-        </Tooltip>
-      )}
-      <Tooltip label={openLabel} side="bottom" align="end">
-        <button
-          type="button"
-          aria-label="Open in your default browser"
-          data-slot="browser-viewer-open"
-          disabled={!external.href}
-          onClick={() => external.href && window.open(external.href, "_blank")}
-          className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:opacity-40"
-        >
-          <HugeiconsIcon icon={LinkSquare02Icon} size={15} aria-hidden />
-        </button>
-      </Tooltip>
     </div>
   );
 }
@@ -656,14 +518,14 @@ function StartPage({
   );
 }
 
-/** Browsers no Chat's agent started, on the Chat's computer. Attaching one streams its pages here, as tabs. */
+/** Browsers no Chat's agent started, on the Chat's computer. Attaching one offers its pages here, as tabs. */
 function OtherBrowsers({ chatKey, streamed, onAttach }: { chatKey: string; streamed: ChatBrowserTargets; onAttach: (browserId: string) => void }) {
   return (
     <div className="flex w-full max-w-[300px] flex-col gap-1">
       <p className="mb-1 text-center text-12 text-ink-3">{isRemoteKey(chatKey) ? "Other browsers on its computer" : "Other browsers on this computer"}</p>
       {streamed.others.map((other: BrowserCandidate) => (
         <div key={other.id} data-browser-other={other.id} className="flex items-center gap-2 rounded-control px-3 py-1.5">
-          <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden className="shrink-0 text-ink-3" />
+          <Icon icon={BrowserIcon} size={16} className="shrink-0 text-ink-3" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-13">{other.title || other.browser}</span>
             <span className="block truncate text-11 text-ink-3">
@@ -678,7 +540,7 @@ function OtherBrowsers({ chatKey, streamed, onAttach }: { chatKey: string; strea
               onClick={() => onAttach(other.id)}
               className="flex h-7 shrink-0 items-center gap-1 rounded-control px-2 text-12 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"
             >
-              <HugeiconsIcon icon={Link01Icon} size={14} aria-hidden />
+              <Icon icon={Link01Icon} size={14} />
               Attach
             </button>
           </Tooltip>

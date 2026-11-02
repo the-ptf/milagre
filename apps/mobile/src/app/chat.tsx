@@ -67,7 +67,7 @@ import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useS
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
-import { chatMentionChoices, shiftImageMentions } from "@milagre/shared/prompt-mentions";
+import { chatMentionChoices, shiftImageMentions, type MentionComputer } from "@milagre/shared/prompt-mentions";
 import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
 import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "../status-indicators";
 import { usePrDetail } from "../pr-store";
@@ -158,7 +158,7 @@ import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
-import { allComputers, chatsHomePath, useNewChatProjects, useNoProjectChoice } from "../all-computers";
+import { allComputers, chatsHomePath, useComputerViews, useNewChatProjects, useNoProjectChoice } from "../all-computers";
 import {
   CHATS_PLACEHOLDER,
   CHATS_TRAY_LABEL,
@@ -563,6 +563,16 @@ function ChatPane({
   const liveRun = useRun(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
+  // The computers an @ can name: this Chat's computer first, then the others this phone reaches.
+  const computerViews = useComputerViews();
+  const mentionHost = connected?.url;
+  const mentionComputerKey = JSON.stringify([
+    ...(session.hostName && !computerViews.some((view) => view.hostId === mentionHost)
+      ? [{ id: mentionHost ?? "this", name: session.hostName, online: true, self: true }]
+      : []),
+    ...computerViews.map((view) => ({ id: view.hostId, name: view.name, online: view.state === "online", self: view.hostId === mentionHost })),
+  ]);
+  const mentionComputers = useMemo(() => JSON.parse(mentionComputerKey) as MentionComputer[], [mentionComputerKey]);
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
   // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
@@ -2887,6 +2897,7 @@ function ChatPane({
                               // keyboard focus and the caret. Saved Chats still get an input of their own.
                               key={params.id ? chatId : "new"}
                               chats={mentionChats}
+                              computers={mentionComputers}
                               currentId={chat?.id}
                               client={client}
                               projectPath={worktree?.path || (project.link ? "" : project.path)}

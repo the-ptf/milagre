@@ -5,8 +5,8 @@ import * as Font from "expo-font";
 import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
-import { formatChatMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
-import { matchingMentionChats, type MentionChat, editImageMentions } from "@milagre/shared/prompt-mentions";
+import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { matchingMentionChats, matchingMentionComputers, type MentionChat, type MentionComputer, editImageMentions } from "@milagre/shared/prompt-mentions";
 import { withAlpha } from "@milagre/shared/themes";
 import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
@@ -37,6 +37,7 @@ import { CAPSULE_INSET, CAPSULE_WIDTH, DictationCapsule, MIC_INSET, MIC_SIZE, Vo
 import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
+const NO_COMPUTERS: readonly MentionComputer[] = [];
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 // Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
 // nothing, so `[Image #1]` reads as an image chip in a field that can only style its own characters. Loaded at runtime,
@@ -79,6 +80,7 @@ const openSkills = (scale: number) =>
 export function PromptField({
   client,
   chats = NO_CHATS,
+  computers = NO_COMPUTERS,
   currentId,
   projectPath,
   draft,
@@ -100,6 +102,8 @@ export function PromptField({
   onTouchStart,
 }: {
   chats?: readonly MentionChat[];
+  /** The computers an `@` can name; offered only with more than this one. */
+  computers?: readonly MentionComputer[];
   currentId?: number;
   client: Client;
   projectPath: string;
@@ -154,7 +158,9 @@ export function PromptField({
   );
   const [selection, setSelection] = useState({ start: draft.length, end: draft.length });
   const [focused, setFocused] = useState(false);
-  const typing = (onMention || chats.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
+  // This computer alone is no choice: computers join the @ menu once there is another one to name.
+  const nameable = computers.length > 1 ? computers : NO_COMPUTERS;
+  const typing = (onMention || chats.length || nameable.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
   const lookups = useMentionLookups(client, projectPath, draft, known, typing);
   const { parts: marks } = useMemo(
     () =>
@@ -165,10 +171,11 @@ export function PromptField({
           files: (path) => !!known?.has(projectPath, path),
           images,
           chats: (id) => chats.some((chat) => chat.id === id && chat.available),
+          computers: (name) => computers.some((computer) => computer.name.toLowerCase() === name.toLowerCase()),
         },
         lookups,
       ),
-    [draft, skills, known, projectPath, lookups, images, chats],
+    [draft, skills, known, projectPath, lookups, images, chats, computers],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
   const focusDraft = useRef(draft);
@@ -365,9 +372,10 @@ export function PromptField({
         .filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.query))
         .sort((a, b) => Number(b.name.toLowerCase().startsWith(query.query)) - Number(a.name.toLowerCase().startsWith(query.query)))
     : [];
-  const fileToken = focused && (onMention || chats.length) && !query ? fileQueryAt(draft, selection.start) : null;
+  const fileToken = focused && (onMention || chats.length || nameable.length) && !query ? fileQueryAt(draft, selection.start) : null;
   const files = useFileSearch(client, projectPath, onMention ? (fileToken?.query ?? null) : null);
   const chatRows = fileToken ? matchingMentionChats(chats, fileToken.query, currentId) : [];
+  const computerRows = fileToken ? matchingMentionComputers(nameable, fileToken.query) : [];
   const chooseMention = (mention: string, path?: string) => {
     if (!fileToken) return;
     const suffix = draft.slice(fileToken.end);
@@ -450,12 +458,12 @@ export function PromptField({
       {fileToken ? (
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
-            accessibilityLabel="Files and Chats"
+            accessibilityLabel={nameable.length ? "Files, Chats and computers" : "Files and Chats"}
             style={menuStyle}
             contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
             keyboardShouldPersistTaps="always"
           >
-            {(onMention ? files.items : []).slice(0, chatRows.length ? 1 : 40).map((path) => (
+            {(onMention ? files.items : []).slice(0, chatRows.length || computerRows.length ? 1 : 40).map((path) => (
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
             {chatRows.length > 0 && (
@@ -466,7 +474,20 @@ export function PromptField({
             {chatRows.map((chat) => (
               <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
             ))}
-            {!onMention && !chatRows.length && <Text style={[styles.muted, { padding: 12 }]}>No matching Chats</Text>}
+            {computerRows.length > 0 && (
+              <SectionLabel flush style={{ paddingVertical: 6 }}>
+                Computers
+              </SectionLabel>
+            )}
+            {computerRows.map((computer) => (
+              <ListRow
+                key={`computer:${computer.id}`}
+                title={computer.name}
+                subtitle={computer.self ? "This computer" : computer.online ? "Online" : "Offline"}
+                onPress={() => chooseMention(formatComputerMention(computer.name))}
+              />
+            ))}
+            {!onMention && !chatRows.length && !computerRows.length && <Text style={[styles.muted, { padding: 12 }]}>No matches</Text>}
             {onMention &&
               (files.error ? (
                 isOldMacError(files.error) ? (
@@ -475,8 +496,8 @@ export function PromptField({
                   <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
                 )
               ) : files.loading && !files.items.length ? (
-                <Text style={[styles.muted, { padding: 12 }]}>Loading files…</Text>
-              ) : !files.items.length && !chatRows.length ? (
+                <Text style={[styles.muted, { padding: 12 }]}>Loading files...</Text>
+              ) : !files.items.length && !chatRows.length && !computerRows.length ? (
                 <Text style={[styles.muted, { padding: 12 }]}>No matching files or Chats</Text>
               ) : null)}
           </PageScroll>

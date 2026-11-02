@@ -605,6 +605,7 @@ async function startDaemon({
     },
   });
   const browserSignIns = createHostBrowserSignIns({ desktop: desktopCommands, computers: () => computers.remote.list() });
+  const browserPages = require("./browser-page-proxy.cjs").createBrowserPageProxy();
   /**
    * One client of the daemon, whatever carries its frames: the Unix socket below, and a paired desktop's channel (peer-channel.cjs).
    * The carrier supplies `send(message, json, bytes)`, which writes one frame as wire()'s send does (it may throw
@@ -786,6 +787,9 @@ async function startDaemon({
               ...FILE_METHODS,
               ...APP_UPDATE_METHODS,
               ...BROWSER_SIGN_IN_METHODS,
+              "browser:page-url",
+              "browser:release-page-url",
+              "browser:keep-page-url",
             ].filter((method) => !policy?.denies(method)),
           };
         else if (request.method.startsWith("computers:")) {
@@ -846,6 +850,9 @@ async function startDaemon({
         else if (request.method === "peer:routes") result = phone.peerRoutes();
         else if (APP_UPDATE_METHODS.includes(request.method)) result = await hostUpdates.invoke(request.method);
         else if (BROWSER_SIGN_IN_METHODS.includes(request.method)) result = await browserSignIns.invoke(request.method, request.args);
+        else if (request.method === "browser:page-url") result = await browserPages.open(request.args[0]);
+        else if (request.method === "browser:release-page-url") result = await browserPages.release(request.args[0]);
+        else if (request.method === "browser:keep-page-url") result = browserPages.keep(request.args[0]);
         else if (request.method === "live-activity:state") result = liveActivity.state(request.args[0]);
         else if (request.method === "live-activity:open") result = liveActivity.open(request.args[0]);
         else if (request.method === "live-activity:answer") result = await liveActivity.choose(request.args[0]);
@@ -1007,6 +1014,7 @@ async function startDaemon({
       // Keep the listening socket available after a failed save so a client
       // can receive the error and retry stop after disk recovery.
       await phone.close();
+      await browserPages.close();
       await push.close();
       await sender.close();
       await runtime.close();

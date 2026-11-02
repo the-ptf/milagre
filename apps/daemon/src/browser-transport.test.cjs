@@ -108,3 +108,15 @@ test("a paired phone opens a web link in its Chat's desktop panel", async (t) =>
   const invalid = await paired("browser:open-page", [{ chatId: "chat", url: "file:///tmp/private" }]);
   assert.notEqual(invalid.status, 200);
 });
+
+test("phone proxy commands require pairing and are unavailable to confined clients", async (t) => {
+  const f = await fixture(t);
+  const paired = await f.bridge(),
+    confined = await f.bridge(true);
+  for (const method of ["browser:page-url", "browser:keep-page-url", "browser:release-page-url"]) {
+    assert.equal((await paired(method, [{ url: "file:///private", id: "missing" }], false)).status, 401);
+    assert.equal((await confined(method, [{ url: "file:///private", id: "missing" }])).status, 403);
+  }
+  assert.equal((await (await paired("browser:keep-page-url", [{ id: "missing" }])).json()).result, false);
+  assert.notEqual((await paired("browser:page-url", [{ url: "file:///private" }])).status, 200);
+});

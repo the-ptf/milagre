@@ -45,6 +45,10 @@ function createLinkedWorktrees({
   chatTools = (_chatId, tools) => tools,
   botOf = () => null,
   remote = null,
+  // (projectPath, prompt) -> { path, branch }: a new Worktree of a Project, from its main branch.
+  createWorktree = async () => {
+    throw new Error("This computer can't make Worktrees for a Delegation.");
+  },
   createMcpServer = createLinkedMcpServer,
   store = jsonFileStore(path.join(dataDir, "delegations.json")),
 }) {
@@ -152,6 +156,14 @@ function createLinkedWorktrees({
       };
     }
     return null;
+  }
+
+  /** A Project in the registry, by its path, as a Delegation's new Worktree's Project; null for any other folder. */
+  async function hostProject(projectPath) {
+    if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) return null;
+    const { projects } = await registry().snapshot();
+    const found = projects.find((candidate) => !candidate.hidden && candidate.path === projectPath);
+    return found ? { projectPath: found.path, projectName: found.name ?? path.basename(found.path) } : null;
   }
 
   /** What another computer's Chats can delegate to here: each Project in the registry with its active Worktrees. */
@@ -330,6 +342,12 @@ function createLinkedWorktrees({
       changed: () => emit("linked:changed", snapshot()),
       remote,
       hostTarget,
+      hostProject,
+      newWorktree: async (projectPath, prompt) => {
+        const made = await createWorktree(projectPath, prompt);
+        activeCache.delete(projectPath);
+        return made;
+      },
       // Every client hears it; the computer that asked (a paired desktop's daemon) takes its own (remoteFinished).
       remoteReport: (report) => emit("delegation:report", report),
     },
