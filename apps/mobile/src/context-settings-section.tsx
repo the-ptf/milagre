@@ -158,7 +158,12 @@ export function ContextSettingsSection() {
         />
       </View>
       <Text style={styles.muted}>Auto compact waits for the reply to finish. Thresholds apply to every Claude Chat on this computer.</Text>
-      <Pressable disabled={disabled} accessibilityRole="button" onPress={() => save(CONTEXT_DEFAULTS)} style={{ minHeight: 44, justifyContent: "center" }}>
+      <Pressable
+        disabled={disabled}
+        accessibilityRole="button"
+        onPress={() => save({ buttonThreshold: CONTEXT_DEFAULTS.buttonThreshold, autoThreshold: CONTEXT_DEFAULTS.autoThreshold })}
+        style={{ minHeight: 44, justifyContent: "center" }}
+      >
         <Text style={{ color: colors.accentInk, fontSize: 15 }}>Reset to defaults</Text>
       </Pressable>
       {host.error ? (

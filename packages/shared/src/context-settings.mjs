@@ -1,11 +1,17 @@
-export const CONTEXT_DEFAULTS = Object.freeze({ buttonThreshold: 70, autoThreshold: 85, autoCompact: false });
+export const CONTEXT_DEFAULTS = Object.freeze({ buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps: "now" });
 export const CONTEXT_GRADIENT_COLORS = ["#78b1b1", "#e0c271", "#f1933e", "#cf4e3e"];
 export const CONTEXT_GRADIENT_STOPS = [0, 0.55, 0.78, 1];
 export const CONTEXT_GRADIENT = "linear-gradient(90deg, #78b1b1 0%, #e0c271 55%, #f1933e 78%, #cf4e3e 100%)";
 const percent = (value, fallback, min, max) => Math.max(min, Math.min(max, typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback));
 export function normalizeContextSettings(value) {
   const buttonThreshold = percent(value?.buttonThreshold, 70, 5, 90);
-  return { buttonThreshold, autoThreshold: percent(value?.autoThreshold, 85, buttonThreshold + 5, 95), autoCompact: value?.autoCompact === true };
+  return {
+    buttonThreshold,
+    autoThreshold: percent(value?.autoThreshold, 85, buttonThreshold + 5, 95),
+    autoCompact: value?.autoCompact === true,
+    // Messages sent while a turn runs: steer it (default) or wait in the queue.
+    followUps: value?.followUps === "queue" ? "queue" : "now",
+  };
 }
 export function shouldAutoCompact(settings, usage) {
   return (

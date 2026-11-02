@@ -6302,6 +6302,10 @@
         },
         "autoCompact": {
           "enum": [false, true]
+        },
+        "followUps": {
+          "enum": ["now", "queue"],
+          "description": "A message sent while a turn runs: steer it, or wait for the turn to end."
         }
       },
       "additionalProperties": false
@@ -7885,7 +7889,7 @@
           "enum": ["ask", "auto", "full", "bot"]
         },
         "delivery": {
-          "enum": ["queue", "now"],
+          "enum": ["now", "queue"],
           "description": "While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior."
         },
         "clientMessageId": {
@@ -8133,7 +8137,7 @@
           "type": "string"
         },
         "delivery": {
-          "enum": ["queue", "now"],
+          "enum": ["now", "queue"],
           "description": "While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior."
         },
         "clientMessageId": {
