@@ -10,10 +10,10 @@ import {
   CommandLineIcon,
   File01Icon,
   Search01Icon,
-  Tick02Icon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import { TOOL_CALL_DISPLAYS, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import { CheckboxBox } from "../primitives/Checkbox";
 import { DICTATION_ACTION_OPTIONS, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 import { DICTATION_SHORTCUT_MODES, type DictationShortcutMode } from "@milagre/shared/dictation";
 
@@ -21,7 +21,7 @@ type Choice<T extends string> = { id: T; label: string; description: string; pre
 
 /**
  * Two side-by-side cards for one setting, each a small picture of what it does, its name and one line. A radio group:
- * arrow keys move between the cards, and the chosen one carries the accent ring and a filled check.
+ * arrow keys move between the cards, and the chosen one carries an ink ring and a filled radio (selection is ink).
  */
 function ChoiceCards<T extends string>({
   label,
@@ -52,22 +52,16 @@ function ChoiceCards<T extends string>({
             value={choice.id}
             aria-label={choice.label}
             data-choice-card={choice.id}
-            className={`flex flex-col gap-2.5 rounded-[12px] bg-surface p-3 text-left shadow-card outline-none transition-[box-shadow,background-color] hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 ${selected ? "ring-2 ring-accent" : ""}`}
+            className={`flex flex-col gap-2 rounded-card bg-surface p-3 text-left shadow-card transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "ring-2 ring-ink" : ""}`}
           >
             <span aria-hidden className={`flex w-full flex-col overflow-hidden rounded-control bg-inset ${compact ? "h-16 gap-1 p-2" : "h-[112px] gap-2 p-3"}`}>
               {choice.preview}
             </span>
             <span className="flex items-center gap-2">
-              {selected ? (
-                <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-accent text-white">
-                  <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2.6} color="currentColor" />
-                </span>
-              ) : (
-                <span className="size-[18px] shrink-0 rounded-full border-[1.5px] border-ink-3" />
-              )}
-              <span className="truncate text-[13.5px] font-semibold text-ink">{choice.label}</span>
+              <CheckboxBox checked={selected} radio />
+              <span className="truncate text-13 font-semibold text-ink">{choice.label}</span>
             </span>
-            <span className="text-[12px] leading-snug text-ink-3">{choice.description}</span>
+            <span className="text-12 text-ink-3">{choice.description}</span>
           </RadioGroupPrimitive.Item>
         );
       })}
@@ -119,7 +113,7 @@ const Bar = ({ width, soft = false, thin = false }: { width: string; soft?: bool
 );
 
 const Avatar = ({ color, size = 6 }: { color: string; size?: number }) => (
-  <span className="block shrink-0 rounded-[2px]" style={{ width: size, height: size, background: color }} />
+  <span className="block shrink-0 rounded-inline" style={{ width: size, height: size, background: color }} />
 );
 
 const AVATARS = ["#565f89", "#9e7b5a", "#bb9af7"];
@@ -127,7 +121,7 @@ const AVATARS = ["#565f89", "#9e7b5a", "#bb9af7"];
 /** A line of small type with an icon, the way a reply's activity row reads. */
 function Line({ icon, text, chevron }: { icon: Parameters<typeof HugeiconsIcon>[0]["icon"]; text: string; chevron?: "right" | "down" }) {
   return (
-    <span className="flex shrink-0 items-center gap-1.5 text-[10px] leading-3 text-ink-3">
+    <span className="flex shrink-0 items-center gap-1.5 text-10 leading-3 text-ink-3">
       <HugeiconsIcon icon={icon} size={11} strokeWidth={1.8} color="currentColor" />
       <span className="truncate">{text}</span>
       {chevron && <HugeiconsIcon icon={chevron === "right" ? ArrowRight01Icon : ArrowDown01Icon} size={10} strokeWidth={1.8} color="currentColor" />}

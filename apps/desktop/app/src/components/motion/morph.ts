@@ -9,7 +9,7 @@ import { EASE_OUT, scaled } from "../../lib/ease";
 
 /** The box's own transition: width, height, corners and a right-edge offset move together; reduced motion jumps. */
 export const MORPH_SURFACE =
-  "transition-[width,height,right,border-radius,box-shadow] duration-[calc(300ms*var(--motion-scale))] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none motion-reduce:duration-0";
+  "transition-[width,height,right,border-radius,box-shadow] duration-[calc(var(--duration-slow)*var(--motion-scale))] ease-enter motion-reduce:transition-none motion-reduce:duration-0";
 
 /** Classes for the face that is not on show. Only hiding transitions visibility, which stays visible through the fade. */
 export const HIDDEN_FACE = "invisible transition-[visibility] duration-[calc(100ms*var(--motion-scale))] motion-reduce:duration-0";

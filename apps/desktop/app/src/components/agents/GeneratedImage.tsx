@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { ComponentProps } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import { Copy01Icon, Download04Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "../../model";
 import { canCopyImage, mediaUrl } from "../../lib/media";
@@ -10,9 +9,10 @@ import { ImageGeneration } from "./ImageGeneration";
 import type { ImageGenerationStatus } from "./ImageGeneration";
 import { StepRow } from "./StepRow";
 import { MediaLightbox } from "../motion/LazyMediaLightbox";
+import { Icon } from "../primitives/Icon";
 import Tooltip from "../primitives/Tooltip";
 
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
+type IconData = IconSvgElement;
 
 function ImageAction({ label, icon, onClick }: { label: string; icon: IconData; onClick: () => void }) {
   return (
@@ -21,9 +21,9 @@ function ImageAction({ label, icon, onClick }: { label: string; icon: IconData; 
         type="button"
         aria-label={label}
         onClick={onClick}
-        className="grid size-7 place-items-center rounded-[8px] bg-surface/80 text-ink-2 shadow-[var(--shadow-hairline)] backdrop-blur-chip transition-colors hover:bg-surface hover:text-ink focus-visible:outline-2 focus-visible:outline-ink-3"
+        className="grid size-7 place-items-center rounded-control bg-surface/80 text-ink-2 shadow-hairline backdrop-blur-chip transition-[color,background-color,scale] duration-fast hover:bg-surface hover:text-ink active:scale-press"
       >
-        <HugeiconsIcon icon={icon} size={14} strokeWidth={1.8} color="currentColor" aria-hidden />
+        <Icon icon={icon} size={14} />
       </button>
     </Tooltip>
   );
@@ -107,7 +107,7 @@ export const GeneratedImage = memo(function GeneratedImage({ step }: { step: Cha
             aria-label="Preview generated image"
             disabled={status !== "complete"}
             onClick={() => setOpen(true)}
-            className="block cursor-zoom-in focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink-3 disabled:cursor-default"
+            className="block cursor-zoom-in focus-visible:-outline-offset-2 disabled:cursor-default"
           >
             {/* Hidden while the viewer shows it, so the image morphs out of and back into its place. */}
             <img

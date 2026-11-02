@@ -78,7 +78,7 @@ function ModelRow({ model, state, selected, onPick }: { model: WhisperModel; sta
           style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
         >
           <DownloadRing size={28} stroke={2.5} progress={(state.received ?? 0) / model.size}>
-            <Icon icon={Cancel01Icon} size={14} tone="ink" />
+            <Icon icon={Cancel01Icon} size={12} tone="ink" />
           </DownloadRing>
         </Pressable>
       ) : state?.ready ? (

@@ -5,7 +5,8 @@ const TOAST_MS = 2600;
  * Status colours and the accent fall under 3:1 on ink in some themes, so an icon says what happened by its shape alone.
  * No display here: on the popover below, one would override the browser's `display: none` for a closed popover.
  */
-const TOAST_CLASS = "fixed z-[80] min-h-10 max-w-[min(520px,calc(100vw-2rem))] rounded-full bg-ink px-4 py-2 text-13 font-medium text-surface shadow-overlay";
+export const TOAST = "rounded-full bg-ink px-4 py-2 text-13 font-medium text-on-ink shadow-overlay";
+const TOAST_CLASS = "fixed z-[80] min-h-10 max-w-[min(520px,calc(100vw-2rem))] rounded-full bg-ink px-4 py-2 text-13 font-medium text-on-ink shadow-overlay";
 let element: HTMLDivElement | null = null;
 let timer: number | undefined;
 

@@ -1,3 +1,4 @@
+import { duration } from "./design-tokens";
 import { useEffect, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import Animated, {
@@ -117,9 +118,9 @@ function DroppingArrow() {
       withRepeat(
         withSequence(
           withTiming(-1, { duration: 0, reduceMotion: ease }),
-          withTiming(0, { duration: 455, easing: Easing.bezier(0.2, 0.8, 0.3, 1), reduceMotion: ease }),
-          withTiming(0, { duration: 350, reduceMotion: ease }),
-          withTiming(1, { duration: 495, easing: Easing.bezier(0.6, 0, 0.9, 0.4), reduceMotion: ease }),
+          withTiming(0, { duration: duration.slow, easing: Easing.bezier(0.2, 0.8, 0.3, 1), reduceMotion: ease }),
+          withTiming(0, { duration: duration.slow, reduceMotion: ease }),
+          withTiming(1, { duration: duration.slow, easing: Easing.bezier(0.6, 0, 0.9, 0.4), reduceMotion: ease }),
         ),
         -1,
         false,

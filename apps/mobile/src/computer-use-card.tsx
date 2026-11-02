@@ -69,7 +69,7 @@ export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?:
         {live ? (
           <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.green }} />
         ) : (
-          <Icon icon={ComputerIcon} size={15} tone="ink2" />
+          <Icon icon={ComputerIcon} size={16} tone="ink2" />
         )}
         {live && <Text style={{ color: colors.greenInk, fontSize: 13, fontWeight: "600" }}>Live</Text>}
         <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: 13 }}>
@@ -119,11 +119,11 @@ function Step({ step }: { step: ChatStep }) {
       {running ? (
         <ActivityIndicator size="small" color={colors.ink} style={{ width: 15, height: 15, transform: [{ scale: 0.7 }] }} />
       ) : failed ? (
-        <Icon icon={Cancel01Icon} size={15} tone="redInk" />
+        <Icon icon={Cancel01Icon} size={16} tone="redInk" />
       ) : step.status === "done" ? (
-        <Icon icon={Tick02Icon} size={15} tone="greenInk" />
+        <Icon icon={Tick02Icon} size={16} tone="greenInk" />
       ) : (
-        <Icon icon={CircleIcon} size={15} tone="ink3" />
+        <Icon icon={CircleIcon} size={16} tone="ink3" />
       )}
       <Text
         numberOfLines={1}

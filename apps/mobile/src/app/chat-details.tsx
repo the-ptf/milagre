@@ -6,7 +6,7 @@ import { ArchiveProgress } from "../archive-progress";
 import { runChatAction } from "../chat-actions";
 import { useLinks } from "../use-links";
 import { endNamer, linkedLabels } from "../chat-links";
-import { Button, ErrorNotice, Field, PageScroll, useStyles } from "../ui";
+import { PillButton, ErrorNotice, Field, PageScroll, useStyles } from "../ui";
 
 export default function ChatDetails() {
   const styles = useStyles();
@@ -93,7 +93,7 @@ export default function ChatDetails() {
     <PageScroll>
       <Text style={styles.title}>Manage Chat</Text>
       <Field label="Chat name" value={title} onChangeText={setTitle} placeholder="Give this Chat a name" />
-      <Button title="Save name" disabled={busy || !title.trim()} onPress={() => void save({ title: title.trim() })} />
+      <PillButton title="Save name" disabled={busy || !title.trim()} onPress={() => void save({ title: title.trim() })} />
       {linked.length > 0 && (
         <View style={{ gap: 6 }}>
           <Text accessibilityRole="header" style={styles.label}>
@@ -106,7 +106,7 @@ export default function ChatDetails() {
           ))}
         </View>
       )}
-      <Button title="Delete Chat" secondary disabled={busy} onPress={() => void deleteChat()} />
+      <PillButton title="Delete Chat" secondary disabled={busy} onPress={() => void deleteChat()} />
       {archiving && <ArchiveProgress />}
       {error ? <ErrorNotice message={error} /> : null}
     </PageScroll>

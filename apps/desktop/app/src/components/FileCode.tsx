@@ -18,7 +18,7 @@ export function FileCode({ text, name }: { text: string; name: string }) {
           ))}
         </code>
       </pre>
-      {text.length > MAX_SYNTAX_CHARACTERS && <p className="mt-4 text-xs text-ink-2">Large file shown without syntax colors.</p>}
+      {text.length > MAX_SYNTAX_CHARACTERS && <p className="mt-4 text-12 text-ink-2">Large file shown without syntax colors.</p>}
     </>
   );
 }

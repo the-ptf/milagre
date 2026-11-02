@@ -107,7 +107,7 @@ export function FlowRunList({
                   style={({ pressed }) => ({ flex: 1, flexDirection: "row", gap: 12, paddingVertical: 14, opacity: pressed ? 0.6 : 1 })}
                 >
                   <View style={{ width: 22, paddingTop: 1, alignItems: "center" }}>
-                    {look.icon ? <Icon icon={look.icon} tone={look.tone} size={20} /> : <SpinnerRing size={17} tone="accent" />}
+                    {look.icon ? <Icon icon={look.icon} tone={look.tone} size={20} /> : <SpinnerRing size={16} tone="accent" />}
                   </View>
                   <View style={{ flex: 1, gap: 3 }}>
                     <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 16, lineHeight: 21, fontWeight: "600" }}>

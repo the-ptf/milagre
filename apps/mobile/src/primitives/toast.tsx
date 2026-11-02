@@ -44,7 +44,7 @@ export function ToastPill({
     >
       {icon && badge ? (
         <View style={{ width: 22, height: 22, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.onInk }}>
-          <Icon icon={icon} color={colors.ink} size={14} strokeWidth={2.6} />
+          <Icon icon={icon} color={colors.ink} size={12} strokeWidth={2.6} />
         </View>
       ) : icon ? (
         <Icon icon={icon} color={colors.onInk} size={18} />

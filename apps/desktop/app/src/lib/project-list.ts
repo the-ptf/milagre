@@ -1,5 +1,6 @@
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import type { ProjectKind } from "@milagre/shared/chats-home";
+import { projectInitial } from "@milagre/shared/project-list";
 
 /** A project in the recent list, as the main process keeps it (most recent first). */
 /** `hidden`: kept out of the all-Projects sidebar and the phone's Projects list. */
@@ -9,10 +10,7 @@ export type RecentProject = { path: string; name: string; openedAt: string; hidd
 /** One project row in the project menu. */
 export type ProjectRow = { path: string; name: string; initial: string; current: boolean };
 
-/** The letter shown for a project without an avatar. */
-export function projectInitial(name: string): string {
-  return name.trim().slice(0, 1).toUpperCase() || "M";
-}
+export { projectInitial };
 
 function folderName(projectPath: string): string {
   return projectPath.split("/").findLast(Boolean) ?? projectPath;

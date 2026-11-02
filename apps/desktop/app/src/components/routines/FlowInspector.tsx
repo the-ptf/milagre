@@ -28,8 +28,7 @@ import { FIELD_ICON, FIELD_TYPE_WORDS, triggerTitle } from "./flow-look";
 import { Popover, usePopover } from "./FlowPopover";
 import { FieldChip, StepTile } from "./FlowSteps";
 
-const input =
-  "h-8 w-full min-w-0 rounded-control border border-line-strong bg-surface px-2 text-13 text-ink outline-none placeholder:text-ink-3 focus:border-accent";
+const input = "h-8 w-full min-w-0 rounded-control border border-line-strong bg-surface px-2 text-13 text-ink outline-none placeholder:text-ink-3";
 const sectionLabel = "text-12 font-medium text-ink-2";
 const FIELD_NAME = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
 

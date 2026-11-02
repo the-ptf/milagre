@@ -13,7 +13,7 @@ import {
 import { Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useSession } from "./session";
-import { ErrorNotice, Toggle, useStyles } from "./ui";
+import { InlineError, Toggle, useStyles } from "./ui";
 
 /** Settings › Connections › Linear: the connected Mac's Linear switch and workspaces, like desktop's Connections section. Only the Mac connects. */
 export function LinearSection() {
@@ -103,7 +103,7 @@ export function LinearSection() {
             <Text style={styles.caption}>{LINEAR_MOVE_TO_STARTED_HINT}</Text>
           </>
         )}
-        {linearError ? <ErrorNotice message={linearError} /> : null}
+        <InlineError message={linearError} />
       </View>
     </View>
   );

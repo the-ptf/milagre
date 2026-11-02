@@ -26,7 +26,7 @@ export default function PublishedPagesScreen() {
         {session.client ? (
           <DesignPageShareSheet key={session.client.url} client={session.client} onClose={() => router.back()} onBusyChange={setBusy} />
         ) : (
-          <View style={{ padding: 20, gap: 16 }}>
+          <View style={{ padding: 16, gap: 16 }}>
             <Text style={styles.muted}>Connect to a Mac to manage its published pages.</Text>
             <PillButton title="Back to Milagre" onPress={() => router.back()} />
           </View>

@@ -67,7 +67,7 @@ export function SecretQuestion({
     >
       <View style={{ gap: 6 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Icon icon={LockKeyIcon} size={14} tone="ink3" />
+          <Icon icon={LockKeyIcon} size={12} tone="ink3" />
           <Text style={{ color: colors.ink3, fontSize: type.footnote, fontWeight: "600" }}>Private entry</Text>
         </View>
         <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, fontWeight: "600", lineHeight: 22 }}>
@@ -143,7 +143,7 @@ export function SecretQuestion({
         </View>
         {deadline !== undefined && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 4 }}>
-            <Icon icon={Clock01Icon} size={14} tone={urgent ? "orangeInk" : "ink3"} />
+            <Icon icon={Clock01Icon} size={12} tone={urgent ? "orangeInk" : "ink3"} />
             <Text
               accessibilityRole="timer"
               style={{

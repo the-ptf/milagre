@@ -48,7 +48,7 @@ function useSubchats(panel: SubchatPanelState, messages: readonly ChatMessage[],
 function KindDot({ kind }: { kind: SubchatKind }) {
   const { colors } = useTheme();
   const tone = KIND_TONE[kind];
-  if (tone === "accent") return <SpinnerRing size={10} stroke={1.5} color={colors.accent} />;
+  if (tone === "accent") return <SpinnerRing size={12} stroke={1.5} color={colors.accent} />;
   return <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: tone === "ink3" ? colors.ink4 : colors[tone] }} />;
 }
 

@@ -8,9 +8,12 @@ import { savedHosts } from "../../hosts-native";
 import { forgetComputer, renameComputer, routeLabel } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Group, Row } from "../../settings-list";
+import { ErrorNotice, PageScroll } from "../../ui";
 import { ComputerResourcesGroup } from "../../computer-resources-group";
-import { ErrorNotice, PageScroll, RowCheckbox } from "../../ui";
+import { RowCheckbox } from "../../ui";
 import { useTheme } from "../../theme";
+import { radius } from "../../design-tokens";
+import { presenceTone } from "@milagre/shared/chat-scopes";
 
 type MacPage = "general" | "accounts" | "connections" | "skills" | "mcp";
 
@@ -40,7 +43,7 @@ export default function ComputerScreen() {
   if (!host) return <Stack.Screen options={{ title: "" }} />;
   const state = reachability[host.id] ?? "checking";
   const shown = !host.hidden;
-  const dot = state === "online" ? colors.green : state === "checking" ? colors.orange : colors.lineStrong;
+  const dot = colors[presenceTone(state)];
   const connected = currentUrl === host.id;
   // Its settings are the connected Mac's: connect to this one first when another is current.
   async function open(page: MacPage) {
@@ -69,7 +72,7 @@ export default function ComputerScreen() {
         <Group>
           <Row
             title={state === "online" ? "Connected" : state === "checking" ? "Checking…" : "Offline"}
-            leading={<View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dot, marginHorizontal: 6 }} />}
+            leading={<View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: dot, marginHorizontal: 6 }} />}
             value={routeLabel(host, state)}
             chevron={false}
           />
@@ -101,7 +104,7 @@ export default function ComputerScreen() {
           <Row title="Skills" icon={BookOpen01Icon} disabled={connecting} onPress={() => void open("skills")} />
           <Row title="MCP" icon={Plug01Icon} disabled={connecting} onPress={() => void open("mcp")} />
         </Group>
-        <Group>
+        <Group inset={0}>
           <Row title="Rename" chevron={false} onPress={() => renameComputer(host, { onRenamed: () => session.loadHosts(), onError: setError })} />
           <Row
             title="Forget this computer"

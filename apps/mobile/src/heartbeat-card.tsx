@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Pulse01Icon } from "@hugeicons/core-free-icons";
 import { triggerText } from "@milagre/shared/routines";
 import type { ChatStep } from "@milagre/shared/model";
@@ -7,7 +7,8 @@ import { useSession } from "./session";
 import { useRoutines } from "./use-routines";
 import { heartbeatEnd } from "./routine-rows";
 import { Icon } from "./icons";
-import { ErrorNotice, tap } from "./ui";
+import { InlineError, PillButton } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -54,7 +55,7 @@ export function HeartbeatCard({ step }: { step: ChatStep }) {
         alignItems: "center",
         gap: 12,
         padding: 12,
-        borderRadius: 14,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         backgroundColor: colors.surface,
         borderWidth: StyleSheet.hairlineWidth,
@@ -63,41 +64,18 @@ export function HeartbeatCard({ step }: { step: ChatStep }) {
     >
       <Icon icon={Pulse01Icon} tone={routine ? "ink" : "ink3"} size={20} />
       <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>
+        <Text numberOfLines={2} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>
           {`Heartbeat set: ${ref.name}`}
         </Text>
         {meta ? (
-          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
             {meta}
           </Text>
         ) : null}
-        {error ? <ErrorNotice message={error} /> : null}
+        <InlineError message={error} />
       </View>
       {routine ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Stop ${ref.name}`}
-          accessibilityState={{ disabled: stopping, busy: stopping }}
-          disabled={stopping}
-          hitSlop={6}
-          onPress={() => {
-            tap();
-            void stop();
-          }}
-          style={({ pressed }) => ({
-            height: 30,
-            paddingHorizontal: 12,
-            borderRadius: 15,
-            borderCurve: "continuous",
-            justifyContent: "center",
-            borderWidth: 1,
-            borderColor: colors.lineStrong,
-            backgroundColor: colors.surface,
-            opacity: stopping ? 0.4 : pressed ? 0.6 : 1,
-          })}
-        >
-          <Text style={{ color: colors.ink, fontSize: 13, fontWeight: "500" }}>Stop</Text>
-        </Pressable>
+        <PillButton size="small" secondary title="Stop" accessibilityLabel={`Stop ${ref.name}`} loading={stopping} onPress={() => void stop()} />
       ) : null}
     </View>
   );

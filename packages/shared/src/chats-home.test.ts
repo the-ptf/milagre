@@ -28,13 +28,13 @@ test("the group key can never be a path and the labels are the ones the screens 
   assert.ok(!CHATS_GROUP_KEY.includes("/"));
   assert.deepEqual(
     [NO_PROJECT_LABEL, CHATS_GROUP_LABEL, ALL_CHATS_LABEL, CHATS_ACCOUNT_LABEL, CHATS_ACCOUNT_DETAIL],
-    ["No project", "Chats", "All chats", "Chats without a Project", "Every quick chat on this computer"],
+    ["No Project", "Chats", "All Chats", "Chats without a Project", "Every quick Chat on this computer"],
   );
 });
 
 test("a new Chat without a Project says the same on desktop and phone", () => {
   assert.deepEqual(
     [JUST_CHAT_HEADING, CHATS_TRAY_LABEL, CHATS_PLACEHOLDER, NO_PROJECT_FOLDER, NO_PROJECT_LINE],
-    ["Just chat", "Yapping around", "Ask anything", "Its own empty folder", "No project · its own empty folder"],
+    ["Just chat", "Yapping around", "Ask anything", "Its own empty folder", "No Project · its own empty folder"],
   );
 });

@@ -17,7 +17,8 @@ import type { RoutineRun } from "@milagre/shared/model";
 import { attemptText, clock, daySummary, foldText, foldTimes, retryNote, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
 import { Icon, SpinnerRing, type IconData, type Tone } from "./icons";
 import { ChatMarkIcon } from "./status-indicators";
-import { Button, useStyles } from "./ui";
+import { lineHeight, space, type } from "./design-tokens";
+import { Group, PillButton, pressStyle, SectionLabel, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 /** Day groups shown at first, and how many more each Show earlier days adds, as on desktop. */
@@ -102,7 +103,7 @@ export function RunList({
       return next;
     });
   // The time keeps its width, wide enough for a fold's range ("13:29–13:30") on one line; the words give way first.
-  const time = [styles.caption, { fontVariant: ["tabular-nums" as const], width: 92, flexShrink: 0, fontSize: 13 }];
+  const time = [styles.footnote, { fontVariant: ["tabular-nums" as const], width: 92, flexShrink: 0 }];
   const openable = (run: RoutineRun) => (run.chatId && canOpen(run.chatId) ? run.chatId : undefined);
 
   /** One row: the time column, an icon, the words, then the unread dot and a chevron when it opens a Chat. */
@@ -136,7 +137,10 @@ export function RunList({
       accessibilityState={expandedState === undefined ? undefined : { expanded: expandedState }}
       disabled={!onPress}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => [
+        { flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: 48, paddingVertical: space.md },
+        pressStyle({ pressed, kind: "row" }),
+      ]}
     >
       <Text numberOfLines={1} style={time}>
         {when}
@@ -147,7 +151,14 @@ export function RunList({
         numberOfLines={1}
         style={[
           styles.text,
-          { flex: 1, minWidth: 0, fontSize: 15, lineHeight: 20, fontWeight: muted ? "400" : "500", color: tone ?? (muted ? colors.ink2 : colors.ink) },
+          {
+            flex: 1,
+            minWidth: 0,
+            fontSize: type.subheadline,
+            lineHeight: lineHeight.subheadline,
+            fontWeight: muted ? "400" : "500",
+            color: tone ?? (muted ? colors.ink2 : colors.ink),
+          },
         ]}
       >
         {text}
@@ -187,9 +198,9 @@ export function RunList({
         row({
           key: run.id,
           when: clock(run.startedAt),
-          icon: look.icon ? <Icon icon={look.icon} tone={look.tone} size={18} /> : <SpinnerRing size={16} />,
+          icon: look.icon ? <Icon icon={look.icon} tone={look.tone} size={16} /> : <SpinnerRing size={16} />,
           text: look.text,
-          tone: look.failed ? colors.red : undefined,
+          tone: look.failed ? colors.redInk : undefined,
           unread: chat !== undefined && unreadChats.has(chat),
           trailing: chat ? ArrowRight01Icon : undefined,
           onPress: chat ? () => onOpenChat(chat) : undefined,
@@ -203,7 +214,7 @@ export function RunList({
       row({
         key,
         when: foldTimes(item),
-        icon: <Icon icon={item.counts.quiet ? Moon02Icon : item.counts.skipped ? NextIcon : Clock01Icon} tone="ink3" size={17} />,
+        icon: <Icon icon={item.counts.quiet ? Moon02Icon : item.counts.skipped ? NextIcon : Clock01Icon} tone="ink3" size={16} />,
         text: foldText(item),
         muted: true,
         trailing: open ? UnfoldLessIcon : UnfoldMoreIcon,
@@ -233,7 +244,7 @@ export function RunList({
   };
 
   return (
-    <View style={{ gap: 14 }}>
+    <View style={{ gap: space.xl }}>
       {days.slice(0, shownDays).map((day) => {
         const open = day.recent || expanded.has(`day:${day.key}`);
         const rows = [
@@ -243,7 +254,7 @@ export function RunList({
                 row({
                   key: `day:${day.key}`,
                   when: "All day",
-                  icon: <Icon icon={Calendar03Icon} tone="ink3" size={17} />,
+                  icon: <Icon icon={Calendar03Icon} tone="ink3" size={16} />,
                   text: daySummary(day.runs),
                   muted: true,
                   trailing: open ? UnfoldLessIcon : UnfoldMoreIcon,
@@ -254,22 +265,14 @@ export function RunList({
           ...(open ? day.entries.flatMap(entry) : []),
         ];
         return (
-          <View key={day.key} style={{ gap: 6 }}>
-            <Text accessibilityRole="header" style={[styles.section, { paddingHorizontal: 4 }]}>
-              {day.label}
-            </Text>
-            <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-              {rows.map((child, index) => (
-                <View key={child.key ?? index}>
-                  {index > 0 ? <View style={styles.separator} /> : null}
-                  {child}
-                </View>
-              ))}
-            </View>
+          <View key={day.key} style={{ gap: space.md }}>
+            <SectionLabel>{day.label}</SectionLabel>
+            {/* The rows start with their time, so the separators run from the text's edge. */}
+            <Group inset={0}>{rows}</Group>
           </View>
         );
       })}
-      {days.length > shownDays ? <Button title="Show earlier days" secondary onPress={() => setShownDays((count) => count + MORE_DAYS)} /> : null}
+      {days.length > shownDays ? <PillButton title="Show earlier days" secondary onPress={() => setShownDays((count) => count + MORE_DAYS)} /> : null}
       <Text style={[styles.caption, { textAlign: "center" }]}>Keeps the newest 50 Runs that acted</Text>
     </View>
   );

@@ -95,7 +95,7 @@ test("a heartbeat's meta says its cadence, its Chat and how many runs are left",
 
 test("a Linear trigger's meta names the trigger, where Runs go, and its model and mode", () => {
   const meta = routineMeta(linear, { modelName: () => "Opus 5.5", now: NOW });
-  assert.equal(meta, "Linear · label agent added · team MIL · new Worktree in milagre-ade · Opus 5.5 · Full permission");
+  assert.equal(meta, "Linear · label agent added · team MIL · new Worktree in milagre-ade · Opus 5.5 · Full permissions");
   assert.equal(routineStatus(linear, NOW), "MIL-142 · 2 h ago");
 });
 

@@ -119,11 +119,11 @@ export function FlowChip({
       }}
     >
       {dot ? <View style={{ width: 6, height: 6, borderRadius: 6, backgroundColor: dotColor }} /> : null}
-      {icon ? <Icon icon={icon} color={ink} size={14} /> : null}
+      {icon ? <Icon icon={icon} color={ink} size={12} /> : null}
       <Text numberOfLines={1} style={{ color: ink, fontSize: 13, fontWeight: "600" }}>
         {text}
       </Text>
-      {trailing ? <Icon icon={trailing} color={ink} size={13} /> : null}
+      {trailing ? <Icon icon={trailing} color={ink} size={12} /> : null}
     </View>
   );
 }
@@ -137,7 +137,7 @@ export function FlowNote({ tone = "neutral", icon, children }: { tone?: "neutral
     <View style={{ flexDirection: "row", gap: 10, padding: 14, borderRadius: 14, borderCurve: "continuous", backgroundColor: fill }}>
       {icon ? (
         <View style={{ paddingTop: 1 }}>
-          <Icon icon={icon} color={ink} size={17} />
+          <Icon icon={icon} color={ink} size={16} />
         </View>
       ) : null}
       <View style={{ flex: 1, gap: 8 }}>

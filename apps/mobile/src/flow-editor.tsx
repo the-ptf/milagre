@@ -135,7 +135,7 @@ export function FlowSteps({
           opacity: pressed ? 0.5 : 1,
         })}
       >
-        <Icon icon={Add01Icon} tone="ink3" size={11} strokeWidth={2} />
+        <Icon icon={Add01Icon} tone="ink3" size={12} strokeWidth={2} />
       </Pressable>
     </View>
   );
@@ -192,7 +192,7 @@ export function FlowSteps({
                     opacity: pressed ? 0.6 : 1,
                   })}
                 >
-                  <Icon icon={Add01Icon} tone="ink3" size={14} />
+                  <Icon icon={Add01Icon} tone="ink3" size={12} />
                   <Text style={{ color: colors.ink2, fontSize: 15 }}>Add step, or go straight on</Text>
                 </Pressable>
               )}

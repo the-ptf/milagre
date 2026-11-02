@@ -11,6 +11,23 @@ export function chatMarkTone(mark) {
   return "accent";
 }
 
+const CHAT_MARKS = {
+  question: { icon: "bubble", label: "Needs reply" },
+  waiting: { icon: "shield-alert", label: "Needs approval" },
+  delegated: { icon: "link", label: "On a Delegation" },
+  interrupted: { icon: "alert", label: "Interrupted" },
+  running: { icon: "spinner", label: "Running" },
+  background: { icon: "ring", label: "In the background" },
+  failed: { icon: "dot", label: "Failed" },
+  unread: { icon: "dot", label: "Unread" },
+  idle: { icon: "dot", label: "" },
+};
+
+/** A Chat mark as both apps draw it: its glyph, its fill tone (a palette key) and its words. Idle is a solid ink4 dot. */
+export function chatMarkPresentation(mark) {
+  return { ...CHAT_MARKS[mark], tone: mark === "idle" ? "ink4" : chatMarkTone(mark) };
+}
+
 /** A one-line title of at most 60 characters: a longer line keeps its first 57 and an ellipsis. */
 export function shortTitle(line) {
   return line.length > 60 ? `${line.slice(0, 57)}…` : line;

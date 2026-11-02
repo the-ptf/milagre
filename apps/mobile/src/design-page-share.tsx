@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Linking, Platform, Share, Text, View } from "react-native";
+import { Linking, Platform, Share, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { createDesignPageSharing } from "./design-page-sharing";
 import type { Client } from "./client";
 import type { DesignPageShare } from "@milagre/shared/artifact";
-import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
+import { lineHeight, radius, space, type } from "./design-tokens";
+import { CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, SheetHeader, useStyles } from "./ui";
 import { useTheme } from "./theme";
 import { ToastPill } from "./primitives/toast";
 
@@ -47,11 +48,6 @@ export function DesignPageShareSheet({
   // What an action did shows as a toast over the sheet, not as text in it.
   const [toast, setToast] = useState<{ text: string; key: number } | null>(null);
   const toastKey = useRef(0);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(timer);
-  }, [toast]);
   const showToast = (text: string) => text && setToast({ text, key: ++toastKey.current });
   const current = chatId ? state.shares.find((share) => !share.revoked) : undefined;
   // The host names the page after its Chat; this only satisfies an older host, which requires a title.
@@ -91,7 +87,6 @@ export function DesignPageShareSheet({
       showToast("Link revoked. Copies may remain online.");
     }
   };
-  const quiet = { borderWidth: 0, paddingHorizontal: 8 };
   const link = (share: DesignPageShare) => (
     <>
       <Text
@@ -99,45 +94,52 @@ export function DesignPageShareSheet({
         accessibilityLabel="Snapshot link"
         style={{
           color: colors.ink2,
-          fontSize: 13,
-          lineHeight: 20,
-          padding: 12,
-          borderRadius: 10,
+          fontSize: type.footnote,
+          lineHeight: lineHeight.footnote,
+          padding: space.lg,
+          borderRadius: radius.control,
+          borderCurve: "continuous",
           backgroundColor: colors.field,
         }}
       >
         {share.url}
       </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
         <PillButton title="Copy link" secondary onPress={() => void act(() => Clipboard.setStringAsync(share.url), "Link copied.")} />
         <PillButton
           title="Share link"
-          secondary
-          style={quiet}
+          variant="plain"
           onPress={() =>
             void act(() => Share.share(Platform.OS === "ios" ? { url: share.url, title: share.title } : { message: share.url, title: share.title }))
           }
         />
-        <PillButton title="Open link" secondary style={quiet} onPress={() => void act(() => Linking.openURL(share.url))} />
+        <PillButton title="Open link" variant="plain" onPress={() => void act(() => Linking.openURL(share.url))} />
       </View>
     </>
   );
   const revokeControl = (share: DesignPageShare) =>
     confirm === share.id ? (
-      <View style={{ gap: 10 }}>
+      <View style={{ gap: space.lg }}>
         <Text style={styles.muted}>Remove this page? Copies may remain online.</Text>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <PillButton title="Cancel" secondary disabled={!!state.busy} onPress={() => setConfirm(null)} />
-          <PillButton title="Revoke link" disabled={!!state.busy} loading={state.busy === share.id} onPress={() => void revoke(share.id)} />
+        <View style={{ flexDirection: "row", gap: space.md }}>
+          <PillButton title="Cancel" variant="plain" muted disabled={!!state.busy} onPress={() => setConfirm(null)} />
+          <PillButton title="Revoke link" destructive disabled={!!state.busy} loading={state.busy === share.id} onPress={() => void revoke(share.id)} />
         </View>
       </View>
     ) : (
-      <PillButton title="Revoke link" secondary style={[quiet, { alignSelf: "flex-start" }]} disabled={!!state.busy} onPress={() => setConfirm(share.id)} />
+      <PillButton
+        title="Revoke link"
+        variant="plain"
+        destructive
+        style={{ alignSelf: "flex-start" }}
+        disabled={!!state.busy}
+        onPress={() => setConfirm(share.id)}
+      />
     );
   const savedPage = (share: DesignPageShare) => (
-    <View key={share.id} style={{ gap: 10, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.line }}>
-      <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <Text selectable style={{ color: colors.ink, fontSize: 15, fontWeight: "500", flex: 1 }}>
+    <View key={share.id} style={{ gap: space.lg, paddingVertical: space.xl, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }}>
+      <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: space.lg }}>
+        <Text selectable style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500", flex: 1 }}>
           {share.title}
         </Text>
         <Text style={styles.muted}>
@@ -159,58 +161,37 @@ export function DesignPageShareSheet({
   );
   const messages = (
     <>
-      {state.error && (
-        <View style={{ gap: 10 }}>
-          <Text accessibilityRole="alert" selectable style={{ color: colors.redInk }}>
-            {state.error}
-          </Text>
-          <PillButton title="Refresh" secondary disabled={!!state.busy} onPress={() => void sharing.refresh()} />
-        </View>
-      )}
-      {state.loading && <Text style={styles.muted}>Loading...</Text>}
+      {state.error && <ErrorNotice message={state.error} retry={() => void sharing.refresh()} retryTitle="Refresh" disabled={!!state.busy} />}
+      {state.loading && <Text style={styles.muted}>Loading…</Text>}
     </>
   );
   return (
     <View style={{ flex: 1 }}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 12,
-          padding: 16,
-        }}
-      >
-        {!inSheet && (
-          <CircleButton
-            label={chatId ? (kind === "artifacts" ? "Back to artifact" : "Back to designs") : "Back to Milagre"}
-            icon={ArrowLeft01Icon}
-            onPress={state.busy ? undefined : onClose}
-          />
-        )}
-        <Text
-          accessibilityRole="header"
-          style={{
-            color: colors.ink,
-            fontSize: 19,
-            fontWeight: "600",
-            flex: 1,
-          }}
-        >
-          {chatId ? "Share" : "Published pages"}
-        </Text>
-      </View>
+      <SheetHeader
+        title={chatId ? "Share" : "Published pages"}
+        leading={
+          inSheet ? undefined : (
+            <CircleButton
+              label={chatId ? (kind === "artifacts" ? "Back to artifact" : "Back to designs") : "Back to Milagre"}
+              icon={ArrowLeft01Icon}
+              disabled={!!state.busy}
+              onPress={onClose}
+            />
+          )
+        }
+      />
       <PageScroll
         style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingBottom: 24,
-          gap: 16,
+          paddingHorizontal: space.gutter,
+          paddingBottom: space.xxl,
+          gap: space.xl,
         }}
       >
         {chatId ? (
           <>
             {current && (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: space.lg }}>
                 {link(current)}
                 {current.pending && <Text style={styles.muted}>Not confirmed yet. Update to retry.</Text>}
               </View>
@@ -219,10 +200,10 @@ export function DesignPageShareSheet({
               {kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
             </Text>
             {state.checking ? (
-              <Text style={styles.muted}>Checking the sharing service...</Text>
+              <Text style={styles.muted}>Checking the sharing service…</Text>
             ) : !state.availability?.available ? (
-              <View style={{ gap: 8 }}>
-                <Text style={{ color: colors.ink }}>Publishing is unavailable</Text>
+              <View style={{ gap: space.md }}>
+                <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Publishing is unavailable</Text>
                 <Text style={styles.muted}>{state.availability?.reason || "The sharing service is unavailable."}</Text>
                 <PillButton title="Retry check" secondary disabled={!!state.busy} onPress={() => void sharing.checkAvailability()} />
               </View>
@@ -234,7 +215,7 @@ export function DesignPageShareSheet({
               onPress={() => void publish()}
             />
             {current && (
-              <View style={{ gap: 6 }}>
+              <View style={{ gap: space.sm }}>
                 {confirm !== current.id && <Text style={styles.muted}>{when(current)}</Text>}
                 {revokeControl(current)}
               </View>
@@ -245,7 +226,7 @@ export function DesignPageShareSheet({
           <>
             <Text style={styles.muted}>Anyone with a link can view its page.</Text>
             {messages}
-            {!state.loading && !state.shares.length && !state.error && <Text style={styles.muted}>No pages published yet.</Text>}
+            {!state.loading && !state.shares.length && !state.error && <EmptyState title="No pages published yet" />}
             {!!state.shares.length && <View>{state.shares.map(savedPage)}</View>}
           </>
         )}

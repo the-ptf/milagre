@@ -2,7 +2,6 @@ import { HtmlReply } from "./HtmlReply";
 import { createContext, memo, useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, useReducedMotion } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowExpand01Icon,
   ArrowShrink01Icon,
@@ -30,6 +29,10 @@ import {
 import { isModalOpen } from "../../lib/modal";
 import type { ArtifactRef, ChatStep, Subagent } from "../../model";
 import Tooltip from "../primitives/Tooltip";
+import { Button, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
+import { THEME_EVENT } from "../../lib/theme-sheet";
 import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
@@ -174,6 +177,27 @@ function latestArtifacts(steps: ChatStep[]): Map<string, ArtifactRef> {
  * A design at the screen size it was made for, scaled to fit its box whole and centered: a laptop screen fills the
  * card's width, a phone screen its height. A host from before screen sizes sends none; it gets the default.
  */
+/** The theme's pin colours (waiting, resolved, label), read again when the theme changes: the page draws them itself. */
+function usePinColors() {
+  const read = () => {
+    const style = getComputedStyle(document.documentElement);
+    return {
+      // A number on a coloured fill sits on the -ink fill, so it reaches 4.5:1.
+      accent: style.getPropertyValue("--accent-ink").trim(),
+      green: style.getPropertyValue("--green-ink").trim(),
+      onAccent: style.getPropertyValue("--on-accent").trim(),
+      onGreen: style.getPropertyValue("--on-green").trim(),
+    };
+  };
+  const [colors, setColors] = useState(read);
+  useEffect(() => {
+    const changed = () => setColors(read());
+    window.addEventListener(THEME_EVENT, changed);
+    return () => window.removeEventListener(THEME_EVENT, changed);
+  }, []);
+  return colors;
+}
+
 function ScaledPreview({
   html,
   title,
@@ -195,6 +219,7 @@ function ScaledPreview({
   pin?: { x: number; y: number; label: string; resolved?: boolean; anchor?: string };
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const colors = usePinColors();
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     const element = box.current;
@@ -242,8 +267,8 @@ function ScaledPreview({
                         y: pin.y,
                         ...(pin.anchor ? { a: pin.anchor } : {}),
                         n: pin.label,
-                        fill: pin.resolved ? "#199a4d" : "#007df3",
-                        ink: "#ffffff",
+                        fill: pin.resolved ? colors.green : colors.accent,
+                        ink: pin.resolved ? colors.onGreen : colors.onAccent,
                         label: `Comment ${pin.label}`,
                       },
                     ],
@@ -256,7 +281,7 @@ function ScaledPreview({
             <span
               aria-hidden
               // The canvas's pin shape: its point, the top-left corner, on the spot.
-              className={`absolute grid size-5 place-items-center rounded-full rounded-tl-none text-[10px] font-medium text-white shadow-[0_0_0_1.5px_#fff,0_1px_3px_rgb(0_0_0/0.3)] ${pin.resolved ? "bg-green" : "bg-accent"}`}
+              className={`absolute grid size-5 place-items-center rounded-full rounded-tl-none text-10 font-semibold shadow-pin ${pin.resolved ? "bg-green-ink text-on-green" : "bg-accent-ink text-on-accent"}`}
               style={{
                 left: `${pin.x * 100}%`,
                 top: `${pin.y * 100}%`,
@@ -284,8 +309,8 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
   const newest = latest.get(id)?.version ?? version;
   if (!allowed) return null;
   return (
-    <div data-slot="artifact-card" data-artifact={id} className="my-2 max-w-xl overflow-hidden rounded-[10px] border border-line bg-surface">
-      <div className="relative h-56 overflow-hidden border-b border-line bg-white">
+    <div data-slot="artifact-card" data-artifact={id} className="my-2 max-w-xl overflow-hidden rounded-card border border-line bg-surface">
+      <div className="relative h-56 overflow-hidden border-b border-line bg-paper">
         {artifact ? (
           <ScaledPreview
             html={artifact.html}
@@ -296,27 +321,22 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
             files={pageFiles(chatId, artifact)}
           />
         ) : (
-          <div className="grid size-full place-items-center px-6 text-center text-[12px] text-ink-3">
+          <div className="grid size-full place-items-center px-6 text-center text-12 text-ink-3">
             {error ?? (chatId ? "Loading design…" : "Open this Chat in its Project to see the design.")}
           </div>
         )}
       </div>
       <div className="flex items-center gap-2 px-3 py-2">
-        <HugeiconsIcon icon={isHtml ? File01Icon : PaintBoardIcon} size={16} className="shrink-0 text-ink-2" aria-hidden />
+        <Icon icon={isHtml ? File01Icon : PaintBoardIcon} size={16} className="shrink-0 text-ink-2" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] text-ink">{title}</div>
-          <div className="text-[11px] text-ink-3">
+          <div className="truncate text-13 text-ink">{title}</div>
+          <div className="text-11 text-ink-3">
             {isHtml ? "Artifact" : `Design · Version ${version}${newest > version ? ` · version ${newest} is newer` : ""}`}
           </div>
         </div>
-        <button
-          type="button"
-          disabled={!chatId}
-          onClick={() => open(step.artifact)}
-          className="rounded-[8px] border border-line px-2.5 py-1 text-[12px] text-ink hover:bg-hover disabled:opacity-50"
-        >
+        <Button variant="secondary" size={28} disabled={!chatId} onClick={() => open(step.artifact)}>
           Open
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -343,18 +363,18 @@ export function DesignFeedbackCard({
   };
   return (
     <div className="flex w-full max-w-md flex-col gap-2">
-      <div data-slot="design-feedback" className="w-full max-w-md overflow-hidden rounded-xl border border-line bg-surface text-[13px]">
-        <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-[12px] text-ink-2">
-          <HugeiconsIcon icon={PaintBoardIcon} size={14} aria-hidden />
+      <div data-slot="design-feedback" className="w-full max-w-md overflow-hidden rounded-card border border-line bg-surface text-13">
+        <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-12 text-ink-2">
+          <Icon icon={PaintBoardIcon} size={14} />
           Feedback
         </div>
         {choice && (
           <div data-slot="design-feedback-choice" className="flex w-full items-center gap-2 px-3 py-2">
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} className="shrink-0 text-accent" aria-hidden />
+            <Icon icon={CheckmarkCircle02Icon} size={16} className="shrink-0 text-ink" />
             <span className="min-w-0 flex-1 truncate">
               Chose <span className="font-medium">{choice.title}</span>
             </span>
-            <span className="text-[11px] text-ink-3">{latest.get(choice.id)?.format === "html" ? "Artifact" : `v${choice.version}`}</span>
+            <span className="text-11 text-ink-3">{latest.get(choice.id)?.format === "html" ? "Artifact" : `v${choice.version}`}</span>
           </div>
         )}
         {comments.map((comment) => (
@@ -374,7 +394,7 @@ export function DesignFeedbackCard({
 
 function FeedbackText({ feedback }: { feedback: { choice: ArtifactRef | null; comments: DesignComment[] } }) {
   return (
-    <div data-slot="design-feedback-text" className="max-w-full whitespace-pre-wrap break-words rounded-xl bg-field px-3 py-2 text-[13px] text-ink">
+    <div data-slot="design-feedback-text" className="max-w-full whitespace-pre-wrap break-words rounded-card bg-field px-3 py-2 text-13 text-ink">
       {designFeedbackText(feedback)}
     </div>
   );
@@ -397,9 +417,9 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
             "aria-label": `Show comment ${number} on ${comment.design.title}`,
           }
         : {})}
-      className={`flex w-full items-start gap-3 border-t border-line px-3 py-2 text-left first:border-t-0 ${onOpen ? "hover:bg-hover" : ""}`}
+      className={`flex w-full items-start gap-3 border-t border-line px-3 py-2 text-left first:border-t-0 ${onOpen ? "transition-colors hover:bg-hover active:bg-hover-2" : ""}`}
     >
-      <span className="relative block h-16 w-24 shrink-0 overflow-hidden rounded-[6px] border border-line">
+      <span className="relative block h-16 w-24 shrink-0 overflow-hidden rounded-chip border border-line">
         {artifact && (
           <ScaledPreview
             files={pageFiles(chatId, artifact)}
@@ -425,12 +445,12 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
       <span className="min-w-0 flex-1">
         <span className={`block ${resolved === undefined ? "text-ink" : "text-ink-3 line-through"}`}>{comment.text}</span>
         {resolved !== undefined && (
-          <span data-slot="design-feedback-resolved" className="mt-0.5 flex items-start gap-1 text-[12px] text-green-ink">
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="mt-px shrink-0" aria-hidden />
+          <span data-slot="design-feedback-resolved" className="mt-0.5 flex items-start gap-1 text-12 text-green-ink">
+            <Icon icon={CheckmarkCircle02Icon} size={12} className="mt-0.5 shrink-0" />
             <span>{resolved}</span>
           </span>
         )}
-        <span className="block truncate text-[11px] text-ink-3">
+        <span className="block truncate text-11 text-ink-3">
           {comment.design.title} · {latest.get(comment.design.id)?.format === "html" ? "Artifact" : `v${comment.design.version}`}
         </span>
       </span>
@@ -466,26 +486,21 @@ export function ArtifactCards({ steps }: { steps: (ChatStep & { artifact: Artifa
   if (!enabled || visibleSteps.length === 0) return null;
   if (visibleSteps.length === 1) return <ArtifactCard step={visibleSteps[0]!} />;
   return (
-    <div data-slot="artifact-group" className="my-2 max-w-xl overflow-hidden rounded-[10px] border border-line bg-surface">
+    <div data-slot="artifact-group" className="my-2 max-w-xl overflow-hidden rounded-card border border-line bg-surface">
       <div className="flex gap-2 overflow-x-auto border-b border-line p-2">
         {visibleSteps.map((step) => (
           <GroupThumb key={step.id} design={step.artifact} />
         ))}
       </div>
       <div className="flex items-center gap-2 px-3 py-2">
-        <HugeiconsIcon icon={PaintBoardIcon} size={16} className="shrink-0 text-ink-2" aria-hidden />
+        <Icon icon={PaintBoardIcon} size={16} className="shrink-0 text-ink-2" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] text-ink">{visibleSteps.length} designs</div>
-          <div className="truncate text-[11px] text-ink-3">{visibleSteps.map((step) => step.artifact.title).join(" · ")}</div>
+          <div className="truncate text-13 text-ink">{visibleSteps.length} designs</div>
+          <div className="truncate text-11 text-ink-3">{visibleSteps.map((step) => step.artifact.title).join(" · ")}</div>
         </div>
-        <button
-          type="button"
-          disabled={!chatId}
-          onClick={() => openAll(visibleSteps.map((step) => step.artifact))}
-          className="rounded-[8px] border border-line px-2.5 py-1 text-[12px] text-ink hover:bg-hover disabled:opacity-50"
-        >
+        <Button variant="secondary" size={28} disabled={!chatId} onClick={() => openAll(visibleSteps.map((step) => step.artifact))}>
           Open
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -502,9 +517,9 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
       aria-label={`Open ${design.title}, version ${design.version}`}
       disabled={!chatId}
       onClick={() => open(design)}
-      className="flex w-40 shrink-0 flex-col gap-1 rounded-[8px] p-1 text-left hover:bg-hover"
+      className="flex w-40 shrink-0 flex-col gap-1 rounded-control p-1 text-left transition-colors enabled:hover:bg-hover enabled:active:bg-hover-2 disabled:opacity-40"
     >
-      <span className="relative block h-28 w-full overflow-hidden rounded-[6px] border border-line">
+      <span className="relative block h-28 w-full overflow-hidden rounded-chip border border-line">
         {artifact ? (
           <ScaledPreview
             html={artifact.html}
@@ -515,10 +530,10 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
             files={pageFiles(chatId, artifact)}
           />
         ) : (
-          <span className="grid size-full place-items-center px-2 text-center text-[11px] text-ink-3">{error ?? "Loading…"}</span>
+          <span className="grid size-full place-items-center px-2 text-center text-11 text-ink-3">{error ?? "Loading…"}</span>
         )}
       </span>
-      <span className="truncate px-0.5 text-[12px] text-ink">{design.title}</span>
+      <span className="truncate px-0.5 text-12 text-ink">{design.title}</span>
     </button>
   );
 }
@@ -1079,7 +1094,6 @@ function ArtifactDock({
       window.removeEventListener("message", onMessage);
     };
   }, [onSend, label]);
-  const icon = "rounded p-1 text-ink-2 hover:bg-hover disabled:opacity-40";
   const commentLabel = commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on the page" : "Comment on a design";
   return createPortal(
     <ResizableDockSlide
@@ -1114,7 +1128,7 @@ function ArtifactDock({
       panelClassName="overflow-hidden rounded-window bg-surface text-ink shadow-card"
     >
       <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
-        <HugeiconsIcon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={16} aria-hidden />
+        <Icon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={14} />
         <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
           {/* The page names itself; the Designs keep their name. */}
           {kind === "artifacts" && page?.format === "html" && page.tabs && page.tabs.length > 1 ? (
@@ -1137,65 +1151,38 @@ function ArtifactDock({
               onChange={setPageTab}
             />
           ) : (
-            <span data-slot="artifact-dock-title" className="truncate text-[13px]">
+            <span data-slot="artifact-dock-title" className="truncate text-13">
               {kind === "artifacts" ? (page?.title ?? htmlRef?.title ?? "Artifact") : label}
             </span>
           )}
         </div>
         {feedback > 0 && (
-          <button
-            type="button"
-            data-slot="artifact-send"
-            disabled={sending}
-            title={error || undefined}
-            onClick={() => void send()}
-            className={`mr-1 flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-[12px] font-medium disabled:opacity-50 ${error ? "bg-red text-white" : "bg-ink text-surface"}`}
-          >
-            {error ? "Retry send" : "Send"}
-            <span className="rounded-full bg-surface/20 px-1.5 text-[11px] tabular-nums">{feedback}</span>
-          </button>
-        )}
-        {sharingAvailable && (
-          <Tooltip label="Share page">
-            <button type="button" aria-label="Share page" onClick={() => setSharingChat(chatId)} className={icon}>
-              <HugeiconsIcon icon={Share08Icon} size={16} aria-hidden />
-            </button>
+          <Tooltip label={error || "Send to the agent"}>
+            <Button variant={error ? "danger" : "primary"} size={24} data-slot="artifact-send" disabled={sending} onClick={() => void send()} className="mr-1">
+              {error ? "Retry send" : "Send"}
+              <span className={`rounded-full px-1.5 text-11 tabular-nums ${error ? "bg-on-red/20" : "bg-on-ink/20"}`}>{feedback}</span>
+            </Button>
           </Tooltip>
         )}
+        {sharingAvailable && <IconButton label="Share page" icon={Share08Icon} size={24} onClick={() => setSharingChat(chatId)} />}
         <Tooltip label={commentLabel} keyHint={COMMENT_KEY}>
-          <button
-            type="button"
-            aria-label={commentLabel}
-            aria-pressed={commenting}
-            disabled={!onSend}
-            onClick={toggleComment}
-            className={`${icon} ${commenting ? "bg-accent/10 text-accent" : ""}`}
-          >
-            <HugeiconsIcon icon={Comment01Icon} size={16} aria-hidden />
-          </button>
+          {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
+          <IconButton label={commentLabel} icon={Comment01Icon} size={24} tone="accent" aria-pressed={commenting} disabled={!onSend} onClick={toggleComment} />
         </Tooltip>
         {!cramped && (
-          <Tooltip label={expanded ? `Show the chat beside the ${kind}` : `Fill the window with the ${kind}`}>
-            <button
-              type="button"
-              aria-label={expanded ? `Show the chat beside the ${kind}` : `Fill the window with the ${kind}`}
-              aria-pressed={expanded}
-              onClick={() => {
-                // Filling the workspace, the designs take the room of the other side panels: they close.
-                if (!expanded) window.dispatchEvent(new Event(DESIGNS_EXPANDED));
-                setExpanded(!expanded);
-              }}
-              className={icon}
-            >
-              <HugeiconsIcon icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon} size={16} aria-hidden />
-            </button>
-          </Tooltip>
+          <IconButton
+            label={expanded ? `Show the Chat beside the ${kind}` : `Fill the window with the ${kind}`}
+            icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon}
+            size={24}
+            aria-pressed={expanded}
+            onClick={() => {
+              // Filling the workspace, the designs take the room of the other side panels: they close.
+              if (!expanded) window.dispatchEvent(new Event(DESIGNS_EXPANDED));
+              setExpanded(!expanded);
+            }}
+          />
         )}
-        <Tooltip label={`Close ${kind}`}>
-          <button type="button" aria-label={`Close ${kind}`} onClick={onClose} className={icon}>
-            <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
-          </button>
-        </Tooltip>
+        <IconButton label={`Close ${kind}`} icon={Cancel01Icon} size={24} onClick={onClose} />
       </header>
       {entered && kind === "artifacts" ? (
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -1215,8 +1202,8 @@ function ArtifactDock({
               onEscape={escape}
             />
           ) : (
-            <p role="status" data-slot="artifact-page" className="min-h-0 flex-1 bg-white p-4 text-[12px] text-ink-3">
-              {pageError || "Loading artifact..."}
+            <p role="status" data-slot="artifact-page" className="min-h-0 flex-1 bg-paper p-4 text-12 text-ink-3">
+              {pageError || "Loading artifact…"}
             </p>
           )}
           <ZoomBar
@@ -1230,11 +1217,9 @@ function ArtifactDock({
             fitLabel="Fit the page"
             resetProps={{ "data-slot": "artifact-zoom" }}
           />
-          {error && (
-            <p role="alert" className="absolute right-4 bottom-4 rounded-control bg-surface px-2 py-1 text-[12px] text-red-ink shadow-card">
-              {error}
-            </p>
-          )}
+          <InlineError variant="floating" className="absolute right-4 bottom-4">
+            {error}
+          </InlineError>
         </div>
       ) : kind === "designs" ? (
         <div className="relative flex min-h-0 flex-1 flex-col">

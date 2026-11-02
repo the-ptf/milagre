@@ -64,7 +64,7 @@ function ago(at: number, now: number): string {
 /** When the Routine ends: "3 of 20 Runs left" or "ends in 2 days"; null when it runs until switched off (shared with the phone). */
 export const routineEnd = (routine: Routine, now: number): string | null => sharedRoutineEnd(routine, now);
 
-/** The model and mode a Routine's Runs use, "Opus 5.5 · Full permission", or null when it uses the Mac's defaults. */
+/** The model and mode a Routine's Runs use, "Opus 5.5 · Full permissions", or null when it uses the Mac's defaults. */
 function routineModel(routine: Routine, modelName?: (provider: Routine["provider"], model: string) => string): string | null {
   const model = routine.model ? (modelName?.(routine.provider, routine.model) ?? routine.model) : null;
   const mode = routine.permissionMode ? (PERMISSION_MODES.find((entry) => entry.id === routine.permissionMode)?.name ?? routine.permissionMode) : null;

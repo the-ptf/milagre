@@ -9,7 +9,7 @@ function Labels({ labels, slot }: { labels: readonly string[]; slot: number }) {
     <>
       {labels.map((label, index) =>
         index % every === 0 ? (
-          <text key={index} x={CHART_PAD.left + slot * index + slot / 2} y={CHART_HEIGHT - 6} textAnchor="middle" className="fill-ink-3 text-[9px]">
+          <text key={index} x={CHART_PAD.left + slot * index + slot / 2} y={CHART_HEIGHT - 6} textAnchor="middle" className="fill-ink-3 text-10">
             {label.length > 8 ? `${label.slice(0, 7)}…` : label}
           </text>
         ) : null,
@@ -21,7 +21,7 @@ function Labels({ labels, slot }: { labels: readonly string[]; slot: number }) {
 function Frame({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <figure data-slot="genui-chart" className="my-1 rounded-card border border-line bg-surface p-3">
-      {title && <figcaption className="mb-1 text-[12px] font-medium text-ink-2">{title}</figcaption>}
+      {title && <figcaption className="mb-1 text-12 font-medium text-ink-2">{title}</figcaption>}
       <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="block h-auto w-full max-w-md" role="img" aria-label={title ?? "chart"}>
         {children}
       </svg>

@@ -124,7 +124,7 @@ export function ContextRing({
             data-context-card
             onPointerEnter={clearTimer}
             onPointerLeave={() => schedule(hide, CLOSE_DELAY_MS)}
-            className="fixed z-50 rounded-[14px] bg-surface text-ink shadow-overlay"
+            className="fixed z-50 rounded-window bg-surface text-ink shadow-overlay"
             style={{
               width: CARD_WIDTH,
               left: position.left,

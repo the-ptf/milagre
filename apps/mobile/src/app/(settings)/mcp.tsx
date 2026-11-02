@@ -20,7 +20,7 @@ export default function McpScreen() {
           <Stack.Toolbar.Button icon="arrow.clockwise" accessibilityLabel="Refresh" disabled={mcp.checking} onPress={() => void mcp.refresh()} />
         ) : (
           <Stack.Toolbar.View>
-            <HeaderButton label="Refresh" icon={RefreshIcon} onPress={mcp.checking ? undefined : () => void mcp.refresh()} />
+            <HeaderButton label="Refresh" icon={RefreshIcon} disabled={mcp.checking} onPress={() => void mcp.refresh()} />
           </Stack.Toolbar.View>
         )}
         {Platform.OS === "ios" ? (

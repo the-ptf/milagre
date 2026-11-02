@@ -2,8 +2,8 @@ import { useState, type ReactNode } from "react";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import { useDisplayValue } from "../lib/display-clock";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
+import { Icon } from "./primitives/Icon";
 
 /** The Milagre mark running: the legs take turns striding while the sparkle bobs and turns a quarter on each step. */
 function RunningLogo() {
@@ -38,14 +38,14 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
   const elapsed = useElapsed(startedAt);
 
   return (
-    <div role="status" aria-label={label} className="flex w-fit items-center gap-2.5 px-1 py-1">
+    <div role="status" aria-label={label} className="flex w-fit items-center gap-2 px-1 py-1">
       <RunningLogo />
       {showLabel && (
-        <span aria-hidden className="min-w-0 truncate text-[12px] text-ink-3">
+        <span aria-hidden className="min-w-0 truncate text-12 text-ink-3">
           {label}
         </span>
       )}
-      <span aria-hidden className="font-mono text-[12px] tabular-nums text-ink-3">
+      <span aria-hidden className="font-mono text-12 tabular-nums text-ink-3">
         {elapsed}
       </span>
     </div>
@@ -78,7 +78,7 @@ export function BackgroundIndicator({
       aria-expanded={expanded}
       onClick={onClick}
       data-background-work={count}
-      className="flex w-fit max-w-full items-center gap-2 rounded-[8px] px-1 py-1 text-left text-[12px] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+      className="flex w-fit max-w-full items-center gap-2 rounded-control px-1 py-1 text-left text-12 text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink"
     >
       {mark}
       <span aria-hidden className="min-w-0 truncate">
@@ -87,7 +87,7 @@ export function BackgroundIndicator({
       <span aria-hidden className="font-mono tabular-nums">
         {elapsed}
       </span>
-      <HugeiconsIcon aria-hidden icon={ArrowDown01Icon} size={12} className={`shrink-0 text-ink-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
+      <Icon icon={ArrowDown01Icon} size={12} className={`shrink-0 text-ink-3 transition-transform duration-fast ${expanded ? "rotate-180" : ""}`} />
     </button>
   );
 }

@@ -23,11 +23,10 @@ const toPairs = (record: Record<string, string>): Pair[] => Object.entries(recor
 const sent = (pair: Pair) => (pair.edited || pair.stored === undefined ? pair.value : pair.stored);
 const toRecord = (pairs: Pair[]) => Object.fromEntries(pairs.filter((pair) => pair.key || sent(pair)).map((pair) => [pair.key, sent(pair)]));
 // The app's global rule drops the outline on inputs, so focus shows as an ink border.
-const field = "w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink";
-const pairField =
-  "min-w-0 rounded-lg border border-transparent bg-field px-3 py-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink focus:ring-1 focus:ring-ink";
-const footerButton = "rounded-lg px-4 py-2 text-[13px] transition-colors disabled:opacity-40";
-const label = "block space-y-1.5 text-[12px] font-medium text-ink-2";
+const field = "w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-13 text-ink outline-none";
+const pairField = "min-w-0 rounded-control border border-transparent bg-field px-3 py-2 text-13 text-ink outline-none placeholder:text-ink-3";
+const footerButton = "rounded-control px-4 py-2 text-13 transition-colors disabled:opacity-40";
+const label = "block space-y-1.5 text-12 font-medium text-ink-2";
 const TARGETS: { value: McpTarget; label: string; hint: string }[] = [
   { value: "everywhere", label: "Everywhere", hint: "Milagre Chats on every provider" },
   { value: "claude", label: "Claude only", hint: "Written to Claude’s config" },
@@ -132,7 +131,7 @@ export function McpServerSheet({
         if (!busy) onClose();
       }}
       onMouseDown={(event) => !busy && event.target === dialog.current && onClose()}
-      className="m-auto w-[520px] max-w-[calc(100vw-32px)] overflow-visible rounded-2xl bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+      className="m-auto w-[520px] max-w-[calc(100vw-32px)] overflow-visible rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
     >
       <form
         data-mcp-sheet
@@ -143,10 +142,10 @@ export function McpServerSheet({
         }}
       >
         <div className="flex shrink-0 items-center justify-between px-6 pt-6 pb-4">
-          <h2 ref={heading} tabIndex={-1} className="text-[17px] font-semibold text-ink outline-none">
+          <h2 ref={heading} tabIndex={-1} className="text-17 font-semibold text-ink outline-none">
             {title}
           </h2>
-          <button type="button" aria-label="Close" disabled={busy} className="rounded-md p-1 text-ink-2 hover:bg-hover" onClick={onClose}>
+          <button type="button" aria-label="Close" disabled={busy} className="rounded-chip p-1 text-ink-2 hover:bg-hover" onClick={onClose}>
             <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.75} color="currentColor" />
           </button>
         </div>
@@ -254,7 +253,7 @@ export function McpServerSheet({
                 </section>
               ) : (
                 <>
-                  <div className="flex gap-1 rounded-[10px] bg-field p-[3px]">
+                  <div className="flex gap-1 rounded-card bg-field p-[3px]">
                     {(["url", "command"] as const).map((value) => (
                       <button
                         key={value}
@@ -267,7 +266,7 @@ export function McpServerSheet({
                           if (value !== kind) setPairs([]);
                           setKind(value);
                         }}
-                        className={`flex flex-1 items-center justify-center gap-1.5 rounded-[8px] py-1.5 text-[13px] disabled:opacity-40 ${kind === value ? "bg-surface font-medium text-ink shadow-card" : "text-ink-2"}`}
+                        className={`flex flex-1 items-center justify-center gap-1.5 rounded-control py-1.5 text-13 disabled:opacity-40 ${kind === value ? "bg-surface font-medium text-ink shadow-card" : "text-ink-2"}`}
                       >
                         <HugeiconsIcon icon={value === "url" ? Globe02Icon : CommandLineIcon} size={14} strokeWidth={1.75} color="currentColor" />
                         {value === "url" ? "URL" : remote ? "Command (on the computer)" : "Command"}
@@ -305,7 +304,7 @@ export function McpServerSheet({
                         <textarea
                           aria-label="Arguments"
                           rows={3}
-                          className={`${field} resize-y font-mono text-[12.5px]`}
+                          className={`${field} resize-y font-mono text-12`}
                           placeholder={"-y\n@scope/server"}
                           value={args}
                           onChange={(event) => edit(setArgs, event.target.value)}
@@ -314,8 +313,8 @@ export function McpServerSheet({
                       </label>
                     </>
                   )}
-                  <div className="space-y-1.5">
-                    <span className="block text-[12px] font-medium text-ink-2">{kind === "url" ? "Headers (optional)" : "Environment (optional)"}</span>
+                  <div className="space-y-1">
+                    <span className="block text-12 font-medium text-ink-2">{kind === "url" ? "Headers (optional)" : "Environment (optional)"}</span>
                     {shown.map((pair, index) => (
                       <div key={index} className="flex gap-2">
                         <input
@@ -338,7 +337,7 @@ export function McpServerSheet({
                         <button
                           type="button"
                           aria-label={kind === "url" ? "Add a header" : "Add a variable"}
-                          className={`flex size-9 shrink-0 items-center justify-center rounded-lg border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
+                          className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
                           onClick={() => setPairs([...shown, EMPTY])}
                         >
                           <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.75} color="currentColor" />
@@ -348,26 +347,26 @@ export function McpServerSheet({
                   </div>
                 </>
               )}
-              <fieldset disabled={busy} className="space-y-1.5">
-                <legend className="mb-1.5 text-[12px] font-medium text-ink-2">Load it in</legend>
-                <div className="divide-y divide-line rounded-[10px] border border-line">
+              <fieldset disabled={busy} className="space-y-1">
+                <legend className="mb-1.5 text-12 font-medium text-ink-2">Load it in</legend>
+                <div className="divide-y divide-line rounded-card border border-line">
                   {TARGETS.map((option) => (
-                    <label key={option.value} className="flex min-h-11 cursor-pointer items-center gap-2.5 px-3">
+                    <label key={option.value} className="flex min-h-11 cursor-pointer items-center gap-2 px-3">
                       <input
                         type="radio"
                         name="target"
-                        className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-line-strong bg-surface transition-[border] checked:border-[5px] checked:border-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                        className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-line-strong bg-surface transition-[border] checked:border-[5px] checked:border-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
                         checked={target === option.value}
                         onChange={() => setTarget(option.value)}
                       />
-                      <span className={`flex-1 text-[13px] ${target === option.value ? "font-medium text-ink" : "text-ink-2"}`}>{option.label}</span>
-                      <span className="text-[12px] text-ink-3">{option.hint}</span>
+                      <span className={`flex-1 text-13 ${target === option.value ? "font-medium text-ink" : "text-ink-2"}`}>{option.label}</span>
+                      <span className="text-12 text-ink-3">{option.hint}</span>
                     </label>
                   ))}
                 </div>
               </fieldset>
               {error && (
-                <p role="alert" className="text-[12.5px] break-words text-red-ink">
+                <p role="alert" className="text-12 break-words text-red-ink">
                   {error}
                 </p>
               )}

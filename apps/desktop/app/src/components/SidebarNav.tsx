@@ -23,7 +23,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
   ArrowDown01Icon,
@@ -46,7 +46,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
-import { WorkspaceIcon } from "./WorkspaceIcon";
+import { IconButton } from "./primitives/Button";
+import { Icon, type IconSize } from "./primitives/Icon";
+import { MenuRow, MenuSeparator, Popover } from "./primitives/Popover";
+import { SectionLabel } from "./primitives/SectionLabel";
+import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
 import { thisComputer, useShortcutHints } from "../lib/shortcut-hints";
@@ -62,7 +66,6 @@ import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey, unqualifyKey } from "@mi
 import { ALL_CHATS_LABEL, CHATS_GROUP_KEY, CHATS_GROUP_LABEL, type ProjectKind } from "@milagre/shared/chats-home";
 import { useChatsGroup } from "../lib/project-copies";
 import { gridDrop, type GridDropTarget } from "@/lib/grid-drop";
-import { useDismiss } from "../lib/use-dismiss";
 import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/chat-list";
 import type { ArchiveMode, ArchivePlan } from "@/lib/archive";
 import { linkBetween } from "@milagre/shared/chat-links";
@@ -105,27 +108,18 @@ import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
 import { OpenSubchatContext, jumpChatRows, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
 
-type HugeIconProps = { size?: number; className?: string };
-type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
-
-function HugeIcon({ icon, size = 16, className }: HugeIconProps & { icon: HugeIconData }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" className={className} />;
-}
+type IconProps = { size?: IconSize; className?: string };
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
-const PROJECT_MENU_ICONS: Record<ProjectMenuKey, HugeIconData> = {
+const PROJECT_MENU_ICONS: Record<ProjectMenuKey, IconSvgElement> = {
   reveal: FolderOpenIcon,
   "copy-path": Copy01Icon,
   "copy-name": Copy01Icon,
   settings: Settings01Icon,
 };
 
-const IconChevronDownSmall = (props: HugeIconProps) => <HugeIcon icon={ArrowDown01Icon} {...props} />;
-const IconFolderAdd = (props: HugeIconProps) => <HugeIcon icon={FolderAddIcon} {...props} />;
-const IconMagnifyingGlass = (props: HugeIconProps) => <HugeIcon icon={Search01Icon} {...props} />;
-const IconPlusMedium = (props: HugeIconProps) => <HugeIcon icon={Add01Icon} {...props} />;
-const IconSettingsGear1 = (props: HugeIconProps) => <HugeIcon icon={Settings01Icon} {...props} />;
+const IconChevronDownSmall = (props: IconProps) => <Icon icon={ArrowDown01Icon} {...props} />;
 
 /* ─────────────────────────────────────────────────────────
  * SIDEBAR NAV
@@ -278,7 +272,7 @@ function writeScopeOrder(order: string[]) {
 type ScopeMenuItem = {
   key: string;
   label: string;
-  icon: HugeIconData;
+  icon: IconSvgElement;
   run: () => void;
   disabled?: boolean;
   destructive?: boolean;
@@ -347,17 +341,17 @@ function ScopeHeader({
         aria-expanded={open}
         aria-label={`${open ? "Collapse" : "Expand"} ${name}${computer ? ` on ${computer.name}${computer.offline ? ", offline" : ""}` : ""}`}
         onClick={onToggle}
-        className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] pl-2 text-left hover:bg-hover-2 ${rightRoom}`}
+        className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-control pl-2 text-left transition-colors hover:bg-hover active:bg-hover-2 ${rightRoom}`}
       >
         {/* A Link's stacked avatars are wider than a Project's icon, so the slot grows with them. */}
         <span className="relative flex h-5 min-w-5 shrink-0 items-center justify-center text-ink">
-          <span className="flex items-center justify-center transition-opacity duration-100 group-hover/scope:opacity-0 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-0">
+          <span className="flex items-center justify-center transition-opacity duration-fast group-hover/scope:opacity-0 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-0">
             {icon}
           </span>
           <span
             aria-hidden
             data-scope-chevron
-            className={`absolute inset-y-0 left-0 flex w-5 items-center justify-center text-ink-3 opacity-0 transition-[opacity,transform] duration-150 group-hover/scope:opacity-100 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-100 ${open ? "" : "-rotate-90"}`}
+            className={`absolute inset-y-0 left-0 flex w-5 items-center justify-center text-ink-3 opacity-0 transition-[opacity,transform] duration-fast group-hover/scope:opacity-100 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-100 ${open ? "" : "-rotate-90"}`}
           >
             <IconChevronDownSmall size={14} />
           </span>
@@ -378,9 +372,9 @@ function ScopeHeader({
             <span
               data-scope-computer
               data-offline={computer.offline || undefined}
-              className={`flex h-[18px] items-center gap-1 rounded-[5px] px-1.5 text-[length:calc(11px+var(--sidebar-delta))] font-medium ${computer.offline ? "bg-orange-tint text-orange-ink" : "bg-ink/[0.07] text-ink-2"}`}
+              className={`flex h-[18px] items-center gap-1 rounded-chip px-1.5 text-[length:calc(11px+var(--sidebar-delta))] font-medium ${computer.offline ? "bg-orange-tint text-orange-ink" : "bg-field text-ink-2"}`}
             >
-              <HugeIcon icon={computer.offline ? CloudOffIcon : LaptopIcon} size={11} />
+              <Icon icon={computer.offline ? CloudOffIcon : LaptopIcon} size={12} />
               <span className="max-w-[72px] truncate">{computerAlias(computer.name)}</span>
             </span>
           </Tooltip>
@@ -389,22 +383,22 @@ function ScopeHeader({
       {/* Rests at the right edge; slides left when hover reveals the actions it would sit under. */}
       {attention && (
         <AttentionDot
-          className={`pointer-events-none absolute right-3 transition-transform duration-150 ease-out ${menu.length > 0 ? "group-hover/scope:-translate-x-[52px] group-has-[:focus-visible]/scope:-translate-x-[52px]" : "group-hover/scope:-translate-x-[26px] group-has-[:focus-visible]/scope:-translate-x-[26px]"}`}
+          className={`pointer-events-none absolute right-3 transition-transform duration-fast ease-enter ${menu.length > 0 ? "group-hover/scope:-translate-x-[52px] group-has-[:focus-visible]/scope:-translate-x-[52px]" : "group-hover/scope:-translate-x-[26px] group-has-[:focus-visible]/scope:-translate-x-[26px]"}`}
         />
       )}
       <div className="absolute right-1 flex items-center gap-0.5">
         {menu.length > 0 && <ScopeMenuButton name={name} items={menu} />}
         {onNewChat && (
           <Tooltip label="New chat" shortcut={plusIsCurrent ? keys.newChat : undefined} align="end">
-            <button
-              type="button"
+            {/* 24, smaller than the row, so its hover fill doesn't read as a second row; shown on the row's hover. */}
+            <IconButton
+              size={24}
               data-scope-action
-              aria-label={plusIsCurrent ? "New chat" : `New chat in ${name}`}
+              label={plusIsCurrent ? "New chat" : `New chat in ${name}`}
+              icon={Add01Icon}
               onClick={onNewChat}
-              className={`${SCOPE_HEADER_BUTTON} opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100`}
-            >
-              <IconPlusMedium size={14} />
-            </button>
+              className="opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100"
+            />
           </Tooltip>
         )}
       </div>
@@ -412,107 +406,46 @@ function ScopeHeader({
   );
 }
 
-/** A Project's or Link's ⋯ button; its rows open in a panel on the body, under the button. */
+/** A Project's or Link's ⋯ button; its rows open in a Popover under it. */
 function ScopeMenuButton({ name, items }: { name: string; items: ScopeMenuItem[] }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
-
-  const place = () => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return false;
-    // Right-aligned to the button, but never past the window's left edge in a narrow sidebar.
-    setPosition({ top: rect.bottom + 4, left: Math.max(8, rect.right - 224) });
-    return true;
-  };
   const close = () => setOpen(false);
-  const openMenu = () => {
-    if (place()) setOpen(true);
-  };
-
-  useDismiss(open, close, (target) => !!target.closest("[data-scope-menu], [data-scope-menu-panel]"), place);
-  useLayoutEffect(() => {
-    if (open) panelRef.current?.querySelector<HTMLElement>("[data-menu-row]:not(:disabled)")?.focus();
-  }, [open]);
-
-  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const rows = [...(panelRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
-    const index = rows.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      rows[(index + step + rows.length) % rows.length]?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-      buttonRef.current?.focus();
-    } else if (event.key === "Tab") {
-      event.preventDefault();
-    }
-  };
-
   return (
     <>
       <Tooltip label="More" align="end">
-        <button
+        <IconButton
           ref={buttonRef}
-          type="button"
+          size={24}
           data-scope-menu
-          aria-label={`${name} actions`}
+          label={`${name} actions`}
+          icon={MoreVerticalIcon}
           aria-haspopup="menu"
           aria-expanded={open}
-          onClick={() => (open ? close() : openMenu())}
-          className={`${SCOPE_HEADER_BUTTON} ${open ? "opacity-100" : "opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100"}`}
-        >
-          <HugeIcon icon={MoreVerticalIcon} size={14} />
-        </button>
+          onClick={() => setOpen(!open)}
+          className={open ? "" : "opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100"}
+        />
       </Tooltip>
-      {open &&
-        createPortal(
-          <div
-            ref={panelRef}
-            role="menu"
-            aria-label={`${name} actions`}
-            onKeyDown={moveFocus}
-            data-scope-menu-panel
-            className="fixed z-50 flex max-h-[calc(100vh-16px)] w-56 flex-col overflow-hidden rounded-[14px] bg-surface shadow-overlay"
-            style={{
-              top: position.top,
-              left: position.left,
-              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
-              transformOrigin: "top right",
-            }}
-          >
-            <ScrollArea className="p-1.5">
-              <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
-                {items.map((item) => (
-                  <Fragment key={item.key}>
-                    {item.separatorBefore && <div className="my-1 h-px bg-line" />}
-                    <button
-                      data-menu-row
-                      data-scope-menu-item={item.key}
-                      role="menuitem"
-                      type="button"
-                      disabled={item.disabled}
-                      onClick={() => {
-                        close();
-                        item.run();
-                      }}
-                      className="relative z-10 flex h-9 w-full items-center gap-1.5 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40"
-                    >
-                      <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                        <HugeIcon icon={item.icon} size={16} />
-                      </span>
-                      <span className={`min-w-0 flex-1 truncate text-[13.5px] ${item.destructive ? "text-red-ink" : "text-ink"}`}>{item.label}</span>
-                    </button>
-                  </Fragment>
-                ))}
-              </GlideMenu>
-            </ScrollArea>
-          </div>,
-          document.body,
-        )}
+      {open && (
+        <Popover anchor={buttonRef} width={224} label={`${name} actions`} onClose={close} data-scope-menu-panel>
+          {items.map((item) => (
+            <Fragment key={item.key}>
+              {item.separatorBefore && <MenuSeparator />}
+              <MenuRow
+                data-scope-menu-item={item.key}
+                icon={item.icon}
+                title={item.label}
+                danger={item.destructive}
+                disabled={item.disabled}
+                onClick={() => {
+                  close();
+                  item.run();
+                }}
+              />
+            </Fragment>
+          ))}
+        </Popover>
+      )}
     </>
   );
 }
@@ -554,10 +487,11 @@ const SIDEBAR_MOTION = {
   expandedWidth: 224,
   // A 32px control with 6px of space on each side.
   collapsedWidth: 44,
-  duration: 280,
-  copyDuration: 180,
+  // The motion tokens: the width over --duration-slow, the copy over --duration-base, both on the enter curve.
+  duration: "var(--duration-slow)",
+  copyDuration: "var(--duration-base)",
   copyOffset: 8,
-  easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+  easing: "var(--ease-enter)",
 };
 
 // Dragging the sidebar's right edge widens it between these bounds; the width survives restarts.
@@ -575,20 +509,17 @@ function readSidebarWidth() {
 // Narrower than this, the sidebar collapses on its own so the chat keeps its room. It can still be expanded.
 const AUTO_COLLAPSE_QUERY = "(max-width: 1024px)";
 
-// The + and ⋯ on a Project's header: smaller than the row, so their hover fill doesn't read as a second row.
-const SCOPE_HEADER_BUTTON =
-  "flex size-6 items-center justify-center rounded-[6px] text-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]";
+// FiltersButton (sidebar/FiltersMenu) still draws its own trigger from a class string: IconButton's ghost 32 look.
+// ponytail: goes once FiltersButton renders an IconButton.
+const FILTERS_BUTTON =
+  "flex size-8 items-center justify-center rounded-control text-ink-3 transition-[background-color,color,scale] duration-fast ease-enter hover:bg-hover hover:text-ink active:scale-press";
 
-const CHATS_HEADER_BUTTON =
-  "flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]";
-
-const TOOL_BUTTON = "flex h-8 items-center justify-center gap-1.5 rounded-[8px] px-2 text-[13px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink";
-const BOTTOM_BAR_BUTTON =
-  "flex items-center justify-center rounded-[8px] text-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]";
+// A retry inside a sentence: accent-ink like a link, with a 24px hit area around its text.
+const RETRY = "relative cursor-pointer text-accent-ink underline-offset-2 hover:underline before:absolute before:-inset-x-1 before:-inset-y-1";
 
 export function GlideGroup({ children }: { children: ReactNode }) {
   return (
-    <GlideMenu rowSelector="[data-row]" highlightClassName="sidebar-glide-highlight rounded-[7px] bg-hover-2" className="group/glide flex flex-col gap-px">
+    <GlideMenu rowSelector="[data-row]" highlightClassName="sidebar-glide-highlight rounded-control bg-hover" className="group/glide flex flex-col gap-px">
       {children}
     </GlideMenu>
   );
@@ -612,8 +543,8 @@ export function RailButton({
       data-row
       type="button"
       onClick={onClick}
-      className={`sidebar-row relative z-10 mx-2 flex h-9 items-center rounded-[8px] px-2 text-left
-        transition-[width,background-color,color,transform] duration-150 active:scale-[0.98]
+      className={`sidebar-row relative z-10 mx-2 flex h-9 items-center rounded-control px-2 text-left
+        transition-[width,background-color,color] duration-fast active:bg-hover-2
         ${active ? "bg-hover-2 group-hover/glide:bg-transparent" : ""}`}
     >
       <span className={`flex size-5 shrink-0 items-center justify-center ${active ? "text-ink" : "text-ink-2"}`}>{icon}</span>
@@ -1123,24 +1054,17 @@ export default memo(function SidebarNav({
       const first = linkFirstProject(scope, scope.link, current);
       const fallback = (first.name.trim().slice(0, 1) || scope.name.trim().slice(0, 1) || "P").toUpperCase();
       return (
-        <span
-          data-rail-link-icon
-          className="relative flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface"
-        >
-          <span className="flex size-full items-center justify-center opacity-35">
-            <WorkspaceIcon src={scopeImage(first.path)} fallback={fallback} />
-          </span>
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-surface drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
-            <HugeIcon icon={Link04Icon} size={13} />
-          </span>
+        <span data-rail-link-icon className="flex">
+          {/* The first Project's initial, dimmed under the Link glyph. */}
+          <ProjectAvatar name={first.name} src={scopeImage(first.path)} initial={fallback} size={24}>
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/65 text-on-ink">
+              <Icon icon={Link04Icon} size={12} />
+            </span>
+          </ProjectAvatar>
         </span>
       );
     }
-    return (
-      <span className="flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-        <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
-      </span>
-    );
+    return <ProjectAvatar name={scope.name} src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} initial={scope.initial} size={24} />;
   };
   const railScopes: RailScope[] | null =
     collapsed && !oneList && scopes.length > 1
@@ -1376,7 +1300,7 @@ export default memo(function SidebarNav({
           return {
             key: `${scopeKey}#${row.id}`,
             name: scope?.name ?? CHATS_GROUP_LABEL,
-            icon: scope ? scopeIcon(scope, current) : <HugeIcon icon={BubbleChatIcon} size={20} />,
+            icon: scope ? scopeIcon(scope, current) : <Icon icon={BubbleChatIcon} size={18} />,
             current: current && (activeId !== undefined ? row.id === activeId : row.label === selectedTitle),
             status: railLive([row]).status,
             chats: [row],
@@ -1400,8 +1324,8 @@ export default memo(function SidebarNav({
       <ScopeHeader
         name={CHATS_GROUP_LABEL}
         icon={
-          <span className="flex size-5 items-center justify-center rounded-[6px] bg-ink text-surface">
-            <HugeIcon icon={BubbleChatIcon} size={12} />
+          <span className="flex size-5 items-center justify-center rounded-chip bg-ink text-on-ink">
+            <Icon icon={BubbleChatIcon} size={12} />
           </span>
         }
         open={chatsOpen}
@@ -1422,7 +1346,7 @@ export default memo(function SidebarNav({
       <div
         inert={!chatsOpen}
         data-scope-body
-        className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+        className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
         style={{ gridTemplateRows: chatsOpen ? "1fr" : "0fr", opacity: chatsOpen ? 1 : 0 }}
       >
         <div className="min-w-0 overflow-hidden">
@@ -1449,19 +1373,17 @@ export default memo(function SidebarNav({
         ) : null,
       )}
       <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
-        <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
+        <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
         <Tooltip label="New chat" shortcut={keys.newChat} align="end">
-          <button
-            type="button"
-            aria-label="New chat"
+          <IconButton
+            size={32}
+            label="New chat"
+            icon={Add01Icon}
             onClick={() => {
               if (activeTitle === undefined) setDemoActiveTitle(null);
               onNewChat?.();
             }}
-            className={CHATS_HEADER_BUTTON}
-          >
-            <IconPlusMedium size={16} />
-          </button>
+          />
         </Tooltip>
       </div>
       {chatsGroup}
@@ -1472,15 +1394,15 @@ export default memo(function SidebarNav({
         .filter(({ scope, state, current }) => !state && !current && failedScopes.has(scope.key))
         .map(({ scope }) => (
           <p key={scope.key} className="mx-2 flex h-8 items-center gap-1 pl-2 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
-            <span className="truncate">Couldn't load chats of {scope.name}.</span>
-            <button type="button" onClick={() => retryScope(scope.key)} className="shrink-0 cursor-pointer text-ink-2 underline-offset-2 hover:underline">
+            <span className="truncate">Couldn't load Chats of {scope.name}.</span>
+            <button type="button" onClick={() => retryScope(scope.key)} className={`shrink-0 ${RETRY}`}>
               Retry
             </button>
           </p>
         ))}
       {groups.length > 0 && flatChats.length === 0 && chatsRows.length === 0 && !anyPinned && (
         <p data-one-list-empty className="mx-2 h-8 pl-2 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
-          {loadingScopes ? "Loading chats…" : "No chats yet"}
+          {loadingScopes ? "Loading Chats…" : "No Chats yet"}
         </p>
       )}
     </>
@@ -1512,15 +1434,11 @@ export default memo(function SidebarNav({
         data-current={current ? true : undefined}
         aria-label={scope.name}
         data-offline={dimmed || undefined}
-        className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
+        className={`mb-2 ${dimmed ? "opacity-60" : ""}`}
       >
         <ScopeHeader
           name={scope.name}
-          icon={
-            <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-              <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(iconScope.key)} fallback={iconScope.initial} />
-            </span>
-          }
+          icon={<ProjectAvatar name={scope.name} src={current && !selectedLink ? workspace.image : scopeImage(iconScope.key)} initial={iconScope.initial} />}
           open={open}
           current={!!current}
           attention={copies.some((part) => !part.current && attentionPaths.includes(part.scope.key))}
@@ -1555,25 +1473,21 @@ export default memo(function SidebarNav({
         <div
           inert={!open}
           data-scope-body
-          className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+          className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
           style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
         >
           <div className="min-w-0 overflow-hidden">
             <FlatChatList chats={chats} scopes={lists} inbox={false} />
             {failed.map((part) => (
               <p key={part.scope.key} className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
-                <span className="truncate">Couldn't load chats{part.list.computer ? ` on ${part.list.computer.name}` : ""}.</span>
-                <button
-                  type="button"
-                  onClick={() => retryScope(part.scope.key)}
-                  className="shrink-0 cursor-pointer text-ink-2 underline-offset-2 hover:underline"
-                >
+                <span className="truncate">Couldn't load Chats{part.list.computer ? ` on ${part.list.computer.name}` : ""}.</span>
+                <button type="button" onClick={() => retryScope(part.scope.key)} className={`shrink-0 ${RETRY}`}>
                   Retry
                 </button>
               </p>
             ))}
             {chats.length === 0 && failed.length === 0 && !copies.some((part) => part.pinned.length > 0) && (
-              <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">{loading ? "Loading chats…" : "No chats yet"}</p>
+              <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">{loading ? "Loading Chats…" : "No Chats yet"}</p>
             )}
           </div>
         </div>
@@ -1603,78 +1517,62 @@ export default memo(function SidebarNav({
       <div
         ref={bar}
         data-sidebar-bar
-        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-[10px] bg-page"
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-card bg-page"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
           <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut={keys.sidebar} side="bottom">
-            <button
-              type="button"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-expanded={!collapsed}
+            {/* No aria-expanded: its label already says which way it goes, and IconButton would draw an expanded toggle as open. */}
+            <IconButton
+              size={32}
+              label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              icon={collapsed ? SidebarRight01Icon : SidebarLeft01Icon}
               onClick={toggle}
-              className="flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink [-webkit-app-region:no-drag]"
-            >
-              <span className="pointer-events-none flex items-center justify-center">
-                <HugeIcon icon={collapsed ? SidebarRight01Icon : SidebarLeft01Icon} size={18} />
-              </span>
-            </button>
+              className="no-drag"
+            />
           </Tooltip>
         </div>
         {!botsMode && (
-          <div data-sidebar-tools className="flex items-center gap-1 [-webkit-app-region:no-drag]">
+          <div data-sidebar-tools className="no-drag flex items-center gap-1">
             {onOpenCanvas && (
               <Tooltip label="Canvas" side="bottom">
-                <button
-                  type="button"
-                  aria-label="Canvas"
-                  aria-pressed={canvasActive}
-                  onClick={onOpenCanvas}
-                  className={`${TOOL_BUTTON} size-8 ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
-                >
-                  <HugeIcon icon={FrameIcon} size={16} />
-                </button>
+                <IconButton size={32} label="Canvas" icon={FrameIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
               </Tooltip>
             )}
             {onOpenRoutines && (
               <Tooltip label="Routines" side="bottom">
-                <button
-                  type="button"
+                <IconButton
+                  size={32}
                   // The dot is drawn only; the label says it, as the phone's dock button does.
-                  aria-label={routinesUnread ? "Routines, unread Runs" : "Routines"}
+                  label={routinesUnread ? "Routines, unread Runs" : "Routines"}
                   aria-pressed={routinesActive}
                   data-sidebar-routines
                   onClick={onOpenRoutines}
-                  className={`${TOOL_BUTTON} relative size-8 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
                 >
                   {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
                   <span className="relative flex">
-                    <HugeIcon icon={RepeatIcon} size={16} />
+                    <Icon icon={RepeatIcon} size={16} />
                     {routinesUnread && (
                       <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
                     )}
                   </span>
-                </button>
+                </IconButton>
               </Tooltip>
             )}
             {onLinkProject && (
-              <Tooltip label="Link projects" side="bottom">
-                <button type="button" aria-label="Link projects" data-link-projects onClick={onLinkProject} className={`${TOOL_BUTTON} size-8`}>
-                  <HugeIcon icon={Link04Icon} size={16} />
-                </button>
+              <Tooltip label="Link Projects" side="bottom">
+                <IconButton size={32} label="Link Projects" icon={Link04Icon} data-link-projects onClick={onLinkProject} />
               </Tooltip>
             )}
             {onOpenCommands && (
-              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={keys.search}>
-                <button
-                  type="button"
-                  aria-label="Command palette"
+              <Tooltip label="Search commands, Chats and Projects" side="bottom" shortcut={keys.search}>
+                <IconButton
+                  size={32}
+                  label="Command palette"
+                  icon={Search01Icon}
                   aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
                   onClick={onOpenCommands}
-                  className={`${TOOL_BUTTON} size-8`}
-                >
-                  <IconMagnifyingGlass size={16} />
-                </button>
+                />
               </Tooltip>
             )}
           </div>
@@ -1689,9 +1587,9 @@ export default memo(function SidebarNav({
             width: collapsed ? SIDEBAR_MOTION.collapsedWidth : expandedWidth,
             flex: "1 1 0%",
             // Following the pointer while dragging; the eased width transition would make the edge lag behind it.
-            transitionDuration: resizing ? "0ms" : `calc(${SIDEBAR_MOTION.duration}ms * var(--motion-scale))`,
+            transitionDuration: resizing ? "0ms" : `calc(${SIDEBAR_MOTION.duration} * var(--motion-scale))`,
             transitionTimingFunction: SIDEBAR_MOTION.easing,
-            "--sidebar-copy-duration": `calc(${SIDEBAR_MOTION.copyDuration}ms * var(--motion-scale))`,
+            "--sidebar-copy-duration": `calc(${SIDEBAR_MOTION.copyDuration} * var(--motion-scale))`,
             "--sidebar-copy-offset": `${SIDEBAR_MOTION.copyOffset}px`,
             "--sidebar-easing": SIDEBAR_MOTION.easing,
           } as CSSProperties
@@ -1721,7 +1619,7 @@ export default memo(function SidebarNav({
                     renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
                       <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
                         {anyPinned && (
-                          <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-8 text-ink-3">
+                          <p className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
                             Pinned
                           </p>
                         )}
@@ -1747,10 +1645,10 @@ export default memo(function SidebarNav({
                                 data-current={current || undefined}
                                 aria-label={scope.name}
                                 data-offline={dimmed || undefined}
-                                className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
+                                className={`mb-2 ${dimmed ? "opacity-60" : ""}`}
                               >
                                 {scope.link && !sections[index - 1]?.scope.link && (
-                                  <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">
+                                  <p className="mx-2 mt-1 mb-1 flex h-6 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
                                     Links
                                   </p>
                                 )}
@@ -1764,9 +1662,11 @@ export default memo(function SidebarNav({
                                         )}
                                       />
                                     ) : (
-                                      <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-                                        <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
-                                      </span>
+                                      <ProjectAvatar
+                                        name={scope.name}
+                                        src={current && !selectedLink ? workspace.image : scopeImage(scope.key)}
+                                        initial={scope.initial}
+                                      />
                                     )
                                   }
                                   open={open}
@@ -1788,7 +1688,7 @@ export default memo(function SidebarNav({
                                 <div
                                   inert={!open}
                                   data-scope-body
-                                  className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+                                  className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
                                   style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
                                 >
                                   <div className="min-w-0 overflow-hidden">
@@ -1804,18 +1704,14 @@ export default memo(function SidebarNav({
                                       />
                                     ) : !state && !current && failedScopes.has(scope.key) ? (
                                       <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
-                                        Couldn't load chats.
-                                        <button
-                                          type="button"
-                                          onClick={() => retryScope(scope.key)}
-                                          className="cursor-pointer text-ink-2 underline-offset-2 hover:underline"
-                                        >
+                                        Couldn't load Chats.
+                                        <button type="button" onClick={() => retryScope(scope.key)} className={RETRY}>
                                           Retry
                                         </button>
                                       </p>
                                     ) : (
                                       <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
-                                        {state || current ? "No chats yet" : "Loading chats…"}
+                                        {state || current ? "No Chats yet" : "Loading Chats…"}
                                       </p>
                                     )}
                                   </div>
@@ -1837,9 +1733,9 @@ export default memo(function SidebarNav({
                                 if (activeTitle === undefined) setDemoActiveTitle(null);
                                 onNewChat?.();
                               }}
-                              className={CHATS_HEADER_BUTTON}
+                              className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
                             >
-                              <IconPlusMedium size={16} />
+                              <Icon icon={Add01Icon} size={16} />
                             </button>
                           </Tooltip>
                         </div>
@@ -1861,19 +1757,17 @@ export default memo(function SidebarNav({
                       linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
                       header={
                         <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
-                          <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
+                          <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
                           <Tooltip label="New chat" shortcut={keys.newChat} align="end">
-                            <button
-                              type="button"
-                              aria-label="New chat"
+                            <IconButton
+                              size={32}
+                              label="New chat"
+                              icon={Add01Icon}
                               onClick={() => {
                                 if (activeTitle === undefined) setDemoActiveTitle(null);
                                 onNewChat?.();
                               }}
-                              className={CHATS_HEADER_BUTTON}
-                            >
-                              <IconPlusMedium size={16} />
-                            </button>
+                            />
                           </Tooltip>
                         </div>
                       }
@@ -1911,15 +1805,8 @@ export default memo(function SidebarNav({
             className={`flex border-t border-line py-1.5 ${usage ? "mt-1.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
           >
             <div className={collapsed ? "flex flex-col-reverse items-center gap-1" : "flex items-center gap-1"}>
-              <Tooltip label="Add project" shortcut={keys.addProject}>
-                <button
-                  type="button"
-                  aria-label="Add project"
-                  onClick={() => onOpenProject?.()}
-                  className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
-                >
-                  <IconFolderAdd size={17} />
-                </button>
+              <Tooltip label="Add Project" shortcut={keys.addProject}>
+                <IconButton size={32} label="Add Project" icon={FolderAddIcon} onClick={() => onOpenProject?.()} />
               </Tooltip>
               <FiltersButton
                 projects={pickerProjects}
@@ -1931,28 +1818,17 @@ export default memo(function SidebarNav({
                 offerComputer={multi}
                 onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
                 collapsed={collapsed}
-                className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
+                className={FILTERS_BUTTON}
               />
               {onAddComputer && onOpenComputerSettings && (
-                <ComputersButton
-                  collapsed={collapsed}
-                  buttonClassName={BOTTOM_BAR_BUTTON}
-                  onAddComputer={onAddComputer}
-                  onOpenSettings={onOpenComputerSettings}
-                />
+                <ComputersButton collapsed={collapsed} onAddComputer={onAddComputer} onOpenSettings={onOpenComputerSettings} />
               )}
             </div>
             <Tooltip label="Settings" shortcut={keys.settings} align={collapsed ? "start" : "end"}>
-              <button
-                type="button"
-                data-update-settings=""
-                aria-label="Settings"
-                onClick={onOpenSettings}
-                className={`relative ${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
-              >
-                <IconSettingsGear1 size={17} />
+              <IconButton size={32} data-update-settings="" label="Settings" onClick={onOpenSettings}>
+                <Icon icon={Settings01Icon} size={16} />
                 <UpdateSettingsBadge />
-              </button>
+              </IconButton>
             </Tooltip>
           </div>
         </div>
@@ -2750,14 +2626,14 @@ function ChatList({
   const target = (invalid: boolean, hint: string | null) => (
     <>
       {invalid && hint ? (
-        <span className="absolute left-0 top-full z-40 mt-1 rounded-[6px] bg-surface px-2 py-1 text-[11.5px] text-red-ink shadow-overlay">{hint}</span>
+        <span className="absolute left-0 top-full z-40 mt-1 rounded-chip bg-surface px-2 py-1 text-11 text-red-ink shadow-raised">{hint}</span>
       ) : (
-        <HugeIcon icon={Link04Icon} size={14} />
+        <Icon icon={Link04Icon} size={14} />
       )}
     </>
   );
   const targetClass = (invalid: boolean) =>
-    `pointer-events-none z-30 flex items-center justify-end rounded-[8px] pr-2 ring-2 ${invalid ? "bg-red/5 ring-red/60" : "bg-accent/10 text-accent ring-accent"}`;
+    `pointer-events-none z-30 flex items-center justify-end rounded-control pr-2 ring-2 ${invalid ? "bg-red-tint ring-red" : "bg-accent-tint text-accent-ink ring-accent"}`;
   const indicator = (inPins: boolean) =>
     mark?.inPins === inPins &&
     drag?.target?.id &&
@@ -2800,13 +2676,13 @@ function ChatList({
     <div ref={pinRef} data-chat-list-pins data-chat-scope={scopeKey} className="relative">
       {drag && pinned.length === 0 && !anyPinned && !collapsed && (
         <div className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2">
-          <span className="text-[12.5px] font-medium text-ink-3">Pinned</span>
+          <SectionLabel as="span">Pinned</SectionLabel>
         </div>
       )}
       {drag && pinned.length === 0 && !collapsed && (
         <div
           data-pin-zone
-          className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-[8px] border border-dashed text-[12.5px] ${drag.target?.id === null ? "border-accent bg-accent/10 text-accent-ink" : "border-line-strong text-ink-3"}`}
+          className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-control border border-dashed text-12 ${drag.target?.id === null ? "border-accent bg-accent-tint text-accent-ink" : "border-line-strong text-ink-3"}`}
         >
           Drop here to pin
         </div>
@@ -2829,13 +2705,13 @@ function ChatList({
         <>
           {pinnedHeader && (pinned.length > 0 || drag) && !collapsed && (
             <div className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2">
-              <span className="text-[12.5px] font-medium text-ink-3">Pinned</span>
+              <SectionLabel as="span">Pinned</SectionLabel>
             </div>
           )}
           {drag && pinned.length === 0 && !collapsed && (
             <div
               data-pin-zone
-              className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-[8px] border border-dashed text-[12.5px] ${drag.target?.id === null ? "border-accent bg-accent/10 text-accent-ink" : "border-line-strong text-ink-3"}`}
+              className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-control border border-dashed text-12 ${drag.target?.id === null ? "border-accent bg-accent-tint text-accent-ink" : "border-line-strong text-ink-3"}`}
             >
               Drop here to pin
             </div>

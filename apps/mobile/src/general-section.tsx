@@ -1,13 +1,14 @@
+import { CheckRow } from "./ui";
 import { useCallback, useState } from "react";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { ChartBarLineIcon, ChartColumnIcon, Tick02Icon } from "@hugeicons/core-free-icons";
-import { Row } from "./settings-list";
+import { ChartBarLineIcon, ChartColumnIcon } from "@hugeicons/core-free-icons";
+
 import { Icon } from "./icons";
 import { useSession } from "./session";
-import { ErrorNotice, ListRow, Toggle, useStyles } from "./ui";
+import { InlineError, ListRow, useStyles } from "./ui";
 import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { readDoneSettings, saveDoneSettings } from "./done-retention";
 import { MacUpdateRows, useMacUpdate } from "./mac-update";
@@ -97,6 +98,7 @@ export function GeneralSection() {
           compact
           title="Token usage"
           subtitle="Tokens and estimated cost by Project, Chat and model"
+          subtitleLines={2}
           leading={<Icon icon={ChartColumnIcon} tone="ink" size={20} />}
           onPress={() => router.push("/token-usage")}
         />
@@ -105,9 +107,15 @@ export function GeneralSection() {
         <>
           <Text style={[styles.section, { marginTop: 12 }]}>Worktrees</Text>
           <View style={[styles.card, { gap: 4 }]}>
-            <Toggle title={MAIN_SYNC_TITLE} selected={syncMain} onPress={() => void changeSyncMain(!syncMain)} />
+            <ListRow
+              title={MAIN_SYNC_TITLE}
+              toggle={{
+                value: syncMain,
+                onChange: () => void changeSyncMain(!syncMain),
+              }}
+            />
             <Text style={styles.caption}>{MAIN_SYNC_HINT}</Text>
-            {syncMainError ? <ErrorNotice message={syncMainError} /> : null}
+            {syncMainError ? <InlineError message={syncMainError} /> : null}
           </View>
         </>
       )}
@@ -120,9 +128,15 @@ export function GeneralSection() {
             {autoUpdate !== null && (
               <>
                 {(macUpdate.update !== undefined || macUpdate.restarting) && <View style={styles.separator} />}
-                <Toggle title={AUTO_UPDATE_TITLE} selected={autoUpdate} onPress={() => void changeAutoUpdate(!autoUpdate)} />
+                <ListRow
+                  title={AUTO_UPDATE_TITLE}
+                  toggle={{
+                    value: autoUpdate,
+                    onChange: () => void changeAutoUpdate(!autoUpdate),
+                  }}
+                />
                 <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
-                {autoUpdateError ? <ErrorNotice message={autoUpdateError} /> : null}
+                {autoUpdateError ? <InlineError message={autoUpdateError} /> : null}
               </>
             )}
           </View>
@@ -168,13 +182,7 @@ function DoneRetention() {
         {DONE_RETENTION_OPTIONS.map((option, index) => (
           <View key={option}>
             {index > 0 && <View style={styles.separator} />}
-            <Row
-              title={retentionLabel(option)}
-              chevron={false}
-              selected={hours === option}
-              trailing={hours === option ? <Icon icon={Tick02Icon} tone="accent" size={20} /> : <View style={{ width: 20 }} />}
-              onPress={() => choose(option)}
-            />
+            <CheckRow title={retentionLabel(option)} checked={hours === option} onPress={() => choose(option)} />
           </View>
         ))}
       </View>

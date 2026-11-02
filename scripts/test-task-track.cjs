@@ -286,7 +286,7 @@ async function browserChecks() {
     await screenshot("automatic-compaction-done");
     await evaluate("window.setExtraMessages([])");
     await evaluate("window.setContext({ used: 366000, size: 1000000 })");
-    assert.ok(await evaluate(`document.querySelector("${pill}").getBoundingClientRect().height <= 24`));
+    assert.ok(await evaluate(`document.querySelector("${pill}").getBoundingClientRect().height <= 28`), "the composer-row pill is 28px, like a Chip");
     // The pill sits right next to Subagents, on the same row.
     const gap = await evaluate(
       `(() => {const a=document.querySelector("${pill}").getBoundingClientRect(), b=document.querySelector("[data-slot=subagent-track] [data-face=pill] button").getBoundingClientRect();return {gap:b.left-a.right,dy:Math.abs(a.top-b.top)}})()`,

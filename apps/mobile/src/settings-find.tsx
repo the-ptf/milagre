@@ -1,3 +1,4 @@
+import { duration } from "./design-tokens";
 import React, { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, View, type ScrollViewInstance, type ViewInstance } from "react-native";
 import { useLocalSearchParams } from "expo-router";
@@ -75,7 +76,7 @@ function FoundRow({ target, children }: { target: FindTarget; children: ReactNod
   };
   useEffect(() => {
     // The tint holds while the page settles and the row scrolls in, then fades back to the card.
-    const fade = Animated.sequence([Animated.delay(1100), Animated.timing(tint, { toValue: 0, duration: 1500, useNativeDriver: true })]);
+    const fade = Animated.sequence([Animated.delay(1100), Animated.timing(tint, { toValue: 0, duration: duration.slow, useNativeDriver: true })]);
     fade.start();
     AccessibilityInfo.announceForAccessibility?.(`${target.title}, found`);
     return () => fade.stop();

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { projectSurfaces } from "./project-surfaces.ts";
 
-test("the Chats home has no Git or Project settings, and is named No project", () => {
-  assert.deepEqual(projectSurfaces({ name: "chats", git: true, kind: "chats" }), { git: false, settings: false, name: "No project" });
+test("the Chats home has no Git or Project settings, and is named No Project", () => {
+  assert.deepEqual(projectSurfaces({ name: "chats", git: true, kind: "chats" }), { git: false, settings: false, name: "No Project" });
 });
 
 test("a Git Project has every surface under its own name", () => {

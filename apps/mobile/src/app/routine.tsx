@@ -38,9 +38,8 @@ import { modelsFor } from "../turn-options";
 import { routineIcon } from "../routine-rows";
 import { RunList } from "../run-list";
 import { FlowRoutineScreen } from "../flow-routine";
-import { Icon, type IconData } from "../icons";
-import { ErrorNotice, HeaderButton, PageScroll, RowCheckbox, Segmented, useStyles } from "../ui";
-import { useTheme } from "../theme";
+import type { IconData } from "../icons";
+import { EmptyState, ErrorNotice, HeaderButton, InlineError, PageScroll, RowCheckbox, SectionLabel, Segmented, Tag, useStyles } from "../ui";
 
 type Targets = { projects: { path: string; chats: { chatId: string; title: string }[] }[] };
 
@@ -59,44 +58,14 @@ function leave(left: { current: boolean }) {
   else router.replace("/routines");
 }
 
-/** A Routine's setting as a pill on the field fill, as desktop's chips: its icon and words. */
-function Chip({ icon, text }: { icon: IconData; text: string }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      accessible
-      accessibilityLabel={text}
-      style={{ flexDirection: "row", alignItems: "center", gap: 6, height: 30, paddingHorizontal: 11, borderRadius: 15, backgroundColor: colors.field }}
-    >
-      <Icon icon={icon} tone="ink2" size={15} />
-      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
-        {text}
-      </Text>
-    </View>
-  );
+/** A Routine's setting as a static Tag, as desktop's chips: its icon and words. */
+function SettingChip({ icon, text }: { icon: IconData; text: string }) {
+  return <Tag icon={icon} label={text} />;
 }
 
 /** "On" in green, or "Paused" in grey, under the Routine's name. */
-function StatusPill({ on }: { on: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      accessible
-      accessibilityLabel={on ? "On" : "Paused"}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        height: 24,
-        paddingHorizontal: 9,
-        borderRadius: 12,
-        backgroundColor: on ? colors.greenTint : colors.field,
-      }}
-    >
-      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: on ? colors.green : colors.ink3 }} />
-      <Text style={{ color: on ? colors.greenInk : colors.ink3, fontSize: 12, fontWeight: "600" }}>{on ? "On" : "Paused"}</Text>
-    </View>
-  );
+function StatePill({ on }: { on: boolean }) {
+  return <Tag tone={on ? "green" : "neutral"} dot label={on ? "On" : "Paused"} />;
 }
 
 /**
@@ -111,7 +80,6 @@ const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 export default function RoutineScreen() {
   const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const styles = useStyles();
-  const { colors } = useTheme();
   const session = useSession();
   const { client } = session;
   const routines = useRoutines(client);
@@ -234,7 +202,7 @@ export default function RoutineScreen() {
         {error ? <ErrorNotice message={error} /> : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <View style={{ flex: 1, flexDirection: "row" }}>
-            <StatusPill on={routine.enabled} />
+            <StatePill on={routine.enabled} />
           </View>
           <RowCheckbox label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
         </View>
@@ -242,28 +210,26 @@ export default function RoutineScreen() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={{ marginHorizontal: -20 }}
-          contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}
+          style={{ marginHorizontal: -16 }}
+          contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}
         >
-          <Chip icon={routineIcon(routine)} text={triggerChipText(routine.trigger, deviceZone())} />
-          <Chip
+          <SettingChip icon={routineIcon(routine)} text={triggerChipText(routine.trigger, deviceZone())} />
+          <SettingChip
             icon={target.kind === "chat" ? BubbleChatIcon : target.workspace === "worktree" ? GitBranchIcon : Folder01Icon}
             text={routineWhereText(target, chatTitle)}
           />
-          <Chip icon={SparklesIcon} text={model} />
+          <SettingChip icon={SparklesIcon} text={model} />
           {routineRetries(routine) ? (
-            <Chip
+            <SettingChip
               icon={Refresh01Icon}
               text={fallbackText(routine, (provider, modelId) => modelsFor(provider, session.models).find((item) => item.id === modelId)?.name)}
             />
           ) : null}
-          <Chip icon={SecurityCheckIcon} text={mode} />
+          <SettingChip icon={SecurityCheckIcon} text={mode} />
         </ScrollView>
-        {times ? <Text style={[styles.caption, { fontSize: 13, paddingHorizontal: 4 }]}>{times}</Text> : null}
-        {problem ? <Text style={{ color: colors.redInk, fontSize: 13, paddingHorizontal: 4 }}>{problem}</Text> : null}
-        <Text accessibilityRole="header" style={[styles.label, { paddingHorizontal: 4, marginTop: 8 }]}>
-          Runs
-        </Text>
+        {times ? <Text style={styles.footnote}>{times}</Text> : null}
+        <InlineError message={problem} />
+        <SectionLabel flush>Runs</SectionLabel>
         {runs.length ? (
           <>
             {filters.length > 1 ? (
@@ -280,12 +246,9 @@ export default function RoutineScreen() {
             />
           </>
         ) : (
-          <View style={[styles.card, { alignItems: "center", gap: 4, paddingVertical: 24 }]}>
-            <Text style={styles.muted}>No Runs yet</Text>
-            {routine.enabled && typeof routine.nextRunAt === "number" ? (
-              <Text style={[styles.caption, { color: colors.ink3 }]}>{`Next Run ${clock(routine.nextRunAt)}`}</Text>
-            ) : null}
-          </View>
+          <EmptyState title="No Runs yet">
+            {routine.enabled && typeof routine.nextRunAt === "number" ? `Next Run ${clock(routine.nextRunAt)}` : undefined}
+          </EmptyState>
         )}
       </PageScroll>
     </>
