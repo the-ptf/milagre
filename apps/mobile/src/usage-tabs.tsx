@@ -10,7 +10,7 @@ export function UsageTabs({ value }: { value: "plan" | "analytics" }) {
     <View
       accessibilityRole="tablist"
       accessibilityLabel="Usage view"
-      style={{ flexDirection: "row", gap: 24, borderBottomWidth: 1, borderBottomColor: colors.line }}
+      style={{ flexDirection: "row", gap: 16, borderBottomWidth: 1, borderBottomColor: colors.line }}
     >
       {(["plan", "analytics"] as const).map((tab) => (
         <Pressable
@@ -28,7 +28,7 @@ export function UsageTabs({ value }: { value: "plan" | "analytics" }) {
             opacity: pressed ? 0.6 : 1,
           })}
         >
-          <Text style={{ color: value === tab ? colors.ink : colors.ink3, fontSize: type.subheadline, fontWeight: "600" }}>
+          <Text style={{ color: value === tab ? colors.ink : colors.ink3, fontSize: type.footnote, fontWeight: "600" }}>
             {tab === "plan" ? "Plan usage" : "Analytics"}
           </Text>
         </Pressable>

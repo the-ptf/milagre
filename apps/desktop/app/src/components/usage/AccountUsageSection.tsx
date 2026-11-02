@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AlertCircleIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
@@ -31,10 +32,12 @@ export function AccountUsageSection({
   computerId,
   computerName,
   onManageAccounts,
+  toolbarTarget,
 }: {
   computerId: string;
   computerName: string;
   onManageAccounts?: () => void;
+  toolbarTarget?: HTMLElement | null;
 }) {
   const source = useMemo(() => {
     const bridge = bridgeFor(computerId);
@@ -72,32 +75,35 @@ export function AccountUsageSection({
       setPending(null);
     }
   }
+  const controls = (
+    <div className="flex flex-wrap items-center justify-end gap-4">
+      <div className="flex items-center gap-2">
+        <Select
+          label="Plan usage display"
+          value={usageDisplay}
+          compact
+          width={128}
+          options={[
+            { value: "used", label: "Used" },
+            { value: "remaining", label: "Remaining" },
+          ]}
+          onChange={(value) => updateSettings({ usageDisplay: value })}
+        />
+        <button
+          type="button"
+          aria-label="Refresh plan usage"
+          disabled={usage.loading}
+          onClick={() => void usage.refresh()}
+          className="flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover disabled:opacity-40"
+        >
+          <HugeiconsIcon icon={RefreshIcon} size={16} className={usage.loading ? "animate-spin" : undefined} />
+        </button>
+      </div>
+    </div>
+  );
   return (
     <section aria-label="Plan usage" data-account-usage className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-end gap-4">
-        <div className="flex items-center gap-2">
-          <Select
-            label="Plan usage display"
-            value={usageDisplay}
-            compact
-            width={128}
-            options={[
-              { value: "used", label: "Used" },
-              { value: "remaining", label: "Remaining" },
-            ]}
-            onChange={(value) => updateSettings({ usageDisplay: value })}
-          />
-          <button
-            type="button"
-            aria-label="Refresh plan usage"
-            disabled={usage.loading}
-            onClick={() => void usage.refresh()}
-            className="flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover disabled:opacity-40"
-          >
-            <HugeiconsIcon icon={RefreshIcon} size={16} className={usage.loading ? "animate-spin" : undefined} />
-          </button>
-        </div>
-      </div>
+      {toolbarTarget ? createPortal(controls, toolbarTarget) : controls}
       {groups.map((group) => (
         <div key={group.provider} data-usage-provider={group.provider} className="flex min-w-0 flex-col rounded-card bg-surface p-4 shadow-card">
           <h2

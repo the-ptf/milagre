@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Text, View } from "react-native";
 import { Stack } from "expo-router";
-import { AlertCircleIcon, ComputerIcon, MoreHorizontalIcon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, ArrowDown01Icon, ComputerIcon, MoreHorizontalIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import type { ModelProvider, ProviderUsage, UsageSnapshot, UsageWindow } from "@milagre/shared/model";
 import { providerName } from "@milagre/shared/providers";
 import {
@@ -160,7 +160,7 @@ function ProviderRows({
 }
 
 /** Plan usage, sourced only from the currently connected computer. Also used outside the router in the navigation panel. */
-export function UsageSection({ header = false }: { header?: boolean }) {
+export function UsageSection({ header = false, navigation }: { header?: boolean; navigation?: ReactNode }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
@@ -236,42 +236,36 @@ export function UsageSection({ header = false }: { header?: boolean }) {
   );
   return (
     <View style={{ gap: 24 }}>
-      {header ? (
-        <Stack.Screen options={{ title: "Usage", headerRight: () => refresh }} />
-      ) : (
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <Text accessibilityRole="header" style={styles.section}>
-            Plan usage
-          </Text>
+      {header ? <Stack.Screen options={{ title: "Usage" }} /> : null}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        {navigation ??
+          (!header ? (
+            <Text accessibilityRole="header" style={styles.section}>
+              Plan usage
+            </Text>
+          ) : null)}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <PullDown
+            label="Plan usage display"
+            sections={[
+              {
+                items: [
+                  { id: "used", title: "Used", checked: display === "used" },
+                  { id: "remaining", title: "Remaining", checked: display === "remaining" },
+                ],
+              },
+            ]}
+            onSelect={(id) => {
+              if (id === "used" || id === "remaining") setDisplay(id);
+            }}
+          >
+            <View style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={{ color: colors.ink2, fontSize: type.footnote }}>{display === "remaining" ? "Remaining" : "Used"}</Text>
+              <Icon icon={ArrowDown01Icon} size={12} tone="ink3" />
+            </View>
+          </PullDown>
           {refresh}
         </View>
-      )}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
-        {session.hostName ? (
-          <View style={{ flexDirection: "row", flexGrow: 1, flexShrink: 1, alignItems: "center", gap: 8, minHeight: 44 }}>
-            <Icon icon={ComputerIcon} size={16} tone="ink2" />
-            <Text style={{ color: colors.ink2, fontSize: type.subheadline, flexShrink: 1 }}>{session.hostName}</Text>
-          </View>
-        ) : null}
-        <PullDown
-          label="Plan usage display"
-          nativeTrigger={{ title: display === "remaining" ? "Remaining" : "Used", systemImage: "chevron.up.chevron.down", iconSize: 12 }}
-          sections={[
-            {
-              items: [
-                { id: "used", title: "Used", checked: display === "used" },
-                { id: "remaining", title: "Remaining", checked: display === "remaining" },
-              ],
-            },
-          ]}
-          onSelect={(id) => {
-            if (id === "used" || id === "remaining") setDisplay(id);
-          }}
-        >
-          <View style={{ minHeight: 44, justifyContent: "center" }}>
-            <Text style={{ color: colors.ink2, fontSize: type.footnote }}>{display === "remaining" ? "Remaining" : "Used"}</Text>
-          </View>
-        </PullDown>
       </View>
       {!session.client ? (
         <Text style={styles.muted}>Connect to a computer to see its plan usage.</Text>
@@ -319,7 +313,17 @@ export function UsageSection({ header = false }: { header?: boolean }) {
           {actionError || usage.error}
         </Text>
       ) : null}
-      {updatedAt ? <Text style={{ color: colors.ink3, fontSize: type.footnote }}>{formatUpdatedAgo(updatedAt, now)}</Text> : null}
+      {updatedAt || session.hostName ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          {session.hostName ? (
+            <View style={{ flexDirection: "row", flexShrink: 1, alignItems: "center", gap: 8 }}>
+              <Icon icon={ComputerIcon} size={16} tone="ink3" />
+              <Text style={{ color: colors.ink3, fontSize: type.footnote, flexShrink: 1 }}>{session.hostName}</Text>
+            </View>
+          ) : null}
+          {updatedAt ? <Text style={{ color: colors.ink3, fontSize: type.footnote }}>{formatUpdatedAgo(updatedAt, now)}</Text> : null}
+        </View>
+      ) : null}
     </View>
   );
 }

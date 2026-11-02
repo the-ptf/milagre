@@ -86,6 +86,13 @@ async function check() {
     }
     const refreshSelector = JSON.stringify('[aria-label="Refresh plan usage"]');
     await waitFor(`!document.querySelector(${refreshSelector}).disabled`);
+    const toolbarAligned = `(() => {
+      const tabs = document.querySelector('[aria-label="Usage view"]').getBoundingClientRect();
+      const refresh = document.querySelector('[aria-label="Refresh plan usage"]').getBoundingClientRect();
+      return Math.abs(tabs.y + tabs.height / 2 - refresh.y - refresh.height / 2) < 1;
+    })()`;
+    assert.equal(await evaluate(toolbarAligned), true, "tabs and plan controls share one row");
+    assert.equal(await evaluate(`document.querySelectorAll('[aria-label="Refresh plan usage"]').length`), 1, "the toolbar reuses the refresh control");
     await evaluate(`document.querySelector(${refreshSelector}).click()`);
     await waitFor("window.accountUsageReads === 2");
     await evaluate(`document.querySelector('[aria-label="Usage view"] [aria-selected=true]').focus()`);
@@ -150,6 +157,7 @@ async function check() {
     window.setContentSize(720, 1000);
     await waitFor("innerWidth === 720");
     assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "the compact view fits a narrower desktop panel");
+    assert.equal(await evaluate(toolbarAligned), true, "the shared toolbar stays aligned at a narrower width");
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       await delay(150);
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "compact-narrow.png"), (await window.webContents.capturePage()).toPNG());

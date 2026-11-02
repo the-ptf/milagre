@@ -542,6 +542,7 @@ export function TokenUsagePage({
 }) {
   const [tab, setTab] = useState<"plan" | "analytics">("plan");
   const tabId = useId();
+  const [planControlsTarget, setPlanControlsTarget] = useState<HTMLDivElement | null>(null);
   const [prefs, setPrefs] = useState(readPrefs);
   const [days, setDays] = useState<TokenUsageDays | null>(null);
   const { thisMac, computers } = useComputers();
@@ -594,45 +595,48 @@ export function TokenUsagePage({
           </div>
         </div>
 
-        <div
-          role="tablist"
-          aria-label="Usage view"
-          className="flex gap-6 border-b border-line"
-          onKeyDown={(event) => {
-            const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-            const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
-            const next =
-              event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? tabs.length - 1
-                  : event.key === "ArrowRight"
-                    ? (index + 1) % tabs.length
-                    : event.key === "ArrowLeft"
-                      ? (index - 1 + tabs.length) % tabs.length
-                      : -1;
-            const nextTab = tabs[next];
-            if (!nextTab) return;
-            event.preventDefault();
-            nextTab.focus();
-            nextTab.click();
-          }}
-        >
-          {(["plan", "analytics"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              id={`${tabId}-${value}`}
-              aria-controls={`${tabId}-${value}-panel`}
-              aria-selected={tab === value}
-              tabIndex={tab === value ? 0 : -1}
-              onClick={() => setTab(value)}
-              className={`h-8 border-b-2 text-13 font-medium transition-colors ${tab === value ? "border-ink text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
-            >
-              {value === "plan" ? "Plan usage" : "Analytics"}
-            </button>
-          ))}
+        <div data-usage-toolbar className="flex items-center gap-4">
+          <div
+            role="tablist"
+            aria-label="Usage view"
+            className="flex min-w-0 flex-1 gap-6 border-b border-line"
+            onKeyDown={(event) => {
+              const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+              const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+              const next =
+                event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? tabs.length - 1
+                    : event.key === "ArrowRight"
+                      ? (index + 1) % tabs.length
+                      : event.key === "ArrowLeft"
+                        ? (index - 1 + tabs.length) % tabs.length
+                        : -1;
+              const nextTab = tabs[next];
+              if (!nextTab) return;
+              event.preventDefault();
+              nextTab.focus();
+              nextTab.click();
+            }}
+          >
+            {(["plan", "analytics"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                id={`${tabId}-${value}`}
+                aria-controls={`${tabId}-${value}-panel`}
+                aria-selected={tab === value}
+                tabIndex={tab === value ? 0 : -1}
+                onClick={() => setTab(value)}
+                className={`h-8 border-b-2 text-13 font-medium transition-colors ${tab === value ? "border-ink text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
+              >
+                {value === "plan" ? "Plan usage" : "Analytics"}
+              </button>
+            ))}
+          </div>
+          {tab === "plan" ? <div ref={setPlanControlsTarget} className="shrink-0" /> : null}
         </div>
         <div role="tabpanel" id={`${tabId}-plan-panel`} aria-labelledby={`${tabId}-plan`} hidden={tab !== "plan"}>
           {tab === "plan" ? (
@@ -641,6 +645,7 @@ export function TokenUsagePage({
               computerId={picked}
               computerName={picked === LOCAL_COMPUTER ? thisMac || "this Mac" : computerName}
               onManageAccounts={onManageAccounts}
+              toolbarTarget={planControlsTarget}
             />
           ) : null}
         </div>
