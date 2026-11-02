@@ -605,6 +605,8 @@ export type FlowReceipt =
 /** What an approval shows before a pull request opens. */
 export interface FlowPullRequestPreview {
   repository?: string;
+  /** Commit shown for approval, checked again before publishing the branch. */
+  head?: string;
   branch: string;
   base: string;
   title: string;
@@ -642,10 +644,14 @@ export interface FlowStepRun {
   note?: string;
   /** Whether the follow-up asking for a valid output was sent this turn. */
   askedForOutput?: boolean;
+  /** Its successful turn ended; work that reports back may still hold the step. */
+  turnEnded?: boolean;
   approval?: FlowApproval;
   receipt?: FlowReceipt;
   /** Set right before an action runs and kept until its receipt: one found after a restart is checked, never repeated. */
   intentAt?: number;
+  /** The repository, branch and commit the action started against, also for actions without approval. */
+  intentPreview?: FlowPullRequestPreview;
   /** A wait's deadline, or when a time wait ends. */
   waitUntil?: number;
   /** When a Linear state or review wait last looked. */
@@ -661,7 +667,7 @@ export interface FlowRun {
   steps: FlowStep[];
   state: Record<string, FlowStepRun>;
   status: "running" | "waiting" | "paused" | "done" | "failed" | "ended";
-  /** A Test run: actions are skipped and approvals pass by themselves. */
+  /** A simulation: agents use sample or saved fields; actions and waits are skipped and approvals pass. */
   dryRun?: boolean;
   /** Set while paused and asked to pause. */
   pauseRequested?: boolean;

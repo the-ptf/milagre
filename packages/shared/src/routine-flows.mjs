@@ -278,6 +278,7 @@ function cleanText(value, max, where, label, required = false) {
 function cleanStep(value, depth) {
   if (!isObject(value)) throw new Error("A step must be an object");
   const id = text(value.id);
+  if (id === "trigger") throw new Error('"trigger" is reserved for the flow input');
   if (!STEP_ID.test(id)) throw new Error(`"${id}" isn't a step id (lowercase letters, digits and -)`);
   const name = text(value.name).trim();
   if (!name) throw new Error(`Step ${id}: add a name`);
@@ -440,6 +441,7 @@ export function readRef(values, ref) {
   let current = values;
   for (const part of String(ref).split(".")) {
     if (!isObject(current)) return undefined;
+    if (!Object.hasOwn(current, part)) return undefined;
     current = current[part];
   }
   return current;

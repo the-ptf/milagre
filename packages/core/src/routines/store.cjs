@@ -1169,10 +1169,10 @@ function createRoutineStore({
    * Returns the Run as saved, or null when it is gone or ended. The first call (on a Run without `flow`) gets `flow` null and
    * sets `run.flow`.
    */
-  function updateFlowRun(runId, change) {
+  function updateFlowRun(runId, change, { allowEnded = false } = {}) {
     return transact((state, tx) => {
       const found = findRun(state, runId);
-      if (!found || found.run.status !== "running") return null;
+      if (!found || (!allowEnded && found.run.status !== "running")) return null;
       if (change(found.run.flow ?? null, found.run, found.routine) === false) return copy(found.run);
       tx.changed = true;
       return copy(found.run);

@@ -11,3 +11,5 @@ A Routine can be a **Flow**: steps instead of one prompt. The daemon's Routines 
 Considered and rejected: a separate SQLite database for flow Runs. The store's single atomic file already gives the transactions a step needs, and keeping Runs in one place keeps the Runs list, trimming and paired-computer routing as they are. Revisit if flow Runs make `routines.json` large.
 
 Not covered yet: reserving an issue across Routines, so two Routines can't work the same issue. That needs a contract with the Routines that do it today.
+
+Test runs are simulations: they never start agent Chats or execute tools. They reuse validated fields from a completed step of the last real Run, or clearly marked sample fields; actions and waits are skipped. Saved output from a failed or interrupted turn never counts as completion. External values interpolated into agent prompts retain the existing untrusted-data fencing.

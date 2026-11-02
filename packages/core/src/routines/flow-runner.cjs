@@ -1,3 +1,4 @@
+const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const {
   checkOutput,
@@ -94,8 +95,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
   /** Ends a flow Run: `status` "done" (acted), "failed" or "ended", with what the Runs list says. */
   function end(runId, status, error) {
     for (const [chatId, turn] of turns) if (turn.runId === runId) turns.delete(chatId);
-    const saved = update(runId, (flow) => {
-      if (!flow) return false;
+    const saved = update(runId, (flow, draft) => {
+      if (!flow || draft.status !== "running") return false;
       flow.status = status;
       if (status !== "done") markRest(flow);
     });
@@ -111,8 +112,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
   }
 
   function setStep(runId, stepId, patch, flowPatch) {
-    return update(runId, (flow) => {
-      if (!flow) return false;
+    return update(runId, (flow, draft) => {
+      if (!flow || draft.status !== "running") return false;
       flow.state[stepId] = { ...flow.state[stepId], ...patch };
       if (flowPatch) Object.assign(flow, flowPatch);
     });
@@ -142,17 +143,20 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     try {
       do {
         again.delete(runId);
-        await step(runId);
+        await advanceStep(runId);
       } while (again.has(runId));
     } catch (error) {
       console.warn("[routines] flow step failed", error);
+      const run = store.getRun(runId)?.run;
+      const next = run?.flow && nextStep(run.flow);
+      if (next) setStep(runId, next.id, { status: "failed", error: errorText(error), endedAt: now() });
       end(runId, "failed", errorText(error));
     } finally {
       advancing.delete(runId);
     }
   }
 
-  async function step(runId) {
+  async function advanceStep(runId) {
     for (let guard = 0; guard < 200; guard += 1) {
       const found = store.getRun(runId);
       if (!found || found.run.status !== "running" || !found.run.flow) return;
@@ -187,6 +191,10 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
           continue;
         }
         case "agent":
+          if (flow.dryRun) {
+            setStep(runId, next.id, { status: "skipped", startedAt: at, endedAt: at, summary: state.summary ?? "Simulated without running an agent" });
+            continue;
+          }
           await startAgent(routine, run, next, state);
           return;
         case "ask":
@@ -197,6 +205,10 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
           ask(routine, run, next, fillTemplate(next.message, values(run)));
           return;
         case "wait":
+          if (flow.dryRun) {
+            setStep(runId, next.id, { status: "skipped", startedAt: at, endedAt: at, summary: "Wait skipped in simulation" });
+            continue;
+          }
           wait(run, next);
           return;
         case "pull-request":
@@ -238,9 +250,12 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     if (followUp) {
       return `You ended without handing back the step's fields. ${outputInstructions(step.output)}`;
     }
-    const body = fillTemplate(step.prompt, values(run));
+    const vals = values(run);
+    const body = fillTemplate(step.prompt, vals);
+    const fields = Object.fromEntries([...step.prompt.matchAll(/\{\{\s*([^{}\s]+)\s*\}\}/g)].map(([, ref]) => [ref, fillTemplate(`{{${ref}}}`, vals)]));
+    const safe = renderRoutinePrompt(step.prompt, fields, Object.fromEntries(Object.keys(fields).map((ref) => [ref, `flow field ${ref}`])));
     const note = state.note ? `\n\nNote from the owner for this try: ${state.note}` : "";
-    return { body: body + note, prompt: `${body}${note}\n\n${outputInstructions(step.output)}` };
+    return { body: body + note, prompt: `${safe}${note}\n\n${outputInstructions(step.output)}` };
   }
 
   // The Chat an agent step runs in: the Run's (made by the first step that needs it, with the Run's Worktree), or one of its
@@ -265,7 +280,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       chatId = made.chatId;
       firstContext = made.context;
     }
-    const fresh = store.getRun(run.id)?.run ?? run;
+    const fresh = store.getRun(run.id)?.run;
+    if (!fresh || fresh.status !== "running") return;
     const words = promptFor(fresh, step, state, followUp);
     const body = followUp ? words : words.body;
     const prompt = followUp ? words : words.prompt;
@@ -273,7 +289,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       status: "running",
       startedAt: state.startedAt && followUp ? state.startedAt : at,
       chatId,
-      ...(followUp ? { askedForOutput: true } : { askedForOutput: false }),
+      turnEnded: false,
+      ...(followUp ? { askedForOutput: true } : { askedForOutput: false, output: undefined, summary: undefined }),
     });
     onChange();
     const turn = { runId: run.id, stepId: step.id, sent: false, turnStarted: false };
@@ -314,18 +331,18 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
   }
 
   /** A turn of an agent step ended without what the step needs: retried while it has tries left, else the Run stops. */
-  async function turnFailed(runId, step, chatId, error) {
+  async function turnFailed(runId, step, chatId, error, retryable = true) {
     const found = store.getRun(runId);
     if (!found || found.run.status !== "running") return;
     const state = found.run.flow?.state[step.id] ?? {};
     const tries = [...(state.tries ?? []), { startedAt: state.startedAt ?? now(), endedAt: now(), error, chatId }];
-    if (tries.length <= (step.retries ?? 0)) {
+    if (retryable && tries.length <= (step.retries ?? 0)) {
       setStep(runId, step.id, { status: "pending", tries, error });
       onChange();
       await advance(runId);
       return;
     }
-    setStep(runId, step.id, { status: "failed", tries, error, endedAt: now() });
+    setStep(runId, step.id, { status: "failed", tries: state.tries ?? [], error, endedAt: now() });
     end(runId, "failed", `${step.name}: ${error}`);
   }
 
@@ -358,6 +375,9 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     const step = flattenSteps(run.flow.steps).find((entry) => entry.step.id === stepId)?.step;
     const state = run.flow.state[stepId];
     if (!step || state?.status !== "running") return;
+    setStep(runId, stepId, { turnEnded: true });
+    // A completed turn may still own subagents, queued messages or work that reports back.
+    if (chats.busy?.(chatId)) return;
     if (state.output || step.output.length === 0) {
       setStep(runId, stepId, { status: "done", endedAt: now(), output: state.output ?? {}, error: undefined });
       onChange();
@@ -374,7 +394,18 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
   /** The scheduler passes every Chat event here first; true when it was a flow step's turn. */
   function observe(chatId, event) {
     const turn = turns.get(chatId);
-    if (!turn) return false;
+    if (!turn) {
+      if (!isTurnEnd(event)) return false;
+      for (const { run } of store.runningFlows()) {
+        const agent = runningAgent(run);
+        const state = agent && run.flow.state[agent.step.id];
+        if (!state?.turnEnded || state.chatId !== chatId) continue;
+        if (event.type === "turn-completed") track(turnCompleted(run.id, agent.step.id, chatId));
+        else track(turnFailed(run.id, agent.step, chatId, event.type === "turn-failed" ? (event.message ?? "background turn failed") : "cancelled", false));
+        return true;
+      }
+      return false;
+    }
     if (event.type === "message-sent") {
       turn.sent = true;
       return true;
@@ -386,13 +417,15 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       return true;
     }
     if (!isTurnEnd(event)) return true;
+    if (turn.turnId && event.turnId && turn.turnId !== event.turnId) return true;
     if (!turn.turnStarted && !(turn.sent && event.type !== "turn-completed")) return true;
     turns.delete(chatId);
     const found = store.getRun(turn.runId);
     const step = found && flattenSteps(found.run.flow?.steps ?? []).find((entry) => entry.step.id === turn.stepId)?.step;
     if (!step) return true;
     if (event.type === "turn-completed") track(turnCompleted(turn.runId, turn.stepId, chatId));
-    else track(turnFailed(turn.runId, step, chatId, event.type === "turn-failed" ? (event.message ?? "turn failed") : "cancelled"));
+    else
+      track(turnFailed(turn.runId, step, chatId, event.type === "turn-failed" ? (event.message ?? "turn failed") : "cancelled", event.type === "turn-failed"));
     return true;
   }
 
@@ -420,7 +453,7 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       if (run.chatId && actions.pullRequestPreview)
         preview = { ...preview, ...(await actions.pullRequestPreview({ chatId: run.chatId, base: step.base, title, body, draft: step.draft })) };
     } catch (error) {
-      console.warn("[routines] pull request preview failed", error);
+      throw new Error(`Could not prepare the pull request approval: ${errorText(error)}`, { cause: error });
     }
     setStep(
       run.id,
@@ -443,6 +476,22 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
 
   const actionBusy = new Set();
 
+  // A remote mutation already in flight may complete after End. Keep its receipt without reviving the Run.
+  function actionFinished(runId, stepId, patch) {
+    return store.updateFlowRun(
+      runId,
+      (flow, draft) => {
+        if (!flow) return false;
+        flow.state[stepId] = {
+          ...flow.state[stepId],
+          ...patch,
+          ...(draft.status === "running" ? {} : { status: "not-run", summary: "Action completed after the Run ended; receipt kept" }),
+        };
+      },
+      { allowEnded: true },
+    );
+  }
+
   /**
    * Runs a pull request or Linear comment step once. The intent is saved first; a receipt after. A Run that finds an intent
    * without a receipt (it stopped in between) looks for the pull request on its branch instead of opening another; a comment
@@ -461,34 +510,45 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
         if (!run.chatId) throw new Error("No Worktree to open a pull request from: an agent step must come first");
         const title = state.approval?.preview?.title ?? (fillTemplate(step.title, vals).trim() || stepTitle(step));
         const body = state.approval?.preview?.body ?? fillTemplate(step.body, vals);
-        const found = await actions.findPullRequest({ chatId: run.chatId });
+        const expected = state.intentPreview ?? state.approval?.preview ?? (await actions.pullRequestPreview?.({ chatId: run.chatId, base: step.base }));
+        if (expected) setStep(run.id, step.id, { intentPreview: expected });
+        const found = await actions.findPullRequest({ chatId: run.chatId, expected });
+        if (store.getRun(run.id)?.run.status !== "running") return;
         let receipt;
         if (found)
           receipt = { kind: "pull-request", url: found.url, number: found.number, branch: found.branch, draft: Boolean(found.draft), matched: true, at: now() };
         else {
-          const opened = await actions.openPullRequest({ chatId: run.chatId, base: step.base, title, body, draft: step.draft });
+          const opened = await actions.openPullRequest({
+            chatId: run.chatId,
+            base: step.base,
+            title,
+            body,
+            draft: step.draft,
+            expected,
+          });
           if (!opened?.ok) throw new Error(opened?.message ?? "gh couldn't open the pull request");
           receipt = { kind: "pull-request", url: opened.url, number: opened.number, branch: opened.branch ?? "", draft: step.draft, matched: false, at: now() };
         }
         const summary = receipt.matched
           ? `Found #${receipt.number} on this branch, receipt kept`
           : `Opened ${receipt.draft ? "draft " : ""}#${receipt.number}, receipt kept`;
-        setStep(run.id, step.id, { status: "done", endedAt: now(), receipt, summary, error: undefined });
+        actionFinished(run.id, step.id, { status: "done", endedAt: now(), receipt, summary, error: undefined });
       } else {
         const issue = issueOf(run);
         if (!issue) throw new Error("This Run has no Linear issue to comment on");
         if (resumed) throw new Error(`The comment may have posted before Milagre stopped; check ${issue.key}, then retry or end`);
         const posted = await actions.commentOnLinear({ issue: { key: issue.key, workspace: issue.workspace }, body: fillTemplate(step.body, vals) });
         const receipt = { kind: "linear-comment", issue: issue.key, ...(posted?.url ? { url: posted.url } : {}), at: now() };
-        setStep(run.id, step.id, { status: "done", endedAt: now(), receipt, summary: `Commented on ${issue.key}`, error: undefined });
+        actionFinished(run.id, step.id, { status: "done", endedAt: now(), receipt, summary: `Commented on ${issue.key}`, error: undefined });
       }
       onChange();
     } catch (error) {
+      if (store.getRun(run.id)?.run.status !== "running") return;
       setStep(run.id, step.id, {
         status: "failed",
         endedAt: now(),
         error: errorText(error),
-        tries: [...(state.tries ?? []), { startedAt: state.startedAt ?? now(), endedAt: now(), error: errorText(error) }],
+        tries: state.tries ?? [],
       });
       end(run.id, "failed", `${step.name}: ${errorText(error)}`);
     } finally {
@@ -518,6 +578,10 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       found = store.getRun(runId);
       if (found?.run.status !== "running") throw new Error("Only a stopped Run can be retried");
       const failed = flattenSteps(found.run.flow.steps).find((entry) => found.run.flow.state[entry.step.id]?.status === "failed")?.step;
+      if (failed?.kind === "linear-comment" && found.run.flow.state[failed.id]?.intentAt && !found.run.flow.state[failed.id]?.receipt) {
+        end(runId, "failed", "The comment may already exist. Check Linear; it will not be posted again by Retry.");
+        throw new Error("The comment may already exist. Check Linear before starting another Run.");
+      }
       if (!failed) throw new Error("Nothing failed to retry");
       update(runId, (flow) => {
         if (!flow) return false;
@@ -530,6 +594,7 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
           tries: [],
           ...(note ? { note: String(note).slice(0, 2000) } : {}),
           ...(old?.receipt ? { receipt: old.receipt } : {}),
+          ...(old?.intentPreview ? { intentPreview: old.intentPreview } : {}),
         };
         if (old?.approval?.decision === "approved") flow.state[failed.id].approval = old.approval;
       });
@@ -544,6 +609,16 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       const approval = step && run.flow.state[step.id].approval;
       if (!approval || approval.decision) throw new Error("Nothing waits for an answer");
       const at = now();
+      if (at >= approval.expiresAt) {
+        setStep(runId, step.id, {
+          status: "done",
+          endedAt: at,
+          approval: { ...approval, decision: "expired", decidedAt: at },
+          summary: "Nobody answered in time",
+        });
+        end(runId, "ended", "approval expired");
+        throw new Error("This approval expired");
+      }
       if (action === "reject") {
         const cleanReason = typeof reason === "string" ? reason.trim().slice(0, 2000) : "";
         setStep(runId, step.id, {
@@ -552,14 +627,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
           approval: { ...approval, decision: "rejected", decidedAt: at, ...(cleanReason ? { reason: cleanReason } : {}) },
           summary: "Rejected by you",
         });
-        const issue = issueOf(run);
-        if (cleanReason && issue && actions.commentOnLinear) {
-          track(
-            Promise.resolve(actions.commentOnLinear({ issue: { key: issue.key, workspace: issue.workspace }, body: `Not going ahead: ${cleanReason}` })).catch(
-              (error) => console.warn("[routines] couldn't post the reason", error),
-            ),
-          );
-        }
         end(runId, "ended", "approval rejected");
         return store.getRun(runId)?.run ?? null;
       }
@@ -591,6 +658,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       return store.getRun(runId)?.run ?? null;
     }
     if (action === "end") {
+      // End before awaiting Stop: its late turn event must not retry or advance the Run.
+      end(runId, "ended", "ended by you");
       const agent = runningAgent(run);
       if (agent?.step && run.flow.state[agent.step.id].chatId) {
         try {
@@ -599,7 +668,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
           console.warn("[routines] couldn't stop the step's turn", error);
         }
       }
-      end(runId, "ended", "ended by you");
       return store.getRun(runId)?.run ?? null;
     }
     throw new Error(`Unknown action ${action}`);
@@ -610,12 +678,58 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     const routine = store.get(routineId);
     if (!routine?.flow) throw new Error("This Routine isn't a flow");
     const last = store.runs(routineId).find((run) => run.event && !run.flow?.dryRun && !run.rejected);
-    if (routine.trigger.kind === "linear" && !last?.event) throw new Error("A test run uses the last Linear issue this flow ran on, and it hasn't run yet");
-    const started = store.startTestRun(routineId, now(), last?.event);
+    const event =
+      last?.event ??
+      (routine.trigger.kind === "linear"
+        ? {
+            kind: "linear",
+            key: `simulation:${routineId}:${now()}`,
+            change: routine.trigger.event,
+            issue: {
+              id: "sample",
+              key: "SAMPLE-1",
+              title: "Sample issue for simulation",
+              description: "Sample data; no issue was fetched or changed.",
+              url: "https://example.invalid/issue/1",
+              labels: [routine.trigger.label ?? "sample"],
+              state: routine.trigger.state ?? "Todo",
+              team: routine.trigger.team ?? "SAMPLE",
+              workspace: routine.trigger.workspace,
+            },
+          }
+        : undefined);
+    const started = store.startTestRun(routineId, now(), event);
     if (!started) throw new Error("This Routine can't run");
+    update(started.run.id, (flow) => {
+      for (const { step } of flattenSteps(flow.steps)) {
+        if (step.kind === "agent") {
+          const saved = last?.flow?.state[step.id];
+          const checked = saved?.status === "done" && saved.output ? checkOutput(step.output, saved.output) : { ok: false };
+          const output = checked.ok
+            ? checked.output
+            : Object.fromEntries(
+                step.output.map((field) => [
+                  field.name,
+                  field.type === "choice"
+                    ? field.choices[0]
+                    : field.type === "number"
+                      ? 1
+                      : field.type === "yes-no"
+                        ? false
+                        : field.type === "link"
+                          ? "https://example.invalid/sample"
+                          : `Sample ${field.name}`,
+                ]),
+              );
+          flow.state[step.id] = { status: "pending", output, summary: `${checked.ok ? "Saved" : "Sample"} fields; agent did not run` };
+        } else if (step.kind === "pull-request") {
+          flow.state[step.id] = { status: "pending", output: { url: "https://example.invalid/pull/1", number: 1 } };
+        }
+      }
+    });
     onChange();
     track(advance(started.run.id));
-    return started.run;
+    return store.getRun(started.run.id).run;
   }
 
   // ---- the clock and restarts -------------------------------------------------------------------------------------------
@@ -626,6 +740,12 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     for (const { run } of store.runningFlows()) {
       const flow = run.flow;
       if (flow.status === "paused") continue;
+      const agent = runningAgent(run);
+      if (agent) {
+        const state = flow.state[agent.step.id];
+        if (state.turnEnded && !chats.busy?.(state.chatId)) track(turnCompleted(run.id, agent.step.id, state.chatId));
+        continue;
+      }
       const step = waitingStep(run);
       if (!step) {
         // A Run that went on running with nothing under way (resumed, approved while busy) is moved on.
@@ -708,11 +828,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
           turns.set(state.chatId, { runId: run.id, stepId: agent.step.id, sent: true, turnStarted: true });
           continue;
         }
-        if (state.output) {
-          track(turnCompleted(run.id, agent.step.id, state.chatId));
-          continue;
-        }
-        track(turnFailed(run.id, agent.step, state.chatId, "Milagre restarted during the turn"));
+        if (state.turnEnded) track(turnCompleted(run.id, agent.step.id, state.chatId));
+        else track(turnFailed(run.id, agent.step, state.chatId, "Milagre restarted during the turn"));
         continue;
       }
       track(advance(run.id));

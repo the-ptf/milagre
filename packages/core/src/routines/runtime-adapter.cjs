@@ -1094,7 +1094,9 @@ function createFlowActions({ cwd, headBranch, git, gitActions, readPullRequest, 
     if (!found) throw new Error("The Run's Worktree is no longer in the Project");
     return found;
   };
-  async function findPullRequest({ chatId }) {
+  async function findPullRequest({ chatId, expected }) {
+    if (expected && (await headBranch(chatId)) !== expected.branch)
+      throw new Error("The branch changed since this action started. Restore it before retrying.");
     const lookup = await readPullRequest(folder(chatId));
     // Not knowing is not "no pull request": opening one now might open a second.
     if (!lookup.known) throw new Error("Couldn't ask GitHub whether this branch has a pull request (is gh signed in?)");
@@ -1112,11 +1114,20 @@ function createFlowActions({ cwd, headBranch, git, gitActions, readPullRequest, 
     const baseName = base || (await read(["rev-parse", "--abbrev-ref", "origin/HEAD"])).replace(/^origin\//, "") || "main";
     const stat = (await read(["diff", "--shortstat", `origin/${baseName}...HEAD`])) || (await read(["diff", "--shortstat", `${baseName}...HEAD`]));
     const remote = await read(["remote", "get-url", "origin"]);
+    const head = await read(["rev-parse", "HEAD"]);
+    if (!branch || !remote || !head) throw new Error("Could not read the branch, repository and commit for approval");
     const repository = /[:/]([^/:]+\/[^/]+?)(?:\.git)?$/.exec(remote)?.[1];
-    return { branch, base: baseName, ...(repository ? { repository } : {}), ...(stat ? { changes: shortStat(stat) } : {}) };
+    return { branch, base: baseName, head, ...(repository ? { repository } : {}), ...(stat ? { changes: shortStat(stat) } : {}) };
   }
-  async function openPullRequest({ chatId, base, title, body, draft }) {
+  async function openPullRequest({ chatId, base, title, body, draft, expected }) {
     const dir = folder(chatId);
+    if (expected) {
+      const current = await pullRequestPreview({ chatId, base });
+      if (["branch", "base", "repository", "head"].some((field) => current[field] !== expected[field])) {
+        throw new Error("The branch or commit changed after approval. Review a fresh preview before opening the pull request.");
+      }
+      base = expected.base;
+    }
     const pushed = await gitActions.push({ cwd: dir });
     if (!pushed.ok) return { ok: false, message: pushed.message ?? "The push failed" };
     const opened = await gitActions.openPr({ cwd: dir, base, title, body, draft });

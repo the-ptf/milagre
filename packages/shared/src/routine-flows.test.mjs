@@ -209,3 +209,8 @@ test("runRows marks the path not taken and flowRunText reads the Run", () => {
   assert.equal(flowRunText({ flow }), "Waiting for you at Open pull request");
   assert.equal(flowRunText({ flow: { ...flow, status: "failed", state: { ...flow.state, pr: { status: "failed" } } } }), "Stopped at Open pull request");
 });
+
+test("a step cannot overwrite the trigger namespace or read inherited object properties", () => {
+  assert.throws(() => checkFlowSteps([{ ...pilot()[0], id: "trigger" }], "linear"), /reserved/);
+  assert.equal(fillTemplate("{{trigger.constructor}}", { trigger: {} }), "");
+});

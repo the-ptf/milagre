@@ -387,6 +387,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "settings-find" && !(id in modules)) return { Findable: ({ children }) => children, SettingsScroll: "PageScroll" };
       if (id === "@milagre/shared/settings-search" && !(id in modules)) return require("../packages/shared/src/settings-search.ts");
       if (base === "settings-index" && !(id in modules)) return require("../apps/mobile/src/settings-index.ts");
+      if (id === "@milagre/shared/routine-flows" && !(id in modules)) return require("@milagre/shared/routine-flows");
+      // Ordinary Routine tests don't render the flow page; flow tests supply its real component explicitly.
+      if (base === "flow-routine" && !(id in modules)) return { FlowRoutineScreen: "FlowRoutineScreen" };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -16635,7 +16638,7 @@ test("the phone New Routine sheet uses desktop's copy, and Create waits for a na
   assert.ok(texts().includes("Starts"));
   assert.deepEqual(
     allNodes(tree, (node) => node.props?.accessibilityRole === "radio").map((node) => node.props.accessibilityLabel),
-    ["On a schedule", "Linear event", "Webhook"],
+    ["Single prompt. One turn on a prompt", "Flow. Steps, checks and approvals", "On a schedule", "Linear event", "Webhook"],
   );
   assert.equal(find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.placeholder, "Name this Routine");
   assert.equal(
@@ -19637,4 +19640,83 @@ test("an iPad dictation shortcut reaches one focused composer and ignores unavai
   available = true;
   toggleDictationShortcut();
   assert.equal(calls.length, 2, "a route that lost focus no longer receives shortcuts");
+});
+
+test("flow drafts serialize edits before Publish and keep failed saves available for retry", async () => {
+  const react = { useCallback: (fn) => fn, useSyncExternalStore() {} };
+  const { useFlowDraft } = load("flow-draft.ts", { react });
+  const client = {};
+  const routine = { id: "flow-draft-test", flow: { revision: 1, steps: [], publishedAt: 1 } };
+  const gate = deferred();
+  const saved = [];
+  const save = async (_id, patch) => {
+    saved.push(patch);
+    if (saved.length === 1) await gate.promise;
+  };
+  const draft = useFlowDraft(client, routine, save);
+  draft.edit([{ id: "first", name: "First", kind: "ask", message: "First?", expiresInHours: 1 }]);
+  const flushing = draft.flush();
+  draft.edit([{ id: "latest", name: "Latest", kind: "ask", message: "Latest?", expiresInHours: 1 }]);
+  gate.resolve();
+  await flushing;
+  assert.deepEqual(
+    saved.map((patch) => patch.flowDraft[0].id),
+    ["first", "latest"],
+  );
+  assert.equal(useFlowDraft(client, routine, save).pending, false);
+
+  const errorClient = {};
+  const refused = useFlowDraft(errorClient, routine, async () => {
+    throw new Error("Computer disconnected");
+  });
+  refused.edit([{ id: "kept", kind: "ask" }]);
+  await assert.rejects(refused.flush(), /Computer disconnected/);
+  const kept = useFlowDraft(errorClient, routine, save);
+  assert.equal(kept.steps[0].id, "kept");
+  assert.equal(kept.pending, true);
+  assert.match(kept.error, /disconnected/);
+  await kept.discard();
+});
+
+test("the phone flow editor offers all six types and keeps each If path editable", () => {
+  const routes = [];
+  const changed = [];
+  const modules = {
+    react: { Fragment: "Fragment" },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
+    "expo-router": { router: { push: (href) => routes.push(href) } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => name }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "./flow-ui": { StepTile: "StepTile" },
+    "./icons": { Icon: "Icon" },
+    "./ui": { useStyles: () => fakeStyles, tap() {}, PullDown: "PullDown" },
+  };
+  modules["./flow-looks"] = load("flow-looks.ts", modules);
+  const { FlowSteps } = load("flow-editor.tsx", modules);
+  const routine = {
+    id: "flow",
+    name: "Flow",
+    flow: { revision: 0, steps: [] },
+    trigger: { kind: "linear", workspace: "w", event: "label-added", label: "agent" },
+  };
+  const draft = { steps: [], published: [], hasDraft: true, edit: (steps) => changed.push(steps) };
+  const empty = FlowSteps({ routine, routines: [], draft, modelName: () => "Default", onTrigger() {} });
+  const tiles = allNodes(
+    empty,
+    (node) =>
+      node.type === "Pressable" &&
+      /^Ask an agent\.|^If\.|^Ask me\.|^Wait for\.|^Open pull request\.|^Comment on Linear\./.test(node.props.accessibilityLabel ?? ""),
+  );
+  assert.equal(tiles.length, 6);
+  tiles[0].props.onPress();
+  assert.equal(changed[0][0].kind, "agent");
+  assert.equal(routes[0].pathname, "/flow-step");
+  const steps = [{ id: "condition", name: "If", kind: "if", field: "trigger.issue.key", test: "is-set", yes: [], otherwise: [] }];
+  const tree = FlowSteps({ routine, routines: [], draft: { ...draft, steps }, modelName: () => "Default", onTrigger() {} });
+  const branches = allNodes(tree, (node) => node.type === "Pressable" && /Add a step on/.test(node.props.accessibilityLabel ?? ""));
+  assert.equal(branches.length, 2);
+  branches[1].props.onPress();
+  assert.equal(routes.at(-1).pathname, "/flow-add-step");
+  assert.equal(routes.at(-1).params.branch, "otherwise");
 });

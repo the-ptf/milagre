@@ -152,7 +152,7 @@ function setup({ steps = pilot(), trigger = { kind: "linear", workspace: "milagr
     await settle();
   };
   const run = () => store.runs(routine.id)[0];
-  return { store, scheduler, routine, clock, calls, state, settle, tick, turn, run, dir };
+  return { store, scheduler, routine, clock, calls, state, flowActions, settle, tick, turn, run, dir };
 }
 
 test("the pilot runs end to end on the large path: approvals, a receipt, the review in its own Chat", async () => {
@@ -161,7 +161,8 @@ test("the pilot runs end to end on the large path: approvals, a receipt, the rev
   await ctx.tick();
   assert.equal(ctx.calls.send.length, 1);
   assert.equal(ctx.calls.send[0].chatId, "chat1");
-  assert.match(ctx.calls.send[0].prompt, /Read Retry webhook deliveries/);
+  assert.match(ctx.calls.send[0].body, /Read Retry webhook deliveries/);
+  assert.match(ctx.calls.send[0].prompt, /untrusted-data/);
   assert.match(ctx.calls.send[0].prompt, /flow_step_output/);
   assert.equal(ctx.run().flow.state.classify.status, "running");
 
@@ -183,7 +184,7 @@ test("the pilot runs end to end on the large path: approvals, a receipt, the rev
   await ctx.settle();
   assert.equal(ctx.calls.send.length, 2);
   assert.equal(ctx.calls.send[1].chatId, "chat1");
-  assert.match(ctx.calls.send[1].prompt, /Fix MIL-481 in relay/);
+  assert.match(ctx.calls.send[1].body, /Fix MIL-481 in relay/);
   await ctx.turn("chat1");
 
   run = ctx.run();
@@ -206,7 +207,7 @@ test("the pilot runs end to end on the large path: approvals, a receipt, the rev
   assert.deepEqual(ctx.calls.step, [{ worktreeId: "w1", title: "Issue to PR · Review" }]);
   const review = ctx.calls.send.at(-1);
   assert.equal(review.chatId, "chat2");
-  assert.match(review.prompt, /Review https:\/\/github.com\/the-ptf\/milagre-ade\/pull\/861/);
+  assert.match(review.body, /Review https:\/\/github.com\/the-ptf\/milagre-ade\/pull\/861/);
   assert.equal(ctx.scheduler.flowOutput("chat2", { verdict: "approve" }).ok, true);
   await ctx.turn("chat2");
 
@@ -275,7 +276,7 @@ test("an approval nobody answers ends the Run without counting as a failure", as
   assert.equal(ctx.store.get(ctx.routine.id).failedStreak ?? 0, 0);
 });
 
-test("a rejection ends the Run and posts the reason to the issue", async () => {
+test("a rejection keeps the reason on the Run without posting a hidden comment", async () => {
   const ctx = setup();
   ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
   await ctx.tick();
@@ -285,7 +286,8 @@ test("a rejection ends the Run and posts the reason to the issue", async () => {
   await ctx.settle();
   assert.equal(ctx.run().status, "ended");
   assert.equal(ctx.run().error, "approval rejected");
-  assert.deepEqual(ctx.calls.comment, [{ issue: { key: "MIL-481", workspace: "milagre" }, body: "Not going ahead: Too risky this week" }]);
+  assert.deepEqual(ctx.calls.comment, []);
+  assert.equal(ctx.run().flow.state.ask.approval.reason, "Too risky this week");
 });
 
 test("after a restart, a pull request with an intent and no receipt is found on its branch, never opened twice", async () => {
@@ -330,31 +332,31 @@ test("after a restart, a pull request with an intent and no receipt is found on 
   again.stop();
 });
 
-test("a Test run skips actions, passes approvals by itself and never counts", async () => {
+test("a Test run simulates agents, actions and waits without creating Chats or counting", async () => {
   const ctx = setup();
   ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
   await ctx.tick();
-  // The real Run ends first.
+  ctx.scheduler.flowOutput("chat1", { complexity: "large", area: "relay" });
+  await ctx.turn("chat1");
   await ctx.scheduler.flowAct(ctx.run().id, "end");
   await ctx.settle();
-  assert.equal(ctx.calls.stop.length, 1);
   const countBefore = ctx.store.get(ctx.routine.id).runCount;
+  const sendsBefore = ctx.calls.send.length;
+  const chatsBefore = ctx.calls.start.length;
   const started = await ctx.scheduler.flowTest(ctx.routine.id);
   await ctx.settle();
-  assert.equal(started.flow.dryRun, true);
-  const chatId = ctx.calls.send.at(-1).chatId;
-  ctx.scheduler.flowOutput(chatId, { complexity: "large", area: "relay" });
-  await ctx.turn(chatId);
-  await ctx.turn(chatId);
-  let run = ctx.store.getRun(started.id).run;
+  const run = ctx.store.getRun(started.id).run;
+  assert.equal(run.flow.dryRun, true);
+  assert.equal(run.flow.state.classify.status, "skipped");
+  assert.equal(run.flow.state.classify.output.complexity, "large");
   assert.equal(run.flow.state.ask.status, "done");
   assert.equal(run.flow.state.pr.status, "skipped");
-  const reviewChat = ctx.calls.send.at(-1).chatId;
-  ctx.scheduler.flowOutput(reviewChat, { verdict: "approve" });
-  await ctx.turn(reviewChat);
-  run = ctx.store.getRun(started.id).run;
+  assert.equal(run.flow.state.review.status, "skipped");
   assert.equal(run.status, "acted");
+  assert.equal(ctx.calls.send.length, sendsBefore);
+  assert.equal(ctx.calls.start.length, chatsBefore);
   assert.equal(ctx.calls.open.length, 0);
+  assert.equal(ctx.calls.comment.length, 0);
   assert.equal(ctx.store.get(ctx.routine.id).runCount, countBefore);
 });
 
@@ -409,4 +411,143 @@ test("a flow saved as a draft only stays off until it is published", () => {
   assert.equal(routine.enabled, false);
   assert.equal(routine.flow.revision, 0);
   assert.throws(() => ctx.store.update(routine.id, { enabled: true }), /Publish the flow/);
+});
+
+test("a failed turn's fields are cleared before its next try", async () => {
+  const ctx = setup();
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  ctx.scheduler.flowOutput("chat1", { complexity: "small", area: "ui" });
+  await ctx.turn("chat1", "turn-failed");
+  assert.equal(ctx.run().flow.state.classify.output, undefined);
+  assert.equal(ctx.run().flow.state.classify.status, "running");
+  await ctx.turn("chat1");
+  assert.equal(ctx.run().flow.state.classify.status, "running");
+  assert.equal(ctx.run().flow.state.implement, undefined);
+});
+
+test("an expired approval is refused before the next tick", async () => {
+  const ctx = setup();
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  ctx.scheduler.flowOutput("chat1", { complexity: "large", area: "ui" });
+  await ctx.turn("chat1");
+  ctx.clock.t += 25 * 3600_000;
+  await assert.rejects(ctx.scheduler.flowAct(ctx.run().id, "approve"), /expired/);
+  assert.equal(ctx.run().status, "ended");
+  assert.equal(ctx.calls.send.length, 1);
+});
+
+test("the test run skips a long wait and uses sample fields without a real Run", async () => {
+  const ctx = setup({
+    steps: [
+      { id: "a", name: "Agent", kind: "agent", prompt: "Work", output: [{ name: "answer", type: "number" }], retries: 0, chat: "run", onInvalid: "stop" },
+      { id: "w", name: "Wait", kind: "wait", until: { kind: "time", minutes: 60 }, timeoutHours: 1 },
+    ],
+    trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+  });
+  const started = await ctx.scheduler.flowTest(ctx.routine.id);
+  await ctx.settle();
+  const run = ctx.store.getRun(started.id).run;
+  assert.equal(run.status, "acted");
+  assert.equal(run.flow.state.a.output.answer, 1);
+  assert.equal(run.flow.state.w.status, "skipped");
+  assert.equal(ctx.calls.start.length, 0);
+  assert.equal(ctx.calls.send.length, 0);
+});
+
+test("a late turn completion after End cannot advance or retry the Run", async () => {
+  const ctx = setup();
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  ctx.scheduler.flowOutput("chat1", { complexity: "small", area: "ui" });
+  await ctx.scheduler.flowAct(ctx.run().id, "end");
+  await ctx.turn("chat1");
+  assert.equal(ctx.run().status, "ended");
+  assert.equal(ctx.calls.send.length, 1);
+  assert.equal(ctx.calls.open.length, 0);
+});
+
+test("restarting after fields were saved does not checkpoint an unfinished turn as done", async () => {
+  const ctx = setup();
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  ctx.scheduler.flowOutput("chat1", { complexity: "small", area: "ui" });
+  const again = createRoutineScheduler({
+    store: ctx.store,
+    chats: { busy: () => false, exists: () => true, archived: () => false, send: async () => ({ started: Promise.resolve({ turnId: "new" }) }) },
+    now: () => ctx.clock.t,
+    setInterval: () => ({}),
+    clearInterval: () => {},
+  });
+  again.start();
+  await again.idle();
+  assert.notEqual(ctx.run().flow.state.classify.status, "done");
+  assert.equal(ctx.run().flow.state.implement, undefined);
+  again.stop();
+});
+
+test("a comment with an unknown outcome cannot be posted again through Retry", async () => {
+  const ctx = setup({ steps: [{ id: "comment", name: "Comment", kind: "linear-comment", body: "Work complete" }] });
+  let posts = 0;
+  ctx.flowActions.commentOnLinear = async () => {
+    posts++;
+    throw new Error("connection lost after posting");
+  };
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  assert.equal(ctx.run().status, "failed");
+  await assert.rejects(ctx.scheduler.flowAct(ctx.run().id, "retry"), /may already exist/);
+  assert.equal(posts, 1);
+  assert.equal(ctx.run().status, "failed");
+});
+
+test("End preserves a remote receipt that arrives late, without starting the next step", async () => {
+  const ctx = setup({
+    steps: [
+      { id: "prepare", name: "Prepare", kind: "agent", prompt: "Prepare", output: [], retries: 0, chat: "run", onInvalid: "stop" },
+      { id: "pr", name: "Open PR", kind: "pull-request", title: "Fix", body: "", draft: true, askFirst: false },
+      { id: "after", name: "After", kind: "agent", prompt: "After", output: [], retries: 0, chat: "run", onInvalid: "stop" },
+    ],
+  });
+  let opened;
+  let signalStarted;
+  const started = new Promise((resolve) => {
+    signalStarted = resolve;
+  });
+  ctx.flowActions.openPullRequest = () =>
+    new Promise((resolve) => {
+      opened = resolve;
+      signalStarted();
+    });
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  ctx.scheduler.observe("chat1", { type: "message-sent" });
+  ctx.scheduler.observe("chat1", { type: "turn-started", turnId: "t1" });
+  ctx.scheduler.observe("chat1", { type: "turn-completed", turnId: "t1" });
+  await started;
+  const runId = ctx.run().id;
+  await ctx.scheduler.flowAct(runId, "end");
+  opened({ ok: true, url: "https://github.com/example/repo/pull/1", number: 1, branch: "work" });
+  await ctx.settle();
+  assert.equal(ctx.run().status, "ended");
+  assert.equal(ctx.run().flow.status, "ended");
+  assert.equal(ctx.run().flow.state.pr.receipt.number, 1);
+  assert.equal(ctx.run().flow.state.after.status, "not-run");
+  assert.equal(ctx.calls.send.length, 1);
+});
+
+test("a successful turn waits for background work before completing its step", async () => {
+  const ctx = setup();
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  ctx.scheduler.flowOutput("chat1", { complexity: "large", area: "ui" });
+  ctx.state.busy.add("chat1");
+  await ctx.turn("chat1");
+  assert.equal(ctx.run().flow.state.classify.status, "running");
+  assert.equal(ctx.run().flow.state.ask, undefined);
+  ctx.state.busy.delete("chat1");
+  await ctx.tick();
+  assert.equal(ctx.run().flow.state.classify.status, "done");
+  assert.equal(ctx.run().flow.state.ask.status, "waiting");
 });

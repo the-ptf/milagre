@@ -37,6 +37,7 @@ import { useActivityClock } from "../chat-row-store";
 import { modelsFor } from "../turn-options";
 import { routineIcon } from "../routine-rows";
 import { RunList } from "../run-list";
+import { FlowRoutineScreen } from "../flow-routine";
 import { Icon, type IconData } from "../icons";
 import { ErrorNotice, HeaderButton, PageScroll, RowCheckbox, Segmented, useStyles } from "../ui";
 import { useTheme } from "../theme";
@@ -108,7 +109,7 @@ function StatusPill({ on }: { on: boolean }) {
 const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export default function RoutineScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const styles = useStyles();
   const { colors } = useTheme();
   const session = useSession();
@@ -191,6 +192,9 @@ export default function RoutineScreen() {
         </PageScroll>
       </>
     );
+
+  // A flow has a page of its own: its steps, its Runs step by step, and its settings (flow-routine.tsx).
+  if (routine.flow) return <FlowRoutineScreen routine={routine} initialTab={tab === "runs" || tab === "settings" ? tab : "steps"} />;
 
   const openChat = (key: string) =>
     router.push({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
