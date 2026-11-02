@@ -107,14 +107,15 @@ function plausible(original, fixed) {
 
 /**
  * The dictated text with misheard names fixed, by one call to a small model of the Chat's agent (the others in picker
- * order if it can't answer). Never throws: the text comes back as it was when no model answers in time or the answer
+ * order if it can't answer), or of the one agent the user picked (`only`). Never throws: the text comes back as it was when no model answers in time or the answer
  * isn't a correction.
  */
-async function polishDictation({ text, terms = [], chatTitle = "", provider = "claude" }, { models = {}, timeoutMs = TIMEOUT_MS } = {}) {
+async function polishDictation({ text, terms = [], chatTitle = "", provider = "claude", only = false }, { models = {}, timeoutMs = TIMEOUT_MS } = {}) {
   const original = typeof text === "string" ? text.trim() : "";
   if (!original || original.length > TEXT_LIMIT) return { text: original, polished: false };
   const { prompt } = polishRequest({ text: original, terms, chatTitle });
-  const order = [PROVIDERS.includes(provider) ? provider : "claude", ...PROVIDERS.filter((name) => name !== provider)];
+  const first = PROVIDERS.includes(provider) ? provider : "claude";
+  const order = only ? [first] : [first, ...PROVIDERS.filter((name) => name !== first)];
   // One budget for every agent tried: the user is waiting on the mic button.
   const deadline = Date.now() + timeoutMs;
   for (const name of order) {

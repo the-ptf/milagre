@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { tap } from "./primitives/tap";
-import { VOCABULARY_WAIT_MS, snapTerms, whisperModelFor } from "@milagre/shared/dictation";
+import { VOCABULARY_WAIT_MS, fixUpModelName, snapTerms, whisperModelFor } from "@milagre/shared/dictation";
 import {
   ERRORS,
   IDLE,
@@ -18,11 +18,14 @@ import { askForMicrophone, newVoiceTake, type VoiceTake } from "./voice-recorder
 import { createMicrophone } from "./voice-take";
 import { getTranscriber } from "./voice-transcription";
 import { cancelWhisperModel, downloadWhisperModel, useWhisperModels } from "./voice-transcription-whisper";
-import { useDictationLanguage, useDictationModel } from "./chat-display-setting";
+import { useDictationFixModel, useDictationFixUp, useDictationLanguage, useDictationModel } from "./chat-display-setting";
 import type { Client } from "./client";
 
 /** Where the transcript goes: the draft and caret as they were when the mic was tapped. */
 export type DictationAnchor = { draft: string; selection: Selection };
+
+/** A finished take's correction, with the model name for the status line. */
+export type DictationCorrection = { model: string; text: Promise<string> };
 
 /** The transcript so far and how much of it has stopped changing. `settled` marks stability, not correctness. */
 export type DictationPartial = { text: string; settled: number };
@@ -38,13 +41,13 @@ const microphone = createMicrophone();
 
 /**
  * Speech is transcribed locally while recording; tap again to finish. `onTranscript` gets the final text, its anchor and
- * its fix-up: the same words with misheard names corrected by the Mac (Claude Haiku), or as they were. It never rejects.
+ * its optional fix-up: misheard names corrected by the Mac using the chosen model. Its promise never rejects.
  * With a `chat`, the project's words go straight to the recognizer.
  * Backgrounding the app, leaving the screen or a recorder failure throws the take away. `available` is false where the phone
  * cannot transcribe on device (a build without a usable native recognizer). A take whose Whisper model isn't on the phone
  * yet downloads it first (`downloading`) and records once it lands; `download` is how far that download is, 0..1, or null.
  */
-export function useVoiceDictation(onTranscript: (text: string, anchor: DictationAnchor, correction: Promise<string>) => void, chat?: DictationChat) {
+export function useVoiceDictation(onTranscript: (text: string, anchor: DictationAnchor, correction: DictationCorrection | null) => void, chat?: DictationChat) {
   const [transcriber] = useState(getTranscriber);
   const [owner] = useState(Symbol);
   const [state, setState] = useState<Dictation>(IDLE);
@@ -52,6 +55,8 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
   const [partial, setPartial] = useState<DictationPartial>(NO_PARTIAL);
   const [language] = useDictationLanguage();
   const [model] = useDictationModel();
+  const [fixUpEnabled] = useDictationFixUp();
+  const [fixModel] = useDictationFixModel();
   const models = useWhisperModels();
   /** The take waiting on a model download, and the model: cancelling the take cancels the download. */
   const fetching = useRef<{ id: number; model: string } | null>(null);
@@ -63,7 +68,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     stream: StreamingDictation;
     anchor: DictationAnchor;
     prepared: Promise<void>;
-    fixUp: (text: string) => Promise<string>;
+    fixUp: ((text: string) => DictationCorrection) | null;
   } | null>(null);
   const counter = useRef(0);
   const meter = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -158,7 +163,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       void current.recorder.discard(uri);
       if (!text) return move({ type: "fail", error: ERRORS["no-speech"] });
       move({ type: "done" });
-      deliver.current(text, current.anchor, current.fixUp(text));
+      deliver.current(text, current.anchor, current.fixUp?.(text) ?? null);
     } catch {
       if (take.current?.id !== current.id) return void current.recorder.discard(uri);
       take.current = null;
@@ -231,22 +236,29 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       });
       const recorder = newVoiceTake((pcm) => stream.append(pcm));
       // The Mac's fix-up of the finished words, with the Chat's names; without a Mac the words stay as heard.
-      const fixUp = (text: string) =>
-        target?.cwd
-          ? target.client
-              .call<{ text: string }>("dictation:polish", [
-                {
-                  cwd: target.cwd,
-                  text,
-                  chatTitle: target.chatTitle,
-                  ...(target.chatId === undefined ? {} : { scope: target.cwd, chatId: target.chatId }),
-                },
-              ])
-              .then(
-                (result) => snapTerms(result?.text || text, vocabulary),
-                () => text,
-              )
-          : Promise.resolve(text);
+      const fixUp =
+        fixUpEnabled && target?.cwd
+          ? (text: string): DictationCorrection => ({
+              model: fixUpModelName(fixModel, target.provider),
+              text: Promise.resolve()
+                .then(() =>
+                  target.client.call<{ text: string }>("dictation:polish", [
+                    {
+                      cwd: target.cwd,
+                      text,
+                      chatTitle: target.chatTitle,
+                      provider: target.provider,
+                      model: fixModel,
+                      ...(target.chatId === undefined ? {} : { scope: target.cwd, chatId: target.chatId }),
+                    },
+                  ]),
+                )
+                .then(
+                  (result) => snapTerms(result?.text || text, vocabulary),
+                  () => text,
+                ),
+            })
+          : null;
       take.current = { id, recorder, stream, anchor, prepared, fixUp };
       const live = () => take.current?.id === id;
       try {
@@ -271,7 +283,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
         if (live()) fail(ERRORS.failed);
       }
     },
-    [cancel, fail, language, level, model, move, owner, release, stop, transcriber],
+    [cancel, fail, fixModel, fixUpEnabled, language, level, model, move, owner, release, stop, transcriber],
   );
 
   useEffect(() => {

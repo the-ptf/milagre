@@ -13,6 +13,7 @@ import { AccountsSettings } from "./AccountsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
 import { SettingCheckbox } from "./primitives/Checkbox";
+import { useShortcutLabel } from "../lib/keybindings";
 import { LocalMcpSettings } from "./LocalMcpSettings";
 import { MilagreMark } from "./MilagreMark";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -79,7 +80,7 @@ import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useWindowChrome } from "../lib/window-chrome";
 import type { ClaudeReplies, OpenLinksIn, UsageDisplay } from "../lib/settings";
-import { DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
+import { DICTATION_FIX_MODELS, DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
@@ -119,7 +120,7 @@ import {
 import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
-import { ChatListChoice, DictationActionChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
+import { ChatListChoice, DictationActionChoice, DictationShortcutModeChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
 import { SpeechModelChoice } from "./settings/SpeechModelChoice";
 import { KeybindingsSettings } from "./settings/KeybindingsSettings";
 import { HostUpdateRow } from "./settings/HostUpdateRow";
@@ -759,8 +760,9 @@ function DoneRetentionSetting() {
   );
 }
 
-function ChatSettings() {
+function ChatSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }) {
   const settings = useSettings();
+  const dictateKey = useShortcutLabel("dictation.toggle");
   const speechModel = whisperModelFor("desktop", settings.dictationModel);
   const englishOnly = speechModel.english;
   return (
@@ -796,8 +798,48 @@ function ChatSettings() {
         </Row>
       </Group>
       <ChoiceGroup title="Dictation">
-        <p className="mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
+        <div className="mb-4 overflow-hidden rounded-card bg-surface shadow-card">
+          <Row label="Shortcut" description="Starts dictation in the composer from anywhere in the Chat. Change the keys in Keybindings.">
+            <span className="flex items-center gap-2">
+              <kbd data-dictation-shortcut className="rounded-control border border-line-strong bg-surface px-2 py-1 font-sans text-13 font-semibold text-ink">
+                {dictateKey ?? "None"}
+              </kbd>
+              {onOpenKeybindings && (
+                <button type="button" onClick={onOpenKeybindings} className="rounded-control bg-field px-2.5 py-1 text-13 font-medium text-ink hover:bg-hover">
+                  Change
+                </button>
+              )}
+            </span>
+          </Row>
+        </div>
+        <p className="mb-2 px-1 text-14 font-semibold text-ink">How the shortcut works</p>
+        <DictationShortcutModeChoice
+          shortcut={dictateKey ?? "None"}
+          value={settings.dictationShortcutMode}
+          onChange={(dictationShortcutMode) => updateSettings({ dictationShortcutMode })}
+        />
+        <p className="mt-4 mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
         <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
+        <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
+          <Row
+            label="Fix names with AI"
+            description="After you stop, a small model corrects misheard file, code and provider names using this Chat. Your words show at once and update a few seconds later, unless you edit them first."
+          >
+            <SettingCheckbox label="Fix names with AI" checked={settings.dictationFixUp} onChange={(dictationFixUp) => updateSettings({ dictationFixUp })} />
+          </Row>
+          <Row label="Fix-up model" description="Runs on the computer the Chat is on, with its signed-in agents.">
+            <Select
+              label="Fix-up model"
+              value={settings.dictationFixModel}
+              disabled={!settings.dictationFixUp}
+              onChange={(dictationFixModel) => updateSettings({ dictationFixModel })}
+              options={DICTATION_FIX_MODELS.map((model) => ({
+                value: model.value,
+                label: model.value === "auto" ? `${model.label} (the Chat's agent)` : model.label,
+              }))}
+            />
+          </Row>
+        </div>
         <p className="mt-4 px-1 text-14 font-semibold text-ink">Speech model</p>
         <p className="mb-2 px-1 text-12 text-ink-3">Transcribes on this computer. Picking a model downloads it once.</p>
         <SpeechModelChoice value={settings.dictationModel} onChange={(dictationModel) => updateSettings({ dictationModel })} />
@@ -2711,7 +2753,7 @@ export function SettingsPanel({
           <ProjectAccountsSettings projectPath={accountScope ?? project?.path} onManageAccounts={() => onSectionChange?.("accounts")} />
         )}
         {section === "appearance" && <AppearanceSettings />}
-        {section === "chat" && <ChatSettings />}
+        {section === "chat" && <ChatSettings onOpenKeybindings={onSectionChange ? () => onSectionChange("keybindings") : undefined} />}
         {section === "keybindings" && <KeybindingsSettings />}
         {section === "browser" && <BrowserSettings />}
         {section === "notifications" && <NotificationsSettings />}

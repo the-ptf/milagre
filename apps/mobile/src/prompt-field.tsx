@@ -1,3 +1,4 @@
+import { useDictationShortcut } from "./dictation-shortcut";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import * as Font from "expo-font";
@@ -210,30 +211,42 @@ export function PromptField({
   // draft is still exactly what the take left.
   const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
   const corrections = useRef(0);
+  const [fixing, setFixing] = useState<string | null>(null);
+  const endCorrection = useCallback(() => {
+    correcting.current = null;
+    setFixing(null);
+    if (!take.current) setProvisional(null);
+  }, []);
+  useEffect(() => {
+    if (correcting.current) endCorrection();
+  }, [projectPath, currentId, endCorrection]);
   useEffect(() => {
     const pending = correcting.current;
     if (!pending || draft === pending.take.produced) return;
     // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
-    correcting.current = null;
-    if (!take.current) setProvisional(null);
-  }, [draft]);
+    endCorrection();
+  }, [draft, endCorrection]);
   const dictation = useVoiceDictation(
     (text, anchor, correction) => {
       // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
       take.current ??= startTake(latestDraft.current, anchor.selection);
       const written = writeLatest.current(text, text.length);
       take.current = null;
-      if (!written) return setProvisional(null);
+      const sendAfter = dictationAction === "send";
+      const sentFrom = { projectPath, currentId };
+      if (!written || !correction) {
+        setProvisional(null);
+        if (written && sendAfter) dictatedSend.current = { value: written.value, ...sentFrom };
+        return;
+      }
       const id = (corrections.current += 1);
       correcting.current = { id, take: written.take };
       setProvisional(takeRange(written.take));
-      const sendAfter = dictationAction === "send";
-      const sentFrom = { projectPath, currentId };
-      void correction.then((fixed) => {
+      setFixing(correction.model);
+      void correction.text.then((fixed) => {
         const pending = correcting.current;
         if (pending?.id !== id) return;
-        correcting.current = null;
-        if (!take.current) setProvisional(null);
+        endCorrection();
         const corrected = correctTake(pending.take, latestDraft.current, fixed);
         if (corrected) {
           const caret = { start: corrected.caret, end: corrected.caret };
@@ -261,6 +274,34 @@ export function PromptField({
     onChangeText(back.value);
   };
   const dictating = dictation.phase !== "idle";
+  const startDictation = () => {
+    endCorrection();
+    const end = draft.length;
+    const anchor = placed.current ? selection : { start: end, end };
+    take.current = startTake(draft, anchor);
+    setProvisional(null);
+    void dictation.start({ draft, selection: anchor });
+  };
+  const finishWhenRecording = useRef(false);
+  const { phase: dictationPhase, stop: stopDictation } = dictation;
+  useEffect(() => {
+    if (dictationPhase === "idle") finishWhenRecording.current = false;
+    if (dictationPhase !== "recording" || !finishWhenRecording.current) return;
+    finishWhenRecording.current = false;
+    void stopDictation();
+  }, [dictationPhase, stopDictation]);
+  useDictationShortcut({
+    focused: () => focused,
+    dictating: () => dictating,
+    available: () => dictation.available,
+    toggle: () => {
+      if (!dictating) startDictation();
+      else if (dictationPhase === "recording") void stopDictation();
+      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
+      else if (dictationPhase === "downloading") discardDictation();
+    },
+  });
+
   // While the model downloads the mic keeps its own size and place: the capsule only grows once the take records.
   const capsule = dictating && dictation.phase !== "downloading";
   useEffect(() => {
@@ -531,16 +572,7 @@ export function PromptField({
                 onStop={() => void dictation.stop()}
               />
             ) : (
-              <VoiceMicButton
-                onPress={() => {
-                  // Where the words land is fixed now, while the caret is where the user left it.
-                  const end = draft.length;
-                  const anchor = placed.current ? selection : { start: end, end };
-                  take.current = startTake(draft, anchor);
-                  setProvisional(null);
-                  void dictation.start({ draft, selection: anchor });
-                }}
-              />
+              <VoiceMicButton onPress={startDictation} />
             )}
           </View>
         ) : null}
@@ -550,6 +582,10 @@ export function PromptField({
       {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
         <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
           {dictation.phase === "preparing" ? "Preparing the microphone\u2026" : "Finishing the last words\u2026"}
+        </Text>
+      ) : fixing !== null ? (
+        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
+          {fixing ? `Fixing names · ${fixing}` : "Fixing names…"}
         </Text>
       ) : null}
       {skill && !query ? (

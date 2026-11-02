@@ -297,6 +297,27 @@ async function browserChecks() {
     await evaluate(`window.setSuggestOptions({})`);
     await delay(100);
     assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "unblocking does not send an old transcript");
+    await evaluate("window.setSuggestOptions({}); window.updateSettings({dictationAction:'paste',dictationShortcutMode:'hold'});");
+    await delay(100);
+    const keyDown = "window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    const keyUp = "window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 1");
+    await evaluate(keyUp);
+    await evaluate("window.startRecording()");
+    await waitFor("window.micStops === 1");
+    assert.equal(await evaluate("window.micStarts"), 1, "hold starts exactly one composer and finishes after a pending microphone opens");
+    await evaluate("window.updateSettings({dictationShortcutMode:'toggle'})");
+    await delay(100);
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 2");
+    await evaluate("window.startRecording()");
+    await evaluate(keyUp);
+    await delay(50);
+    assert.equal(await evaluate("window.micStops"), 1, "toggle mode keeps recording after release");
+    await evaluate(keyDown);
+    await waitFor("window.micStops === 2");
+    await evaluate(keyUp);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",
@@ -329,10 +350,12 @@ async function main() {
         },
         load(id) {
           if (id !== "\0dictation-fixture") return;
-          return `import { useEffect } from 'react';
+          return `import { useEffect, useState } from 'react';
             export function useDictation(cwd, scope, deliver) {
-              useEffect(() => { window.deliverTranscript = deliver; });
-              return { phase: 'idle', error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() {}, stop() {}, cancel() {}, dismiss() {}, openSettings() {} };
+              const [phase, setPhase] = useState('idle');
+              window.startRecording = () => setPhase('recording');
+              useEffect(() => { window.deliverTranscript = (text, anchor, correction = null) => deliver(text, anchor, correction); });
+              return { phase, error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() { window.micStarts = (window.micStarts || 0) + 1; setPhase('preparing'); }, stop() { window.micStops = (window.micStops || 0) + 1; setPhase('idle'); }, cancel() { setPhase('idle'); }, dismiss() {}, openSettings() {} };
             }`;
         },
       },

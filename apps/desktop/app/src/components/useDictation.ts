@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import captureWorklet from "../lib/dictation-worklet.js?url&no-inline";
-import { VOCABULARY_WAIT_MS, snapTerms, whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
+import { VOCABULARY_WAIT_MS, fixUpModelName, snapTerms, whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   ERRORS,
@@ -23,6 +23,9 @@ import { useDictationModels } from "./useDictationModels";
 
 export type DictationAnchor = { selection: Selection };
 
+/** A finished take's fix-up: the model's short name for the status line, and its answer, which never rejects. */
+export type DictationCorrection = { model: string; text: Promise<string> };
+
 /** The transcript so far and how much of it has stopped changing. `settled` marks stability, not correctness. */
 export type DictationPartial = { text: string; settled: number };
 
@@ -35,8 +38,8 @@ type Take = {
   audio: AudioContext;
   processor: AudioWorkletNode;
   transcript: StreamingDictation;
-  /** The fix-up of the take's final words; never rejects. */
-  fixUp: (text: string) => Promise<string>;
+  /** The fix-up of the take's final words, or null when Settings turns it off. */
+  fixUp: ((text: string) => DictationCorrection) | null;
   finishCapture: () => Promise<void>;
   limit: ReturnType<typeof setTimeout> | null;
 };
@@ -52,15 +55,15 @@ function closeAudio(audio: AudioContext) {
 export function useDictation(
   cwd: string,
   scope: string,
-  /** The final transcript, and its fix-up: the same words with misheard names corrected, or as they were. */
-  onTranscript: (text: string, anchor: DictationAnchor, correction: Promise<string>) => void,
+  /** The final transcript, and its fix-up when Settings has it on. */
+  onTranscript: (text: string, anchor: DictationAnchor, correction: DictationCorrection | null) => void,
   /** The Chat dictated into (its Project scope and id): the names its last turns used guide the recognizer. */
-  chat: { scope?: string; chatId?: number } = {},
+  chat: { scope?: string; chatId?: number; provider?: string } = {},
 ) {
   const bridge = useBridge();
   const chatRef = useRef(chat);
   chatRef.current = chat;
-  const { dictationLanguage, dictationModel } = useSettings();
+  const { dictationLanguage, dictationModel, dictationFixUp, dictationFixModel } = useSettings();
   const model = whisperModelFor("desktop", dictationModel);
   const models = useDictationModels();
   const [state, setState] = useState<Dictation>(IDLE);
@@ -130,7 +133,7 @@ export function useDictation(
       setPartial(NO_PARTIAL);
       if (!text) return move({ type: "fail", error: ERRORS["no-speech"] });
       move({ type: "done" });
-      deliver.current(text, current.anchor, current.fixUp(text));
+      deliver.current(text, current.anchor, current.fixUp?.(text) ?? null);
     } catch (error) {
       if (live()) fail({ kind: "failed", message: ipcErrorMessage(error) || ERRORS.failed.message });
     }
@@ -221,13 +224,26 @@ export function useDictation(
           processor,
           transcript,
           // A computer without the fix-up (an older paired Mac) leaves the words as heard.
-          fixUp: (text) =>
-            Promise.resolve()
-              .then(() => bridge.polishDictation({ cwd, text, scope: chatRef.current.scope || undefined, chatId: chatRef.current.chatId }))
-              .then(
-                (result) => snapTerms(result?.text || text, vocabulary),
-                () => text,
-              ),
+          fixUp: dictationFixUp
+            ? (text) => ({
+                model: fixUpModelName(dictationFixModel, chatRef.current.provider),
+                text: Promise.resolve()
+                  .then(() =>
+                    bridge.polishDictation({
+                      cwd,
+                      text,
+                      provider: chatRef.current.provider,
+                      model: dictationFixModel,
+                      scope: chatRef.current.scope || undefined,
+                      chatId: chatRef.current.chatId,
+                    }),
+                  )
+                  .then(
+                    (result) => snapTerms(result?.text || text, vocabulary),
+                    () => text,
+                  ),
+              })
+            : null,
           limit: null,
           finishCapture: () =>
             new Promise<void>((resolve, reject) => {
@@ -264,7 +280,7 @@ export function useDictation(
         if (live()) fail(error instanceof DOMException && error.name === "NotAllowedError" ? ERRORS.permission : ERRORS.failed);
       }
     },
-    [bridge, cwd, dictationLanguage, fail, model, move, stop],
+    [bridge, cwd, dictationFixModel, dictationFixUp, dictationLanguage, fail, model, move, stop],
   );
 
   useEffect(

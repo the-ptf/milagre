@@ -1,3 +1,4 @@
+import { toggleDictationShortcut } from "./dictation-shortcut";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { router, usePathname, type Href } from "expo-router";
@@ -292,6 +293,10 @@ export function HardwareShortcuts() {
   const keybindings = useHostKeybindings(useSession().client);
   const onShortcut = useCallback(
     (command: KeybindingCommandId) => {
+      if (command === "dictation.toggle") {
+        toggleDictationShortcut();
+        return;
+      }
       if (command === "settings.open") {
         router.push("/settings");
         return;

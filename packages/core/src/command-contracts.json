@@ -1285,6 +1285,7 @@
               "chat.jump.8",
               "chat.jump.9",
               "chat.find",
+              "dictation.toggle",
               "changes.toggle",
               "terminal.toggle",
               "terminal.new",
@@ -1335,6 +1336,7 @@
               "chat.jump.8",
               "chat.jump.9",
               "chat.find",
+              "dictation.toggle",
               "changes.toggle",
               "terminal.toggle",
               "terminal.new",
@@ -5690,6 +5692,10 @@
         },
         "provider": {
           "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "description": "The user's pick: \"auto\" (the Chat's agent, `provider`, then the others) or one agent alone."
         },
         "scope": {
           "type": "string"

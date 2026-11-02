@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { ChatList, CompactButtonDisplay, ToolCallDisplay } from "@milagre/shared/chat-display";
-import { whisperModelFor } from "@milagre/shared/dictation";
+import { whisperModelFor, type DictationFixModel } from "@milagre/shared/dictation";
 import type { DictationActionPreference } from "@milagre/shared/voice-dictation";
 import {
   readChatList,
@@ -10,12 +10,16 @@ import {
   saveCompactButtonDisplay,
   readDictationLanguage,
   readDictationAction,
+  readDictationFixUp,
+  readDictationFixModel,
   readDictationModel,
   readExpandReasoning,
   readToolCallDisplay,
   saveChatList,
   saveDictationLanguage,
   saveDictationAction,
+  saveDictationFixUp,
+  saveDictationFixModel,
   saveDictationModel,
   saveExpandReasoning,
   saveToolCallDisplay,
@@ -72,3 +76,9 @@ export const useDictationLanguage = phoneSetting<string>("auto", readDictationLa
 export const useDictationModel = phoneSetting<string>(whisperModelFor("phone", undefined).id, readDictationModel, saveDictationModel);
 
 export const useDictationAction = phoneSetting<DictationActionPreference>("paste", readDictationAction, saveDictationAction);
+
+/** Settings › Chat › Dictation: the Mac corrects a finished take's misheard names, in place. */
+export const useDictationFixUp = phoneSetting(true, readDictationFixUp, saveDictationFixUp);
+
+/** Settings › Chat › Dictation › Model: the fix-up's model, "auto" for the Chat's own agent's smallest one. */
+export const useDictationFixModel = phoneSetting<DictationFixModel>("auto", readDictationFixModel, saveDictationFixModel);

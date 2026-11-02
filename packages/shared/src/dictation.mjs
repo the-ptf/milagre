@@ -397,6 +397,47 @@ export function snapTerms(text, terms) {
   return result;
 }
 
+/** How the dictation shortcut works: held while talking, or pressed once to start and again to stop. */
+export const DICTATION_SHORTCUT_MODES = Object.freeze([
+  { value: "hold", label: "Hold to talk", description: "Talk while you hold the keys. Letting go finishes the take." },
+  { value: "toggle", label: "Press to start, press to stop", description: "Press once to talk, again to finish. Escape discards the take." },
+]);
+
+/** A saved shortcut mode as a known one: hold unless it says toggle. */
+export function dictationShortcutMode(value) {
+  return value === "toggle" ? "toggle" : "hold";
+}
+
+/**
+ * The models the fix-up can run on: Automatic (the smallest model of the Chat's own agent, then the others when it
+ * can't answer), or one agent's. Their names follow core's one-shot text models (git-text.cjs).
+ */
+export const DICTATION_FIX_MODELS = Object.freeze([
+  { value: "auto", label: "Automatic", name: "", description: "The smallest model of the Chat's agent" },
+  { value: "claude", label: "Claude Haiku 4.5", name: "Claude Haiku", description: "" },
+  { value: "codex", label: "Codex · GPT-6 Luna", name: "GPT-6 Luna", description: "" },
+  { value: "antigravity", label: "Antigravity · Gemini 3.8 Flash", name: "Gemini Flash", description: "" },
+  { value: "kiro", label: "Kiro · Claude Haiku 4.5", name: "Kiro Haiku", description: "" },
+]);
+
+/** A saved fix-up model as a known one, Automatic for anything else. */
+export function dictationFixModel(value) {
+  return DICTATION_FIX_MODELS.some((model) => model.value === value) ? value : "auto";
+}
+
+/** The agent a take's fix-up asks first: the picked one, or for Automatic the Chat's own (Claude when it has none). */
+export function fixUpProvider(model, chatProvider) {
+  const picked = dictationFixModel(model);
+  if (picked !== "auto") return picked;
+  return DICTATION_FIX_MODELS.some((item) => item.value === chatProvider && item.value !== "auto") ? chatProvider : "claude";
+}
+
+/** The fix-up model's short name, for the composer's status while it works: "Claude Haiku". */
+export function fixUpModelName(model, chatProvider) {
+  const provider = fixUpProvider(model, chatProvider);
+  return DICTATION_FIX_MODELS.find((item) => item.value === provider)?.name ?? "";
+}
+
 // Whisper reads at most 224 tokens of prompt and drops the start of a longer one; about 600 characters stays under that.
 const PROMPT_CHARACTERS = 600;
 

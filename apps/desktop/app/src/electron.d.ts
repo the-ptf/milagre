@@ -329,6 +329,8 @@ export type MilagreBridge = {
     text: string;
     chatTitle?: string;
     provider?: string;
+    /** The user's pick: "auto" (the Chat's agent, `provider`, then the others) or one agent alone. */
+    model?: string;
     scope?: string;
     chatId?: number;
   }) => Promise<{ text: string; polished: boolean }>;

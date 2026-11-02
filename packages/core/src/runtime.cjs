@@ -821,12 +821,14 @@ function createRuntime(options) {
       return [];
     }
   }
-  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider, scope, chatId } = {}) => {
+  // `model` is the user's pick in Settings: "auto" (the Chat's agent, `provider`, then the others) or one agent alone.
+  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider, model, scope, chatId } = {}) => {
     await knownFolder(cwd);
     const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
     const models =
       options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
-    return polishDictation({ text, terms, chatTitle, provider }, { models });
+    const picked = typeof model === "string" && model !== "auto" ? model : null;
+    return polishDictation({ text, terms, chatTitle, provider: picked ?? provider, only: Boolean(picked) }, { models });
   });
   // Path-taking commands only serve folders the user opened: an open project, one of its worktrees, or a recent
   // project (the switcher shows their avatars). Any renderer or paired phone script otherwise reaches any folder.
