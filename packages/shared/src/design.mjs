@@ -1,3 +1,5 @@
+import { assertDesignEditIntent } from "./design-intent.mjs";
+export { designEditIntentSchema } from "./design-intent.mjs";
 import { designError } from "./design-errors.mjs";
 export { designErrorIssues, conciseDesignError } from "./design-errors.mjs";
 import { designKitSchema, designBindingsSchema, designConsistencySchema, resolveDesignKit } from "./design-kit.mjs";
@@ -286,7 +288,8 @@ function generatedComponentSources(document) {
 }
 
 /** Validate only the final tree, so one batch can insert children before their parent. */
-export function applyDesignOperations(document, operations) {
+export function applyDesignOperations(document, operations, intent) {
+  const before = intent === undefined ? undefined : validateDesignDocument(document);
   let result = validateDesignDocument(document);
   let previousSources = generatedComponentSources(result);
   const parsed = z.array(designOperationSchema).min(1).max(1000).parse(operations);
@@ -416,7 +419,9 @@ export function applyDesignOperations(document, operations) {
     if (instance?.id !== previous.instanceId || instance.componentId !== previous.componentId || !byId.get(instance.componentId)?.component) return true;
     return belongsToComponent(byId, node.componentSourceId, instance.componentId);
   });
-  return validateDesignDocument(result);
+  const resolved = validateDesignDocument(result);
+  assertDesignEditIntent(before, resolved, intent);
+  return resolved;
 }
 
 export function diffDesignDocuments(before, after) {

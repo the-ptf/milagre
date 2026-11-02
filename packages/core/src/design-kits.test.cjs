@@ -154,3 +154,55 @@ test("strict saves and preflight reject drift atomically; advisory and explicit 
   });
   assert.equal(advisory.version, 3);
 });
+
+test("intent preflight and agent/client writes enforce the same atomic contract", async (t) => {
+  const { artifactToolDefinitions } = require("./chat-artifacts.cjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "intent-design-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const api = createChatArtifacts({ directory, validateChat: async () => {} });
+  await api.showDesign({
+    chatId: "a",
+    id: "screen",
+    title: "Screen",
+    document: {
+      schemaVersion: 1,
+      width: 390,
+      height: 844,
+      nodes: [{ id: "title", type: "text", width: 200, height: 24, text: "Hello", fill: "black" }],
+    },
+  });
+  const tools = artifactToolDefinitions("a", api);
+  const preflight = tools.find((x) => x.name === "design_validate");
+  const apply = tools.find((x) => x.name === "design_apply");
+  const request = {
+    id: "screen",
+    expectedVersion: 1,
+    intent: { mode: "text-only", textIds: ["title"] },
+    operations: [{ op: "update", id: "title", patch: { text: "Long text ".repeat(20), fill: "red" } }],
+  };
+  const rejected = JSON.parse(await preflight.run(request));
+  assert.equal(rejected.valid, false);
+  assert.equal(rejected.code, "DESIGN_INTENT_VIOLATION");
+  assert.deepEqual(rejected.errors[0].path, ["nodes", 0, "fill"]);
+  await assert.rejects(apply.run(request), { code: "DESIGN_INTENT_VIOLATION" });
+  await assert.rejects(api.apply({ chatId: "a", ...request }), { code: "DESIGN_INTENT_VIOLATION" });
+  assert.equal((await api.get({ chatId: "a", id: "screen" })).version, 1);
+  delete request.operations[0].patch.fill;
+  request.intent.mode = "fit-text";
+  const clipped = JSON.parse(await preflight.run(request));
+  assert.equal(clipped.valid, false);
+  assert.ok(clipped.diagnostics.warnings[0].measurements.missingHeight > 0);
+  request.operations.push(...clipped.diagnostics.warnings[0].suggestions[0].operations);
+  const checked = JSON.parse(await preflight.run(request));
+  assert.equal(checked.valid, true);
+  assert.equal((await api.get({ chatId: "a", id: "screen" })).version, 1);
+  const saved = await api.apply({ chatId: "a", ...request });
+  assert.equal(saved.version, 2);
+  assert.deepEqual(saved.document, checked.document);
+  await assert.rejects(api.apply({ chatId: "a", ...request }), /version conflict/);
+  const mismatch = JSON.parse(await preflight.run({ document: checked.document, intent: request.intent }));
+  assert.equal(mismatch.valid, false);
+  const feedback = await apply.run({ ...request, expectedVersion: 2, intent: { mode: "text-only", textIds: ["title"] }, operations: [request.operations[0]] });
+  assert.match(feedback.text, /text-only edit: report clipping/);
+  assert.doesNotMatch(feedback.text, /fix what looks wrong/);
+});

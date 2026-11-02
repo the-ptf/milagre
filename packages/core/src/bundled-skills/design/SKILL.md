@@ -124,7 +124,16 @@ When the user deliberately requests a variation, record `consistency.exceptions`
 
 ### Content changes
 
-For "change only the text", preserve every other field. Inspect the resulting image and explicitly report any clipping or overflow; do not claim the layout is fixed. For a request to accommodate the text, use Hug and auto layout or adjust only the needed geometry; preserve content, kit, component links and user edits. Preflight, save and inspect again. Prefer Hug text in new screens so longer copy can flow. Strict kit consistency does not block content overflow: layout diagnostics are a separate criterion.
+Use the optional `intent` on both `design_validate` and `design_apply` when editing existing text. It applies to this batch only; do not omit it to evade a rejection.
+
+- `intent: {mode: "text-only", textIds: ["heading"]}` permits only those text fields and their linked component text propagation. Every other field and every computed layer bound must stay identical. Clipping may remain; report it. If Hug or automatic layout moves/resizes a layer, the batch rejects without saving. Ask for layout permission when the user explicitly required fixed geometry.
+- `intent: {mode: "fit-text", textIds: ["heading"], layoutIds: ["content"]}` permits text changes on the named targets and geometry on those targets plus the named layout subtrees. Geometry means x/y, width/height, sizing modes and min sizes. Styles, spacing, content elsewhere, layer ids/order, kit, document size and component links stay intact. Select the smallest authorized layout scope; do not add unrelated layers to bypass the contract. The result must clear clipping/overflow in scope and target ancestors, cannot create or change layout defects elsewhere, and cannot increase overlap between sibling text layers. Existing unrelated defects remain diagnostics. This is a constraint on your proposed operations, not an automatic layout solver.
+
+Text targets must be existing text layers. Edit a main component text layer when changing its linked copies. Instance `componentValues` edits are outside these intents for now; do not silently replace them with a main-component edit. Normal batches remain available for other user-requested edits.
+
+Diagnostics include `measurements` (required/available size, missing height, edge overflow or contrast ratio), `blockerId` and `suggestions`. Candidate `operations` are proposals with `requiresValidation: true`: preflight them against the current version and intended scope before applying, then inspect the saved result. A Hug proposal can move siblings or overflow a parent. Color proposals require permission to change style and do not belong in a text intent. Measurements use the shared font/layout engine; they are not a guarantee about unavailable fonts or overall aesthetics.
+
+Preflight, save and inspect again. Prefer Hug text in new screens so longer copy can flow. Strict kit consistency does not block content overflow: layout diagnostics and fit-text are separate criteria.
 
 The kit has `title`, `colors`, `textStyles`, `spacing`, `radii`, optional `components` and `references`. All four maps are required, but can be empty. A text style has `fontSize` and optional `fontFamily`, `fontWeight`, `lineHeight`. Component templates are arrays of ordinary layers, with one root main component whose id matches the map key. References are `{title, source}` records for approved examples or source files.
 

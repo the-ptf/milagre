@@ -1,5 +1,5 @@
 import type { ArtifactRef } from "./model.ts";
-import type { DesignDocument, DesignOperation } from "./design.mjs";
+import type { DesignDocument, DesignOperation, DesignEditIntent } from "./design.mjs";
 import type { ArtifactAsset } from "./artifact-assets.mjs";
 export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
 
@@ -79,7 +79,7 @@ export interface ArtifactApi {
   asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
   /** Saves an atomic batch against the version the editor loaded. A stale version leaves the design unchanged. */
-  apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[] }): Promise<DesignArtifact>;
+  apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[]; intent?: DesignEditIntent }): Promise<DesignArtifact>;
   /** Deletes a design with every version and the comments on it. Its id is never reused. */
   delete(request: { chatId: string; id: string }): Promise<{ id: string }>;
   /** Records comments the user is sending; returns them with their ids. */

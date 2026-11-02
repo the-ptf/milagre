@@ -92,6 +92,13 @@ export type DesignOperation =
   | { op: "duplicate"; id: string; newId: string; x?: number; y?: number }
   | { op: "unset"; id: string; fields: Array<"parentId" | "textStyle" | "bindings" | "componentValues"> };
 
+export interface DesignEditIntent {
+  mode: "text-only" | "fit-text";
+  textIds: string[];
+  layoutIds?: string[];
+}
+export const designEditIntentSchema: z.ZodType<DesignEditIntent>;
+
 export interface DesignBounds {
   x: number;
   y: number;
@@ -105,7 +112,7 @@ export const designDocumentInputSchema: z.ZodType<unknown>;
 export const designOperationInputSchema: z.ZodType<unknown>;
 export function validateDesignDocument(value: unknown): DesignDocument;
 export function validateDesignConsistency(document: DesignDocument): DesignDocument;
-export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[]): DesignDocument;
+export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[], intent?: DesignEditIntent): DesignDocument;
 export function diffDesignDocuments(before: DesignDocument, after: DesignDocument): DesignOperation[];
 export function designLayout(document: DesignDocument, textLayout?: typeof designTextLayout): Map<string, DesignBounds>;
 export function designTextLayout(node: DesignNode, width?: number): { lines: string[]; width: number; height: number; lineHeight: number };
@@ -120,6 +127,9 @@ export function detachDesignInstance(document: DesignDocument, instanceId: strin
 /** The frontmost visible layer at a screen coordinate, respecting clipped parent frames. */
 export function designNodeAt(document: DesignDocument, x: number, y: number): DesignNode | null;
 export interface DesignWarning {
+  blockerId?: string;
+  measurements?: Record<string, number>;
+  suggestions?: Array<{ label: string; operations?: DesignOperation[]; requiresValidation: true }>;
   id: string;
   field?: string;
   actual?: string | number | Record<string, string | number>;

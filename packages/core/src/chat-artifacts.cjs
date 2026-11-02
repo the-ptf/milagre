@@ -6,6 +6,7 @@ const { z } = require("zod");
 const {
   designDocumentInputSchema,
   designOperationInputSchema,
+  designEditIntentSchema,
   validateDesignDocument,
   validateDesignConsistency,
   applyDesignOperations,
@@ -545,7 +546,7 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         editable(existing);
         checkVersion(request, existing, true);
         const current = await readVersion(folder, existing);
-        const document = applyDesignOperations(current.document, request.operations);
+        const document = applyDesignOperations(current.document, request.operations, request.intent);
         await verifyKit(request.chatId, document);
         validateDesignConsistency(document);
         const entry = {
@@ -812,7 +813,7 @@ const namedLayers = (ids) =>
 
 // What the agent sees after a design call: the summary (first line, which the Chat card parses), the warnings, and
 // the saved version drawn as a PNG. Neither drawing nor checking fails the call; the version is already saved.
-async function designFeedback(saved, document, { renderPng, warnings: findWarnings }) {
+async function designFeedback(saved, document, { renderPng, warnings: findWarnings, intent }) {
   const problems = [];
   let warnings = [];
   try {
@@ -827,7 +828,11 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
   try {
     images = [await renderPng(document)];
     notes.push(
-      "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every item under Warnings with design_apply, then reply.",
+      intent?.mode === "text-only"
+        ? "Look at the image. This was a text-only edit: report clipping, overflow or other warnings without changing geometry or style. Keep the same intent for further text edits; expanding the scope needs the user's permission."
+        : intent?.mode === "fit-text"
+          ? "Look at the image and verify the text fits. Keep this fit-text intent and its declared scope for any correction; preserve styles and other copy. Report problems that need a wider scope."
+          : "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every item under Warnings within the user's requested scope with design_apply, then reply.",
     );
     const fonts = unbundledFamilies(document);
     if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
@@ -930,26 +935,27 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_validate",
       description:
-        "Preflight a proposed document, or a batch against a saved design and expectedVersion, without saving. Returns validation errors with field paths, layout diagnostics and the resulting document. Use before a complex edit. Send document OR id, expectedVersion and operations.",
+        "Preflight a proposed document, or a batch against a saved design and expectedVersion, without saving. Optional intent is enforced exactly as on design_apply. Returns validation errors with field paths, measured layout shortages, candidate repair operations (validate before applying) and the resulting document. Use before a complex edit. Send document OR id, expectedVersion and operations.",
       input: {
         document: designDocumentInputSchema.optional(),
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().positive().optional(),
         operations: z.array(designOperationInputSchema).min(1).max(1000).optional(),
+        intent: designEditIntentSchema.optional(),
       },
       readOnly: true,
       run: async (args) => {
         let document;
         try {
           if (args.document !== undefined) {
-            if (args.id || args.operations || args.expectedVersion) throw Error("Send document OR id, expectedVersion and operations.");
+            if (args.id || args.operations || args.expectedVersion || args.intent) throw Error("Send document OR id, expectedVersion and operations.");
             document = validateDesignDocument(args.document);
           } else {
             if (!args.id || !args.expectedVersion || !args.operations) throw Error("Send document OR id, expectedVersion and operations.");
             const current = await api.get({ chatId, id: args.id, format: "design" });
             if (current.version !== args.expectedVersion)
               throw Error(`Design version conflict: expected ${args.expectedVersion}, latest ${current.version}. Read again.`);
-            document = applyDesignOperations(current.document, args.operations);
+            document = applyDesignOperations(current.document, args.operations, args.intent);
           }
           await api.validateDesign?.({ chatId, document });
           return JSON.stringify({ valid: true, document, diagnostics: designDiagnostics(document) });
@@ -957,6 +963,8 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
           return JSON.stringify({
             valid: false,
             errors: designErrorIssues(error),
+            ...(error.code ? { code: error.code } : {}),
+            ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}),
             ...(error.code === "DESIGN_KIT_DRIFT" && document ? { diagnostics: designDiagnostics(document) } : {}),
           });
         }
@@ -965,16 +973,17 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_apply",
       description:
-        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants. To replace the whole document, use design_show with its id and expectedVersion. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. One successful batch creates one immutable version and shows its design card.",
+        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants. To replace the whole document, use design_show with its id and expectedVersion. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. Optional intent enforces text-only preservation or fit-text within declared textIds/layoutIds. Rejected intent saves nothing. One successful batch creates one immutable version and shows its design card.",
       input: {
         id: z.string().regex(ID),
         expectedVersion: z.number().int().positive(),
         operations: z.array(designOperationInputSchema).min(1).max(1000),
+        intent: designEditIntentSchema.optional(),
       },
       readOnly: false,
       run: async (args) => {
         const { html: _html, document, ...design } = await api.apply({ chatId, ...args }, authorization);
-        return designFeedback(design, document, feedback);
+        return designFeedback(design, document, { ...feedback, intent: args.intent });
       },
     },
     {
