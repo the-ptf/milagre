@@ -211,6 +211,12 @@ export function PromptField({
   // draft is still exactly what the take left.
   const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
   const corrections = useRef(0);
+  useEffect(
+    () => () => {
+      correcting.current = null;
+    },
+    [],
+  );
   const [fixing, setFixing] = useState<string | null>(null);
   const endCorrection = useCallback(() => {
     correcting.current = null;

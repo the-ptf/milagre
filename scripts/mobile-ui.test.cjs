@@ -18515,7 +18515,19 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   await late.text;
   render();
   assert.equal(draft, edited, "a late answer cannot overwrite an edited draft");
+  const unmounted = {
+    model: "Claude Haiku",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("more", { draft, selection: { start: draft.length, end: draft.length } }, unmounted);
+  render();
+  const left = draft;
   react.cleanup();
+  resolveCorrection("MORE");
+  await unmounted.text;
+  assert.equal(draft, left, "leaving the composer drops a late answer");
 });
 
 test("a take's error is a bubble over the mic, not a line that moves the words", () => {
