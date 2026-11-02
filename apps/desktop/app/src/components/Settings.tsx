@@ -1,3 +1,4 @@
+import { permissionPresentation } from "@milagre/shared/model-copy";
 import { ContextSettings } from "./ContextSettings";
 import { outbox, useOutbox } from "../lib/outbox";
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
@@ -57,6 +58,8 @@ import {
   Plug01Icon,
   RepeatIcon,
   SecurityCheckIcon,
+  Shield01Icon,
+  ShieldAlertIcon,
   Settings01Icon,
   SmartphoneIcon,
   UserCircleIcon,
@@ -1062,8 +1065,11 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
               label: mode.name,
               description: mode.description,
               icon: (
-                <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
-                  <Icon icon={SecurityCheckIcon} size={14} />
+                <span className={`flex shrink-0 ${mode.id === "full" ? "text-orange-ink" : "text-ink-2"}`}>
+                  <Icon
+                    icon={{ shield: Shield01Icon, "security-check": SecurityCheckIcon, "shield-alert": ShieldAlertIcon }[permissionPresentation(mode.id).icon]}
+                    size={14}
+                  />
                 </span>
               ),
             }))}

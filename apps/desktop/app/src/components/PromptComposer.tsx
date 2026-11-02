@@ -1037,14 +1037,14 @@ export function PromptComposer({
               <PickerRow
                 key={mode.id}
                 icon={
-                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
+                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-orange-ink" : "text-ink-2"}`}>
                     <Icon
                       icon={
                         {
                           shield: Shield01Icon,
                           "security-check": SecurityCheckIcon,
                           "shield-alert": ShieldAlertIcon,
-                        }[permissionPresentation(permissionMode).icon]
+                        }[permissionPresentation(mode.id).icon]
                       }
                       size={16}
                     />
