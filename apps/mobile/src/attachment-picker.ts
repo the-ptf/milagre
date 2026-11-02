@@ -70,7 +70,7 @@ async function prepareVideo(asset: ImagePicker.ImagePickerAsset, index: number):
 }
 
 /** Keep the picked name but use the exported file's extension; Android does not transcode every format to MP4. */
-export function videoName(fileName: string | null | undefined, index: number, uri = "") {
+function videoName(fileName: string | null | undefined, index: number, uri = "") {
   const extension = /\.([a-z\d]+)$/i.exec(uri.split(/[?#]/)[0] ?? "")?.[1] ?? /\.([a-z\d]+)$/i.exec(fileName ?? "")?.[1] ?? "mp4";
   return `${(fileName || `Video ${index + 1}`).replace(/\.[^.]+$/, "")}.${extension}`;
 }

@@ -5,7 +5,7 @@ import { markdownTokens } from "./chat-presentation.ts";
 type Token = ReturnType<typeof markdownTokens>[number];
 
 /** A run of text with one look. Links only change color: the selection view selects them, it never opens them. */
-export type SelectionSpan = { text: string; bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean; link?: boolean };
+type SelectionSpan = { text: string; bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean; link?: boolean };
 
 /**
  * One paragraph of the native selection view, laid out like the formatted message it replaces: `markers` are the
