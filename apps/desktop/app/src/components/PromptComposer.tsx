@@ -1039,7 +1039,7 @@ export function PromptComposer({
         {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
 
         {permissionOpen && !permissionLocked && (
-          <PickerPanel title="Agent permissions" className="absolute w-[340px]" style={anchorStyle}>
+          <PickerPanel title="Agent permissions" className="absolute w-[240px]" style={anchorStyle}>
             {PERMISSION_MODES.map((mode) => (
               <PickerRow
                 key={mode.id}
@@ -1058,7 +1058,6 @@ export function PromptComposer({
                   </span>
                 }
                 label={mode.name}
-                description={mode.description}
                 selected={permissionMode === mode.id}
                 onClick={() => {
                   onPermissionModeChange(mode.id);
@@ -1072,7 +1071,7 @@ export function PromptComposer({
 
         <div
           data-ultracode={ultracodeOn || undefined}
-          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast has-[[contenteditable]:focus]:border-accent ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
+          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
         >
           <input
             ref={fileInputRef}

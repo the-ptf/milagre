@@ -917,7 +917,7 @@ function OrdinaryInboxQuestion({
               })}
             </div>
             {question.allowOther && (
-              <div className="mt-2 flex min-h-9 items-center gap-1 rounded-control border border-line-strong bg-field px-2 transition-colors focus-within:border-accent">
+              <div className="mt-2 flex min-h-9 items-center gap-1 rounded-control border border-line-strong bg-field px-2 transition-colors">
                 <input
                   type={question.secret ? "password" : "text"}
                   aria-label={`Your own answer to: ${question.question}`}

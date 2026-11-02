@@ -519,7 +519,7 @@ export function RoutineEditor({
             ref={nameInput}
             aria-label="Name"
             placeholder="Name this Routine"
-            className={`h-10 min-w-0 flex-1 rounded-control border bg-surface px-3 text-22 font-semibold tracking-[-0.02em] text-ink outline-none transition-colors duration-fast placeholder:font-medium placeholder:text-ink-3 focus:border-accent ${errors.name ? "border-red" : "border-line-strong"}`}
+            className={`h-10 min-w-0 flex-1 rounded-control border bg-surface px-3 text-22 font-semibold tracking-[-0.02em] text-ink outline-none transition-colors duration-fast placeholder:font-medium placeholder:text-ink-3 ${errors.name ? "border-red" : "border-line-strong"}`}
             value={state.name}
             onChange={(event) => update({ name: event.target.value })}
           />

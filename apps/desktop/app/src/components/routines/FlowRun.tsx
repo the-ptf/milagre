@@ -39,8 +39,7 @@ const primaryButton =
   "inline-flex h-8 flex-1 items-center justify-center gap-2 rounded-control bg-ink px-3 text-13 font-medium text-surface transition-opacity hover:opacity-90 disabled:opacity-40";
 const secondaryButton =
   "inline-flex h-8 flex-1 items-center justify-center gap-2 rounded-control bg-field px-3 text-13 font-medium text-ink transition-colors hover:bg-hover-2 disabled:opacity-40";
-const textarea =
-  "w-full resize-y rounded-control border border-line-strong bg-surface px-3 py-2 text-13 text-ink outline-none placeholder:text-ink-3 focus:border-accent";
+const textarea = "w-full resize-y rounded-control border border-line-strong bg-surface px-3 py-2 text-13 text-ink outline-none placeholder:text-ink-3";
 
 export type FlowAct = (action: "approve" | "reject" | "pause" | "resume" | "end" | "retry", options?: { reason?: string; note?: string }) => Promise<void>;
 

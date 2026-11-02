@@ -23,10 +23,8 @@ const toPairs = (record: Record<string, string>): Pair[] => Object.entries(recor
 const sent = (pair: Pair) => (pair.edited || pair.stored === undefined ? pair.value : pair.stored);
 const toRecord = (pairs: Pair[]) => Object.fromEntries(pairs.filter((pair) => pair.key || sent(pair)).map((pair) => [pair.key, sent(pair)]));
 // The app's global rule drops the outline on inputs, so focus shows as an ink border.
-const field =
-  "w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-13 text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent";
-const pairField =
-  "min-w-0 rounded-control border border-transparent bg-field px-3 py-2 text-13 text-ink outline-none placeholder:text-ink-3 focus:border-accent focus:ring-1 focus:ring-accent";
+const field = "w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-13 text-ink outline-none";
+const pairField = "min-w-0 rounded-control border border-transparent bg-field px-3 py-2 text-13 text-ink outline-none placeholder:text-ink-3";
 const footerButton = "rounded-control px-4 py-2 text-13 transition-colors disabled:opacity-40";
 const label = "block space-y-1.5 text-12 font-medium text-ink-2";
 const TARGETS: { value: McpTarget; label: string; hint: string }[] = [

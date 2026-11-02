@@ -641,7 +641,7 @@ function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onC
     if (px !== value) onCommit(px);
   };
   return (
-    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line-strong bg-field pr-2.5 pl-3 text-13 font-medium text-ink transition-colors duration-fast focus-within:border-accent">
+    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line-strong bg-field pr-2.5 pl-3 text-13 font-medium text-ink transition-colors duration-fast">
       <input
         aria-label="Custom chat width in pixels"
         inputMode="numeric"
@@ -811,7 +811,7 @@ function FollowUpSetting() {
       <Row label="While the agent works" description={current.description}>
         <Select<FollowUps>
           label="Messages during a turn"
-          value={host.settings.followUps}
+          value={current.value}
           disabled={!host.ready || host.saving}
           onChange={(followUps) => void host.save({ followUps })}
           options={FOLLOW_UP_OPTIONS.map(({ value, label }) => ({ value, label }))}
@@ -2207,7 +2207,7 @@ function FilesToCopy({ projectPath }: { projectPath: string }) {
         value={locked ? (found.worktreeInclude ?? "") : (text ?? "")}
         placeholder={DEFAULT_FILES_TO_COPY}
         onChange={(event) => edit(event.target.value)}
-        className={`w-full resize-y rounded-control border border-line px-3 py-2 font-mono text-12 leading-relaxed text-ink outline-none placeholder:text-ink-3 focus-visible:border-accent ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
+        className={`w-full resize-y rounded-control border border-line px-3 py-2 font-mono text-12 leading-relaxed text-ink outline-none placeholder:text-ink-3 ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
       />
       {locked && (
         <p data-files-to-copy-locked className="text-12 text-ink-2">
@@ -2319,7 +2319,7 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
         value={locked ? (resolved.command ?? "") : (text ?? "")}
         placeholder={locked ? "Nothing runs" : "npm ci"}
         onChange={(event) => edit(event.target.value)}
-        className={`h-9 w-full rounded-control border border-line px-3 font-mono text-12 text-ink outline-none placeholder:text-ink-3 focus-visible:border-accent ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
+        className={`h-9 w-full rounded-control border border-line px-3 font-mono text-12 text-ink outline-none placeholder:text-ink-3 ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
       />
       {locked && (
         <p data-setup-command-locked className="text-12 text-ink-2">

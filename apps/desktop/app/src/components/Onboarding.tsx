@@ -288,7 +288,7 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
         <form
           data-onboarding-form={form.kind}
           // The card is the field: its edge turns accent while the input inside is focused, suffix and buttons included.
-          className="-mt-2 flex items-center gap-2 rounded-card border border-line bg-surface p-2 pl-3 transition-colors has-[input:focus]:border-accent"
+          className="-mt-2 flex items-center gap-2 rounded-card border border-line bg-surface p-2 pl-3 transition-colors"
           onSubmit={(event) => {
             event.preventDefault();
             submit();

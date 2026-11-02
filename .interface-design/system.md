@@ -112,8 +112,8 @@ on every screen, header and body alike; section gap 24; overlays under the chat 
 - Switches are banned. Use checkboxes for independent on/off settings and checked lists or radio groups for mutually exclusive choices. No sliding track/thumb controls or switch accessibility roles on either platform.
 
 - Focus: one accent ring from `@layer base` in `styles.css`; components may restyle it with `focus-visible:` utilities
-  but never recolour it (no ink, ink-3, green or tone outlines). Fields show focus with `focus:border-accent` (plus a
-  ring where the field has no border). Menu and picker rows, inside a clipped panel, keep their fill and add the
+  but never recolour it (no ink, ink-3, green or tone outlines). Text fields, the composer and comment boxes show no
+  focus mark: the caret is enough (decided 2-Nov-2026, after #895 added accent edges). Menu and picker rows, inside a clipped panel, keep their fill and add the
   accent ring inset (`focus-visible:-outline-offset-2`), never a fill alone. Never a focus style under 3:1.
 - Press: `active:scale-press` (0.97) on filled buttons (primary, danger), pills and icon buttons; `active:bg-hover-2`
   on rows. Phone: opacity 0.6, plus scale 0.97 on filled buttons.
@@ -179,7 +179,7 @@ In `apps/desktop/app/src/components/primitives/`. New UI uses them; hand-written
   its name).
 - `Dialog` (native `<dialog>` + `showModal`, `rounded-window shadow-overlay`, `backdrop:bg-scrim`, 17 semibold title,
   actions bottom right). `Notice` (`components/Notice.tsx`) for a dismissable card over a view.
-- `Input` / `FIELD` / `FIELD_AREA` (36px, `focus:border-accent`), `Checkbox`, `RadioGroup`, `Switch`, `Segmented`,
+- `Input` / `FIELD` / `FIELD_AREA` (36px, no focus edge), `Checkbox`, `RadioGroup`, `Switch`, `Segmented`,
   `Select`, `PickerPanel` / `PickerRow`.
 - `Icon` (12 / 14 / 16 / 18 with strokes 1.6 / 1.8 / 1.8 / 2), `ProjectAvatar` (16 / 20 / 24 / 40), `SectionLabel`
   (12, or 11 in menus), `TranscriptDivider`, `EmptyState`, `InlineError`, `SpinnerRing` (a stepped fade under reduced
