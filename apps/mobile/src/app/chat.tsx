@@ -1,3 +1,4 @@
+import { EditScopeControl } from "../edit-scope";
 import { radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
@@ -2961,6 +2962,11 @@ function ChatPane({
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
                             />
+                            {chat && (
+                              <View style={{ alignItems: "flex-start" }}>
+                                <EditScopeControl key={chatId} chatId={chatId} visible={!offline && session.isSelected()} />
+                              </View>
+                            )}
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                               <PullDown
                                 label="Add photos or files"

@@ -19,7 +19,7 @@ const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
 const { originId } = require("@milagre/shared/project-origin");
-const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
+const { backgroundBusyMessage, processWork, backgroundWork: chatBackgroundWork } = require("@milagre/shared/chat-activity");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
 const { ChatTitles, createChatTitleModels, generateChatTitle, generateRunTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
@@ -1308,6 +1308,12 @@ function createRuntime(options) {
   let babysitWatch = null;
   let chatSecrets = null;
   function publishAgentEvent(chatId, event, state, seq) {
+    if (
+      ["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type) ||
+      (event.type === "background-tasks" && !event.tasks?.length) ||
+      (event.type === "subagent-update" && ["completed", "failed", "cancelled"].includes(event.agent?.status))
+    )
+      void editScopes.observe(chatId, true).catch((error) => console.warn("Edit scope observation failed:", error.message));
     if (state) limitResume?.trackState(projectOfKey(chatId), state);
     if (event.limitResumeAborted) {
       void track(() => checkpoints.discard(chatId, event.messageId), background).catch((error) =>
@@ -1352,7 +1358,26 @@ function createRuntime(options) {
     emit("agent:event", { chatId, event, ...(state ? { state: scopeStates.withPersistence(projectOfKey(chatId), state) } : {}), ...(seq ? { seq } : {}) });
   }
 
+  const { EditScopes, editScopeToolDefinitions } = require("./edit-scopes.cjs");
+  const scopeHasBackground = (chatId) =>
+    agents.backgroundWork(chatId) > 0 || chatBackgroundWork(heldState(projectOfKey(chatId))?.sessions[sessionIdFromKey(chatId)]).length > 0;
+  const editScopes = new EditScopes({
+    file: path.join(dataDir, "edit-scopes.json"),
+    roots: async (chatId) => (await chatWorktrees(chatId)).map((worktree) => worktree.path),
+    busy: (chatId) => agents.isTurnActive(chatId) || scopeHasBackground(chatId) || chats.startingTurns.has(chatId) || chats.preparing.has(chatId),
+  });
+  for (const method of ["read", "save", "resolve"])
+    commands.handle(`chat:edit-scope:${method}`, async (_context, request) => {
+      await existingChat("using edit scope")(request?.chatId);
+      return method === "read"
+        ? editScopes.read(request.chatId)
+        : method === "save"
+          ? editScopes.save(request.chatId, request.revision, request.policy)
+          : editScopes.resolve(request.chatId, request.id, request.approved);
+    });
+
   const agents = new SessionManager({
+    editScopeCheck: (chatId, files, cwd) => editScopes.check(chatId, files, cwd),
     createSession:
       options.createSession ??
       ((provider, options) => {
@@ -1467,7 +1492,12 @@ function createRuntime(options) {
       remote,
       thisMac: options.hostNetwork?.().name ?? remoteComputers?.thisMac(),
     }).catch(() => "");
-    const text = [prompt, ...setupNotes, ...milagreNotes, context, mentions, computerMentions, reports?.text].filter(Boolean).join("\n\n");
+    const editScopeContext = await editScopes.begin(
+      request.chatId,
+      request.workspaceRoots?.length ? request.workspaceRoots : [request.cwd],
+      agents.isTurnActive(request.chatId) || scopeHasBackground(request.chatId),
+    );
+    const text = [prompt, ...setupNotes, ...milagreNotes, context, mentions, computerMentions, reports?.text, editScopeContext].filter(Boolean).join("\n\n");
     try {
       if (cancelled()) {
         if (request.canStart) return { turnId: null, steered: false, cancelled: true };
@@ -1494,6 +1524,7 @@ function createRuntime(options) {
       throw error;
     } finally {
       reports?.release();
+      if (!agents.isTurnActive(request.chatId)) await editScopes.observe(request.chatId, true);
     }
   }
 
@@ -2616,6 +2647,7 @@ function createRuntime(options) {
       ...require("./html-render.cjs").htmlRenderToolDefinitions(chatId, artifacts),
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
+      ...editScopeToolDefinitions(chatId, editScopes),
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
@@ -2764,14 +2796,16 @@ function createRuntime(options) {
         .tools.filter((tool) => ["linked_overview", "read_linked_chat", "linked_git", "read_linked_file", "search_linked_files"].includes(tool.name));
       const tools = [...require("./advisor-reads.cjs").createAdvisorReads({ roots: context.roots, referenceRoots }), ...canvasReads];
       const executionAdvisor = record.mode === "execution";
+      if (executionAdvisor) await editScopes.begin(record.chatId, context.workspaceRoots?.length ? context.workspaceRoots : [context.cwd], true);
       if (executionAdvisor)
         tools.push(...require("./chat-browsers.cjs").browserToolDefinitions(record.chatId, browsers), ...simulatorToolDefinitions(record.chatId, simulators));
       advisorTransports.set(record.id, tools);
       const sessionOptions = {
+        editScopeCheck: (files) => editScopes.check(record.chatId, files, context.cwd),
         cwd: context.cwd,
         workspaceRoots: context.workspaceRoots,
         readOnlyRoots: context.readOnlyRoots,
-        workspaceInstructions: context.workspaceInstructions,
+        workspaceInstructions: [context.workspaceInstructions, editScopes.context(record.chatId)].filter(Boolean).join("\n\n"),
         sharedLink: context.sharedLink,
         // Its system prompt is the advisor's own (events.cjs advisorInstructions): the Chat's writing setting, its read tools.
         tldrEnabled: context.settings?.tldrEnabled !== false,
@@ -3554,6 +3588,7 @@ function createRuntime(options) {
         await Promise.allSettled([...background, ...chatTitles.pending.values()]);
       }
       while (background.size) await Promise.allSettled(background);
+      await editScopes.close();
       await states.close();
       await linkStore.close();
       await linked.close();

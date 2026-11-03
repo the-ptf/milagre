@@ -178,6 +178,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      if (/^\.\.?\/edit-scope$/.test(id) && !(id in modules)) return { EditScopeControl: "EditScopeControl" };
       if (/^\.\.?\/offline-tray$/.test(id) && !(id in modules))
         return { ComposerTray: ({ children }) => children, OfflineTray: "OfflineTray", WaitingLabel: () => null };
       if (/^\.\.?\/outbox$/.test(id) && !(id in modules))
@@ -20852,4 +20853,146 @@ test("phone viewed strip groups loaded thumbnails, excludes failed media and rec
   assert.equal(opened.at(-1).images[0].source.uri, "/new-durable/bad.png");
   parent.unmount();
   for (const host of tiles.values()) host.unmount();
+});
+
+test("phone edit scope presents host limits, exact proposed paths and approval for a new turn", () => {
+  const host = hookHost(),
+    decisions = [];
+  const shared = require("../packages/shared/src/edit-scope.ts");
+  const view = {
+    revision: 1,
+    policy: { allowed: [{ root: "/work", path: "src" }], protected: [{ root: "/work", path: "secret" }] },
+    roots: ["/work"],
+    busy: true,
+    limits: "Commands use observation only.",
+    capability: "File hooks block edits.",
+    warnings: [{ kind: "outside", path: "other", root: "/work", message: "Out-of-scope change", at: 1 }],
+    pending: {
+      id: "req",
+      reason: "Need a test",
+      revision: 1,
+      policy: {
+        allowed: [
+          { root: "/work", path: "src" },
+          { root: "/work", path: "test" },
+        ],
+        protected: [],
+      },
+    },
+  };
+  const scope = { view, error: "", pending: false, save: () => {}, resolve: (approved) => decisions.push(approved) };
+  const { EditScopeControl } = load("edit-scope.tsx", {
+    react: host,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Modal: "Modal", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "Close" },
+    "@milagre/shared/edit-scope": { ...shared, useEditScope: () => scope },
+    "./session": { useSession: () => ({ client: { call() {} } }) },
+    "./ui": {
+      PillButton: "PillButton",
+      CircleButton: "CircleButton",
+      Field: "Field",
+      InlineError: "InlineError",
+      PageScroll: "PageScroll",
+      SheetHeader: "SheetHeader",
+      useStyles: () => ({}),
+    },
+  });
+  host.begin();
+  let tree = EditScopeControl({ chatId: "/project#1" });
+  assert.equal(find(tree, (n) => n.type === "Modal").props.visible, false);
+  find(tree, (n) => n.type === "PillButton" && n.props.title === "Scope request").props.onPress();
+  host.begin();
+  tree = EditScopeControl({ chatId: "/project#1" });
+  assert.equal(find(tree, (n) => n.type === "Modal").props.visible, true);
+  assert.match(textOf(tree), /Commands use observation only/);
+  assert.match(textOf(tree), /Allow: \/work\/test/);
+  assert.match(textOf(tree), /No protected paths/);
+  assert.match(textOf(tree), /Out-of-scope change/);
+  find(tree, (n) => n.type === "PillButton" && n.props.title === "Approve for next turn").props.onPress();
+  find(tree, (n) => n.type === "PillButton" && n.props.title === "Decline").props.onPress();
+  assert.deepEqual(decisions, [true, false]);
+  scope.view = null;
+  host.begin();
+  tree = EditScopeControl({ chatId: "/project#1", visible: false });
+  assert.equal(find(tree, (n) => n.type === "InlineError").props.message, "Connect to the Computer to read edit scope.");
+  assert.doesNotMatch(textOf(tree), /Loading edit scope/);
+  host.unmount();
+});
+
+test("shared edit-scope controls reject late reads and mutations after reconnect or Chat changes", async () => {
+  const react = hookHost({ effects: true });
+  const source = fs.readFileSync(path.join(__dirname, "../packages/shared/src/edit-scope.ts"), "utf8");
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const exports = {};
+  let tick;
+  vm.runInNewContext(compiled, {
+    exports,
+    require: (id) => (id === "react" ? react : id === "./result.mjs" ? require("../packages/shared/src/result.mjs") : require(id)),
+    setInterval: (fn) => {
+      tick = fn;
+      return 1;
+    },
+    clearInterval() {},
+  });
+  const view = (revision) => ({
+    revision,
+    policy: { allowed: [], protected: [] },
+    roots: ["/work"],
+    warnings: [],
+    busy: false,
+    capability: "observed",
+    limits: "limited",
+  });
+  const reads = [],
+    saves = [];
+  const api = {
+    read: () => {
+      const request = deferred();
+      reads.push(request);
+      return request.promise;
+    },
+    save: () => {
+      const request = deferred();
+      saves.push(request);
+      return request.promise;
+    },
+    resolve: async () => view(9),
+  };
+  const render = (connection = api, chat = "/project#1") => {
+    react.begin();
+    return exports.useEditScope(connection, chat);
+  };
+  render();
+  reads[0].resolve(view(1));
+  await settle();
+  let controls = render();
+  assert.equal(controls.view.revision, 1);
+  tick();
+  const saving = controls.save({ allowed: [], protected: [] });
+  saves[0].resolve(view(2));
+  await saving;
+  reads[1].resolve(view(0));
+  await settle();
+  controls = render();
+  assert.equal(controls.view.revision, 2, "a read that started before Save cannot overwrite its result");
+  const failedSave = controls.save(null);
+  saves[1].reject(new Error("Error invoking remote method 'chat:edit-scope:save': Error: Path must stay inside the Worktree"));
+  await failedSave;
+  tick();
+  reads[2].resolve(view(2));
+  await settle();
+  controls = render();
+  assert.equal(controls.error, "Path must stay inside the Worktree", "successful polling preserves the failed Save explanation without transport details");
+  const oldSave = controls.save(null);
+  const newer = deferred(),
+    replacement = { ...api, read: () => newer.promise };
+  render(replacement, "/project#2");
+  newer.resolve(view(3));
+  await settle();
+  saves[2].resolve(view(99));
+  await oldSave;
+  controls = render(replacement, "/project#2");
+  assert.equal(controls.view.revision, 3, "a mutation of the old Chat cannot replace the new host state");
+  react.unmount();
 });

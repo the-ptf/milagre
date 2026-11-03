@@ -66,7 +66,8 @@
     "src/themes/palettes/*.ts",
     "src/genui-renderer.tsx",
     "src/use-compaction-feedback.ts",
-    "src/outbox-delivery.ts"
+    "src/outbox-delivery.ts",
+    "src/edit-scope.ts"
   ],
   "type": "module",
   "exports": {
@@ -475,7 +476,8 @@
     "./design-preview": {
       "types": "./src/design-preview.d.mts",
       "default": "./src/design-preview.mjs"
-    }
+    },
+    "./edit-scope": "./src/edit-scope.ts"
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

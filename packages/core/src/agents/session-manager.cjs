@@ -36,6 +36,7 @@ class SessionManager {
     send,
     linkedFor = () => null,
     permissionPolicy = () => undefined,
+    editScopeCheck = () => null,
     onSessionClosed = () => {},
     onTurnStarted = () => {},
     // What a new session is told about this machine's network (events.cjs hostNetworkInstructions). Read as each session
@@ -44,7 +45,18 @@ class SessionManager {
     idleMs = IDLE_MS,
     batchMs = BATCH_MS,
   }) {
-    Object.assign(this, { createSession, send, linkedFor, permissionPolicy, onSessionClosed, onTurnStarted, hostInstructions, idleMs, batchMs });
+    Object.assign(this, {
+      createSession,
+      send,
+      linkedFor,
+      permissionPolicy,
+      editScopeCheck,
+      onSessionClosed,
+      onTurnStarted,
+      hostInstructions,
+      idleMs,
+      batchMs,
+    });
     this.sessions = new Map();
     this.buffers = new Map();
     this.queues = new Map();
@@ -153,6 +165,7 @@ class SessionManager {
       linked: this.linkedFor(chatId),
       // A bot's thread or a Chat a bot opened gets the bot's answers for Bot rules mode.
       permissionPolicy: this.permissionPolicy(chatId),
+      editScopeCheck: (files) => this.editScopeCheck(chatId, files, cwd),
       emit: (event) => this.forward(chatId, entry, event),
     });
     this.sessions.set(chatId, entry);

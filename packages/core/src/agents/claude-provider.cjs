@@ -152,6 +152,7 @@ class ClaudeSession {
     interruptGraceMs = 3000,
     // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
     permissionPolicy,
+    editScopeCheck = () => null,
   }) {
     Object.assign(this, {
       cwd,
@@ -172,6 +173,7 @@ class ClaudeSession {
       spawnImpl,
       interruptGraceMs,
       permissionPolicy,
+      editScopeCheck,
     });
     this.state = { sessionId: resumeId ?? null, turnId: null, hasText: false };
     this.query = null;
@@ -387,7 +389,10 @@ class ClaudeSession {
       hooks.PreToolUse = [
         {
           hooks: [
-            (input, toolUseID) => this.guardHook(input) ?? (this.permissions.mode === "bot" && this.permissionPolicy ? this.gateHook(input, toolUseID) : {}),
+            (input, toolUseID) =>
+              this.scopeHook(input) ??
+              this.guardHook(input) ??
+              (this.permissions.mode === "bot" && this.permissionPolicy ? this.gateHook(input, toolUseID) : {}),
           ],
         },
       ];
@@ -444,6 +449,12 @@ class ClaudeSession {
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});
   }
 
+  scopeHook(input) {
+    const request = claudeRequest(input.tool_name, input.tool_input ?? {});
+    const reason = request.kind === "edit" ? this.editScopeCheck(request.files) : null;
+    return reason ? { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } } : null;
+  }
+
   // A babysit Run: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "deny" holds even in
   // bypassPermissions, so a command the Run's level doesn't allow is refused in every mode, subagents' included. The
   // reason is what the agent reads and the step shows. Undefined lets the call go on.
@@ -490,6 +501,8 @@ class ClaudeSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
     const request = claudeRequest(toolName, input, options);
+    const scopeReason = request.kind === "edit" ? this.editScopeCheck(request.files) : null;
+    if (scopeReason) return Promise.resolve({ behavior: "deny", message: scopeReason });
     // The hook refused it already; this covers a Claude Code that skipped the hook.
     const refused = this.guard && request.kind === "command" ? babysitDenial(request.command, this.guard) : null;
     if (refused) return Promise.resolve({ behavior: "deny", message: refused });

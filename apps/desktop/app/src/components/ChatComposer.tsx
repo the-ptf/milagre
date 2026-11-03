@@ -1,3 +1,4 @@
+import { EditScopeControl } from "./EditScopeControl";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
 import { MessageSelection } from "./MessageSelection";
@@ -1897,6 +1898,9 @@ export function ChatComposer({
               <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
             )}
             <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+              {(agentChatId ?? runtimeChat)?.match(/#\d+$/) && (
+                <EditScopeControl key={agentChatId ?? runtimeChat} chatId={(agentChatId ?? runtimeChat)!} visible={!offScreen} />
+              )}
               <PromptComposer
                 offlineName={offlineName}
                 reconnectingName={reconnectingName}

@@ -371,6 +371,11 @@ function makeBridge(invoke, listen, send) {
     switchAccountAfterLimit: (projectPath, sessionId, provider, accountId) => invoke("chat:limit-switch", projectPath, sessionId, provider, accountId),
     scheduleLimitResume: (projectPath, sessionId, sourceMessageId) => invoke("chat:limit-resume", projectPath, sessionId, sourceMessageId),
     cancelLimitResume: (projectPath, sessionId, sendId) => invoke("chat:limit-resume:cancel", projectPath, sessionId, sendId),
+    editScope: {
+      read: (request) => invoke("chat:edit-scope:read", request),
+      save: (request) => invoke("chat:edit-scope:save", request),
+      resolve: (request) => invoke("chat:edit-scope:resolve", request),
+    },
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
     deleteChat: (projectPath, sessionId) => invoke("chat:delete", projectPath, sessionId),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),

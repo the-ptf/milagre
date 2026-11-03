@@ -721,6 +721,7 @@ export type MilagreBridge = {
     provider: ModelProvider,
     accountId: string,
   ) => Promise<{ continued: boolean; label: string }>;
+  editScope: import("@milagre/shared/edit-scope").EditScopeApi;
   patchChat: (projectPath: string, sessionId: number, patch: SessionPatch) => Promise<void>;
   deleteChat: (projectPath: string, sessionId: number) => Promise<void>;
   /** Archives one of a chat's subagents, or brings it back; the provider carries on either way. */

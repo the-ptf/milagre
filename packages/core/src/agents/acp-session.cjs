@@ -135,6 +135,7 @@ class AcpSession {
     interruptGraceMs = 3000,
     // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
     permissionPolicy,
+    editScopeCheck = () => null,
     config = antigravityAcp,
     createRpc = (options) => new AcpRpc(options),
   }) {
@@ -155,6 +156,7 @@ class AcpSession {
       clientVersion,
       interruptGraceMs,
       permissionPolicy,
+      editScopeCheck,
       config,
       createRpc,
     });
@@ -527,6 +529,10 @@ class AcpSession {
     const call = { ...known, ...toolCall, rawInput: { ...known.rawInput, ...toolCall.rawInput } };
     if (!toolCall.rawInput && !known.rawInput) delete call.rawInput;
     const request = acpPermissionRequest(requestId, call, options);
+    if (request.kind === "edit" && this.editScopeCheck(request.files)) {
+      this.reply(id, outcome(pickOption(options, "deny")));
+      return;
+    }
     // A babysit Run's level refuses it before the workspace, a card or the mode can allow it. ACP takes no reason.
     const reason = this.guard && request.kind === "command" ? babysitDenial(request.command, this.guard) : null;
     if (reason) {

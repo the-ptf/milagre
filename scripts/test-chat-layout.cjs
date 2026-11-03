@@ -132,7 +132,18 @@ async function browserChecks() {
       const element = document.activeElement;
       return element.getAttribute('aria-label') || (element.querySelector('[data-model-name]') ? 'Model' : element.textContent.trim());
     })()`;
-    const expectedFocus = ["New Worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Dictate", "Send"];
+    const expectedFocus = [
+      "New Worktree",
+      "main",
+      "Linear issue",
+      "Edit scope",
+      "Prompt",
+      "Add attachments and sources",
+      "Model",
+      "Agent permissions",
+      "Dictate",
+      "Send",
+    ];
     const tab = async (backwards = false) => {
       const modifiers = backwards ? ["shift"] : [];
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab", modifiers });
@@ -143,7 +154,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-new-chat-pickers] button").focus()');
     const forward = [await evaluate(focusLabel)];
     for (let i = 1; i < expectedFocus.length; i++) forward.push(await tab());
-    assert.deepEqual(forward, expectedFocus, "New Chat tabs through setup, prompt, add, model, permissions, dictate and send in order");
+    assert.deepEqual(forward, expectedFocus, "New Chat tabs through setup, edit scope, prompt, add, model, permissions, dictate and send in order");
     const backward = [await evaluate(focusLabel)];
     for (let i = 1; i < expectedFocus.length; i++) backward.push(await tab(true));
     assert.deepEqual(backward, expectedFocus.toReversed(), "Shift+Tab reverses the New Chat focus order");

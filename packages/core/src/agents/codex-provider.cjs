@@ -160,6 +160,7 @@ class CodexSession {
     interruptGraceMs = 3000,
     // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
     permissionPolicy,
+    editScopeCheck = () => null,
     createRpc = (options) => new CodexRpc(options),
   }) {
     Object.assign(this, {
@@ -179,6 +180,7 @@ class CodexSession {
       clientVersion,
       interruptGraceMs,
       permissionPolicy,
+      editScopeCheck,
       createRpc,
     });
     // steps: ids of the tool steps started in this turn and not yet completed.
@@ -611,7 +613,14 @@ class CodexSession {
         answer("deny");
       } else this.permissions.add(request, answer);
     } else if (method === "item/fileChange/requestApproval") {
-      const request = codexFileRequest(id, params, this.fileChanges.get(params.itemId));
+      const changes = this.fileChanges.get(params.itemId) ?? [];
+      const request = codexFileRequest(id, params, changes);
+      const destinations = changes.flatMap((change) => (typeof change.kind?.move_path === "string" ? [change.kind.move_path] : []));
+      // A session-wide root grant can bypass later edit callbacks. A scoped Chat never grants one.
+      if (this.editScopeCheck(params.grantRoot ? [] : [...request.files, ...destinations])) {
+        answer("deny");
+        return;
+      }
       const decided = params.grantRoot ? null : this.access.answer(request, this.permissions.mode);
       if (decided) answer(decided.decision);
       else this.permissions.add(request, answer, { inWorkspace: !params.grantRoot && this.access.contains(request.files) });
