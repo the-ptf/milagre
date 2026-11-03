@@ -142,15 +142,43 @@ export function trimChatPage(key: string, canTrim: () => boolean) {
   if (canTrim()) trimNow(key);
 }
 
+// iOS closes the phone's sockets when the app leaves the foreground, so a read on its way then fails without the
+// computer being gone. Such a read shows no error: it is read again when the app is back.
+let foreground = true;
+let departures = 0;
+const cutOff = new Map<string, () => Promise<void>>();
+/** The app came to the foreground or left it (AppState, wired in all-computers.tsx). */
+export function setChatPagesForeground(next: boolean) {
+  if (foreground === next) return;
+  foreground = next;
+  if (!next) {
+    departures++;
+    return;
+  }
+  const resumed = [...cutOff];
+  cutOff.clear();
+  for (const [key, work] of resumed) if (listeners.has(key)) void run(key, work);
+}
+
 async function load(key: string, client: PageClient, projectPath: string, chatId: number) {
   const current = windows.get(key);
   if (current) set(key, { ...current, loading: true, error: undefined });
   else recall(key);
+  const departed = departures;
   try {
     // The client bounds the read itself (30 s, with retries while the Mac is busy); a shorter cap here would lose its answer.
     const page = await readPage(client, projectPath, chatId, TURNS);
     set(key, { ...page, loading: false });
   } catch (error) {
+    if (departed !== departures) {
+      // What it showed stays; a Chat with nothing yet keeps waiting for the read on return.
+      const shown = windows.get(key);
+      if (shown?.messages.length) set(key, { ...shown, loading: false });
+      const work = () => load(key, client, projectPath, chatId);
+      if (foreground) void run(key, work);
+      else cutOff.set(key, work);
+      return;
+    }
     set(key, { ...(windows.get(key) ?? EMPTY), loading: false, error: error instanceof Error ? error.message : String(error) });
   }
 }

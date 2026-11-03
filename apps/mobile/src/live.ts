@@ -130,6 +130,8 @@ export function openLive(
 /** The first wait before a failed Project fetch is tried again with the socket open, doubling up to the cap. */
 const PROJECT_RETRY_MS = 1000;
 const PROJECT_RETRY_MAX_MS = 8000;
+/** How long after a failed first fetch back in the foreground it is tried again, before any error shows. */
+const RESUME_RETRY_MS = 1500;
 
 export type SyncOptions = {
   /** Opens the Project's live socket. */
@@ -183,6 +185,12 @@ export function syncProject({
   // then a send the computer took keeps the composer waiting for the saved copy (a busy Mac's 429, a dropped answer).
   let retry: unknown;
   let failures = 0;
+  // Counts the trips to the background: iOS closes the phone's sockets there, so a fetch on its way when the app left
+  // fails without the computer being gone. That failure is not shown; the fetch on return catches up.
+  let departures = 0;
+  // The first fetch back in the foreground may run before the network has woken; its failure is tried again once, quietly.
+  let resumed = false;
+  let resumeRetry: unknown;
   function retryLater() {
     timers.clearTimeout(retry);
     if (stopped || !open) return;
@@ -198,14 +206,22 @@ export function syncProject({
       while (pending && !stopped) {
         const next = pending;
         pending = null;
+        const departed = departures;
         try {
           await (next === "project" ? snapshot() : runs());
           if (next === "project") {
             failures = 0;
+            resumed = false;
             timers.clearTimeout(retry);
           }
         } catch (error) {
-          if (stopped) continue;
+          if (stopped || departed !== departures) continue;
+          if (next === "project" && resumed) {
+            resumed = false;
+            timers.clearTimeout(resumeRetry);
+            resumeRetry = timers.setTimeout(() => void pull("project"), RESUME_RETRY_MS);
+            continue;
+          }
           onError(error as Error);
           if (next === "project") retryLater();
         }
@@ -248,6 +264,9 @@ export function syncProject({
     });
   }
   function background() {
+    departures++;
+    resumed = false;
+    timers.clearTimeout(resumeRetry);
     timers.clearTimeout(poll);
     timers.clearTimeout(retry);
     failures = 0;
@@ -266,6 +285,7 @@ export function syncProject({
       background();
       return;
     }
+    resumed = true;
     void pull("project");
     start();
     schedule();

@@ -398,3 +398,48 @@ test("a closed socket leaves failed fetches to the poll, and stopping cancels a 
   stop();
   assert.equal(queue.length, 0);
 });
+
+test("a fetch cut off by the app leaving the foreground shows no error, and a failed first fetch back is tried again quietly", async () => {
+  const { timers, run } = clock();
+  const errors: string[] = [];
+  let watcher: (active: boolean) => void = () => {};
+  let rejectFirst: (error: Error) => void = () => {};
+  let snapshots = 0;
+  let failNext = false;
+  const stop = syncProject({
+    connect: () => ({ close() {} }),
+    snapshot: () => {
+      snapshots++;
+      if (snapshots === 1) return new Promise<void>((_resolve, reject) => (rejectFirst = reject));
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new Error("network still waking"));
+      }
+      return Promise.resolve();
+    },
+    runs: async () => {},
+    onError: (error) => errors.push(error.message),
+    active: () => true,
+    watchActive: (listener) => {
+      watcher = listener;
+      return () => {};
+    },
+    pollDelay: () => 4000,
+    timers,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  watcher(false);
+  rejectFirst(new Error("Connection lost"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(errors, [], "the cut-off fetch is not reported");
+  failNext = true;
+  watcher(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(snapshots, 2);
+  assert.deepEqual(errors, [], "the first failure back is retried before it shows");
+  run(1500);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(snapshots, 3);
+  assert.deepEqual(errors, []);
+  stop();
+});

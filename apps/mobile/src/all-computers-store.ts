@@ -140,6 +140,9 @@ export function createAllComputersStore(deps: StoreDeps) {
   // Every mounted consumer's own requirements; what is read is their union (see `effective`).
   const consumers = new Set<{ policy: ViewPolicy }>();
   let foreground = true;
+  // Counts the app's trips out of the foreground: iOS closes its sockets there, so a read on its way when the app left
+  // fails without the computer being gone. Such a read counts as skipped, not failed.
+  let departures = 0;
   let expandAll = false;
   let isFolded: (hostId: string, path: string) => boolean = () => false;
   const listeners = new Set<() => void>();
@@ -315,6 +318,7 @@ export function createAllComputersStore(deps: StoreDeps) {
     const run = (async () => {
       let succeeded = 0;
       let failed = 0;
+      const departed = departures;
       const dead = () => succeeded === 0 && failed >= 2;
       const skipped = () => dead() || idle();
       // Counts the requests that worked and failed in this read; a skipped one is neither.
@@ -324,7 +328,9 @@ export function createAllComputersStore(deps: StoreDeps) {
           succeeded++;
           return value;
         } catch (error) {
-          if (error !== STALE && error !== SKIPPED) failed++;
+          if (error === STALE || error === SKIPPED) throw error;
+          if (departed !== departures) throw SKIPPED;
+          failed++;
           throw error;
         }
       };
@@ -439,10 +445,12 @@ export function createAllComputersStore(deps: StoreDeps) {
         );
         if (!alive(entry, client)) return;
         flush();
-        if (failed > 0 && succeeded === 0) {
+        // A read the app's trip to the background cut off says nothing about the computer; the read on return will.
+        const cutOff = departed !== departures && succeeded === 0;
+        if (!cutOff && failed > 0 && succeeded === 0) {
           entry.failures++;
           entry.state = entry.failures >= (entry.lastSuccess ? 2 : 1) ? "offline" : entry.state === "online" ? "online" : "checking";
-        } else if (succeeded > 0 || entry.shared || entry.state === "checking") {
+        } else if (!cutOff && (succeeded > 0 || entry.shared || entry.state === "checking")) {
           entry.failures = 0;
           entry.state = "online";
           entry.lastSuccess = deps.now();
@@ -618,6 +626,7 @@ export function createAllComputersStore(deps: StoreDeps) {
     setForeground(next: boolean) {
       if (foreground === next) return;
       foreground = next;
+      if (!next) departures++;
       reconcile();
     },
     /** Reads every computer now, its Project list too: pull to refresh. */

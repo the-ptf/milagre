@@ -7,6 +7,7 @@ import {
   refreshChatPage,
   savedChange,
   setChatPageDisk,
+  setChatPagesForeground,
   subscribeChatPage,
   trimChatPage,
   warmChatPages,
@@ -174,4 +175,31 @@ test("a followed Chat's window stays bounded through successive refreshes, trimm
   await second;
   assert.equal(peekChatPage(key)?.messages.length, 45, "a reader scrolled up keeps the history");
   stop();
+});
+
+test("a Chat read cut off by the app leaving the foreground shows no error and reads again on return", async () => {
+  const key = "test://cut|/p#1";
+  let reads = 0;
+  let fail: (error: Error) => void = () => {};
+  const client = {
+    url: "test://cut",
+    chatMessages: () => {
+      reads++;
+      if (reads === 1) return new Promise<ReturnType<typeof page>>((_resolve, reject) => (fail = reject));
+      return Promise.resolve(page([1, 2]));
+    },
+  };
+  const release = subscribeChatPage(key, () => {});
+  const first = refreshChatPage(key, client, "/p", 1);
+  setChatPagesForeground(false);
+  fail(new Error("Connection lost"));
+  await first;
+  assert.equal(peekChatPage(key)?.error, undefined, "no error for a read the app's trip away cut off");
+  assert.equal(reads, 1, "nothing is read in the background");
+  setChatPagesForeground(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads, 2);
+  assert.deepEqual(ids(peekChatPage(key) ?? null), [1, 2]);
+  assert.equal(peekChatPage(key)?.loading, false);
+  release();
 });

@@ -767,3 +767,28 @@ test("the preload's Chats: every listed one with a summary, archived ones and on
     { projectPath: "/b", chatId: 4, lastAt: 400, lastId: 40 },
   ]);
 });
+
+test("a read cut off by the app leaving the foreground does not count toward offline", async () => {
+  let down = false;
+  const flaky = fakeClient("https://a", { fail: () => down });
+  const { store, timers, settle } = setup({ "https://a": flaky });
+  store.sync([host("https://a")], null);
+  store.show();
+  await settle();
+  assert.equal(store.viewOf("https://a")?.state, "online");
+  // iOS closes the sockets as the app leaves: the read on its way fails.
+  down = true;
+  timers.at(-1)!.run();
+  store.setForeground(false);
+  await settle();
+  await settle();
+  store.setForeground(true);
+  await settle();
+  await settle();
+  assert.equal(store.viewOf("https://a")?.state, "online", "the cut-off read and the first one back make one failure, not two");
+  down = false;
+  timers.findLast((timer) => timer.live)!.run();
+  await settle();
+  await settle();
+  assert.equal(store.viewOf("https://a")?.state, "online");
+});
