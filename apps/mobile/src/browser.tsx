@@ -197,7 +197,8 @@ export function BrowserSheet({
   const loadSent = useCallback(async () => {
     if (!source || !chatId) return;
     try {
-      setSent(await source.call<SavedPageComment[]>("browser-comments:list", [{ chatId }]));
+      const comments = await source.call<SavedPageComment[]>("browser-comments:list", [{ chatId }]);
+      setSent(Array.isArray(comments) ? comments : []);
     } catch {
       /* Pins of sent comments are a nicety; the page still works without them. */
     }
@@ -207,7 +208,7 @@ export function BrowserSheet({
     let disposed = false;
     source.call<SavedPageComment[]>("browser-comments:list", [{ chatId }]).then(
       (comments) => {
-        if (!disposed) setSent(comments);
+        if (!disposed) setSent(Array.isArray(comments) ? comments : []);
         return undefined;
       },
       () => {},
@@ -929,8 +930,8 @@ function PageError({
   }
   return (
     <PageScroll contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: 14 }}>
-      <View style={{ width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: colors.field }}>
-        <Icon icon={WifiDisconnected01Icon} size={26} tone="ink2" />
+      <View style={{ width: 56, height: 56, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.field }}>
+        <Icon icon={WifiDisconnected01Icon} size={24} tone="ink2" />
       </View>
       <Text style={{ color: colors.ink, fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", textAlign: "center" }}>
         {`${address} didn't load`}
