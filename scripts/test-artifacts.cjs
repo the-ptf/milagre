@@ -1219,12 +1219,16 @@ async function browserChecks() {
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Explanation");
     await waitFor(`${dock}.querySelector("[data-slot=artifact-zoom]")?.textContent === "100%"`);
     assert.equal(await evaluate(`!!${dock}.querySelector("textarea")`), false);
+    // Expand through the normal control: the narrow dock's resize handle overlaps its left edge on Linux.
+    // Give the click and its 264px bubble room inside the page, without relying on a one-pixel edge hit.
+    await evaluate(`${dock}.querySelector('[aria-label="Fill the window with the artifacts"]').click()`);
+    await waitFor(`${dock}.dataset.full === "true" && ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect().width > 400`);
     // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
     await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
     await waitFor(`${dock}.querySelector('button[aria-label="Stop commenting"]')?.getAttribute("aria-pressed") === "true"`);
     // Leave room for the 264px bubble so this checks anchoring rather than its right-edge clamp.
     const heading = await evaluate(
-      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 1), y: Math.round(r.top + 40) }; })()`,
+      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 40) }; })()`,
     );
     // The page's helper may still be starting: click until the bubble opens.
     // sendInputEvent stops at the page's frame; input through the DevTools protocol is hit-tested into it, as a real click.
@@ -1258,6 +1262,9 @@ async function browserChecks() {
       `!${dock}.querySelector("[data-slot=artifact-comment-bubble]") && /Send\\s*1/.test(${dock}.querySelector('[data-slot="artifact-send"]')?.textContent ?? "")`,
     );
     await screenshot("artifact-pending-designs-off");
+    await evaluate(`${dock}.querySelector('[aria-label="Show the Chat beside the artifacts"]').click()`);
+    await waitFor(`${dock}.dataset.full !== "true"`);
+
     await evaluate(`${dock}.querySelector('[data-slot="artifact-send"]').click()`);
     await waitFor('window.sent.at(-1).includes("Explain the next step")');
     const htmlComment = await evaluate("window.sent.at(-1)");
