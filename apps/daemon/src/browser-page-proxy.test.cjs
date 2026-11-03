@@ -110,3 +110,28 @@ test("page proxy refuses non-web addresses and cleans up tunnel startup failures
   await proxy.close();
   await assert.rejects(proxy.open({ url: "http://localhost:3000" }), /closed/);
 });
+
+test("a quick tunnel's address is handed out only once public DNS resolves it", async () => {
+  const { waitForPublicDns } = require("./browser-page-proxy.cjs");
+  let asked = 0;
+  const resolver = { resolve4: async () => (++asked < 3 ? Promise.reject(Object.assign(new Error("not found"), { code: "ENOTFOUND" })) : ["104.16.0.1"]) };
+  assert.equal(await waitForPublicDns("https://fresh-name.trycloudflare.com", { resolver, intervalMs: 1 }), true);
+  assert.equal(asked, 3);
+  const never = { resolve4: async () => Promise.reject(new Error("not found")) };
+  assert.equal(await waitForPublicDns("https://never.trycloudflare.com", { resolver: never, intervalMs: 1, timeoutMs: 5 }), false);
+});
+
+test("the page proxy waits for the tunnel to be published before returning it", async () => {
+  const order = [];
+  const proxy = createBrowserPageProxy({
+    tunnel: async () => ({ url: "https://late.trycloudflare.com", close: async () => {} }),
+    published: async (url) => {
+      order.push(`published ${url}`);
+    },
+  });
+  const lease = await proxy.open({ url: "http://127.0.0.1:9/" });
+  order.push("returned");
+  assert.deepEqual(order, ["published https://late.trycloudflare.com", "returned"]);
+  assert.ok(lease.url.startsWith("https://late.trycloudflare.com/"));
+  await proxy.close();
+});

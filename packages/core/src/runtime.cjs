@@ -315,26 +315,36 @@ function createRuntime(options) {
   // its screenshot, and the message, sent as the user's in the Chat's own provider, model and mode, then recorded.
   commands.handle("browser-comments:send-from-page", async (_context, request) => {
     const chatId = typeof request?.chatId === "string" ? request.chatId : "";
-    const text = typeof request?.text === "string" ? request.text.trim().slice(0, 4000) : "";
+    // `comments`: the phone's queued comments on its own page views, sent as one message. Older phones send one.
+    const batch = Array.isArray(request?.comments) ? request.comments.slice(0, 50) : null;
+    const items = (batch ?? [request]).map((item) => ({
+      page: item?.page,
+      text: typeof item?.text === "string" ? item.text.trim().slice(0, 4000) : "",
+    }));
     const point = [request?.x, request?.y];
-    if (!chatId || !text) throw new Error("Write the comment first.");
-    if (!request.page && !point.every((value) => typeof value === "number" && value >= 0 && value <= 1))
+    if (!chatId || !items.length || items.some((item) => !item.text)) throw new Error("Write the comment first.");
+    if (batch && items.some((item) => !item.page)) throw new Error("Tap an element on the page before sending a comment.");
+    if (!batch && !request.page && !point.every((value) => typeof value === "number" && value >= 0 && value <= 1))
       throw new Error("Tap the page to place a comment pin.");
     const scope = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
     if (!session) throw new Error("Open an existing Chat before commenting on a page.");
-    // A native page describes its own element. Never read coordinates from a different page on the computer.
-    const local = request.page;
-    const remote = local ? null : await browsers.devtools({ chatId, page: typeof request.targetId === "string" ? request.targetId : undefined });
-    const target = local ? { url: String(local.url ?? "").slice(0, 2000), title: String(local.title ?? "").slice(0, 200) } : remote.target;
     const { pageCommentId, pageCommentsMessage } = await import("@milagre/shared/page-comments");
-    const { element, shot } = local ? { element: pageElement(local.element), shot: null } : await commentAtPoint(remote.session, point[0], point[1]);
-    if (!element) throw new Error("Tap an element on the page before sending a comment.");
-    const id = pageCommentId();
-    const comment = { id, url: target.url, title: target.title, element, text };
+    const comments = [];
+    let shot = null;
+    for (const item of items) {
+      // A native page describes its own element. Never read coordinates from a different page on the computer.
+      const local = item.page;
+      const remote = local ? null : await browsers.devtools({ chatId, page: typeof request.targetId === "string" ? request.targetId : undefined });
+      const target = local ? { url: String(local.url ?? "").slice(0, 2000), title: String(local.title ?? "").slice(0, 200) } : remote.target;
+      const read = local ? { element: pageElement(local.element), shot: null } : await commentAtPoint(remote.session, point[0], point[1]);
+      if (!read.element) throw new Error("Tap an element on the page before sending a comment.");
+      shot = read.shot;
+      comments.push({ id: pageCommentId(), url: target.url, title: target.title, element: read.element, text: item.text });
+    }
     // Recorded first: a comment the store refuses is never sent, and the agent can resolve every one it reads.
-    await pageComments.add({ chatId, comments: [comment] });
+    await pageComments.add({ chatId, comments });
     const settings = chats.turnSettings(chatId) ?? {};
     // The phone user's own message, so a bot's Chat or a Run Chat treats it like one typed in the composer.
     try {
@@ -345,15 +355,15 @@ function createRuntime(options) {
         permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
         projectPath: scope,
         sessionId,
-        body: pageCommentsMessage([comment], { screenshots: !!shot }),
-        images: shot ? [{ id: `page-comment-${id}`, name: `page-comment-${id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
+        body: pageCommentsMessage(comments, { screenshots: !!shot }),
+        images: shot ? [{ id: `page-comment-${comments[0].id}`, name: `page-comment-${comments[0].id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
         files: [],
       });
     } catch (error) {
-      await pageComments.forget({ chatId, ids: [id] }).catch(() => {});
+      await pageComments.forget({ chatId, ids: comments.map((comment) => comment.id) }).catch(() => {});
       throw error;
     }
-    return { id };
+    return batch ? { ids: comments.map((comment) => comment.id) } : { id: comments[0].id };
   });
   for (const method of ["list", "attach", "detach"])
     commands.handle(`simulator:${method}`, async (context, request) => {
