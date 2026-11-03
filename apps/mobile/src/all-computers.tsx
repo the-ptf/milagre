@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } fro
 import { AppState } from "react-native";
 import { createAllComputersStore, type HostView, type ViewPolicy } from "./all-computers-store";
 import { listArchivedChats } from "./chat-list-archived";
-import { warmChatPages } from "./chat-pages";
+import { setChatPagesForeground, warmChatPages } from "./chat-pages";
 import { createClient } from "./client";
 import { savedChatDefaults, savedFoldedProjects, savedHiddenProjects, savedProjectOrder } from "./hosts-native";
 import type { SavedHost } from "./hosts-store";
@@ -25,7 +25,10 @@ export const allComputers = createAllComputersStore({
   warm: (client, chats, limit) =>
     client.chatMessages ? warmChatPages({ url: client.url, chatMessages: client.chatMessages }, chats, limit) : Promise.resolve(),
 });
-AppState.addEventListener("change", (state) => allComputers.setForeground(state === "active"));
+AppState.addEventListener("change", (state) => {
+  allComputers.setForeground(state === "active");
+  setChatPagesForeground(state === "active");
+});
 
 // Folds change in savedFoldedProjects; this counts them so the folded sets can be handed out as one stable value.
 let foldVersion = 0;
