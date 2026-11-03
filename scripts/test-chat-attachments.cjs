@@ -52,6 +52,8 @@ window.milagre = new Proxy({
  searchProjectFiles: async (root, query) => { window.searches.push({root,query}); return ['src/my app.ts', 'src/model.ts', 'media/photo.png', 'media/clip.mp4'].filter(p => p.includes(query)); },
  // The main process saves the message, then starts the turn (see ChatHost.send).
  sendMessage: async request => {
+   // Held for the quote check: the message waits, then fails, and nothing is saved.
+   if (window.holdSend) { window.heldSend = request; return new Promise((_, reject) => { window.releaseSend = () => reject(new Error('Connection lost.')); }); }
    window.calls.push(request);
    const message = { id: state.next_id, session_id: request.sessionId, body: request.body, images: request.images, ...(request.files.length ? { files: request.files } : {}), context: null, role: 'user', model: request.model };
    Object.assign(state, { next_id: state.next_id + 1, messages: [...state.messages, message] });
@@ -156,31 +158,65 @@ async function browserChecks() {
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview stored.png"] img').src.startsWith('milagre-media:')`));
     await screenshot("legacy-and-stored-images");
 
-    // A selected passage quotes into this Chat without sending or discarding its existing draft.
+    // A selected passage becomes a quote chip over this Chat's prompt, without sending or touching the draft; several stack.
+    const { quoteMarkdown } = require("../packages/shared/src/prompt-parts.mjs");
+    const quoteButton = '[aria-label="Quote selected text"]';
+    const select = (from, to = from) =>
+      evaluate(`(() => {
+        const start = document.querySelector(${JSON.stringify(from)}), end = document.querySelector(${JSON.stringify(to)});
+        const range = document.createRange(); range.setStart(start, 0); range.setEnd(end, end.childNodes.length);
+        const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+        return selection.toString();
+      })()`);
+    const chips = () => evaluate(`[...document.querySelectorAll('[data-quote-chip]')].map(chip => chip.textContent)`);
     await type("My question");
-    const passage = await evaluate(`(() => {
-      const content = document.querySelector('[data-slot="message-content"]');
-      const range = document.createRange(); range.selectNodeContents(content);
-      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
-      return selection.toString();
-    })()`);
-    await waitFor(`!!document.querySelector('[aria-label="Ask about selected text"]')`);
-    const askPoint = await evaluate(
-      `(() => { const rect=document.querySelector('[aria-label="Ask about selected text"]').getBoundingClientRect(); return {x: Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)}; })()`,
+    const passage = await select("article#message-7 [data-quotable]");
+    await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
+    const quotePoint = await evaluate(
+      `(() => { const rect=document.querySelector(${JSON.stringify(quoteButton)}).getBoundingClientRect(); return {x: Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)}; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...askPoint });
-    window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...askPoint });
-    const quoted = `My question\n\n${passage
-      .split("\n")
-      .map((line) => (line.trim() ? `> ${line}` : ">"))
-      .join("\n")}\n\n`;
-    await waitFor(`document.querySelector('[data-prompt-editor]').value === ${JSON.stringify(quoted)}`);
+    window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...quotePoint });
+    window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...quotePoint });
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
+    assert.match((await chips())[0], /^The written design is committed\..*Claude reply$/);
     await waitFor(`document.activeElement.matches('[data-prompt-editor]')`);
-    assert.equal(await evaluate("window.calls.length"), 0, "Ask fills the draft without sending it");
-    // Typing starts after the quote, even when the draft had a previous caret.
-    await evaluate(`document.activeElement.dispatchEvent(new InputEvent('beforeinput', {inputType:'insertText', data:'?', bubbles:true, cancelable:true}))`);
-    await waitFor(`document.querySelector('[data-prompt-editor]').value === ${JSON.stringify(quoted + "?")}`);
-    await screenshot("ask-selected-passage");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question", "Quote keeps the draft as typed");
+    assert.equal(await evaluate("window.calls.length"), 0, "Quote does not send");
+    assert.equal(await evaluate(`window.getSelection().isCollapsed`), true, "Quote clears the selection");
+    // A selection across two messages offers nothing to quote.
+    await select("article#message-4 [data-quotable]", "article#message-7 [data-quotable]");
+    await delay(150);
+    assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(quoteButton)})`), false, "No Quote across messages");
+    // The shortcut quotes too. A passage of the user's own message says so, and reads as typed: its chips are their tokens.
+    await select("article#message-8 [data-quotable]");
+    const own = "Fix @src/greeting.ts using /frontend-design";
+    await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
+    await evaluate(
+      `document.dispatchEvent(new KeyboardEvent('keydown', { key: '"', code: 'Quote', shiftKey: true, ${process.platform === "darwin" ? "metaKey" : "ctrlKey"}: true, bubbles: true, cancelable: true }))`,
+    );
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 2`);
+    assert.equal((await chips())[1], `${own}Your message`);
+    await screenshot("quote-chips");
+    // The message goes out as the quotes' blockquotes, then the text. Held, it shows them as quotes in its bubble;
+    // when it fails, the quotes come back as chips and the text as typed.
+    await evaluate(`window.holdSend = true`);
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await key("Enter");
+    await waitFor(`!!window.heldSend`);
+    assert.equal(await evaluate(`window.heldSend.body`), `${quoteMarkdown(passage)}\n\n${quoteMarkdown(own)}\n\nMy question`);
+    await waitFor(`document.querySelectorAll('article:last-of-type [data-sent-quote]').length === 2`);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-quote-chip]').length`), 0, "The quotes leave the composer with the message");
+    assert.equal(await evaluate(`document.querySelector('article:last-of-type [data-quotable]').textContent`), "My question");
+    await screenshot("sent-quotes");
+    await evaluate(`window.holdSend = false; window.releaseSend(); window.heldSend = null`);
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 2`);
+    assert.match((await chips())[0], /Claude reply$/, "A quote put back keeps its source");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question");
+    await click('[data-quote-chip] [aria-label="Remove quote"]');
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
+    assert.match((await chips())[0], /Your message$/, "X removes that quote alone");
+    await click('[data-quote-chip] [aria-label="Remove quote"]');
+    await waitFor(`!document.querySelector('[data-quote-chip]')`);
     await type("");
 
     // A sent message shows its @file mention and /skill as chips; the mentioned file gets no second tile, an unmentioned one keeps its tile.

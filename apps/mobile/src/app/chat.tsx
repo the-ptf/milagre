@@ -61,7 +61,9 @@ import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPromp
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ChatLinkProvider } from "../chat-link-context";
-import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
+import { composerQuote, quotedMessage, quoteSource, type ComposerQuote } from "@milagre/shared/prompt-parts";
+import { QuoteChips } from "../quote-chips";
+import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
@@ -256,6 +258,7 @@ type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; host
  */
 const NO_MEMBERS: WorktreeBinding[] = [];
 const NO_MESSAGES: ChatMessage[] = [];
+const NO_QUOTES: ComposerQuote[] = [];
 const NO_REFS: string[] = [];
 
 export default function ChatScreen() {
@@ -418,17 +421,20 @@ function ChatPane({
   const [terminalCount, setTerminalCount] = useState<number | undefined>(undefined);
   // The composer has the keyboard; without it, a keyboard up over the docked Terminal is the Terminal's.
   const [composerFocused, setComposerFocused] = useState(false);
-  // Ask in a message's selection menu: the passage goes into the draft as a quote and the composer takes the keyboard.
+  // Quote in a message's selection menu: the passage joins the composer's quotes and the composer takes the keyboard.
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const askChatId = `${session.snapshot?.project.path ?? ""}#${params.id ?? `new:${params.worktreeId}`}`;
-  const askTarget = useRef({ chatId: "", setDrafts: composer.setDrafts });
+  const askProvider = params.id ? session.snapshot?.project.state.sessions[Number(params.id)]?.provider : undefined;
+  const askTarget = useRef({ chatId: "", provider: askProvider, setQuotes: composer.setQuotes });
   useEffect(() => {
-    askTarget.current = { chatId: askChatId, setDrafts: composer.setDrafts };
+    askTarget.current = { chatId: askChatId, provider: askProvider, setQuotes: composer.setQuotes };
   });
   // One identity for the pane's life, so the messages that read it don't render again with each keystroke.
-  const askAboutPassage = useCallback((passage: string) => {
-    const { chatId: target, setDrafts } = askTarget.current;
-    setDrafts((current) => ({ ...current, [target]: quoteIntoDraft(current[target] || "", passage) }));
+  const askAboutPassage = useCallback((passage: string, from: QuoteFrom) => {
+    const { chatId: target, provider, setQuotes } = askTarget.current;
+    const quote = composerQuote(passage, quoteSource(from, provider));
+    if (!quote) return;
+    setQuotes((current) => ({ ...current, [target]: [...(current[target] || []), quote] }));
     setComposerFocusRequest((value) => value + 1);
   }, []);
   const [error, setError] = useState("");
@@ -1092,6 +1098,9 @@ function ChatPane({
   const chat = params.id ? project.state.sessions[Number(params.id)] : null;
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
   const draft = composer.drafts[chatId] || "";
+  const quotes = composer.quotes[chatId] || NO_QUOTES;
+  // What Send sends: the quotes as blockquotes, then the typed text.
+  const outgoing = quotedMessage(quotes, draft);
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
@@ -1332,6 +1341,10 @@ function ChatPane({
         const { [chatId]: carried, ...rest } = current;
         return { ...rest, [destination]: carried || current[destination] || "" };
       });
+      composer.setQuotes((current) => {
+        const { [chatId]: carried, ...rest } = current;
+        return carried?.length ? { ...rest, [destination]: [...(current[destination] || []), ...carried] } : current;
+      });
       const destinationParams = { ...params, hostId, projectPath: state.project.path, worktreeId: String(starter.id), prefill: undefined };
       setArriving(destinationParams);
       router.setParams(destinationParams);
@@ -1489,10 +1502,18 @@ function ChatPane({
     });
   }
   /** Whether the message went: "busy" when it wasn't tried, the Chat being busy. An issue key starts the Chat in its own new worktree. */
-  async function send(body = draft, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+  async function send(body = outgoing, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
     const messageDelivery = run && !prAction && !issue ? delivery : undefined;
+    // The composer's own message carries its quotes; the typed part is what clears from the field once it goes.
+    const own = body === outgoing;
+    const typed = own ? draft : body;
+    const sentQuotes = own ? quotes : NO_QUOTES;
+    const sentQuoteIds = new Set(sentQuotes.map((quote) => quote.id));
+    const dropSentQuotes = () => {
+      if (sentQuotes.length) composer.setQuotes((held) => ({ ...held, [chatId]: (held[chatId] || []).filter((quote) => !sentQuoteIds.has(quote.id)) }));
+    };
     // `/undo` opens Undo changes instead of reaching the agent, even mid-turn; its preview waits for the turn to end.
-    if (chat && withAttachments && body.trim() === "/undo") {
+    if (chat && withAttachments && typed.trim() === "/undo" && !sentQuotes.length) {
       composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
       setUndoIntent("Undo");
       void undo.open();
@@ -1514,7 +1535,7 @@ function ChatPane({
         const id = randomUUID();
         const mentioned =
           withAttachments && worktree?.path
-            ? mentionAttachments(body, worktree.path, attachments, (path) => knownFiles.current.has(worktree.path, path)).added
+            ? mentionAttachments(typed, worktree.path, attachments, (path) => knownFiles.current.has(worktree.path, path)).added
             : [];
         const picked = withAttachments ? [...attachments, ...mentioned] : [];
         await outbox.enqueue({
@@ -1549,7 +1570,8 @@ function ChatPane({
             : {}),
           attachments: outboxAttachments(picked),
         });
-        if (body === draft || issue) composer.setDrafts((current) => clearSentDraft(current, chatId, body, !!issue));
+        if (own || issue) composer.setDrafts((current) => clearSentDraft(current, chatId, typed, !!issue));
+        dropSentQuotes();
         const ids = new Set(picked.map((item) => item.id));
         composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !ids.has(item.id)) }));
         Keyboard.dismiss();
@@ -1567,10 +1589,11 @@ function ChatPane({
     // against the Project (the one just typed) is asked about now, for up to a second.
     const mentionRoot = worktree?.path;
     // Only a mention the Mac has not answered about waits (up to a second); an ordinary send still clears the composer before its first await.
-    if (withAttachments && mentionRoot && knownFiles.current.unchecked(mentionRoot, mentionPaths(body), 1).length)
-      await knownFiles.current.resolve(client, mentionRoot, mentionPaths(body));
+    // A path named inside a quote was the agent's or an earlier message's: only what was typed attaches files.
+    if (withAttachments && mentionRoot && knownFiles.current.unchecked(mentionRoot, mentionPaths(typed), 1).length)
+      await knownFiles.current.resolve(client, mentionRoot, mentionPaths(typed));
     const mentions =
-      withAttachments && mentionRoot ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path)) : { added: [] };
+      withAttachments && mentionRoot ? mentionAttachments(typed, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path)) : { added: [] };
     const sent = body;
     const sendingProjectPath = project.path;
     // The next New Chat opens where this one started, and so does a pick of this repository's Project.
@@ -1583,7 +1606,7 @@ function ChatPane({
     const sending = withAttachments ? [...attachments, ...mentions.added] : [];
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
-    const clearsDraft = sent === draft || issueKey !== undefined;
+    const clearsDraft = own || issueKey !== undefined;
     const creates = newWorktree || issueKey !== undefined;
     // A new Chat's send is this screen's, not every New Chat's in the Worktree (pending-chats.ts).
     const key = `${client.url}|${originChatId}`;
@@ -1616,7 +1639,8 @@ function ChatPane({
         provider: actualProvider,
       },
     }));
-    if (clearsDraft) composer.setDrafts((current) => clearSentDraft(current, chatId, sent, issueKey !== undefined));
+    if (clearsDraft) composer.setDrafts((current) => clearSentDraft(current, chatId, typed, issueKey !== undefined));
+    dropSentQuotes();
     const sentIds = new Set(sending.map((item) => item.id));
     composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !sentIds.has(item.id)) }));
     following.current = true;
@@ -1725,6 +1749,12 @@ function ChatPane({
           if (destination !== chatId) delete next[chatId];
           return next;
         });
+      if (here && destination !== chatId)
+        composer.setQuotes((held) => {
+          const next = { ...held, [destination]: [...(held[destination] || []), ...(held[chatId] || [])] };
+          delete next[chatId];
+          return next;
+        });
       if (here)
         composer.setAttachments((current) => {
           const sentIds = new Set(sending.map((item) => item.id));
@@ -1758,6 +1788,11 @@ function ChatPane({
           return next;
         });
         if (clearsDraft) composer.setDrafts((current) => ({ ...current, [chatId]: [draft, current[chatId]].filter(Boolean).join("\n\n") }));
+        if (sentQuotes.length)
+          composer.setQuotes((held) => ({
+            ...held,
+            [chatId]: [...sentQuotes, ...(held[chatId] || []).filter((quote) => !sentQuoteIds.has(quote.id))],
+          }));
         composer.setAttachments((current) => ({
           ...current,
           [chatId]: [...sending, ...(current[chatId] || []).filter((item) => !sending.some((sent) => sent.id === item.id))],
@@ -2138,7 +2173,7 @@ function ChatPane({
     busy ||
     picking ||
     (newWorktree && !base) ||
-    (!draft.trim() && !attachments.length) ||
+    (!draft.trim() && !quotes.length && !attachments.length) ||
     !!chat?.archived ||
     !!chat?.formerWorktree ||
     (!offline && unavailable);
@@ -2902,6 +2937,13 @@ function ChatPane({
                                 })}
                               </PageScroll>
                             )}
+                            <QuoteChips
+                              quotes={quotes}
+                              disabled={busy}
+                              onRemove={(id) =>
+                                composer.setQuotes((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((quote) => quote.id !== id) }))
+                              }
+                            />
                             <PromptField
                               // A draft keeps its native text input when its computer or Project changes, preserving
                               // keyboard focus and the caret. Saved Chats still get an input of their own.
@@ -3046,7 +3088,7 @@ function ChatPane({
                                   </View>
                                 )
                               )}
-                              {run && !offline && !draft.trim() && !attachments.length && (
+                              {run && !offline && !draft.trim() && !quotes.length && !attachments.length && (
                                 <IconButton
                                   label="Stop agent"
                                   icon={StopIcon}
@@ -3056,7 +3098,7 @@ function ChatPane({
                                   onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
                                 />
                               )}
-                              {(offline || !run || !!draft.trim() || !!attachments.length) && (
+                              {(offline || !run || !!draft.trim() || !!quotes.length || !!attachments.length) && (
                                 <IconButton
                                   label={busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"}
                                   icon={ArrowUp01Icon}

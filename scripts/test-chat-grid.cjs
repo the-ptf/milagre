@@ -52,8 +52,13 @@ const runs = {
   "/fixture#3": run({ approvals: [{ requestId: "r1", toolName: "Bash", input: {} }] }),
 };
 const model = MODEL_CATALOG[0];
-const focusedChat = (
-  <ChatComposer messages={state.messages.filter((item) => item.session_id === 1)}
+// The focused tile's composer, as App's: the focused Chat's key, and its quotes.
+function FocusedChat({ chatKey }) {
+  const [quotes, setQuotes] = useState([]);
+  window.composerQuotes = quotes;
+  return (
+  <ChatComposer messages={state.messages.filter((item) => item.session_id === 1)} chatId={Number(chatKey.split("#")[1])} agentChatId={chatKey}
+    quotes={quotes} onQuotesChange={setQuotes}
     imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
     projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
     models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
@@ -61,7 +66,8 @@ const focusedChat = (
     fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}
     onRecommendationSelect={noop} worktrees={[]} onWorktreeChange={noop}
     isolation="local" onIsolationChange={noop} branches={[]} baseBranch="main" onBaseBranchChange={noop} newChatError={null} />
-);
+  );
+}
 window.focusedTo = null;
 window.dismissed = null;
 document.documentElement.classList.add("dark");
@@ -78,7 +84,7 @@ function Harness() {
       <ChatGrid keys={["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused={focused}
         states={{ "/fixture": state }} runs={runs} delegated={new Set()} models={MODEL_CATALOG}
         onFocus={(key) => (window.focusedTo = key)} onDismiss={(key) => (window.dismissed = key)}
-        pinned={pinned} onTogglePin={togglePin}>{focusedChat}</ChatGrid>
+        pinned={pinned} onTogglePin={togglePin}><FocusedChat chatKey={focused} /></ChatGrid>
       <GridDropOverlay />
     </>
   );
@@ -181,6 +187,19 @@ async function browserChecks() {
       text.click();
     })()`);
     assert.equal(await evaluate("window.focusedTo"), null, "Selecting text in an unfocused tile keeps the selection instead of focusing it");
+    // Quote on that selection focuses the tile, and the quote reaches its composer once that composer is the tile's.
+    await waitFor(`!!document.querySelector('[aria-label="Quote selected text"]')`);
+    await evaluate(`document.querySelector('[aria-label="Quote selected text"]').click()`);
+    assert.equal(await evaluate("window.focusedTo"), "/fixture#2", "Quoting from a tile focuses it");
+    assert.equal(await evaluate("window.composerQuotes.length"), 0, "The quote waits for the tile's own composer");
+    await evaluate(`window.setFocused("/fixture#2")`);
+    await waitFor(`window.composerQuotes.length === 1`);
+    assert.match(await evaluate("window.composerQuotes[0].text"), /^Done with the first pass on refactor the sidebar/);
+    assert.equal(await evaluate("window.composerQuotes[0].source"), "Claude reply");
+    await waitFor(`!!document.querySelector('[data-chat-tile="/fixture#2"] [data-quote-chip]')`);
+    await screenshot("chat-grid-quote.png");
+    await evaluate(`window.focusedTo = null; window.setFocused("/fixture#1")`);
+    await waitFor(`!!document.querySelector('[data-chat-tile="/fixture#1"] [data-promptbar]')`);
     await evaluate("getSelection().removeAllRanges()");
 
     // Moving focus moves the one composer to the new tile instead of building another.
@@ -227,6 +246,7 @@ async function browserChecks() {
     console.log("PASS: only the focused tile has a composer; a waiting tile says Needs you; Mark read and clicking a tile call back");
     console.log("PASS: Keep in grid toggles a tile's pin; a drag over a tile shows which side it lands on");
     console.log("PASS: images, the lightbox and text selection in an unfocused tile don't focus it; focus moves the same composer");
+    console.log("PASS: Quote on a selection in an unfocused tile focuses it and lands in that Chat's composer");
     app.exit(0);
   } catch (error) {
     console.error(error);

@@ -1,15 +1,67 @@
 import { promptSkillParts, prosePrompt } from "./prompt-skills.mjs";
+import { providerName } from "./providers.mjs";
 
-/** Appends a selected passage below the existing draft, then a blank line for the question. */
-export function quoteIntoDraft(draft, passage) {
-  const lines = passage
-    .replace(/\r\n?/g, "\n")
-    .replace(/^\n+|\s+$/g, "")
-    .split("\n");
-  if (!lines.some((line) => line.trim())) return draft;
-  const quote = lines.map((line) => (line.trim() ? `> ${line}` : ">")).join("\n");
-  const before = draft.replace(/\s+$/, "");
-  return `${before ? `${before}\n\n` : ""}${quote}\n\n`;
+const passageText = (passage) => passage.replace(/\r\n?/g, "\n").replace(/^\n+|\s+$/g, "");
+
+/** A passage as a Markdown blockquote: `> ` on each line, a bare `>` on blank ones. Empty when it has no text. */
+export function quoteMarkdown(passage) {
+  const lines = passageText(passage).split("\n");
+  if (!lines.some((line) => line.trim())) return "";
+  return lines.map((line) => (line.trim() ? `> ${line}` : ">")).join("\n");
+}
+
+let quoteCount = 0;
+/** A quote chip for the composer, or null when the passage has no text. */
+export function composerQuote(passage, source) {
+  const text = passageText(passage);
+  if (!text.trim()) return null;
+  return { id: `quote-${++quoteCount}`, text, ...(source ? { source } : {}) };
+}
+
+/** Where a quoted passage came from, as its chip names it. */
+export function quoteSource(from, provider) {
+  return from === "user" ? "Your message" : `${providerName(provider)} reply`;
+}
+
+/** What a composer sends: each quote as a blockquote, a blank line apart, then the typed text, kept as typed. */
+export function quotedMessage(quotes, text) {
+  const blocks = quotes.map((quote) => quoteMarkdown(typeof quote === "string" ? quote : quote.text)).filter(Boolean);
+  if (!blocks.length) return text;
+  return text.trim() ? `${blocks.join("\n\n")}\n\n${text}` : blocks.join("\n\n");
+}
+
+/** A stable key per quote of one message, its text and how many times that text came before (a message may repeat one). */
+export function quoteKeys(quotes) {
+  const seen = new Map();
+  return quotes.map((text) => {
+    const count = (seen.get(text) ?? 0) + 1;
+    seen.set(text, count);
+    return { key: `${count}:${text}`, text };
+  });
+}
+
+/**
+ * A message's leading blockquotes and the rest, the inverse of `quotedMessage`. A blank line ends a quote; the first
+ * line that isn't one ends them all. A body without leading quotes (or with an empty one) comes back whole.
+ */
+export function splitQuotes(body) {
+  const lines = body.replace(/\r\n?/g, "\n").split("\n");
+  const quotes = [];
+  let current = null;
+  let index = 0;
+  for (; index < lines.length; index++) {
+    const match = /^ {0,3}> ?(.*)$/.exec(lines[index]);
+    if (match) {
+      (current ??= []).push(match[1]);
+      continue;
+    }
+    if (lines[index].trim() || (!current && !quotes.length)) break;
+    if (current) quotes.push(current.join("\n"));
+    current = null;
+  }
+  if (current) quotes.push(current.join("\n"));
+  if (!quotes.length || quotes.some((quote) => !quote.trim())) return { quotes: [], text: body };
+  return { quotes: quotes.map(passageText), text: lines.slice(index).join("\n") };
 }
 
 const TRAILING_PUNCTUATION = /[.,!?;:)\]}]+$/;

@@ -17,6 +17,7 @@ import type { AgentCliStatus, AgentModels, ModelProvider, NamedLinkDeleted, Perm
 import { isLinkScopeKey, scopeKey as keyOfScope } from "@milagre/shared/chat-scopes";
 import { isDeletedLinkState, isLinkGone } from "@milagre/shared/worktree-link";
 import type { Attachment } from "./attachments";
+import type { ComposerQuote } from "@milagre/shared/prompt-parts";
 import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
@@ -768,6 +769,8 @@ function ComposerProvider({ children }: { children: React.ReactNode }) {
   const [linkOperations] = useState(createLinkOperations);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, Attachment[]>>({});
+  // Passages quoted from the transcript, kept beside each Chat's draft until it is sent.
+  const [quotes, setQuotes] = useState<Record<string, ComposerQuote[]>>({});
   const [preferences, setPreferences] = useState<Record<string, TurnPreferences>>({});
   // Compact now, pressed on the context sheet: the chat screen sends `/compact` when its counter moves (see chat.tsx).
   const [compactRequests, setCompactRequests] = useState<Record<string, number>>({});
@@ -796,6 +799,8 @@ function ComposerProvider({ children }: { children: React.ReactNode }) {
       setDrafts,
       attachments,
       setAttachments,
+      quotes,
+      setQuotes,
       preferences,
       setPreferences,
       defaults,
@@ -805,7 +810,7 @@ function ComposerProvider({ children }: { children: React.ReactNode }) {
       compactRequests,
       requestCompact,
     }),
-    [drafts, attachments, preferences, defaults, setDefaultPermission, setDefaultModel, linkOperations, compactRequests, requestCompact],
+    [drafts, attachments, quotes, preferences, defaults, setDefaultPermission, setDefaultModel, linkOperations, compactRequests, requestCompact],
   );
   return <ComposerContext.Provider value={value}>{children}</ComposerContext.Provider>;
 }
@@ -818,6 +823,8 @@ type Composer = {
   setDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   attachments: Record<string, Attachment[]>;
   setAttachments: React.Dispatch<React.SetStateAction<Record<string, Attachment[]>>>;
+  quotes: Record<string, ComposerQuote[]>;
+  setQuotes: React.Dispatch<React.SetStateAction<Record<string, ComposerQuote[]>>>;
   preferences: Record<string, TurnPreferences>;
   setPreferences: React.Dispatch<React.SetStateAction<Record<string, TurnPreferences>>>;
   /** How many times Compact now was pressed per chat key; the chat screen acts on each change. */

@@ -238,6 +238,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The chips draw as named elements, like the other components these tests do not render.
       if (/^\.\/prompt-chip$/.test(id) && !(id in modules))
         return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip", ChatMentionChip: "ChatMentionChip" };
+      if (/^\.\.?\/quote-chips$/.test(id) && !(id in modules)) return { QuoteChips: "QuoteChips", SentQuote: "SentQuote" };
       if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
       if (
         (id === "@milagre/shared/agent-runs" ||
@@ -3259,6 +3260,11 @@ function chatHost({
     attachments: {},
     setAttachments(fn) {
       this.attachments = fn(this.attachments);
+    },
+    quotes: {},
+    // Called detached, as React's setter is.
+    setQuotes: (fn) => {
+      session.quotes = fn(session.quotes);
     },
     preferences: {},
     compactRequests: {},
@@ -6463,6 +6469,54 @@ test("a failed first send restores the sent text alongside the next draft and re
   const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
   assert.equal(button.props.disabled, false);
   assert.equal(find(screen.render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
+});
+
+test("quoted passages ride over the phone composer, go out as blockquotes before the text, and come back as quotes when the send fails", async () => {
+  const screen = chatHost({ effects: true });
+  const quote = (passage, from) => find(screen.render(), (node) => node.type === "ChatLinkProvider").props.ask(passage, from);
+  const chips = () => find(screen.render(), (node) => node.type === "QuoteChips").props;
+  quote("first passage", "assistant");
+  quote("  \n", "assistant");
+  quote("my own\nwords", "user");
+  quote("dropped", "assistant");
+  assert.deepEqual(
+    Array.from(chips().quotes, ({ text, source }) => [text, source]),
+    [
+      ["first passage", "Claude reply"],
+      ["my own\nwords", "Your message"],
+      ["dropped", "Claude reply"],
+    ],
+    "an empty selection adds nothing; the rest stack in order",
+  );
+  chips().onRemove(chips().quotes[2].id);
+  screen.send();
+  await settle();
+  const sent = screen.calls.find((call) => call.method === "chat:send").args[0];
+  assert.equal(sent.body, "> first passage\n\n> my own\n> words\n\nfirst message");
+  assert.equal(transcriptMessages(screen)[0]?.body, sent.body, "the pending bubble shows what went");
+  assert.equal(chips().quotes.length, 0, "the quotes leave with the message");
+  assert.equal(screen.field().value, "");
+  screen.sending.reject(new Error("Connection lost"));
+  await settle();
+  assert.deepEqual(
+    Array.from(chips().quotes, ({ text }) => text),
+    ["first passage", "my own\nwords"],
+  );
+  assert.equal(screen.field().value, "first message");
+});
+
+test("the phone sends a quote alone, with nothing typed", async () => {
+  const screen = chatHost({ effects: true });
+  screen.session.drafts["/p#new:1"] = "";
+  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, true);
+  find(screen.render(), (node) => node.type === "ChatLinkProvider").props.ask("Only this", "assistant");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false, "a quote alone is a message");
+  screen.send();
+  await settle();
+  const sent = screen.calls.find((call) => call.method === "chat:send").args[0];
+  assert.equal(sent.body, "> Only this");
 });
 
 test("a New Chat opened while another one is still sending starts empty and sends its own", async () => {
@@ -18170,7 +18224,61 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
 });
 
-test("native selection freezes the passage, preserves the formatted view and asks with only the chosen text", () => {
+test("the plain selection on builds without the native view quotes the range picked in it, or the whole message", () => {
+  const react = hookHost({ effects: true });
+  const asked = [];
+  const { MessageActions, MessageAskContext } = load("message-actions.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Platform: { OS: "ios" },
+      Pressable: "Pressable",
+      TextInput: "TextInput",
+      View: "View",
+      processColor: (value) => value,
+      useWindowDimensions: () => ({ fontScale: 1 }),
+    },
+    "./theme": { fonts: { mono: "Menlo" }, useTheme: () => ({ colors: fakePalette, textPx: 15, codeSize: 12 }) },
+    "expo-modules-core": { requireOptionalNativeModule: () => null },
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
+    "expo-clipboard": {},
+    "./plain-text": { markdownPlainText: (value) => value },
+    "./ui": { PillButton: "PillButton" },
+    "./primitives/tap": { tap() {} },
+  });
+  MessageAskContext.defaultValue = (text, from) => asked.push([text, from]);
+  const render = () => {
+    react.begin();
+    const tree = MessageActions({ text: "Ask about this part only", from: "user", children: (open, swap) => swap(jsx("Message", { ...messageProps(open) })) });
+    const expand = (node) => {
+      if (!node || typeof node !== "object") return node;
+      if (Array.isArray(node)) return node.map(expand);
+      if (typeof node.type === "function") return expand(node.type(node.props));
+      return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
+    };
+    return expand(tree);
+  };
+  const messageProps = (open) => ({ onOpen: open });
+  render().props.onLongPress();
+  let tree = render();
+  find(tree, (node) => node.type === "TextInput").props.onSelectionChange({ nativeEvent: { selection: { start: 10, end: 19 } } });
+  tree = render();
+  find(tree, (node) => node.props.title === "Quote").props.onPress();
+  assert.deepEqual(asked, [["this part", "user"]]);
+  assert.equal(render().type, "Pressable");
+  assert.equal(
+    find(render(), (node) => node.type === "TextInput"),
+    undefined,
+    "Quote closes the selection",
+  );
+  render().props.onLongPress();
+  tree = render();
+  find(tree, (node) => node.type === "TextInput").props.onSelectionChange({ nativeEvent: { selection: { start: 4, end: 4 } } });
+  find(render(), (node) => node.props.title === "Quote").props.onPress();
+  assert.deepEqual(asked.at(-1), ["Ask about this part only", "user"], "nothing picked quotes the whole message");
+});
+
+test("native selection freezes the passage, preserves the formatted view and quotes only the chosen text", () => {
   const react = hookHost({ effects: true });
   const asked = [];
   let fontScale = 1.35;
@@ -18195,7 +18303,7 @@ test("native selection freezes the passage, preserves the formatted view and ask
     "./ui": {},
     "./primitives/tap": { tap() {} },
   });
-  MessageAskContext.defaultValue = (text) => asked.push(text);
+  MessageAskContext.defaultValue = (text, from) => asked.push([text, from]);
   let text = "A **selected** passage.";
   const render = () => {
     react.begin();
@@ -18207,7 +18315,7 @@ test("native selection freezes the passage, preserves the formatted view and ask
   let current = render();
   let native = find(current.slot, (node) => node.type === "NativeSelectableText");
   assert.deepEqual({ ...native.props.start }, { x: 42, y: 180 });
-  assert.equal(native.props.askTitle, "Ask");
+  assert.equal(native.props.askTitle, "Quote");
   assert.equal(native.props.look.fontScale, 1.35, "selection follows iOS text scaling instead of shrinking back to unscaled text");
   assert.equal(native.props.look.codeFontFamily, "Menlo", "inline and block code keep the message's font");
   assert.deepEqual([native.props.look.fontSize, native.props.look.lineHeight, native.props.look.codeSize], [20, 29, 14]);
@@ -18219,7 +18327,7 @@ test("native selection freezes the passage, preserves the formatted view and ask
   assert.equal(native.props.paragraphs[0].spans.map((span) => span.text).join(""), "A selected passage.");
   assert.equal(native.props.style.height, 120);
   native.props.onAsk({ nativeEvent: { text: "selected" } });
-  assert.deepEqual(asked, ["selected"]);
+  assert.deepEqual(asked, [["selected", "assistant"]], "a reply's passage is the agent's");
   native.props.onEnd();
   current = render();
   assert.equal(

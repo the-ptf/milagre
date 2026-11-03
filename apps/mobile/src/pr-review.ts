@@ -1,6 +1,7 @@
 import { parsePatch, type DiffLine } from "@milagre/shared/diff-parse";
 import { splitRows, wordChanges, type Range } from "@milagre/shared/diff-layout";
 import { openThreads } from "@milagre/shared/pull-request-review";
+import { quoteMarkdown } from "@milagre/shared/prompt-parts";
 import type { MergeMethod, PullRequestComment, PullRequestDetail, PullRequestFile, PullRequestThread } from "@milagre/shared/pull-request-review";
 import type { DiffRow } from "./diff-rows";
 
@@ -92,17 +93,10 @@ export function lineMessage(pr: PullRequestDetail, path: string, line: number, s
 
 export const askPrefill = (pr: PullRequestDetail) => `About PR #${pr.number}: `;
 
-const quote = (text: string) =>
-  text
-    .trim()
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n");
-
 /** "Fix in Chat" on a review thread in the diff: desktop's words. */
 export function threadFixMessage(pr: Pick<PullRequestDetail, "number">, thread: PullRequestThread) {
   const where = thread.line ? `${thread.path}:${thread.line}` : thread.path;
-  const comments = thread.comments.filter((comment) => !comment.pending).map((comment) => `${comment.author} wrote:\n${quote(comment.body)}`);
+  const comments = thread.comments.filter((comment) => !comment.pending).map((comment) => `${comment.author} wrote:\n${quoteMarkdown(comment.body)}`);
   return `Address this review thread on PR #${pr.number}, at ${where}:\n\n${comments.join("\n\n")}\n\nMake the change, push it, and tell me what you did so I can reply and resolve the thread.`;
 }
 
