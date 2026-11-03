@@ -54,6 +54,7 @@ export type DesignPin = {
 };
 /** The comments pinned on the canvas, the one whose bubble is open, and what changes them. */
 export type PinControls = {
+  showResolved?: boolean;
   pins: DesignPin[];
   /** Comments already sent: shown where they were left, to read, not to change. */
   sent: DesignPin[];
@@ -773,7 +774,7 @@ const DesignFrame = memo(function DesignFrame({
   const sentPins = comments.sent.flatMap((pin) => {
     if (pin.design.id !== design.id) return [];
     // History can reveal one resolved comment; closing its bubble clears it from the canvas again.
-    if (pin.resolved !== undefined && pin.key !== comments.open) return [];
+    if (!comments.showResolved && pin.resolved !== undefined && pin.key !== comments.open) return [];
     if (pin.nodeId && layerBounds && shown.version >= pin.design.version) {
       const bounds = layerBounds.get(pin.nodeId);
       // A layer's comments move with its current bounds; removed or hidden layers have no visible pin.

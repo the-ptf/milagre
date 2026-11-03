@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addPendingComment, pageComments, pagePins, setCommenting, setPageDraft, setSentComments } from "./page-comments.ts";
+import { addPendingComment, pageComments, pagePins, setCommenting, setPageDraft, setSentComments, setShowResolved } from "./page-comments.ts";
 
 const element = {
   selector: "button.pay",
@@ -22,11 +22,14 @@ test("only the comments still to send are numbered on the page, 1 to n like the 
     pagePins(pageComments("/p#1"), URL).map((pin) => [pin.state, pin.n]),
     [
       ["open", 0],
-      ["resolved", 0],
       ["pending", 1],
       ["pending", 2],
     ],
   );
+  setShowResolved("/p#1", true);
+  assert.equal(pagePins(pageComments("/p#1"), URL).filter((pin) => pin.state === "resolved").length, 1);
+  setShowResolved("/p#1", false);
+  assert.equal(pagePins(pageComments("/p#1"), URL).length, 3);
 });
 
 test("a comment being written waits on its tab through tab and Chat switches, and goes when comment mode ends", () => {

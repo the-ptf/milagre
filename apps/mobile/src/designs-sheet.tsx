@@ -97,6 +97,7 @@ export function DesignsSheet({
   const [choice, setChoice] = useState<ArtifactRef | null>(() => (chatKey && unsent.get(chatKey)?.choice) || null);
   const [sent, setSent] = useState<ArtifactComment[]>([]);
   const [composer, setComposer] = useState<Composer | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
   // Until the canvas paints its first design, the design icon draws itself over the empty page.
   const [painted, setPainted] = useState(false);
 
@@ -301,7 +302,7 @@ export function DesignsSheet({
       comment.x === undefined ||
       comment.y === undefined ||
       shown(comment.design.id) !== comment.design.version ||
-      (comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`)
+      (!showResolved && comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`)
         ? []
         : [
             {
@@ -317,7 +318,7 @@ export function DesignsSheet({
           ],
     );
     return [...done, ...waiting].map((pin) => (pin.k === composer?.key ? { ...pin, hide: true } : pin));
-  }, [notes, sent, numbers, loaded, composer?.key, colors.accent, colors.onAccent, colors.green, colors.ink2, colors.page]);
+  }, [notes, sent, numbers, loaded, composer?.key, showResolved, colors.accent, colors.onAccent, colors.green, colors.ink2, colors.page]);
   const pinsKey = JSON.stringify(pins);
   useEffect(() => {
     command({ t: "pins", pins: JSON.parse(pinsKey) });
@@ -450,6 +451,7 @@ export function DesignsSheet({
   const latest = shown && "latest" in shown ? shown.latest : (summary?.versions ?? 1);
   const menu: MenuSection[] = shown
     ? [
+        { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
         { items: [{ id: "choose", title: pendingHere || sentHere ? "Chosen" : "Choose this design", checked: pendingHere || sentHere, disabled: sentHere }] },
         ...(latest > 1
           ? [
@@ -469,7 +471,8 @@ export function DesignsSheet({
     : [];
   const choose = (action: string) => {
     if (!shown) return;
-    if (action === "choose") setChoice(pendingHere ? null : refOf(shown));
+    if (action === "resolved") setShowResolved(!showResolved);
+    else if (action === "choose") setChoice(pendingHere ? null : refOf(shown));
     else if (action === "share") openShare();
     else if (action === "delete") remove(shown);
     else if (action.startsWith("version:")) {

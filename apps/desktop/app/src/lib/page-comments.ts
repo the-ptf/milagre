@@ -9,7 +9,13 @@ export type PendingPageComment = { id: string; url: string; title: string; eleme
 /** A comment being written: the element picked on a tab's page, and what is typed so far. */
 export type PageCommentDraft = { url: string; element: PageElement; shot: string | null; text: string };
 
-type ChatComments = { commenting: boolean; pending: PendingPageComment[]; sent: SavedPageComment[]; drafts: Readonly<Record<string, PageCommentDraft>> };
+type ChatComments = {
+  showResolved?: boolean;
+  commenting: boolean;
+  pending: PendingPageComment[];
+  sent: SavedPageComment[];
+  drafts: Readonly<Record<string, PageCommentDraft>>;
+};
 const EMPTY: ChatComments = { commenting: false, pending: [], sent: [], drafts: {} };
 
 // Each Chat's page comments: whether its Browser panel is in comment mode, what it hasn't sent yet, and what the host
@@ -34,6 +40,9 @@ export function usePageComments(chatKey: string | null): ChatComments {
 }
 
 export const pageComments = (chatKey: string): ChatComments => chats.get(chatKey) ?? EMPTY;
+
+// Visibility belongs to the Chat and does not change its saved comments.
+export const setShowResolved = (chatKey: string, showResolved: boolean) => update(chatKey, (chat) => ({ ...chat, showResolved }));
 
 // Leaving comment mode drops what wasn't added; switching tab or Chat keeps it for when the page shows again.
 export const setCommenting = (chatKey: string, commenting: boolean) =>
@@ -76,11 +85,11 @@ export function useSentComment(id: string): SavedPageComment | undefined {
  * The pins a page shows: the Chat's comments on it, sent ones first, in the order they were left. Open comments carry
  * their number; resolved ones a check and the agent's note.
  */
-export function pagePins({ pending, sent }: ChatComments, url: string): PagePin[] {
+export function pagePins({ pending, sent, showResolved }: ChatComments, url: string): PagePin[] {
   const key = pageKey(url);
   const onPage = [
     ...sent
-      .filter((comment) => pageKey(comment.url) === key)
+      .filter((comment) => pageKey(comment.url) === key && (showResolved || !comment.resolved))
       .map((comment) => ({ ...comment, state: comment.resolved ? ("resolved" as const) : ("open" as const) })),
     ...pending
       .filter((comment) => pageKey(comment.url) === key)

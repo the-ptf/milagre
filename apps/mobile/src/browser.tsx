@@ -1,3 +1,4 @@
+import { confirmSheet } from "./confirm-store";
 import { commentActivity } from "./comment-activity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking, Pressable, Text, View } from "react-native";
@@ -164,6 +165,7 @@ export function BrowserSheet({
   const [page, setPage] = useState<{ title: string; url: string } | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [commenting, setCommenting] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
   const [box, setBox] = useState<Box | null>(null);
   const resetComments = () => {
     setCommenting(false);
@@ -227,15 +229,17 @@ export function BrowserSheet({
   const pageDrafts = drafts.filter((draft) => pageKey(draft.page.url) === here);
   const pageSent = sent.filter((comment) => pageKey(comment.url) === here);
   const pins: PagePin[] = [
-    ...pageSent.map((comment, index) => ({
-      n: index + 1,
-      id: `sent:${comment.id}`,
-      selector: comment.selector,
-      point: comment.point,
-      text: comment.text,
-      state: comment.resolved ? ("resolved" as const) : ("open" as const),
-      note: comment.resolved?.note,
-    })),
+    ...pageSent
+      .map((comment, index) => ({
+        n: index + 1,
+        id: `sent:${comment.id}`,
+        selector: comment.selector,
+        point: comment.point,
+        text: comment.text,
+        state: comment.resolved ? ("resolved" as const) : ("open" as const),
+        note: comment.resolved?.note,
+      }))
+      .filter((pin) => showResolved || pin.state !== "resolved"),
     ...pageDrafts.map((draft, index) => ({
       n: pageSent.length + index + 1,
       id: `draft:${draft.key}`,
@@ -336,6 +340,12 @@ export function BrowserSheet({
       icon={CommentAdd01Icon}
       selected={commenting}
       onPress={toggleComments}
+      onLongPress={() =>
+        confirmSheet("Comment options", undefined, [
+          { text: showResolved ? "Hide resolved comments" : "Show resolved comments", onPress: () => setShowResolved(!showResolved) },
+          { text: "Cancel", style: "cancel" },
+        ])
+      }
     />
   );
   const sendButton = drafts.length > 0 && (
@@ -808,7 +818,7 @@ function BrowserWebView({
     const current = view.current;
     if (!current || !ready.current) return;
     const { picking: on, pins: shown, accent, green } = latest.current;
-    current.injectJavaScript(`${pagePinsScript(shown, { accent, green })};true;`);
+    current.injectJavaScript(`${pagePinsScript(shown, { accent, green, showResolved: true })};true;`);
     if (on)
       current.injectJavaScript(
         `Promise.resolve(${pagePickScript(accent)}).then(element => { if (element) window.ReactNativeWebView.postMessage(JSON.stringify({kind:'pick',element})); });true;`,

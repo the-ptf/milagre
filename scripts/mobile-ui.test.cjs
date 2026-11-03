@@ -8888,6 +8888,7 @@ test("simulator sheet preserves its native header and bounds chooser/viewer cont
 });
 
 function browserHost(client) {
+  const sheets = [];
   const snapshot = { project: { state: { sessions: {} } }, runs: { runs: {} } };
   const react = hookHost({ effects: true }),
     files = new Map(),
@@ -8929,6 +8930,7 @@ function browserHost(client) {
   const source = load(
     "browser.tsx",
     {
+      "./confirm-store": { confirmSheet: (...args) => sheets.push(args) },
       react,
       "./comment-activity": require("../apps/mobile/src/comment-activity.ts"),
       "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -8965,6 +8967,7 @@ function browserHost(client) {
   );
   return {
     source,
+    sheets,
     snapshot,
     files,
     writes,
@@ -9149,6 +9152,15 @@ test("an open phone or iPad Browser refreshes pins when the agent resolves a com
     const shown = [];
     vm.runInNewContext(pagePinsScript(page().props.pins), { window: { __milagrePins: { set: (pins) => shown.push(...pins) } } });
     assert.deepEqual(shown, [], "the refreshed pins disappear without reopening the panel");
+    page().props.onLoaded(true);
+    const commentButton = () => find(h.render("BrowserSheet", props), (node) => node.props?.onLongPress);
+    commentButton().props.onLongPress();
+    assert.equal(h.sheets.at(-1)[2][0].text, "Show resolved comments");
+    h.sheets.at(-1)[2][0].onPress();
+    assert.equal(page().props.pins[0].state, "resolved", "long-press options restore resolved pins");
+    commentButton().props.onLongPress();
+    h.sheets.at(-1)[2][0].onPress();
+    assert.equal(page().props.pins.length, 0, "long-press options hide resolved pins again");
     delete comment.resolved;
     h.snapshot.runs.runs = {};
     h.snapshot.project.state.sessions["1"] = { summary: { lastAt: 5 } };
@@ -11574,7 +11586,7 @@ test("structured designs on mobile open on their canvas, with versions in the me
     find(tree, (node) => /^Edit|^Save$|^Layers$|^Inspect$/.test(node.props?.title ?? "")),
     undefined,
   );
-  assert.deepEqual(JSON.parse(JSON.stringify(menuItems(tree).map((item) => item.id))), ["choose", "version:2", "version:1", "delete"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(menuItems(tree).map((item) => item.id))), ["resolved", "choose", "version:2", "version:1", "delete"]);
   find(tree, (node) => node.type === "PullDown").props.onSelect("version:1");
   h.render("DesignsSheet", props);
   await settle();
@@ -15837,6 +15849,14 @@ test("phone and iPad artifact/design canvases clear resolved pins while retainin
         ["sent:11111111"],
         `${format}, docked=${docked}: history is hidden by default`,
       );
+      const options = () =>
+        find(h.render(name, props), (node) => node.props?.sections?.some((section) => section.items.some((item) => item.id === "resolved")));
+      options().props.onSelect("resolved");
+      h.render(name, props);
+      assert.equal(pins().length, 2, "the actions menu reveals resolved history");
+      options().props.onSelect("resolved");
+      h.render(name, props);
+      assert.equal(pins().length, 1, "the actions menu hides resolved history again");
       comments[0].resolved = { note: "Fixed too", at: 4 };
       h.snapshot.project.state.sessions["1"] = { summary: { lastAt: 4 } };
       h.render(name, props);
@@ -15903,7 +15923,7 @@ test("HTML artifact opens the current single page with Designs off, without vers
   assert.ok(find(tree, (n) => n.props?.html === page.html));
   // Share is in ⋯, and opens the Chat's Share sheet for its Artifact page.
   const menu = find(tree, (n) => n.type === "PullDown");
-  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), ["share"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), ["resolved", "share"]);
   menu.props.onSelect("share");
   assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
     pathname: "/design-share-sheet",
@@ -15912,8 +15932,10 @@ test("HTML artifact opens the current single page with Designs off, without vers
   assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "artifacts"));
   h.share.shareAvailabilityChanged(client.url, "/p#7", false, "artifacts");
   assert.equal(
-    find(h.render("ArtifactSheet", props), (n) => n.type === "PullDown"),
-    undefined,
+    find(h.render("ArtifactSheet", props), (n) => n.type === "PullDown")
+      .props.sections.flatMap((section) => section.items)
+      .some((item) => item.id === "share"),
+    false,
     "the Share sheet says sharing went away",
   );
   h.cleanup();

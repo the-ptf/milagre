@@ -18,6 +18,7 @@ export function CircleButton({
   icon,
   iconSize = 20,
   onPress,
+  onLongPress,
   filled = false,
   selected,
   badge,
@@ -28,6 +29,7 @@ export function CircleButton({
   icon: IconData;
   iconSize?: number;
   onPress?: () => void;
+  onLongPress?: () => void;
   filled?: boolean;
   selected?: boolean;
   badge?: number;
@@ -104,6 +106,7 @@ export function CircleButton({
       accessibilityState={{ disabled: off, selected }}
       hitSlop={hitSlopFor(40)}
       disabled={off}
+      onLongPress={onLongPress}
       onPress={() => {
         tap();
         onPress?.();

@@ -1,3 +1,4 @@
+import { CommentOptions } from "./CommentOptions";
 import { HtmlReply } from "./HtmlReply";
 import { createContext, memo, useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -919,6 +920,7 @@ function ArtifactDock({
   // The tab of the Artifact page shown, chosen in the title's menu.
   const [pageTab, setPageTab] = useState<string | null>(null);
   const [commenting, setCommenting] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
   // Feedback waits here until Send: comments pinned on designs or on the page, and the design the user chose. Closed
   // meanwhile, the dock opens again with it (an empty comment was never written).
   const unsentKey = kind === "designs" ? chatId : `${chatId}#artifacts`;
@@ -1026,6 +1028,7 @@ function ArtifactDock({
     }
   };
   const comments: PinControls = {
+    showResolved,
     pins,
     sent: kind === "artifacts" ? htmlSentPins(hostComments, page?.format === "html" ? page : null) : sent,
     open: openPin,
@@ -1165,10 +1168,20 @@ function ArtifactDock({
           </Tooltip>
         )}
         {sharingAvailable && <IconButton label="Share page" icon={Share08Icon} size={24} onClick={() => setSharingChat(chatId)} />}
-        <Tooltip label={commentLabel} keyHint={COMMENT_KEY}>
-          {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
-          <IconButton label={commentLabel} icon={Comment01Icon} size={24} tone="accent" aria-pressed={commenting} disabled={!onSend} onClick={toggleComment} />
-        </Tooltip>
+        <CommentOptions shown={showResolved} onChange={setShowResolved}>
+          <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY}>
+            {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
+            <IconButton
+              label={commentLabel}
+              icon={Comment01Icon}
+              size={24}
+              tone="accent"
+              aria-pressed={commenting}
+              disabled={!onSend}
+              onClick={toggleComment}
+            />
+          </Tooltip>
+        </CommentOptions>
         {!cramped && (
           <IconButton
             label={expanded ? `Show the Chat beside the ${kind}` : `Fill the window with the ${kind}`}

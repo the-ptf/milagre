@@ -98,3 +98,19 @@ test("blank page space gets an exact pin even below a short body or after scroll
   assert.equal(blank.box.height, 600, "blank space below the content is still part of the page");
   assert.equal(blank.point.y, 0.9);
 });
+
+test("resolved Browser pins can be explicitly shown without losing their notes", () => {
+  const pins = [{ n: 0, selector: "h1", text: "Shorter", state: "resolved", note: "Fixed" }];
+  let shown;
+  runInNewContext(pagePinsScript(pins, { showResolved: true }), {
+    window: {
+      __milagrePins: {
+        set: (next) => {
+          shown = next;
+        },
+      },
+    },
+  });
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].note, "Fixed");
+});

@@ -195,3 +195,5 @@ Designs are on the Chat's canvas (group Browser comments). Victor picked, 2026-1
   claimed-tab rule for human versus agent control. Mobile views the server stream; no annotations there.
 - **React 19** dropped `_debugSource`; source locations come from it only on older React or with a dev plugin, so the
   message omits `at file:line` when the page doesn't expose it.
+
+Resolved comment visibility: right-click or hold the desktop comment button, or long-press it in the phone/iPad Browser, to show or hide resolved pins. Mobile Designs and Artifacts expose the same setting in their action menus. The setting starts off; saved comments and resolution notes are retained.

@@ -281,10 +281,10 @@ export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
  * Each pin: { n, id?, selector, point?, text, state: "pending" | "open" | "resolved", note? }. When the page defines
  * window.__milagrePinTap, tapping a pin calls it with the pin's id (or its number) instead of showing the tip.
  */
-export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } = {}) {
+export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", showResolved = false } = {}) {
   return `(() => {
   const bounds = ${BOUNDS};
-  const pins = ${JSON.stringify(pins.filter((pin) => pin.state !== "resolved"))};
+  const pins = ${JSON.stringify(pins.filter((pin) => showResolved || pin.state !== "resolved"))};
   let layer = window.__milagrePins;
   if (!layer) {
     const host = document.createElement("milagre-pins");

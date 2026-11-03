@@ -532,6 +532,7 @@ export function ArtifactSheet({
     else unsent.delete(feedbackKey);
   }, [feedbackKey, notes]);
   const [composer, setComposer] = useState<Composer | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
   const request = JSON.stringify([targetTab, commentId, requestId]);
   const [previousRequest, setPreviousRequest] = useState(request);
   if (previousRequest !== request) {
@@ -570,7 +571,7 @@ export function ArtifactSheet({
       comment.design.version !== artifact.version ||
       comment.x === undefined ||
       comment.y === undefined ||
-      (comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`) ||
+      (!showResolved && comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`) ||
       !onArtifactTab(comment, artifact, tab)
         ? []
         : [
@@ -603,7 +604,21 @@ export function ArtifactSheet({
           ],
     );
     return [...done, ...waiting].map((pin) => (pin.k === composer?.key ? { ...pin, hide: true } : pin));
-  }, [artifact, tab, sent, notes, numbers, composer?.key, colors.greenInk, colors.onGreen, colors.ink2, colors.page, colors.accentInk, colors.onAccent]);
+  }, [
+    artifact,
+    tab,
+    sent,
+    notes,
+    numbers,
+    composer?.key,
+    showResolved,
+    colors.greenInk,
+    colors.onGreen,
+    colors.ink2,
+    colors.page,
+    colors.accentInk,
+    colors.onAccent,
+  ]);
   // A pin just opened scrolls near the top once the page has it, out of the keyboard's way; the page then says where it
   // landed, and the box opens there.
   const revealing = useRef<string | null>(null);
@@ -717,7 +732,10 @@ export function ArtifactSheet({
   const openShare = () => {
     if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId, kind: "artifacts" } });
   };
-  const menu: MenuSection[] = sharing ? [{ items: [{ id: "share", title: "Share page", systemImage: "square.and.arrow.up" }] }] : [];
+  const menu: MenuSection[] = [
+    { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
+    ...(sharing ? [{ items: [{ id: "share", title: "Share page", systemImage: "square.and.arrow.up" }] }] : []),
+  ];
 
   const openNote = composer && composer.kind !== "read" ? notes.find((note) => note.key === composer.key) : undefined;
   const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
@@ -770,7 +788,14 @@ export function ArtifactSheet({
             <CircleButton label={`Send ${written.length} to the agent`} icon={Sent02Icon} filled badge={written.length} onPress={send} />
           )}
           {menu.length > 0 && (
-            <PullDown label="Page actions" sections={menu} onSelect={(action) => action === "share" && openShare()}>
+            <PullDown
+              label="Page actions"
+              sections={menu}
+              onSelect={(action) => {
+                if (action === "resolved") setShowResolved(!showResolved);
+                else if (action === "share") openShare();
+              }}
+            >
               <CircleButton asTrigger label="Page actions" icon={MoreHorizontalIcon} />
             </PullDown>
           )}
