@@ -883,6 +883,8 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               id={designs.id}
               version={designs.version}
               chosen={designs.chosen}
+              comment={designs.comment}
+              requestId={designs.requestId}
               onClose={() => closeTab("designs")}
             />
           )}

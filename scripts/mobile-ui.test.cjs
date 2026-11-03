@@ -20139,32 +20139,35 @@ test("secret form masks input, preserves bytes, clears drafts and declines witho
 });
 
 test("artifact feedback carries the comment and tab through phone and dock navigation", async () => {
-  const page = { id: "page", title: "HTTP", format: "html", version: 1 };
-  const comment = { id: "12345678", design: page, tab: { id: "headers", title: "Headers" }, text: "Explain caching", x: 0.2, y: 0.3 };
-  for (const docked of [false, true]) {
-    const pushes = [],
-      tabs = [];
-    const client = { url: `feedback-${docked}`, call: async (method) => (method === "artifact:list" ? [page] : []) };
-    const h = artifactHost(client, pushes, undefined, designsOn, docked ? (tab) => tabs.push(tab) : null);
-    const props = { chatId: "/p#7", feedback: { choice: null, comments: [comment] } };
-    h.render("DesignFeedbackCard", props);
-    await settle();
-    const tree = h.render("DesignFeedbackCard", props);
-    const action = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button");
-    assert.ok(action, "a feedback comment opens its artifact");
-    action.props.onPress();
-    action.props.onPress();
-    const targets = docked ? tabs.map((tab) => tab.target) : pushes.map((route) => route.params);
-    assert.equal(targets.length, 2);
-    assert.notEqual(targets[0].requestId, targets[1].requestId, "reopening the same comment makes a fresh request");
-    assert.equal(targets[0].tab, "headers");
-    assert.equal(targets[0].comment, "12345678");
-    assert.equal(targets[0].id, "page");
-    assert.equal(targets[0].hostId, client.url);
-    assert.equal(targets[0].chatId, "/p#7");
-    if (docked) assert.equal(targets[0].html, true);
-    else assert.equal(pushes[0].pathname, "/artifact-sheet");
-    h.cleanup();
+  for (const format of ["html", "design"]) {
+    const page = { id: "page", title: "HTTP", format, version: 1 };
+    const comment = { id: "12345678", design: page, tab: { id: "headers", title: "Headers" }, text: "Explain caching", x: 0.2, y: 0.3 };
+    for (const docked of [false, true]) {
+      const pushes = [],
+        tabs = [];
+      const client = { url: `feedback-${docked}`, call: async (method) => (method === "artifact:list" ? [page] : []) };
+      const h = artifactHost(client, pushes, undefined, designsOn, docked ? (tab) => tabs.push(tab) : null);
+      const props = { chatId: "/p#7", feedback: { choice: null, comments: [comment] } };
+      h.render("DesignFeedbackCard", props);
+      await settle();
+      const tree = h.render("DesignFeedbackCard", props);
+      const action = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button");
+      assert.ok(action, "a feedback comment opens its artifact");
+      action.props.onPress();
+      action.props.onPress();
+      const targets = docked ? tabs.map((tab) => tab.target) : pushes.map((route) => route.params);
+      assert.equal(targets.length, 2);
+      assert.notEqual(targets[0].requestId, targets[1].requestId, "reopening the same comment makes a fresh request");
+      assert.equal(targets[0].tab, "headers");
+      assert.equal(targets[0].comment, "12345678");
+      assert.equal(targets[0].id, "page");
+      assert.equal(targets[0].hostId, client.url);
+      assert.equal(targets[0].chatId, "/p#7");
+      if (docked) assert.equal(targets[0].html, format === "html");
+      else assert.equal(pushes[0].pathname, "/artifact-sheet");
+      assert.equal(targets[0].version, "1");
+      h.cleanup();
+    }
   }
 });
 
@@ -20993,4 +20996,65 @@ test("phone viewed strip groups loaded thumbnails, excludes failed media and rec
   assert.equal(opened.at(-1).images[0].source.uri, "/new-durable/bad.png");
   parent.unmount();
   for (const host of tiles.values()) host.unmount();
+});
+
+test("resolved design history reveals its saved version on phone and iPad, including repeated requests", async (t) => {
+  for (const docked of [false, true]) {
+    const design = {
+      id: "history",
+      title: "History",
+      format: "design",
+      version: 2,
+      latest: 3,
+      versions: 3,
+      width: 390,
+      height: 844,
+      html: "<h1>Saved version</h1>",
+      document: require("../packages/shared/src/design.mjs").createExampleDesign(),
+    };
+    const comment = { id: "abcdef12", design, x: 0.2, y: 0.3, text: "Fix heading", resolved: { note: "Fixed", at: 2 } };
+    const reads = [];
+    const lateComments = deferred();
+    const client = {
+      url: `design-history-${docked}`,
+      call: async (method, args) => {
+        if (method === "artifact:list") return [{ ...design, version: 3 }];
+        if (method === "artifact:comments") return docked ? lateComments.promise : [comment];
+        if (method === "artifact:sharing-status") return { available: false };
+        reads.push(args);
+        return design;
+      },
+    };
+    const h = designsHost(client);
+    t.after(() => h.cleanup());
+    let props = { hostId: client.url, chatId: "/p#7", id: design.id, version: "2", comment: comment.id, requestId: "1", ...(docked ? { onClose() {} } : {}) };
+    await h.open(props);
+    if (docked) {
+      assert.equal(
+        h.commands().some((cmd) => cmd.t === "reveal"),
+        false,
+        "wait for comments arriving after canvas readiness",
+      );
+      lateComments.resolve([comment]);
+      await settle();
+      h.render("DesignsSheet", props);
+    }
+    let tree = h.render("DesignsSheet", props);
+    assert.ok(h.commands().some((cmd) => cmd.t === "reveal" && cmd.id === design.id && cmd.x === 0.2));
+    assert.ok(
+      reads.some((args) => args[0].version === 2),
+      "history loads the saved version rather than latest",
+    );
+    h.say(tree, { t: "anchor", sx: 50, sy: 80 });
+    tree = h.render("DesignsSheet", props);
+    assert.equal(find(tree, (node) => node.type?.name === "CommentBox").props.sentComment.resolved.note, "Fixed");
+    find(tree, (node) => node.props?.accessibilityLabel === "Close the comment").props.onPress();
+    h.render("DesignsSheet", props);
+    assert.deepEqual(h.commands().findLast((cmd) => cmd.t === "pins").pins, []);
+    const before = h.commands().filter((cmd) => cmd.t === "reveal").length;
+    props = { ...props, requestId: "2" };
+    h.render("DesignsSheet", props);
+    h.render("DesignsSheet", props);
+    assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before + 1);
+  }
 });

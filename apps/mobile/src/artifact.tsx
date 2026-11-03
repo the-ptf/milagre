@@ -147,7 +147,7 @@ export function DesignFeedbackCard({
         )}
         {comments.map((comment, index) => {
           const resolved = comment.id ? resolutions.get(comment.id) : undefined;
-          const openable = format(comment.design) === "html" && !!client && !!chatId && !chatId.includes("#new:");
+          const openable = !!format(comment.design) && !!client && !!chatId && !chatId.includes("#new:");
           return (
             <Pressable
               key={index}
@@ -160,7 +160,8 @@ export function DesignFeedbackCard({
                   hostId: client.url,
                   chatId,
                   id: comment.design.id,
-                  html: true,
+                  html: format(comment.design) === "html",
+                  version: String(comment.design.version),
                   tab: comment.tab?.id,
                   comment: comment.id,
                   requestId: String(++feedbackRequestId),

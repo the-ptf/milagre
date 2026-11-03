@@ -19,5 +19,16 @@ export default function ArtifactScreen() {
     return (
       <ArtifactSheet key={`${hostId}:${chatId}:${id}`} hostId={hostId} chatId={chatId} id={id} kind={kind} tab={tab} comment={comment} requestId={requestId} />
     );
-  return <DesignsSheet key={`${hostId}:${chatId}:${id}`} hostId={hostId} chatId={chatId} id={id} version={version} chosen={chosen} />;
+  return (
+    <DesignsSheet
+      key={`${hostId}:${chatId}:${id}`}
+      hostId={hostId}
+      chatId={chatId}
+      id={id}
+      version={version}
+      chosen={chosen}
+      comment={comment}
+      requestId={requestId}
+    />
+  );
 }

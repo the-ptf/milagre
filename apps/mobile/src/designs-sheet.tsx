@@ -64,6 +64,8 @@ export function DesignsSheet({
   id,
   version,
   chosen,
+  comment: commentId,
+  requestId,
   onClose,
 }: {
   hostId?: string;
@@ -71,6 +73,8 @@ export function DesignsSheet({
   id?: string;
   version?: string;
   chosen?: string;
+  comment?: string;
+  requestId?: string;
   onClose?: () => void;
 }) {
   const { colors, motionScale } = useTheme();
@@ -98,6 +102,14 @@ export function DesignsSheet({
   const [sent, setSent] = useState<ArtifactComment[]>([]);
   const [composer, setComposer] = useState<Composer | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const pendingComment = useRef<string | null>(null);
+  // A repeated history tap must work after dismissing the bubble in an already mounted iPad panel.
+  useEffect(() => {
+    pendingComment.current = commentId ?? null;
+    setComposer(null);
+    if (commentId && id && version) setVersions((current) => ({ ...current, [id]: Number(version) }));
+  }, [commentId, requestId, id, version]);
+
   // Until the canvas paints its first design, the design icon draws itself over the empty page.
   const [painted, setPainted] = useState(false);
 
@@ -323,6 +335,17 @@ export function DesignsSheet({
   useEffect(() => {
     command({ t: "pins", pins: JSON.parse(pinsKey) });
   }, [pinsKey, command, epoch, layoutKey]);
+
+  // History can arrive before the saved comments, the requested version, or the canvas is ready.
+  useEffect(() => {
+    if (!ready.current || !pendingComment.current) return;
+    const comment = sent.find((item) => item.id === pendingComment.current && item.design.id === id);
+    if (!comment || comment.x === undefined || comment.y === undefined) return;
+    if (loaded[comment.design.id]?.version !== comment.design.version) return;
+    pendingComment.current = null;
+    setComposer({ key: `sent:${comment.id}`, kind: "read", at: null });
+    command({ t: "reveal", id: comment.design.id, x: comment.x, y: comment.y });
+  }, [sent, loaded, id, commentId, requestId, epoch, command]);
 
   const onMessage = useCallback(
     (data: string) => {
