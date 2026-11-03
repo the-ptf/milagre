@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, Linking, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import * as Clipboard from "expo-clipboard";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import {
@@ -358,7 +358,7 @@ export function BrowserSheet({
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface, paddingTop: docked ? 0 : insets.top }}>
+    <View style={{ flex: 1, backgroundColor: colors.surface }}>
       {/* Keep the header as one native view: form-sheet scroll sizing cannot account for a flattened header. */}
       <View collapsable={false} style={{ flexShrink: 0 }}>
         {docked ? (
@@ -416,7 +416,7 @@ export function BrowserSheet({
         {!visible ? null : !source || !chatId ? (
           <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this computer to open its browsers.</Text>
         ) : selected ? (
-          <KeyboardAvoidingView behavior="padding" enabled={!!box} style={{ flex: 1, minHeight: 0 }}>
+          <View style={{ flex: 1, minHeight: 0 }}>
             <BrowserWebView
               key={`page:${selected.id}`}
               client={source}
@@ -431,6 +431,7 @@ export function BrowserSheet({
                 setPage(next);
               }}
               picking={commenting && !box}
+              composing={!!box}
               pins={pins}
               onPick={(element) => setBox({ kind: "new", element })}
               onPin={(id) => {
@@ -440,28 +441,30 @@ export function BrowserSheet({
             />
             {commenting && !box && <CommentHint bottom={insets.bottom} count={pageDrafts.length} onDone={() => setCommenting(false)} />}
             {box && shown && (
-              <PageCommentBox
-                key={box.kind === "new" ? box.element.selector : box.kind === "draft" ? box.key : box.id}
-                box={box}
-                bottom={insets.bottom}
-                draft={box.kind === "draft" ? drafts.find((draft) => draft.key === box.key) : undefined}
-                sentComment={box.kind === "sent" ? sent.find((comment) => comment.id === box.id) : undefined}
-                onAdd={(text) => {
-                  if (box.kind !== "new") return;
-                  setDrafts((current) => [...current, { key: String(++draftKey), page: shown, element: box.element, text }]);
-                  setBox(null);
-                }}
-                onChange={(text) => {
-                  if (box.kind === "draft") setDrafts((current) => current.map((draft) => (draft.key === box.key ? { ...draft, text } : draft)));
-                }}
-                onDelete={() => {
-                  if (box.kind === "draft") setDrafts((current) => current.filter((draft) => draft.key !== box.key));
-                  setBox(null);
-                }}
-                onClose={() => setBox(null)}
-              />
+              <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }} style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
+                <PageCommentBox
+                  key={box.kind === "new" ? box.element.selector : box.kind === "draft" ? box.key : box.id}
+                  box={box}
+                  bottom={insets.bottom}
+                  draft={box.kind === "draft" ? drafts.find((draft) => draft.key === box.key) : undefined}
+                  sentComment={box.kind === "sent" ? sent.find((comment) => comment.id === box.id) : undefined}
+                  onAdd={(text) => {
+                    if (box.kind !== "new") return;
+                    setDrafts((current) => [...current, { key: String(++draftKey), page: shown, element: box.element, text }]);
+                    setBox(null);
+                  }}
+                  onChange={(text) => {
+                    if (box.kind === "draft") setDrafts((current) => current.map((draft) => (draft.key === box.key ? { ...draft, text } : draft)));
+                  }}
+                  onDelete={() => {
+                    if (box.kind === "draft") setDrafts((current) => current.filter((draft) => draft.key !== box.key));
+                    setBox(null);
+                  }}
+                  onClose={() => setBox(null)}
+                />
+              </KeyboardStickyView>
             )}
-          </KeyboardAvoidingView>
+          </View>
         ) : (
           <PageScroll
             style={{ flex: 1 }}
@@ -593,7 +596,7 @@ function PageCommentBox({
       onAccessibilityEscape={box.kind === "new" ? onDelete : onClose}
       style={{
         marginHorizontal: 12,
-        marginBottom: 8 + (Platform.OS === "ios" ? 0 : bottom),
+        marginBottom: 8 + bottom,
         padding: 14,
         gap: 10,
         borderRadius: radius.card,
@@ -669,6 +672,7 @@ function BrowserWebView({
   onControls,
   onLoaded,
   picking,
+  composing,
   pins,
   onPick,
   onPin,
@@ -682,6 +686,7 @@ function BrowserWebView({
   onControls(controls: PageControls | null): void;
   onLoaded(loaded: boolean): void;
   picking: boolean;
+  composing: boolean;
   pins: PagePin[];
   onPick(element: PageElement): void;
   onPin(id: string): void;
@@ -803,6 +808,14 @@ function BrowserWebView({
       );
     else current.injectJavaScript(PAGE_PICK_CANCEL + ";true;");
   }, []);
+  // While the comment box is open, room below the page lets even its last element scroll up above the box and keyboard.
+  useEffect(() => {
+    view.current?.injectJavaScript(
+      composing
+        ? `(() => { const root = document.documentElement; if (!root.dataset.milagrePad) { root.dataset.milagrePad = root.style.paddingBottom || "-"; root.style.setProperty("padding-bottom", "70vh", "important"); } })();true;`
+        : `(() => { const root = document.documentElement; const was = root.dataset.milagrePad; if (was) { root.style.paddingBottom = was === "-" ? "" : was; delete root.dataset.milagrePad; } })();true;`,
+    );
+  }, [composing]);
   const pinsKey = JSON.stringify(pins);
   useEffect(arm, [arm, picking, pinsKey]);
   if (error)
@@ -876,9 +889,13 @@ function BrowserWebView({
               armedAt.current = message.url;
               arm();
             }
-          } else if (message.kind === "pick" && latest.current.picking && message.element?.selector && message.element?.box)
+          } else if (message.kind === "pick" && latest.current.picking && message.element?.selector && message.element?.box) {
+            // The comment box and keyboard cover the lower half: bring the picked element up to the top.
+            view.current?.injectJavaScript(
+              `(() => { let el = null; try { el = document.querySelector(${JSON.stringify(message.element.selector)}); } catch {} if (el && el !== document.documentElement) setTimeout(() => scrollBy({ top: el.getBoundingClientRect().top - 32, behavior: "smooth" }), 250); })();true;`,
+            );
             latest.current.onPick(message.element);
-          else if (message.kind === "pin" && typeof message.id === "string") latest.current.onPin(message.id);
+          } else if (message.kind === "pin" && typeof message.id === "string") latest.current.onPin(message.id);
         } catch {
           /* Web content cannot issue RPCs. Only a page title/address, a picked element or a tapped pin is read. */
         }
