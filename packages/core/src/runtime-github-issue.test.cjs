@@ -27,6 +27,7 @@ async function fixture(t) {
   };
   let unavailable = false;
   const turns = [];
+  const agents = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
     chatsHome: path.join(dir, "chats"),
@@ -45,6 +46,7 @@ async function fixture(t) {
       },
     },
     createSession(_provider, options) {
+      agents.push(options);
       return {
         turnActive: false,
         startTurn: async (request) => {
@@ -77,6 +79,7 @@ async function fixture(t) {
     request,
     snapshot,
     turns,
+    agents,
     change: (title) => {
       current = { ...current, title };
     },
@@ -109,6 +112,54 @@ test("preview and cancellation create nothing; confirmed import stores fresh con
   assert.match(f.turns[0].prompt, /&lt;\/github_issue&gt;/);
   assert.ok(f.turns[0].prompt.startsWith("The user asks: Inspect before changing files."));
 });
+
+for (const followUps of ["queue", "now"]) {
+  for (const activity of ["idle", "running", "waiting"]) {
+    test(`GitHub import honors ${followUps} for a ${activity} target and retries only once`, async (t) => {
+      const f = await fixture(t);
+      await f.runtime.invoke("context:settings:save", [{ followUps }]);
+      if (activity !== "idle") {
+        await f.runtime.invoke("chat:send", [
+          {
+            projectPath: f.request.projectPath,
+            sessionId: f.request.target.sessionId,
+            body: "Keep working on the first task",
+            provider: "codex",
+            model: "test",
+            permissionMode: "ask",
+          },
+        ]);
+        await waitUntil(() => f.turns.length === 1);
+        if (activity === "waiting") {
+          f.agents[0].emit({ type: "permission-request", requestId: "permission-1", kind: "command", tool: "Shell", title: "Approve?" });
+        }
+      }
+      const result = await f.runtime.invoke("github:import", [f.request]);
+      const retry = await f.runtime.invoke("github:import", [f.request]);
+      assert.equal(retry.sessionId, result.sessionId);
+      const shouldQueue = activity !== "idle" && followUps === "queue";
+      const expectedTurns = activity === "idle" || shouldQueue ? 1 : 2;
+      await waitUntil(() => f.turns.length >= expectedTurns);
+      const state = await f.snapshot();
+      const queued = state.sessions[result.sessionId].queued ?? [];
+      assert.equal(f.turns.length, expectedTurns);
+      assert.equal(queued.length, shouldQueue ? 1 : 0);
+      const imported = shouldQueue ? queued[0] : state.messages.findLast((message) => message.role === "user");
+      assert.equal(imported.context.kind, "github-issue");
+      assert.equal(imported.context.url, f.request.url);
+      assert.equal(imported.context.note, f.request.note);
+      assert.match(shouldQueue ? imported.prompt : f.turns.at(-1).prompt, /untrusted data/);
+      if (shouldQueue && activity === "running") {
+        f.agents[0].emit({ type: "turn-completed" });
+        await waitUntil(() => f.turns.length === 2);
+        assert.equal((await f.snapshot()).sessions[result.sessionId].queued?.length ?? 0, 0);
+        assert.match(f.turns[1].prompt, /untrusted data/);
+        await f.runtime.invoke("github:import", [f.request]);
+        assert.equal(f.turns.length, 2, "retry after the queued import starts must not send again");
+      }
+    });
+  }
+}
 
 test("failed authoritative read refuses import without creating Worktrees or sending a plain fallback", async (t) => {
   const f = await fixture(t);

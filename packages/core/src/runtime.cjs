@@ -2043,7 +2043,9 @@ function createRuntime(options) {
     sendStatus: (projectPath, id) => chats.sendStatus(projectPath, id),
     readProject: githubProject,
     createWorktree: (request) => handlers.get("worktree:create")({}, request),
-    send: sendAsUser,
+    // Imports on desktop and phone follow the same host-kept preference, including
+    // when the chosen target is a different, already-running Chat.
+    send: (request) => sendAsUser({ ...request, delivery: contextSettings.read().followUps === "queue" ? "queue" : undefined }),
   });
   commands.handle("github:import", (_event, request) => importGitHubIssue(request));
 
