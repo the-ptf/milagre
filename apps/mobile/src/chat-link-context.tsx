@@ -1,11 +1,11 @@
 import { createContext, type ReactNode } from "react";
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
-import { MessageAskContext } from "./message-actions";
+import { MessageAskContext, type QuoteFrom } from "./message-actions";
 
 /** Opens a link associated with the containing Chat. False keeps the usual external link behavior. */
 export const ChatLinkContext = createContext<((url: string) => boolean) | null>(null);
 
-/** The containing Chat supplies its computer's reachable address, its internal link destinations and Ask for selected text. */
+/** The containing Chat supplies its computer's reachable address, its internal link destinations and Quote for selected text. */
 export function ChatLinkProvider({
   reachable,
   openLink,
@@ -14,7 +14,7 @@ export function ChatLinkProvider({
 }: {
   reachable: ReachableHost;
   openLink: (url: string) => boolean;
-  ask?: (passage: string) => void;
+  ask?: (passage: string, from: QuoteFrom) => void;
   children: ReactNode;
 }) {
   return (

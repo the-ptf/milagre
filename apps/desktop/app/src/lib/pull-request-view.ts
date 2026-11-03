@@ -1,5 +1,6 @@
 import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import type { MergeMethod, PullRequestDetail, PullRequestThread } from "@milagre/shared/pull-request-review";
+import { quoteMarkdown } from "@milagre/shared/prompt-parts";
 import type { DiffLine } from "./diff-parse";
 
 // The PR panel's pure parts: where a GitHub thread sits in the diff, the counts the panel shows, the merge method
@@ -86,17 +87,10 @@ export function saveMergeMethod(url: string, method: MergeMethod, storage: Pick<
   storage.setItem(METHOD_KEY, JSON.stringify({ ...saved, [repo]: method }));
 }
 
-const quote = (text: string) =>
-  text
-    .trim()
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n");
-
 /** "Fix in Chat" on a review thread: the thread, where it sits, and the ask. */
 export function threadFixMessage(pr: Pick<PullRequestDetail, "number">, thread: PullRequestThread): string {
   const where = thread.line ? `${thread.path}:${thread.line}` : thread.path;
-  const comments = thread.comments.filter((comment) => !comment.pending).map((comment) => `${comment.author} wrote:\n${quote(comment.body)}`);
+  const comments = thread.comments.filter((comment) => !comment.pending).map((comment) => `${comment.author} wrote:\n${quoteMarkdown(comment.body)}`);
   return `Address this review thread on PR #${pr.number}, at ${where}:\n\n${comments.join("\n\n")}\n\nMake the change, push it, and tell me what you did so I can reply and resolve the thread.`;
 }
 

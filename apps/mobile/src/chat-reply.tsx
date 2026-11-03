@@ -12,7 +12,7 @@ import { reportMarker } from "@milagre/shared/subchat-states";
 import { SubchatMarker } from "./subchat-marker";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
-import { onlyImageMentions, promptParts } from "@milagre/shared/prompt-parts";
+import { onlyImageMentions, promptParts, quoteKeys, splitQuotes } from "@milagre/shared/prompt-parts";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
 import type { MentionChat } from "@milagre/shared/prompt-mentions";
 import { projectOfKey } from "@milagre/shared/agent-runs";
@@ -21,6 +21,7 @@ import { promptAccessibilityLabel } from "./prompt-label";
 import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
 import { MessageActions, messageActionProps, selectableMessageText } from "./message-actions";
+import { SentQuote } from "./quote-chips";
 import { Icon } from "./icons";
 import { ActivityTitle } from "./activity-item";
 import { ToolRow } from "./tool-row";
@@ -314,7 +315,9 @@ export const ChatReply = memo(function ChatReply({
   const { colors, textPx } = useTheme();
   const styles = useStyles();
   const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
-  const userText = message?.role === "user" ? (run?.text ?? message.body ?? "") : "";
+  // Passages quoted in the composer lead a user's message as blockquotes; they show as quotes over what was typed.
+  const userQuoted = useMemo(() => splitQuotes(message?.role === "user" ? (run?.text ?? message.body ?? "") : ""), [message?.role, run?.text, message?.body]);
+  const userText = userQuoted.text;
   const userFiles = message?.files;
   const userImages = message?.images?.length ?? 0;
   const userParts = useMemo(
@@ -363,7 +366,7 @@ export const ChatReply = memo(function ChatReply({
     return (
       <View style={{ gap: 6, paddingVertical: 4 }}>
         <LinkedHeader context={linked} onOpenChat={onOpenChat} />
-        <MessageActions text={text}>
+        <MessageActions text={text} from="user">
           {(openActions, swap) => (
             <View
               style={{
@@ -419,7 +422,7 @@ export const ChatReply = memo(function ChatReply({
           // A send that is only its images shows them above, without an "Image #1" bubble.
           !!text &&
           !onlyImageMentions(text, userImages) && (
-            <MessageActions text={text}>
+            <MessageActions text={userText} from="user">
               {(openActions, swap) => (
                 <View
                   style={{
@@ -428,41 +431,46 @@ export const ChatReply = memo(function ChatReply({
                     borderCurve: "continuous",
                     paddingVertical: space.lg,
                     paddingHorizontal: space.xl,
+                    gap: space.sm,
                     ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
                   }}
                 >
-                  {swap(
-                    <Text
-                      selectable={selectableMessageText}
-                      accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
-                      style={{ color: colors.ink, fontSize: textPx, lineHeight }}
-                      {...messageActionProps(openActions)}
-                    >
-                      {parts.map((part, index) =>
-                        part.kind === "skill" ? (
-                          <SkillChip key={index} name={part.name} />
-                        ) : part.kind === "file" ? (
-                          <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
-                        ) : part.kind === "computer" ? (
-                          <ComputerMentionChip key={index} name={part.name} />
-                        ) : part.kind === "chat" ? (
-                          <ChatMentionChip
-                            key={`chat:${part.id}:${part.start}`}
-                            title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
-                            onOpen={
-                              chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
-                                ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
-                                : undefined
-                            }
-                          />
-                        ) : part.kind === "image" ? (
-                          <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
-                        ) : (
-                          part.text
-                        ),
-                      )}
-                    </Text>,
-                  )}
+                  {quoteKeys(userQuoted.quotes).map(({ key, text: quote }) => (
+                    <SentQuote key={key} text={quote} textPx={textPx} />
+                  ))}
+                  {!!userText.trim() &&
+                    swap(
+                      <Text
+                        selectable={selectableMessageText}
+                        accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
+                        style={{ color: colors.ink, fontSize: textPx, lineHeight }}
+                        {...messageActionProps(openActions)}
+                      >
+                        {parts.map((part, index) =>
+                          part.kind === "skill" ? (
+                            <SkillChip key={index} name={part.name} />
+                          ) : part.kind === "file" ? (
+                            <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                          ) : part.kind === "computer" ? (
+                            <ComputerMentionChip key={index} name={part.name} />
+                          ) : part.kind === "chat" ? (
+                            <ChatMentionChip
+                              key={`chat:${part.id}:${part.start}`}
+                              title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
+                              onOpen={
+                                chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
+                                  ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
+                                  : undefined
+                              }
+                            />
+                          ) : part.kind === "image" ? (
+                            <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
+                          ) : (
+                            part.text
+                          ),
+                        )}
+                      </Text>,
+                    )}
                 </View>
               )}
             </MessageActions>

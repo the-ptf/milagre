@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { markdownSelection, plainSelection } from "./selection-document.ts";
-import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
 
 const text = (paragraphs: ReturnType<typeof markdownSelection>) => paragraphs.map((p) => p.spans.map((s) => s.text).join(""));
 
@@ -72,10 +71,4 @@ test("quotes indent and soft breaks stay inside the paragraph", () => {
 test("a plain message is one paragraph with its line breaks", () => {
   assert.deepEqual(text(plainSelection("a\n\nb")), ["a\n\nb"]);
   assert.deepEqual(plainSelection(""), []);
-});
-
-test("Ask quotes the passage under what was typed", () => {
-  assert.equal(quoteIntoDraft("", "Name: Nora\nURL"), "> Name: Nora\n> URL\n\n");
-  assert.equal(quoteIntoDraft("Pergunta  \n", "a\n\nb"), "Pergunta\n\n> a\n>\n> b\n\n");
-  assert.equal(quoteIntoDraft("keep", "  \n"), "keep");
 });

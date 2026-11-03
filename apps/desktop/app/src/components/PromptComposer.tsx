@@ -34,10 +34,11 @@ import { composerLayout, type CompactOverflow } from "../lib/composer-layout";
 import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
+import { QuoteChips } from "./QuoteChips";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
 import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
-import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { formatChatMention, formatComputerMention, formatFileMention, promptParts, type ComposerQuote } from "@milagre/shared/prompt-parts";
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -119,6 +120,9 @@ interface PromptComposerProps {
   accountScope?: string;
   draft: string;
   onDraftChange: (draft: string) => void;
+  /** Passages quoted into the next message, shown as chips over the prompt; they alone can be sent. */
+  quotes?: readonly ComposerQuote[];
+  onRemoveQuote?: (id: string) => void;
   /** Prompts sent in this chat, oldest first; Up and Down at the field's first or last line step through them. */
   history?: string[];
   onSend: (delivery?: MessageDelivery) => void;
@@ -167,6 +171,7 @@ interface PromptComposerProps {
 }
 
 const NO_HISTORY: string[] = [];
+const NO_QUOTES: readonly ComposerQuote[] = [];
 
 const DICTATION_LABELS = {
   idle: "Dictate",
@@ -210,6 +215,8 @@ export function PromptComposer({
   accountScope = projectPath,
   draft,
   onDraftChange,
+  quotes = NO_QUOTES,
+  onRemoveQuote,
   history = NO_HISTORY,
   onSend,
   onStop,
@@ -437,11 +444,12 @@ export function PromptComposer({
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
-  const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const canSend = draft.trim().length > 0 || quotes.length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
   const canStop = !offlineName && running && Boolean(onStop) && !canSend;
   const visibleSuggestion =
     suggestion &&
     !draft &&
+    !quotes.length &&
     !running &&
     !sendBlocked &&
     !offlineName &&
@@ -474,7 +482,8 @@ export function PromptComposer({
     const next = composerLayout({
       draft,
       expanded,
-      alwaysExpanded,
+      // Quote rows read as a message being written: the prompt goes under them, the controls below.
+      alwaysExpanded: alwaysExpanded || quotes.length > 0,
       contentHeight,
       compactWidth: compactWidthRef.current,
       overflow: overflowRef.current,
@@ -487,7 +496,7 @@ export function PromptComposer({
     });
     overflowRef.current = next.overflow;
     if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize, showContextSize, compactButton.visible]);
+  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, quotes.length, chatSize, showContextSize, compactButton.visible]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
@@ -1084,6 +1093,15 @@ export function PromptComposer({
               event.target.value = "";
             }}
           />
+          {onRemoveQuote && (
+            <QuoteChips
+              quotes={quotes}
+              onRemove={(id) => {
+                onRemoveQuote(id);
+                inputRef.current?.focus();
+              }}
+            />
+          )}
           <Attachments
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}

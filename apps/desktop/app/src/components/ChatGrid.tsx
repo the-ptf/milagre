@@ -16,6 +16,8 @@ import { chatActivity } from "@milagre/shared/chat-activity";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { ChatTranscript } from "./ChatComposer";
+import { MessageSelection } from "./MessageSelection";
+import { sendQuote } from "../lib/quote-inbox";
 import { RoutineChip } from "./routines/RoutineChip";
 import { isDraftTileKey } from "../lib/chat-grid";
 import { useGridDropTarget } from "../lib/grid-drop";
@@ -216,8 +218,10 @@ const ChatTile = memo(function ChatTile({
         : undefined,
     [lean, page.total, page.messages.length, page.loadEarlier, page.loadAll],
   );
+  const tile = useRef<HTMLElement>(null);
   return (
     <section
+      ref={tile}
       data-chat-tile={chatKey}
       data-focused={focused || undefined}
       aria-label={title}
@@ -286,6 +290,15 @@ const ChatTile = memo(function ChatTile({
       ) : (
         // A tile's images, attachments and file links belong to its own Project (and Computer), not the focused one's.
         <TileBoundary onOpen={() => onFocus(chatKey)}>
+          {/* Quoting from a tile focuses it: the quote waits for its composer (see quote-inbox). */}
+          <MessageSelection
+            container={tile}
+            provider={session && "provider" in session ? session.provider : undefined}
+            onQuote={(quote) => {
+              sendQuote(chatKey, quote);
+              onFocus(chatKey);
+            }}
+          />
           <BridgeContext.Provider value={bridge}>
             <ScopeContext.Provider value={scope}>
               <EditorLinks root={remote ? "" : (worktree?.path ?? scope)} files={remote ? "" : (worktree?.path ?? scope)}>

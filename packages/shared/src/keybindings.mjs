@@ -33,6 +33,7 @@ export const KEYBINDING_COMMANDS = Object.freeze([
     mobile: true,
   })),
   { id: "chat.find", title: "Find in Chat", group: "Chat", defaults: ["mod+f"] },
+  { id: "chat.quote", title: "Quote the selected text in the next message", group: "Chat", defaults: ["mod+shift+'"] },
   // Held or pressed per Settings › Chat › Dictation; the iPad's keyboard only reports the press, so there it starts and stops.
   { id: "dictation.toggle", title: "Dictate", group: "Chat", defaults: ["alt+space"], mobile: true },
   { id: "changes.toggle", title: "Show or hide Changes", group: "Panels", defaults: ["mod+shift+d"], forward: true, mobile: true },

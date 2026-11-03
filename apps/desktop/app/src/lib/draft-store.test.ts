@@ -61,3 +61,59 @@ test("take hands over another key's draft and clears it there", () => {
   assert.equal(store.get(), "");
   assert.equal(calls, 3);
 });
+
+test("quotes stay beside the typed text per Chat and go out as blockquotes before it", () => {
+  const store = createDraftStore(draftKey("/p", 1));
+  const quotes = [
+    { id: "a", text: "first", source: "Claude reply" },
+    { id: "b", text: "two\nlines", source: "Your message" },
+  ];
+  store.setQuotes(quotes);
+  store.setText("Why?");
+  assert.equal(store.text(), "Why?");
+  assert.equal(store.quotes(), quotes);
+  assert.equal(store.get(), "> first\n\n> two\n> lines\n\nWhy?");
+  store.select(draftKey("/p", 2));
+  assert.deepEqual(store.quotes(), []);
+  assert.equal(store.get(), "");
+  store.select(draftKey("/p", 1));
+  assert.equal(store.quotes(), quotes);
+  // Typing never turns a `>` the user wrote into a chip.
+  store.setQuotes([]);
+  store.setText("> typed");
+  assert.deepEqual(store.quotes(), []);
+  assert.equal(store.text(), "> typed");
+});
+
+test("a whole message set back (a failed send, a Project switch) turns its quotes into chips with their sources", () => {
+  const store = createDraftStore("a");
+  store.setQuotes([{ id: "q", text: "kept", source: "Codex reply" }]);
+  store.setText("question");
+  const sent = store.get();
+  store.set("");
+  assert.deepEqual([store.text(), store.quotes()], ["", []]);
+  store.set([sent, "typed meanwhile"].join("\n\n"));
+  assert.equal(store.text(), "question\n\ntyped meanwhile");
+  assert.deepEqual(
+    store.quotes().map(({ text, source }) => ({ text, source })),
+    [{ text: "kept", source: "Codex reply" }],
+  );
+  // Setting the same message again keeps the chips as they are.
+  const chips = store.quotes();
+  store.set(store.get());
+  assert.equal(store.quotes(), chips);
+  store.set("> unknown\n\nrest");
+  assert.deepEqual(
+    store.quotes().map(({ text, source }) => ({ text, source })),
+    [{ text: "unknown", source: undefined }],
+  );
+});
+
+test("take hands over the quotes with the text", () => {
+  const store = createDraftStore(draftKey("/p", null));
+  store.setQuotes([{ id: "q", text: "passage" }]);
+  store.select(draftKey("/home", null));
+  assert.equal(store.take(draftKey("/p", null)), "> passage");
+  store.select(draftKey("/p", null));
+  assert.deepEqual(store.quotes(), []);
+});

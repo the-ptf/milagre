@@ -12,7 +12,13 @@ import {
   imageLabel,
   onlyImageMentions,
   promptTitle,
+  composerQuote,
+  quoteKeys,
+  quoteMarkdown,
+  quoteSource,
+  quotedMessage,
   skillLabel,
+  splitQuotes,
 } from "./prompt-parts.mjs";
 import { editImageMentions, mentionedImages, remapImageMentions, shiftImageMentions } from "./prompt-mentions.mjs";
 
@@ -193,4 +199,45 @@ test("computer mentions: plain and quoted names, trailing punctuation, never cod
   assert.equal(formatComputerMention('Victor "Big" MacBook'), '@computer:"Victor Big MacBook"');
   // A file whose name starts with computer: is quoted, so it never reads as a computer.
   assert.equal(formatFileMention("computer:notes"), '@"computer:notes"');
+});
+
+test("a quote is a blockquote on every line, with bare marks on blank lines", () => {
+  assert.equal(quoteMarkdown("Name: Nora\r\nURL  \n"), "> Name: Nora\n> URL");
+  assert.equal(quoteMarkdown("\na\n\n  b"), "> a\n>\n>   b");
+  assert.equal(quoteMarkdown("  \n"), "");
+});
+
+test("quotes go before the typed text, a blank line apart, and a quote-only message has no trailing text", () => {
+  assert.equal(quotedMessage([], "as typed  "), "as typed  ");
+  assert.equal(quotedMessage(["one", "two\n\nlines"], "Why?"), "> one\n\n> two\n>\n> lines\n\nWhy?");
+  assert.equal(quotedMessage([{ id: "q", text: "only" }], "  "), "> only");
+  assert.equal(quotedMessage(["  "], "text"), "text");
+});
+
+test("leading quotes split back out of a sent message", () => {
+  const body = quotedMessage(["one", "two\n\nlines"], "Why?\n> not a quote");
+  assert.deepEqual(splitQuotes(body), { quotes: ["one", "two\n\nlines"], text: "Why?\n> not a quote" });
+  assert.deepEqual(splitQuotes("> only\n>more"), { quotes: ["only\nmore"], text: "" });
+  assert.deepEqual(splitQuotes("> a\n\n\n> b\nquestion"), { quotes: ["a", "b"], text: "question" });
+  assert.deepEqual(splitQuotes("no quote\n> later"), { quotes: [], text: "no quote\n> later" });
+  assert.deepEqual(splitQuotes("\n> after a blank line"), { quotes: [], text: "\n> after a blank line" });
+  assert.deepEqual(splitQuotes(">\n\nempty quote"), { quotes: [], text: ">\n\nempty quote" });
+  assert.deepEqual(splitQuotes("    > code"), { quotes: [], text: "    > code" });
+});
+
+test("a quote chip keeps its passage and source, and an empty passage makes none", () => {
+  const first = composerQuote("\n  indented\nline  \n", "Claude reply");
+  const second = composerQuote("again");
+  assert.equal(first?.text, "  indented\nline");
+  assert.equal(first?.source, "Claude reply");
+  assert.equal(second?.source, undefined);
+  assert.notEqual(first?.id, second?.id);
+  assert.equal(composerQuote(" \n"), null);
+  assert.equal(quoteSource("user", "codex"), "Your message");
+  assert.equal(quoteSource("assistant", "codex"), "Codex reply");
+  assert.equal(quoteSource("assistant", undefined), "Claude reply");
+  assert.deepEqual(
+    quoteKeys(["a", "b", "a"]).map((quote) => quote.key),
+    ["1:a", "1:b", "2:a"],
+  );
 });

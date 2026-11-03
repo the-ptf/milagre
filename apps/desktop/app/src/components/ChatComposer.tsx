@@ -1,6 +1,9 @@
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
-import { quoteIntoDraft } from "@milagre/shared/prompt-parts";
+import { quoteKeys, splitQuotes, type ComposerQuote } from "@milagre/shared/prompt-parts";
 import { MessageSelection } from "./MessageSelection";
+import { SentQuote } from "./QuoteChips";
+import { providerForId } from "../lib/models";
+import { useQuoteInbox } from "../lib/quote-inbox";
 import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
@@ -165,6 +168,7 @@ type IconData = IconSvgElement;
  * A reply with no answer that ended or stopped to ask shows its last thinking instead, dimmed.
  */
 const NO_FILES: readonly string[] = [];
+const NO_QUOTES: readonly ComposerQuote[] = [];
 const NO_IMAGES: NonNullable<AppChatMessage["images"]> = [];
 
 /** The skills a sent message names (lowercase name to description) and the attached files and images it mentions inline as chips. */
@@ -196,7 +200,9 @@ function UserBody({
   attached: readonly string[];
   images?: NonNullable<AppChatMessage["images"]>;
 }) {
-  const parts = useMemo(() => splitFences(body), [body]);
+  // Passages quoted in the composer lead the message as blockquotes; they show as quotes over what was typed.
+  const quoted = useMemo(() => splitQuotes(body), [body]);
+  const parts = useMemo(() => splitFences(quoted.text), [quoted.text]);
   const [opened, setOpened] = useState<string | null>(null);
   const [openedImage, setOpenedImage] = useState<number | null>(null);
   const open = useCallback((path: string) => setOpened(mentionedFile(path, attached, root) ?? null), [attached, root]);
@@ -232,23 +238,34 @@ function UserBody({
   const noThumb = useCallback(() => undefined, []);
   return (
     <div className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
-      {parts.map((part, index) =>
-        part.kind === "text" ? (
-          <PromptText
-            key={index}
-            text={part.text}
-            skills={skills}
-            files={files}
-            images={images.length}
-            imageNames={imageNames}
-            onOpenFile={open}
-            onOpenImage={media.length ? openImage : undefined}
-          />
-        ) : (
-          <div key={index} className="whitespace-normal">
-            <CodeBlock code={part.code} fence={part.fence || undefined} diff />
-          </div>
-        ),
+      {quoted.quotes.length > 0 && (
+        <div className={`flex flex-col gap-1 ${quoted.text.trim() ? "mt-0.5 mb-1.5" : "my-0.5"}`}>
+          {quoteKeys(quoted.quotes).map(({ key, text }) => (
+            <SentQuote key={key} text={text} />
+          ))}
+        </div>
+      )}
+      {quoted.text.trim() && (
+        <div data-quotable="typed">
+          {parts.map((part, index) =>
+            part.kind === "text" ? (
+              <PromptText
+                key={index}
+                text={part.text}
+                skills={skills}
+                files={files}
+                images={images.length}
+                imageNames={imageNames}
+                onOpenFile={open}
+                onOpenImage={media.length ? openImage : undefined}
+              />
+            ) : (
+              <div key={index} className="whitespace-normal">
+                <CodeBlock code={part.code} fence={part.fence || undefined} diff />
+              </div>
+            ),
+          )}
+        </div>
       )}
       {opened && <AttachmentPreview path={opened} name={opened.split("/").at(-1) || opened} close={() => setOpened(null)} />}
       {openedImage !== null && media[openedImage] && (
@@ -294,7 +311,11 @@ function ReplyContent({
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
-      {answer.trim() && <div data-slot="message-content">{streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}</div>}
+      {answer.trim() && (
+        <div data-slot="message-content" data-quotable>
+          {streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}
+        </div>
+      )}
       {/* Reserve the footer while streaming so completion and hover keep the transcript still. */}
       {copyable && answer.trim() && (
         <div className="h-7" data-message-copy-footer>
@@ -306,7 +327,7 @@ function ReplyContent({
         </div>
       )}
       {thought && (
-        <div data-slot="message-thought" className="text-ink-2">
+        <div data-slot="message-thought" data-quotable className="text-ink-2">
           <Markdown text={thought} />
         </div>
       )}
@@ -443,6 +464,7 @@ const MessageSection = memo(function MessageSection({
       id={`message-${message.id}`}
       data-slot="message"
       data-from={messageSender(message)}
+      data-provider={!isUser && message.model ? providerForId(message.model) : undefined}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
       className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble ? (copyUser && undoId && onUndo ? "items-end pl-18" : "items-end pl-12") : feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
@@ -914,6 +936,9 @@ interface ChatComposerProps {
   pendingMessageId?: number;
   draft: string;
   onDraftChange: (draft: string) => void;
+  /** Passages quoted from the transcript into the next message, sent as blockquotes before the draft. */
+  quotes: readonly ComposerQuote[];
+  onQuotesChange: (quotes: readonly ComposerQuote[]) => void;
   onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
@@ -1317,6 +1342,8 @@ export function ChatComposer({
   pendingMessageId,
   draft,
   onDraftChange,
+  quotes = NO_QUOTES,
+  onQuotesChange,
   onSend,
   onStop,
   onCompact,
@@ -1532,6 +1559,7 @@ export function ChatComposer({
       isSending ||
       review.view !== "closed" ||
       draft.trim() ||
+      quotes.length ||
       typing ||
       hidden ||
       isModalOpen() ||
@@ -1572,6 +1600,12 @@ export function ChatComposer({
 
   const draftLatest = useRef(draft);
   draftLatest.current = draft;
+  const addQuotes = useEvent((added: readonly ComposerQuote[]) => {
+    onQuotesChange([...quotes, ...added]);
+    focusPrompt(true);
+  });
+  // A quote taken from this Chat's tile while another tile had the composer arrives once this one has it.
+  useQuoteInbox(runtimeChat, addQuotes);
 
   function handleFileDrop(event: DragEvent<HTMLDivElement>) {
     const files = Array.from(event.dataTransfer.files);
@@ -1677,13 +1711,7 @@ export function ChatComposer({
               </div>
             ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
-                <MessageSelection
-                  container={root}
-                  onAsk={(text) => {
-                    onDraftChange(quoteIntoDraft(draft, text));
-                    focusPrompt(true);
-                  }}
-                />
+                <MessageSelection container={root} provider={sessionProvider ?? selectedModel.provider} onQuote={(quote) => addQuotes([quote])} />
                 <MessageScroller
                   navigation="rail"
                   followOutput
@@ -1905,6 +1933,8 @@ export function ChatComposer({
                 accountScope={messageScope ?? projectPath}
                 draft={draft}
                 onDraftChange={onDraftChange}
+                quotes={quotes}
+                onRemoveQuote={(id) => onQuotesChange(quotes.filter((quote) => quote.id !== id))}
                 history={promptHistory}
                 onSend={send}
                 canUndo={Boolean(runtimeChat)}
