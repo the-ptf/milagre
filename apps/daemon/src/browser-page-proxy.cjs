@@ -2,6 +2,7 @@ const http = require("node:http");
 const https = require("node:https");
 const { randomBytes } = require("node:crypto");
 const { Resolver } = require("node:dns/promises");
+const { isIP } = require("node:net");
 const { startQuickTunnel } = require("./mobile-tunnel.cjs");
 
 const COOKIE = "__Host-milagre-browser";
@@ -37,9 +38,25 @@ async function waitForPublicDns(url, { timeoutMs = 20_000, intervalMs = 500, res
   }
 }
 
-/** Whether a page's server runs on this computer or its private network, where a self-signed certificate is normal. */
-const privateTarget = (hostname) =>
-  /^(localhost|127\.|0\.0\.0\.0$|\[?::1\]?$|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(hostname) || hostname.endsWith(".local");
+/**
+ * Whether a page's server runs on this computer or its private network, where a self-signed certificate is normal.
+ * Only IP literals in loopback or private ranges and the loopback and mDNS names count: a public name that merely starts
+ * like one ("10.example.com", "localhost.evil.com") keeps full certificate checks.
+ */
+function privateTarget(hostname) {
+  const host = String(hostname)
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (isIP(host) === 4) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || host === "0.0.0.0";
+  }
+  if (isIP(host) === 6) return host === "::1" || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host);
+  // mDNS names resolve on the local network only.
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/.test(host);
+}
 
 /** One authenticated, origin-preserving HTTP/WebSocket tunnel per page lease. No screenshots or HTML rewriting. */
 function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS, published = tunnel === startQuickTunnel ? waitForPublicDns : null } = {}) {
@@ -224,4 +241,4 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS, p
   };
 }
 
-module.exports = { createBrowserPageProxy, pageUrl, waitForPublicDns };
+module.exports = { createBrowserPageProxy, pageUrl, privateTarget, waitForPublicDns };

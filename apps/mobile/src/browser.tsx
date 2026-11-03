@@ -123,6 +123,7 @@ type Draft = { key: string; page: { url: string; title: string }; element: PageE
 /** What the comment box shows: a new comment on a picked element, a waiting one, or a sent one to read. */
 type Box = { kind: "new"; element: PageElement } | { kind: "draft"; key: string } | { kind: "sent"; id: string };
 
+const PAGE_COMMENTS_PER_SEND = 50;
 // Waiting comments outlive the sheet: closing the Browser and opening it again keeps them, per Chat.
 const draftsByChat = new Map<string, Draft[]>();
 let draftKey = 0;
@@ -252,7 +253,9 @@ export function BrowserSheet({
     try {
       const comments = batch.map((draft) => ({ page: { ...draft.page, element: draft.element }, text: draft.text }));
       try {
-        await source.call("browser-comments:send-from-page", [{ chatId, comments }]);
+        // The Mac takes at most 50 per message; more go as several messages, none dropped.
+        for (let start = 0; start < comments.length; start += PAGE_COMMENTS_PER_SEND)
+          await source.call("browser-comments:send-from-page", [{ chatId, comments: comments.slice(start, start + PAGE_COMMENTS_PER_SEND) }]);
       } catch (error) {
         // A Mac from before batches reads `text` only: send them one by one.
         if (!(error instanceof Error) || error.message !== "Write the comment first.") throw error;

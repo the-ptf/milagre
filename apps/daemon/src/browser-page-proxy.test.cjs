@@ -135,3 +135,35 @@ test("the page proxy waits for the tunnel to be published before returning it", 
   assert.ok(lease.url.startsWith("https://late.trycloudflare.com/"));
   await proxy.close();
 });
+
+test("only loopback, private-range IPs and local names skip certificate checks", () => {
+  const { privateTarget } = require("./browser-page-proxy.cjs");
+  for (const host of [
+    "localhost",
+    "app.localhost",
+    "127.0.0.1",
+    "10.1.2.3",
+    "192.168.2.210",
+    "172.16.0.1",
+    "172.31.255.1",
+    "[::1]",
+    "fd00::1",
+    "fe80::1",
+    "santo.local",
+    "0.0.0.0",
+  ])
+    assert.equal(privateTarget(host), true, host);
+  for (const host of [
+    "localhost.evil.com",
+    "127.example.com",
+    "10.example.com",
+    "192.168.attacker.net",
+    "172.16.evil.org",
+    "172.32.0.1",
+    "8.8.8.8",
+    "example.com",
+    "local",
+    "evil.local.example.com",
+  ])
+    assert.equal(privateTarget(host), false, host);
+});

@@ -313,10 +313,13 @@ function createRuntime(options) {
   commands.handle("browser-comments:list", (_context, request) => pageComments.list(request));
   // A comment from the phone's view of a Browser panel page: the element at the tapped point (as fractions of the page),
   // its screenshot, and the message, sent as the user's in the Chat's own provider, model and mode, then recorded.
+  const PAGE_COMMENTS_PER_SEND = 50;
   commands.handle("browser-comments:send-from-page", async (_context, request) => {
     const chatId = typeof request?.chatId === "string" ? request.chatId : "";
     // `comments`: the phone's queued comments on its own page views, sent as one message. Older phones send one.
-    const batch = Array.isArray(request?.comments) ? request.comments.slice(0, 50) : null;
+    const batch = Array.isArray(request?.comments) ? request.comments : null;
+    // Refused whole rather than cut short: a comment the user queued is never dropped without a word.
+    if (batch && batch.length > PAGE_COMMENTS_PER_SEND) throw new Error(`Send at most ${PAGE_COMMENTS_PER_SEND} page comments at once.`);
     const items = (batch ?? [request]).map((item) => ({
       page: item?.page,
       text: typeof item?.text === "string" ? item.text.trim().slice(0, 4000) : "",
