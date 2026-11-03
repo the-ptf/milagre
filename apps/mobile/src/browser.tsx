@@ -1,3 +1,4 @@
+import { commentActivity } from "./comment-activity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
@@ -148,7 +149,7 @@ export function BrowserSheet({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const { client } = useSession();
+  const { client, snapshot, reconnects } = useSession();
   const insets = useSafeAreaInsets();
   // In the panel docked beside the Chat (an iPad) the toolbar is one row; full screen (a phone) it is a header.
   const docked = onClose !== goBack;
@@ -195,6 +196,8 @@ export function BrowserSheet({
       return next;
     });
   const [sent, setSent] = useState<SavedPageComment[]>([]);
+  // A docked iPad page stays mounted while the agent resolves comments beside it.
+  const commentRevision = commentActivity(snapshot, chatId, "page");
   const loadSent = useCallback(async () => {
     if (!source || !chatId) return;
     try {
@@ -217,7 +220,7 @@ export function BrowserSheet({
     return () => {
       disposed = true;
     };
-  }, [visible, source, chatId]);
+  }, [visible, source, chatId, commentRevision, reconnects]);
   const [sending, setSending] = useState(false);
 
   const here = shown ? pageKey(shown.url) : "";

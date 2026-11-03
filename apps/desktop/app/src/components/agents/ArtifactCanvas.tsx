@@ -772,6 +772,8 @@ const DesignFrame = memo(function DesignFrame({
   const layerBounds = useMemo(() => (followsLayer && pinDocument ? designLayout(pinDocument) : null), [pinDocument, followsLayer]);
   const sentPins = comments.sent.flatMap((pin) => {
     if (pin.design.id !== design.id) return [];
+    // History can reveal one resolved comment; closing its bubble clears it from the canvas again.
+    if (pin.resolved !== undefined && pin.key !== comments.open) return [];
     if (pin.nodeId && layerBounds && shown.version >= pin.design.version) {
       const bounds = layerBounds.get(pin.nodeId);
       // A layer's comments move with its current bounds; removed or hidden layers have no visible pin.

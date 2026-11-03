@@ -125,7 +125,7 @@ function pageCommentToolDefinitions(chatId, pageComments) {
     {
       name: "browser_resolve_comment",
       description:
-        "Mark one of the user's Browser panel page comments resolved once you have addressed it, with a short note on what you changed. The user sees the pin on the page turn resolved, with your note. The comment's id is in the user's message, or from browser_comments.",
+        "Mark one of the user's Browser panel page comments resolved once you have addressed it, with a short note on what you changed. The pin disappears from the page; the comment and your note remain in Chat history. The comment's id is in the user's message, or from browser_comments.",
       input: { id: z.string().regex(COMMENT_ID), note: z.string().min(1).max(2000) },
       readOnly: false,
       run: async (input) => {

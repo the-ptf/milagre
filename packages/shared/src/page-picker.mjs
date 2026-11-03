@@ -274,9 +274,9 @@ export function pageDescribeAtScript(x, y) {
 export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
 
 /**
- * Shows `pins` on the page: a numbered pin (or a check, once resolved) on each element its selector finds, at the spot
+ * Shows unresolved `pins` on the page: a numbered or sent pin on each element its selector finds, at the spot
  * the comment was left (`point`, fractions of the element's box; else its top-right corner), its tip on that spot,
- * following it as the page scrolls and changes. Hovering a pin shows its comment and the agent's note. Pins whose
+ * following it as the page scrolls and changes. Resolved comments remain in Chat history. Pins whose
  * element is gone are hidden. Running it again replaces the pins; an empty list removes the layer.
  * Each pin: { n, id?, selector, point?, text, state: "pending" | "open" | "resolved", note? }. When the page defines
  * window.__milagrePinTap, tapping a pin calls it with the pin's id (or its number) instead of showing the tip.
@@ -284,7 +284,7 @@ export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
 export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } = {}) {
   return `(() => {
   const bounds = ${BOUNDS};
-  const pins = ${JSON.stringify(pins)};
+  const pins = ${JSON.stringify(pins.filter((pin) => pin.state !== "resolved"))};
   let layer = window.__milagrePins;
   if (!layer) {
     const host = document.createElement("milagre-pins");
@@ -329,6 +329,7 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
     layer = window.__milagrePins = {
       hidden: false,
       set(next, colors) {
+        tip.style.display = "none";
         for (const item of items) item.node.remove();
         const seen = new Map();
         items = next.map((pin) => {

@@ -8888,6 +8888,7 @@ test("simulator sheet preserves its native header and bounds chooser/viewer cont
 });
 
 function browserHost(client) {
+  const snapshot = { project: { state: { sessions: {} } }, runs: { runs: {} } };
   const react = hookHost({ effects: true }),
     files = new Map(),
     listeners = new Set(),
@@ -8929,6 +8930,7 @@ function browserHost(client) {
     "browser.tsx",
     {
       react,
+      "./comment-activity": require("../apps/mobile/src/comment-activity.ts"),
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": native,
       "expo-router": {
@@ -8950,7 +8952,7 @@ function browserHost(client) {
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/page-picker": require("../packages/shared/src/page-picker.mjs"),
       "./browser-page-url": require("../apps/mobile/src/browser-page-url.ts"),
-      "./session": { useSession: () => ({ client }) },
+      "./session": { useSession: () => ({ client, snapshot }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
       "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
@@ -8963,6 +8965,7 @@ function browserHost(client) {
   );
   return {
     source,
+    snapshot,
     files,
     writes,
     pushed,
@@ -9119,6 +9122,41 @@ test("mobile Browser leaves closing a docked panel to the panel and closes the p
   const sheet = h.render("BrowserSheet", { visible: false });
   const header = find(sheet, (node) => node.type === "SheetHeader");
   assert.ok(header.props.leading.some((node) => node.type === "CircleButton" && node.props.label === "Close browser"));
+});
+
+test("an open phone or iPad Browser refreshes pins when the agent resolves a comment", async () => {
+  for (const docked of [false, true]) {
+    const comment = { id: "12345678", url: BROWSER_PAGE.url, title: "Login", selector: "h1", label: "Heading", text: "Shorter", createdAt: 1 };
+    const h = browserHost({
+      url: "mac",
+      call: async (method) =>
+        method === "browser:list"
+          ? { supported: true, targets: [BROWSER_PAGE], others: [] }
+          : method === "browser-comments:list"
+            ? [structuredClone(comment)]
+            : { ports: [] },
+    });
+    const props = { hostId: "mac", chatId: "/p#1", ...(docked ? { onClose() {} } : {}) };
+    h.render("BrowserSheet", props);
+    await settle();
+    const page = () => find(h.render("BrowserSheet", props), (node) => node.type?.name === "BrowserWebView");
+    assert.equal(page().props.pins[0].state, "open");
+    comment.resolved = { note: "Shortened", at: 2 };
+    h.snapshot.runs.runs[props.chatId] = { steps: [{ id: "resolve", title: "Resolved a page comment", status: "done" }] };
+    h.render("BrowserSheet", props);
+    await settle();
+    const { pagePinsScript } = require("../packages/shared/src/page-picker.mjs");
+    const shown = [];
+    vm.runInNewContext(pagePinsScript(page().props.pins), { window: { __milagrePins: { set: (pins) => shown.push(...pins) } } });
+    assert.deepEqual(shown, [], "the refreshed pins disappear without reopening the panel");
+    delete comment.resolved;
+    h.snapshot.runs.runs = {};
+    h.snapshot.project.state.sessions["1"] = { summary: { lastAt: 5 } };
+    h.render("BrowserSheet", props);
+    await settle();
+    assert.equal(page().props.pins[0].state, "open", "a fast reply refreshes comments even when no live run was observed");
+    h.cleanup();
+  }
 });
 
 test("mobile browser loads public URLs directly and ignores web content RPCs", async (t) => {
@@ -11232,6 +11270,7 @@ function viewerChrome(react) {
 }
 
 function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn, openTab = null) {
+  const snapshot = { project: { state: { sessions: {} } }, runs: { runs: {} } };
   const react = hookHost({ effects: true }),
     files = new Map(),
     share = load("share-availability.ts", {});
@@ -11281,6 +11320,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
     "artifact.tsx",
     {
       react,
+      "./comment-activity": require("../apps/mobile/src/comment-activity.ts"),
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": {
         Text: "Text",
@@ -11312,7 +11352,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
         "@milagre/shared/attachment-download": require("../packages/shared/src/attachment-download.mjs"),
         "@milagre/shared/artifact-assets": require("../packages/shared/src/artifact-assets.mjs"),
       }),
-      "./session": { useSession: () => ({ client, designs: feature }) },
+      "./session": { useSession: () => ({ client, snapshot, designs: feature }) },
       "./use-design-catalog": load("use-design-catalog.ts", {
         react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
         "./design-catalog": require("../apps/mobile/src/design-catalog.ts"),
@@ -11327,6 +11367,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
   );
   const injected = [];
   const host = {
+    snapshot,
     files,
     share,
     setClient(next) {
@@ -11372,6 +11413,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
 
 /** DesignsSheet with its native pieces faked; `open` walks it to a loaded design on a canvas page that said ready. */
 function designsHost(client, router = { back() {} }, feature = designsOn, pushes = []) {
+  const snapshot = { project: { state: { sessions: {} } }, runs: { runs: {} } };
   let reconnects = 0;
   const react = hookHost({ effects: true }),
     files = new Map(),
@@ -11396,6 +11438,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
     "designs-sheet.tsx",
     {
       react,
+      "./comment-activity": require("../apps/mobile/src/comment-activity.ts"),
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": {
         Alert: { alert() {} },
@@ -11432,7 +11475,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
       "./html-reply": { HtmlReply: "HtmlReply" },
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
-      "./session": { useSession: () => ({ client, designs: feature, reconnects }) },
+      "./session": { useSession: () => ({ client, snapshot, designs: feature, reconnects }) },
       "./use-design-catalog": { markDesignDeleted() {} },
       "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
       "./ui": { PillButton: "PillButton", PullDown: "PullDown", CircleButton: "CircleButton", tap() {} },
@@ -11442,6 +11485,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
     "\nexports.TestDesignsCanvas = DesignsCanvas;",
   );
   const host = {
+    snapshot,
     files,
     shareAvailabilityChanged: (...args) => share.shareAvailabilityChanged(...args),
     setClient(next) {
@@ -15751,6 +15795,58 @@ test("an Artifact page's files download into the phone's cache once, and the pag
   await again.open({ hostId: client.url, chatId: "/p#7", id: "current" });
   assert.equal(reads.length, 2, "nothing downloads twice");
   again.cleanup();
+});
+
+test("phone and iPad artifact/design canvases clear resolved pins while retaining unresolved comments", async () => {
+  for (const format of ["html", "design"]) {
+    for (const docked of [false, true]) {
+      const page = {
+        id: "page",
+        format,
+        title: "Review",
+        version: 1,
+        latest: 1,
+        versions: 1,
+        width: 390,
+        height: 844,
+        html: "<h1>Review</h1>",
+        ...(format === "design" ? { document: require("../packages/shared/src/design.mjs").createExampleDesign() } : {}),
+      };
+      const comments = [
+        { id: "11111111", design: page, x: 0.2, y: 0.3, text: "Open", createdAt: 1 },
+        { id: "22222222", design: page, x: 0.4, y: 0.5, text: "Done", createdAt: 2, resolved: { note: "Fixed", at: 3 } },
+      ];
+      const client = {
+        url: `pins-${format}-${docked}`,
+        call: async (method) =>
+          method === "artifact:comments"
+            ? structuredClone(comments)
+            : method === "artifact:list"
+              ? [page]
+              : method === "artifact:sharing-status"
+                ? { available: false }
+                : page,
+      };
+      const h = format === "html" ? artifactHost(client) : designsHost(client);
+      const name = format === "html" ? "ArtifactSheet" : "DesignsSheet";
+      const props = { hostId: client.url, chatId: "/pins#1", id: page.id, ...(docked ? { onClose() {} } : {}) };
+      await h.open(props);
+      const pins = () => h.commands().findLast((command) => command.t === "pins").pins;
+      assert.deepEqual(
+        pins().map((pin) => pin.k),
+        ["sent:11111111"],
+        `${format}, docked=${docked}: history is hidden by default`,
+      );
+      comments[0].resolved = { note: "Fixed too", at: 4 };
+      h.snapshot.project.state.sessions["1"] = { summary: { lastAt: 4 } };
+      h.render(name, props);
+      await settle();
+      h.render(name, props);
+      assert.deepEqual(pins(), [], "a resolution refresh removes the last pin");
+      assert.equal(comments.length, 2, "saved history is intact");
+      h.cleanup();
+    }
+  }
 });
 
 test("HTML artifact opens the current single page with Designs off, without versions or Choose", async () => {
@@ -20068,6 +20164,7 @@ test("artifact feedback opens its tab and reveals after ready, including a repea
     design: { id: page.id, title: page.title, version: 1 },
     tab: { id: "headers", title: "Headers" },
     text: "Explain caching",
+    resolved: { note: "Added cache headers", at: 2 },
     x: 0.2,
     y: 0.3,
   };
@@ -20089,6 +20186,7 @@ test("artifact feedback opens its tab and reveals after ready, including a repea
   );
   find(tree, (node) => node.props?.accessibilityLabel === "Close the comment").props.onPress();
   tree = h.render("ArtifactSheet", props);
+  assert.deepEqual(h.commands().findLast((cmd) => cmd.t === "pins").pins, [], "closing a resolved history comment clears it from the canvas");
   find(tree, (node) => node.type === "PullDown" && node.props.sections.some((section) => section.items.some((item) => item.id === "overview"))).props.onSelect(
     "overview",
   );

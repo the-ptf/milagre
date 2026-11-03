@@ -1,3 +1,4 @@
+import { commentActivity } from "./comment-activity";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeOut, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from "react-native-reanimated";
@@ -109,13 +110,8 @@ export function DesignsSheet({
     if (feature.enabled === false) close();
   }, [feature.enabled, close]);
 
-  // The agent's finished design steps: a new one means a new design or version to read.
-  const revision = chatId
-    ? snapshot?.runs.runs[chatId]?.steps
-        .filter((step) => step.kind === "artifact" && step.status === "done")
-        .map((step) => step.id)
-        .join("|")
-    : undefined;
+  // Finished designs and resolutions refresh the canvas even when it stays docked beside the Chat.
+  const revision = commentActivity(snapshot, chatId, "artifact");
   useEffect(() => {
     if (!source) return;
     let live = true;
@@ -134,7 +130,7 @@ export function DesignsSheet({
     return () => {
       live = false;
     };
-  }, [source, chatId, revision]);
+  }, [source, chatId, revision, reconnects]);
   // Share shows only once this host says sharing works for this Chat; a reply for another host or Chat, or one a newer
   // check has overtaken, is ignored.
   const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
@@ -302,7 +298,10 @@ export function DesignsSheet({
         : [{ k: note.key, id: note.design.id, x: note.x, y: note.y, n: index + 1, fill: colors.accent, ink: colors.onAccent, label: `Comment ${index + 1}` }],
     );
     const done = sent.flatMap((comment) =>
-      comment.x === undefined || comment.y === undefined || shown(comment.design.id) !== comment.design.version
+      comment.x === undefined ||
+      comment.y === undefined ||
+      shown(comment.design.id) !== comment.design.version ||
+      (comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`)
         ? []
         : [
             {

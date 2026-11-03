@@ -1,3 +1,4 @@
+import { commentActivity } from "./comment-activity";
 import { HtmlReply } from "./html-reply";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
@@ -488,13 +489,8 @@ export function ArtifactSheet({
   const sharing = !!source && sharingAvailable === sharingScope;
 
   const [revision, setRevision] = useState(0);
-  // The agent's finished artifact steps: a new one may be a new version of the page.
-  const pageRevision = chatId
-    ? snapshot?.runs.runs[chatId]?.steps
-        .filter((step) => step.kind === "artifact" && step.status === "done")
-        .map((step) => step.id)
-        .join("|")
-    : undefined;
+  // A new artifact or a resolution refreshes the page and its comments while the panel stays open.
+  const pageRevision = commentActivity(snapshot, chatId, "artifact");
   useEffect(() => {
     const watch = AppState.addEventListener("change", (status) => {
       if (status === "active") setRevision((value) => value + 1);
@@ -574,6 +570,7 @@ export function ArtifactSheet({
       comment.design.version !== artifact.version ||
       comment.x === undefined ||
       comment.y === undefined ||
+      (comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`) ||
       !onArtifactTab(comment, artifact, tab)
         ? []
         : [

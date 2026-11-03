@@ -172,8 +172,9 @@ Designs are on the Chat's canvas (group Browser comments). Victor picked, 2026-1
 - **Send in the toolbar** (`browser-comment-a`): pending comments live as numbered pins on the page and a dark
   **Send n** button sits beside the comment toggle, as for Design comments. No tray.
 - **No intent** on a comment (no fix / change / question chips): just the text.
-- **Resolved pins stay** green with a check; hovering shows the agent's note (`browser-comment-sent`). The transcript
-  card lists each comment with its element screenshot and status.
+- **Resolved pins disappear** from the page (updated 2026-11-03 after long reviews accumulated pins). The transcript
+  card keeps each comment, its element screenshot, status and the agent's note. Design and artifact canvases follow
+  the same rule; opening a comment from history can temporarily reveal its details.
 
 ## Research
 
