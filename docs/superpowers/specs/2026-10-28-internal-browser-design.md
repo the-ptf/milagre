@@ -172,8 +172,9 @@ Designs are on the Chat's canvas (group Browser comments). Victor picked, 2026-1
 - **Send in the toolbar** (`browser-comment-a`): pending comments live as numbered pins on the page and a dark
   **Send n** button sits beside the comment toggle, as for Design comments. No tray.
 - **No intent** on a comment (no fix / change / question chips): just the text.
-- **Resolved pins stay** green with a check; hovering shows the agent's note (`browser-comment-sent`). The transcript
-  card lists each comment with its element screenshot and status.
+- **Resolved pins disappear** from the page (updated 2026-11-03 after long reviews accumulated pins). The transcript
+  card keeps each comment, its element screenshot, status and the agent's note. Design and artifact canvases follow
+  the same rule; opening a comment from history can temporarily reveal its details.
 
 ## Research
 
@@ -194,3 +195,5 @@ Designs are on the Chat's canvas (group Browser comments). Victor picked, 2026-1
   claimed-tab rule for human versus agent control. Mobile views the server stream; no annotations there.
 - **React 19** dropped `_debugSource`; source locations come from it only on older React or with a dev plugin, so the
   message omits `at file:line` when the page doesn't expose it.
+
+Resolved comment visibility: right-click or hold the desktop comment button, or long-press it in the phone/iPad Browser, to show or hide resolved pins. Mobile Designs and Artifacts expose the same setting in their action menus. The setting starts off; saved comments and resolution notes are retained.

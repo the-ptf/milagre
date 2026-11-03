@@ -1,3 +1,4 @@
+import { CommentOptions } from "./CommentOptions";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CommentAdd01Icon, Comment01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
@@ -21,6 +22,7 @@ import {
   pagePins,
   removePendingComments,
   setCommenting,
+  setShowResolved,
   setPageDraft,
   setSentComments,
   usePageComments,
@@ -38,7 +40,7 @@ export type SendPageComments = (text: string, images: ImageAttachment[]) => Prom
 
 /** The toolbar's comment toggle and, while comments wait, their Send button (design browser-comment-a). */
 export function CommentControls({ chatKey, live, onSend }: { chatKey: string; live: boolean; onSend?: SendPageComments }) {
-  const { commenting, pending } = usePageComments(chatKey);
+  const { commenting, pending, showResolved } = usePageComments(chatKey);
   const bridge = useBridge();
   const api = typeof bridge?.pageComments?.add === "function" ? bridge.pageComments : undefined;
   const [sending, setSending] = useState(false);
@@ -98,18 +100,20 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
           </Button>
         </Tooltip>
       )}
-      <Tooltip label={label} side="bottom" align="end">
-        {/* Comment mode changes what a click on the page does: the armed accent look. */}
-        <IconButton
-          label={label}
-          icon={CommentAdd01Icon}
-          tone="accent"
-          aria-pressed={commenting}
-          data-slot="browser-comment-toggle"
-          disabled={!live}
-          onClick={() => setCommenting(chatKey, !commenting)}
-        />
-      </Tooltip>
+      <CommentOptions shown={!!showResolved} onChange={(value) => setShowResolved(chatKey, value)}>
+        <Tooltip label={`${label}. Right-click or hold for comment options`} side="bottom" align="end">
+          {/* Comment mode changes what a click on the page does: the armed accent look. */}
+          <IconButton
+            label={label}
+            icon={CommentAdd01Icon}
+            tone="accent"
+            aria-pressed={commenting}
+            data-slot="browser-comment-toggle"
+            disabled={!live}
+            onClick={() => setCommenting(chatKey, !commenting)}
+          />
+        </Tooltip>
+      </CommentOptions>
     </>
   );
 }

@@ -344,7 +344,7 @@ function applyPins(page: Page) {
   if (!page.pins.length && !pinned.has(page)) return;
   if (page.pins.length) pinned.add(page);
   else pinned.delete(page);
-  void call(page, (webview) => webview.executeJavaScript(pagePinsScript(page.pins, { accent: accent(), green: green() })));
+  void call(page, (webview) => webview.executeJavaScript(pagePinsScript(page.pins, { accent: accent(), green: green(), showResolved: true })));
 }
 
 /** Shows `pins` on a tab's page now and after every load. */

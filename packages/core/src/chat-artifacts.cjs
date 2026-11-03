@@ -1051,7 +1051,7 @@ function artifactCommentToolDefinitions(chatId, api, authorization) {
     {
       name: "artifact_resolve_comment",
       description:
-        "Mark one of the user's comments on a design or HTML artifact resolved once you have addressed it (usually after showing a revised version), with a short note on what you changed. The user sees the comment resolved, with your note, in the chat and on the canvas. The comment's id is in the user's message, or from artifact_comments.",
+        "Mark one of the user's comments on a design or HTML artifact resolved once you have addressed it (usually after showing a revised version), with a short note on what you changed. The pin disappears from the canvas; the comment and your note remain in Chat history. The comment's id is in the user's message, or from artifact_comments.",
       input: { id: z.string().regex(COMMENT_ID), note: z.string().min(1).max(2000) },
       readOnly: false,
       run: async (args) => JSON.stringify(await api.resolveComment({ chatId, ...args }, authorization)),

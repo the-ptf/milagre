@@ -7,6 +7,7 @@ const os = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { pagePinsScript } = require("@milagre/shared/page-picker");
 
 const CHROME = process.env.MILAGRE_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PAGE =
@@ -148,6 +149,40 @@ async function browserChecks(url) {
       `[...document.querySelectorAll('[data-browser-page]')].find(node => node.style.pointerEvents === 'auto').querySelector('webview').executeJavaScript(${JSON.stringify(expression)})`,
     );
   try {
+    // The same pin script runs inside desktop pages and the phone/iPad WebView.
+    const pinWindow = new BrowserWindow({ width: 1100, height: 860, show: false });
+    try {
+      await pinWindow.loadURL(PAGE);
+      const run = (script) => pinWindow.webContents.executeJavaScript(script);
+      await run(`window.pinRoot = null; const attach = Element.prototype.attachShadow;
+        Element.prototype.attachShadow = function(options) { const root = attach.call(this, options); if (this.tagName === 'MILAGRE-PINS') window.pinRoot = root; return root; }; true;`);
+      for (const width of [390, 820, 1100]) {
+        pinWindow.setContentSize(width, 860);
+        const pins = [
+          { id: "sent", n: 0, selector: "#go", text: "Bigger button", state: "open" },
+          { id: "done", n: 0, selector: "#go", text: "Resolved earlier", state: "resolved", note: "Done" },
+          { id: "draft", n: 1, selector: "#name", text: "Clearer label", state: "pending" },
+        ];
+        assert.equal(await run(pagePinsScript(pins)), 2);
+        assert.equal(await run("pinRoot.querySelectorAll('.pin').length"), 2, `resolved pins hidden at ${width}px`);
+        await run("pinRoot.querySelector('.pin').dispatchEvent(new PointerEvent('pointerenter'))");
+        assert.equal(await run("pinRoot.querySelector('.tip').style.display"), "block");
+        pins[0].state = "resolved";
+        await run(pagePinsScript(pins));
+        assert.equal(await run("pinRoot.querySelectorAll('.pin').length"), 1, "resolution removes the existing pin");
+        assert.equal(await run("pinRoot.querySelector('.pin').textContent"), "1", "draft numbering survives resolution");
+        assert.equal(await run("pinRoot.querySelector('.tip').style.display"), "none", "resolution dismisses a hovered tooltip too");
+        if (process.env.MILAGRE_SCREENSHOT_DIR) {
+          fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+          fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `resolved-pins-${width}.png`), (await pinWindow.webContents.capturePage()).toPNG());
+        }
+        pins[2].state = "resolved";
+        await run(pagePinsScript(pins));
+        assert.equal(await run("document.querySelector('milagre-pins').style.display"), "none", "all resolved leaves a clear page");
+      }
+    } finally {
+      pinWindow.destroy();
+    }
     await window.loadURL(url);
     await waitFor(`!!document.querySelector("${toggle}")`, "Browser button with the agent's page");
     assert.equal(counts.open, 0);

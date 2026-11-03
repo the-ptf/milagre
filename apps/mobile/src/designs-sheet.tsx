@@ -1,3 +1,4 @@
+import { commentActivity } from "./comment-activity";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeOut, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from "react-native-reanimated";
@@ -63,6 +64,8 @@ export function DesignsSheet({
   id,
   version,
   chosen,
+  comment: commentId,
+  requestId,
   onClose,
 }: {
   hostId?: string;
@@ -70,6 +73,8 @@ export function DesignsSheet({
   id?: string;
   version?: string;
   chosen?: string;
+  comment?: string;
+  requestId?: string;
   onClose?: () => void;
 }) {
   const { colors, motionScale } = useTheme();
@@ -96,6 +101,15 @@ export function DesignsSheet({
   const [choice, setChoice] = useState<ArtifactRef | null>(() => (chatKey && unsent.get(chatKey)?.choice) || null);
   const [sent, setSent] = useState<ArtifactComment[]>([]);
   const [composer, setComposer] = useState<Composer | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
+  const pendingComment = useRef<string | null>(null);
+  // A repeated history tap must work after dismissing the bubble in an already mounted iPad panel.
+  useEffect(() => {
+    pendingComment.current = commentId ?? null;
+    setComposer(null);
+    if (commentId && id && version) setVersions((current) => ({ ...current, [id]: Number(version) }));
+  }, [commentId, requestId, id, version]);
+
   // Until the canvas paints its first design, the design icon draws itself over the empty page.
   const [painted, setPainted] = useState(false);
 
@@ -109,13 +123,8 @@ export function DesignsSheet({
     if (feature.enabled === false) close();
   }, [feature.enabled, close]);
 
-  // The agent's finished design steps: a new one means a new design or version to read.
-  const revision = chatId
-    ? snapshot?.runs.runs[chatId]?.steps
-        .filter((step) => step.kind === "artifact" && step.status === "done")
-        .map((step) => step.id)
-        .join("|")
-    : undefined;
+  // Finished designs and resolutions refresh the canvas even when it stays docked beside the Chat.
+  const revision = commentActivity(snapshot, chatId, "artifact");
   useEffect(() => {
     if (!source) return;
     let live = true;
@@ -134,7 +143,7 @@ export function DesignsSheet({
     return () => {
       live = false;
     };
-  }, [source, chatId, revision]);
+  }, [source, chatId, revision, reconnects]);
   // Share shows only once this host says sharing works for this Chat; a reply for another host or Chat, or one a newer
   // check has overtaken, is ignored.
   const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
@@ -302,7 +311,10 @@ export function DesignsSheet({
         : [{ k: note.key, id: note.design.id, x: note.x, y: note.y, n: index + 1, fill: colors.accent, ink: colors.onAccent, label: `Comment ${index + 1}` }],
     );
     const done = sent.flatMap((comment) =>
-      comment.x === undefined || comment.y === undefined || shown(comment.design.id) !== comment.design.version
+      comment.x === undefined ||
+      comment.y === undefined ||
+      shown(comment.design.id) !== comment.design.version ||
+      (!showResolved && comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`)
         ? []
         : [
             {
@@ -318,11 +330,22 @@ export function DesignsSheet({
           ],
     );
     return [...done, ...waiting].map((pin) => (pin.k === composer?.key ? { ...pin, hide: true } : pin));
-  }, [notes, sent, numbers, loaded, composer?.key, colors.accent, colors.onAccent, colors.green, colors.ink2, colors.page]);
+  }, [notes, sent, numbers, loaded, composer?.key, showResolved, colors.accent, colors.onAccent, colors.green, colors.ink2, colors.page]);
   const pinsKey = JSON.stringify(pins);
   useEffect(() => {
     command({ t: "pins", pins: JSON.parse(pinsKey) });
   }, [pinsKey, command, epoch, layoutKey]);
+
+  // History can arrive before the saved comments, the requested version, or the canvas is ready.
+  useEffect(() => {
+    if (!ready.current || !pendingComment.current) return;
+    const comment = sent.find((item) => item.id === pendingComment.current && item.design.id === id);
+    if (!comment || comment.x === undefined || comment.y === undefined) return;
+    if (loaded[comment.design.id]?.version !== comment.design.version) return;
+    pendingComment.current = null;
+    setComposer({ key: `sent:${comment.id}`, kind: "read", at: null });
+    command({ t: "reveal", id: comment.design.id, x: comment.x, y: comment.y });
+  }, [sent, loaded, id, commentId, requestId, epoch, command]);
 
   const onMessage = useCallback(
     (data: string) => {
@@ -451,6 +474,7 @@ export function DesignsSheet({
   const latest = shown && "latest" in shown ? shown.latest : (summary?.versions ?? 1);
   const menu: MenuSection[] = shown
     ? [
+        { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
         { items: [{ id: "choose", title: pendingHere || sentHere ? "Chosen" : "Choose this design", checked: pendingHere || sentHere, disabled: sentHere }] },
         ...(latest > 1
           ? [
@@ -470,7 +494,8 @@ export function DesignsSheet({
     : [];
   const choose = (action: string) => {
     if (!shown) return;
-    if (action === "choose") setChoice(pendingHere ? null : refOf(shown));
+    if (action === "resolved") setShowResolved(!showResolved);
+    else if (action === "choose") setChoice(pendingHere ? null : refOf(shown));
     else if (action === "share") openShare();
     else if (action === "delete") remove(shown);
     else if (action.startsWith("version:")) {

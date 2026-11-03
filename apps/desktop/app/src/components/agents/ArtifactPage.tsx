@@ -183,7 +183,7 @@ export const ArtifactPage = forwardRef<
     if (pin?.tab) onTab(pin.tab.id);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- asked again by the nonce, not by the pins changing.
   }, [reveal?.key, reveal?.nonce]);
-  const sentHere = comments.sent.filter((pin) => onArtifactTab(pin, page, tab));
+  const sentHere = comments.sent.filter((pin) => onArtifactTab(pin, page, tab) && (comments.showResolved || pin.resolved === undefined || pin.key === open));
   const waitingHere = waiting.filter((pin) => onArtifactTab(pin, page, tab));
   const pins = useMemo<PagePin[]>(
     () => [

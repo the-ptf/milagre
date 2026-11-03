@@ -24,6 +24,35 @@ test("a tapped point can't carry code into the page", () => {
   assert.match(script, /const px = 0\.5 \* innerWidth, py = 0\.5 \* innerHeight;/);
 });
 
+test("desktop and mobile page scripts remove resolved pins without changing saved comments or pending numbers", () => {
+  const comments = [
+    { id: "sent", n: 0, selector: "h1", text: "Shorter", state: "open" },
+    { id: "done", n: 0, selector: "h1", text: "Bigger", state: "resolved", note: "Done" },
+    { id: "draft", n: 1, selector: "h1", text: "Green", state: "pending" },
+  ];
+  let shown;
+  const context = {
+    window: {
+      __milagrePins: {
+        set: (pins) => {
+          shown = pins;
+        },
+      },
+    },
+  };
+  assert.equal(runInNewContext(pagePinsScript(comments), context), 2);
+  assert.deepEqual(
+    Array.from(shown, ({ id, n }) => [id, n]),
+    [
+      ["sent", 0],
+      ["draft", 1],
+    ],
+  );
+  assert.equal(comments.length, 3, "history is retained");
+  assert.equal(runInNewContext(pagePinsScript(comments.map((pin) => ({ ...pin, state: "resolved" }))), context), 0);
+  assert.equal(shown.length, 0, "resolving the last comment clears the layer");
+});
+
 test("injected scripts work when the native JS engine does not retain function source", (t) => {
   const source = t.mock.method(Function.prototype, "toString", () => "function () { [bytecode] }");
   const scripts = [pagePickScript(), pageDescribeAtScript(0.5, 0.5), pagePinsScript([])];
@@ -68,4 +97,20 @@ test("blank page space gets an exact pin even below a short body or after scroll
   const blank = runInNewContext(pageDescribeAtScript(0.5, 0.9), context);
   assert.equal(blank.box.height, 600, "blank space below the content is still part of the page");
   assert.equal(blank.point.y, 0.9);
+});
+
+test("resolved Browser pins can be explicitly shown without losing their notes", () => {
+  const pins = [{ n: 0, selector: "h1", text: "Shorter", state: "resolved", note: "Fixed" }];
+  let shown;
+  runInNewContext(pagePinsScript(pins, { showResolved: true }), {
+    window: {
+      __milagrePins: {
+        set: (next) => {
+          shown = next;
+        },
+      },
+    },
+  });
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].note, "Fixed");
 });

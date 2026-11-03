@@ -15,6 +15,6 @@ export function pagePickScript(accent?: string): string;
 export const PAGE_PICK_CANCEL: string;
 /** The element at a point given as fractions of the viewport, or null. */
 export function pageDescribeAtScript(x: number, y: number): string;
-export function pagePinsScript(pins: PagePin[], colors?: { accent?: string; green?: string }): string;
+export function pagePinsScript(pins: PagePin[], colors?: { accent?: string; green?: string; showResolved?: boolean }): string;
 export function pagePinsHidden(hidden: boolean): string;
 export type { PageElement };

@@ -942,17 +942,43 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]") && !!${dock}`);
 
-    // The agent resolves the comment with a note: the pin turns green and its bubble and the chat's card show the note.
+    // Resolution clears the canvas; history still shows the note and can reveal just that comment.
     await evaluate('window.agentResolves("Sign in button is 48px tall now")');
-    await waitFor(`/resolved/.test(${frame("login")}.querySelector("[data-slot=artifact-sent-pin]").getAttribute("aria-label"))`);
+    await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-sent-pin]")`);
     assert.match(await evaluate(`${card}.querySelector("[data-slot=design-feedback-resolved]").textContent`), /Sign in button is 48px tall now/);
+    await evaluate(
+      `${dock}.querySelector("button[aria-label='Comment on a design']").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))`,
+    );
+    await waitFor(`!!document.querySelector('[aria-label="Comment options"]')`);
+    await evaluate(`document.querySelector('[role="menuitemcheckbox"]').click()`);
+    await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-sent-pin]")`);
+    await evaluate(
+      `${dock}.querySelector("button[aria-label='Comment on a design']").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))`,
+    );
+    await waitFor(`!!document.querySelector('[role="menuitemcheckbox"]')`);
+    await evaluate(`document.querySelector('[role="menuitemcheckbox"]').click()`);
+    await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-sent-pin]")`);
+    await evaluate(
+      `${dock}.querySelector("button[aria-label='Comment on a design']").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }))`,
+    );
+    await waitFor(`!!document.querySelector('[aria-label="Comment options"]')`);
+    await evaluate(
+      `(() => { const button = ${dock}.querySelector("button[aria-label='Comment on a design']"); button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })); button.click(); })()`,
+    );
+    assert.equal(
+      await evaluate(`${dock}.querySelector("button[aria-label='Comment on a design']").getAttribute("aria-pressed")`),
+      "false",
+      "holding opens options without entering comment mode",
+    );
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor(`!document.querySelector('[aria-label="Comment options"]')`);
     // Mid-morph, slowed down: the green pin growing from its point into the bubble.
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       await evaluate(
         `document.head.appendChild(Object.assign(document.createElement("style"), { id: "slow-morph", textContent: "[data-slot=artifact-comment-surface] { transition-duration: 2400ms !important; }" }))`,
       );
     }
-    await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-sent-pin]").click()`);
+    await evaluate(`${card}.querySelector("[data-slot=design-feedback-comment]").click()`);
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       await delay(250);
       const fs = require("node:fs");
@@ -963,6 +989,11 @@ async function browserChecks() {
     await screenshot("resolved-comment");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]") && !!${dock}`);
+    assert.equal(
+      await evaluate(`${frame("login")}.querySelectorAll("[data-slot=artifact-sent-pin]").length`),
+      0,
+      "closing history hides the resolved pin again",
+    );
 
     // ⌘Enter (Control+Enter off the Mac) in a bubble sends the comment right away, without the Send button. A canvas
     // filling the workspace steps back beside the chat to show the reply coming.
@@ -1000,7 +1031,7 @@ async function browserChecks() {
     });
     await waitFor("window.sent.length === 2");
     assert.match(await evaluate("window.sent[1]"), /Round the corners/);
-    await waitFor(`!${dock}.querySelector("[data-slot=artifact-send]") && ${frame("login")}.querySelectorAll("[data-slot=artifact-sent-pin]").length === 2`);
+    await waitFor(`!${dock}.querySelector("[data-slot=artifact-send]") && ${frame("login")}.querySelectorAll("[data-slot=artifact-sent-pin]").length === 1`);
     await waitFor(`!${dock}.dataset.full`);
     await screenshot("sent-with-shortcut");
     // ⌘Enter anywhere in the Designs sends what waits there, not only from a comment box: keep a comment with Enter
@@ -1188,12 +1219,16 @@ async function browserChecks() {
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Explanation");
     await waitFor(`${dock}.querySelector("[data-slot=artifact-zoom]")?.textContent === "100%"`);
     assert.equal(await evaluate(`!!${dock}.querySelector("textarea")`), false);
+    // Expand through the normal control: the narrow dock's resize handle overlaps its left edge on Linux.
+    // Give the click and its 264px bubble room inside the page, without relying on a one-pixel edge hit.
+    await evaluate(`${dock}.querySelector('[aria-label="Fill the window with the artifacts"]').click()`);
+    await waitFor(`${dock}.dataset.full === "true" && ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect().width > 400`);
     // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
     await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
     await waitFor(`${dock}.querySelector('button[aria-label="Stop commenting"]')?.getAttribute("aria-pressed") === "true"`);
     // Leave room for the 264px bubble so this checks anchoring rather than its right-edge clamp.
     const heading = await evaluate(
-      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 20), y: Math.round(r.top + 40) }; })()`,
+      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 40) }; })()`,
     );
     // The page's helper may still be starting: click until the bubble opens.
     // sendInputEvent stops at the page's frame; input through the DevTools protocol is hit-tested into it, as a real click.
@@ -1227,6 +1262,9 @@ async function browserChecks() {
       `!${dock}.querySelector("[data-slot=artifact-comment-bubble]") && /Send\\s*1/.test(${dock}.querySelector('[data-slot="artifact-send"]')?.textContent ?? "")`,
     );
     await screenshot("artifact-pending-designs-off");
+    await evaluate(`${dock}.querySelector('[aria-label="Show the Chat beside the artifacts"]').click()`);
+    await waitFor(`${dock}.dataset.full !== "true"`);
+
     await evaluate(`${dock}.querySelector('[data-slot="artifact-send"]').click()`);
     await waitFor('window.sent.at(-1).includes("Explain the next step")');
     const htmlComment = await evaluate("window.sent.at(-1)");
