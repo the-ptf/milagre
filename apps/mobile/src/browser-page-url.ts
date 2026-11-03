@@ -15,12 +15,18 @@ export function privatePage(url: string): boolean {
   }
 }
 
-export function directPageUrl(url: string, host: string | null): string | null {
+/**
+ * The address the phone opens a page at itself, or null when only the Mac can reach it (through its page proxy): a
+ * private page with no route to the Mac's network, or a localhost server in `loopbackOnly` (it answers on the Mac alone).
+ */
+export function directPageUrl(url: string, host: string | null, loopbackOnly?: ReadonlySet<number>): string | null {
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return null;
     if (privatePage(url) && !host) return null;
-    return reachableUrl(url, host);
+    const direct = reachableUrl(url, host, loopbackOnly);
+    // Unless the phone runs on the Mac itself (a simulator paired over 127.0.0.1), where loopback is the Mac's.
+    return isLoopbackUrl(direct) && !(host && isLoopbackUrl(`http://${host.includes(":") ? `[${host}]` : host}`)) ? null : direct;
   } catch {
     return null;
   }

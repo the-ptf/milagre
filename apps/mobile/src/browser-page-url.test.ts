@@ -12,6 +12,13 @@ test("local pages use the reachable computer address, preserving path, query and
   for (const url of ["file:///tmp/a", "javascript:alert(1)", "http://user:password@localhost"]) assert.equal(directPageUrl(url, null), null);
 });
 
+test("a server listening on the Mac's loopback alone goes through the Mac, not its network address", () => {
+  const loopbackOnly = new Set([5173]);
+  assert.equal(directPageUrl("http://localhost:5173/pricing", "192.168.2.210", loopbackOnly), null);
+  assert.equal(directPageUrl("http://localhost:3000/", "192.168.2.210", loopbackOnly), "http://192.168.2.210:3000/");
+  assert.equal(directPageUrl("http://localhost:5173/", "127.0.0.1", loopbackOnly), "http://localhost:5173/", "a simulator on the Mac reaches it");
+});
+
 test("proxy navigation reports the site's original address without changing external redirects", () => {
   assert.equal(originalPageUrl("https://proxy.test/next?q=1#x", "http://localhost:5173/start", "https://proxy.test"), "http://localhost:5173/next?q=1#x");
   assert.equal(originalPageUrl("https://login.test/auth", "http://localhost:5173", "https://proxy.test"), "https://login.test/auth");

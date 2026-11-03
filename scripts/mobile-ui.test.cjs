@@ -8523,6 +8523,9 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
     Text: "Text",
     View: "View",
     Pressable: "Pressable",
+    ActivityIndicator: "ActivityIndicator",
+    Alert: { alert() {} },
+    Linking: { openURL: async () => {} },
     AppState: {
       currentState: "active",
       addEventListener(_name, fn) {
@@ -8938,6 +8941,10 @@ function browserHost(client) {
         useFocusEffect: (fn) => react.effect(fn, [fn]),
       },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+      "react-native-keyboard-controller": { KeyboardStickyView: "KeyboardStickyView" },
+      "expo-clipboard": { setStringAsync: async () => {} },
+      "@milagre/shared/page-comments": require("../packages/shared/src/page-comments.mjs"),
+      "@milagre/shared/loopback-url": require("../packages/shared/src/loopback-url.ts"),
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "@hugeicons/core-free-icons": {},
@@ -8974,6 +8981,7 @@ function browserHost(client) {
     },
   };
 }
+const WEBVIEW_PROPS = { loopbackOnly: new Set(), onControls() {}, onLoaded() {}, onPin() {}, picking: false, composing: false, pins: [] };
 const BROWSER_PAGE = { id: "browser-1:" + "A".repeat(32), title: "Login", url: "https://example.com/login", browser: "Chrome 141", source: "agent" };
 
 test("mobile browser link loads on the device without opening a desktop page", async (t) => {
@@ -8990,10 +8998,9 @@ test("mobile browser link loads on the device without opening a desktop page", a
   render();
   await settle();
   assert.ok(find(render(), (node) => node.props?.url === "http://localhost:5173"));
-  assert.deepEqual(
-    calls.map(([method]) => method),
-    ["browser:list"],
-  );
+  const methods = new Set(calls.map(([method]) => method));
+  assert.ok(methods.has("browser:list"));
+  for (const method of methods) assert.ok(["browser:list", "chat:ports", "browser-comments:list"].includes(method), `${method} opens nothing on the desktop`);
 });
 
 test("mobile browser shortcut lists only this Chat and hides until the Chat has a page", async (t) => {
@@ -9048,7 +9055,7 @@ test("mobile browser shortcut opens in the Chat's iPad panel when available", as
   assert.deepEqual(h.pushed, [], "a docked Browser does not also open a phone sheet");
 });
 
-test("mobile browser sheet opens a sole page directly, lists several, and attaches explicitly", async (t) => {
+test("mobile browser sheet opens a sole page directly and lists several, with no Attach or Detach", async (t) => {
   const other = { id: "b", browser: "Chrome 141", pages: 2, title: "Mine" };
   for (const [list, direct] of [
     [{ supported: true, targets: [BROWSER_PAGE], others: [] }, true],
@@ -9059,24 +9066,22 @@ test("mobile browser sheet opens a sole page directly, lists several, and attach
       url: "mac",
       call: async (method, args) => {
         calls.push([method, args]);
-        return method === "browser:attach"
-          ? { ...list, targets: [...list.targets, { ...BROWSER_PAGE, id: "b:" + "C".repeat(32), source: "attached" }], others: [] }
-          : list;
+        return method === "browser:list" ? list : method === "browser-comments:list" ? [] : { chatId: "/p#1", ports: [] };
       },
     });
     t.after(() => h.cleanup());
     h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
     await settle();
     const tree = h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
-    assert.equal(tree.props.style.paddingBottom, 34, "controls clear the phone home indicator");
     const [header, body] = tree.props.children;
     assert.equal(header.props.collapsable, false);
     assert.equal(body.props.collapsable, false);
     assert.equal(!!find(body, (node) => node.props?.url === BROWSER_PAGE.url), direct);
-    assert.deepEqual(
-      calls.map(([method]) => method),
-      ["browser:list"],
-      "listing starts no capture",
+    assert.ok(!calls.some(([method]) => /^browser:(open|attach|detach|page-url)$/.test(method)), "listing starts no capture and attaches nothing");
+    assert.equal(
+      find(tree, (node) => node.type === "PillButton" && /^(Attach|Detach)$/.test(node.props.title)),
+      undefined,
+      "the Browser lists this Chat's pages only",
     );
     if (direct) {
       list.targets = [{ ...BROWSER_PAGE, url: "https://example.com/agent-next" }];
@@ -9085,37 +9090,35 @@ test("mobile browser sheet opens a sole page directly, lists several, and attach
         find(refreshed, (node) => node.props?.url === BROWSER_PAGE.url),
         "host polling preserves the selected page snapshot",
       );
-    }
-    if (!direct) {
-      const attach = find(body, (node) => node.type === "PillButton" && node.props.title === "Attach");
-      attach.props.onPress();
-      await settle();
-      assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["browser:attach", [{ chatId: "/p#1", browserId: "b" }]]);
-      // Only attached pages offer Detach, and it names the browser, not the page.
-      const after = h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
-      const detaches = [];
-      find(after, (node) => {
-        if (node.type === "PillButton" && node.props.title === "Detach") detaches.push(node);
+    } else {
+      const rows = [];
+      find(body, (node) => {
+        if (node.type === "Pressable" && node.props.accessibilityRole === "button" && /example\.com/.test(node.props.accessibilityLabel ?? "")) rows.push(node);
         return false;
       });
-      assert.equal(detaches.length, 1);
-      detaches[0].props.onPress();
-      await settle();
-      assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["browser:detach", [{ chatId: "/p#1", browserId: "b" }]]);
+      assert.equal(rows.length, 2, "both of the Chat's pages are listed");
     }
     h.cleanup();
   }
 });
 
-test("mobile Browser closes its owning panel through the supplied action", (t) => {
+test("mobile Browser leaves closing a docked panel to the panel and closes the phone sheet from its header", (t) => {
   const h = browserHost(null);
   t.after(() => h.cleanup());
-  let closed = 0;
-  const tree = h.render("BrowserSheet", { visible: false, onClose: () => closed++ });
-  const header = find(tree, (node) => node.type === "SheetHeader");
-  const close = find(header.props.trailing, (node) => node.type === "CircleButton" && node.props.label === "Close browser");
-  close.props.onPress();
-  assert.equal(closed, 1);
+  const docked = h.render("BrowserSheet", { visible: false, onClose: () => {} });
+  assert.equal(
+    find(docked, (node) => node.type === "SheetHeader"),
+    undefined,
+    "the iPad panel uses its one-row toolbar",
+  );
+  assert.equal(
+    find(docked, (node) => node.type === "CircleButton" && node.props.label === "Close browser"),
+    undefined,
+    "the panel's own tab strip closes it",
+  );
+  const sheet = h.render("BrowserSheet", { visible: false });
+  const header = find(sheet, (node) => node.type === "SheetHeader");
+  assert.ok(header.props.leading.some((node) => node.type === "CircleButton" && node.props.label === "Close browser"));
 });
 
 test("mobile browser loads public URLs directly and ignores web content RPCs", async (t) => {
@@ -9128,7 +9131,16 @@ test("mobile browser loads public URLs directly and ignores web content RPCs", a
   };
   const h = browserHost(client);
   t.after(() => h.cleanup());
-  const props = { client, chatId: "/p#1", url: BROWSER_PAGE.url, host: null, onPage: (page) => pages.push(page), onExternalUrl() {}, onPick() {} };
+  const props = {
+    client,
+    chatId: "/p#1",
+    url: BROWSER_PAGE.url,
+    host: null,
+    onPage: (page) => pages.push(page),
+    onExternalUrl() {},
+    onPick() {},
+    ...WEBVIEW_PROPS,
+  };
   h.render("TestBrowserWebView", props);
   await settle();
   const tree = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");
@@ -9176,7 +9188,16 @@ test("mobile browser requests an authenticated proxy off the LAN and releases it
   };
   const h = browserHost(client);
   t.after(() => h.cleanup());
-  const props = { client, chatId: "/p#1", url: "http://localhost:5173/page", host: null, onPage: (page) => pages.push(page), onExternalUrl() {}, onPick() {} };
+  const props = {
+    client,
+    chatId: "/p#1",
+    url: "http://localhost:5173/page",
+    host: null,
+    onPage: (page) => pages.push(page),
+    onExternalUrl() {},
+    onPick() {},
+    ...WEBVIEW_PROPS,
+  };
   h.render("TestBrowserWebView", props);
   await settle();
   const tree = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");

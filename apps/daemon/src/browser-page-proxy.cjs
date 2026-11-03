@@ -1,11 +1,14 @@
 const http = require("node:http");
 const https = require("node:https");
 const { randomBytes } = require("node:crypto");
+const { Resolver } = require("node:dns/promises");
+const { isIP } = require("node:net");
 const { startQuickTunnel } = require("./mobile-tunnel.cjs");
 
 const COOKIE = "__Host-milagre-browser";
 const AUTH = "/.milagre-browser-auth/";
 const IDLE_MS = 10 * 60_000;
+const UNUSED_MS = 2 * 60_000;
 
 function pageUrl(value) {
   const url = new URL(value);
@@ -14,8 +17,49 @@ function pageUrl(value) {
   return url;
 }
 
+/**
+ * A new trycloudflare.com hostname answers NXDOMAIN for several seconds after cloudflared registers, and resolvers cache
+ * that answer for a minute: a phone that loads it at once gets a blank page and every retry opens another fresh name.
+ * Ask public resolvers directly (never the LAN's, so its negative cache stays clean) until the name resolves.
+ */
+async function waitForPublicDns(url, { timeoutMs = 20_000, intervalMs = 500, resolver } = {}) {
+  const hostname = new URL(url).hostname;
+  const dns = resolver ?? new Resolver({ timeout: 2000, tries: 1 });
+  if (!resolver) dns.setServers(["1.1.1.1", "8.8.8.8"]);
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const found = await dns.resolve4(hostname).then(
+      (addresses) => addresses.length > 0,
+      () => false,
+    );
+    if (found) return true;
+    if (Date.now() + intervalMs > deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+/**
+ * Whether a page's server runs on this computer or its private network, where a self-signed certificate is normal.
+ * Only IP literals in loopback or private ranges and the loopback and mDNS names count: a public name that merely starts
+ * like one ("10.example.com", "localhost.evil.com") keeps full certificate checks.
+ */
+function privateTarget(hostname) {
+  const host = String(hostname)
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (isIP(host) === 4) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || host === "0.0.0.0";
+  }
+  if (isIP(host) === 6) return host === "::1" || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host);
+  // mDNS names resolve on the local network only.
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/.test(host);
+}
+
 /** One authenticated, origin-preserving HTTP/WebSocket tunnel per page lease. No screenshots or HTML rewriting. */
-function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS } = {}) {
+function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS, published = tunnel === startQuickTunnel ? waitForPublicDns : null } = {}) {
   const leases = new Map();
   let closed = false;
   async function release(id) {
@@ -34,9 +78,9 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS } 
       const id = randomBytes(24).toString("hex");
       const secret = randomBytes(32).toString("hex");
       const lease = { server: null, tunnel: null, sockets: new Set(), timer: null };
-      const touch = () => {
+      const touch = (ms = idleMs) => {
         clearTimeout(lease.timer);
-        lease.timer = setTimeout(() => void release(id), idleMs);
+        lease.timer = setTimeout(() => void release(id), ms);
         lease.timer.unref();
       };
       lease.touch = touch;
@@ -61,6 +105,8 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS } 
           method: req.method,
           path: req.url,
           headers: headers(req),
+          // A local dev server's HTTPS certificate is usually self-signed; the user opened it on purpose.
+          ...(target.protocol === "https:" && privateTarget(target.hostname) ? { rejectUnauthorized: false } : {}),
         });
       const server = http.createServer((req, res) => {
         res.setHeader("Cache-Control", "no-store");
@@ -142,8 +188,8 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS } 
           socket.on("close", () => peer.destroy());
           peer.on("error", () => socket.destroy());
           socket.on("error", () => peer.destroy());
-          socket.on("data", touch);
-          peer.on("data", touch);
+          socket.on("data", () => touch());
+          peer.on("data", () => touch());
           socket.write(
             `HTTP/1.1 101 Switching Protocols\r\n${response.rawHeaders.reduce((lines, value, i, all) => (i % 2 ? lines : lines + `${value}: ${all[i + 1]}\r\n`), "")}\r\n`,
           );
@@ -168,7 +214,11 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS } 
           await lease.tunnel.close();
           throw new Error("Browser proxy was closed.");
         }
-        touch();
+        // Still usable if DNS is slow: the phone's own retry has a chance, which a thrown error would take away.
+        if (published) await published(lease.tunnel.url);
+        if (!leases.has(id) || closed) throw new Error("Browser proxy was closed.");
+        // A phone that gave up waiting never opens or releases it; an unused lease goes after two minutes.
+        touch(Math.min(idleMs, UNUSED_MS));
         return { id, url: `${lease.tunnel.url}${AUTH}${secret}`, origin: lease.tunnel.url };
       } catch (error) {
         await release(id);
@@ -191,4 +241,4 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS } 
   };
 }
 
-module.exports = { createBrowserPageProxy, pageUrl };
+module.exports = { createBrowserPageProxy, pageUrl, privateTarget, waitForPublicDns };

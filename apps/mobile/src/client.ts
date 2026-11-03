@@ -124,6 +124,8 @@ const LONG_CALLS = new Set([
   "pr:request-reviewers",
 ]);
 // Settings › MCP: the Mac caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
+// A Browser page proxy may download cloudflared, start a tunnel (30 s at most) and wait for its name in DNS (20 s).
+const PAGE_URL_MS = 75000;
 const MCP_CALLS = new Set(["mcp:accounts", "mcp:check", "mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]);
 // The Mac embeds images before uploading a public snapshot; match its desktop RPC deadline.
 const DESIGN_SHARE_CALLS = new Set(["artifact:share-page", "artifact:revoke-page-share", "artifact:revoke-saved-page-share"]);
@@ -458,7 +460,9 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
               ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
               : MCP_CALLS.has(method)
                 ? Math.max(timeoutMs, 45000)
-                : timeoutMs,
+                : method === "browser:page-url"
+                  ? Math.max(timeoutMs, PAGE_URL_MS)
+                  : timeoutMs,
       );
     },
     media,

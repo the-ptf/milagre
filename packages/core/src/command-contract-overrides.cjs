@@ -30,11 +30,20 @@ module.exports = {
   "designs:enabled:save": [p("value", b)],
   // Every computer runs Routines; older apps still save the old switch, which changes nothing.
   "routines:enabled:save": [p("value", b)],
-  // A comment from the phone's view of a Browser panel page, at a point given as fractions of the page.
-  "browser-comments:send-from-page": request({ chatId: s, targetId: s, x: n, y: n, text: s, page: object({ url: s, title: s, element: any }) }, [
-    "chatId",
-    "text",
-  ]),
+  // A comment from the phone's view of a Browser panel page, at a point given as fractions of the page, or the phone's
+  // queued comments on its own page views (`comments`), sent as one message.
+  "browser-comments:send-from-page": request(
+    {
+      chatId: s,
+      targetId: s,
+      x: n,
+      y: n,
+      text: s,
+      page: object({ url: s, title: s, element: any }),
+      comments: array(object({ text: s, page: object({ url: s, title: s, element: any }) }, ["text", "page"])),
+    },
+    ["chatId"],
+  ),
   // The desktop's Browser panel pages and their loopback DevTools endpoint; its main process sends them (browser-panel-pages.cjs).
   "browser:panel-pages": request({ port: n, prefix: s, pages: array(object({ id: s, chatId: s, title: s, url: s })) }, ["pages"]),
   // The Browser panel's sign-ins on this Mac and signing one out, forwarded to the desktop app (host-browser-sign-ins.cjs).

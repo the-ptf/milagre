@@ -278,7 +278,8 @@ export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
  * the comment was left (`point`, fractions of the element's box; else its top-right corner), its tip on that spot,
  * following it as the page scrolls and changes. Hovering a pin shows its comment and the agent's note. Pins whose
  * element is gone are hidden. Running it again replaces the pins; an empty list removes the layer.
- * Each pin: { n, selector, point?, text, state: "pending" | "open" | "resolved", note? }.
+ * Each pin: { n, id?, selector, point?, text, state: "pending" | "open" | "resolved", note? }. When the page defines
+ * window.__milagrePinTap, tapping a pin calls it with the pin's id (or its number) instead of showing the tip.
  */
 export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } = {}) {
   return `(() => {
@@ -353,6 +354,14 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
             tip.style.top = Math.max(4, Math.min(innerHeight - tip.offsetHeight - 4, r.top)) + "px";
           });
           node.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+          // The phone's view opens a tapped pin's comment in its own box.
+          node.addEventListener("click", (event) => {
+            if (!window.__milagrePinTap) return;
+            event.preventDefault();
+            event.stopPropagation();
+            tip.style.display = "none";
+            window.__milagrePinTap(pin.id ?? String(pin.n));
+          });
           root.append(node);
           return { pin, node, offset };
         });

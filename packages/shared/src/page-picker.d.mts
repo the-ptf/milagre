@@ -1,6 +1,14 @@
 import type { PageElement } from "./page-comments.mjs";
 
-export type PagePin = { n: number; selector: string; point?: { x: number; y: number }; text: string; state: "pending" | "open" | "resolved"; note?: string };
+export type PagePin = {
+  n: number;
+  id?: string;
+  selector: string;
+  point?: { x: number; y: number };
+  text: string;
+  state: "pending" | "open" | "resolved";
+  note?: string;
+};
 
 /** A script that evaluates to a promise of the element the user picks on the page, null if cancelled, undefined if replaced. */
 export function pagePickScript(accent?: string): string;
