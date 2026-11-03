@@ -302,7 +302,7 @@ test("a PR attachment is read with gh's token, which goes to github.com only", a
     [signed, null],
   ]);
   for (const other of ["https://evil.example/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da", "http://127.0.0.1:8080/x.png", `${url}/../x`]) {
-    assert.deepEqual(await review.image({ cwd: "/w", url: other }), { ok: false, message: "That isn't a GitHub attachment." });
+    assert.deepEqual(await review.image({ cwd: "/w", url: other }), { ok: false, message: "That isn't a GitHub image." });
   }
   assert.equal(requests.length, 2, "No other address is fetched");
   const html = createPullRequestReview({
@@ -311,6 +311,41 @@ test("a PR attachment is read with gh's token, which goes to github.com only", a
       to === url ? new Response(null, { status: 302, headers: { location: signed } }) : new Response("<html>", { headers: { "content-type": "text/html" } }),
   });
   assert.deepEqual(await html.image({ cwd: "/w", url }), { ok: false, message: "GitHub didn't send this image." });
+});
+
+test("repository screenshots use GitHub's raw contents API and never forward credentials on redirects", async () => {
+  const url = "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true";
+  const api = "https://api.github.com/repos/acme/app/contents/.pr-assets/11965/asset1.png?ref=abc123";
+  for (const redirect of [false, true]) {
+    const requests = [];
+    const review = createPullRequestReview({
+      exec: fakeGh(() => "gho_token\n").exec,
+      fetch: async (to, init = {}) => {
+        requests.push([to, init]);
+        if (redirect && to === api) return new Response(null, { status: 302, headers: { location: "https://storage.example/signed.png" } });
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "application/vnd.github.raw+json; charset=utf-8" } });
+      },
+    });
+    assert.deepEqual(await review.image({ cwd: "/w", url }), { ok: true, dataUrl: "data:image/png;base64,AQID" });
+    assert.deepEqual(requests[0], [api, { redirect: "manual", headers: { Authorization: "token gho_token", Accept: "application/vnd.github.raw+json" } }]);
+    if (redirect) assert.deepEqual(requests[1], ["https://storage.example/signed.png", {}]);
+    else assert.equal(requests.length, 1);
+  }
+});
+
+test("a GitHub upload may return image bytes directly; HTML and oversized images still fail", async () => {
+  const url = "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da";
+  for (const [type, size, expected] of [
+    ["image/png", "3", { ok: true, dataUrl: "data:image/png;base64,AQID" }],
+    ["text/html", "3", { ok: false, message: "GitHub didn't send this image." }],
+    ["image/png", String(16 * 1024 * 1024), { ok: false, message: "This image is too large to show here." }],
+  ]) {
+    const review = createPullRequestReview({
+      exec: fakeGh(() => "token").exec,
+      fetch: async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": type, "content-length": size } }),
+    });
+    assert.deepEqual(await review.image({ cwd: "/w", url }), expected);
+  }
 });
 
 test("the PR diff needs real commit ids", async () => {

@@ -3,6 +3,7 @@ const { createGit } = require("./git/client.cjs");
 const { createGitDiff } = require("./git-diff.cjs");
 const { thisComputer } = require("@milagre/shared/host-computer");
 const { scheduled } = require("./process-lanes.cjs");
+const { githubImageSource } = require("@milagre/shared/github-image");
 
 // The PR a Chat's branch opened, read and reviewed through gh: one GraphQL query for everything the PR panel
 // shows, and GraphQL mutations (or `gh pr merge` / `gh pr ready`) for every write. Draft comments live in the
@@ -15,9 +16,6 @@ const MAX_BODY = 65_000;
 const FILE_PAGES = 30;
 const METHODS = new Set(["squash", "merge", "rebase"]);
 const EVENTS = new Set(["COMMENT", "APPROVE", "REQUEST_CHANGES"]);
-// An image dragged into a PR description or comment. A private repository's answers 404 without a GitHub token, so
-// they are read here with gh's, and only these: the token goes to github.com and to no other host.
-const ATTACHMENT = /^https:\/\/github\.com\/(?:user-attachments\/assets|[\w.-]+\/[\w.-]+\/assets\/\d+)\/[0-9a-f-]{36}$/;
 const MAX_IMAGE = 15 * 1024 * 1024;
 
 const DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){
@@ -337,15 +335,22 @@ function createPullRequestReview({
     return true;
   }
 
-  /** The attachment's bytes as a data URL: github.com answers with a signed address on its storage, read without the token. */
+  /** Uploads redirect to signed storage; repository images use the contents API. Redirects never receive the token. */
   async function attachment(cwd, url) {
-    if (typeof url !== "string" || !ATTACHMENT.test(url)) throw new ReviewError("That isn't a GitHub attachment.");
+    const source = githubImageSource(url);
+    if (!source) throw new ReviewError("That isn't a GitHub image.");
     const token = (await gh(cwd, ["auth", "token", "--hostname", "github.com"])).trim();
-    const signed = await fetch(url, { redirect: "manual", headers: token ? { Authorization: `token ${token}` } : {} });
-    const location = signed.headers.get("location");
-    if (signed.status < 300 || signed.status >= 400 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
-    const image = await fetch(location);
-    const type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
+    const headers = token ? { Authorization: `token ${token}` } : {};
+    if (source.kind === "repository") headers.Accept = "application/vnd.github.raw+json";
+    let image = await fetch(source.url, { redirect: "manual", headers });
+    if (image.status >= 300 && image.status < 400) {
+      const location = image.headers.get("location");
+      if (!location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
+      image = await fetch(location);
+    }
+    let type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
+    // The contents API labels raw bytes with its negotiated media type, rather than the image's MIME type.
+    if (source.kind === "repository" && type === "application/vnd.github.raw+json") type = source.mime;
     if (!image.ok || !type.startsWith("image/")) throw new ReviewError("GitHub didn't send this image.");
     if (Number(image.headers.get("content-length")) > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
     const bytes = Buffer.from(await image.arrayBuffer());

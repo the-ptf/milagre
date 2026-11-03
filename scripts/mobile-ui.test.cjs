@@ -2161,6 +2161,7 @@ for (const reactCompiler of [false, true])
 
 function markdownHost({
   media,
+  remote,
   basePath,
   reachable = null,
   openChatLink,
@@ -2233,7 +2234,7 @@ function markdownHost({
   return {
     render(text, streaming = false) {
       react.begin();
-      return expand(Markdown({ text, streaming, media, basePath }));
+      return expand(Markdown({ text, streaming, media, remote, basePath }));
     },
     routes,
     links,
@@ -2523,6 +2524,43 @@ test("Markdown screenshot links render image previews outside Text and open the 
   preview.props.onPress();
   assert.equal(screen.routes.at(-1), "/viewer");
   assert.equal(screen.viewer.viewerImages().images[0].source.uri, url);
+});
+
+test("private PR repository screenshots load through the computer in tables and open the viewer", async () => {
+  const react = { ...hookHost(), memo: (fn) => fn };
+  const { PrMarkdown } = load("pr-markdown.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/github-markdown": require("../packages/shared/src/github-markdown.ts"),
+    "@milagre/shared/github-image": require("../packages/shared/src/github-image.mjs"),
+    "./markdown": { Markdown: "Markdown" },
+  });
+  const url = "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true";
+  const requests = [];
+  const image = deferred();
+  const client = { call: (method, args) => (requests.push([method, args]), image.promise) };
+  const props = () => {
+    react.begin();
+    return PrMarkdown({ text: `| Screenshot |\n| --- |\n| <img src="${url}" alt="asset1.png"> |`, client, cwd: "/pr-image-test" }).props;
+  };
+  const initial = props();
+  const screen = markdownHost({ remote: initial.remote });
+  assert.equal(
+    find(screen.render(initial.text), (node) => node.type === "Image"),
+    undefined,
+  );
+  props();
+  screen.render(initial.text);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [["pr:image", [{ cwd: "/pr-image-test", url }]]], "refreshes share the authenticated read");
+  image.resolve({ ok: true, dataUrl: "data:image/png;base64,AQID" });
+  await settle();
+  const rendered = screen.render(initial.text);
+  assert.equal(find(rendered, (node) => node.type === "Image")?.props.source.uri, "data:image/png;base64,AQID");
+  find(rendered, (node) => node.props?.accessibilityRole === "imagebutton").props.onPress();
+  assert.equal(screen.routes.at(-1), "/viewer");
+  assert.equal(screen.viewer.viewerImages().images[0].source.uri, "data:image/png;base64,AQID");
+  assert.equal(initial.remote("https://example.org/screen.png"), null);
+  screen.unmount();
 });
 
 test("local Markdown images use the computer connection and keep authentication in the viewer", () => {
