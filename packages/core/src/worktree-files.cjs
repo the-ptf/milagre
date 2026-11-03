@@ -186,12 +186,8 @@ async function changedCopiedFiles({ projectPath, worktreePath, setting }) {
 
 module.exports = {
   COPY_LIMITS,
-  DEFAULT_PATTERNS,
   EXCLUDED_FOLDERS,
-  excludedFolders,
   changedCopiedFiles,
   copyFilesToWorktree,
-  findFilesToCopy,
   previewFilesToCopy,
-  resolvePatterns,
 };
