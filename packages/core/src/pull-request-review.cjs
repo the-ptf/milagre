@@ -3,6 +3,7 @@ const { createGit } = require("./git/client.cjs");
 const { createGitDiff } = require("./git-diff.cjs");
 const { thisComputer } = require("@milagre/shared/host-computer");
 const { scheduled } = require("./process-lanes.cjs");
+const { githubImageSource } = require("@milagre/shared/github-image");
 
 // The PR a Chat's branch opened, read and reviewed through gh: one GraphQL query for everything the PR panel
 // shows, and GraphQL mutations (or `gh pr merge` / `gh pr ready`) for every write. Draft comments live in the
@@ -15,9 +16,6 @@ const MAX_BODY = 65_000;
 const FILE_PAGES = 30;
 const METHODS = new Set(["squash", "merge", "rebase"]);
 const EVENTS = new Set(["COMMENT", "APPROVE", "REQUEST_CHANGES"]);
-// An image dragged into a PR description or comment. A private repository's answers 404 without a GitHub token, so
-// they are read here with gh's, and only these: the token goes to github.com and to no other host.
-const ATTACHMENT = /^https:\/\/github\.com\/(?:user-attachments\/assets|[\w.-]+\/[\w.-]+\/assets\/\d+)\/[0-9a-f-]{36}$/;
 const MAX_IMAGE = 15 * 1024 * 1024;
 
 const DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){
@@ -337,15 +335,54 @@ function createPullRequestReview({
     return true;
   }
 
-  /** The attachment's bytes as a data URL: github.com answers with a signed address on its storage, read without the token. */
+  /** Uploads redirect to signed storage; repository images use the contents API. The token stays on GitHub. */
   async function attachment(cwd, url) {
-    if (typeof url !== "string" || !ATTACHMENT.test(url)) throw new ReviewError("That isn't a GitHub attachment.");
+    const source = githubImageSource(url);
+    if (!source) throw new ReviewError("That isn't a GitHub image.");
+    if (source.resolve) {
+      const { endpoint, namespace, parts } = source.resolve;
+      const namespaces = namespace ? [namespace] : ["refs/heads", "refs/tags"];
+      const refs = [];
+      for (const space of namespaces) {
+        const listed = JSON.parse(await gh(cwd, ["api", `${endpoint}/git/matching-refs/${space.slice(5)}/${encodeURIComponent(parts[0])}`]));
+        if (!Array.isArray(listed)) throw new ReviewError("GitHub didn't send this image.");
+        refs.push(...listed.map((item) => item.ref));
+      }
+      // Match complete ref names, longest first, and never guess from a successful file read.
+      // Branches win a same-name branch/tag ambiguity, as on GitHub's blob URLs.
+      let resolved = false;
+      for (let length = parts.length - 1; length > 0 && !resolved; length--) {
+        for (const space of namespaces) {
+          const ref = `${space}/${parts.slice(0, length).join("/")}`;
+          if (!refs.includes(ref)) continue;
+          source.url = `${endpoint}/contents/${parts.slice(length).map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`;
+          resolved = true;
+          break;
+        }
+      }
+      // An abbreviated commit has no entry in the named-ref list.
+      if (!resolved && (namespace || !/^[0-9a-f]{4,39}$/i.test(parts[0]))) throw new ReviewError("GitHub didn't send this image.");
+    }
     const token = (await gh(cwd, ["auth", "token", "--hostname", "github.com"])).trim();
-    const signed = await fetch(url, { redirect: "manual", headers: token ? { Authorization: `token ${token}` } : {} });
-    const location = signed.headers.get("location");
-    if (signed.status < 300 || signed.status >= 400 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
-    const image = await fetch(location);
-    const type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
+    const headers = token ? { Authorization: `token ${token}` } : {};
+    if (source.kind === "repository") headers.Accept = "application/vnd.github.raw+json";
+    let image = await fetch(source.url, { redirect: "manual", headers });
+    let redirects = 0;
+    while (image.status >= 300 && image.status < 400) {
+      const location = image.headers.get("location");
+      if (++redirects > 3 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
+      const target = new URL(location);
+      if (target.username || target.password) throw new ReviewError("GitHub didn't send this image.");
+      // A renamed repository redirects within the contents API; keep its raw media type and authentication.
+      // Signed storage receives neither credentials nor GitHub's API headers.
+      image = await fetch(location, {
+        redirect: "manual",
+        ...(source.kind === "repository" && target.origin === "https://api.github.com" ? { headers } : {}),
+      });
+    }
+    let type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
+    // The contents API labels raw bytes with its negotiated media type, rather than the image's MIME type.
+    if (source.kind === "repository" && type === "application/vnd.github.raw+json") type = source.mime;
     if (!image.ok || !type.startsWith("image/")) throw new ReviewError("GitHub didn't send this image.");
     if (Number(image.headers.get("content-length")) > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
     const bytes = Buffer.from(await image.arrayBuffer());

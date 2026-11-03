@@ -27,13 +27,14 @@ const BASE = "b".repeat(40);
 const PATCH = ["diff --git a/src/save.ts b/src/save.ts", "--- a/src/save.ts", "+++ b/src/save.ts", "@@ -1,3 +1,4 @@",
   " export async function save(file) {", "-  toast();", "+  await pick();", '+  showToast("File saved.");', " }", ""].join("\\n");
 const ATTACHMENT = "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da";
+const REPOSITORY_IMAGE = "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true";
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 // GitHub's own HTML, as a drag-dropped screenshot writes it, next to an image of another host and a script.
 const COMMENT = ["Looks **good** to me.", "", "| before | after |", "|---|---|",
   "| <img width='250' src='" + ATTACHMENT + "' /> | <img src='https://example.com/x.png' alt='elsewhere'> |", "",
   "<script>window.ran = true</script>"].join("\\n");
 const pr = {
-  number: 673, url: "https://github.com/the-ptf/milagre/pull/673", title: "fix: open shared files across devices", body: "Shared files **open** on paired Macs.",
+  number: 673, url: "https://github.com/the-ptf/milagre/pull/673", title: "fix: open shared files across devices", body: "Shared files **open** on paired Macs.\\n\\n| Screenshot |\\n| --- |\\n| <img src='" + REPOSITORY_IMAGE + "' alt='asset1.png' width='300'> |",
   state: "OPEN", isDraft: false, author: "victorlucss", createdAt: "2026-10-25T10:00:00Z", updatedAt: "2026-10-25T10:00:00Z",
   baseRefName: "main", headRefName: "milagre/fix-shared-file", headRefOid: HEAD, baseRefOid: BASE, additions: 3, deletions: 1, changedFiles: 2,
   mergeStateStatus: "CLEAN", reviewDecision: "APPROVED", autoMerge: null, viewerCanMergeAsAdmin: false, viewerIsAuthor: true,
@@ -174,6 +175,11 @@ async function browserChecks() {
     assert.deepEqual(await evaluate('window.calls.filter((call) => call.name === "image").map((call) => [call.cwd, call.url])'), [
       ["/fixture", "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da"],
     ]);
+    await click("[data-pr-description] button");
+    await waitFor("document.querySelector('img[alt=\"asset1.png\"]')?.complete");
+    assert.equal(await evaluate("document.querySelector('img[alt=\"asset1.png\"]').naturalWidth"), 1);
+    assert.equal(await evaluate("document.querySelector('img[alt=\"asset1.png\"]').style.width"), "300px");
+    assert.equal((await calls("image")).at(-1).url, "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true");
     await click("[data-pr-comments-sort]");
     assert.deepEqual(await cards(), ["T1", "IC1"], "Oldest first flips them");
     await delay(150);
