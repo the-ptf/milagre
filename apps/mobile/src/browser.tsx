@@ -400,7 +400,7 @@ export function BrowserSheet({
             {commentButton}
             {sendButton}
             {moreButton}
-            <CircleButton label="Close browser" icon={Cancel01Icon} onPress={onClose} />
+            {/* The docked panel's own tab strip closes it. */}
           </View>
         ) : (
           <SheetHeader
