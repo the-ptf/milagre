@@ -339,6 +339,30 @@ function createPullRequestReview({
   async function attachment(cwd, url) {
     const source = githubImageSource(url);
     if (!source) throw new ReviewError("That isn't a GitHub image.");
+    if (source.resolve) {
+      const { endpoint, namespace, parts } = source.resolve;
+      const namespaces = namespace ? [namespace] : ["refs/heads", "refs/tags"];
+      const refs = [];
+      for (const space of namespaces) {
+        const listed = JSON.parse(await gh(cwd, ["api", `${endpoint}/git/matching-refs/${space.slice(5)}/${encodeURIComponent(parts[0])}`]));
+        if (!Array.isArray(listed)) throw new ReviewError("GitHub didn't send this image.");
+        refs.push(...listed.map((item) => item.ref));
+      }
+      // Match complete ref names, longest first, and never guess from a successful file read.
+      // Branches win a same-name branch/tag ambiguity, as on GitHub's blob URLs.
+      let resolved = false;
+      for (let length = parts.length - 1; length > 0 && !resolved; length--) {
+        for (const space of namespaces) {
+          const ref = `${space}/${parts.slice(0, length).join("/")}`;
+          if (!refs.includes(ref)) continue;
+          source.url = `${endpoint}/contents/${parts.slice(length).map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`;
+          resolved = true;
+          break;
+        }
+      }
+      // An abbreviated commit has no entry in the named-ref list.
+      if (!resolved && (namespace || !/^[0-9a-f]{4,39}$/i.test(parts[0]))) throw new ReviewError("GitHub didn't send this image.");
+    }
     const token = (await gh(cwd, ["auth", "token", "--hostname", "github.com"])).trim();
     const headers = token ? { Authorization: `token ${token}` } : {};
     if (source.kind === "repository") headers.Accept = "application/vnd.github.raw+json";

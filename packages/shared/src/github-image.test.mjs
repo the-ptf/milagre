@@ -4,14 +4,14 @@ import { githubImageSource } from "./github-image.mjs";
 
 test("repository screenshot URLs resolve to authenticated contents requests on both platforms", () => {
   for (const url of [
-    "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true",
-    "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png",
-    "https://github.com/acme/app/raw/abc123/.pr-assets/11965/asset1.png",
-    "https://raw.githubusercontent.com/acme/app/abc123/.pr-assets/11965/asset1.png",
+    "https://github.com/acme/app/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.pr-assets/11965/asset1.png?raw=true",
+    "https://github.com/acme/app/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.pr-assets/11965/asset1.png",
+    "https://github.com/acme/app/raw/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.pr-assets/11965/asset1.png",
+    "https://raw.githubusercontent.com/acme/app/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.pr-assets/11965/asset1.png",
   ]) {
     assert.deepEqual(githubImageSource(url), {
       kind: "repository",
-      url: "https://api.github.com/repos/acme/app/contents/.pr-assets/11965/asset1.png?ref=abc123",
+      url: "https://api.github.com/repos/acme/app/contents/.pr-assets/11965/asset1.png?ref=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       mime: "image/png",
     });
   }
@@ -42,4 +42,24 @@ test("uploads retain their original URL and other hosts or malformed paths stay 
     upload + "?x=1",
   ])
     assert.equal(githubImageSource(url), null, url);
+});
+
+test("qualified refs preserve their namespace and ambiguous paths request ref resolution", () => {
+  for (const host of ["https://github.com/acme/app/blob/", "https://github.com/acme/app/raw/", "https://raw.githubusercontent.com/acme/app/"]) {
+    for (const namespace of ["refs/heads", "refs/tags"]) {
+      const simple = githubImageSource(`${host}${namespace}/release/shot.png`);
+      assert.equal(simple.url, `https://api.github.com/repos/acme/app/contents/shot.png?ref=${encodeURIComponent(`${namespace}/release`)}`);
+      const nested = githubImageSource(`${host}${namespace}/release/v2/images/shot.png`);
+      assert.deepEqual(nested.resolve, {
+        endpoint: "https://api.github.com/repos/acme/app",
+        namespace,
+        parts: ["release", "v2", "images", "shot.png"],
+      });
+    }
+    assert.equal(githubImageSource(`${host}feature/screens/shot.png`).resolve.namespace, null);
+    assert.equal(githubImageSource(`${host}dead/beef/shot.png`).resolve.namespace, null);
+    for (const path of ["refs/heads/branch/../shot.png", "refs/tags/branch/%2e%2e/shot.png", "refs/heads/branch/a%2fshot.png", "refs/heads/shot.png"]) {
+      assert.equal(githubImageSource(host + path), null);
+    }
+  }
 });

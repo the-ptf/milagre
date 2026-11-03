@@ -314,8 +314,8 @@ test("a PR attachment is read with gh's token, which goes to github.com only", a
 });
 
 test("repository screenshots use GitHub's raw contents API and never forward credentials to storage", async () => {
-  const url = "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true";
-  const api = "https://api.github.com/repos/acme/app/contents/.pr-assets/11965/asset1.png?ref=abc123";
+  const url = "https://github.com/acme/app/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.pr-assets/11965/asset1.png?raw=true";
+  const api = "https://api.github.com/repos/acme/app/contents/.pr-assets/11965/asset1.png?ref=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   for (const redirect of [false, true]) {
     const requests = [];
     const review = createPullRequestReview({
@@ -354,6 +354,60 @@ test("renamed repositories keep authentication and raw media type only within th
   });
   assert.deepEqual(await loop.image({ cwd: "/w", url }), { ok: false, message: "GitHub didn't send this image." });
   assert.equal(fetched, 4, "redirect loops are bounded");
+});
+
+test("repository images resolve qualified and slash-containing refs before reading the file", async () => {
+  for (const [path, names, expectedRef, file] of [
+    ["refs/heads/screenshots/pr/shot.png", ["refs/heads/screenshots"], "refs/heads/screenshots", "pr/shot.png"],
+    ["refs/tags/release/v2/shot.png", ["refs/tags/release/v2"], "refs/tags/release/v2", "shot.png"],
+    ["feature/screens/images/shot.png", ["refs/heads/feature/screens", "refs/heads/feature/screenshots"], "refs/heads/feature/screens", "images/shot.png"],
+    ["dead/beef/shot.png", ["refs/heads/dead/beef"], "refs/heads/dead/beef", "shot.png"],
+    ["release/images/shot.png", ["refs/tags/release", "refs/heads/release"], "refs/heads/release", "images/shot.png"],
+    ["abc123/images/shot.png", [], "abc123", "images/shot.png"],
+  ]) {
+    const { exec, calls } = fakeGh((args) => (args[0] === "auth" ? "token" : names.map((ref) => ({ ref }))));
+    const requests = [];
+    const review = createPullRequestReview({
+      exec,
+      fetch: async (to, init) => {
+        requests.push([to, init]);
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "application/vnd.github.raw+json" } });
+      },
+    });
+    assert.deepEqual(await review.image({ cwd: "/w", url: `https://raw.githubusercontent.com/acme/app/${path}` }), {
+      ok: true,
+      dataUrl: "data:image/png;base64,AQID",
+    });
+    assert.deepEqual(requests, [
+      [
+        `https://api.github.com/repos/acme/app/contents/${file}?ref=${encodeURIComponent(expectedRef)}`,
+        {
+          redirect: "manual",
+          headers: { Authorization: "token token", Accept: "application/vnd.github.raw+json" },
+        },
+      ],
+    ]);
+    assert.equal(calls.filter((args) => args[0] === "api").length, path.startsWith("refs/") ? 1 : 2);
+  }
+});
+
+test("ref lookup errors and missing files never fall back to another ref or unauthenticated bytes", async () => {
+  for (const names of [[], ["refs/heads/feature-extra"], ["refs/heads/feature/screens", "refs/tags/feature"]]) {
+    let reads = 0;
+    const review = createPullRequestReview({
+      exec: fakeGh((args) => (args[0] === "auth" ? "token" : names.map((ref) => ({ ref })))).exec,
+      fetch: async (to) => {
+        reads++;
+        assert.equal(to, "https://api.github.com/repos/acme/app/contents/shot.png?ref=refs%2Fheads%2Ffeature%2Fscreens");
+        return new Response(null, { status: 404 });
+      },
+    });
+    assert.deepEqual(await review.image({ cwd: "/w", url: "https://github.com/acme/app/blob/feature/screens/shot.png" }), {
+      ok: false,
+      message: "GitHub didn't send this image.",
+    });
+    assert.equal(reads, names.includes("refs/heads/feature/screens") ? 1 : 0);
+  }
 });
 
 test("a GitHub upload may return image bytes directly; HTML and oversized images still fail", async () => {
