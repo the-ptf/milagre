@@ -335,7 +335,7 @@ function createPullRequestReview({
     return true;
   }
 
-  /** Uploads redirect to signed storage; repository images use the contents API. Redirects never receive the token. */
+  /** Uploads redirect to signed storage; repository images use the contents API. The token stays on GitHub. */
   async function attachment(cwd, url) {
     const source = githubImageSource(url);
     if (!source) throw new ReviewError("That isn't a GitHub image.");
@@ -343,10 +343,18 @@ function createPullRequestReview({
     const headers = token ? { Authorization: `token ${token}` } : {};
     if (source.kind === "repository") headers.Accept = "application/vnd.github.raw+json";
     let image = await fetch(source.url, { redirect: "manual", headers });
-    if (image.status >= 300 && image.status < 400) {
+    let redirects = 0;
+    while (image.status >= 300 && image.status < 400) {
       const location = image.headers.get("location");
-      if (!location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
-      image = await fetch(location);
+      if (++redirects > 3 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
+      const target = new URL(location);
+      if (target.username || target.password) throw new ReviewError("GitHub didn't send this image.");
+      // A renamed repository redirects within the contents API; keep its raw media type and authentication.
+      // Signed storage receives neither credentials nor GitHub's API headers.
+      image = await fetch(location, {
+        redirect: "manual",
+        ...(source.kind === "repository" && target.origin === "https://api.github.com" ? { headers } : {}),
+      });
     }
     let type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
     // The contents API labels raw bytes with its negotiated media type, rather than the image's MIME type.

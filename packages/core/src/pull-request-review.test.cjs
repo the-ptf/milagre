@@ -313,7 +313,7 @@ test("a PR attachment is read with gh's token, which goes to github.com only", a
   assert.deepEqual(await html.image({ cwd: "/w", url }), { ok: false, message: "GitHub didn't send this image." });
 });
 
-test("repository screenshots use GitHub's raw contents API and never forward credentials on redirects", async () => {
+test("repository screenshots use GitHub's raw contents API and never forward credentials to storage", async () => {
   const url = "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true";
   const api = "https://api.github.com/repos/acme/app/contents/.pr-assets/11965/asset1.png?ref=abc123";
   for (const redirect of [false, true]) {
@@ -328,9 +328,32 @@ test("repository screenshots use GitHub's raw contents API and never forward cre
     });
     assert.deepEqual(await review.image({ cwd: "/w", url }), { ok: true, dataUrl: "data:image/png;base64,AQID" });
     assert.deepEqual(requests[0], [api, { redirect: "manual", headers: { Authorization: "token gho_token", Accept: "application/vnd.github.raw+json" } }]);
-    if (redirect) assert.deepEqual(requests[1], ["https://storage.example/signed.png", {}]);
+    if (redirect) assert.deepEqual(requests[1], ["https://storage.example/signed.png", { redirect: "manual" }]);
     else assert.equal(requests.length, 1);
   }
+});
+
+test("renamed repositories keep authentication and raw media type only within the GitHub API", async () => {
+  const url = "https://raw.githubusercontent.com/acme/old/main/shot.png";
+  const canonical = "https://api.github.com/repositories/12/contents/shot.png?ref=main";
+  const requests = [];
+  const review = createPullRequestReview({
+    exec: fakeGh(() => "token").exec,
+    fetch: async (to, init = {}) => {
+      requests.push([to, init]);
+      if (requests.length === 1) return new Response(null, { status: 301, headers: { location: canonical } });
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "application/vnd.github.raw+json" } });
+    },
+  });
+  assert.deepEqual(await review.image({ cwd: "/w", url }), { ok: true, dataUrl: "data:image/png;base64,AQID" });
+  assert.deepEqual(requests[1], [canonical, { redirect: "manual", headers: { Authorization: "token token", Accept: "application/vnd.github.raw+json" } }]);
+  let fetched = 0;
+  const loop = createPullRequestReview({
+    exec: fakeGh(() => "token").exec,
+    fetch: async () => (++fetched, new Response(null, { status: 301, headers: { location: canonical } })),
+  });
+  assert.deepEqual(await loop.image({ cwd: "/w", url }), { ok: false, message: "GitHub didn't send this image." });
+  assert.equal(fetched, 4, "redirect loops are bounded");
 });
 
 test("a GitHub upload may return image bytes directly; HTML and oversized images still fail", async () => {
