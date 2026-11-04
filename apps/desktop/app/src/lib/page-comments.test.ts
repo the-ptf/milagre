@@ -8,6 +8,7 @@ import {
   openPageComment,
   editPageComment,
   removePendingComments,
+  completePendingComments,
   setSentComments,
   setShowResolved,
 } from "./page-comments.ts";
@@ -60,4 +61,29 @@ test("closing comment mode keeps written drafts, drops empty pins and allows edi
   assert.equal(pageComments("/p#2").pending.length, 1);
   removePendingComments("/p#2", new Set(["draft"]));
   assert.deepEqual(pageComments("/p#2").pending, []);
+});
+
+test("successful sends retire their snapshot, preserve newer edits under a fresh id, and leave other drafts alone", () => {
+  const chat = "/p#send-edit";
+  const pin = (id: string, text: string) => ({ id, url: URL, title: "Checkout", element, text, shot: null });
+  addPendingComment(chat, pin("unchanged", "Original"));
+  addPendingComment(chat, pin("edited", "Before send"));
+  addPendingComment(chat, pin("deleted", "Remove me"));
+  const batch = pageComments(chat).pending;
+  editPageComment(chat, "edited", "Typed during send");
+  removePendingComments(chat, new Set(["deleted"]));
+  addPendingComment(chat, pin("later", "Created during send"));
+  completePendingComments(chat, batch);
+  const pending = pageComments(chat).pending;
+  assert.equal(pending.length, 2);
+  assert.equal(pending[0].text, "Typed during send");
+  assert.notEqual(pending[0].id, "edited", "a later send must not reuse the delivered comment's identity");
+  assert.match(pending[0].id, /^[a-f0-9]{8}$/);
+  assert.equal(pending[1].id, "later");
+  assert.equal(batch[1].text, "Before send", "the sent snapshot remains unchanged");
+  completePendingComments(chat, [pending[0]]);
+  assert.deepEqual(
+    pageComments(chat).pending.map((pin) => pin.id),
+    ["later"],
+  );
 });

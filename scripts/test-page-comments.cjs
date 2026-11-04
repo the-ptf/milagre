@@ -14,7 +14,7 @@ import { showBrowserPage } from '/src/lib/browser-webviews';
 import { pageComments } from '/src/lib/page-comments';
 import '/src/styles.css';
 window.sent = []; window.saved = []; window.failSend = false;
-window.milagre = { pageComments: { add: async ({comments}) => { window.saved.push(...comments); return comments.map(c => ({...c,selector:c.element.selector,point:c.element.point,label:c.element.label,createdAt:1})); } } };
+window.milagre = { pageComments: { add: async ({comments}) => { if(window.holdSave) await new Promise(resolve => { window.finishSave = resolve; }); window.saved.push(...comments); return comments.map(c => ({...c,selector:c.element.selector,point:c.element.point,label:c.element.label,createdAt:1})); } } };
 const key = '/fixture#1';
 openBrowserTab(key, location.origin + '/page');
 const tab = chatBrowser(key).tabs[0];
@@ -24,7 +24,7 @@ function Fixture() {
   useEffect(() => { const off = showBrowserPage(key, tab.id, slot.current); setReady(true); return off; }, []);
   return <div style={{height:'100vh',display:'flex',flexDirection:'column'}}>
     <header style={{height:48,display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8,padding:8}}>
-      <CommentControls chatKey={key} live onSend={async (text) => { if(window.failSend) return false; window.sent.push(text); return true; }} />
+      <CommentControls chatKey={key} live onSend={async (text) => { if(window.failSend) return false; if(window.holdSend) await new Promise(resolve => { window.finishSend = resolve; }); window.sent.push(text); return true; }} />
     </header>
     <div ref={slot} style={{flex:1,minHeight:0}} />
     {ready && <PageCommenting chatKey={key} tab={tab} live />}
@@ -92,6 +92,37 @@ async function checks() {
     await run(`document.querySelector('[data-slot=artifact-sent-pin]').click()`);
     await wait(`document.querySelector('[data-slot=artifact-comment-bubble]') && !document.querySelector('textarea')`);
     assert.equal(await run(`document.querySelector('[data-slot=artifact-comment-bubble]').textContent.includes('More detail')`), true);
+    key("Escape");
+    await run(`document.querySelector('[data-slot=browser-comment-toggle]').click()`);
+    await delay(300);
+    guest.sendInputEvent({ type: "mouseMove", x: 150, y: 120 });
+    guest.sendInputEvent({ type: "mouseDown", x: 150, y: 120, button: "left", clickCount: 1 });
+    guest.sendInputEvent({ type: "mouseUp", x: 150, y: 120, button: "left", clickCount: 1 });
+    await wait(`document.activeElement?.tagName === 'TEXTAREA'`);
+    await window.webContents.insertText("Snapshot to send");
+    const originalId = await run("comments().pending[0].id");
+    await run("window.holdSend = true; window.holdSave = true");
+    key("Enter", ["meta"]);
+    await wait("!!window.finishSend");
+    await window.webContents.insertText(" plus later edits");
+    await run("window.finishSend()");
+    await wait("!!window.finishSave");
+    await window.webContents.insertText(" while saving");
+    await run("window.holdSend = false; window.holdSave = false; window.finishSave()");
+    await wait(`sent.length === 2 && !document.querySelector('textarea')`);
+    assert.equal(await run("comments().pending[0]?.text"), "Snapshot to send plus later edits while saving");
+    assert.notEqual(await run("comments().pending[0]?.id"), originalId);
+    assert.match(await run("sent[1]"), /Snapshot to send/);
+    assert.doesNotMatch(await run("sent[1]"), /later edits|while saving/);
+    await run(`document.querySelector('[data-slot=artifact-pin]').click()`);
+    await wait(`document.activeElement?.tagName === 'TEXTAREA'`);
+    assert.equal(await run("document.querySelector('textarea').value"), "Snapshot to send plus later edits while saving");
+    key("Enter", ["meta"]);
+    await wait("sent.length === 3 && comments().pending.length === 0");
+    assert.match(await run("sent[2]"), /later edits while saving/);
+    assert.equal(await run("new Set(saved.map(pin => pin.id)).size"), 3, "the edited draft sends as a distinct comment");
+    await run(`[...document.querySelectorAll('[data-slot=artifact-sent-pin]')].at(-1).click()`);
+    await wait(`!!document.querySelector('[data-slot=artifact-comment-bubble]')`);
     window.setContentSize(340, 800);
     await wait(`(() => {
       const box = document.querySelector('[data-slot=artifact-comment-bubble]')?.getBoundingClientRect();

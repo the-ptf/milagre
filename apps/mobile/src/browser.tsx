@@ -272,8 +272,9 @@ export function BrowserSheet({
         if (!(error instanceof Error) || error.message !== "Write the comment first.") throw error;
         for (const comment of comments) await source.call("browser-comments:send-from-page", [{ chatId, ...comment }]);
       }
-      const keys = new Set(batch.map((draft) => draft.key));
-      setDrafts((current) => current.filter((draft) => !keys.has(draft.key)));
+      // A draft stays editable while the Mac sends its snapshot. Keep any newer text for the next Send.
+      const delivered = new Map(batch.map((draft) => [draft.key, draft.text]));
+      setDrafts((current) => current.filter((draft) => !delivered.has(draft.key) || delivered.get(draft.key) !== draft.text));
       setCommenting(false);
       setBox(null);
       announce(batch.length === 1 ? "Comment sent to the agent." : `${batch.length} comments sent to the agent.`);

@@ -21314,3 +21314,54 @@ test("mobile Browser anchors its editable draft in native points on pages withou
   );
   assert.equal(web().props.pins.find((pin) => pin.id === id).text, "Keep this draft");
 });
+
+test("mobile Browser preserves edits made while a send is pending and sends them on the next request", async (t) => {
+  const first = deferred(),
+    submitted = [];
+  const h = browserHost({
+    url: "mac",
+    call: async (method, args) => {
+      if (method === "browser:list") return { supported: true, targets: [BROWSER_PAGE], others: [] };
+      if (method === "browser-comments:list") return [];
+      if (method === "browser-comments:send-from-page") {
+        submitted.push(args[0].comments);
+        if (submitted.length === 1) return first.promise;
+        return {};
+      }
+      return { ports: [] };
+    },
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#send-edit" };
+  const render = () => h.render("BrowserSheet", props);
+  render();
+  await settle();
+  let tree = render();
+  const web = () => find(tree, (node) => node.type?.name === "BrowserWebView");
+  const box = () => find(tree, (node) => node.type?.name === "CommentBox");
+  find(tree, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 490, height: 600 } } });
+  web().props.onPick({ selector: "button", point: { x: 0.5, y: 0.5 }, box: { x: 0, y: 0, width: 100, height: 40 } });
+  tree = render();
+  const id = web().props.pins.find((pin) => pin.state === "pending").id;
+  web().props.onPositions([{ id, x: 200, y: 200, width: 490, height: 600 }]);
+  tree = render();
+  box().props.onChange("Snapshot to send");
+  tree = render();
+  box().props.onSend();
+  tree = render();
+  box().props.onChange("Edited during send");
+  tree = render();
+  first.resolve({});
+  await settle();
+  tree = render();
+  assert.equal(submitted[0][0].text, "Snapshot to send");
+  assert.equal(web().props.pins.find((pin) => pin.state === "pending")?.text, "Edited during send");
+  web().props.onPin(id);
+  tree = render();
+  assert.equal(box().props.note.text, "Edited during send");
+  box().props.onSend();
+  await settle();
+  tree = render();
+  assert.equal(submitted[1][0].text, "Edited during send");
+  assert.equal(web().props.pins.filter((pin) => pin.state === "pending").length, 0);
+});

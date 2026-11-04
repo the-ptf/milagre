@@ -22,6 +22,7 @@ import {
   pageComments,
   pagePins,
   removePendingComments,
+  completePendingComments,
   setCommenting,
   setShowResolved,
   openPageComment,
@@ -63,7 +64,7 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
       if (!(await onSend(text, images))) throw Error("not sent");
       // Recorded once the message went, under the ids it names, so the agent can resolve them.
       setSentComments(chatKey, [...pageComments(chatKey).sent, ...(await api.add({ chatId: chatKey, comments: batch }))]);
-      removePendingComments(chatKey, new Set(batch.map((comment) => comment.id)));
+      completePendingComments(chatKey, batch);
       setCommenting(chatKey, false);
     } catch {
       setFailed(true);

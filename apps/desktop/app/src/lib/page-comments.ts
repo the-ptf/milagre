@@ -61,6 +61,19 @@ export const removePendingComments = (chatKey: string, ids: ReadonlySet<string>)
     chat.pending.some((comment) => ids.has(comment.id)) ? { ...chat, pending: chat.pending.filter((comment) => !ids.has(comment.id)) } : chat,
   );
 
+/** Retire only the text that was delivered. Later edits become a distinct comment for the next Send. */
+export const completePendingComments = (chatKey: string, batch: readonly PendingPageComment[]) => {
+  const sent = new Map(batch.map((pin) => [pin.id, pin.text]));
+  update(chatKey, (chat) => ({
+    ...chat,
+    pending: chat.pending.flatMap((pin) => {
+      if (!sent.has(pin.id)) return [pin];
+      if (sent.get(pin.id) === pin.text) return [];
+      return [{ ...pin, id: crypto.randomUUID().replace(/-/g, "").slice(0, 8) }];
+    }),
+  }));
+};
+
 /** What the host keeps of the Chat's sent comments, newest list wins. */
 export const setSentComments = (chatKey: string, sent: SavedPageComment[]) =>
   update(chatKey, (chat) => (JSON.stringify(chat.sent) === JSON.stringify(sent) ? chat : { ...chat, sent }));
