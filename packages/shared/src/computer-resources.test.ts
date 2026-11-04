@@ -61,7 +61,7 @@ test("a row reads free of total, its bar splits Milagre, other and free, and its
   assert.equal(disk?.tooltip, "Milagre 45 GB · Everything else 615 GB");
   assert.deepEqual(
     disk?.parts.map(({ label }) => label),
-    ["Worktrees · 38", "App data"],
+    ["Worktrees · 38", "Other app data"],
   );
 });
 

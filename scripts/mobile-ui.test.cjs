@@ -443,6 +443,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           ...(modules["react-native"]?.Alert?.alert ? { confirmSheet: modules["react-native"].Alert.alert } : {}),
         };
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
+      // /storage's name and hint, which the Chat lists beside /undo.
+      if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -3703,7 +3705,10 @@ test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the lis
   );
   chat.render();
   assert.equal(chat.undo.chatId, "/p#7");
-  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [{ name: "undo", description: "Undo a task's file changes" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [
+    { name: "undo", description: "Undo a task's file changes" },
+    { name: "storage", description: "See what Milagre uses on this computer and clean up old worktrees" },
+  ]);
   chatMenuEntry(chat.render(), "Undo changes").props.onPress();
   assert.equal(chat.undo.opened, 1);
   let tree = chat.render();

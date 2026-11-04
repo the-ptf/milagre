@@ -176,6 +176,7 @@ import type { SidebarMode } from "./components/bots/SidebarModeSwitch";
 import { BotThread } from "./components/bots/BotThread";
 import { BotProfilePanel } from "./components/bots/BotProfilePanel";
 import { BotProfileSlot } from "./components/bots/BotProfileSlot";
+import { OPEN_STORAGE, openStorage, takeStorageOpen } from "./lib/storage-open";
 
 const SIDEBAR_MODE_KEY = "milagre.sidebarMode";
 
@@ -2956,6 +2957,17 @@ function App() {
     }
     setView("settings");
   });
+  // /storage in a Chat: What Milagre uses for its computer.
+  const onOpenStorage = useEvent((event: Event) => {
+    const id = (event as CustomEvent<string | null>).detail;
+    if (id !== null) takeStorageOpen();
+    changes.closeDiff();
+    openComputerSettings(id);
+  });
+  useEffect(() => {
+    window.addEventListener(OPEN_STORAGE, onOpenStorage);
+    return () => window.removeEventListener(OPEN_STORAGE, onOpenStorage);
+  }, [onOpenStorage]);
   const selectSettingsComputer = (id: string) => {
     setSettingsComputer(id);
     setSettingsSection("computer");
@@ -3439,6 +3451,14 @@ function App() {
         keybinding: "usage.open" as const,
         keywords: "tokens cost spend analytics dollars models claude codex",
         run: openUsage,
+      },
+      {
+        id: "storage",
+        label: "Storage",
+        group: "Actions",
+        icon: "storage",
+        keywords: "disk space worktrees clean up free what milagre uses",
+        run: () => openStorage(null),
       },
       {
         id: "triage",

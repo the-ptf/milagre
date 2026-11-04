@@ -12,8 +12,11 @@ import {
   type ResourceGauge,
 } from "@milagre/shared/computer-resources";
 import { ipcErrorMessage } from "@milagre/shared/result";
+import { CLEANUP_BUTTON } from "@milagre/shared/storage";
+import { buttonClass } from "../primitives/Button";
 import Tooltip from "../primitives/Tooltip";
 import type { MilagreBridge } from "../../electron";
+import { WorktreeCleanup, type CleanupBridge } from "./WorktreeCleanup";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 const Icon = ({ icon, size = 16, className = "" }: { icon: IconData; size?: number; className?: string }) => (
@@ -48,7 +51,7 @@ export type ResourceComputer = {
   id: string;
   name: string;
   detail: string;
-  bridge: Pick<MilagreBridge, "readComputerResources">;
+  bridge: CleanupBridge;
   online: boolean;
   /** "Seen 2h ago", for an offline computer. */
   seen?: string | null;
@@ -91,7 +94,7 @@ function Gauge({ gauge, open }: { gauge: ResourceGauge; open: boolean }) {
         </span>
         <span className={`text-13 font-semibold tabular-nums ${gauge.low ? "text-orange-ink" : "text-ink"}`}>{gauge.free}</span>
         <span className="min-w-0 flex-1 truncate text-12 tabular-nums text-ink-3">{gauge.of}</span>
-        {gauge.measuring && (
+        {(gauge.measuring || gauge.refreshing) && (
           <Tooltip label={MEASURING_TOOLTIP}>
             <span data-resource-measuring className="flex text-ink-3">
               <Icon icon={Loading03Icon} size={14} className="animate-spin" />
@@ -104,10 +107,21 @@ function Gauge({ gauge, open }: { gauge: ResourceGauge; open: boolean }) {
   );
 }
 
-function Parts({ gauge }: { gauge: ResourceGauge | null }) {
+function Parts({ gauge, onCleanup }: { gauge: ResourceGauge | null; onCleanup?: () => void }) {
   if (!gauge) return <div />;
-  if (gauge.measuring) return <span className="self-start text-12 text-ink-3">{MEASURING_TOOLTIP}…</span>;
-  return (
+  const cleanup = onCleanup && (
+    <button type="button" data-resource-cleanup onClick={onCleanup} className={`${buttonClass({ variant: "secondary", size: 28 })} mt-1 justify-self-start`}>
+      {CLEANUP_BUTTON}
+    </button>
+  );
+  if (gauge.measuring)
+    return (
+      <div className="grid gap-2 self-start">
+        <span className="text-12 text-ink-3">{MEASURING_TOOLTIP}…</span>
+        {cleanup}
+      </div>
+    );
+  const list = (
     <ul data-resource-parts={gauge.kind} className="grid gap-1.5 self-start">
       {gauge.parts.map((part, index) => (
         <li key={part.kind} className="flex items-center gap-2 text-12">
@@ -117,6 +131,13 @@ function Parts({ gauge }: { gauge: ResourceGauge | null }) {
         </li>
       ))}
     </ul>
+  );
+  if (!cleanup) return list;
+  return (
+    <div className="grid gap-1.5 self-start">
+      {list}
+      {cleanup}
+    </div>
   );
 }
 
@@ -150,6 +171,7 @@ const isDesktop = (name: string) => /studio|mini|imac/i.test(name);
 
 function ComputerResourceRow({ computer, open, onToggle }: { computer: ResourceComputer; open: boolean; onToggle: () => void }) {
   const { resources, error } = useComputerResources(computer.bridge, computer.online);
+  const [cleaning, setCleaning] = useState(false);
   const gauges = resources ? resourceGauges(resources) : null;
   const icon = isDesktop(computer.name) ? ComputerIcon : LaptopIcon;
   // An older Milagre answers with an unknown command.
@@ -209,9 +231,12 @@ function ComputerResourceRow({ computer, open, onToggle }: { computer: ResourceC
         <div data-resource-breakdown className={`${COLUMNS} items-start px-4 pb-4 pt-1`}>
           <span />
           <Parts gauge={gauges.memory} />
-          <Parts gauge={gauges.disk} />
+          <Parts gauge={gauges.disk} onCleanup={() => setCleaning(true)} />
           <span />
         </div>
+      )}
+      {cleaning && (
+        <WorktreeCleanup bridge={computer.bridge} computerName={computer.id === "this-mac" ? null : computer.name} onClose={() => setCleaning(false)} />
       )}
     </div>
   );

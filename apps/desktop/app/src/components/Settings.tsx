@@ -102,6 +102,7 @@ import { Group, Row } from "./settings/SettingsGroup";
 import { useDoneSettings } from "../lib/done-settings";
 import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
+import { takeStorageOpen } from "../lib/storage-open";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { SimlockSettings } from "./settings/SimlockSettings";
 import { ComputerUseRow, ComputerUseSettings } from "./settings/ComputerUseSettings";
@@ -1537,9 +1538,11 @@ function DeviceResources() {
     },
     ...(otherComputers ? computers.map((computer) => resourceComputer(computer, now)) : []),
   ];
+  // /storage opens this page with This Mac's row open.
+  const [initiallyOpen] = useState(takeStorageOpen);
   return (
     <Group>
-      <ComputerResourceList computers={rows} />
+      <ComputerResourceList computers={rows} initiallyOpen={initiallyOpen === "this-mac" ? "this-mac" : null} />
     </Group>
   );
 }

@@ -1,3 +1,4 @@
+import type { IdleWorktrees } from "@milagre/shared/storage";
 import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
@@ -444,7 +445,19 @@ export type MilagreBridge = {
   /** Restarts Milagre there to install a downloaded update; rejects when none is ready. Running Chats resume after the restart. */
   installHostUpdate: () => Promise<HostUpdate>;
   /** Settings › Devices: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
-  readComputerResources: () => Promise<ComputerResources>;
+  readComputerResources: (options?: { fresh?: boolean }) => Promise<ComputerResources>;
+  /** Clean up worktrees: the worktrees Milagre made there that no Chat has used for 30 days or more, oldest first. */
+  readIdleWorktrees: () => Promise<IdleWorktrees>;
+  /**
+   * Removes one of them with its Chats, checked again against `seen`; `force` discards unsaved work. Rejects when a Chat
+   * on it runs or it changed since it was seen.
+   */
+  removeIdleWorktree: (request: {
+    projectPath: string;
+    path: string;
+    seen: WorktreeStatus;
+    force: boolean;
+  }) => Promise<{ removed: boolean; alreadyRemoved?: boolean; branch: string | null; branchDeleted: boolean }>;
   /** Settings › Keybindings: the rules of keybindings.json on this computer (a paired computer's bridge reads that computer's). A missing file is created with the defaults. */
   readKeybindings: () => Promise<KeybindingsState>;
   /** Replaces one command's rules (none unbinds it). Rejects an unknown command, a key or `when` Milagre can't read, or a file with errors. */

@@ -105,6 +105,7 @@ const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/ru
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
 const { createComputerResources } = require("./computer-resources.cjs");
+const { idleWorktrees } = require("./storage-worktrees.cjs");
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
 const { createDoneSettings } = require("./done-settings.cjs");
@@ -1720,8 +1721,69 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
-  const computerResources = createComputerResources({ dataDir, worktreeRoot: worktreeRoot() });
-  commands.handle("computer:resources:read", () => computerResources.read());
+  const computerResources = createComputerResources({
+    dataDir,
+    worktreeRoot: worktreeRoot(),
+    chatsHome: chatsHome.path,
+    chatFolders: async () => (await projectRegistry().list()).map((project) => path.join(project.path, ".milagre")),
+  });
+  // `{ fresh: true }` measures the folders again now (after a cleanup) instead of waiting out the half hour.
+  commands.handle("computer:resources:read", (_event, options) => computerResources.read(options));
+  // Clean up worktrees (Settings › Devices on desktop, a computer's What Milagre uses on the phone): the worktrees Milagre
+  // made that no Chat has used for 30 days or more, with what removing each loses.
+  commands.handle("storage:worktrees", async () => {
+    await environmentReady;
+    const projects = [...(await projectRegistry().list()), ...(await chatsHomeEntries())];
+    const worktrees = await idleWorktrees({
+      projects: projects
+        .filter((project, index) => projects.findIndex((other) => other.path === project.path) === index)
+        .map((project) => ({ path: project.path, name: project.name || projectName(project.path) })),
+      readState: projectStateReadOnly,
+      roots: await handlers.get("worktree:roots")({}),
+      linkOwned: await linkStore.ownedWorktrees(),
+      busy: (chatId) => Boolean(chats.runs[chatId]) || chats.isBusy(chatId),
+      titleOf: (session) => chatTitle(session),
+      openAsProject,
+      status: worktreeStatus,
+      bytesOf: (folder) => computerResources.worktreeBytes(folder),
+    });
+    return { worktrees, measuredAt: computerResources.measuredAt() };
+  });
+  // Removes one worktree the cleanup listed, with its Chats: they are archived first (what runs for them stops), then the
+  // worktree goes the way a Chat's Delete takes it (worktree:remove: re-checked against `seen`, forced only when asked).
+  // A removal that fails brings the Chats back.
+  commands.handle("storage:remove-worktree", async (_event, request) => {
+    const { projectPath, path: worktreePath, seen, force } = request && typeof request === "object" ? request : {};
+    if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) throw new Error("An absolute Project path is required.");
+    if (typeof worktreePath !== "string" || !path.isAbsolute(worktreePath)) throw new Error("An absolute worktree path is required.");
+    if (!states.has(projectPath)) await openProject(projectPath, { takeNotice: false, focus: false, remember: false, register: false });
+    const state = await states.get(projectPath);
+    const worktree = worktreeAt(state, worktreePath);
+    if (!worktree) return { removed: false, alreadyRemoved: true, branch: null, branchDeleted: false };
+    const own = Object.values(state.sessions).filter((session) => session.worktree_id === worktree.id);
+    const keys = own.map((session) => `${projectPath}#${session.id}`);
+    if (keys.some((key) => chats.runs[key] || chats.isBusy(key))) throw new Error("A Chat on this worktree is in use now, so the worktree is kept.");
+    const archived = own.filter((session) => !session.archived).map((session) => session.id);
+    for (const id of archived) await archiveChat(projectPath, id, { archived: true, unread: false });
+    try {
+      for (const key of keys) {
+        await worktreeSetups.cancel(key);
+        await agents.closeChat(key);
+      }
+      // The client measures again once its whole batch is done (computer:resources:read with `fresh`), not after each one.
+      return await handlers.get("worktree:remove")({}, worktreePath, { projectPath, seen, force: force === true });
+    } catch (error) {
+      if (states.has(projectPath) && archived.length)
+        await editProject(
+          projectPath,
+          (latest) => archived.reduce((next, id) => (next.sessions[id] ? patchSession(next, id, { archived: false }) : next), latest),
+          {
+            chats: [],
+          },
+        ).catch(() => {});
+      throw error;
+    }
+  });
   // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
   commands.handle("keybindings:read", () => keybindings.read());

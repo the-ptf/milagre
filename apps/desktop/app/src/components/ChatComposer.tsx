@@ -127,7 +127,9 @@ import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import { undoableTasks, type Checkpoint, type CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
 import { bridgeForKey } from "../lib/computer-bridge";
-import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
+import { STORAGE_COMMAND } from "@milagre/shared/storage";
+import { openStorage } from "../lib/storage-open";
 import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
 import { headingLayer, newChatLook } from "../lib/new-chat-look";
 import { WelcomeSky } from "./WelcomeSky";
@@ -1584,6 +1586,13 @@ export function ChatComposer({
     if (runtimeChat && draft.trim() === "/undo") {
       onDraftChange("");
       openUndo();
+      return;
+    }
+    // `/storage` opens What Milagre uses for the Chat's computer instead of going to the agent.
+    if (draft.trim() === `/${STORAGE_COMMAND}`) {
+      onDraftChange("");
+      const computer = computerOfKey(runtimeChat ?? "");
+      openStorage(computer === LOCAL_COMPUTER ? null : computer);
       return;
     }
     onSend(delivery);
