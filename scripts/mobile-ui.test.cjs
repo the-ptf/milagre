@@ -3707,7 +3707,7 @@ test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the lis
   assert.equal(chat.undo.chatId, "/p#7");
   assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [
     { name: "undo", description: "Undo a task's file changes" },
-    { name: "storage", description: "See disk use on this computer and clean up old worktrees" },
+    { name: "storage", description: "Clean up old worktrees on this computer" },
   ]);
   chatMenuEntry(chat.render(), "Undo changes").props.onPress();
   assert.equal(chat.undo.opened, 1);

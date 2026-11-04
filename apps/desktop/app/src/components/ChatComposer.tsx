@@ -1588,7 +1588,7 @@ export function ChatComposer({
       openUndo();
       return;
     }
-    // `/storage` opens What Milagre uses for the Chat's computer instead of going to the agent.
+    // `/storage` opens Clean up worktrees for the Chat's computer instead of going to the agent.
     if (draft.trim() === `/${STORAGE_COMMAND}`) {
       onDraftChange("");
       const computer = computerOfKey(runtimeChat ?? "");

@@ -176,7 +176,8 @@ import type { SidebarMode } from "./components/bots/SidebarModeSwitch";
 import { BotThread } from "./components/bots/BotThread";
 import { BotProfilePanel } from "./components/bots/BotProfilePanel";
 import { BotProfileSlot } from "./components/bots/BotProfileSlot";
-import { OPEN_STORAGE, openStorage, takeStorageOpen } from "./lib/storage-open";
+import { OPEN_STORAGE, openStorage } from "./lib/storage-open";
+import { WorktreeCleanup } from "./components/settings/WorktreeCleanup";
 
 const SIDEBAR_MODE_KEY = "milagre.sidebarMode";
 
@@ -2957,13 +2958,9 @@ function App() {
     }
     setView("settings");
   });
-  // /storage in a Chat: What Milagre uses for its computer.
-  const onOpenStorage = useEvent((event: Event) => {
-    const id = (event as CustomEvent<string | null>).detail;
-    if (id !== null) takeStorageOpen();
-    changes.closeDiff();
-    openComputerSettings(id);
-  });
+  // /storage in a Chat: Clean up worktrees for its computer, opened right over the Chat. undefined while closed.
+  const [storageComputer, setStorageComputer] = useState<string | null | undefined>(undefined);
+  const onOpenStorage = useEvent((event: Event) => setStorageComputer((event as CustomEvent<string | null>).detail ?? null));
   useEffect(() => {
     window.addEventListener(OPEN_STORAGE, onOpenStorage);
     return () => window.removeEventListener(OPEN_STORAGE, onOpenStorage);
@@ -3229,6 +3226,14 @@ function App() {
       {deletingLink ? <DeleteLinkDialog link={deletingLink} onClose={() => setDeletingLink(null)} onDeleted={linkDeleted} /> : null}
     </>
   );
+  const storageDialog =
+    storageComputer === undefined ? null : (
+      <WorktreeCleanup
+        bridge={bridgeFor(storageComputer)}
+        computerName={storageComputer ? (pairedComputers.find((computer) => computer.id === storageComputer)?.name ?? null) : null}
+        onClose={() => setStorageComputer(undefined)}
+      />
+    );
   const addComputerDialog = addComputerOpen ? <AddComputerDialog onClose={() => setAddComputerOpen(false)} onAdded={() => setAddComputerOpen(false)} /> : null;
   const addProjectDialog = addProjectOpen ? (
     <AddProjectDialog
@@ -3276,6 +3281,7 @@ function App() {
           </main>
         </div>
         {addComputerDialog}
+        {storageDialog}
       </DotBackground>
     );
   const shownLink = selectedLink ?? lastLink;
@@ -3332,6 +3338,7 @@ function App() {
     <>
       {linkDialog}
       {addComputerDialog}
+      {storageDialog}
       {addProjectDialog}
     </>
   );
@@ -3454,7 +3461,7 @@ function App() {
       },
       {
         id: "storage",
-        label: "Storage",
+        label: "Clean up worktrees",
         group: "Actions",
         icon: "storage",
         keywords: "disk space worktrees clean up free what milagre uses",
@@ -4246,6 +4253,7 @@ function App() {
           </div>
           {linkDialog}
           {addComputerDialog}
+          {storageDialog}
           {addProjectDialog}
           {commandPaletteOpen && (
             <CommandPalette

@@ -1522,12 +1522,12 @@ function ChatPane({
       void undo.open();
       return false;
     }
-    // `/storage` opens What Milagre uses for the Chat's computer instead of reaching the agent.
+    // `/storage` opens Clean up worktrees for the Chat's computer instead of reaching the agent.
     if (withAttachments && typed.trim() === `/${STORAGE_COMMAND}` && !sentQuotes.length) {
       const saved = session.hosts.find((item) => item.id === targetHost || item.address === targetHost);
       if (saved) {
         composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
-        router.push({ pathname: "/computer-usage", params: { id: saved.id } });
+        router.push({ pathname: "/computer-cleanup", params: { id: saved.id } });
         return false;
       }
     }

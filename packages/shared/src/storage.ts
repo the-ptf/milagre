@@ -32,9 +32,9 @@ export const CLEANUP_BUTTON = "Clean up worktrees…";
 export const CLEANUP_INTRO = "Worktrees Milagre made that no Chat has used for a while. Their Chats are deleted with them.";
 export const SAVED_GROUP = "No unsaved work";
 export const UNSAVED_GROUP = "Unsaved work";
-/** The composer command that opens What Milagre uses for the Chat's computer. */
+/** The composer command that opens Clean up worktrees for the Chat's computer. */
 export const STORAGE_COMMAND = "storage";
-export const STORAGE_COMMAND_HINT = "See disk use on this computer and clean up old worktrees";
+export const STORAGE_COMMAND_HINT = "Clean up old worktrees on this computer";
 
 /** How long a worktree must have sat unused, in days: the dialog's choice. */
 export const IDLE_DAYS = [30, 60, 90] as const;
