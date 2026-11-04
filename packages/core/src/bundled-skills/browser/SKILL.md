@@ -19,6 +19,11 @@ The user has a browser inside Milagre, docked beside the Chat. Its pages belong 
 4. `browser_wait` waits for text or for the page to load; `browser_screenshot` captures the page or one element (the
    user's comment pins are left out); `browser_console` lists recent console messages and errors; `browser_evaluate`
    runs a JavaScript expression.
+5. `browser_upload` attaches local files to a file field, as the file picker would, at any size: don't build files in
+   the page with `browser_evaluate`. Pass the ref of the button or label that opens the picker (file inputs are often
+   hidden, so the snapshot shows only the button), the ref of the file input itself, or a CSS `selector` for an input
+   the snapshot doesn't list. Files must be inside this Chat's Worktrees or `~/Downloads`; copy anything else into the
+   Worktree first. The page's site receives the files, so upload only what the task needs.
 
 Every tool takes an optional `page` (an id from `browser_list`) and otherwise acts on the Chat's newest panel page. The
 same tools work on the pages of a browser attached to the Chat. Don't fight the user: if they are typing in the page,

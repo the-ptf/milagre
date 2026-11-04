@@ -136,6 +136,7 @@ test("the Milagre tools every provider runs without its own card: reads, plan, o
     "chat_start",
     "browser_click",
     "browser_fill",
+    "browser_upload",
     ...ROUTINE_WRITES,
   ])
     assert.equal(ungated(name), false, name);

@@ -458,7 +458,7 @@ function createRuntime(options) {
       return browsers.setPanelPages({ pages: [] }, context.clientId);
     }
     const port = await panelForwarders.forward(context.clientId, context.openStream, request.port);
-    return browsers.setPanelPages({ port, prefix: request.prefix, pages: request.pages }, context.clientId);
+    return browsers.setPanelPages({ port, prefix: request.prefix, pages: request.pages, remote: true }, context.clientId);
   });
   for (const method of ["open", "frame", "status", "control", "input", "close"]) {
     commands.handle(`browser:${method}`, (context, request) => {
@@ -2610,9 +2610,19 @@ function createRuntime(options) {
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...pageCommentToolDefinitions(chatId, pageComments),
       // Driving the Chat's browser pages; browser_open asks the desktop to open a Browser panel tab (browser-panel:open).
-      ...require("./chat-browser-tools.cjs").browserPageToolDefinitions(chatId, browsers, {
-        openInPanel: (target, url) => emit("browser-panel:open", { chatId: target, url }),
-      }),
+      ...require("./chat-browser-tools.cjs").browserPageToolDefinitions(
+        chatId,
+        browsers,
+        { openInPanel: (target, url) => emit("browser-panel:open", { chatId: target, url }) },
+        // browser_upload sends files from the Chat's Worktrees and the user's Downloads only.
+        {
+          roots: () =>
+            chatWorktrees(chatId).then(
+              (worktrees) => [...worktrees.map((worktree) => worktree.path), path.join(require("node:os").homedir(), "Downloads")],
+              () => [path.join(require("node:os").homedir(), "Downloads")],
+            ),
+        },
+      ),
       ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),

@@ -1,7 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { createCdpProxy } = require("./cdp-proxy.cjs");
+const { createBrowserAdapter } = require("./browsers-cdp.cjs");
 
 const PAGE = "A".repeat(32);
 
@@ -131,4 +135,56 @@ test("a page that isn't listed, a wrong token or a web page's Origin gets no Dev
   assert.equal(await refused(`ws://127.0.0.1:${port}/${token}/devtools/page/${"B".repeat(32)}`), true);
   assert.equal(await refused(`ws://127.0.0.1:${port}/${"0".repeat(48)}/devtools/page/${PAGE}`), true);
   assert.equal(await refused(`ws://127.0.0.1:${port}/${token}/devtools/page/${PAGE}`, { origin: "https://evil.example" }), true);
+});
+
+/** A request with a body and chosen headers. */
+function put(port, urlPath, body, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: "127.0.0.1", port, path: urlPath, method: "PUT", headers: { host: `127.0.0.1:${port}`, ...headers } }, (response) => {
+      let text = "";
+      response.on("data", (chunk) => (text += chunk));
+      response.on("end", () => resolve({ status: response.statusCode, body: text ? JSON.parse(text) : null }));
+    });
+    request.on("error", reject);
+    request.end(body);
+  });
+}
+
+test("a file put on the endpoint lands in its own temp folder under its name, which goes when the proxy closes", async (t) => {
+  const { proxy } = fixture(t);
+  const { port, token } = await proxy.start();
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "cdp-upload-source-"));
+  t.after(() => fs.rmSync(source, { recursive: true, force: true }));
+  const file = path.join(source, "Summer clip.mp4");
+  fs.writeFileSync(file, Buffer.alloc(5 * 1024 * 1024, 7));
+  // The host's side: the browser adapter streams the file to the page's computer.
+  const placed = await createBrowserAdapter().upload({ host: "127.0.0.1", port, prefix: `/${token}` }, file);
+  assert.equal(path.basename(placed), "Summer clip.mp4");
+  assert.ok(placed.startsWith(os.tmpdir()) || placed.startsWith(fs.realpathSync(os.tmpdir())), placed);
+  assert.ok(fs.readFileSync(placed).equals(fs.readFileSync(file)));
+  // Only with the token, no web page's Origin, a plain name and an honest length.
+  assert.equal((await put(port, `/${"0".repeat(48)}/files/a.txt`, "x")).status, 403);
+  assert.equal((await put(port, `/${token}/files/a.txt`, "x", { origin: "https://evil.example" })).status, 403);
+  assert.equal((await put(port, `/${token}/files/${encodeURIComponent("../a.txt")}`, "x")).status, 400);
+  assert.equal((await put(port, `/${token}/files/..`, "x")).status, 400);
+  assert.equal((await put(port, `/${token}/files/a.txt`, "x", { "transfer-encoding": "chunked" })).status, 413);
+  await proxy.close();
+  assert.equal(fs.existsSync(path.dirname(path.dirname(placed))), false, "the uploads folder goes with the proxy");
+});
+
+test("an older desktop that takes no files says to update Milagre there", async (t) => {
+  const server = http.createServer((request, response) => {
+    response.writeHead(403, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: "forbidden" }));
+    request.resume();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "cdp-upload-source-"));
+  t.after(() => fs.rmSync(source, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(source, "a.png"), "png");
+  await assert.rejects(
+    createBrowserAdapter().upload({ host: "127.0.0.1", port: server.address().port, prefix: `/${"a".repeat(48)}` }, path.join(source, "a.png")),
+    /older Milagre/,
+  );
 });
