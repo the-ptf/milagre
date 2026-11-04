@@ -38,8 +38,10 @@ function readWindowChrome(): ChromeLayout {
         // macOS reports the lights with their margin on both sides, so the toggle keeps the gap the lights keep from the
         // window edge. Overlay controls on the left end flush with the rect.
         sidebarLeft = rect.x > 0 ? rect.x + (mode === "leading" ? 0 : 8) : 12;
-        const trailing = Math.max(0, window.innerWidth - rect.right);
-        rightInset = trailing > 0 ? trailing + 8 : 0;
+        if (mode === "overlay") {
+          const trailing = Math.round(window.innerWidth - rect.right);
+          rightInset = trailing > 0 ? trailing + 8 : 0;
+        }
       }
     }
   }
