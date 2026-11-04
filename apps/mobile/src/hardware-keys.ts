@@ -83,13 +83,15 @@ export function chatShortcutIndex(command: KeybindingCommandId) {
 export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcut: (command: KeybindingCommandId) => void) {
   const latest = useRef(onShortcut);
   const history = useUndoShortcuts();
+  const commentKeys = useSyncExternalStore(subscribeCommentKeys, commentKeysSnapshot);
   useEffect(() => {
     latest.current = onShortcut;
   }, [onShortcut]);
   useEffect(() => {
     if (!native) return;
     const subscription = native.addListener("shortcut", ({ id }) => {
-      if (id === UNDO.id) undoHistory.undo();
+      if (commentShortcuts.some((shortcut) => shortcut.id === id)) commentSend?.();
+      else if (id === UNDO.id) undoHistory.undo();
       else if (id === REDO.id) undoHistory.redo();
       else if (keybindingCommand(commandOf(id))?.mobile) latest.current(commandOf(id));
     });
@@ -99,8 +101,40 @@ export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcu
     };
   }, []);
   useEffect(() => {
-    if (native) void native.setShortcutsAsync([...hardwareShortcuts(rules), ...history]).catch(() => {});
-  }, [rules, history]);
+    if (native) void native.setShortcutsAsync([...hardwareShortcuts(rules), ...history, ...commentKeys]).catch(() => {});
+  }, [rules, history, commentKeys]);
+}
+
+const commentShortcuts: Shortcut[] = [
+  { id: "comment.send", input: "\r", modifiers: ["command"], title: "Send comments" },
+  { id: "comment.send.control", input: "\r", modifiers: ["control"], title: "Send comments" },
+];
+let commentSend: (() => void) | null = null;
+const commentKeyListeners = new Set<() => void>();
+const subscribeCommentKeys = (listener: () => void) => {
+  commentKeyListeners.add(listener);
+  return () => {
+    commentKeyListeners.delete(listener);
+  };
+};
+const commentKeysSnapshot = () => (commentSend ? commentShortcuts : NO_SHORTCUTS);
+
+/** Offer send only while a comment field owns the keyboard. Reuses the installed native shortcut module. */
+export function useCommentSendKey(active: boolean, onSend: () => void) {
+  const latest = useRef(onSend);
+  useEffect(() => {
+    latest.current = onSend;
+  }, [onSend]);
+  useEffect(() => {
+    if (!active) return;
+    const send = () => latest.current();
+    commentSend = send;
+    commentKeyListeners.forEach((listener) => listener());
+    return () => {
+      if (commentSend === send) commentSend = null;
+      commentKeyListeners.forEach((listener) => listener());
+    };
+  }, [active]);
 }
 
 const UNDO: Shortcut = { id: "history.undo", input: "z", modifiers: ["command"], title: "Undo" };

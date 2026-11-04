@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardStickyView } from "react-native-keyboard-controller";
+import { CommentBox } from "./viewer-chrome";
+import type { PagePinPosition } from "@milagre/shared/page-picker";
 import * as Clipboard from "expo-clipboard";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import {
@@ -29,7 +30,7 @@ import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
-import { announce, CircleButton, EmptyState, ErrorNotice, Field, PageScroll, PillButton, PullDown, SheetHeader, useStyles, type MenuSection } from "./ui";
+import { announce, CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, PullDown, SheetHeader, useStyles, type MenuSection } from "./ui";
 import { over } from "@milagre/shared/themes";
 import { lineHeight, radius, type } from "./design-tokens";
 import type { ChatTab } from "./panel-tabs";
@@ -123,7 +124,7 @@ function useLoopbackOnlyPorts(client: Client | null, chatId: string | undefined,
 /** A comment written in comment mode, waiting for Send with the others. */
 type Draft = { key: string; page: { url: string; title: string }; element: PageElement; text: string };
 /** What the comment box shows: a new comment on a picked element, a waiting one, or a sent one to read. */
-type Box = { kind: "new"; element: PageElement } | { kind: "draft"; key: string } | { kind: "sent"; id: string };
+type Box = { kind: "new" | "draft"; key: string } | { kind: "sent"; id: string };
 
 const PAGE_COMMENTS_PER_SEND = 50;
 // Waiting comments outlive the sheet: closing the Browser and opening it again keeps them, per Chat.
@@ -167,6 +168,8 @@ export function BrowserSheet({
   const [commenting, setCommenting] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const [box, setBox] = useState<Box | null>(null);
+  const [positions, setPositions] = useState<PagePinPosition[]>([]);
+  const [room, setRoom] = useState({ width: 0, height: 0 });
   const resetComments = () => {
     setCommenting(false);
     setBox(null);
@@ -241,22 +244,23 @@ export function BrowserSheet({
       }))
       .filter((pin) => showResolved || pin.state !== "resolved"),
     ...pageDrafts.map((draft, index) => ({
-      n: pageSent.length + index + 1,
+      n: index + 1,
       id: `draft:${draft.key}`,
       selector: draft.element.selector,
       point: draft.element.point,
       text: draft.text,
       state: "pending" as const,
     })),
-    ...(box?.kind === "new"
-      ? [{ n: pageSent.length + pageDrafts.length + 1, selector: box.element.selector, point: box.element.point, text: "", state: "pending" as const }]
-      : []),
   ];
 
   const send = async () => {
     if (!source || !chatId || !drafts.length || sending) return;
     setSending(true);
-    const batch = drafts;
+    const batch = drafts.filter((draft) => draft.text.trim());
+    if (!batch.length) {
+      setSending(false);
+      return;
+    }
     try {
       const comments = batch.map((draft) => ({ page: { ...draft.page, element: draft.element }, text: draft.text }));
       try {
@@ -268,9 +272,11 @@ export function BrowserSheet({
         if (!(error instanceof Error) || error.message !== "Write the comment first.") throw error;
         for (const comment of comments) await source.call("browser-comments:send-from-page", [{ chatId, ...comment }]);
       }
-      const keys = new Set(batch.map((draft) => draft.key));
-      setDrafts((current) => current.filter((draft) => !keys.has(draft.key)));
+      // A draft stays editable while the Mac sends its snapshot. Keep any newer text for the next Send.
+      const delivered = new Map(batch.map((draft) => [draft.key, draft.text]));
+      setDrafts((current) => current.filter((draft) => !delivered.has(draft.key) || delivered.get(draft.key) !== draft.text));
       setCommenting(false);
+      setBox(null);
       announce(batch.length === 1 ? "Comment sent to the agent." : `${batch.length} comments sent to the agent.`);
       void loadSent();
     } catch (error) {
@@ -292,8 +298,12 @@ export function BrowserSheet({
     setChoosing(true);
     setPage(null);
   };
-  const toggleComments = () => {
+  const closeBox = (remove = false) => {
+    if (box && box.kind !== "sent") setDrafts((current) => current.filter((draft) => draft.key !== box.key || (!remove && draft.text.trim())));
     setBox(null);
+  };
+  const toggleComments = () => {
+    closeBox();
     setCommenting((on) => !on);
   };
   const menu: MenuSection[] = selected
@@ -348,13 +358,18 @@ export function BrowserSheet({
       }
     />
   );
-  const sendButton = drafts.length > 0 && (
+  const written = drafts.filter((draft) => draft.text.trim());
+  const openDraft = box && box.kind !== "sent" ? drafts.find((draft) => draft.key === box.key) : undefined;
+  const openSent = box?.kind === "sent" ? sent.find((comment) => comment.id === box.id) : undefined;
+  const openId = box ? (box.kind === "sent" ? `sent:${box.id}` : `draft:${box.key}`) : null;
+  const at = positions.find((position) => position.id === openId);
+  const sendButton = written.length > 0 && (
     <CircleButton
       key="send"
-      label={`Send ${drafts.length} ${drafts.length === 1 ? "comment" : "comments"} to the agent`}
+      label={`Send ${written.length} ${written.length === 1 ? "comment" : "comments"} to the agent`}
       icon={Sent02Icon}
       filled
-      badge={drafts.length}
+      badge={written.length}
       disabled={sending}
       onPress={() => void send()}
     />
@@ -433,7 +448,7 @@ export function BrowserSheet({
         {!visible ? null : !source || !chatId ? (
           <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this computer to open its browsers.</Text>
         ) : selected ? (
-          <View style={{ flex: 1, minHeight: 0 }}>
+          <View style={{ flex: 1, minHeight: 0 }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
             <BrowserWebView
               key={`page:${selected.id}`}
               client={source}
@@ -448,38 +463,46 @@ export function BrowserSheet({
                 setPage(next);
               }}
               picking={commenting && !box}
-              composing={!!box}
-              pins={pins}
-              onPick={(element) => setBox({ kind: "new", element })}
+              pins={pins.map((pin) => ({ ...pin, hide: pin.id === openId }))}
+              onPositions={setPositions}
+              onPick={(element) => {
+                if (!shown) return;
+                const key = String(++draftKey);
+                setDrafts((current) => [...current.filter((draft) => draft.text.trim()), { key, page: shown, element, text: "" }]);
+                setBox({ kind: "new", key });
+              }}
               onPin={(id) => {
                 if (id.startsWith("draft:")) setBox({ kind: "draft", key: id.slice("draft:".length) });
                 else if (id.startsWith("sent:")) setBox({ kind: "sent", id: id.slice("sent:".length) });
               }}
             />
             {commenting && !box && <CommentHint bottom={insets.bottom} count={pageDrafts.length} onDone={() => setCommenting(false)} />}
-            {box && shown && (
-              <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }} style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
-                <PageCommentBox
-                  key={box.kind === "new" ? box.element.selector : box.kind === "draft" ? box.key : box.id}
-                  box={box}
-                  bottom={insets.bottom}
-                  draft={box.kind === "draft" ? drafts.find((draft) => draft.key === box.key) : undefined}
-                  sentComment={box.kind === "sent" ? sent.find((comment) => comment.id === box.id) : undefined}
-                  onAdd={(text) => {
-                    if (box.kind !== "new") return;
-                    setDrafts((current) => [...current, { key: String(++draftKey), page: shown, element: box.element, text }]);
-                    setBox(null);
-                  }}
-                  onChange={(text) => {
-                    if (box.kind === "draft") setDrafts((current) => current.map((draft) => (draft.key === box.key ? { ...draft, text } : draft)));
-                  }}
-                  onDelete={() => {
-                    if (box.kind === "draft") setDrafts((current) => current.filter((draft) => draft.key !== box.key));
-                    setBox(null);
-                  }}
-                  onClose={() => setBox(null)}
+            {box && (
+              <>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close the comment"
+                  style={{ position: "absolute", inset: 0 }}
+                  onPress={() => closeBox()}
                 />
-              </KeyboardStickyView>
+                {at && (openDraft || openSent) && (
+                  <CommentBox
+                    key={openId}
+                    at={{ x: at.x * (room.width / at.width), y: at.y * (room.width / at.width) }}
+                    room={room.width ? room : undefined}
+                    kind={box.kind === "sent" ? "read" : box.kind === "new" ? "new" : "edit"}
+                    note={openDraft}
+                    sentComment={openSent}
+                    number={openDraft ? pageDrafts.indexOf(openDraft) + 1 : pageSent.findIndex((comment) => comment.id === openSent?.id) + 1}
+                    onChange={(text) => {
+                      if (box.kind !== "sent") setDrafts((current) => current.map((draft) => (draft.key === box.key ? { ...draft, text } : draft)));
+                    }}
+                    onCancel={() => closeBox(true)}
+                    onDone={() => closeBox()}
+                    onSend={() => void send()}
+                  />
+                )}
+              </>
             )}
           </View>
         ) : (
@@ -581,102 +604,6 @@ function CommentHint({ bottom, count, onDone }: { bottom: number; count: number;
   );
 }
 
-/**
- * The comment box, docked at the bottom of the page above the keyboard so the picked element stays in view: a new
- * comment (Add queues it for Send), a waiting one (edit or Delete), or a sent one to read with the agent's note.
- */
-function PageCommentBox({
-  box,
-  bottom,
-  draft,
-  sentComment,
-  onAdd,
-  onChange,
-  onDelete,
-  onClose,
-}: {
-  box: Box;
-  bottom: number;
-  draft?: Draft;
-  sentComment?: SavedPageComment;
-  onAdd(text: string): void;
-  onChange(text: string): void;
-  onDelete(): void;
-  onClose(): void;
-}) {
-  const { colors } = useTheme();
-  const [text, setText] = useState(draft?.text ?? "");
-  const label = box.kind === "new" ? box.element.label : box.kind === "draft" ? draft?.element.label : sentComment?.label;
-  return (
-    <View
-      accessibilityViewIsModal
-      onAccessibilityEscape={box.kind === "new" ? onDelete : onClose}
-      style={{
-        marginHorizontal: 12,
-        marginBottom: 8 + bottom,
-        padding: 14,
-        gap: 10,
-        borderRadius: radius.card,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.lineStrong,
-        backgroundColor: colors.surface,
-        boxShadow: colors.shadowRaised,
-      }}
-    >
-      {!!label && (
-        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
-          {label}
-        </Text>
-      )}
-      {box.kind === "sent" ? (
-        <>
-          <Text selectable style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>
-            {sentComment?.text ?? "This comment is no longer on the computer."}
-          </Text>
-          <Text style={{ color: sentComment?.resolved ? colors.greenInk : colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-            {sentComment?.resolved ? `Resolved · ${sentComment.resolved.note}` : "Sent · waiting for the agent"}
-          </Text>
-          <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-            <PillButton size="small" secondary title="Close" onPress={onClose} />
-          </View>
-        </>
-      ) : (
-        <>
-          <Field
-            label="Comment"
-            hideLabel
-            autoFocus
-            multiline
-            autoCapitalize="sentences"
-            autoCorrect
-            defaultValue={draft?.text ?? ""}
-            onChangeText={(value) => {
-              setText(value);
-              onChange(value);
-            }}
-            placeholder="What should change here?"
-            style={{ maxHeight: 120 }}
-          />
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-            {box.kind === "new" ? (
-              <PillButton size="small" variant="plain" muted title="Cancel" onPress={onDelete} />
-            ) : (
-              <PillButton size="small" variant="plain" destructive title="Delete" onPress={onDelete} />
-            )}
-            <PillButton
-              size="small"
-              title={box.kind === "new" ? "Add" : "Done"}
-              disabled={!text.trim()}
-              onPress={() => (box.kind === "new" ? onAdd(text.trim()) : onClose())}
-            />
-          </View>
-        </>
-      )}
-    </View>
-  );
-}
-
 type Route = { uri: string; origin: string; external: string; via: "direct" | "mac" };
 
 function BrowserWebView({
@@ -689,10 +616,10 @@ function BrowserWebView({
   onControls,
   onLoaded,
   picking,
-  composing,
   pins,
   onPick,
   onPin,
+  onPositions,
 }: {
   client: Client;
   url: string;
@@ -703,10 +630,10 @@ function BrowserWebView({
   onControls(controls: PageControls | null): void;
   onLoaded(loaded: boolean): void;
   picking: boolean;
-  composing: boolean;
   pins: PagePin[];
   onPick(element: PageElement): void;
   onPin(id: string): void;
+  onPositions(positions: PagePinPosition[]): void;
 }) {
   const { colors } = useTheme();
   const view = useRef<DomWebViewRef>(null);
@@ -716,9 +643,35 @@ function BrowserWebView({
   const [forceProxy, setForceProxy] = useState(false);
   const ready = useRef(false);
   const armedAt = useRef("");
-  const latest = useRef({ onPage, onPick, onPin, onExternalUrl, onLoaded, picking, pins, accent: colors.accent, green: colors.green });
+  const latest = useRef({
+    onPage,
+    onPick,
+    onPin,
+    onPositions,
+    onExternalUrl,
+    onLoaded,
+    picking,
+    pins,
+    accent: colors.accent,
+    green: colors.green,
+    ink: colors.ink2,
+    onInk: colors.page,
+  });
   useEffect(() => {
-    latest.current = { onPage, onPick, onPin, onExternalUrl, onLoaded, picking, pins, accent: colors.accent, green: colors.green };
+    latest.current = {
+      onPage,
+      onPick,
+      onPin,
+      onPositions,
+      onExternalUrl,
+      onLoaded,
+      picking,
+      pins,
+      accent: colors.accent,
+      green: colors.green,
+      ink: colors.ink2,
+      onInk: colors.page,
+    };
   });
   // The route is chosen when the page opens. A network change afterwards (Wi-Fi to cellular, the LAN check flipping)
   // must not tear down a working page and its tunnel; Retry and Load through Mac choose again.
@@ -817,22 +770,14 @@ function BrowserWebView({
   const arm = useCallback(() => {
     const current = view.current;
     if (!current || !ready.current) return;
-    const { picking: on, pins: shown, accent, green } = latest.current;
-    current.injectJavaScript(`${pagePinsScript(shown, { accent, green, showResolved: true })};true;`);
+    const { picking: on, pins: shown, accent, green, ink, onInk } = latest.current;
+    current.injectJavaScript(`${pagePinsScript(shown, { accent, green, ink, onInk, showResolved: true })};true;`);
     if (on)
       current.injectJavaScript(
         `Promise.resolve(${pagePickScript(accent)}).then(element => { if (element) window.ReactNativeWebView.postMessage(JSON.stringify({kind:'pick',element})); });true;`,
       );
     else current.injectJavaScript(PAGE_PICK_CANCEL + ";true;");
   }, []);
-  // While the comment box is open, room below the page lets even its last element scroll up above the box and keyboard.
-  useEffect(() => {
-    view.current?.injectJavaScript(
-      composing
-        ? `(() => { const root = document.documentElement; if (!root.dataset.milagrePad) { root.dataset.milagrePad = root.style.paddingBottom || "-"; root.style.setProperty("padding-bottom", "70vh", "important"); } })();true;`
-        : `(() => { const root = document.documentElement; const was = root.dataset.milagrePad; if (was) { root.style.paddingBottom = was === "-" ? "" : was; delete root.dataset.milagrePad; } })();true;`,
-    );
-  }, [composing]);
   const pinsKey = JSON.stringify(pins);
   useEffect(arm, [arm, picking, pinsKey]);
   if (error)
@@ -882,6 +827,7 @@ function BrowserWebView({
     })();true;`}
       injectedJavaScript={`(() => {
       if (window.top !== window) return;
+      window.__milagrePinPositions = positions => window.ReactNativeWebView.postMessage(JSON.stringify({kind:"positions",positions}));
       window.__milagrePinTap = id => window.ReactNativeWebView.postMessage(JSON.stringify({kind:'pin',id:String(id)}));
       const report = (fresh) => window.ReactNativeWebView.postMessage(JSON.stringify({kind:'page',url:location.href,title:document.title,fresh:fresh === true}));
       report(true); addEventListener('pageshow', () => report(true)); addEventListener('popstate', report); addEventListener('hashchange', report);
@@ -907,11 +853,13 @@ function BrowserWebView({
               arm();
             }
           } else if (message.kind === "pick" && latest.current.picking && message.element?.selector && message.element?.box) {
-            // The comment box and keyboard cover the lower half: bring the picked element up to the top.
-            view.current?.injectJavaScript(
-              `(() => { let el = null; try { el = document.querySelector(${JSON.stringify(message.element.selector)}); } catch {} if (el && el !== document.documentElement) setTimeout(() => scrollBy({ top: el.getBoundingClientRect().top - 32, behavior: "smooth" }), 250); })();true;`,
-            );
             latest.current.onPick(message.element);
+          } else if (message.kind === "positions" && Array.isArray(message.positions)) {
+            latest.current.onPositions(
+              message.positions.filter(
+                (p: PagePinPosition) => typeof p?.id === "string" && p.width > 0 && p.height > 0 && [p.x, p.y, p.width, p.height].every(Number.isFinite),
+              ),
+            );
           } else if (message.kind === "pin" && typeof message.id === "string") latest.current.onPin(message.id);
         } catch {
           /* Web content cannot issue RPCs. Only a page title/address, a picked element or a tapped pin is read. */

@@ -101,12 +101,15 @@ export function CommentPin({
   scale,
   comments,
   sent = false,
+  offsetX = 0,
 }: {
-  pin: DesignPin;
+  pin: Pick<DesignPin, "key" | "x" | "y" | "text" | "resolved"> & { design: { title: string } };
   number: number;
   open: boolean;
   scale: number;
-  comments: PinControls;
+  comments: Pick<PinControls, "onOpen" | "onText" | "onRemove" | "onSend">;
+  /** Keep an open bubble inside a constrained viewer without moving its closed pin. */
+  offsetX?: number;
   /** A comment already sent: its bubble reads it back, and it can't change. */
   sent?: boolean;
 }) {
@@ -152,6 +155,7 @@ export function CommentPin({
         top: `${pin.y * 100}%`,
         transform: `scale(${1 / scale})`,
         transformOrigin: "top left",
+        marginLeft: open ? offsetX : undefined,
       }}
       // A click in the bubble isn't a click on the design to pin another comment.
       onClick={(event) => event.stopPropagation()}
@@ -214,6 +218,7 @@ export function CommentPin({
                   placeholder="Add a comment"
                   onChange={(event) => comments.onText(pin.key, event.target.value)}
                   onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) return;
                     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                       event.preventDefault();
                       if (pin.text.trim()) comments.onSend();
