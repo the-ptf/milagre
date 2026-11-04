@@ -212,6 +212,12 @@ async function browserChecks(url) {
     await page("scrollTo(0,500)");
     assert.equal(await page("scrollY"), 500);
     await screenshot("native-browser");
+    await click('[aria-label="Maximize browser"]');
+    await waitFor('document.querySelector("[data-slot=browser-dock]").dataset.full==="true"');
+    assert.ok(await evaluate('document.querySelector("[data-slot=browser-dock]").getBoundingClientRect().width > 1000'));
+    await screenshot("browser-maximized");
+    await click('[aria-label="Restore browser"]');
+    await waitFor('!document.querySelector("[data-slot=browser-dock]").dataset.full');
     await click('[aria-label="Hide Browser panel"]');
     await waitFor("!document.querySelector('[data-slot=browser-dock]')");
     await click(toggle);
