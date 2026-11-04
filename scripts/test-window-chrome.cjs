@@ -160,6 +160,15 @@ async function browserChecks() {
           const changes = await bounds('[data-panel-toggle="changes"]');
           const safe = await evaluate("navigator.windowControlsOverlay.getTitlebarAreaRect().toJSON()");
           assert.ok(changes.right <= safe.x + safe.width, "Changes stays out of the native control area");
+        } else {
+          assert.equal(await evaluate("readChrome().rightInset"), 0, "leading and external controls reserve no trailing right inset");
+          const changes = await bounds('[data-panel-toggle="changes"]');
+          assert.equal(Math.round((await evaluate("window.innerWidth")) - changes.right), 12, "rightmost toggle sits at the 12px window margin");
+          win.webContents.setZoomFactor(0.9);
+          await delay(100);
+          assert.equal(await evaluate("readChrome().rightInset"), 0, "zooming out keeps rightInset at 0 when controls are not trailing");
+          win.webContents.setZoomFactor(1);
+          await delay(100);
         }
         // Every offered panel sits directly in the top-right bar with no overflow menu.
         assert.equal(await evaluate('!!document.querySelector("button[aria-label=\\"Chat actions\\"]")'), false, "no overflow menu button");
