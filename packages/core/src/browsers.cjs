@@ -228,6 +228,7 @@ function createBrowsers(options = {}) {
           product: "Browser panel",
           owner: chatId,
           panel: true,
+          remote: !!panel.remote,
           pages: pages.map(({ id, title, url }) => ({ id, title, url })),
         });
     }
@@ -537,6 +538,8 @@ function createBrowsers(options = {}) {
      * A DevTools session on one of the Chat's pages for the agent's browser tools: `page` names a target from `list`;
      * without it, the Chat's Browser panel page shown most recently, else its first page. Each call checks again that
      * the page is still the Chat's. The session is kept between calls (its `state` holds what the tools remember).
+     * `files` turns paths on this computer into paths the page's browser can read: the same ones, or for a paired
+     * desktop's page, copies put on that desktop.
      */
     async devtools(request) {
       if (closed) throw new Error("Browser service is closed.");
@@ -574,7 +577,16 @@ function createBrowsers(options = {}) {
           () => devtoolsSessions.get(key) === made && devtoolsSessions.delete(key),
         );
       }
-      return { target, session: await entry.ready, state: entry.state };
+      const match = TARGET.exec(target.id);
+      const browser = match && allBrowsers(world).find((item) => item.id === match[1]);
+      const files = async (paths) => {
+        if (!browser?.remote) return paths;
+        if (typeof adapter.upload !== "function") throw new Error("Files can't reach the computer showing this page.");
+        const placed = [];
+        for (const file of paths) placed.push(await adapter.upload(browser, file));
+        return placed;
+      };
+      return { target, session: await entry.ready, state: entry.state, files };
     },
     async setPanelPages(request, owner) {
       if (typeof owner !== "string" || !owner || owner.length > 1024) throw new Error("A trusted desktop connection is required.");
@@ -588,6 +600,8 @@ function createBrowsers(options = {}) {
         panels.set(owner, {
           port,
           prefix: request.prefix,
+          // A paired desktop's pages (#832), reached through a forwarder: its browser reads that desktop's files.
+          remote: request.remote === true,
           pages: pages.map((page) => {
             if (typeof page?.id !== "string" || !/^[A-F0-9]{32}$/.test(page.id)) throw new Error("Invalid Browser panel page.");
             if (typeof page.chatId !== "string" || !page.chatId || page.chatId.length > 1024) throw new Error("A Browser panel page names its Chat.");

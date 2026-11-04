@@ -1,5 +1,8 @@
 const { execFile: execFileCallback } = require("node:child_process");
 const { promisify } = require("node:util");
+const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
 const { parseLsof } = require("./agents/ports.cjs");
 
 // Discovery reads the process table and each candidate's loopback DevTools endpoint, and starts no
@@ -448,10 +451,55 @@ function createBrowserAdapter(options = {}) {
     };
   }
 
+  /**
+   * Puts a file of this computer on the computer whose browser shows a page, through that browser's DevTools endpoint
+   * (cdp-proxy.cjs `PUT <prefix>/files/<name>`): a paired desktop's Browser panel, reached over its forwarder. Resolves to
+   * the file's path there, for DOM.setFileInputFiles.
+   */
+  async function upload(browser, file) {
+    if (![...LOOPBACK.values()].includes(browser?.host) || !Number.isInteger(browser.port) || !/^\/[a-f0-9]{48}$/.test(browser.prefix ?? ""))
+      throw new Error("This page's computer can't take files.");
+    const { size } = await fs.promises.stat(file);
+    return new Promise((resolve, reject) => {
+      const request = http.request(
+        {
+          host: browser.host,
+          port: browser.port,
+          method: "PUT",
+          path: `${browser.prefix}/files/${encodeURIComponent(path.basename(file))}`,
+          headers: { host: `${browser.host}:${browser.port}`, "content-type": "application/octet-stream", "content-length": size },
+        },
+        (response) => {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => body.length < 65536 && (body += chunk));
+          response.on("end", () => {
+            let answer = null;
+            try {
+              answer = JSON.parse(body);
+            } catch {}
+            if (response.statusCode === 200 && typeof answer?.path === "string") return resolve(answer.path);
+            // An older Milagre answers 403 to a PUT.
+            if (response.statusCode === 403 || response.statusCode === 404)
+              return reject(new Error("The computer showing this page runs an older Milagre that can't take files. Update Milagre there."));
+            reject(new Error(`The computer showing this page refused the file: ${answer?.error ?? response.statusCode}.`));
+          });
+        },
+      );
+      // A stalled channel, not a slow one: a big file over the relay can take minutes.
+      request.setTimeout(60_000, () => request.destroy(new Error("The computer showing this page stopped taking the file.")));
+      request.on("error", reject);
+      fs.createReadStream(file)
+        .on("error", (error) => request.destroy(error))
+        .pipe(request);
+    });
+  }
+
   return {
     discover,
     connect,
     session,
+    upload,
     async stop() {
       await Promise.all([...channels].map((channel) => channel.close()));
     },

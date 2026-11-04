@@ -1,4 +1,8 @@
 const http = require("node:http");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { pipeline } = require("node:stream/promises");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { WebSocketServer } = require("ws");
 
@@ -15,6 +19,11 @@ const OUT_OF_PAGE = /^(Target|Browser|SystemInfo|Tethering|Storage)\./;
 // The session's cookies, httpOnly ones included, for every site: a page's session holds the sign-ins of every Chat that
 // shares it (this Mac's Chats, or one computer's), and no browser tool reads or writes them.
 const COOKIES = /^Network\.(getCookies|getAllCookies|setCookies?|deleteCookies|clearBrowserCookies)$/;
+// A file the agent uploads to a page (browser_upload): DOM.setFileInputFiles takes paths the page's own browser reads, so
+// a host whose agent drives a paired desktop's page puts the file on that desktop first, here. It lands in a folder of its
+// own under the system's temp folder, which goes when the proxy closes (Milagre quits).
+const MAX_FILE = 4 * 1024 * 1024 * 1024;
+const FILE_NAME = /^[^/\\\0]{1,200}$/;
 
 /**
  * @param {{
@@ -37,9 +46,46 @@ function createCdpProxy({ product, pages, session }) {
     response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     response.end(JSON.stringify(value));
   };
+  /** @type {Promise<string> | null} */
+  let uploadsReady = null;
+  const uploadFolder = () => (uploadsReady ??= fs.promises.mkdtemp(path.join(os.tmpdir(), "milagre-browser-uploads-")));
+  /** PUT <prefix>/files/<name>: the body becomes a file with that name; the answer is its path on this computer. */
+  async function receive(request, response, name) {
+    const size = Number(request.headers["content-length"]);
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_FILE) return json(response, 413, { error: "too large" });
+    const folder = path.join(await uploadFolder(), randomBytes(8).toString("hex"));
+    await fs.promises.mkdir(folder, { mode: 0o700 });
+    const file = path.join(folder, name);
+    let received = 0;
+    request.on("data", (chunk) => {
+      received += chunk.length;
+      if (received > size) request.destroy(new Error("More than its Content-Length."));
+    });
+    try {
+      await pipeline(request, fs.createWriteStream(file, { flags: "wx", mode: 0o600 }));
+      if (received !== size) throw new Error("The upload ended early.");
+    } catch (error) {
+      await fs.promises.rm(folder, { recursive: true, force: true });
+      if (!response.headersSent) json(response, 400, { error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    json(response, 200, { path: file });
+  }
   const server = http.createServer((request, response) => {
-    if (!fromLoopback(request.headers.host) || request.method !== "GET") return json(response, 403, { error: "forbidden" });
+    if (!fromLoopback(request.headers.host)) return json(response, 403, { error: "forbidden" });
     const url = request.url ?? "";
+    if (request.method === "PUT" && url.startsWith(`${prefix}/files/`) && !request.headers.origin) {
+      let name = "";
+      try {
+        name = decodeURIComponent(url.slice(`${prefix}/files/`.length));
+      } catch {}
+      if (!FILE_NAME.test(name) || name === "." || name === "..") return json(response, 400, { error: "bad file name" });
+      receive(request, response, name).catch((error) => {
+        if (!response.headersSent) json(response, 500, { error: error instanceof Error ? error.message : String(error) });
+      });
+      return;
+    }
+    if (request.method !== "GET") return json(response, 403, { error: "forbidden" });
     if (url === `${prefix}/json/version`)
       return json(response, 200, {
         Browser: product,
@@ -125,7 +171,11 @@ function createCdpProxy({ product, pages, session }) {
     },
     async close() {
       for (const ws of sockets) ws.terminate();
+      server.closeAllConnections?.();
       await /** @type {Promise<void>} */ (new Promise((resolve) => server.close(() => resolve())));
+      // Files put here for a page's upload go with the proxy.
+      const folder = uploadsReady && (await uploadsReady.catch(() => null));
+      if (folder) await fs.promises.rm(folder, { recursive: true, force: true });
     },
   };
 }

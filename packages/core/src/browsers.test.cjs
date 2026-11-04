@@ -92,6 +92,11 @@ function fixture(t, options = {}) {
       this.sessions.push(session);
       return session;
     },
+    uploads: [],
+    async upload(browser, file) {
+      this.uploads.push([browser.port, file]);
+      return `/desktop/tmp/${file.split("/").pop()}`;
+    },
     async stop() {
       this.stopped = true;
     },
@@ -528,4 +533,25 @@ test("the agent's DevTools session acts on the Chat's newest panel page, is reus
   assert.equal(one.state, two.state);
   await f.service.disconnect("desktop-1");
   assert.equal(one.session.closed, true, "the desktop going ends the sessions on its pages");
+});
+
+test("files for a page stay as they are on this computer, and go to a paired desktop for its pages", async (t) => {
+  const f = fixture(t);
+  const prefix = `/${"f".repeat(48)}`;
+  await f.service.setPanelPages(
+    { port: 51234, prefix, pages: [{ id: "D".repeat(32), chatId: "chat-a", title: "Here", url: "https://a.example/" }] },
+    "desktop-1",
+  );
+  const here = await f.service.devtools({ chatId: "chat-a" });
+  assert.deepEqual(await here.files(["/w/clip.mp4"]), ["/w/clip.mp4"]);
+  await f.service.setPanelPages(
+    { port: 52345, prefix, remote: true, pages: [{ id: "E".repeat(32), chatId: "chat-b", title: "There", url: "https://b.example/" }] },
+    "peer-desktop",
+  );
+  const there = await f.service.devtools({ chatId: "chat-b" });
+  assert.deepEqual(await there.files(["/w/clip.mp4", "/w/cover.png"]), ["/desktop/tmp/clip.mp4", "/desktop/tmp/cover.png"]);
+  assert.deepEqual(f.adapter.uploads, [
+    [52345, "/w/clip.mp4"],
+    [52345, "/w/cover.png"],
+  ]);
 });

@@ -1,3 +1,5 @@
+const fs = require("node:fs");
+const path = require("node:path");
 const { z } = require("zod");
 
 // The agent's tools for driving the Chat's browser pages: its Browser panel pages (the page the user sees and comments
@@ -124,13 +126,43 @@ async function onElement(session, backendNodeId, fn, args = []) {
 }
 
 const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_UPLOAD_FILES = 20;
+const CHOOSER_WAIT_MS = 5000;
+
+const inside = (root, file) => {
+  const relative = path.relative(root, file);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+};
+const megabytes = (size) => (size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`);
+
+/**
+ * The files an agent may send to a page: regular files inside one of `roots` (the Chat's Worktrees, ~/Downloads), with
+ * symlinks followed first so a link can't reach past them.
+ */
+async function uploadable(paths, roots) {
+  const real = (await Promise.all(roots.map((root) => fs.promises.realpath(root).catch(() => null)))).filter(Boolean);
+  return Promise.all(
+    paths.map(async (file) => {
+      if (!path.isAbsolute(file)) throw new Error(`${file} is not an absolute path.`);
+      const resolved = await fs.promises.realpath(file).catch(() => {
+        throw new Error(`${file} doesn't exist.`);
+      });
+      if (!real.some((root) => inside(root, resolved)))
+        throw new Error(`${file} is outside this Chat's Worktrees and ~/Downloads. Copy it into the Worktree first.`);
+      const stat = await fs.promises.stat(resolved);
+      if (!stat.isFile()) throw new Error(`${file} is not a file.`);
+      return { path: resolved, name: path.basename(resolved), size: stat.size };
+    }),
+  );
+}
 
 /**
  * @param {string} chatId
  * @param {{ devtools(request: { chatId: string; page?: string }): Promise<{ target: { id: string; title: string; url: string }; session: any; state: any }>; list(request: { chatId: string }): Promise<{ targets: { id: string; url: string; source: string }[] }> }} browsers
  * @param {{ openInPanel(chatId: string, url: string): void }} panel
+ * @param {{ roots(): Promise<string[]>; chooserWaitMs?: number }} [uploads] the folders browser_upload may send files from
  */
-function browserPageToolDefinitions(chatId, browsers, panel) {
+function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: async () => [] }) {
   const on = async (input) => {
     const found = await browsers.devtools({ chatId, page: input.page });
     await prepare(found.session, found.state);
@@ -226,6 +258,74 @@ function browserPageToolDefinitions(chatId, browsers, panel) {
         );
         if (input.text) await session.send("Input.insertText", { text: input.text });
         return done(target);
+      },
+    },
+    {
+      name: "browser_upload",
+      description:
+        "Attach local files to a file field of the page, as choosing them in the file picker would. `ref` is either the file input itself or the button or label that opens the picker (file inputs are often hidden, so the snapshot shows only the button); `selector` is a CSS selector for a file input the snapshot doesn't list. Files must be inside this Chat's Worktrees or ~/Downloads; up to 20 at once, any size.",
+      input: {
+        page,
+        ref: ref.optional(),
+        selector: z.string().min(1).max(500).optional().describe("A CSS selector for an <input type=file>, when no ref reaches it."),
+        paths: z.array(z.string().min(1).max(4096)).min(1).max(MAX_UPLOAD_FILES).describe("Absolute paths of the files."),
+      },
+      readOnly: false,
+      run: async (input) => {
+        if (!input.ref === !input.selector) throw new Error("Pass a ref or a selector.");
+        const { target, session, state, files } = await on(input);
+        const chosen = await uploadable(input.paths, await uploads.roots());
+        const summary = chosen.map((file) => `${file.name} (${megabytes(file.size)})`).join(", ");
+        // The page's browser reads the paths: a paired desktop's page gets copies put on that desktop first.
+        const placed = files ? await files(chosen.map((file) => file.path)) : chosen.map((file) => file.path);
+        let node;
+        if (input.selector) {
+          const { root } = await session.send("DOM.getDocument", { depth: 0 });
+          const { nodeId } = await session.send("DOM.querySelector", { nodeId: root.nodeId, selector: input.selector });
+          if (!nodeId) throw new Error(`Nothing on the page matches ${input.selector}.`);
+          const { node: found } = await session.send("DOM.describeNode", { nodeId });
+          node = found.backendNodeId;
+        } else node = backendNode(state, input.ref);
+        const field = await onElement(
+          session,
+          node,
+          `function () { return this instanceof HTMLInputElement && this.type === "file" ? { multiple: this.multiple } : null; }`,
+        );
+        if (field) {
+          if (!field.multiple && placed.length > 1) throw new Error("That file field takes one file.");
+          await session.send("DOM.setFileInputFiles", { files: placed, backendNodeId: node }, 60000);
+          await settle();
+          return done(target, `Attached ${summary}.`);
+        }
+        if (input.selector) throw new Error(`${input.selector} is not a file input.`);
+        // Not a file input: click it with the picker caught, and set the files on the input that opened it.
+        let off = () => {};
+        const opened = new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(null), uploads.chooserWaitMs ?? CHOOSER_WAIT_MS);
+          off = session.on((method, params) => {
+            if (method !== "Page.fileChooserOpened") return;
+            clearTimeout(timer);
+            resolve(params);
+          });
+        });
+        await session.send("Page.setInterceptFileChooserDialog", { enabled: true });
+        try {
+          const { x, y } = await center(session, node);
+          await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+          await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+          await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+          const chooser = await opened;
+          if (!chooser)
+            throw new Error(`Clicking ${input.ref} opened no file picker. Take a snapshot and pass the button that opens it, or the file input's selector.`);
+          if (chooser.mode === "selectSingle" && placed.length > 1) throw new Error("That file field takes one file.");
+          if (!chooser.backendNodeId) throw new Error("The file picker that opened has no field to set files on.");
+          await session.send("DOM.setFileInputFiles", { files: placed, backendNodeId: chooser.backendNodeId }, 60000);
+        } finally {
+          off();
+          await session.send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => {});
+        }
+        await settle();
+        return done(target, `Attached ${summary}.`);
       },
     },
     {
