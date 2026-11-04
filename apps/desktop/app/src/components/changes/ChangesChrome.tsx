@@ -83,7 +83,7 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("changes.toggle");
   return (
-    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset }}>
       <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut={shortcut} compactHint side="bottom" align="end">
         <IconButton label="Toggle changes panel" icon={GitBranchIcon} size={32} aria-pressed={open} data-changes-toggle onClick={onToggle} />
       </Tooltip>
@@ -96,7 +96,7 @@ export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("grid.toggle");
   return (
-    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
         <IconButton label="Show active Chats as a grid" icon={GridViewIcon} size={32} aria-pressed={grid} data-layout-toggle onClick={onToggle} />
       </Tooltip>
@@ -112,7 +112,7 @@ export function SubchatsButton({ count, shown, offset, onToggle }: { count: numb
   const chrome = useWindowChrome();
   const label = shown ? "Back to the open Chat" : `Show the ${count} subchat${count === 1 ? "" : "s"} side by side`;
   return (
-    <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={label} compactHint side="bottom" align="end">
         <button
           type="button"

@@ -330,7 +330,6 @@ async function browserChecks() {
     window.webContents.executeJavaScript(source).catch((error) => {
       throw new Error(`${error.message}\n  in: ${source.slice(0, 300)}`);
     });
-  const { evaluatePanel, waitForPanel } = require("./panel-menu-test.cjs").panelMenuHelpers(evaluate);
   // 250 ms lets a transition end before the capture; at 900 ms the 35 screenshots cost the CI shard half a minute.
   async function screenshot(name) {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
@@ -1069,22 +1068,38 @@ async function browserChecks() {
 
     // The corner button shows while the Chat has designs, and closes and reopens the canvas.
     const toggle = 'document.querySelector("[data-panel-toggle=designs]")';
-    assert.equal(await evaluatePanel(`${toggle}.getAttribute("aria-checked")`), "true");
-    assert.equal(await evaluatePanel('!!document.querySelector("[data-panel-toggle=simulator]")'), false, "no simulator button without a simulator");
-    await evaluatePanel(`${toggle}.click()`);
-    await waitForPanel(`!${dock} && ${toggle}.getAttribute("aria-checked") === "false"`);
-    // Shortcuts remain visible beside the actions in the overflow menu.
-    assert.ok(await evaluatePanel(`${toggle}.textContent.length > "designs".length`));
-    await screenshot("panel-menu-shortcuts");
+    assert.equal(await evaluate(`${toggle}.getAttribute("aria-pressed")`), "true");
+    assert.equal(await evaluate('!!document.querySelector("[data-panel-toggle=simulator]")'), false, "no simulator button without a simulator");
+    await evaluate(`${toggle}.click()`);
+    await waitFor(`!${dock} && ${toggle}.getAttribute("aria-pressed") === "false"`);
+    // Holding ⌘ (Control off the Mac) shows each corner button's shortcut under it, short enough not to run into its
+    // neighbour's.
+    const hintKey = process.platform === "darwin" ? "Meta" : "Control";
+    window.webContents.sendInputEvent({
+      type: "keyDown",
+      keyCode: hintKey,
+      modifiers: [process.platform === "darwin" ? "meta" : "control"],
+    });
+    await waitFor('document.querySelectorAll("[data-shortcut-hint]").length >= 2');
+    const badges = await evaluate(
+      '[...document.querySelectorAll("[data-shortcut-hint]")].map((b) => { const r = b.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, text: b.textContent }; }).sort((a, b) => a.left - b.left)',
+    );
+    for (let i = 1; i < badges.length; i++) assert.ok(badges[i - 1].right <= badges[i].left, `hints overlap: ${JSON.stringify(badges)}`);
+    assert.ok(
+      badges.every((badge) => badge.top > 32),
+      "short hints, under the buttons",
+    );
+    await screenshot("corner-hints");
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: hintKey });
     // Closed and opened again before it finishes closing, the panel turns around and opens whole, not stuck at nothing.
-    await evaluatePanel(`${toggle}.click()`);
+    await evaluate(`${toggle}.click()`);
     await waitFor(`!!${dock} && Math.round(${dock}.getBoundingClientRect().width) === 560`);
-    await evaluatePanel(`${toggle}.click()`);
+    await evaluate(`${toggle}.click()`);
     await delay(80);
-    await evaluatePanel(`${toggle}.click()`);
+    await evaluate(`${toggle}.click()`);
     await waitFor(`!!${dock} && Math.round(${dock}.getBoundingClientRect().width) === 560`);
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
-    await evaluatePanel(`${toggle}.click()`);
+    await evaluate(`${toggle}.click()`);
     await waitFor(`!${dock}`);
 
     // ⌘⇧E does the same as the button, also while typing in the composer.
@@ -1101,7 +1116,7 @@ async function browserChecks() {
       modifiers: ["meta", "shift"],
     });
     await waitFor(`!${dock}`);
-    await evaluatePanel(`${toggle}.click()`);
+    await evaluate(`${toggle}.click()`);
     await waitFor(`!!${dock} && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
 
     // The git changes panel opens at the window's right edge: the design docks beside it instead of covering it.
@@ -1122,15 +1137,15 @@ async function browserChecks() {
 
     // Too narrow for all three side panels beside a usable chat, the third to open closes the one opened first, and
     // its button at the top lets go.
-    const pressed = (name) => evaluatePanel(`document.querySelector("[data-panel-toggle=${name}]").getAttribute("aria-checked")`);
+    const pressed = (name) => evaluate(`document.querySelector("[data-panel-toggle=${name}]").getAttribute("aria-pressed")`);
     await evaluate("window.setSimulator(true)");
-    await waitForPanel(`document.querySelector("[data-panel-toggle=simulator]")?.getAttribute("aria-checked") === "true"`);
+    await waitFor(`document.querySelector("[data-panel-toggle=simulator]")?.getAttribute("aria-pressed") === "true"`);
     assert.equal(await pressed("designs"), "true");
     await evaluate("window.setChanges(true)");
     await waitFor(`!${dock}`);
     assert.equal(await pressed("designs"), "false", "the designs, opened first, close");
     assert.equal(await pressed("simulator"), "true");
-    await evaluatePanel(`${toggle}.click()`);
+    await evaluate(`${toggle}.click()`);
     await waitFor("!window.simulatorOpen");
     assert.equal(await pressed("simulator"), "false", "then the simulator, opened before the changes panel");
     assert.equal(await pressed("designs"), "true");
@@ -1186,7 +1201,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-slot=design-feedback-text]").scrollIntoView()');
     await screenshot("historical-feedback-text");
     // A design is deleted from its frame on the canvas after a second press, and leaves the canvas and the Chat's cards.
-    await evaluatePanel('document.querySelector("[data-panel-toggle=designs]").click()');
+    await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
     await waitFor(`${frames}?.length === 2`);
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
@@ -1206,8 +1221,8 @@ async function browserChecks() {
     await waitFor(`!${dock}`);
     // The one HTML page is independent of Designs, with no version/choice/editor controls.
     await evaluate("window.designsEnabled=false; window.designsChanged({enabled:false})");
-    await waitForPanel('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
-    await evaluatePanel('document.querySelector("[data-panel-toggle=artifacts]").click()');
+    await waitFor('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
+    await evaluate('document.querySelector("[data-panel-toggle=artifacts]").click()');
     await waitFor(`${dock}?.getAttribute("aria-label") === "Artifacts" && !!document.querySelector("[data-slot=artifact-page] iframe")`);
     assert.equal(await evaluate(`${dock}.querySelectorAll('[data-slot=artifact-edit], [data-slot=artifact-frame-version], [aria-label^="Choose"]').length`), 0);
     assert.equal(await evaluate(`${dock}.querySelectorAll('iframe').length`), 1, "a single HTML page is shown");
@@ -1320,9 +1335,9 @@ async function browserChecks() {
     assert.match(await evaluate(`${dock}.querySelector("header").textContent`), /Headers/);
     if (keepOpen) {
       await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
-      await waitForPanel('!!document.querySelector("[data-panel-toggle=designs]")');
-      await evaluatePanel('document.querySelector("[data-panel-toggle=artifacts]")?.click()');
-      await evaluatePanel('document.querySelector("[data-panel-toggle=designs]").click()');
+      await waitFor('!!document.querySelector("[data-panel-toggle=designs]")');
+      await evaluate('document.querySelector("[data-panel-toggle=artifacts]")?.click()');
+      await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
       await waitFor(`${dock}?.getAttribute("aria-label") === "Designs"`);
       await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']").click()`);
       await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);

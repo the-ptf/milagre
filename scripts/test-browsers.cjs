@@ -183,8 +183,12 @@ async function browserChecks(url) {
     } finally {
       pinWindow.destroy();
     }
+    await waitUntil(async () => {
+      const listed = await service.list({ chatId: "/fixture#1" });
+      return listed.targets.some((target) => target.title === "Fixture login") && listed.others.length > 0;
+    }, "discovered Chrome pages ready");
     await window.loadURL(url);
-    await waitFor(`!!document.querySelector("${toggle}")`, "Browser button with the agent's page");
+    await waitFor(`!!document.querySelector("${toggle}")`, "Browser button in the toolbar");
     assert.equal(counts.open, 0);
     await click(toggle);
     await waitFor("!!document.querySelector('webview')", "a native page opens");

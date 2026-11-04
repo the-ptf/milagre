@@ -109,12 +109,10 @@ export function BrowserPanel({
   useCloseWhenDesignsExpand(close);
   useSidePanelRoom("browser", chat.open, width + 12, close);
   const hasStreamed = streamed.targets.length > 0;
-  // Opened with only discovered pages, the panel shows them rather than a blank page.
-  const open = () => (!chatBrowser(chatKey).tabs.length && hasStreamed ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));
-  // Keep opening a blank page available in the menu and by shortcut; promote it once a page exists.
+  // Opened with only discovered pages (or while their initial read is in flight), show them rather than a blank page.
+  const open = () => (!chatBrowser(chatKey).tabs.length && (hasStreamed || streamed.loading) ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));
   useSidePanel("browser", {
     open: chat.open,
-    promoted: chat.tabs.length > 0 || hasStreamed,
     toggle: () => (chatBrowser(chatKey).open ? close() : open()),
   });
   const closeTab = (tabId: string) => {
