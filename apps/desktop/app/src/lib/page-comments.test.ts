@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addPendingComment, pageComments, pagePins, setCommenting, setPageDraft, setSentComments, setShowResolved } from "./page-comments.ts";
+import {
+  addPendingComment,
+  pageComments,
+  pagePins,
+  setCommenting,
+  openPageComment,
+  editPageComment,
+  removePendingComments,
+  setSentComments,
+  setShowResolved,
+} from "./page-comments.ts";
 
 const element = {
   selector: "button.pay",
@@ -11,7 +21,7 @@ const element = {
 };
 const URL = "http://localhost:5173/checkout";
 
-test("only the comments still to send are numbered on the page, 1 to n like the Send button", () => {
+test("comments retain numbered pins when sent", () => {
   addPendingComment("/p#1", { id: "aaaaaaaa", url: URL, title: "Checkout", element, text: "Bigger", shot: null });
   addPendingComment("/p#1", { id: "bbbbbbbb", url: `${URL}?step=2`, title: "Checkout", element, text: "Green", shot: null });
   setSentComments("/p#1", [
@@ -21,7 +31,7 @@ test("only the comments still to send are numbered on the page, 1 to n like the 
   assert.deepEqual(
     pagePins(pageComments("/p#1"), URL).map((pin) => [pin.state, pin.n]),
     [
-      ["open", 0],
+      ["open", 1],
       ["pending", 1],
       ["pending", 2],
     ],
@@ -32,13 +42,22 @@ test("only the comments still to send are numbered on the page, 1 to n like the 
   assert.equal(pagePins(pageComments("/p#1"), URL).length, 3);
 });
 
-test("a comment being written waits on its tab through tab and Chat switches, and goes when comment mode ends", () => {
+test("closing comment mode keeps written drafts, drops empty pins and allows editing before sending", () => {
   setCommenting("/p#2", true);
-  setPageDraft("/p#2", "tab-a", { url: URL, element, shot: null, text: "Half writ" });
-  setPageDraft("/p#2", "tab-b", { url: URL, element, shot: null, text: "Other" });
-  assert.equal(pageComments("/p#2").drafts["tab-a"]?.text, "Half writ");
-  setPageDraft("/p#2", "tab-b", null);
-  assert.deepEqual(Object.keys(pageComments("/p#2").drafts), ["tab-a"]);
+  addPendingComment("/p#2", { id: "draft", url: URL, title: "Checkout", element, text: "", shot: null });
+  openPageComment("/p#2", "draft");
+  editPageComment("/p#2", "draft", "Half written");
   setCommenting("/p#2", false);
-  assert.deepEqual(pageComments("/p#2").drafts, {});
+  assert.equal(pageComments("/p#2").open, null);
+  assert.equal(pageComments("/p#2").pending[0].text, "Half written");
+  openPageComment("/p#2", "draft");
+  editPageComment("/p#2", "draft", "Finished");
+  openPageComment("/p#2", null);
+  assert.equal(pageComments("/p#2").pending[0].text, "Finished");
+  addPendingComment("/p#2", { id: "empty", url: URL, title: "Checkout", element, text: "", shot: null });
+  openPageComment("/p#2", "empty");
+  openPageComment("/p#2", null);
+  assert.equal(pageComments("/p#2").pending.length, 1);
+  removePendingComments("/p#2", new Set(["draft"]));
+  assert.deepEqual(pageComments("/p#2").pending, []);
 });

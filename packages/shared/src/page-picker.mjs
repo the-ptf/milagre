@@ -281,7 +281,7 @@ export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
  * Each pin: { n, id?, selector, point?, text, state: "pending" | "open" | "resolved", note? }. When the page defines
  * window.__milagrePinTap, tapping a pin calls it with the pin's id (or its number) instead of showing the tip.
  */
-export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", showResolved = false } = {}) {
+export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", ink = "#4b5563", onInk = "#fff", showResolved = false } = {}) {
   return `(() => {
   const bounds = ${BOUNDS};
   const pins = ${JSON.stringify(pins.filter((pin) => showResolved || pin.state !== "resolved"))};
@@ -292,10 +292,8 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", sh
     const root = host.attachShadow({ mode: "closed" });
     root.innerHTML = \`<style>
       :host{all:initial}
-      .pin{position:fixed;width:22px;height:22px;border-radius:11px 11px 11px 0;box-shadow:0 0 0 1.5px #fff,0 1px 3px rgb(0 0 0/.3);color:#fff;font:600 11px/22px -apple-system,system-ui,sans-serif;text-align:center;pointer-events:auto;cursor:default;display:none}
+      .pin{position:fixed;width:24px;height:24px;border-radius:0 12px 12px 12px;box-shadow:0 0 0 1.5px #fff,0 1px 3px rgb(0 0 0/.3);color:#fff;font:600 11px/24px -apple-system,system-ui,sans-serif;text-align:center;pointer-events:auto;cursor:default;display:none}
       .pin svg{width:12px;height:12px;margin-top:5px}
-      .pin.open{background:#fff !important;box-shadow:0 0 0 1.5px currentColor,0 1px 3px rgb(0 0 0/.3)}
-      .pin.open::after{content:"";position:absolute;left:7px;top:7px;width:8px;height:8px;border-radius:4px;background:currentColor}
       .tip{position:fixed;display:none;box-sizing:border-box;max-width:min(260px,calc(100vw - 8px));padding:7px 10px;border-radius:10px;background:#fff;color:#1c222b;border:1px solid #e0e1e3;box-shadow:0 4px 16px rgb(0 0 0/.12);font:400 12px/16px -apple-system,system-ui,sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none}
       .tip .text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:8;overflow:hidden}
       .tip b{display:block;font-weight:500;color:${green};margin-top:3px}
@@ -303,15 +301,16 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", sh
     </style><div class="tip"></div>\`;
     const tip = root.querySelector(".tip");
     let items = [];
-    let frame = 0;
+    let frame = 0, lastPositions = "";
     const place = () => {
       frame = 0;
+      const positions = [];
       for (const item of items) {
         let el = null;
         try { el = document.querySelector(item.pin.selector); } catch {}
         const r = el ? bounds(el) : null;
         if (!r || (!r.width && !r.height)) { item.node.style.display = "none"; continue; }
-        item.node.style.display = "block";
+        item.node.style.display = item.pin.hide ? "none" : "block";
         const point = item.pin.point;
         const x = point ? r.left + point.x * r.width : r.left + r.width - 12;
         const y = point ? r.top + point.y * r.height : r.top - 4;
@@ -319,8 +318,11 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", sh
         const top = !point && r.height <= 48 ? r.top : y;
         if (point && (x < 0 || x > innerWidth || y < 0 || y > innerHeight)) { item.node.style.display = "none"; continue; }
         item.node.style.left = Math.min(innerWidth - 24, Math.max(2, x + item.offset * 24)) + "px";
-        item.node.style.top = Math.min(innerHeight - 24, Math.max(2, top - 22)) + "px";
+        item.node.style.top = Math.min(innerHeight - 24, Math.max(2, top)) + "px";
+        positions.push({ id: item.pin.id, x, y: top, width: innerWidth, height: innerHeight });
       }
+      const key = JSON.stringify(positions);
+      if (key !== lastPositions) { lastPositions = key; window.__milagrePinPositions?.(positions); }
     };
     const schedule = () => { if (!frame && items.length) frame = requestAnimationFrame(place); };
     addEventListener("scroll", schedule, true);
@@ -337,11 +339,13 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", sh
           seen.set(pin.selector, offset + 1);
           const node = document.createElement("div");
           node.className = "pin";
-          node.style.background = pin.state === "resolved" ? colors.green : colors.accent;
-          if (pin.state === "open") { node.classList.add("open"); node.style.color = colors.accent; }
-          else if (pin.state === "resolved") node.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-          else node.textContent = String(pin.n);
+          node.style.background = pin.state === "resolved" ? colors.green : pin.state === "open" ? colors.ink : colors.accent;
+          node.style.color = pin.state === "pending" ? "#fff" : colors.onInk;
+          node.textContent = String(pin.n);
+          node.setAttribute("role", "button");
+          node.setAttribute("aria-label", "Comment " + pin.n + ": " + pin.text);
           node.addEventListener("pointerenter", () => {
+            if (window.__milagrePinTap) return;
             const text = document.createElement("span");
             text.className = "text";
             text.textContent = pin.text;
@@ -373,10 +377,27 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", sh
       hide(hidden) { this.hidden = hidden; tip.style.display = "none"; host.style.display = items.length && !hidden ? "block" : "none"; },
     };
   }
-  layer.set(pins, ${JSON.stringify({ accent, green })});
+  layer.set(pins, ${JSON.stringify({ accent, green, ink, onInk })});
   return pins.length;
 })()`;
 }
 
 /** Hides the pins (true) or shows them again (false), for a screenshot of the page without them. */
 export const pagePinsHidden = (hidden) => `window.__milagrePins?.hide(${hidden ? "true" : "false"}); true`;
+
+/** Screen positions for native/React comment bubbles, using the same element bounds as the page picker. */
+export function pagePinPositionsScript(pins) {
+  return `(() => {
+    const bounds = ${BOUNDS};
+    return ${JSON.stringify(pins)}.flatMap(pin => {
+      let el; try { el = document.querySelector(pin.selector); } catch {}
+      if (!el) return [];
+      const r = bounds(el);
+      if (!r || (!r.width && !r.height)) return [];
+      const x = r.left + (pin.point?.x ?? 0.5) * r.width;
+      const y = r.top + (pin.point?.y ?? 0.5) * r.height;
+      if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return [];
+      return [{ id: pin.id, x, y, width: innerWidth, height: innerHeight }];
+    });
+  })()`;
+}

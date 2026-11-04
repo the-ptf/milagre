@@ -1,21 +1,22 @@
 import { CommentOptions } from "./CommentOptions";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { createPortal } from "react-dom";
 import { CommentAdd01Icon, Comment01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { ImageAttachment } from "../../model";
-import type { PageElement, ParsedPageComment } from "@milagre/shared/page-comments";
+import type { ParsedPageComment } from "@milagre/shared/page-comments";
 import { pageCommentsMessage } from "@milagre/shared/page-comments";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import Tooltip from "../primitives/Tooltip";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
-import { ShortcutKeys } from "../primitives/ShortcutKeys";
+import { CommentPin } from "./CommentPin";
+import type { PagePinPosition } from "@milagre/shared/page-picker";
 import { TOAST } from "../../lib/toast";
 import { isRemoteKey, onAnyAgentEvent, useBridge, useScope } from "../../lib/computer-bridge";
 import { mediaUrl } from "../../lib/media";
 import { useRemoteMedia } from "../../lib/remote-media";
 import type { BrowserTab } from "../../lib/browser-panel";
-import { browserOverlay, cancelPagePick, capturePageElement, pickOnPage, setPagePins } from "../../lib/browser-webviews";
+import { browserOverlay, cancelPagePick, capturePageElement, pickOnPage, setPagePins, pagePinPositions } from "../../lib/browser-webviews";
 import {
   addPendingComment,
   pageComments,
@@ -23,14 +24,14 @@ import {
   removePendingComments,
   setCommenting,
   setShowResolved,
-  setPageDraft,
+  openPageComment,
+  editPageComment,
   setSentComments,
   usePageComments,
   useSentComment,
-  type PendingPageComment,
 } from "../../lib/page-comments";
 
-const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘↵" : "Ctrl+↵";
+const SEND_PAGE_COMMENTS = "milagre:send-page-comments";
 
 /** The most comments one message carries (what the host takes at once); more wait for the next Send. */
 const SEND_AT_ONCE = 50;
@@ -40,14 +41,17 @@ export type SendPageComments = (text: string, images: ImageAttachment[]) => Prom
 
 /** The toolbar's comment toggle and, while comments wait, their Send button (design browser-comment-a). */
 export function CommentControls({ chatKey, live, onSend }: { chatKey: string; live: boolean; onSend?: SendPageComments }) {
-  const { commenting, pending, showResolved } = usePageComments(chatKey);
+  const { commenting, pending: allPending, showResolved } = usePageComments(chatKey);
+  const pending = allPending.filter((pin) => pin.text.trim());
   const bridge = useBridge();
   const api = typeof bridge?.pageComments?.add === "function" ? bridge.pageComments : undefined;
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState(false);
   const send = async () => {
     if (!onSend || !api || sending) return;
-    const batch = pageComments(chatKey).pending.slice(0, SEND_AT_ONCE);
+    const batch = pageComments(chatKey)
+      .pending.filter((pin) => pin.text.trim())
+      .slice(0, SEND_AT_ONCE);
     if (!batch.length) return;
     setSending(true);
     setFailed(false);
@@ -67,6 +71,14 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
       setSending(false);
     }
   };
+  const sendCurrent = useEffectEvent(() => void send());
+  useEffect(() => {
+    const listener = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === chatKey) sendCurrent();
+    };
+    window.addEventListener(SEND_PAGE_COMMENTS, listener);
+    return () => window.removeEventListener(SEND_PAGE_COMMENTS, listener);
+  }, [chatKey]);
   const label = commenting ? "Stop commenting" : "Comment on the page";
   const count = Math.min(pending.length, SEND_AT_ONCE);
   return (
@@ -87,13 +99,13 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
         >
           <Button
             variant={failed ? "danger" : "primary"}
-            size={28}
+            size={24}
             data-slot="browser-send-comments"
             disabled={!onSend || sending}
             onClick={() => void send()}
             className="pr-1.5"
           >
-            {failed ? "Retry" : "Send"}
+            {failed ? "Retry send" : "Send"}
             <span className={`rounded-full px-1.5 text-11 tabular-nums ${failed ? "bg-on-red/20" : "bg-on-ink/20"}`}>
               {pending.length > count ? `${count} of ${pending.length}` : count}
             </span>
@@ -151,24 +163,33 @@ export function useSentPageComments(chatKey: string) {
   }, [api, chatKey]);
 }
 
-/** The comments on the page on screen: its pins, and in comment mode the picker and the box a comment is written in. */
+/** Browser pins use the Design bubble, with positions read from the live page as it scrolls. */
 export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: BrowserTab; live: boolean }) {
   const comments = usePageComments(chatKey);
-  // A comment being written belongs to the page it was picked on: it shows again when that tab and address do.
-  const kept = comments.drafts[tab.id];
-  const draft = kept && kept.url === tab.url ? kept : null;
-  // Pins follow the Chat's comments and the page's address.
+  const pins = pagePins(comments, tab.url);
+  const [positions, setPositions] = useState<PagePinPosition[]>([]);
+  const pinsKey = JSON.stringify(pins);
   useEffect(() => {
-    if (live)
-      setPagePins(tab.id, [
-        ...pagePins(comments, tab.url),
-        ...(draft
-          ? [{ n: comments.pending.length + 1, selector: draft.element.selector, point: draft.element.point, text: draft.text, state: "pending" as const }]
-          : []),
-      ]);
-  }, [comments, draft, tab.id, tab.url, live]);
-  // Comment mode: pick an element, write its comment, pick the next, until Escape or the toggle ends it.
-  const picking = comments.commenting && live && !draft;
+    if (!live) return;
+    // The overlay draws the pins too, so editing and reading use one component on every desktop surface.
+    setPagePins(tab.id, []);
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      const next = await pagePinPositions(tab.id, JSON.parse(pinsKey));
+      if (disposed) return;
+      setPositions((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next));
+      timer = setTimeout(() => void read(), 100);
+    };
+    if (JSON.parse(pinsKey).length) void read();
+    else setPositions([]);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [live, tab.id, pinsKey]);
+  const openHere = pins.some((pin) => pin.id === comments.open);
+  const picking = comments.commenting && live && !openHere;
   useEffect(() => {
     if (!picking) return;
     let cancelled = false;
@@ -179,124 +200,60 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
         return;
       }
       const shot = await capturePageElement(tab.id, element.box);
-      if (!cancelled) setPageDraft(chatKey, tab.id, { url: tab.url, element, shot, text: "" });
+      if (cancelled) return;
+      const id = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+      addPendingComment(chatKey, { id, url: tab.url, title: tab.title, element, shot, text: "" });
+      openPageComment(chatKey, id);
     });
     return () => {
       cancelled = true;
       cancelPagePick(tab.id);
     };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- tab.url is read when a pick lands, not a reason to pick again
-  }, [picking, tab.id, chatKey]);
-  // The tab went to another address: what was picked on the old one is gone.
-  useEffect(() => {
-    if (kept && !draft) setPageDraft(chatKey, tab.id, null);
-  }, [kept, draft, chatKey, tab.id]);
+  }, [picking, tab.id, tab.url, tab.title, chatKey]);
   const overlay = live ? browserOverlay(tab.id) : null;
   if (!overlay) return null;
-  // Comment mode says what to do, at the bottom of the page, until an element is picked.
-  if (!draft)
-    return picking
-      ? createPortal(
-          <div data-slot="browser-comment-hint" className={`absolute bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap ${TOAST}`}>
-            Click anywhere to place a comment pin · Esc to stop
-          </div>,
-          overlay,
-        )
-      : null;
-  return createPortal(
-    <CommentBox
-      key={draft.element.selector + draft.element.box.y}
-      element={draft.element}
-      text={draft.text}
-      onText={(text) => setPageDraft(chatKey, tab.id, { ...draft, text })}
-      onCancel={() => setPageDraft(chatKey, tab.id, null)}
-      onAdd={(text) => {
-        const comment: PendingPageComment = {
-          id: crypto.randomUUID().replace(/-/g, "").slice(0, 8),
-          url: draft.url,
-          title: tab.title,
-          element: draft.element,
-          text,
-          shot: draft.shot,
-        };
-        addPendingComment(chatKey, comment);
-        setPageDraft(chatKey, tab.id, null);
-      }}
-    />,
-    overlay,
-  );
-}
-
-const BOX_WIDTH = 300;
-
-/** The box a comment is written in, beside the element it is on: below it when there is room, above otherwise. */
-function CommentBox({
-  element,
-  text,
-  onText,
-  onAdd,
-  onCancel,
-}: {
-  element: PageElement;
-  text: string;
-  onText: (text: string) => void;
-  onAdd: (text: string) => void;
-  onCancel: () => void;
-}) {
-  const field = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => field.current?.focus(), []);
-  const { box, viewport } = element;
-  const x = box.x + (element.point?.x ?? 0.5) * box.width;
-  const y = box.y + (element.point?.y ?? 0.5) * box.height;
-  const below = y + 8 + 120 <= viewport.height;
-  const left = Math.max(8, Math.min(x + 24, viewport.width - BOX_WIDTH - 8));
-  const top = below ? y + 8 : Math.max(8, y - 8 - 120);
-  const add = () => {
-    if (text.trim()) onAdd(text.trim());
+  const controls = {
+    onOpen: (id: string | null) => openPageComment(chatKey, id),
+    onText: (id: string, text: string) => editPageComment(chatKey, id, text),
+    onRemove: (id: string) => {
+      removePendingComments(chatKey, new Set([id]));
+      openPageComment(chatKey, null);
+    },
+    onSend: () => window.dispatchEvent(new CustomEvent(SEND_PAGE_COMMENTS, { detail: chatKey })),
   };
-  const where = [element.label || element.tag, element.source].filter(Boolean).join(" · ");
-  return (
-    <div
-      data-slot="browser-comment-box"
-      role="dialog"
-      aria-label="Comment at this pin"
-      style={{
-        left,
-        top,
-        width: BOX_WIDTH,
-        borderRadius: below ? "3px var(--radius-card) var(--radius-card) var(--radius-card)" : "var(--radius-card) var(--radius-card) var(--radius-card) 3px",
-      }}
-      className="pointer-events-auto absolute flex flex-col gap-2 bg-surface p-3 text-ink shadow-raised"
-    >
-      <textarea
-        ref={field}
-        value={text}
-        rows={2}
-        placeholder="What should change here?"
-        onChange={(event) => onText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            add();
-          }
-        }}
-        className="min-h-9 w-full resize-none rounded-inline bg-transparent text-13 outline-none placeholder:text-ink-3 focus-visible:ring-2 focus-visible:ring-accent"
-      />
-      <div className="flex items-center gap-2">
-        <Tooltip label={element.selector} wrap className="min-w-0 flex-1">
-          <span className="min-w-0 flex-1 truncate text-11 text-ink-3">On {where}</span>
-        </Tooltip>
-        <Button variant="ghost" size={24} onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button size={24} data-slot="browser-comment-add" disabled={!text.trim()} onClick={add}>
-          Add <ShortcutKeys plain shortcut={SEND_KEYS} />
-        </Button>
-      </div>
-    </div>
+  return createPortal(
+    <>
+      {picking && (
+        <div data-slot="browser-comment-hint" className={`absolute bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap ${TOAST}`}>
+          Click anywhere to place a comment pin · Esc to stop
+        </div>
+      )}
+      {positions.map((position) => {
+        const pin = pins.find((pin) => pin.id === position.id);
+        if (!pin) return null;
+        const open = comments.open === pin.id;
+        return (
+          <CommentPin
+            key={pin.id}
+            number={pin.n}
+            open={open}
+            scale={1}
+            sent={pin.state !== "pending"}
+            offsetX={Math.max(8, Math.min(position.x, position.width - 264)) - position.x}
+            pin={{
+              key: position.id,
+              x: position.x / position.width,
+              y: (open ? Math.min(position.y, Math.max(8, position.height - 230)) : position.y) / position.height,
+              text: pin.text,
+              design: { title: tab.title || "page" },
+              ...(pin.note !== undefined ? { resolved: pin.note } : {}),
+            }}
+            comments={controls}
+          />
+        );
+      })}
+    </>,
+    overlay,
   );
 }
 

@@ -1,5 +1,13 @@
 import type { WebviewTag } from "electron";
-import { PAGE_PICK_CANCEL, pagePickScript, pagePinsHidden, pagePinsScript, type PagePin } from "@milagre/shared/page-picker";
+import {
+  PAGE_PICK_CANCEL,
+  pagePickScript,
+  pagePinsHidden,
+  pagePinsScript,
+  pagePinPositionsScript,
+  type PagePinPosition,
+  type PagePin,
+} from "@milagre/shared/page-picker";
 import type { PageElement } from "@milagre/shared/page-comments";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { isRemoteKey } from "./computer-bridge";
@@ -390,4 +398,11 @@ export async function capturePageElement(tabId: string, box: PageElement["box"])
   } finally {
     void call(page, (webview) => webview.executeJavaScript(pagePinsHidden(false)));
   }
+}
+
+/** Read positions in the guest page; the renderer owns the same comment bubbles as Designs and Artifacts. */
+export async function pagePinPositions(tabId: string, pins: PagePin[]): Promise<PagePinPosition[]> {
+  const page = pages.get(tabId);
+  if (!page || !page.contentsId) return [];
+  return (await call(page, (webview) => webview.executeJavaScript(pagePinPositionsScript(pins)))) ?? [];
 }

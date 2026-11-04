@@ -7,7 +7,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { Cancel01Icon, DashboardSquare01Icon, MoreHorizontalIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, CommentAdd01Icon, DashboardSquare01Icon, MoreHorizontalIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
 import {
   artifactDocument,
   designFeedbackMessage,
@@ -256,6 +256,8 @@ export function DesignsSheet({
   const canvas = useRef<DomWebViewRef>(null);
   const ready = useRef(false);
   const [epoch, setEpoch] = useState(0);
+  const [commenting, setCommenting] = useState(false);
+  const [room, setRoom] = useState({ width: 0, height: 0 });
   const command = useCallback((message: CanvasCommand) => {
     if (!ready.current || !canvas.current) return;
     canvas.current.injectJavaScript(`window.milagreCanvas&&window.milagreCanvas.run(${JSON.stringify(message)});true;`);
@@ -276,6 +278,10 @@ export function DesignsSheet({
     // The layout's content, not its identity, decides whether the page needs it again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
+
+  useEffect(() => {
+    command({ t: "comment", on: commenting });
+  }, [command, epoch, commenting]);
 
   const sentDocs = useRef(new Map<string, string>());
   const sentFonts = useRef(new Set<string>());
@@ -442,6 +448,7 @@ export function DesignsSheet({
     // Docked beside the Chat, the Chat is on screen already and sends it now; the canvas stays open, its pins turn sent.
     sendDesignMessageNow(`${hostId}|${chatId}`);
     setComposer(null);
+    setCommenting(false);
     setNotes([]);
     setChoice(null);
   };
@@ -532,6 +539,18 @@ export function DesignsSheet({
           ),
         ].filter(Boolean)}
         trailing={[
+          source && (
+            <CircleButton
+              key="comment"
+              label={commenting ? "Stop commenting" : "Comment on a design"}
+              icon={CommentAdd01Icon}
+              selected={commenting}
+              onPress={() => {
+                closeComposer();
+                setCommenting((value) => !value);
+              }}
+            />
+          ),
           source && feedback > 0 && (
             <CircleButton key="send" label={`Send ${feedback} to the agent`} icon={Sent02Icon} onPress={send} filled badge={feedback} />
           ),
@@ -545,7 +564,7 @@ export function DesignsSheet({
               ),
         ].filter(Boolean)}
       />
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
         {!matching ? (
           <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this Mac to open this page.</Text>
         ) : feature.enabled !== true ? (
@@ -591,6 +610,8 @@ export function DesignsSheet({
                 onChange={(text) => setNotes((current) => current.map((note) => (note.key === composer.key ? { ...note, text } : note)))}
                 onCancel={() => closeComposer(true)}
                 onDone={() => closeComposer()}
+                onSend={send}
+                room={room.width ? room : undefined}
               />
             )}
           </>

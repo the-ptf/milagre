@@ -9038,6 +9038,7 @@ function browserHost(client) {
       },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
       "react-native-keyboard-controller": { KeyboardStickyView: "KeyboardStickyView" },
+      "./viewer-chrome": viewerChrome(react),
       "expo-clipboard": { setStringAsync: async () => {} },
       "@milagre/shared/page-comments": require("../packages/shared/src/page-comments.mjs"),
       "@milagre/shared/loopback-url": require("../packages/shared/src/loopback-url.ts"),
@@ -9079,7 +9080,7 @@ function browserHost(client) {
     },
   };
 }
-const WEBVIEW_PROPS = { loopbackOnly: new Set(), onControls() {}, onLoaded() {}, onPin() {}, picking: false, composing: false, pins: [] };
+const WEBVIEW_PROPS = { loopbackOnly: new Set(), onControls() {}, onLoaded() {}, onPin() {}, onPositions() {}, picking: false, pins: [] };
 const BROWSER_PAGE = { id: "browser-1:" + "A".repeat(32), title: "Login", url: "https://example.com/login", browser: "Chrome 141", source: "agent" };
 
 test("mobile browser link loads on the device without opening a desktop page", async (t) => {
@@ -11362,11 +11363,13 @@ test("mobile Ports sheet drops a server Stop ended before the host's list comes 
 });
 
 /** The viewers' chrome (viewer-chrome.tsx) as it runs, its native pieces faked. */
-function viewerChrome(react) {
+function viewerChrome(react, keyboard = { isVisible: false, height: 0 }) {
   return load("viewer-chrome.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text", View: "View", Pressable: "Pressable", TextInput: "TextInput" },
+    "react-native": { Text: "Text", View: "View", Pressable: "Pressable", TextInput: "TextInput", useWindowDimensions: () => ({ width: 820, height: 1000 }) },
+    "react-native-keyboard-controller": { useKeyboardState: (select) => select(keyboard) },
+    "./hardware-keys": { useReturnKey: () => ({ attach() {} }), useCommentSendKey() {}, useOnScreenReturn: () => ({}) },
     "@hugeicons/core-free-icons": {},
     "./icons": { Icon: "Icon" },
     "./ui": { tap() {} },
@@ -21203,4 +21206,111 @@ test("resolved design history reveals its saved version on phone and iPad, inclu
     h.render("DesignsSheet", props);
     assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before + 1);
   }
+});
+
+test("comment Cmd/Ctrl+Return sends the current draft only while its field owns the keyboard", async () => {
+  const react = hookHost({ effects: true });
+  react.useSyncExternalStore = (_subscribe, snapshot) => snapshot();
+  let listener,
+    offered = [],
+    sent = 0;
+  const native = {
+    addListener: (_name, callback) => {
+      listener = callback;
+      return {
+        remove() {
+          listener = null;
+        },
+      };
+    },
+    setShortcutsAsync: async (keys) => {
+      offered = keys;
+    },
+  };
+  const { useHardwareShortcuts, useCommentSendKey } = load("hardware-keys.ts", {
+    react,
+    "react-native": { Platform: { OS: "ios" }, TextInput: { State: { currentlyFocusedInput: () => null } } },
+    "expo-modules-core": { requireOptionalNativeModule: () => native },
+    "react-native-keyboard-controller": { useKeyboardState: () => false },
+    "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
+    "./undo-history": { undoHistory: { subscribe() {}, toast: () => null } },
+  });
+  const render = (active, value) => {
+    react.begin();
+    useCommentSendKey(active, () => {
+      sent = value;
+    });
+    useHardwareShortcuts([], () => assert.fail("comment shortcut reached Chat commands"));
+  };
+  render(true, 1);
+  assert.deepEqual(
+    Array.from(offered, (key) => Array.from(key.modifiers)),
+    [["command"], ["control"]],
+  );
+  listener({ id: "comment.send" });
+  assert.equal(sent, 1);
+  render(true, 2);
+  listener({ id: "comment.send.control" });
+  assert.equal(sent, 2, "sends the latest edited draft");
+  render(false, 3);
+  assert.equal(offered.length, 0, "blur restores the ordinary keyboard shortcuts");
+  listener({ id: "comment.send" });
+  assert.equal(sent, 2, "a late native event cannot send after blur");
+  render(true, 4);
+  react.unmount();
+  assert.equal(offered.length, 0);
+  assert.equal(listener, null);
+});
+
+test("the shared comment bubble stays by its pin when an iPad sheet already fits above the keyboard", () => {
+  const react = hookHost();
+  const { CommentBox } = viewerChrome(react, { isVisible: true, height: 300 });
+  const props = { at: { x: 400, y: 280 }, room: { width: 580, height: 500 }, kind: "new", number: 1, onChange() {}, onDone() {}, onCancel() {}, onSend() {} };
+  const render = () => {
+    react.begin();
+    return CommentBox(props);
+  };
+  let tree = render();
+  tree.props.onLayout({ nativeEvent: { layout: { height: 120 } } });
+  tree = render();
+  assert.equal(tree.props.style.top, 280, "the keyboard must not be subtracted from an already resized sheet");
+  assert.equal(tree.props.style.left, 296, "the bubble stays inside the right edge");
+  const field = find(tree, (node) => node.props.label === "Comment 1");
+  assert.equal(field.props.bare, true, "no field focus border");
+  assert.equal(field.props.autoFocus, true, "typing still starts immediately");
+  props.at.y = 490;
+  assert.equal(render().props.style.top, 368, "a low pin keeps its bubble inside the sheet");
+});
+
+test("mobile Browser anchors its editable draft in native points on pages without a mobile viewport", async (t) => {
+  const h = browserHost({
+    url: "mac",
+    call: async (method) =>
+      method === "browser:list" ? { supported: true, targets: [BROWSER_PAGE], others: [] } : method === "browser-comments:list" ? [] : { ports: [] },
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#pin-position" };
+  const render = () => h.render("BrowserSheet", props);
+  render();
+  await settle();
+  let tree = render();
+  const web = () => find(tree, (node) => node.type?.name === "BrowserWebView");
+  find(tree, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 490, height: 600 } } });
+  web().props.onPick({ selector: "button", point: { x: 0.5, y: 0.5 }, box: { x: 0, y: 0, width: 100, height: 40 } });
+  tree = render();
+  const id = web().props.pins.find((pin) => pin.state === "pending").id;
+  web().props.onPositions([{ id, x: 600, y: 400, width: 980, height: 1200 }]);
+  tree = render();
+  const box = find(tree, (node) => node.type?.name === "CommentBox");
+  assert.equal(box.props.at.x, 300);
+  assert.equal(box.props.at.y, 200);
+  assert.equal(web().props.pins.find((pin) => pin.id === id).hide, true, "the bubble replaces its open pin");
+  box.props.onChange("Keep this draft");
+  box.props.onDone();
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type?.name === "CommentBox"),
+    undefined,
+  );
+  assert.equal(web().props.pins.find((pin) => pin.id === id).text, "Keep this draft");
 });
