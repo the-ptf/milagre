@@ -34,7 +34,7 @@ export const SAVED_GROUP = "No unsaved work";
 export const UNSAVED_GROUP = "Unsaved work";
 /** The composer command that opens What Milagre uses for the Chat's computer. */
 export const STORAGE_COMMAND = "storage";
-export const STORAGE_COMMAND_HINT = "See what Milagre uses on this computer and clean up old worktrees";
+export const STORAGE_COMMAND_HINT = "See disk use on this computer and clean up old worktrees";
 
 /** How long a worktree must have sat unused, in days: the dialog's choice. */
 export const IDLE_DAYS = [30, 60, 90] as const;
