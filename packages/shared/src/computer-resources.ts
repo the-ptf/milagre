@@ -2,8 +2,26 @@
 // computer page show them. The host measures (core computer-resources.cjs); this turns bytes into the same rows,
 // tooltips and breakdowns everywhere.
 
-/** What a part of Milagre's share is: an agent provider, terminals, the app itself, or on disk worktrees and data. */
-export type ResourcePartKind = "claude" | "codex" | "antigravity" | "kiro" | "terminals" | "app" | "worktrees" | "data";
+/**
+ * What a part of Milagre's share is: in memory an agent provider, terminals or the app itself; on disk its worktrees,
+ * Chat history, checkpoints, agent accounts and tools, browser data, speech models, designs, caches and the rest.
+ */
+export type ResourcePartKind =
+  | "claude"
+  | "codex"
+  | "antigravity"
+  | "kiro"
+  | "terminals"
+  | "app"
+  | "worktrees"
+  | "chats"
+  | "checkpoints"
+  | "agents"
+  | "browser"
+  | "speech"
+  | "designs"
+  | "caches"
+  | "data";
 /** `count`: agents or terminals running, or worktrees on disk; 0 where nothing is counted. */
 export type ResourcePart = { kind: ResourcePartKind; bytes: number; count: number };
 
@@ -43,6 +61,8 @@ export type ResourceGauge = {
   low: boolean;
   /** Milagre's disk share isn't measured yet. */
   measuring: boolean;
+  /** A new measure runs while the last one shows (after a cleanup, or every half hour). */
+  refreshing: boolean;
   /** Shares of the total, adding up to 1: Milagre's, everything else in use, and free. */
   shares: { milagre: number; other: number; free: number };
   /** The bar's hover: "Milagre 3.6 GB · Other apps 9.4 GB", or that its folders are being measured. */
@@ -91,7 +111,23 @@ function shares(total: number, available: number, milagre: number | null) {
   return { milagre: ours / total, other: (total - free - ours) / total, free: free / total };
 }
 
-const PART_KINDS = new Set<string>(["claude", "codex", "antigravity", "kiro", "terminals", "app", "worktrees", "data"]);
+const PART_KINDS = new Set<string>([
+  "claude",
+  "codex",
+  "antigravity",
+  "kiro",
+  "terminals",
+  "app",
+  "worktrees",
+  "chats",
+  "checkpoints",
+  "agents",
+  "browser",
+  "speech",
+  "designs",
+  "caches",
+  "data",
+]);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 function partLabel({ kind, count }: ResourcePart): string {
@@ -110,8 +146,22 @@ function partLabel({ kind, count }: ResourcePart): string {
       return "Milagre app";
     case "worktrees":
       return count ? `Worktrees · ${count}` : "Worktrees";
+    case "chats":
+      return "Chat history";
+    case "checkpoints":
+      return "Checkpoints";
+    case "agents":
+      return "Agent tools";
+    case "browser":
+      return "Browser data";
+    case "speech":
+      return "Speech models";
+    case "designs":
+      return "Designs";
+    case "caches":
+      return "Caches";
     case "data":
-      return "App data";
+      return "Other app data";
   }
 }
 
@@ -150,6 +200,7 @@ export function resourceGauges(resources: ComputerResources | null | undefined):
     of: `free of ${formatMemory(memory.total)}`,
     low: memory.total > 0 && memory.available / memory.total < LOW_SHARE,
     measuring: false,
+    refreshing: false,
     shares: memoryShares,
     tooltip:
       memory.milagre === null
@@ -171,6 +222,7 @@ export function resourceGauges(resources: ComputerResources | null | undefined):
       of: `free of ${formatDisk(disk.total)}`,
       low: disk.total > 0 && disk.available / disk.total < LOW_SHARE,
       measuring,
+      refreshing: !measuring && disk.measuring === true,
       shares: diskShares,
       tooltip: measuring ? MEASURING_TOOLTIP : `Milagre ${formatDisk(diskMilagre ?? 0)} · Everything else ${formatDisk(diskShares.other * disk.total)}`,
       milagre: measuring ? null : formatDisk(diskMilagre ?? 0),

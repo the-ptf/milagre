@@ -194,6 +194,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           outboxAttachments: (items) => items,
           useOutbox: () => ({ loaded: true, items: [], error: "" }),
         };
+      // A question's photo picker opens the native library; a test attaches none.
+      if (/^\.\.?\/attachment-picker$/.test(id) && !(id in modules)) return { pickAttachments: async () => [] };
+      if (/^\.\.?\/attachments$/.test(id) && !(id in modules)) return require("../apps/mobile/src/attachments.ts");
       if (id === "expo-haptics" && !(id in modules)) return { selectionAsync: async () => {} };
       if (id === "@sbaiahmed1/react-native-blur" && !(id in modules)) return { LiquidGlassView: "LiquidGlassView", BlurView: "BlurView" };
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
@@ -443,6 +446,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           ...(modules["react-native"]?.Alert?.alert ? { confirmSheet: modules["react-native"].Alert.alert } : {}),
         };
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
+      // /storage's name and hint, which the Chat lists beside /undo.
+      if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -1459,7 +1464,7 @@ function questionHost(request, { confirmSingle = false } = {}) {
     "@milagre/shared/limits": require("@milagre/shared/limits"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   const render = () => {
     react.begin();
@@ -1551,7 +1556,7 @@ test("inbox approval shows the entire action inline, including folders, files an
     "@milagre/shared/limits": require("@milagre/shared/limits"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   const command = "full command\n".repeat(60),
     decisions = [];
@@ -1598,7 +1603,7 @@ test("setup approval shows full setup context and emits each setup decision", ()
     "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   const command = "prepare-project --flag='full value'\necho finished";
   const decisions = [];
@@ -3703,7 +3708,10 @@ test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the lis
   );
   chat.render();
   assert.equal(chat.undo.chatId, "/p#7");
-  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [{ name: "undo", description: "Undo a task's file changes" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [
+    { name: "undo", description: "Undo a task's file changes" },
+    { name: "storage", description: "Clean up old worktrees on this computer" },
+  ]);
   chatMenuEntry(chat.render(), "Undo changes").props.onPress();
   assert.equal(chat.undo.opened, 1);
   let tree = chat.render();
@@ -9039,6 +9047,7 @@ function browserHost(client) {
       },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
       "react-native-keyboard-controller": { KeyboardStickyView: "KeyboardStickyView" },
+      "./viewer-chrome": viewerChrome(react),
       "expo-clipboard": { setStringAsync: async () => {} },
       "@milagre/shared/page-comments": require("../packages/shared/src/page-comments.mjs"),
       "@milagre/shared/loopback-url": require("../packages/shared/src/loopback-url.ts"),
@@ -9080,7 +9089,7 @@ function browserHost(client) {
     },
   };
 }
-const WEBVIEW_PROPS = { loopbackOnly: new Set(), onControls() {}, onLoaded() {}, onPin() {}, picking: false, composing: false, pins: [] };
+const WEBVIEW_PROPS = { loopbackOnly: new Set(), onControls() {}, onLoaded() {}, onPin() {}, onPositions() {}, picking: false, pins: [] };
 const BROWSER_PAGE = { id: "browser-1:" + "A".repeat(32), title: "Login", url: "https://example.com/login", browser: "Chrome 141", source: "agent" };
 
 test("mobile browser link loads on the device without opening a desktop page", async (t) => {
@@ -11363,11 +11372,13 @@ test("mobile Ports sheet drops a server Stop ended before the host's list comes 
 });
 
 /** The viewers' chrome (viewer-chrome.tsx) as it runs, its native pieces faked. */
-function viewerChrome(react) {
+function viewerChrome(react, keyboard = { isVisible: false, height: 0 }) {
   return load("viewer-chrome.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text", View: "View", Pressable: "Pressable", TextInput: "TextInput" },
+    "react-native": { Text: "Text", View: "View", Pressable: "Pressable", TextInput: "TextInput", useWindowDimensions: () => ({ width: 820, height: 1000 }) },
+    "react-native-keyboard-controller": { useKeyboardState: (select) => select(keyboard) },
+    "./hardware-keys": { useReturnKey: () => ({ attach() {} }), useCommentSendKey() {}, useOnScreenReturn: () => ({}) },
     "@hugeicons/core-free-icons": {},
     "./icons": { Icon: "Icon" },
     "./ui": { tap() {} },
@@ -17969,7 +17980,7 @@ test("provider update cards on the phone install the advertised release on the c
       }),
     },
     "./icons": { ProviderLogo: "ProviderLogo" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   react.begin();
   const tree = ProviderUpdateNotice();
@@ -21268,4 +21279,162 @@ test("Project Git settings on phone save as you type, validate names and preserv
   assert.equal(Object.keys(calls.at(-1)).length, 0);
   assert.equal(saved.effective.dashesOnly, true);
   assert.equal(field("Branch name").props.value, "");
+});
+
+test("comment Cmd/Ctrl+Return sends the current draft only while its field owns the keyboard", async () => {
+  const react = hookHost({ effects: true });
+  react.useSyncExternalStore = (_subscribe, snapshot) => snapshot();
+  let listener,
+    offered = [],
+    sent = 0;
+  const native = {
+    addListener: (_name, callback) => {
+      listener = callback;
+      return {
+        remove() {
+          listener = null;
+        },
+      };
+    },
+    setShortcutsAsync: async (keys) => {
+      offered = keys;
+    },
+  };
+  const { useHardwareShortcuts, useCommentSendKey } = load("hardware-keys.ts", {
+    react,
+    "react-native": { Platform: { OS: "ios" }, TextInput: { State: { currentlyFocusedInput: () => null } } },
+    "expo-modules-core": { requireOptionalNativeModule: () => native },
+    "react-native-keyboard-controller": { useKeyboardState: () => false },
+    "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
+    "./undo-history": { undoHistory: { subscribe() {}, toast: () => null } },
+  });
+  const render = (active, value) => {
+    react.begin();
+    useCommentSendKey(active, () => {
+      sent = value;
+    });
+    useHardwareShortcuts([], () => assert.fail("comment shortcut reached Chat commands"));
+  };
+  render(true, 1);
+  assert.deepEqual(
+    Array.from(offered, (key) => Array.from(key.modifiers)),
+    [["command"], ["control"]],
+  );
+  listener({ id: "comment.send" });
+  assert.equal(sent, 1);
+  render(true, 2);
+  listener({ id: "comment.send.control" });
+  assert.equal(sent, 2, "sends the latest edited draft");
+  render(false, 3);
+  assert.equal(offered.length, 0, "blur restores the ordinary keyboard shortcuts");
+  listener({ id: "comment.send" });
+  assert.equal(sent, 2, "a late native event cannot send after blur");
+  render(true, 4);
+  react.unmount();
+  assert.equal(offered.length, 0);
+  assert.equal(listener, null);
+});
+
+test("the shared comment bubble stays by its pin when an iPad sheet already fits above the keyboard", () => {
+  const react = hookHost();
+  const { CommentBox } = viewerChrome(react, { isVisible: true, height: 300 });
+  const props = { at: { x: 400, y: 280 }, room: { width: 580, height: 500 }, kind: "new", number: 1, onChange() {}, onDone() {}, onCancel() {}, onSend() {} };
+  const render = () => {
+    react.begin();
+    return CommentBox(props);
+  };
+  let tree = render();
+  tree.props.onLayout({ nativeEvent: { layout: { height: 120 } } });
+  tree = render();
+  assert.equal(tree.props.style.top, 280, "the keyboard must not be subtracted from an already resized sheet");
+  assert.equal(tree.props.style.left, 296, "the bubble stays inside the right edge");
+  const field = find(tree, (node) => node.props.label === "Comment 1");
+  assert.equal(field.props.bare, true, "no field focus border");
+  assert.equal(field.props.autoFocus, true, "typing still starts immediately");
+  props.at.y = 490;
+  assert.equal(render().props.style.top, 368, "a low pin keeps its bubble inside the sheet");
+});
+
+test("mobile Browser anchors its editable draft in native points on pages without a mobile viewport", async (t) => {
+  const h = browserHost({
+    url: "mac",
+    call: async (method) =>
+      method === "browser:list" ? { supported: true, targets: [BROWSER_PAGE], others: [] } : method === "browser-comments:list" ? [] : { ports: [] },
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#pin-position" };
+  const render = () => h.render("BrowserSheet", props);
+  render();
+  await settle();
+  let tree = render();
+  const web = () => find(tree, (node) => node.type?.name === "BrowserWebView");
+  find(tree, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 490, height: 600 } } });
+  web().props.onPick({ selector: "button", point: { x: 0.5, y: 0.5 }, box: { x: 0, y: 0, width: 100, height: 40 } });
+  tree = render();
+  const id = web().props.pins.find((pin) => pin.state === "pending").id;
+  web().props.onPositions([{ id, x: 600, y: 400, width: 980, height: 1200 }]);
+  tree = render();
+  const box = find(tree, (node) => node.type?.name === "CommentBox");
+  assert.equal(box.props.at.x, 300);
+  assert.equal(box.props.at.y, 200);
+  assert.equal(web().props.pins.find((pin) => pin.id === id).hide, true, "the bubble replaces its open pin");
+  box.props.onChange("Keep this draft");
+  box.props.onDone();
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type?.name === "CommentBox"),
+    undefined,
+  );
+  assert.equal(web().props.pins.find((pin) => pin.id === id).text, "Keep this draft");
+});
+
+test("mobile Browser preserves edits made while a send is pending and sends them on the next request", async (t) => {
+  const first = deferred(),
+    submitted = [];
+  const h = browserHost({
+    url: "mac",
+    call: async (method, args) => {
+      if (method === "browser:list") return { supported: true, targets: [BROWSER_PAGE], others: [] };
+      if (method === "browser-comments:list") return [];
+      if (method === "browser-comments:send-from-page") {
+        submitted.push(args[0].comments);
+        if (submitted.length === 1) return first.promise;
+        return {};
+      }
+      return { ports: [] };
+    },
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#send-edit" };
+  const render = () => h.render("BrowserSheet", props);
+  render();
+  await settle();
+  let tree = render();
+  const web = () => find(tree, (node) => node.type?.name === "BrowserWebView");
+  const box = () => find(tree, (node) => node.type?.name === "CommentBox");
+  find(tree, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 490, height: 600 } } });
+  web().props.onPick({ selector: "button", point: { x: 0.5, y: 0.5 }, box: { x: 0, y: 0, width: 100, height: 40 } });
+  tree = render();
+  const id = web().props.pins.find((pin) => pin.state === "pending").id;
+  web().props.onPositions([{ id, x: 200, y: 200, width: 490, height: 600 }]);
+  tree = render();
+  box().props.onChange("Snapshot to send");
+  tree = render();
+  box().props.onSend();
+  tree = render();
+  box().props.onChange("Edited during send");
+  tree = render();
+  first.resolve({});
+  await settle();
+  tree = render();
+  assert.equal(submitted[0][0].text, "Snapshot to send");
+  assert.equal(web().props.pins.find((pin) => pin.state === "pending")?.text, "Edited during send");
+  web().props.onPin(id);
+  tree = render();
+  assert.equal(box().props.note.text, "Edited during send");
+  box().props.onSend();
+  await settle();
+  tree = render();
+  assert.equal(submitted[1][0].text, "Edited during send");
+  assert.equal(web().props.pins.filter((pin) => pin.state === "pending").length, 0);
 });

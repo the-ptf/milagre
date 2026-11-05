@@ -172,6 +172,9 @@ const PATHS = Object.freeze({
   "app-update:auto:read": none,
   // Memory and disk totals name no folder.
   "computer:resources:read": none,
+  // The cleanup lists and removes worktrees of every Project on the Mac: a demo phone does neither.
+  "storage:worktrees": denied,
+  "storage:remove-worktree": denied,
   "app-update:auto:save": denied,
   // The desktop app's update names no folder. A confined phone sees it; a check or an install restarts the whole Mac's
   // Milagre, so it starts neither.

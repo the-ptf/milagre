@@ -105,6 +105,8 @@ const LINK_DELETE_MS = 30 * 60 * 1000;
 const LONG_CALLS = new Set([
   "worktree:create",
   "worktree:remove",
+  "storage:worktrees",
+  "storage:remove-worktree",
   "link:send",
   "link:open",
   "agent:update-cli",

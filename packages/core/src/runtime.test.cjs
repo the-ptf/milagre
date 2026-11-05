@@ -794,6 +794,61 @@ test("answers reach the agent before their message is saved, and its next reply 
   );
 });
 
+test("images attached to an answer are stored: the agent gets their paths and the answers message shows them", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  agents.running();
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "what's wrong?", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]?.turnActive; i++) await new Promise((r) => setTimeout(r, 10));
+  const session = agents.sessions[0];
+  const question = {
+    id: "0",
+    header: "Bug",
+    question: "What do you see?",
+    options: [{ label: "Nothing" }],
+    multiSelect: false,
+    allowOther: true,
+    secret: false,
+  };
+  session.options.emit({ type: "question-request", requestId: "q1", questions: [question] });
+  for (let i = 0; i < 200 && !(await runtime.invoke("chat:runs")).runs[chatId]?.questions.length; i++) await new Promise((r) => setTimeout(r, 10));
+  let received = null;
+  session.answerQuestion = (requestId, answers) => {
+    received = answers;
+    session.options.emit({ type: "question-resolved", requestId, outcome: "answered" });
+    return true;
+  };
+  const image = {
+    id: "i1",
+    name: "screen.png",
+    dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  };
+
+  assert.equal(
+    await runtime.invoke("agent:answer-question", [{ chatId, requestId: "q1", answers: { 0: [] }, summary: "Bug: 1 image", images: { 0: [image] } }]),
+    true,
+  );
+  assert.equal(received["0"].length, 1);
+  const [, file] = /^Image the user attached: (\S+) \(open the file to see it\)$/.exec(received["0"][0]) ?? [];
+  assert.ok(file, received["0"][0]);
+  assert.equal((await fs.readFile(file)).toString("base64"), image.dataUrl.split(",")[1]);
+  const message = (await stateOf()).messages.find((item) => item.answered);
+  assert.deepEqual(message.answered, [{ header: "Bug", question: "What do you see?", answers: ["1 image"] }]);
+  assert.deepEqual(
+    message.images.map((item) => [item.name, item.path]),
+    [["screen.png", file]],
+  );
+  await assert.rejects(
+    runtime.invoke("agent:answer-question", [{ chatId, requestId: "q1", answers: { 0: ["x"] }, images: { 0: "not a list" } }]),
+    /Invalid images/,
+  );
+});
+
 test("chat:reload waits for the Chat's background subagents instead of stopping them (T3 #16000)", async (t) => {
   const { project, make } = await fixture(t);
   const agents = reloadAgents();

@@ -183,8 +183,12 @@ async function browserChecks(url) {
     } finally {
       pinWindow.destroy();
     }
+    await waitUntil(async () => {
+      const listed = await service.list({ chatId: "/fixture#1" });
+      return listed.targets.some((target) => target.title === "Fixture login") && listed.others.length > 0;
+    }, "discovered Chrome pages ready");
     await window.loadURL(url);
-    await waitFor(`!!document.querySelector("${toggle}")`, "Browser button with the agent's page");
+    await waitFor(`!!document.querySelector("${toggle}")`, "Browser button in the toolbar");
     assert.equal(counts.open, 0);
     await click(toggle);
     await waitFor("!!document.querySelector('webview')", "a native page opens");
@@ -208,6 +212,12 @@ async function browserChecks(url) {
     await page("scrollTo(0,500)");
     assert.equal(await page("scrollY"), 500);
     await screenshot("native-browser");
+    await click('[aria-label="Maximize browser"]');
+    await waitFor('document.querySelector("[data-slot=browser-dock]").dataset.full==="true"');
+    assert.ok(await evaluate('document.querySelector("[data-slot=browser-dock]").getBoundingClientRect().width > 1000'));
+    await screenshot("browser-maximized");
+    await click('[aria-label="Restore browser"]');
+    await waitFor('!document.querySelector("[data-slot=browser-dock]").dataset.full');
     await click('[aria-label="Hide Browser panel"]');
     await waitFor("!document.querySelector('[data-slot=browser-dock]')");
     await click(toggle);

@@ -9,6 +9,7 @@ import {
   ArrowRight01Icon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
+  CommentAdd01Icon,
   File01Icon,
   MoreHorizontalIcon,
   PaintBoardIcon,
@@ -178,6 +179,7 @@ export function DesignFeedbackCard({
             >
               <View
                 style={{
+                  alignSelf: "flex-start",
                   minWidth: 20,
                   minHeight: 20,
                   paddingHorizontal: 4,
@@ -551,6 +553,7 @@ export function ArtifactSheet({
   const page = useRef<DomWebViewRef>(null);
   const ready = useRef(false);
   const [epoch, setEpoch] = useState(0);
+  const [commenting, setCommenting] = useState(false);
   // A different tab mounts a new WebView. Wait for its helper before sending pins or a reveal.
   useEffect(() => {
     ready.current = false;
@@ -560,8 +563,8 @@ export function ArtifactSheet({
     page.current.injectJavaScript(`window.milagreArtifact&&window.milagreArtifact.run(${JSON.stringify(message)});true;`);
   }, []);
   useEffect(() => {
-    command({ t: "mode", input: "touch", comment: false });
-  }, [command, epoch]);
+    command({ t: "mode", input: "touch", comment: commenting });
+  }, [command, epoch, commenting]);
 
   // The pins on the page as it is now: waiting comments numbered in Send order, sent ones within their message.
   const numbers = useMemo(() => sentNumbers(sent), [sent]);
@@ -728,6 +731,7 @@ export function ArtifactSheet({
     // Docked beside the Chat, the Chat is on screen already and sends it now; the page stays open, its pins turn sent.
     sendDesignMessageNow(`${hostId}|${chatId}`);
     setComposer(null);
+    setCommenting(false);
     setNotes([]);
   };
   const openShare = () => {
@@ -784,7 +788,18 @@ export function ArtifactSheet({
             </Text>
           </View>
         )}
-        <View style={{ flexDirection: "row", gap: 8, width: 76, justifyContent: "flex-end" }}>
+        <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+          {source && (
+            <CircleButton
+              label={commenting ? "Stop commenting" : "Comment on the page"}
+              icon={CommentAdd01Icon}
+              selected={commenting}
+              onPress={() => {
+                closeComposer();
+                setCommenting((value) => !value);
+              }}
+            />
+          )}
           {source && written.length > 0 && (
             <CircleButton label={`Send ${written.length} to the agent`} icon={Sent02Icon} filled badge={written.length} onPress={send} />
           )}
@@ -836,12 +851,7 @@ export function ArtifactSheet({
             <Pressable accessibilityRole="button" accessibilityLabel="Close the comment" style={StyleSheet.absoluteFill} onPress={() => closeComposer()} />
             {composer.at && (openNote || openSent) && (
               <CommentBox
-                // Inside the screen, and high enough to stay clear of the keyboard: a pin the page can't scroll up that far
-                // opens its box above where it sits.
-                at={{
-                  x: Math.max(12, Math.min(composer.at.x, room.width - BOX_WIDTH - 12)),
-                  y: Math.max(8, Math.min(composer.at.y, Math.max(8, room.height * 0.42 - 40))),
-                }}
+                at={composer.at}
                 kind={composer.kind}
                 note={openNote}
                 sentComment={openSent}
@@ -849,6 +859,8 @@ export function ArtifactSheet({
                 onChange={(text) => setNotes((current) => current.map((note) => (note.key === composer.key ? { ...note, text } : note)))}
                 onCancel={() => closeComposer(true)}
                 onDone={() => closeComposer()}
+                onSend={send}
+                room={room}
               />
             )}
           </>
@@ -857,8 +869,6 @@ export function ArtifactSheet({
     </View>
   );
 }
-// CommentBox's width (viewer-chrome.tsx).
-const BOX_WIDTH = 272;
 
 /**
  * The page inside artifactShell, from a cache file of its own. The page's own scripts run in its sandboxed frame with

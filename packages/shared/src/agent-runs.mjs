@@ -489,7 +489,7 @@ export function splitRunForSteer(state, runs, projectPath, chatId) {
  * steering message), so the answers sit between what the agent asked and what it does next.
  * `messageId` is the new message's id, so it can be taken back if the answers don't reach the agent.
  */
-export function recordAnswers(state, runs, projectPath, chatId, body, answered) {
+export function recordAnswers(state, runs, projectPath, chatId, body, answered, images) {
   const sessionId = sessionIdFromKey(chatId);
   const run = runs[chatId];
   if (!chatInProject(projectPath, chatId) || !state.sessions[sessionId] || !run || !body) return { state, runs, messageId: null };
@@ -502,6 +502,7 @@ export function recordAnswers(state, runs, projectPath, chatId, body, answered) 
     role: "user",
     model: run.model,
     ...(answered?.length ? { answered } : {}),
+    ...(images?.length ? { images } : {}),
   };
   return {
     state: { ...split.state, next_id: message.id + 1, messages: [...split.state.messages, message] },

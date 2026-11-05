@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import {
+  ArrowExpand01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
+  ArrowShrink01Icon,
   BrowserIcon,
   Cancel01Icon,
   Globe02Icon,
@@ -101,20 +103,20 @@ export function BrowserPanel({
     if (target && /^https?:\/\//i.test(target.url)) openBrowserTab(chatKey, target.url);
   };
   const dock = useDockArea();
+  const [expanded, setExpanded] = useState(false);
   const resize = usePanelWidth("browser");
   // Dragged wider than the room left now (the changes panel or a simulator opened beside it), it narrows so the chat
   // keeps its width, down to its minimum; wider, it would push the row past the window, over the sidebar.
   const width = dock ? Math.max(resize.min, Math.min(resize.width, dock.width - dock.simulator - 12 - MIN_CHAT_WIDTH)) : resize.width;
+  const full = expanded;
   const close = useCallback(() => setBrowserOpen(chatKey, false), [chatKey]);
   useCloseWhenDesignsExpand(close);
-  useSidePanelRoom("browser", chat.open, width + 12, close);
+  useSidePanelRoom("browser", chat.open && !full, width + 12, close);
   const hasStreamed = streamed.targets.length > 0;
-  // Opened with only discovered pages, the panel shows them rather than a blank page.
-  const open = () => (!chatBrowser(chatKey).tabs.length && hasStreamed ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));
-  // Keep opening a blank page available in the menu and by shortcut; promote it once a page exists.
+  // Opened with only discovered pages (or while their initial read is in flight), show them rather than a blank page.
+  const open = () => (!chatBrowser(chatKey).tabs.length && (hasStreamed || streamed.loading) ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));
   useSidePanel("browser", {
     open: chat.open,
-    promoted: chat.tabs.length > 0 || hasStreamed,
     toggle: () => (chatBrowser(chatKey).open ? close() : open()),
   });
   const closeTab = (tabId: string) => {
@@ -141,16 +143,26 @@ export function BrowserPanel({
           // makes room through --browser-dock.
           panel="browser"
           label="Resize browser"
-          width={width}
+          width={full ? null : width}
           reserve="--browser-dock"
           role="region"
           aria-label="Browser"
           data-slot="browser-dock"
-          style={{
-            top: dock?.top ?? 40,
-            right: `calc(${(dock?.right ?? 0) + 12}px + var(--simulator-dock, 0px))`,
-            bottom: dock?.bottom ?? 12,
-          }}
+          data-full={full || undefined}
+          style={
+            full
+              ? {
+                  top: dock?.top ?? 40,
+                  left: dock?.left ?? 0,
+                  right: `calc(${(dock?.right ?? 0) + 12}px + var(--simulator-dock, 0px))`,
+                  bottom: dock?.bottom ?? 12,
+                }
+              : {
+                  top: dock?.top ?? 40,
+                  right: `calc(${(dock?.right ?? 0) + 12}px + var(--simulator-dock, 0px))`,
+                  bottom: dock?.bottom ?? 12,
+                }
+          }
           className="fixed z-[41]"
           panelClassName="overflow-hidden rounded-window bg-surface text-ink shadow-card"
         >
@@ -166,6 +178,8 @@ export function BrowserPanel({
             onCloseTab={closeTab}
             onView={viewTarget}
             onClose={close}
+            expanded={expanded}
+            onToggleExpanded={() => setExpanded((value) => !value)}
           />
           <BrowserToolbar key={active.id} chatKey={chatKey} tab={active} onSendComments={onSendComments} />
           <BrowserPage chatKey={chatKey} tab={active} ports={ports} streamed={streamed} onAttach={attached} />
@@ -188,6 +202,8 @@ function BrowserTabs({
   onCloseTab,
   onView,
   onClose,
+  expanded,
+  onToggleExpanded,
 }: {
   chatKey: string;
   tabs: BrowserTab[];
@@ -200,6 +216,8 @@ function BrowserTabs({
   onCloseTab: (tabId: string) => void;
   onView: (targetId: string) => void;
   onClose: () => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }) {
   const { rules } = useKeybindings();
   return (
@@ -271,6 +289,12 @@ function BrowserTabs({
         ))}
       </div>
       <IconButton label="New page" icon={PlusSignIcon} side="bottom" onClick={() => addBlankTab(chatKey)} />
+      <IconButton
+        label={expanded ? "Restore browser" : "Maximize browser"}
+        icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon}
+        aria-pressed={expanded}
+        onClick={onToggleExpanded}
+      />
       <Tooltip label="Hide Browser panel" shortcut={shortcutLabel(rules, "browser.toggle")} side="bottom" align="end">
         <IconButton label="Hide Browser panel" icon={Cancel01Icon} onClick={onClose} />
       </Tooltip>

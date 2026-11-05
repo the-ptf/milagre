@@ -15,6 +15,7 @@ import {
   RepeatIcon,
   Search01Icon,
   Settings01Icon,
+  HardDriveIcon,
 } from "@hugeicons/core-free-icons";
 import { filterCommands, type Command } from "../lib/commands";
 import { useShortcutHints } from "../lib/shortcut-hints";
@@ -47,6 +48,7 @@ const icons = {
   usage: ChartColumnIcon,
   newChat: PencilEdit02Icon,
   triage: Bug01Icon,
+  storage: HardDriveIcon,
 };
 
 function CommandKeys({ command }: { command: KeybindingCommandId }) {

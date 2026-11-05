@@ -1,5 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { browserPageToolDefinitions } = require("./chat-browser-tools.cjs");
 const { runTool } = require("./linked-tools.cjs");
 
@@ -43,7 +46,7 @@ function fakeSession() {
   };
 }
 
-function fixture() {
+function fixture({ roots = [], files } = {}) {
   const session = fakeSession();
   const state = {};
   const opened = [];
@@ -52,14 +55,17 @@ function fixture() {
     devtools: async ({ chatId, page }) => {
       assert.equal(chatId, "/p#1", "tools act for their own Chat only");
       if (page && page !== TARGET.id) throw new Error("That page is not in this Chat.");
-      return { target: TARGET, session, state };
+      return { target: TARGET, session, state, ...(files ? { files } : {}) };
     },
     list: async () => ({ targets }),
   };
   const tools = Object.fromEntries(
-    browserPageToolDefinitions("/p#1", browsers, { openInPanel: (chatId, url) => (opened.push([chatId, url]), targets.push({ ...TARGET, url })) }).map(
-      (tool) => [tool.name, tool],
-    ),
+    browserPageToolDefinitions(
+      "/p#1",
+      browsers,
+      { openInPanel: (chatId, url) => (opened.push([chatId, url]), targets.push({ ...TARGET, url })) },
+      { roots: async () => roots, chooserWaitMs: 100 },
+    ).map((tool) => [tool.name, tool]),
   );
   return { session, state, tools, opened, run: (name, input = {}) => runTool(tools[name], input) };
 }
@@ -156,4 +162,101 @@ test("evaluate returns JSON, wait sees text, press sends named keys and refuses 
   assert.equal(f.session.sent.filter(([method]) => method === "Input.dispatchKeyEvent").length, 2);
   // Another Chat's page is out of reach.
   assert.equal((await f.run("browser_snapshot", { page: "other:page" })).isError, true);
+});
+
+function uploadFolder(t) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "browser-upload-test-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const worktree = path.join(root, "worktree");
+  fs.mkdirSync(worktree);
+  fs.writeFileSync(path.join(worktree, "clip.mp4"), Buffer.alloc(3 * 1024 * 1024));
+  fs.writeFileSync(path.join(worktree, "cover.png"), "png");
+  fs.writeFileSync(path.join(root, "secret.txt"), "key");
+  fs.symlinkSync(path.join(root, "secret.txt"), path.join(worktree, "link.txt"));
+  return { root, worktree };
+}
+
+test("upload sets files straight on a file input, only from the Chat's folders", async (t) => {
+  const { root, worktree } = uploadFolder(t);
+  const f = fixture({ roots: [worktree, path.join(root, "missing-downloads")] });
+  f.session.send = (
+    (send) => async (method, params) =>
+      method === "Runtime.callFunctionOn" && params.functionDeclaration.includes('type === "file"')
+        ? (f.session.sent.push([method, params]), { result: { value: { multiple: false } } })
+        : send(method, params)
+  )(f.session.send);
+  await f.run("browser_snapshot");
+  const done = await f.run("browser_upload", { ref: "@e2", paths: [path.join(worktree, "clip.mp4")] });
+  assert.equal(done.isError, false, done.text);
+  assert.match(done.text, /Attached clip\.mp4 \(3\.0 MB\)/);
+  assert.deepEqual(f.session.sent.find(([method]) => method === "DOM.setFileInputFiles")[1], { files: [path.join(worktree, "clip.mp4")], backendNodeId: 11 });
+  // A field that takes one file refuses two.
+  const two = await f.run("browser_upload", { ref: "@e2", paths: [path.join(worktree, "clip.mp4"), path.join(worktree, "cover.png")] });
+  assert.match(two.text, /takes one file/);
+  // Nothing past the Chat's folders, a symlink out of them included, and only absolute paths.
+  for (const [file, reason] of [
+    [path.join(root, "secret.txt"), /outside this Chat's Worktrees/],
+    [path.join(worktree, "link.txt"), /outside this Chat's Worktrees/],
+    ["clip.mp4", /not an absolute path/],
+    [path.join(worktree, "gone.mp4"), /doesn't exist/],
+    [worktree, /not a file/],
+  ]) {
+    const refused = await f.run("browser_upload", { ref: "@e2", paths: [file] });
+    assert.equal(refused.isError, true, file);
+    assert.match(refused.text, reason, file);
+  }
+  assert.equal(f.session.sent.filter(([method]) => method === "DOM.setFileInputFiles").length, 1, "refused uploads set nothing");
+  assert.match((await f.run("browser_upload", { paths: [path.join(worktree, "clip.mp4")] })).text, /a ref or a selector/);
+});
+
+test("upload clicks a button with the file picker caught, and sets the files on the input that opened it", async (t) => {
+  const { worktree } = uploadFolder(t);
+  // A paired desktop's page reads copies put on that desktop.
+  const f = fixture({ roots: [worktree], files: async (paths) => paths.map((file) => `/desktop/tmp/${path.basename(file)}`) });
+  const send = f.session.send;
+  f.session.send = async (method, params) => {
+    const result = await send(method, params);
+    if (method === "Runtime.callFunctionOn") return { result: { value: null } };
+    if (method === "Input.dispatchMouseEvent" && params.type === "mouseReleased")
+      setTimeout(() => f.session.emit("Page.fileChooserOpened", { frameId: "main", mode: "selectMultiple", backendNodeId: 77 }), 5);
+    return result;
+  };
+  await f.run("browser_snapshot");
+  const done = await f.run("browser_upload", { ref: "@e3", paths: [path.join(worktree, "clip.mp4"), path.join(worktree, "cover.png")] });
+  assert.equal(done.isError, false, done.text);
+  const order = f.session.sent
+    .map(([method, params]) => (method === "Input.dispatchMouseEvent" ? params.type : method))
+    .filter((name) => !name.startsWith("Accessibility") && !name.endsWith("enable") && name !== "Runtime.evaluate");
+  assert.deepEqual(order.slice(order.indexOf("Page.setInterceptFileChooserDialog")), [
+    "Page.setInterceptFileChooserDialog",
+    "DOM.scrollIntoViewIfNeeded",
+    "DOM.getBoxModel",
+    "mouseMoved",
+    "mousePressed",
+    "mouseReleased",
+    "DOM.setFileInputFiles",
+    "Page.setInterceptFileChooserDialog",
+  ]);
+  const intercept = f.session.sent.filter(([method]) => method === "Page.setInterceptFileChooserDialog").map(([, params]) => params.enabled);
+  assert.deepEqual(intercept, [true, false], "the picker is caught only for this click");
+  assert.deepEqual(f.session.sent.find(([method]) => method === "DOM.setFileInputFiles")[1], {
+    files: ["/desktop/tmp/clip.mp4", "/desktop/tmp/cover.png"],
+    backendNodeId: 77,
+  });
+});
+
+test("a click that opens no picker says so, and stops catching pickers", async (t) => {
+  const { worktree } = uploadFolder(t);
+  const f = fixture({ roots: [worktree] });
+  const send = f.session.send;
+  f.session.send = async (method, params) =>
+    method === "Runtime.callFunctionOn" ? (await send(method, params), { result: { value: null } }) : send(method, params);
+  await f.run("browser_snapshot");
+  const missed = await f.run("browser_upload", { ref: "@e1", paths: [path.join(worktree, "cover.png")] });
+  assert.equal(missed.isError, true);
+  assert.match(missed.text, /opened no file picker/);
+  assert.deepEqual(
+    f.session.sent.filter(([method]) => method === "Page.setInterceptFileChooserDialog").map(([, params]) => params.enabled),
+    [true, false],
+  );
 });

@@ -71,7 +71,15 @@ import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { chatMentionChoices, shiftImageMentions, type MentionComputer } from "@milagre/shared/prompt-mentions";
-import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
+import {
+  addMention,
+  appendAttachments,
+  appendImageMentions,
+  attachmentPrompt,
+  mentionAttachments,
+  prepareAnswerImages,
+  prepareAttachments,
+} from "../attachments";
 import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "../status-indicators";
 import { usePrDetail } from "../pr-store";
 import { openThreads } from "@milagre/shared/pull-request-review";
@@ -125,7 +133,7 @@ import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-lin
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
-import { Approval, ActivityQuestions } from "../questions";
+import { Approval, ActivityQuestions, answersWithImages } from "../questions";
 import { QueuedMessages } from "../queued-messages";
 import { followUpDelivery } from "@milagre/shared/queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
@@ -178,6 +186,7 @@ import { besideState, closeBeside, openBeside, useBesideChat } from "../split-ch
 import { chatFamily } from "@milagre/shared/subchats";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
+import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -201,6 +210,8 @@ function issueChoices(issues: LinearIssue[]) {
 /** The workspace the issue sheet showed last, so it opens there again. */
 let lastLinearWorkspace: string | undefined;
 const UNDO_COMMANDS = [{ name: "undo", description: "Undo a task's file changes" }];
+const STORAGE_COMMANDS = [{ name: STORAGE_COMMAND, description: STORAGE_COMMAND_HINT }];
+const CHAT_COMMANDS = [...UNDO_COMMANDS, ...STORAGE_COMMANDS];
 const NO_CHECKPOINTS: CheckpointApi = {
   list: async () => [],
   preview: () => Promise.reject(new Error("Connect to the computer to undo changes")),
@@ -1544,6 +1555,15 @@ function ChatPane({
       void undo.open();
       return false;
     }
+    // `/storage` opens Clean up worktrees for the Chat's computer instead of reaching the agent.
+    if (withAttachments && typed.trim() === `/${STORAGE_COMMAND}` && !sentQuotes.length) {
+      const saved = session.hosts.find((item) => item.id === targetHost || item.address === targetHost);
+      if (saved) {
+        composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
+        router.push({ pathname: "/computer-cleanup", params: { id: saved.id } });
+        return false;
+      }
+    }
     const issueKey = issue?.key;
     // Only immediate delivery into a steerable turn keeps a model pick for later.
     const steered = Boolean(run) && messageDelivery !== "queue" && canSteer;
@@ -2644,15 +2664,32 @@ function ChatPane({
                           key={question.requestId}
                           request={question}
                           busy={actionBusy || answering}
-                          submit={(answers, summary) => {
-                            const answered = answeredQuestions(question, answers);
+                          dictationChat={
+                            worktree?.path || !project.link
+                              ? { client, cwd: worktree?.path || project.path, chatTitle: title, provider: chat?.provider ?? actualProvider, chatId: chat?.id }
+                              : undefined
+                          }
+                          submit={(answers, summary, images) => {
+                            const answered = answeredQuestions(question, answers && answersWithImages(answers, images));
+                            const photos = Object.values(images ?? {}).flatMap((list) => list.flatMap((item) => (item.image ? [item.image] : [])));
                             setSentAnswers({
                               requestId: question.requestId,
-                              message: answered && { id: -1, session_id: Number(params.id), body: summary, context: null, role: "user", answered },
+                              message: answered && {
+                                id: -1,
+                                session_id: Number(params.id),
+                                body: summary,
+                                context: null,
+                                role: "user",
+                                answered,
+                                ...(photos.length ? { images: photos } : {}),
+                              },
                               count: messages.length,
                             });
                             void action(async () => {
-                              const accepted = await client.call("agent:answer-question", [{ chatId, requestId: question.requestId, answers, summary }]);
+                              const uploaded = await prepareAnswerImages(client, projectOfKey(chatId), images);
+                              const accepted = await client.call("agent:answer-question", [
+                                { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}) },
+                              ]);
                               if (!accepted) throw new Error("This question is no longer pending. Refresh the Chat.");
                             }, true).then((ok) => {
                               if (!ok) setSentAnswers((current) => (current?.requestId === question.requestId ? null : current));
@@ -2999,7 +3036,7 @@ function ChatPane({
                               onImagePaste={(image) => void pasteImage(image)}
                               known={knownFiles.current}
                               onMention={worktree?.path ? mentionFile : undefined}
-                              commands={chat ? UNDO_COMMANDS : undefined}
+                              commands={chat ? CHAT_COMMANDS : STORAGE_COMMANDS}
                               // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
                                 offline

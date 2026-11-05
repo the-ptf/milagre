@@ -25,6 +25,9 @@ const SLOW_METHODS = Object.freeze({
   "git:generate": 180000,
   "worktree:create": 330000,
   "worktree:remove": 330000,
+  "storage:remove-worktree": 330000,
+  // Reads git status for each idle worktree, a few at a time.
+  "storage:worktrees": 120000,
   // Deleting a Link removes each of its untouched Worktrees in turn, each with worktree:remove's 300 s git limit.
   "link:delete": LINK_DELETE_MS,
   // Installing Antigravity downloads about 110 MB and unpacks it; a slow connection takes minutes.

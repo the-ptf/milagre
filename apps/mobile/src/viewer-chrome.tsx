@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { Text, View, type TextInputInstance } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
+import { Text, View, useWindowDimensions, type TextInputInstance } from "react-native";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
-import type { ArtifactComment } from "@milagre/shared/artifact";
+import { useKeyboardState } from "react-native-keyboard-controller";
+import { useCommentSendKey, useOnScreenReturn, useReturnKey } from "./hardware-keys";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
@@ -23,21 +24,50 @@ export function CommentBox({
   onChange,
   onCancel,
   onDone,
+  onSend,
+  room,
 }: {
   at: { x: number; y: number };
   kind: "new" | "edit" | "read";
   note?: { text: string };
-  sentComment?: ArtifactComment;
+  sentComment?: { text: string; resolved?: { note: string } };
   number: number;
   onChange: (text: string) => void;
   onCancel: () => void;
   onDone: () => void;
+  onSend: () => void;
+  room?: { width: number; height: number };
 }) {
   const { colors } = useTheme();
   const [text, setText] = useState(note?.text ?? "");
   // A web page the comment was held on can keep the keyboard focus past autoFocus (WebKit's text interaction takes it
   // as the hold ends): the field asks again once the hold is over.
   const input = useRef<TextInputInstance>(null);
+  const [focused, setFocused] = useState(false);
+  const keep = () => onDone();
+  const enter = useReturnKey(input, sentComment ? undefined : keep);
+  const onScreen = useOnScreenReturn(sentComment ? undefined : keep);
+  useCommentSendKey(focused && !sentComment, () => {
+    if (text.trim()) onSend();
+  });
+  const window = useWindowDimensions();
+  const bounds = room ?? window;
+  const keyboard = useKeyboardState((state) => (state.isVisible ? state.height : 0));
+  const [height, setHeight] = useState(180);
+  const surface = useRef<ComponentRef<typeof View>>(null);
+  const [originY, setOriginY] = useState(0);
+  const width = Math.min(272, bounds.width - 24);
+  // Keep the bubble beside its pin, moving it only enough to clear an edge or the keyboard.
+  const left = Math.max(12, Math.min(at.x, bounds.width - width - 12));
+  const availableHeight = Math.min(bounds.height, window.height - keyboard - originY);
+  const top = Math.max(8, Math.min(at.y, availableHeight - height - 12));
+  // Sheets can already shrink above the keyboard. Measure their origin instead of subtracting the keyboard twice.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      surface.current?.measureInWindow((_x, y) => setOriginY(y - top));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [keyboard, bounds.height, bounds.width, top]);
   useEffect(() => {
     if (sentComment) return;
     const timer = setTimeout(() => {
@@ -47,14 +77,16 @@ export function CommentBox({
   }, [sentComment]);
   return (
     <View
+      ref={surface}
+      onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
       accessibilityViewIsModal
-      // A new comment's escape cancels it; an existing one's closes it as it is (its Cancel button deletes).
-      onAccessibilityEscape={kind === "new" && !sentComment ? onCancel : onDone}
+      // Dismissing keeps the draft; Cancel or Delete explicitly removes it.
+      onAccessibilityEscape={onDone}
       style={{
         position: "absolute",
-        left: at.x,
-        top: at.y,
-        width: 272,
+        left,
+        top,
+        width,
         padding: 12,
         gap: 12,
         borderRadius: radius.card,
@@ -95,6 +127,15 @@ export function CommentBox({
             autoCapitalize="sentences"
             autoCorrect
             autoFocus
+            bare
+            onLayout={enter.attach}
+            onFocus={() => {
+              setFocused(true);
+              enter.attach();
+            }}
+            onBlur={() => setFocused(false)}
+            {...onScreen}
+            returnKeyType="done"
             multiline
             defaultValue={note?.text ?? ""}
             onChangeText={(value) => {
