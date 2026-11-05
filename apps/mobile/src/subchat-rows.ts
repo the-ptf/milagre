@@ -8,8 +8,11 @@ type ChatLike = Listed & { kind: "chat"; chat: { id: number; parent?: number; pi
 // A subchat waiting on the user (a question or an approval) turns its family's count orange.
 const asks = (row: ChatLike) => row.mark === "question" || row.mark === "waiting";
 
-/** What nesting adds to a Chat row: indented under its parent (`root`, the family's top Chat), or a parent with `count` subchats. */
-export type SubchatMarks = { subchat?: boolean; root?: number; family?: { count: number; folded: boolean; asking?: boolean } };
+/**
+ * What nesting adds to a Chat row: a subchat, indented `depth` levels (1 under the top Chat, 2 at most: a deeper one sits
+ * level with its parent, as nestSubchats caps it), or a parent with `count` subchats.
+ */
+export type SubchatMarks = { subchat?: boolean; depth?: number; family?: { count: number; folded: boolean; asking?: boolean } };
 
 const isChat = (row: Listed): row is ChatLike => row.kind === "chat";
 
@@ -29,7 +32,7 @@ export function nestChatRows<R extends Listed>(rows: readonly R[], folded: { has
     const free = run.filter((row) => !row.chat.pinned);
     const byKey = new Map(free.map((row) => [row.key, row]));
     for (const row of run) if (row.chat.pinned) result.push(row);
-    for (const { row, children } of nestSubchats(
+    for (const { row, children, depths } of nestSubchats(
       free,
       (row) => row.key,
       (key) => {
@@ -43,7 +46,7 @@ export function nestChatRows<R extends Listed>(rows: readonly R[], folded: { has
       }
       const isFolded = folded.has(row.key);
       result.push({ ...row, family: { count: children.length, folded: isFolded, asking: children.some(asks) } });
-      if (!isFolded) for (const child of children) result.push({ ...child, subchat: true, root: row.chat.id });
+      if (!isFolded) children.forEach((child, index) => result.push({ ...child, subchat: true, depth: depths[index] ?? 1 }));
     }
     run = [];
   };

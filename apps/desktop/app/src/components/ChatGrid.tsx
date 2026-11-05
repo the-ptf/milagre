@@ -21,6 +21,8 @@ import { sendQuote } from "../lib/quote-inbox";
 import { RoutineChip } from "./routines/RoutineChip";
 import { isDraftTileKey } from "../lib/chat-grid";
 import { useGridDropTarget } from "../lib/grid-drop";
+import { subchatsNeedingYou } from "../lib/subchat-track";
+import { TileTitle, type TileMenuControls } from "./agents/TileFamilyMenu";
 
 const NO_MESSAGES: ChatMessage[] = [];
 
@@ -44,6 +46,8 @@ type ChatGridProps = {
   onTogglePin: (key: string) => void;
   /** The split view's close button on every tile, in place of pinning and Mark read. */
   onClose?: (key: string) => void;
+  /** The split's tile menus (title: Open alone, swap for a family Chat); the grid's tiles have none. */
+  menu?: TileMenuControls;
 };
 
 // What a press in an unfocused tile is meant for instead of focusing it: a control, a link or media in its transcript.
@@ -79,6 +83,7 @@ export function ChatGrid({
   pinned,
   onTogglePin,
   onClose,
+  menu,
 }: ChatGridProps) {
   const grid = useRef<HTMLElement>(null);
   const shown = keys.length > 0;
@@ -118,6 +123,13 @@ export function ChatGrid({
               pinned={pinned.has(key)}
               onTogglePin={onTogglePin}
               onClose={onClose}
+              menu={menu}
+              tiles={keys}
+              waitingBelow={
+                key === focused || isLinkScopeKey(projectOfKey(key))
+                  ? 0
+                  : subchatsNeedingYou((states[projectOfKey(key)] as CoordinatorState | undefined)?.sessions, runs, key)
+              }
             >
               {key === focused ? children : null}
             </ChatTile>
@@ -163,6 +175,9 @@ const ChatTile = memo(function ChatTile({
   pinned,
   onTogglePin,
   onClose,
+  menu,
+  tiles,
+  waitingBelow,
   children,
 }: {
   chatKey: string;
@@ -177,6 +192,10 @@ const ChatTile = memo(function ChatTile({
   pinned: boolean;
   onTogglePin: (key: string) => void;
   onClose?: (key: string) => void;
+  menu?: TileMenuControls;
+  tiles: readonly string[];
+  /** Subchats waiting on the user: an unfocused tile has no composer, so its header says it instead of the pill. */
+  waitingBelow: number;
   children: ReactNode;
 }) {
   const scope = projectOfKey(chatKey);
@@ -236,13 +255,22 @@ const ChatTile = memo(function ChatTile({
     >
       <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-3 text-13">
         <ChatMarkDot mark={mark} background={activity.background} />
-        <span className="min-w-0 truncate font-medium text-ink">{title}</span>
+        {menu ? (
+          <TileTitle chatKey={chatKey} title={title} tiles={tiles} controls={menu} />
+        ) : (
+          <span className="min-w-0 truncate font-medium text-ink">{title}</span>
+        )}
         <span className="min-w-0 flex-1 truncate text-ink-3">
           {scope.split("/").pop()}
           {branch ? ` · ${branch}` : ""}
         </span>
         {onOpenRoutine && session && <RoutineChip chatKey={chatKey} run={session.routine} place="tile" onOpen={onOpenRoutine} />}
         {needsYou && !focused && <span className="shrink-0 font-medium text-orange-ink">Needs you</span>}
+        {waitingBelow > 0 && !focused && (
+          <span data-tile-waiting className="shrink-0 font-medium text-orange-ink">
+            {waitingBelow} {waitingBelow === 1 ? "needs" : "need"} you
+          </span>
+        )}
         {onClose && (
           <IconButton
             label="Close"

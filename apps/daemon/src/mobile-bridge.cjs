@@ -210,6 +210,7 @@ const METHODS = new Set([
   "usage:accounts:cached",
   "token-usage:read",
   "agent:answer-question",
+  "agent:dismiss-suggestion",
   "agent:set-permission-mode",
   "agent:models",
   "agent:cli-status",

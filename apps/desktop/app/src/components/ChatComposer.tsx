@@ -9,6 +9,9 @@ import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
 import { SubchatTrack } from "./agents/SubchatTrack";
 import { DelegationReportLine } from "./DelegationReportLine";
+import { SubchatMessage } from "./agents/SubchatMessages";
+import { hiddenSubchatNotes, subchatNote } from "../lib/subchat-transcript";
+import { suggestionOutcomes } from "@milagre/shared/subchat-escalation";
 import { UpdatePillSlot } from "./UpdateNotice";
 import { BrowserPanel } from "./agents/BrowserPanel";
 import { isPageCommentImage, PageCommentsCard } from "./agents/BrowserComments";
@@ -792,6 +795,9 @@ const MessageTranscript = memo(function MessageTranscript({
       : undefined;
   // Quiet heartbeats fold away; grouped over the whole Chat so a page boundary doesn't strand a hidden reply.
   const grouped = useMemo(() => groupQuietRuns(messages), [messages]);
+  // Subchat escalation notes: some are drawn in place, some elsewhere or by their card (lib/subchat-transcript.ts).
+  const hiddenNotes = useMemo(() => hiddenSubchatNotes(messages), [messages]);
+  const suggestionResults = useMemo(() => suggestionOutcomes(messages), [messages]);
   const transcript = grouped.slice(start).filter((entry) => !entry.hidden);
   if (streamingMessage) {
     const pendingIndex = transcript.findIndex((entry) => entry.message.id === pendingMessageId);
@@ -853,6 +859,19 @@ const MessageTranscript = memo(function MessageTranscript({
       {shown.map(({ message, merged }) => {
         // A Linear Run's first message is its issue card carrying the Run: the divider comes first, then the card.
         const issueRun = isRoutineRun(message) ? null : routineRunOf(message);
+        if (hiddenNotes.has(message.id)) return null;
+        if (subchatNote(message))
+          return (
+            <article
+              key={message.id}
+              id={`message-${message.id}`}
+              data-slot="message"
+              data-linked="subchat"
+              className="flex min-w-0 w-full flex-col empty:hidden"
+            >
+              <SubchatMessage message={message} outcomes={suggestionResults} onOpenChat={onOpenLinkedChat} />
+            </article>
+          );
         return (
           <Fragment key={message.clientMessageId ?? message.id}>
             {issueRun ? <RoutineRunDivider context={issueRun} merged={merged} /> : null}

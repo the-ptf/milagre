@@ -50,6 +50,7 @@ const { failedWith, hostNetworkInstructions, loginMessage } = require("./agents/
 const { SessionManager } = require("./agents/session-manager.cjs");
 const { PortWatcher } = require("./agents/ports.cjs");
 const { ChatHost } = require("./agents/chat-host.cjs");
+const { SubchatEscalation } = require("./agents/subchat-escalation.cjs");
 const { writeTranscript, generateBrief, createHandoverModels } = require("./agents/handover.cjs");
 const { discoverSkills, expandSkillPrompt, readDiscoveredSkill } = require("./skills.cjs");
 const { DEFAULT_WORKTREE_ROOT, branchPushed, createWorktree, listBranches, moveWorktreeBranch, newSuffix, renameWorktreeBranch } = require("./worktrees.cjs");
@@ -760,6 +761,9 @@ function createRuntime(options) {
       // Run Chats saved before they could be hidden are decided, and hidden ones whose Run left the store are archived.
       void track(() => routines.sweepRunChats(projectPath, state), background);
       void chats.recoverHandoffs(projectPath, state).catch((error) => console.warn("Milagre couldn't recover a handoff:", error.message));
+      void subchatEscalation.suggestions
+        .closeStale(projectPath, state.sessions)
+        .catch((error) => console.warn("Milagre couldn't close a suggestion:", error.message));
       void diffs.refresh(projectPath).catch(() => {});
     }
     return { path: projectPath, name: projectName(projectPath), git, state };
@@ -1348,6 +1352,8 @@ function createRuntime(options) {
   // Opens a Babysit Heartbeat for a PR a Chat creates; set up with the Babysit settings below.
   let babysitWatch = null;
   let chatSecrets = null;
+  // A Subchat's unanswered requests (subchat-escalation.cjs); set up once the Chats are, below.
+  let subchatEscalation = null;
   function publishAgentEvent(chatId, event, state, seq) {
     if (state) limitResume?.trackState(projectOfKey(chatId), state);
     if (event.limitResumeAborted) {
@@ -1364,6 +1370,7 @@ function createRuntime(options) {
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) chatSecrets?.cancel(chatId);
     options.observeAgentEvent?.(chatId, event);
+    subchatEscalation?.observe(chatId, event);
     // A turn the plan's usage limit stopped marks its account, and may move the Chat to another (auto-switch).
     if (event.type === "turn-failed" && event.limit && limitSwitch) {
       const token = chats.limitResumeToken(projectOfKey(chatId), sessionIdFromKey(chatId));
@@ -1629,6 +1636,49 @@ function createRuntime(options) {
           },
           { models: createHandoverModels({ cli: (provider) => agentCli(provider, projectPath), clientVersion: version }) },
         ),
+    },
+  });
+
+  // The turn a wake runs on: the Chat's latest, or what its saved state says when it had none this run.
+  async function wakeTurn(chatId) {
+    const latest = chats.turnSettings(chatId);
+    if (latest) return latest;
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    const state = await scopeStates.load(projectPath, [sessionId]);
+    const model = require("@milagre/shared/agent-runs").lastUserModel(state, sessionId);
+    if (!model) throw new Error("That Chat has no model to wake on.");
+    return { provider: state.sessions[sessionId].provider ?? "claude", model, permissionMode: state.sessions[sessionId].permissionMode ?? "ask" };
+  }
+  subchatEscalation = new SubchatEscalation({
+    ...options.subchatEscalation,
+    ports: {
+      read: (projectPath, sessionIds) => (sessionIds.length ? scopeStates.load(projectPath, sessionIds) : scopeStates.get(projectPath)),
+      run: (chatId) => chats.runs[chatId],
+      // Background work's tool calls would count as the wake's own, and be refused with them.
+      busy: (chatId) =>
+        !chats.limitTurnIdle(projectOfKey(chatId), sessionIdFromKey(chatId)) || agents.isTurnActive(chatId) || agents.backgroundWork(chatId) > 0,
+      isSeen: (chatId) => (options.isChatSeen ?? options.isChatFocused)?.(chatId) ?? (chats.openChat === chatId && isFocused()),
+      isWakeTurn: (chatId) => chats.wakeTurns.has(chatId),
+      botOf: (chatId) => botRunning(chatId),
+      post: (chatId, note, change) => chats.postNow(chatId, note, change),
+      remind: async (chatId, { requestId, title, body }) => {
+        if (!(await projectSettings().hiddenPaths()).has(projectOfKey(chatId)))
+          options.notifyWaiting?.({ chatId, requestId: `reminder:${requestId}`, title, body });
+      },
+      wake: async (chatId, message) => {
+        const { started } = await chats.send({
+          ...(await wakeTurn(chatId)),
+          ...message,
+          projectPath: projectOfKey(chatId),
+          sessionId: sessionIdFromKey(chatId),
+          images: [],
+          files: [],
+          idleOnly: true,
+        });
+        void started.catch((error) => console.warn("Milagre couldn't start a wake's turn:", error.message));
+      },
+      mode: (chatId, session) => chats.turnSettings(chatId)?.permissionMode ?? session.permissionMode ?? "ask",
     },
   });
 
@@ -2189,6 +2239,7 @@ function createRuntime(options) {
       compact ? message : sentFromNotes.message({ ...message, sentFrom }, rest.sessionId == null ? null : chatKey(rest.projectPath, rest.sessionId)),
     );
     if (!compact) sentFromNotes.sent(chatKey(rest.projectPath, sessionId), sentFrom);
+    noteHumanActed(chatKey(rest.projectPath, sessionId));
     // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
     // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
     // directly and never keep one.
@@ -2529,20 +2580,37 @@ function createRuntime(options) {
   }
 
   // A bot's sign-off card answered from its Chat goes through the sign-off (bots.answerCard), so an expired one is denied.
-  commands.handle("agent:respond-permission", async (_event, { chatId, requestId, decision }) => {
+  async function respondPermission({ chatId, requestId, decision }) {
     if (typeof requestId === "string" && requestId.startsWith("setup-review-")) return setupReview.respond(chatId, requestId, decision);
     const signedOff = await bots.answerCard(chatId, requestId, decision);
     return signedOff ?? agents.respondToPermission(chatId, requestId, decision);
+  }
+  // The command is the user's card; another Chat's agent comes through respondPermission and counts for nobody.
+  commands.handle("agent:respond-permission", async (_event, request) => {
+    const accepted = await respondPermission(request);
+    if (accepted) noteHumanActed(request.chatId);
+    return accepted;
   });
+  // A wake's family counts again after a person acted in it (subchat-escalation.cjs). A failure costs only the count.
+  function noteHumanActed(chatId) {
+    void subchatEscalation.humanActed(chatId).catch((error) => console.warn("Milagre couldn't follow a Subchat's family:", error.message));
+  }
 
   // The answers show in the chat as the user's message (`summary`), and are taken back if they don't reach the agent.
   // The message is queued before the answers go out, so the agent's next reply lands below it, but the agent doesn't wait
   // for it: the Project's queue holds every Chat's changes, and a busy one kept the card up for seconds.
   // Images attached to an answer are stored first: the agent gets their paths in that question's answer, and the
   // answers message shows them.
-  commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary, images } = {}) => {
+  // `suggestionId`: the user sent a suggestion's card (subchat-escalation.cjs). `sender` is an agent answering alone, so it
+  // is never read from a request: no client can say it speaks for one.
+  commands.handle("agent:answer-question", (_event, request = {}) => answerQuestion(request));
+  async function answerQuestion({ chatId, requestId, answers, summary, images, suggestionId }, sender = null) {
     // Route even stale secret ids here: a late/replayed value must never reach chat persistence.
-    if (require("./chat-secrets.cjs").isSecretRequest(requestId)) return chatSecrets.answer(chatId, requestId, answers);
+    if (require("./chat-secrets.cjs").isSecretRequest(requestId)) {
+      const accepted = chatSecrets.answer(chatId, requestId, answers);
+      if (accepted) noteHumanActed(chatId);
+      return accepted;
+    }
     const { answerImages, withAnswerImages } = require("./agents/questions.cjs");
     const attached = answers ? answerImages(images) : {};
     // A phone uploads its photos first and sends their paths, as a send does: their bytes are read back here.
@@ -2558,17 +2626,31 @@ function createRuntime(options) {
             return null;
           })
         : Promise.resolve(null);
+    const answering = subchatEscalation.answering(chatId, requestId, {
+      label: sender?.answerLabel ?? summary,
+      suggestionId: typeof suggestionId === "string" ? suggestionId : undefined,
+      sender,
+    });
     let accepted;
     try {
       accepted = await agents.answerQuestion(chatId, requestId, answers && agent);
     } catch (error) {
+      answering.failed();
       const messageId = await recorded;
       if (messageId !== null) await chats.takeBack(chatId, messageId);
       throw error;
     }
     const messageId = await recorded;
     if (!accepted && messageId !== null) await chats.takeBack(chatId, messageId);
+    if (!accepted) answering.failed();
+    else void answering.accepted().catch((error) => console.warn("Milagre couldn't follow an answer to a Subchat:", error.message));
     return accepted;
+  }
+
+  // Dismiss on a suggestion's card takes the card and only the card: the question stays open in its Subchat.
+  commands.handle("agent:dismiss-suggestion", async (_event, { chatId, id } = {}) => {
+    if (typeof chatId !== "string" || typeof id !== "string") throw new Error("That suggestion isn't valid.");
+    return subchatEscalation.suggestions.dismiss(chatId, id);
   });
 
   // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
@@ -2714,8 +2796,10 @@ function createRuntime(options) {
     // Bot rules allow what no gate matches, and gates leave Milagre's tools alone: a bot's thread and the Chats it opened
     // keep only the Milagre tools that stay inside them (isBotRulesTool). A tool a session got before its Chat became
     // a bot's (Claude keeps the list it started with) refuses to run there.
+    // A wake's turn is held here too, for every provider and every Milagre tool: Claude's `allowedTools`, Codex's trust
+    // in a tool marked read-only and an ACP agent's own rules all come before a tool runs, never after.
     chatTools: (chatId, tools) =>
-      botRunning(chatId)
+      (botRunning(chatId)
         ? tools.filter(isBotRulesTool)
         : tools.map((tool) =>
             isBotRulesTool(tool)
@@ -2728,7 +2812,15 @@ function createRuntime(options) {
                     return tool.run(input);
                   },
                 },
-          ),
+          )
+      ).map((tool) => ({
+        ...tool,
+        run: async (input) => {
+          const reason = agents.escalationDenial(chatId, { name: tool.name, input, readOnly: tool.readOnly === true });
+          if (reason) throw new Error(reason);
+          return tool.run(input);
+        },
+      })),
     botOf: (chatId) => botRunning(chatId),
     pendingAdvisorResults: async (chatId) =>
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
@@ -3476,8 +3568,9 @@ function createRuntime(options) {
     stopChat,
     // Never the user's: on a bot's Chat it is refused rather than taking it over.
     setPermissionMode: (chatId, mode) => setPermissionMode(chatId, mode),
-    respondPermission: (chatId, requestId, decision) => handlers.get("agent:respond-permission")(null, { chatId, requestId, decision }),
-    answerQuestion: (chatId, requestId, answers, summary) => handlers.get("agent:answer-question")(null, { chatId, requestId, answers, summary }),
+    respondPermission: (chatId, requestId, decision) => respondPermission({ chatId, requestId, decision }),
+    answerQuestion: (chatId, requestId, answers, summary, sender) => answerQuestion({ chatId, requestId, answers, summary }, sender),
+    suggestAnswer: (chatId, details) => subchatEscalation.suggest(chatId, details),
     patchChat,
     searchChats: async (projectPath, query, limit) => await handlers.get("chat:search")(null, projectPath, query, { limit }),
     links: { list: async () => (await projectRegistry().snapshot()).links, add: addLink, remove: removeLink },
@@ -3668,6 +3761,7 @@ function createRuntime(options) {
     void doneSweep.stop();
     closing = true;
     for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");
+    subchatEscalation.close();
     // A comment already on its way goes back to its queue before the rest closes.
     const routinesStopped = routines.stop();
     const limitResumeStopped = limitResume.stop();

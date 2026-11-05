@@ -1,5 +1,13 @@
 import type { GateMeta } from "./bots.mjs";
 import type { ProjectKind } from "./chats-home.mjs";
+import type {
+  SubchatAnsweredByContext,
+  SubchatEscalationContext,
+  SubchatSuggestionContext,
+  SubchatSuggestionOutcomeContext,
+  SubchatWaitingContext,
+  SubchatWakeContext,
+} from "./subchat-escalation.mjs";
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro";
@@ -226,6 +234,11 @@ export interface AgentSession {
   queued?: QueuedMessage[];
   /** Stop, or a turn that failed, ended the turn the queue waited on: the queue waits for Send now instead of starting. */
   queueHeld?: boolean;
+  /**
+   * The suggestion cards in this Chat that have no outcome yet, kept so a restart can close them: a request is in memory,
+   * so its card would otherwise stay answerable forever (subchat-escalation.cjs in core).
+   */
+  openSuggestions?: { id: string; fromTitle: string }[];
 }
 
 /**
@@ -840,6 +853,12 @@ export type ChatContext =
   | RoutineRunContext
   | BabysitStoppedContext
   | CheckpointRestoreContext
+  | SubchatWaitingContext
+  | SubchatEscalationContext
+  | SubchatSuggestionContext
+  | SubchatSuggestionOutcomeContext
+  | SubchatAnsweredByContext
+  | SubchatWakeContext
   | "handover"
   | null;
 

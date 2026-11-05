@@ -177,19 +177,25 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
    * as the user's message, so whatever the agent streams next lands below them, and takes them back if they don't arrive.
    */
   const answerQuestion = useCallback(
-    (chatId: string, requestId: string, answers: QuestionAnswers | null, images?: QuestionImages) => {
+    (chatId: string, requestId: string, answers: QuestionAnswers | null, images?: QuestionImages, suggestionId?: string) => {
       const request = runsRef.current[chatId]?.questions.find((item) => item.requestId === requestId);
       const summary = answers && request ? answerSummary(request.questions, answers, images) : "";
       // Images go only with answers, and only when there are some: an older host takes the request without them.
       const attached = answers && images ? images : undefined;
       return answer(chatId, requestId, answers ? "answered" : "dismissed", () =>
-        attached
-          ? bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary, attached)
-          : bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary),
+        // A suggestion's Send answer names its card, so the host marks the card "sent" rather than "answered".
+        suggestionId
+          ? bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary, attached, suggestionId)
+          : attached
+            ? bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary, attached)
+            : bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary),
       );
     },
     [answer],
   );
 
-  return { runs, send, interrupt, respond, answerQuestion };
+  /** Removes a suggestion's card from the Chat `chatId` it sits in; the Subchat's own question stays open. False when it is gone already. */
+  const dismissSuggestion = useCallback((chatId: string, id: string) => bridgeForKey(chatId).dismissSuggestion(chatId, id), []);
+
+  return { runs, send, interrupt, respond, answerQuestion, dismissSuggestion };
 }

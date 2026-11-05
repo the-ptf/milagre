@@ -52,6 +52,8 @@ export interface SubchatState {
   elapsed?: string;
   /** The first unanswered question or approval, for the inline answers. */
   request?: SubchatRequest;
+  /** For a Subchat deeper than this Chat's own: the title of the Chat that delegated to it. */
+  via?: string;
 }
 
 /** The last line the agent wrote, for a live row: one line, cut at the front when long. */
@@ -119,8 +121,15 @@ export function subchatState(input: SubchatInput, now: number): SubchatState {
 export interface SubchatSummary {
   /** The kind that leads the pill (its dot), the first one present in SUBCHAT_KINDS order. */
   lead: SubchatKind | null;
-  /** "1 needs you", "2 working", …, in SUBCHAT_KINDS order; Stopped and Done count together as ended. */
+  /** "1 needs you", "2 need you", "2 working", …, in SUBCHAT_KINDS order; Stopped and Done count together as ended. */
   parts: { kind: SubchatKind; text: string }[];
+  /** The one Subchat waiting on the user, when exactly one is: the pill shows who and what, and a tap opens it. */
+  asking?: { key: string; title: string; ask: string };
+}
+
+/** What a waiting Subchat wants, in the pill's few words. */
+export function subchatAsk(request: SubchatRequest): string {
+  return request.kind === "approval" ? "wants to run a command" : (request.questions[0]?.question ?? "has a question");
 }
 
 /** The pill's words for a set of Subchats. */
@@ -128,14 +137,16 @@ export function subchatSummary(states: readonly SubchatState[]): SubchatSummary 
   const count = (kinds: SubchatKind[]) => states.filter((state) => kinds.includes(state.kind)).length;
   const parts: SubchatSummary["parts"] = [];
   const add = (kind: SubchatKind, n: number, text: string) => n > 0 && parts.push({ kind, text: `${n} ${text}` });
-  add("needs-you", count(["needs-you"]), "needs you");
+  const waiting = count(["needs-you"]);
+  add("needs-you", waiting, waiting === 1 ? "needs you" : "need you");
   add("failed", count(["failed"]), "failed");
   add("working", count(["working"]), "working");
   add("holding", count(["holding"]), "holding");
   add("queued", count(["queued"]), "queued");
   add("done", count(["done", "stopped"]), "done");
   const lead = SUBCHAT_KINDS.find((kind) => states.some((state) => state.kind === kind)) ?? null;
-  return { lead, parts };
+  const only = waiting === 1 ? states.find((state) => state.kind === "needs-you") : undefined;
+  return { lead, parts, ...(only?.request ? { asking: { key: only.key, title: only.title, ask: subchatAsk(only.request) } } : {}) };
 }
 
 /** Subchats first by what needs the user, then by the order they were made. */
@@ -180,4 +191,22 @@ export function directSubchats(sessions: Record<string, { id: number; parent?: n
     .filter((session) => session.parent === parent && !session.archived)
     .sort((a, b) => a.id - b.id)
     .map((session) => `${key.slice(0, hash)}#${session.id}`);
+}
+
+/** The listed Chats below `key` that aren't its own Subchats, oldest first: the Subchats of its Subchats, at any depth. */
+export function deeperSubchats(sessions: Record<string, { id: number; parent?: number; archived?: boolean }> | undefined, key: string): string[] {
+  const seen = new Set([key]);
+  const deeper: string[] = [];
+  const direct = directSubchats(sessions, key);
+  for (const at of direct) seen.add(at);
+  const walk = (from: string) => {
+    for (const child of directSubchats(sessions, from)) {
+      if (seen.has(child)) continue;
+      seen.add(child);
+      deeper.push(child);
+      walk(child);
+    }
+  };
+  for (const at of direct) walk(at);
+  return deeper.sort((a, b) => Number(a.slice(a.lastIndexOf("#") + 1)) - Number(b.slice(b.lastIndexOf("#") + 1)));
 }

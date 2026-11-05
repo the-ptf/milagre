@@ -10,6 +10,7 @@ export type KeybindingCommandId =
   | "grid.toggle"
   | "grid.focusPrevious"
   | "grid.focusNext"
+  | "chat.parent"
   | `chat.jump.${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
   | "chat.find"
   | "chat.quote"

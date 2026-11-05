@@ -12,6 +12,8 @@ export interface AttentionContext {
   projectName: string;
   worktreeName?: string;
   chatTitle?: string;
+  /** The nearest Chat above a Subchat that is still listed. */
+  parentTitle?: string;
   provider?: ModelProvider;
 }
 
@@ -21,6 +23,8 @@ export function notificationText(value: string | undefined, options?: { markdown
 export function notificationPreview(previous: string | undefined, text: string, startsMessage?: boolean): string;
 /** The same chat-only title and result preview on desktop and phones. */
 export function completionNotice(title: string | undefined, result: { failed: boolean; body?: string }): AttentionNotice;
+/** The title of a notice about a Chat that waits: "Write pill tests · in Redesign the PR panel" for a Subchat. */
+export function attentionTitle(context: Pick<AttentionContext, "chatTitle" | "parentTitle">): string;
 /** The notification for an approval or question a turn waits on, or null for any other event. */
 export function attentionNotice(event: AgentEvent, context: AttentionContext): AttentionNotice | null;
 export function attentionContext(state: CoordinatorState, projectName: string, sessionId: number): AttentionContext;

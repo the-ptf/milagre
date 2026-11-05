@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { directSubchats, latestLine, latestReports, reportMarker, sortSubchats, subchatState, subchatSummary, type SubchatInput } from "./subchat-states.ts";
+import {
+  deeperSubchats,
+  directSubchats,
+  latestLine,
+  latestReports,
+  reportMarker,
+  sortSubchats,
+  subchatState,
+  subchatSummary,
+  type SubchatInput,
+} from "./subchat-states.ts";
 
 const now = 1_000_000_000;
 const base = (extra: Partial<SubchatInput> = {}): SubchatInput => ({ key: "p#2", title: "Esconder valores", session: {}, ...extra });
@@ -80,4 +90,29 @@ test("details read markdown as plain text", () => {
 
 test("plain details keep underscores in names", () => {
   assert.equal(latestLine("Renamed `close_cash_session` in pos_v2"), "Renamed close_cash_session in pos_v2");
+});
+
+test("the pill names who is asking only while exactly one waits", () => {
+  const asking = (key: string) => subchatState(base({ key, run: { questions: [{ requestId: "r", questions: [question] }] } }), now);
+  const working = subchatState(base({ key: "p#3", run: { text: "x" } }), now);
+  assert.deepEqual(subchatSummary([asking("p#2"), working]).asking, { key: "p#2", title: "Esconder valores", ask: "Publicar agora?" });
+  const two = subchatSummary([asking("p#2"), asking("p#4")]);
+  assert.equal(two.asking, undefined);
+  assert.equal(two.parts[0]?.text, "2 need you");
+  assert.equal(subchatSummary([working]).asking, undefined);
+  const approval = { requestId: "a", title: "Run this?" } as NonNullable<NonNullable<SubchatInput["run"]>["approvals"]>[number];
+  assert.equal(subchatSummary([subchatState(base({ run: { approvals: [approval] } }), now)]).asking?.ask, "wants to run a command");
+});
+
+test("deeper Subchats are the listed ones below the direct ones, at any depth", () => {
+  const sessions = {
+    1: { id: 1 },
+    2: { id: 2, parent: 1 },
+    3: { id: 3, parent: 2 },
+    4: { id: 4, parent: 3 },
+    5: { id: 5, parent: 3, archived: true },
+  };
+  assert.deepEqual(deeperSubchats(sessions, "/a#1"), ["/a#3", "/a#4"]);
+  assert.deepEqual(deeperSubchats(sessions, "/a#2"), ["/a#4"]);
+  assert.deepEqual(deeperSubchats({ 1: { id: 1, parent: 2 }, 2: { id: 2, parent: 1 } }, "/a#1"), []);
 });

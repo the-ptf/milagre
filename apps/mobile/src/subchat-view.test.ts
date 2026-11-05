@@ -2,7 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentQuestion, AgentSession } from "@milagre/shared/model";
 import { subchatSummary, type SubchatRequest } from "@milagre/shared/subchat-states";
-import { answerArguments, approvalArguments, inlineQuestion, isRecommended, pillSpoken, subchatStates, type HeartbeatRoutine } from "./subchat-view.ts";
+import {
+  answerArguments,
+  approvalArguments,
+  askLines,
+  inlineQuestion,
+  isRecommended,
+  pillSpoken,
+  subchatStates,
+  type HeartbeatRoutine,
+} from "./subchat-view.ts";
 
 const now = 1_000_000_000;
 const session = (id: number, extra: Record<string, unknown> = {}) =>
@@ -110,4 +119,48 @@ test("an answer and a decision carry what the Chat's own cards send", () => {
   });
   const approval = { kind: "approval", request: { requestId: "a1" } } as Extract<SubchatRequest, { kind: "approval" }>;
   assert.deepEqual(approvalArguments("/p#3", approval, "deny"), { chatId: "/p#3", requestId: "a1", decision: "deny" });
+});
+
+test("a deeper Subchat joins the pill only while it waits on the user, labelled with who delegated to it", () => {
+  const input = {
+    keys: ["/p#2"],
+    deeper: ["/p#3", "/p#4"],
+    sessions: { 2: session(2), 3: session(3, { parent: 2 }), 4: session(4, { parent: 2 }) },
+    runs: {
+      "/p#3": { text: "", approvals: [], questions: [{ requestId: "r1", questions: [question()] }], answered: {} },
+      "/p#4": { text: "Reading", startedAt: now, approvals: [], questions: [], answered: {} },
+    },
+    routines: [],
+    routinesOn: false,
+    reports: new Map<string, string>(),
+    now,
+  };
+  const states = subchatStates(input);
+  assert.deepEqual(
+    states.map((state) => [state.key, state.kind, state.via]),
+    [
+      ["/p#3", "needs-you", "Chat 2"],
+      ["/p#2", "done", undefined],
+    ],
+    "the working grandchild stays out; the waiting one carries its parent's title",
+  );
+  assert.equal(subchatSummary(states).asking?.key, "/p#3", "a waiting grandchild is the one the pill asks about");
+});
+
+test("the pill says '2 need you' for several, and the ask lines name who and what for one", () => {
+  const waiting = (key: string, title: string) => ({ key, title, kind: "needs-you" as const, label: "Needs you", detail: "", request: ask() });
+  const working = { key: "/p#9", title: "Other", kind: "working" as const, label: "Working", detail: "" };
+  const one = subchatSummary([waiting("/p#3", "Write pill tests"), working]);
+  assert.deepEqual(askLines(one), { title: "Write pill tests", rest: "1 working", ask: "Which library?", key: "/p#3" });
+  const two = subchatSummary([waiting("/p#3", "A"), waiting("/p#4", "B"), working]);
+  assert.equal(askLines(two), null, "two waiting open the list instead");
+  assert.deepEqual(
+    two.parts.map((part) => part.text),
+    ["2 need you", "1 working"],
+  );
+  assert.equal(pillSpoken(two), "Subchats, 2 need you, 1 working");
+  const approval = subchatSummary([
+    { ...waiting("/p#3", "Write pill tests"), request: { kind: "approval", request: { requestId: "a", title: "rm" } } as unknown as SubchatRequest },
+  ]);
+  assert.equal(askLines(approval)?.ask, "wants to run a command");
 });

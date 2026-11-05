@@ -32,6 +32,7 @@ const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = requir
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy } = require("./advisor-policy.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
+const { ONLY_READS, claudeCall, turnGuards } = require("../escalation-guard.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
@@ -185,8 +186,10 @@ class ClaudeSession {
     // Bot rules: the tool calls the PreToolUse hook asked about (toolUseID -> its gate, or null when the policy
     // failed), so canUseTool can't let one through on a second look.
     this.hookAsked = new Map();
-    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null (see guardHook).
+    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null, and a wake's EscalationTurn while
+    // its turn runs (see guardHook).
     this.guard = null;
+    this.escalation = null;
     this.questions = new PendingQuestions((event) => this.emit(event));
     // Settles once the running turn's own message is in Claude Code's input (or the turn failed to start).
     this.turnReady = Promise.resolve();
@@ -213,7 +216,10 @@ class ClaudeSession {
       return { turnId: null, steered: false };
     }
     this.turnActive = true;
-    this.guard = request.guard ?? null;
+    Object.assign(
+      this,
+      turnGuards(request.guard, () => void this.interrupt()),
+    );
     this.implicitTurn = false;
     this.steeredTurn = false;
     this.hookAsked.clear();
@@ -239,14 +245,14 @@ class ClaudeSession {
     Object.assign(this.state, { turnId, hasText: false, suggestionTurnId: null });
     this.permissions.setMode(permissionMode);
     try {
-      if (!this.query) await this.start(model, this.analysisOnly ? "dontAsk" : (CLAUDE_MODES[permissionMode] ?? "default"), effort, ultracode, fastMode);
+      if (!this.query) await this.start(model, this.nativeMode(permissionMode), effort, ultracode, fastMode);
       if (!this.closed) {
         if (model !== this.model) {
           await this.query.setModel(model);
           this.model = model;
         }
         // The user may have switched modes while Claude Code was starting.
-        const mode = this.analysisOnly ? "dontAsk" : (CLAUDE_MODES[this.permissions.mode] ?? "default");
+        const mode = this.nativeMode(this.permissions.mode);
         if (mode !== this.mode) {
           await this.query.setPermissionMode(mode);
           this.mode = mode;
@@ -284,6 +290,13 @@ class ClaudeSession {
     this.inbox.push(userMessage(prompt, images));
     this.emit({ type: "turn-started", turnId });
     return { turnId, steered: false };
+  }
+
+  // Claude Code's mode for Milagre's. A wake's turn runs in the strictest one that still reads: `permissions` keeps the
+  // Chat's own mode, so chat_respond still knows a parent in Full, and guardHook refuses everything else.
+  nativeMode(permissionMode) {
+    if (this.analysisOnly) return "dontAsk";
+    return this.escalation ? "default" : (CLAUDE_MODES[permissionMode] ?? "default");
   }
 
   // Concise is Claude Code's flag-layer outputStyle; Normal clears it (null), which falls back to the style
@@ -447,11 +460,22 @@ class ClaudeSession {
   // A babysit Run: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "deny" holds even in
   // bypassPermissions, so a command the Run's level doesn't allow is refused in every mode, subagents' included. The
   // reason is what the agent reads and the step shows. Undefined lets the call go on.
+  // A wake's turn goes through the same hook, for every tool: `gateHook` only runs in Bot rules, and `allowedTools` and
+  // bypassPermissions both come after it.
   guardHook(input) {
-    const command = input.tool_input?.command;
-    const reason = this.guard && typeof command === "string" ? babysitDenial(command, this.guard) : null;
+    const reason = this.escalation ? this.escalationDenial(input) : this.babysitReason(input);
     if (!reason) return undefined;
     return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  }
+
+  babysitReason(input) {
+    const command = input.tool_input?.command;
+    return this.guard && typeof command === "string" ? babysitDenial(command, this.guard) : null;
+  }
+
+  escalationDenial(input) {
+    this.escalation.called();
+    return this.escalation.denial(claudeCall(input.tool_name, input.tool_input, this.linked?.tools));
   }
 
   // Bot rules: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "ask" is
@@ -489,6 +513,9 @@ class ClaudeSession {
   askPermission(toolName, input, options = {}) {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
+    // What the hook let through runs without asking; anything that still asks (a read outside the Worktree, or a Claude
+    // Code that skipped the hook) has nobody to ask, since a wake's turn opens no card.
+    if (this.escalation) return Promise.resolve({ behavior: "deny", message: ONLY_READS });
     const request = claudeRequest(toolName, input, options);
     // The hook refused it already; this covers a Claude Code that skipped the hook.
     const refused = this.guard && request.kind === "command" ? babysitDenial(request.command, this.guard) : null;
@@ -530,6 +557,7 @@ class ClaudeSession {
     if (this.executionAdvisor)
       return Promise.resolve({ behavior: "deny", message: "Report questions or blockers to the parent Chat; execution agents cannot ask the human." });
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeQuestionResult("cancelled", input));
+    if (this.escalation) return Promise.resolve({ behavior: "deny", message: ONLY_READS });
     const request = claudeQuestionRequest(input, options);
     if (!request) return Promise.resolve(claudeQuestionResult("unshown", input));
     return new Promise((resolve) => {
@@ -552,7 +580,7 @@ class ClaudeSession {
   async setPermissionMode(permissionMode) {
     if (this.analysisOnly) return;
     this.permissions.setMode(permissionMode);
-    const mode = CLAUDE_MODES[permissionMode] ?? "default";
+    const mode = this.nativeMode(permissionMode);
     if (!this.query || this.closed || mode === this.mode) return;
     this.mode = mode;
     try {
@@ -644,6 +672,7 @@ class ClaudeSession {
     if (!this.turnActive) return;
     this.state.suggestionTurnId = event?.type === "turn-completed" && !this.steeredTurn ? this.state.turnId : null;
     this.turnActive = false;
+    this.escalation = null;
     this.lastTurnId = this.state.turnId;
     const markEnded = this.markEnded;
     clearTimeout(this.interruptTimer);

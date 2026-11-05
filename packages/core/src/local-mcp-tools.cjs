@@ -213,7 +213,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           },
           (args, operationId, assertActive) => host.startChat(args, operationId, assertActive, callerOf(connectionId), connectionLabel),
         ),
-        act("chat_stop", "Stop a Chat's running turn, as its Stop button does.", "start", chatInput, (args) => host.stopChat(args)),
+        act("chat_stop", "Stop a Chat's running turn, as its Stop button does.", "start", chatInput, (args) => host.stopChat(args, callerOf(connectionId))),
         act(
           "chat_set_mode",
           "Switch a running Chat's permission mode. More than the caller's own needs the user's approval. The call can wait minutes for the user's answer on that card: wait for its result, don't end the turn or move on.",
@@ -223,7 +223,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
         ),
         act(
           "chat_respond",
-          "Answer an approval or question another Chat waits on (requestId from chat_read). Approvals take decision; questions take answers (labels or typed text per question id, or null to dismiss). Unless the caller runs in Full permission, the user approves first. The call can wait minutes for the user's answer on that card: wait for its result, don't end the turn or move on.",
+          "Answer an approval or question another Chat waits on (requestId from chat_read). Approvals take decision; questions take answers (labels or typed text per question id, or null to dismiss). Unless the caller runs in Full permission, the user approves first. The call can wait minutes for the user's answer on that card: wait for its result, don't end the turn or move on. In your own family of Subchats: suggest: true with answers puts a card in this Chat for the human to send and returns at once, with no approval. That is all a Chat not in Full can do there; a Chat in Full may also answer a question alone. No agent answers a family member's approval or secret, or dismisses its question.",
           "start",
           {
             ...chatInput,
@@ -233,6 +233,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
               .record(z.string(), z.array(z.string().max(2000)).max(20))
               .nullable()
               .optional(),
+            suggest: z.boolean().optional(),
           },
           (args) => host.respond(args, callerOf(connectionId)),
         ),

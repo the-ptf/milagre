@@ -300,6 +300,77 @@ test("guarded turn denies push", async (t) => {
   assert.deepEqual(modes, ["auto_edit", "yolo"]);
 });
 
+const WAKE = { level: "escalation", requests: [{ chatId: "/p#2", requestId: "q1" }] };
+
+test("a wake's turn runs in Ask's mode and refuses commands, plan tools and pre-allowed edits, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const guarded = antigravity(t, { scenario: "guarded" });
+    await guarded.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(guarded.events);
+    assert.equal(replyText(guarded.events), "picked:deny picked:deny", permissionMode);
+    assert.equal(of(guarded.events, "permission-request").length, 0, permissionMode);
+    // Ask's mode is the agent's default, so nothing is switched, and Full never reaches yolo.
+    const modes = (await sent(guarded.session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
+    assert.deepEqual(modes, [], permissionMode);
+    assert.equal(guarded.session.permissions.mode, permissionMode, "the Chat's own mode stays for chat_respond");
+
+    const plan = antigravity(t, { scenario: "mcp-plan-tool" });
+    await plan.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(plan.events);
+    assert.equal(replyText(plan.events), "picked:deny", permissionMode);
+
+    const edit = antigravity(t, { scenario: "edit" });
+    await edit.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(edit.events);
+    assert.equal(of(edit.events, "permission-request").length, 0, permissionMode);
+  }
+});
+
+test("tool calls the agent runs without asking still count: past the grace the host stops the turn", async (t) => {
+  const { ESCALATION_TOOL_CALLS, ESCALATION_TOOL_GRACE } = require("@milagre/shared/subchat-escalation");
+  const { session, events } = antigravity(t, { scenario: "slow" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await waitUntil(() => of(events, "turn-started").length === 1);
+  const call = (toolCallId) =>
+    session.handleNotification("session/update", { update: { sessionUpdate: "tool_call", toolCallId, kind: "read", title: "view_file", status: "pending" } });
+  for (let index = 0; index < ESCALATION_TOOL_CALLS + ESCALATION_TOOL_GRACE; index++) call(`read-${index}`);
+  assert.equal(session.cancelRequested, false);
+  call("one-too-many");
+  assert.equal(session.cancelRequested, true);
+  await ended(events);
+});
+
+test("a wake's turn can't put a question to the user", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "question" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  assert.equal(of(events, "question-request").length, 0);
+  assert.equal(replyText(events), "picked:cancelled");
+});
+
+test("an agent that stays out of the strict mode gets no wake: the prompt is never sent", async (t) => {
+  const { session, events } = antigravity(t);
+  session.applyMode = async () => {
+    session.state.mode = "yolo";
+  };
+  const started = await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  assert.equal(started.cancelled, true);
+  assert.equal(started.turnId, null);
+  await ended(events);
+  assert.equal((await sent(session, "session/prompt")).length, 0);
+});
+
+test("the turn after a wake's is the Chat's own again", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "mcp-plan-tool" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events, 2);
+  const modes = (await sent(session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
+  assert.deepEqual(modes, ["yolo"]);
+  assert.equal(replyText(events), "picked:denypicked:allow");
+});
+
 test("a command that writes to GitHub is allowed once, never always", async (t) => {
   const { session, events } = antigravity(t, { scenario: "guarded" });
   await session.startTurn({ ...TURN, permissionMode: "ask" });

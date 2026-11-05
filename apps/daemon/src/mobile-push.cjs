@@ -245,6 +245,10 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
       else focus.set(deviceId, { chatId, until: now() + FOCUS_MS });
       return null;
     },
+    /** Whether a phone has `chatId` open now. */
+    viewing(chatId) {
+      return [...focus.values()].some((view) => view.chatId === chatId && view.until > now());
+    },
     observe(chatId, event) {
       if (closed || !Number.isSafeInteger(sessionIdFromKey(chatId)) || !validOwner(projectOfKey(chatId))) return;
       let run = chats.get(chatId);

@@ -2,24 +2,38 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession } from "../model";
 import type { AgentRun } from "./agent-runs.ts";
-import { subchatStates } from "./subchat-track.ts";
+import { subchatsNeedingYou, subchatStates } from "./subchat-track.ts";
 
 const session = (id: number, extra: Partial<AgentSession> = {}) => ({ id, parent: 1, title: `Chat ${id}`, ...extra }) as AgentSession;
 const sessions = (...list: AgentSession[]) => Object.fromEntries(list.map((item) => [item.id, item])) as unknown as Record<string, AgentSession>;
 const base = { parentKey: "/web#1", runs: {}, work: { delegations: [] }, routines: [], reports: new Map<string, string>(), now: 100_000 };
 
-test("subchatStates: only the parent's direct Subchats, oldest first, with their titles", () => {
+test("subchatStates: direct Subchats oldest first, then deeper ones naming the Chat that delegated to them", () => {
   const states = subchatStates({
     ...base,
     sessions: sessions(session(1, { parent: undefined }), session(3), session(2), session(4, { parent: 2 }), session(5, { archived: true })),
   });
   assert.deepEqual(
-    states.map((state) => [state.key, state.title, state.kind]),
+    states.map((state) => [state.key, state.title, state.kind, state.via]),
     [
-      ["/web#2", "Chat 2", "done"],
-      ["/web#3", "Chat 3", "done"],
+      ["/web#2", "Chat 2", "done", undefined],
+      ["/web#3", "Chat 3", "done", undefined],
+      ["/web#4", "Chat 4", "done", "Chat 2"],
     ],
   );
+});
+
+test("subchatsNeedingYou counts waiting Subchats at any depth", () => {
+  const asking = {
+    startedAt: 1,
+    approvals: [],
+    answered: {},
+    questions: [{ requestId: "q", questions: [{ id: "a", header: "", question: "Which?", options: [], multiSelect: false, allowOther: true, secret: false }] }],
+  } as unknown as AgentRun;
+  const all = sessions(session(1, { parent: undefined }), session(2), session(3, { parent: 2 }));
+  assert.equal(subchatsNeedingYou(all, { "/web#3": asking }, "/web#1"), 1);
+  assert.equal(subchatsNeedingYou(all, {}, "/web#1"), 0);
+  assert.equal(subchatsNeedingYou(undefined, {}, "/web#1"), 0);
 });
 
 test("subchatStates: a live run works, and a pending question needs the user", () => {

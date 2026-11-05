@@ -86,7 +86,9 @@ export function placeDropped(tiles: readonly string[], key: string, target: Pick
 }
 
 const PINS_KEY = "milagre.chatGridPins";
-const SPLIT_KEY = "milagre.chatSplit";
+// Bumped from "milagre.chatSplit" when a split stopped following focus: splits kept under the old key came from a Chat
+// taking its neighbour's slot, not from a choice, so they clear once instead of coming back.
+const SPLIT_KEY = "milagre.chatSplit2";
 
 function readKeys(storage: Pick<Storage, "getItem">, name: string): string[] {
   try {

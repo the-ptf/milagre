@@ -2727,3 +2727,199 @@ test("saving a new message clears suggestions before checkpoint preparation and 
   assert.equal(sent.suggestion, undefined);
   assert.equal(sent.suggestionTurnId, undefined);
 });
+
+const WAKE = { level: "escalation", requests: [{ chatId: `${ALPHA}#9`, requestId: "q1" }] };
+async function idleChat(h) {
+  const sent = await h.host.send(message(ALPHA, "first"));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  const session = h.session(ALPHA);
+  session.emit({ type: "session-started", nativeId: "native-1" });
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => !h.host.runs[chatId]);
+  return { chatId, sessionId: sent.sessionId, session };
+}
+
+test("a wake never steers: a busy Chat refuses it in the save, and nothing is written", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  const before = await h.states.get(ALPHA);
+  await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId: sent.sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  assert.equal(h.session(ALPHA).turns.length, 1, "no steer reached the agent");
+  const after = await h.states.get(ALPHA);
+  assert.equal(after.messages.length, before.messages.length);
+  assert.equal(after.sessions[sent.sessionId].queued, undefined);
+  assert.equal(h.host.wakeTurns.size, 0);
+});
+
+test("a wake also waits for messages queued in the Chat", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { sessionId } = await idleChat(h);
+  await h.states.update(ALPHA, (latest) => ({
+    ...latest,
+    sessions: { ...latest.sessions, [sessionId]: { ...latest.sessions[sessionId], queued: [{ id: "q", body: "next" }], queueHeld: true } },
+  }));
+  await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+});
+
+test("a wake leaves a scheduled usage-limit retry alone, and the retry still runs", async (t) => {
+  let clock = NOW;
+  const h = harness({ now: () => clock });
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), true);
+  const pending = (await h.states.load(ALPHA, [sessionId])).sessions[sessionId].limitResume;
+  await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  assert.deepEqual((await h.states.load(ALPHA, [sessionId])).sessions[sessionId].limitResume, pending);
+  clock += 180_000;
+  assert.equal(await h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId: pending.sendId }), true);
+});
+
+test("a wake also waits for a turn a quit stopped, or one a usage limit ended", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { sessionId } = await idleChat(h);
+  for (const owed of [{ resumeTurn: { stoppedAt: NOW } }, { limitTurn: { automatic: false } }]) {
+    await h.states.update(ALPHA, (latest) => ({ ...latest, sessions: { ...latest.sessions, [sessionId]: { ...latest.sessions[sessionId], ...owed } } }));
+    await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  }
+});
+
+test("an idle Chat starts a wake's turn with its guard, and the guard ends with that turn", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId, session } = await idleChat(h);
+  const context = { kind: "subchat-wake", requests: [] };
+  const sent = await h.host.send(message(ALPHA, "Milagre asked", { sessionId, guard: WAKE, idleOnly: true, prompt: "tell the human", context }));
+  await sent.started;
+  assert.deepEqual(session.turns.at(-1).guard, WAKE);
+  assert.equal(session.turns.at(-1).prompt, "tell the human");
+  assert.equal(h.host.wakeTurns.has(chatId), true);
+  assert.equal(h.host.turnSettings(chatId).guard, undefined, "a message on these settings is not the wake");
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => !h.host.runs[chatId]);
+  assert.equal(h.host.wakeTurns.has(chatId), false);
+});
+
+test("a message sent during a wake's turn queues behind it and runs unguarded, even on a provider that steers", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId, session } = await idleChat(h);
+  await (
+    await h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true }))
+  ).started;
+  const turns = session.turns.length;
+  const sent = await h.host.send(message(ALPHA, "the user's own", { sessionId }));
+  assert.equal(sent.queued, true);
+  assert.equal(session.turns.length, turns, "nothing was steered into the guarded turn");
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => session.turns.length === turns + 1);
+  assert.equal(session.turns.at(-1).prompt, "the user's own");
+  assert.equal(session.turns.at(-1).guard, undefined);
+  assert.equal(h.host.wakeTurns.has(chatId), false);
+});
+
+test("Send now on a message behind a wake's turn stops it instead of steering", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId, session } = await idleChat(h);
+  await (
+    await h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true }))
+  ).started;
+  await h.host.send(message(ALPHA, "queued", { sessionId }));
+  const { queued } = (await h.states.get(ALPHA)).sessions[sessionId];
+  const turns = session.turns.length;
+  assert.deepEqual(await h.host.sendQueuedNow(chatId, queued[0].id), { interrupt: true });
+  assert.equal(session.turns.length, turns);
+});
+
+test("a quit doesn't resume a wake's turn: the requests it was woken for end with the run", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { sessionId } = await idleChat(h);
+  await (
+    await h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true }))
+  ).started;
+  await h.host.suspendRunning();
+  await h.states.flush();
+  assert.equal((await h.states.get(ALPHA)).sessions[sessionId].resumeTurn, undefined);
+});
+
+test("a question open at a quit is asked again by the turn that resumes", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  const session = h.session(ALPHA);
+  session.emit({ type: "session-started", nativeId: "native-1" });
+  session.emit({
+    type: "question-request",
+    requestId: "q1",
+    questions: [{ id: "0", header: "", question: "Which badge?", options: [], multiSelect: false, allowOther: true, secret: false }],
+  });
+  await waitUntil(() => h.host.runs[chatId]?.questions.length === 1);
+  await h.host.suspendRunning();
+  await h.states.flush();
+  const saved = structuredClone(await h.states.get(ALPHA));
+  assert.deepEqual(saved.sessions[sent.sessionId].resumeTurn.openQuestions, ["Which badge?"]);
+  const restored = harness({ read: async () => saved });
+  t.after(() => restored.manager.closeAll());
+  await restored.host.resumeChat(ALPHA, sent.sessionId);
+  await waitUntil(() => restored.created[0]?.turns.length === 1);
+  const { prompt, openQuestions } = restored.created[0].turns[0];
+  assert.match(prompt, /You were waiting for the user's answer to "Which badge\?"/);
+  assert.match(prompt, /ask it again with your question tool/);
+  assert.equal(openQuestions, undefined);
+});
+
+test("a turn resumed with no open question hears nothing about one", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  h.session(ALPHA).emit({ type: "session-started", nativeId: "native-1" });
+  await waitUntil(async () => (await h.states.get(ALPHA)).sessions[sent.sessionId].native_session_id);
+  await h.host.suspendRunning();
+  await h.states.flush();
+  assert.equal((await h.states.get(ALPHA)).sessions[sent.sessionId].resumeTurn.openQuestions, undefined);
+});
+
+test("a note posted now lands where the turn stands, not when it ends", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  const session = h.session(ALPHA);
+  session.emit({ type: "turn-started", turnId: "t1" });
+  session.emit({ type: "text-delta", messageId: "m1", text: "Let me ask." });
+  await waitUntil(() => h.host.runs[chatId]?.text === "Let me ask.");
+  const context = { kind: "subchat-waiting", ask: "question", parentTitle: "Parent", waitedMs: 180_000 };
+  assert.equal(await h.host.postNow(chatId, { body: "Waiting 3 min.", context }), true);
+  const state = await h.states.get(ALPHA);
+  assert.deepEqual(chatMessages(state, sent.sessionId), [
+    { role: "user", body: "working" },
+    { role: "assistant", body: "Let me ask." },
+    { role: "assistant", body: "Waiting 3 min." },
+  ]);
+  assert.deepEqual(state.messages.at(-1).context, context);
+  assert.ok(h.host.runs[chatId], "the turn goes on");
+  assert.equal(h.published.at(-1).event.type, "answers-sent", "the windows split their run on the same event");
+  session.emit({ type: "text-delta", messageId: "m2", text: "Thanks." });
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => !h.host.runs[chatId]);
+  assert.deepEqual(chatMessages(await h.states.get(ALPHA), sent.sessionId).at(-1).body, "Thanks.");
+});
+
+test("a note posted in an idle Chat tells the windows, and can edit the Chat in the same save", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId } = await idleChat(h);
+  await h.host.postNow(chatId, { body: "line", context: { kind: "reload" } }, (session) => ({ ...session, openSuggestions: [{ id: "s1", fromTitle: "T" }] }));
+  assert.deepEqual(h.broadcasts.at(-1).state.sessions[sessionId].openSuggestions, [{ id: "s1", fromTitle: "T" }]);
+  assert.equal(await h.host.postNow(`${ALPHA}#404`, { body: "line", context: null }), false);
+});

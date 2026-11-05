@@ -12,6 +12,7 @@ const MILAGRE_TAGS = [
   "advisor_result",
   "linear_issue",
   "milagre_note",
+  "waiting_subchats",
   "untrusted-data",
 ];
 const TAG = new RegExp(`<(\\s*/?\\s*(?:${MILAGRE_TAGS.join("|")})\\b)`, "gi");

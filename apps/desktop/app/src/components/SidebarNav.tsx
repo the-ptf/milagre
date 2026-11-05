@@ -11,7 +11,6 @@ import {
   Fragment,
   memo,
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -107,7 +106,7 @@ import { undoHistory, type UndoAction } from "../lib/undo-history";
 import { DELETE_UNDO_MS } from "@milagre/shared/archive";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
-import { OpenSubchatContext, jumpChatRows, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
+import { activeFamilyRoot, useUnfoldActiveFamily, jumpChatRows, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
 
 type IconProps = { size?: IconSize; className?: string };
 
@@ -2118,18 +2117,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
           .forEach((row, at) => positions.set(row, at));
     return positions;
   }, [scopes, folds]);
-  // Subchats sit under their parent's row here too; pinned rows keep their place. A subchat's row opens it beside its parent.
-  const openSubchat = useContext(OpenSubchatContext);
-  const [subchatPicks] = useState(() => new Map<string, { onPick: (item: SidebarRecent) => void; pick: (item: SidebarRecent) => void }>());
-  const pickSubchatIn = (scopeKey: string, onPick: (item: SidebarRecent) => void) => {
-    const held = subchatPicks.get(scopeKey);
-    if (held?.onPick === onPick) return held.pick;
-    const pick = (item: SidebarRecent) => {
-      if (!openSubchat?.(`${scopeKey}#${item.id}`)) onPick(item);
-    };
-    subchatPicks.set(scopeKey, { onPick, pick });
-    return pick;
-  };
+  // Subchats sit under their parent's row here too; pinned rows keep their place.
   const shownFlat = useMemo(() => {
     const free = chats.filter((chat) => !chat.row.pinned);
     const nested = shownChats(free, {
@@ -2139,12 +2127,19 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
       asking: (chat) => subchatAsks(chat.row),
     });
     if (free.length === chats.length) return nested;
-    const pinned: (ShownRow & { item: (typeof chats)[number] })[] = chats.filter((chat) => chat.row.pinned).map((item) => ({ item, subchat: false }));
+    const pinned: (ShownRow & { item: (typeof chats)[number] })[] = chats.filter((chat) => chat.row.pinned).map((item) => ({ item, subchat: false, depth: 0 }));
     return [...pinned, ...nested];
   }, [chats, folds]);
+  const flatKeys = {
+    key: (chat: (typeof chats)[number]) => `${chat.scopeKey}#${chat.row.id}`,
+    parent: (chat: (typeof chats)[number]) => (chat.row.parent === undefined ? undefined : `${chat.scopeKey}#${chat.row.parent}`),
+  };
+  const isFlatActive = (chat: (typeof chats)[number]) => scopes.get(chat.scopeKey)?.list.isActive(chat.row) ?? false;
+  const activeFlat = chats.find(isFlatActive);
+  useUnfoldActiveFamily(activeFamilyRoot(chats, flatKeys, isFlatActive), activeFlat && flatKeys.key(activeFlat));
   return (
     <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px" onPointerDown={startDrag}>
-      {shownFlat.map(({ item: { scopeKey, row, offline }, subchat, family }) => {
+      {shownFlat.map(({ item: { scopeKey, row, offline }, subchat, depth, family }) => {
         const scope = scopes.get(scopeKey)!;
         const { list } = scope;
         const position = list.showHints ? (hintPositions.get(row) ?? -1) : -1;
@@ -2157,7 +2152,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               collapsed={false}
               actions={actionsOf(scopeKey, scope)}
               shortcutHint={position >= 0 && position < 9 ? keys.jump(position) : undefined}
-              onPick={subchat ? pickSubchatIn(scopeKey, list.onPick) : list.onPick}
+              onPick={list.onPick}
               onHover={list.onHover}
               computer={list.computer}
               show={list.show}
@@ -2166,6 +2161,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               bot={botMarks.get(key)}
               chatKey={key}
               subchat={subchat}
+              depth={depth}
               family={family}
               project={inbox ? scope.name : undefined}
               dragging={dragging === key}
@@ -2262,17 +2258,13 @@ function ChatList({
   // Subchats sit under their parent's row, unless the sidebar is a rail of icons.
   const folds = useSubchatFolds();
   const shownRest = useMemo(
-    () => (collapsed ? rest.map((item) => ({ item, subchat: false })) : shownChats(rest, { ...rowKeys(scopeKey), folded: folds, asking: subchatAsks })),
+    () =>
+      collapsed ? rest.map((item) => ({ item, subchat: false, depth: 0 })) : shownChats(rest, { ...rowKeys(scopeKey), folded: folds, asking: subchatAsks }),
     [rest, folds, collapsed, scopeKey],
   );
-  // A subchat's row opens it beside its parent.
-  const openSubchat = useContext(OpenSubchatContext);
-  const pickSubchat = useCallback(
-    (item: SidebarRecent) => {
-      if (!openSubchat?.(`${scopeKey}#${item.id}`)) onPick(item);
-    },
-    [openSubchat, scopeKey, onPick],
-  );
+  // Whatever opened a subchat (the pill, the bookmark, a notification), its family unfolds so its row shows selected.
+  const activeRow = rest.find(isActive);
+  useUnfoldActiveFamily(collapsed ? undefined : activeFamilyRoot(rest, rowKeys(scopeKey), isActive), activeRow && `${scopeKey}#${activeRow.id}`);
   const byId = (id: string | null) => recents.find((item) => item.id === id);
   const otherList = (scope: string | undefined) => (scope === undefined ? undefined : sidebarLinks.lists().find((handle) => handle.scopeKey === scope));
 
@@ -2608,8 +2600,9 @@ function ChatList({
       key={item.id}
       item={item}
       subchat={shown?.subchat}
+      depth={shown?.depth}
       family={shown?.family}
-      onPick={shown?.subchat ? pickSubchat : onPick}
+      onPick={onPick}
       active={isActive(item)}
       collapsed={collapsed}
       actions={rowActions}

@@ -32,6 +32,7 @@ export function PillMorph({
   expanded = false,
   className = "",
   anchor = "right",
+  onActivate,
   pill,
   children,
 }: {
@@ -58,6 +59,11 @@ export function PillMorph({
   className?: string;
   /** The pill corner the panel hangs from: the bottom-right (opens to the left) or, for a pill at the row's left, the bottom-left. */
   anchor?: "left" | "right";
+  /**
+   * A tap on the pill does this instead of opening the panel: the pill stays one button, so a pill that names the one thing
+   * it counts (the Subchats pill with a single question) can take you straight there.
+   */
+  onActivate?: () => void;
   pill: Omit<ComponentProps<typeof StatusPill>, "ref" | "bare" | "onClick">;
   /** The panel; as a function it gets a close that hands focus back to the pill, for the panel's own close control. */
   children: ReactNode | ((close: () => void) => ReactNode);
@@ -65,7 +71,7 @@ export function PillMorph({
   return (
     <AnimatePresence initial={false}>
       {shown && (
-        <Morph key={slot} {...{ slot, panelSlot, title, tooltip, opened, onOpenChange, width, height, fill, expanded, className, anchor, pill }}>
+        <Morph key={slot} {...{ slot, panelSlot, title, tooltip, opened, onOpenChange, width, height, fill, expanded, className, anchor, onActivate, pill }}>
           {children}
         </Morph>
       )}
@@ -86,6 +92,7 @@ function Morph({
   expanded,
   className,
   anchor = "right",
+  onActivate,
   pill,
   children,
 }: Omit<ComponentProps<typeof PillMorph>, "shown">) {
@@ -203,10 +210,11 @@ function Morph({
           <StatusPill
             ref={trigger}
             bare
-            aria-haspopup="dialog"
-            aria-expanded={opened}
-            aria-controls={panelId}
+            aria-haspopup={onActivate ? undefined : "dialog"}
+            aria-expanded={onActivate ? undefined : opened}
+            aria-controls={onActivate ? undefined : panelId}
             onClick={() => {
+              if (onActivate) return onActivate();
               fit();
               onOpenChange(true);
             }}
