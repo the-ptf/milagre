@@ -183,6 +183,8 @@ function makeBridge(invoke, listen, send) {
     saveFilesToCopy: (projectPath, patterns) => invoke("files-to-copy:save", projectPath, patterns),
     readWorktreeSetup: (projectPath) => invoke("worktree-setup:read", projectPath),
     saveWorktreeSetup: (projectPath, command) => invoke("worktree-setup:save", projectPath, command),
+    readProjectGit: (projectPath) => invoke("project-git:read", projectPath),
+    saveProjectGit: (projectPath, value) => invoke("project-git:save", projectPath, value),
     readMainSync: (projectPath) => invoke("main-sync:read", projectPath),
     saveMainSync: (projectPath, override) => invoke("main-sync:save", projectPath, override),
     readMainSyncDefault: () => invoke("main-sync:default:read"),
