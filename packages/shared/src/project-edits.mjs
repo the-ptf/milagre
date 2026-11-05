@@ -51,7 +51,11 @@ export function renameWorktree(state, { path, from, name }) {
       session.worktree_id === worktree.id && session.agent_name === from ? { ...session, agent_name: name } : session,
     ]),
   );
-  return { ...state, worktrees: { ...state.worktrees, [worktree.id]: { ...worktree, name } }, sessions };
+  return {
+    ...state,
+    worktrees: { ...state.worktrees, [worktree.id]: { ...worktree, name, ...(worktree.generatedBranch === from ? { generatedBranch: name } : {}) } },
+    sessions,
+  };
 }
 
 /** Whether a subagent has ended, so "Archive finished" may hide it. */

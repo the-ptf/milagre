@@ -95,6 +95,17 @@ function createProjectSettings(file) {
   }
 
   return {
+    async getGit(projectPath) {
+      return (await read({ strict: true })).projects[path.resolve(projectPath)]?.git ?? {};
+    },
+    async setGit(projectPath, value) {
+      const { branchPolicyFields } = require("@milagre/shared/branch-policy");
+      const fields = branchPolicyFields(value);
+      await update(projectPath, (entry) => {
+        if (Object.keys(fields).length) entry.git = fields;
+        else delete entry.git;
+      });
+    },
     async get(projectPath) {
       const entry = (await read({ strict: false })).projects[path.resolve(projectPath)] ?? {};
       return { filesToCopy: normalizeFilesToCopy(entry.filesToCopy), setupCommand: normalizeSetupCommand(entry.setupCommand), icon: normalizeIcon(entry.icon) };

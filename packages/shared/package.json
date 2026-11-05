@@ -479,6 +479,10 @@
     "./design-preview": {
       "types": "./src/design-preview.d.mts",
       "default": "./src/design-preview.mjs"
+    },
+    "./branch-policy": {
+      "types": "./src/branch-policy.d.mts",
+      "default": "./src/branch-policy.mjs"
     }
   },
   "scripts": {

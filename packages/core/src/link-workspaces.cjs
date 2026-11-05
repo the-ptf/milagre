@@ -1,5 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { branchTicket } = require("@milagre/shared/branch-policy");
+const { resolveBranchPolicy, availablePolicyBranch } = require("./branch-policy.cjs");
 const { createGit } = require("./git/client.cjs");
 const { createWorktree: create, slugify, DEFAULT_WORKTREE_ROOT } = require("./worktrees.cjs");
 const { resolveSetupCommand, runSetupCommand } = require("./worktree-setup.cjs");
@@ -88,11 +90,12 @@ function createLinkWorkspaces({
   // place in the Link, so its alias and branch suffix stay the same whichever Project the Chat edits first.
   async function reserve(prep, project, index) {
     const settings = await getSettings(project.path);
-    const base = (await git.read.resolveBase(project.path)).ref ?? "HEAD";
+    const policy = settings.git ?? (await resolveBranchPolicy(project.path)).effective;
+    const base = policy.baseBranch || (await git.read.resolveBase(project.path)).ref || "HEAD";
     const suffix = `${prep.operationId.slice(0, 8)}${index}`;
     const name = `${slugify(prep.prompt) || "chat"}-${suffix}`;
     const worktreePath = path.join(root, path.basename(project.path), name);
-    if (await git.read.refExists(project.path, `refs/heads/milagre/${name}`)) throw new Error(`Project ${project.name}: branch already exists`);
+    const branch = await availablePolicyBranch(project.path, policy, { slug: prep.prompt || "chat", ticket: branchTicket(prep.prompt), suffix });
     try {
       await fs.lstat(worktreePath);
       throw new Error(`Project ${project.name}: Worktree folder already exists`);
@@ -105,7 +108,8 @@ function createLinkWorkspaces({
       projectPath: project.path,
       projectName: project.name,
       worktreePath,
-      branch: `milagre/${name}`,
+      branch,
+      trackBase: policy.trackBase,
       base,
       initialCommit: await git.read.commitOf(project.path, base),
       suffix,
@@ -129,6 +133,9 @@ function createLinkWorkspaces({
         const created = await createWorktree({
           projectPath: member.projectPath,
           baseBranch: member.base,
+          branch: member.branch,
+          folderSlug: slugify(prep.prompt) || "chat",
+          trackBase: member.trackBase === true,
           root,
           suffix: member.suffix,
           prompt: prep.prompt,
