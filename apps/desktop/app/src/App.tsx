@@ -1700,7 +1700,7 @@ function App() {
     [state?.sessions, project?.path],
   );
   useEffect(() => {
-    if (!project || selectedLink || selectedSessionId !== null) return;
+    if (!project || selectedLink) return;
     void window.milagre
       .syncNotifications({
         projectPath: project.path,
