@@ -1,6 +1,42 @@
 // @ts-check
 const { isChannelNotPublished, isNewerRelease } = require("./release-channel.cjs");
 
+/**
+ * An updater that loads on the first check: electron-updater takes tens of milliseconds to require, and nothing needs it
+ * while the app launches. Settings and listeners made before then wait for it.
+ * @param {() => any} load
+ */
+function deferUpdater(load) {
+  let updater = null;
+  /** @type {((updater: any) => void)[]} */
+  const waiting = [];
+  const whenLoaded = (apply) => (updater ? apply(updater) : waiting.push(apply));
+  const loaded = () => {
+    if (!updater) {
+      updater = load();
+      for (const apply of waiting.splice(0)) apply(updater);
+    }
+    return updater;
+  };
+  return {
+    loaded,
+    set autoDownload(value) {
+      whenLoaded((target) => {
+        target.autoDownload = value;
+      });
+    },
+    set autoInstallOnAppQuit(value) {
+      whenLoaded((target) => {
+        target.autoInstallOnAppQuit = value;
+      });
+    },
+    on: (event, listener) => void whenLoaded((target) => target.on(event, listener)),
+    checkForUpdates: () => loaded().checkForUpdates(),
+    downloadUpdate: () => loaded().downloadUpdate(),
+    quitAndInstall: () => loaded().quitAndInstall(),
+  };
+}
+
 /** One updater owns downloads, background checks, and explicit host shutdown for installation. */
 function createAppUpdates({ updater, enabled, prepare, stopHost, publish, now = Date.now }) {
   /** @type {import('../app/src/electron').UpdateState} */
@@ -161,4 +197,4 @@ function watchAppUpdates(
   });
   refresh();
 }
-module.exports = { createAppUpdates, createAutoInstall, watchAppUpdates, INPUT_IDLE_SECONDS };
+module.exports = { deferUpdater, createAppUpdates, createAutoInstall, watchAppUpdates, INPUT_IDLE_SECONDS };

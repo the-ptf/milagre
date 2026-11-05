@@ -17,10 +17,10 @@ const {
   screen,
   session: electronSession,
 } = require("electron");
-const { autoUpdater } = require("electron-updater");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { connectDesktopRuntime } = require("./daemon-runtime.cjs");
+const { ensureDaemon } = require("@milagre/daemon/bootstrap");
 const { loadLoginEnvironment } = require("@milagre/core/agents/environment");
 const { detectEditors, openInEditor, requireWorktreeRoot } = require("@milagre/core/editors");
 const { copyImage, saveImage } = require("./generated-images.cjs");
@@ -56,6 +56,17 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 async function startDesktop() {
+  // The host starts while Electron finishes launching; connecting to it below takes this start.
+  const hostOptions = {
+    dataDir: app.getPath("userData"),
+    version: app.getVersion(),
+    cwd: process.cwd(),
+    worktreeRoot: !app.isPackaged ? process.env.MILAGRE_WORKTREE_ROOT : undefined,
+    chatsHome: !app.isPackaged ? process.env.MILAGRE_CHATS_HOME : undefined,
+  };
+  /** @type {ReturnType<typeof ensureDaemon> | null} */
+  let startingHost = ensureDaemon(hostOptions);
+  startingHost.catch(() => {}); // the connect below reports it
   /** @type {Electron.BrowserWindow | null} */
   let mainWindow = null;
   // Computer use: the agent cursor, made on first use (agent-cursor.cjs).
@@ -188,12 +199,13 @@ async function startDesktop() {
   protocol.handle("milagre-artifact", (request) => previews.handle(request));
   const appIconPath = path.join(__dirname, "../app/public/logo-milagre-image.png");
   const { createReleaseChannelStore, prepareUpdater } = require("./release-channel.cjs");
-  const { createAppUpdates, createAutoInstall, watchAppUpdates } = require("./app-updates.cjs");
+  const { createAppUpdates, createAutoInstall, deferUpdater, watchAppUpdates } = require("./app-updates.cjs");
+  const updater = deferUpdater(() => require("electron-updater").autoUpdater);
   const releaseChannel = createReleaseChannelStore({ file: path.join(app.getPath("userData"), "release-channel.json") });
   const updates = createAppUpdates({
-    updater: autoUpdater,
+    updater,
     enabled: app.isPackaged,
-    prepare: () => prepareUpdater(autoUpdater, releaseChannel.get()),
+    prepare: () => prepareUpdater(updater.loaded(), releaseChannel.get()),
     stopHost: async () => {
       await runtime.close({ stopHost: true });
       await prepareQuit();
@@ -432,15 +444,40 @@ async function startDesktop() {
   const linearSignIn = createLinearSignInWindow({ BrowserWindow, shell, cancel: () => void runtime?.invoke("linear:cancel", []).catch(() => {}) });
   let signInRequested = false;
   let signInAttempt = 0; // only the newest connect may close or finish the window
+  const { getWindowState, manageWindowState } = require("./window-state.cjs");
+  let quitting = false;
+  let confirmingQuit = false;
+  // A quit asked for before the host answers, when the handler that prepares one isn't there yet, still closes the window.
+  app.on("before-quit", () => {
+    quitting = true;
+  });
+  // The window opens now, so its splash paints while the host connects. Its calls wait in the preload for hostConnected.
+  /** @type {() => void} */
+  let hostConnected = () => {};
+  const hostReady = new Promise((resolve) => {
+    hostConnected = () => resolve(undefined);
+  });
+  electronIpcMain.handle("app:host-ready", () => hostReady);
+  protocol.handle(
+    "milagre-media",
+    createMediaHandler((url, options) => net.fetch(url, options)),
+  );
+  app.setName("Milagre");
+  createWindow();
+  if (process.platform === "darwin" && app.dock) {
+    const appIcon = nativeImage.createFromPath(appIconPath);
+    if (!appIcon.isEmpty()) background.setDockIcon(appIcon);
+  }
   try {
     runtime = await connectDesktopRuntime({
-      dataDir: app.getPath("userData"),
-      version: app.getVersion(),
+      ...hostOptions,
       requiredCapabilities: ["computer-management-v1"],
       outdatedMessage: "Restart Milagre's background host to enable computer management.",
-      cwd: process.cwd(),
-      worktreeRoot: !app.isPackaged ? process.env.MILAGRE_WORKTREE_ROOT : undefined,
-      chatsHome: !app.isPackaged ? process.env.MILAGRE_CHATS_HOME : undefined,
+      startHost: (options) => {
+        const started = startingHost;
+        startingHost = null;
+        return started ?? ensureDaemon(options);
+      },
       emit(channel, payload) {
         if (channel === "desktop:request") {
           void nativeCommands.receive(payload);
@@ -495,6 +532,7 @@ async function startDesktop() {
     console.error("Milagre cannot open its saved state:", error);
     void app.whenReady().then(() => {
       dialog.showErrorBox("Milagre cannot open its saved state", error instanceof Error ? error.message : String(error));
+      quitting = true;
       app.quit();
     });
     return;
@@ -606,7 +644,6 @@ async function startDesktop() {
   });
   // This Mac's side of openProjectAt; a paired computer's goes through computers:invoke as project:open.
   ipcMain.handle("project:open-at", (_event, folder) => runtime.openProject(String(folder)));
-  const { getWindowState, manageWindowState } = require("./window-state.cjs");
   function createWindow() {
     const { state, statePath } = getWindowState();
     const chrome = windowChrome(process.platform, app.commandLine.getSwitchValue("window-decoration") === "overlay");
@@ -665,18 +702,11 @@ async function startDesktop() {
   }
 
   app.whenReady().then(async () => {
-    protocol.handle(
-      "milagre-media",
-      createMediaHandler((url, options) => net.fetch(url, options)),
-    );
-    app.setName("Milagre");
-    if (process.platform === "darwin" && app.dock) {
-      const appIcon = nativeImage.createFromPath(appIconPath);
-      if (!appIcon.isEmpty()) background.setDockIcon(appIcon);
-    }
-    createWindow();
+    hostConnected();
     void runtime.resumeRecentProjects().catch((error) => console.warn(error.message));
     void deviceNotices.connected();
+    // The window opened before the host answered, so it may have taken focus already.
+    if (mainWindow?.isFocused()) void runtime.setFocused(true).catch(() => {});
     app.on("browser-window-focus", (_event, window) => {
       if (floating.owns(window)) return;
       void runtime.setFocused(true).catch(() => {});
@@ -704,7 +734,6 @@ async function startDesktop() {
   });
 
   // Flushes accepted changes and disconnects desktop. The host and agents keep running.
-  let quitting = false;
   /** @type {Promise<void> | null} */
   let quitPrepared = null;
   function prepareQuit() {
@@ -741,7 +770,6 @@ async function startDesktop() {
     },
   });
   // ⌘Q asks first. Quitting from the dock, the menu, an update or a logout does not.
-  let confirmingQuit = false;
   /** @param {Electron.BrowserWindow} window */
   async function confirmQuit(window) {
     if (confirmingQuit) return;

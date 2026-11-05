@@ -110,7 +110,8 @@ import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests
 import { associatedPullRequest } from "@milagre/shared/chats";
 import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
-import { StartupSplash } from "./components/StartupSplash";
+import { AppSplash } from "./components/StartupSplash";
+import { useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
 import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
@@ -3161,18 +3162,10 @@ function App() {
   );
 
   // Fast loads would cut the startup animation off at the bare legs, so the splash stays until the logo is whole,
-  // then fades out over the app while the panes slide in. Same key in both trees keeps the logo from restarting.
-  const [splash, setSplash] = useState<"intro" | "done" | "gone">("intro");
+  // then fades out over the app while the panes slide in. main.tsx draws it; each tree here says whether it may go.
+  const { phase: splash } = useSplash();
   const [appEntered, setAppEntered] = useState(false);
-  const splashOverlay = (leaving: boolean) =>
-    splash === "gone" ? null : (
-      <StartupSplash
-        key="startup-splash"
-        leaving={leaving}
-        onIntroEnd={() => setSplash((current) => (current === "intro" ? "done" : current))}
-        onLeft={() => setSplash("gone")}
-      />
-    );
+  const splashOverlay = (leaving: boolean) => (splash === "gone" ? null : <AppSplash key="startup-splash" leaving={leaving} />);
 
   if (!loading && !project && onboarding)
     return (
