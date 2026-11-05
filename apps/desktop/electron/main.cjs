@@ -463,6 +463,13 @@ async function startDesktop() {
     createMediaHandler((url, options) => net.fetch(url, options)),
   );
   app.setName("Milagre");
+  // Before the window: closing it only hides it, so a Dock click during the connect has to bring it back.
+  app.on("activate", () => {
+    if (floating.owns(BrowserWindow.getFocusedWindow())) return;
+    const window = mainWindow;
+    if (window) window.show();
+    else createWindow();
+  });
   createWindow();
   if (process.platform === "darwin" && app.dock) {
     const appIcon = nativeImage.createFromPath(appIconPath);
@@ -719,12 +726,6 @@ async function startDesktop() {
     readKeybindings();
     if (app.isPackaged) watchAppUpdates(updates, { app, powerMonitor, autoInstall });
     else void updates.check();
-    app.on("activate", () => {
-      if (floating.owns(BrowserWindow.getFocusedWindow())) return;
-      const window = mainWindow;
-      if (window) window.show();
-      else createWindow();
-    });
   });
 
   // Only a quit closes the last window on macOS; elsewhere closing it quits.

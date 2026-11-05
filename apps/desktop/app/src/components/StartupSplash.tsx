@@ -1,5 +1,5 @@
 import { useLayoutEffect } from "react";
-import { isSplashDrawnFirst, setSplashLeaving, splashIntroEnded, splashLeft, useSplash } from "../lib/startup-splash";
+import { holdSplash, isSplashDrawnFirst, setSplashLeaving, splashIntroEnded, splashLeft, useSplash } from "../lib/startup-splash";
 
 type Props = { leaving?: boolean; onIntroEnd?: () => void; onLeft?: () => void };
 
@@ -24,12 +24,13 @@ function StartupSplash({ leaving = false, onIntroEnd, onLeft }: Props) {
 
 /** The splash over everything, from before the app has loaded until it has faded out. */
 export function BootSplash() {
-  const { phase, leaving } = useSplash();
-  return phase === "gone" ? null : <StartupSplash leaving={leaving} onIntroEnd={splashIntroEnded} onLeft={splashLeft} />;
+  const { phase, leaving, shown } = useSplash();
+  return phase === "gone" || !shown ? null : <StartupSplash leaving={leaving} onIntroEnd={splashIntroEnded} onLeft={splashLeft} />;
 }
 
-/** Where the app says the splash may fade out over what it renders. */
+/** Where the app keeps the splash up, and says whether it may fade out over what it renders. */
 export function AppSplash({ leaving }: { leaving: boolean }) {
+  useLayoutEffect(holdSplash, []);
   useLayoutEffect(() => setSplashLeaving(leaving), [leaving]);
   return isSplashDrawnFirst() ? null : <BootSplash />;
 }

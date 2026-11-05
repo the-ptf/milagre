@@ -111,7 +111,7 @@ import { associatedPullRequest } from "@milagre/shared/chats";
 import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
 import { AppSplash } from "./components/StartupSplash";
-import { useSplash } from "./lib/startup-splash";
+import { settleSplash, useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
 import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
@@ -3166,6 +3166,7 @@ function App() {
   const { phase: splash } = useSplash();
   const [appEntered, setAppEntered] = useState(false);
   const splashOverlay = (leaving: boolean) => (splash === "gone" ? null : <AppSplash key="startup-splash" leaving={leaving} />);
+  useLayoutEffect(settleSplash);
 
   if (!loading && !project && onboarding)
     return (
