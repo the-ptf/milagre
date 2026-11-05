@@ -91,6 +91,7 @@ import type {
   PermissionDecision,
   PermissionMode,
   QuestionAnswers,
+  QuestionImages,
   SkillCatalog,
   UsageSnapshot,
   LinkIssueResult,
@@ -746,7 +747,7 @@ export type MilagreBridge = {
   getMessage: (scope: string, id: number) => Promise<ChatMessage>;
   respondToPermission: (chatId: string, requestId: string, decision: PermissionDecision) => Promise<boolean>;
   /** Sends the answers to a question card, or dismisses it (null). False when the question is gone. */
-  answerQuestion: (chatId: string, requestId: string, answers: QuestionAnswers | null, summary?: string) => Promise<boolean>;
+  answerQuestion: (chatId: string, requestId: string, answers: QuestionAnswers | null, summary?: string, images?: QuestionImages) => Promise<boolean>;
   setAgentPermissionMode: (chatId: string, mode: PermissionMode) => Promise<void>;
   /** Each agent's model list as its CLI reports it, asked once per app run; null for an agent that couldn't be asked. */
   listAccountScopes: () => Promise<ProjectAccountScope[]>;

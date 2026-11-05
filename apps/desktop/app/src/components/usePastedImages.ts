@@ -17,7 +17,7 @@ function isAttachableImage(file: File): boolean {
   return TYPES.has(file.type) && file.size <= MAX_ATTACHMENT_BYTES;
 }
 
-function readImage(file: File): Promise<ImageAttachment> {
+export function readImage(file: File): Promise<ImageAttachment> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => resolve({ id: crypto.randomUUID(), name: file.name || "Pasted image", dataUrl: String(reader.result) }));

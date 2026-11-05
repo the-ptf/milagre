@@ -2501,19 +2501,29 @@ function createRuntime(options) {
   // The answers show in the chat as the user's message (`summary`), and are taken back if they don't reach the agent.
   // The message is queued before the answers go out, so the agent's next reply lands below it, but the agent doesn't wait
   // for it: the Project's queue holds every Chat's changes, and a busy one kept the card up for seconds.
-  commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary } = {}) => {
+  // Images attached to an answer are stored first: the agent gets their paths in that question's answer, and the
+  // answers message shows them.
+  commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary, images } = {}) => {
     // Route even stale secret ids here: a late/replayed value must never reach chat persistence.
     if (require("./chat-secrets.cjs").isSecretRequest(requestId)) return chatSecrets.answer(chatId, requestId, answers);
+    const { answerImages, withAnswerImages } = require("./agents/questions.cjs");
+    const attached = answers ? answerImages(images) : {};
+    // A phone uploads its photos first and sends their paths, as a send does: their bytes are read back here.
+    for (const [id, list] of Object.entries(attached))
+      attached[id] = (await mobileUploads.resolveImages(projectOfKey(chatId), list)).map(({ id: imageId, name, dataUrl }) => ({ id: imageId, name, dataUrl }));
+    const stored = Object.keys(attached).length ? await chats.storeAnswerImages(chatId, attached) : {};
+    const { agent, shown } = withAnswerImages(answers, stored);
+    const storedImages = Object.values(stored).flat();
     const recorded =
       answers && typeof summary === "string" && summary && typeof chatId === "string" && scopeStates.has(projectOfKey(chatId))
-        ? chats.recordAnswers(chatId, summary, { requestId, answers }).catch((error) => {
+        ? chats.recordAnswers(chatId, summary, { requestId, answers: shown, images: storedImages }).catch((error) => {
             console.warn("Milagre couldn't show the answers:", error.message);
             return null;
           })
         : Promise.resolve(null);
     let accepted;
     try {
-      accepted = await agents.answerQuestion(chatId, requestId, answers);
+      accepted = await agents.answerQuestion(chatId, requestId, answers && agent);
     } catch (error) {
       const messageId = await recorded;
       if (messageId !== null) await chats.takeBack(chatId, messageId);

@@ -822,7 +822,7 @@ class ChatHost {
    * Resolves with the message's id, or null when there's nothing to show. The change is queued when this is called, so
    * the answers can go to the agent at once: whatever it streams next is folded after them.
    */
-  async recordAnswers(chatId, body, { requestId, answers } = {}) {
+  async recordAnswers(chatId, body, { requestId, answers, images } = {}) {
     const projectPath = projectOfKey(chatId);
     let messageId = null;
     let seq;
@@ -831,7 +831,7 @@ class ChatHost {
       projectPath,
       (latest) => {
         const request = this.runs[chatId]?.questions.find((item) => item.requestId === requestId);
-        const result = recordAnswers(latest, this.runs, projectPath, chatId, body, answeredQuestions(request, answers));
+        const result = recordAnswers(latest, this.runs, projectPath, chatId, body, answeredQuestions(request, answers), images);
         if (result.messageId === null) return latest;
         added = result.state.messages.slice(latest.messages.length).filter((message) => message.role === "assistant");
         this.runs = result.runs;
@@ -847,6 +847,15 @@ class ChatHost {
     void this.states.flush(projectPath).catch((error) => console.warn("Milagre couldn't save the answers:", error.message));
     await this.captureImages(projectPath, state, added);
     return messageId;
+  }
+
+  /** Stores the images attached to a question's answers (question id -> images with data URLs), as a send stores its own. */
+  async storeAnswerImages(chatId, images) {
+    const projectPath = projectOfKey(chatId);
+    const directory = this.states.storageDirectory?.(projectPath) ?? projectPath;
+    const stored = {};
+    for (const [id, list] of Object.entries(images)) stored[id] = await storeImages(directory, list);
+    return stored;
   }
 
   /** Removes a message again, such as answers that never reached the agent. */

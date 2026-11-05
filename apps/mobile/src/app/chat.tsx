@@ -70,7 +70,15 @@ import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { chatMentionChoices, shiftImageMentions, type MentionComputer } from "@milagre/shared/prompt-mentions";
-import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
+import {
+  addMention,
+  appendAttachments,
+  appendImageMentions,
+  attachmentPrompt,
+  mentionAttachments,
+  prepareAnswerImages,
+  prepareAttachments,
+} from "../attachments";
 import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "../status-indicators";
 import { usePrDetail } from "../pr-store";
 import { openThreads } from "@milagre/shared/pull-request-review";
@@ -124,7 +132,7 @@ import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-lin
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
-import { Approval, ActivityQuestions } from "../questions";
+import { Approval, ActivityQuestions, answersWithImages } from "../questions";
 import { QueuedMessages } from "../queued-messages";
 import { followUpDelivery } from "@milagre/shared/queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
@@ -2629,15 +2637,32 @@ function ChatPane({
                           key={question.requestId}
                           request={question}
                           busy={actionBusy || answering}
-                          submit={(answers, summary) => {
-                            const answered = answeredQuestions(question, answers);
+                          dictationChat={
+                            worktree?.path || !project.link
+                              ? { client, cwd: worktree?.path || project.path, chatTitle: title, provider: chat?.provider ?? actualProvider, chatId: chat?.id }
+                              : undefined
+                          }
+                          submit={(answers, summary, images) => {
+                            const answered = answeredQuestions(question, answers && answersWithImages(answers, images));
+                            const photos = Object.values(images ?? {}).flatMap((list) => list.flatMap((item) => (item.image ? [item.image] : [])));
                             setSentAnswers({
                               requestId: question.requestId,
-                              message: answered && { id: -1, session_id: Number(params.id), body: summary, context: null, role: "user", answered },
+                              message: answered && {
+                                id: -1,
+                                session_id: Number(params.id),
+                                body: summary,
+                                context: null,
+                                role: "user",
+                                answered,
+                                ...(photos.length ? { images: photos } : {}),
+                              },
                               count: messages.length,
                             });
                             void action(async () => {
-                              const accepted = await client.call("agent:answer-question", [{ chatId, requestId: question.requestId, answers, summary }]);
+                              const uploaded = await prepareAnswerImages(client, projectOfKey(chatId), images);
+                              const accepted = await client.call("agent:answer-question", [
+                                { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}) },
+                              ]);
                               if (!accepted) throw new Error("This question is no longer pending. Refresh the Chat.");
                             }, true).then((ok) => {
                               if (!ok) setSentAnswers((current) => (current?.requestId === question.requestId ? null : current));
