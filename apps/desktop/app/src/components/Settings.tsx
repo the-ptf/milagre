@@ -1,3 +1,4 @@
+import { ProjectGitSettings } from "./ProjectGitSettings";
 import { permissionPresentation } from "@milagre/shared/model-copy";
 import { ContextSettings } from "./ContextSettings";
 import { useContextSettings } from "../lib/context-settings";
@@ -312,7 +313,7 @@ export function SettingsNav({
         key: `project:${row.path}`,
         page: "project",
         title: row.name,
-        keywords: "project worktree setup",
+        keywords: "project worktree setup git branch naming template prefix base upstream tracking conventions",
         icon: (
           <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-surface">
             <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
@@ -2783,6 +2784,7 @@ function ProjectSettings({ project, onManageAccounts }: { project: SettingsProje
       <Group title="Worktrees">
         <MainSyncSetting projectPath={project.path} />
       </Group>
+      <ProjectGitSettings projectPath={project.path} />
       <Group title="New worktrees">
         <FilesToCopy projectPath={project.path} />
         <SetupCommand projectPath={project.path} />

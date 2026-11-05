@@ -1,3 +1,4 @@
+import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat, startOutbox } from "./lib/outbox";
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { OfflineTray, useOfflineTray } from "./components/OfflineTray";
@@ -531,6 +532,8 @@ function App() {
   const [, setBranchesRead] = useState(0);
   const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
+  const [baseOverride, setBaseOverride] = useState<string | null>(null);
+  const [projectGit, setProjectGit] = useState<{ path: string; base: string } | null>(null);
   const [newChatError, setNewChatError] = useState<string | null>(null);
   // A short message about something that happened off to the side (a worktree that wouldn't go).
   const [quitError, setQuitError] = useState<string | null>(null);
@@ -918,12 +921,32 @@ function App() {
     changePermissionMode(defaultPermissionMode);
   }, [selectedSessionId, defaultModelId, defaultPermissionMode, models]);
 
-  const effectiveBaseBranch = baseBranch && branches.includes(baseBranch) ? baseBranch : (selectedWorktree?.name ?? branches[0] ?? "");
+  const configuredBase = projectGit?.path === project?.path ? projectGit?.base : undefined;
+  const effectiveBaseBranch =
+    baseOverride ?? (configuredBase || (baseBranch && branches.includes(baseBranch) ? baseBranch : (selectedWorktree?.name ?? branches[0] ?? "")));
+  // A new selection is explicit; saved selections from earlier Chats never defeat a Project default.
+  useEffect(() => {
+    if (!project || selectedLink || selectedSessionId !== null) return;
+    let live = true;
+    const path = project.path;
+    Promise.resolve()
+      .then(() => bridgeForKey(path).readProjectGit(path))
+      .then(
+        (value: BranchPolicySettings) => {
+          if (live && value) setProjectGit({ path, base: value.effective.baseBranch });
+        },
+        () => {},
+      );
+    return () => {
+      live = false;
+    };
+  }, [project?.path, selectedSessionId, settingsSection, view]);
 
   function restoreProjectChoices(nextState: CoordinatorState, path: string) {
     const saved = loadChatPreferences(localStorage, path);
     setSelectedWorktreeId(sortedWorktrees(nextState).find((tree) => tree.path === saved.worktreePath)?.id ?? sortedWorktrees(nextState)[0]?.id ?? null);
     setBaseBranch(saved.baseBranch ?? null);
+    setBaseOverride(null);
   }
   const runningCount = Object.keys(agentRuns.runs).length;
   const previousRunningCount = useRef(runningCount);
@@ -2144,6 +2167,7 @@ function App() {
         bridgeForKey(project.path).createWorktree({
           projectPath: project.path,
           baseBranch: effectiveBaseBranch,
+          useProjectBase: baseOverride === null,
           prompt: body,
           ...(issue ? { issueKey: issue.key, ...(issue.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
         }),
@@ -2219,6 +2243,7 @@ function App() {
                 createWorktree: {
                   projectPath: project.path,
                   baseBranch: effectiveBaseBranch,
+                  useProjectBase: baseOverride === null,
                   prompt: body,
                   ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
                 },
@@ -4136,6 +4161,7 @@ function App() {
                         onBaseBranchChange={(branch) => {
                           preparedTarget.current = null;
                           setBaseBranch(branch);
+                          setBaseOverride(branch);
                           saveChatPreferences(localStorage, project.path, { baseBranch: branch });
                         }}
                         newChatError={newChatError}

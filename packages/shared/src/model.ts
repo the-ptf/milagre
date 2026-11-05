@@ -97,6 +97,9 @@ export interface PullRequestSnapshot {
 }
 
 export interface Worktree {
+  /** The exact branch Milagre generated; custom templates need no fixed prefix. */
+  generatedBranch?: string;
+  branchSuffix?: string;
   id: number;
   project_id: number;
   path: string;
@@ -1271,7 +1274,9 @@ export interface EditorInfo {
 
 export interface WorktreeRequest {
   projectPath: string;
-  baseBranch: string;
+  baseBranch?: string;
+  /** A configured Project base wins over a remembered or fallback client selection. */
+  useProjectBase?: boolean;
   prompt: string;
   issueKey?: string;
   /** The Linear workspace the issue was picked from. */

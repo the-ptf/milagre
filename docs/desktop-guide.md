@@ -14,6 +14,30 @@ Type `@` to find tracked and untracked, non-ignored files in the chat's worktree
 
 Restart Electron after updating to register the media protocol and file-search IPC. Run `npm test -- --only chat-attachments` for the Chromium integration checks, including video playback, attachment delivery and file selection without calling an agent.
 
+## Project Git branches
+
+**Settings > Project > Branches** on desktop and phone controls naming, the default base branch and upstream tracking for new Worktrees. A branch deliberately selected for one Chat overrides the Project default; remembered choices do not. Tracking is off by default (`--no-track`), so the first push sets the new branch's own upstream.
+
+Use a template such as `{username}-{ticket?}-{slug}` with your username and **Dashes only** to produce `victorlucss-ark-123-fix-login`. Tickets come from a linked Linear issue or one unambiguous uppercase issue key in the prompt, such as `ARK-123`. `{ticket}` requires a ticket; `{ticket?}` omits a missing ticket and its preceding dash or slash. `{slug}` is the task's short name and `{suffix}` is Milagre's unique suffix. A collision with a local or origin branch adds the suffix, or fails if that is also taken. Dashes only restricts new names, so a base such as `release/business-app/v2` remains valid.
+
+Personal values live in Milagre's Project settings on the Computer that owns the Project. To share conventions, add a `git` object to the main checkout's `.milagre/worktree.json` (alongside any existing `setup`):
+
+```json
+{
+  "git": {
+    "template": "{username}-{ticket?}-{slug}",
+    "dashesOnly": true,
+    "baseBranch": "release/business-app/v2",
+    "trackBase": false,
+    "instructions": "Use a short verb. Create branches with --no-track."
+  }
+}
+```
+
+Repository fields win over personal settings; the form identifies them and keeps them read-only. Set your own `username` in Project settings. **Reset to defaults** clears personal values without editing the repository. A missing configured base or invalid policy stops Worktree creation instead of silently choosing another branch. **Track the base branch** explicitly makes the selected base the upstream; pull and push then follow Git's upstream rules.
+
+These rules apply to ordinary Chats, issue-started Chats, Named Link members, Delegations, Routines and Bots. Automatic naming uses the policy captured when creation starts, keeps the folder stable and leaves pushed branches alone. Branch instructions also reach the agent each turn, so they can guide branches the agent creates or renames directly. Existing branches are not renamed when settings change. Without an explicit template, valid Linear branch suggestions retain their names.
+
 ## Notifications
 
 Milagre can notify when a turn completes or fails while its chat is not focused, with a preview of the result. Clicking the notification opens that chat, including switching projects through the usual confirmation flow. The focused chat stays quiet; cancelled turns do not send completion alerts. A turn that ends while a subagent the chat runs in the background is still at work is not announced either: the turn that subagent's result wakes is, once nothing runs in the background. The same rule applies to the phone's push notifications.

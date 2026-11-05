@@ -52,16 +52,9 @@ const { PortWatcher } = require("./agents/ports.cjs");
 const { ChatHost } = require("./agents/chat-host.cjs");
 const { writeTranscript, generateBrief, createHandoverModels } = require("./agents/handover.cjs");
 const { discoverSkills, expandSkillPrompt, readDiscoveredSkill } = require("./skills.cjs");
-const {
-  DEFAULT_WORKTREE_ROOT,
-  branchPushed,
-  createWorktree,
-  issueBranch,
-  listBranches,
-  moveWorktreeBranch,
-  newSuffix,
-  renameWorktreeBranch,
-} = require("./worktrees.cjs");
+const { DEFAULT_WORKTREE_ROOT, branchPushed, createWorktree, listBranches, moveWorktreeBranch, newSuffix, renameWorktreeBranch } = require("./worktrees.cjs");
+const { resolveBranchPolicy, availablePolicyBranch, branchPolicyNote } = require("./branch-policy.cjs");
+const { branchSlug, branchTicket } = require("@milagre/shared/branch-policy");
 const { suggestWorktreeName } = require("./worktree-name.cjs");
 const { removeWorktree, worktreeStatus } = require("./worktree-cleanup.cjs");
 const { previewFilesToCopy } = require("./worktree-files.cjs");
@@ -1026,6 +1019,22 @@ function createRuntime(options) {
     const { filesToCopy } = await projectSettings().setFilesToCopy(projectPath, patterns);
     return { filesToCopy, ...(await previewFilesToCopy(projectPath, filesToCopy)) };
   });
+  async function readProjectGit(projectPath) {
+    return resolveBranchPolicy(projectPath, await projectSettings().getGit(projectPath));
+  }
+  async function defaultProjectBase(projectPath) {
+    return (await readProjectGit(projectPath)).effective.baseBranch || (await git.resolveBase(projectPath).catch(() => ({ name: "main" }))).name;
+  }
+  commands.handle("project-git:read", async (_event, projectPath) => {
+    await knownFolder(projectPath);
+    return readProjectGit(projectPath);
+  });
+  commands.handle("project-git:save", async (_event, projectPath, value) => {
+    await knownFolder(projectPath);
+    const resolved = await resolveBranchPolicy(projectPath, value);
+    await projectSettings().setGit(projectPath, resolved.local);
+    return resolved;
+  });
   // The setup command new worktrees run: the repo's .milagre/worktree.json, else the project's setting.
   async function readSetupCommand(projectPath) {
     const { setupCommand } = await projectSettings().get(projectPath);
@@ -1098,21 +1107,25 @@ function createRuntime(options) {
 
   // A new worktree starts on its prompt's first words; a better name replaces its branch's once Haiku
   // picks one, so the chat never waits on it.
-  async function nameWorktree(projectPath, created, prompt) {
+  async function nameWorktree(projectPath, created, prompt, policy, suffix, ticket) {
     // The CLI check waits for the login environment and resolves the path the SDK starts directly (no shell). A
     // missing or broken Claude has no command, and the name stays the prompt's first words.
     const cli = await agentCli("claude", projectPath);
-    const slug = await suggestWorktreeName(prompt, { command: cli.problem ? null : cli.command, env: cli.env, timeoutMs: 15_000 });
+    const slug = await suggestWorktreeName(prompt, {
+      command: cli.problem ? null : cli.command,
+      env: cli.env,
+      timeoutMs: 15_000,
+      instructions: policy.instructions,
+    });
     if (closing) return;
-    const name = await renameWorktreeBranch({ worktreePath: created.path, branch: created.branch, slug });
+    const name = await renameWorktreeBranch({ worktreePath: created.path, branch: created.branch, slug, policy, suffix, ticket });
     if (!name) return;
     await updateProject(projectPath, (state) => renameWorktree(state, { path: created.path, from: created.branch, name }), { chats: [] });
     emit("worktree:renamed", { projectPath, path: created.path, from: created.branch, name });
   }
 
-  commands.handle("worktree:create", async (event, { projectPath, baseBranch, prompt, issueKey, issueWorkspace }) => {
+  commands.handle("worktree:create", async (event, { projectPath, baseBranch, useProjectBase, prompt, issueKey, issueWorkspace }) => {
     // Only these fields come from the renderer: the worktree folder and the files copied into it are main's call.
-    const request = { projectPath, baseBranch, prompt };
     await ownProject(projectPath);
     await environmentReady;
     // A Chat started from a Linear issue reads the issue again, never the renderer's copy. A missing issue creates nothing.
@@ -1125,8 +1138,17 @@ function createRuntime(options) {
       return { project, worktreeId: worktree.id };
     }
     const issue = typeof issueKey === "string" ? await readLinearIssue(issueKey, issueWorkspace) : null;
+    const policy = (await readProjectGit(projectPath)).effective;
+    baseBranch = (useProjectBase && policy.baseBranch) || baseBranch || policy.baseBranch || (await git.resolveBase(projectPath)).name;
+    const request = { projectPath, baseBranch, prompt };
     const suffix = newSuffix();
-    const branch = issue ? await issueBranch({ projectPath, issue, suffix }) : undefined;
+    const ticket = issue?.key || branchTicket(prompt);
+    const branch = await availablePolicyBranch(
+      projectPath,
+      policy,
+      { slug: issue?.title || prompt || "chat", ticket, suffix },
+      { issueBranch: issue ? issue.branchName || "" : undefined },
+    );
     const settings = await projectSettings().get(projectPath);
     // Sync the selected source branch first. A skipped or failed sync never blocks creation.
     const synced = (await projectSettings().getMainSync(projectPath)).enabled ? await syncMain(projectPath, baseBranch) : null;
@@ -1134,6 +1156,8 @@ function createRuntime(options) {
     const created = await createWorktree({
       ...request,
       branch,
+      folderSlug: branchSlug(issue ? branch.split("/").pop() : prompt || "chat"),
+      trackBase: policy.trackBase,
       suffix,
       root: worktreeRoot(),
       copyPatterns: settings.filesToCopy,
@@ -1160,6 +1184,8 @@ function createRuntime(options) {
                 [worktree.id]: {
                   ...worktree,
                   base: created.base,
+                  generatedBranch: created.branch,
+                  branchSuffix: suffix,
                   ...(event?.localMcp ? { localMcpOperation: event.localMcp.operationId } : {}),
                   ...(issue ? { linearIssue: issue.key, linearWorkspace: issue.workspace } : {}),
                 },
@@ -1174,7 +1200,7 @@ function createRuntime(options) {
     if (issue && linear.moveToStarted() && linear.canWrite(issue.workspace))
       void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
     // A branch named after an issue keeps that name; only a chat named from its prompt gets the Haiku name.
-    if (!issue) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? ""), background).catch(() => {});
+    if (!issue) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? "", policy, suffix, ticket), background).catch(() => {});
     return { project: { ...project, state }, worktreeId: listed.id, ...(resolved.note ? { setupNote: resolved.note } : {}) };
   });
   // Links a Worktree that already exists to a Linear issue. A Milagre-named branch that was never pushed and has no PR
@@ -1193,15 +1219,16 @@ function createRuntime(options) {
     // Only a Milagre branch is ever checked against git and gh; a branch the user named keeps its name without a lookup.
     // The branch is renamed only when it was never pushed and gh definitely reports no PR in any state.
     let renamable = false;
-    if (worktree.name.startsWith("milagre/") && !(await branchPushed(worktree.path, worktree.name))) {
+    if ((worktree.generatedBranch === worktree.name || worktree.name.startsWith("milagre/")) && !(await branchPushed(worktree.path, worktree.name))) {
       const lookup = await readPullRequestStateOf(worktree.path).catch(() => ({ known: false, pr: null }));
       renamable = lookup.known && lookup.pr === null;
     }
     if (renamable) {
       // The suffix that tells this worktree's branch apart stays with it when the issue's name is taken.
-      const suffix = worktree.name.match(/-([a-z0-9]{4})$/)?.[1] ?? newSuffix();
-      const branch = await issueBranch({ projectPath, issue, suffix });
-      await moveWorktreeBranch({ worktreePath: worktree.path, from: worktree.name, to: branch });
+      const suffix = worktree.branchSuffix ?? worktree.name.match(/-([a-z0-9]{4})$/)?.[1] ?? newSuffix();
+      const policy = (await readProjectGit(projectPath)).effective;
+      const branch = await availablePolicyBranch(projectPath, policy, { slug: issue.title, ticket: issue.key, suffix }, { issueBranch: issue.branchName });
+      if (branch !== worktree.name) await moveWorktreeBranch({ worktreePath: worktree.path, from: worktree.name, to: branch });
       const state = await updateProject(
         projectPath,
         (latest) => {
@@ -1481,7 +1508,17 @@ function createRuntime(options) {
       remote,
       thisMac: options.hostNetwork?.().name ?? remoteComputers?.thisMac(),
     }).catch(() => "");
-    const text = [prompt, ...setupNotes, ...milagreNotes, context, mentions, computerMentions, reports?.text].filter(Boolean).join("\n\n");
+    const branchNotes = await Promise.all(
+      (request.projectRoots ?? [projectOfKey(request.chatId)]).map(async (projectPath) => {
+        try {
+          return branchPolicyNote(projectPath, (await readProjectGit(projectPath)).effective);
+        } catch (error) {
+          // An existing Chat must still be able to fix a damaged config; branch creation itself stays strict.
+          return `Project Git rules for ${projectPath} could not be read: ${error.message}. Fix the configuration before creating or renaming a branch.`;
+        }
+      }),
+    );
+    const text = [prompt, ...branchNotes, ...setupNotes, ...milagreNotes, context, mentions, computerMentions, reports?.text].filter(Boolean).join("\n\n");
     try {
       if (cancelled()) {
         if (request.canStart) return { turnId: null, steered: false, cancelled: true };
@@ -1670,7 +1707,7 @@ function createRuntime(options) {
             }),
           background,
         ),
-      base: async (projectPath) => (await git.resolveBase(projectPath).catch(() => ({ name: "main" }))).name,
+      base: defaultProjectBase,
       projectWorktree: async (projectPath) => Object.values((await linkedState(projectPath)).worktrees).find((worktree) => worktree.path === projectPath)?.id,
     },
     archiveChat: (chatId) => track(() => archiveChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background),
@@ -2652,10 +2689,7 @@ function createRuntime(options) {
     remote,
     // A Delegation from another computer that starts in a new Worktree: made as the New Chat button makes one.
     createWorktree: async (projectPath, prompt) => {
-      const baseBranch = await git.resolveBase(projectPath).then(
-        (base) => base.name,
-        () => "main",
-      );
+      const baseBranch = await defaultProjectBase(projectPath);
       const { project, worktreeId } = await handlers.get("worktree:create")({}, { projectPath, baseBranch, prompt });
       const worktree = project.state.worktrees[worktreeId];
       return { path: worktree.path, branch: worktree.name };
@@ -2935,7 +2969,7 @@ function createRuntime(options) {
     registry: projectRegistry(),
     ownProject,
     root: options.worktreeRoot ?? DEFAULT_WORKTREE_ROOT,
-    getSettings: (projectPath) => projectSettings().get(projectPath),
+    getSettings: async (projectPath) => ({ ...(await projectSettings().get(projectPath)), git: (await readProjectGit(projectPath)).effective }),
     deferSetup: (request) => worktreeSetups.prepare(request),
   });
   const linkRuntime = registerLinkRuntime({
@@ -3579,11 +3613,7 @@ function createRuntime(options) {
         closeHome,
         projects: async () => withoutHomes(await projectRegistry().list()),
         host: localMcpHost,
-        mainBranch: (projectPath) =>
-          git.resolveBase(projectPath).then(
-            (base) => base.name,
-            () => "main",
-          ),
+        mainBranch: defaultProjectBase,
         chatDetails: botChatDetails,
         chatContinues: botChatContinues,
         leaveBotRules: async (chatId) => {

@@ -6125,6 +6125,7 @@ test("retrying a failed first send reuses the created worktree and keeps the dra
     effects: true,
     call: async (method) => {
       if (method === "project:branches") return ["main"];
+      if (method === "project-git:read") return { effective: { baseBranch: "" } };
       if (method === "worktree:create") return { worktreeId: 9, project: { state: { sessions: { 7: { id: 7, worktree_id: 9 } } } } };
       if (++sends === 1) throw new Error("Connection lost");
       return { sessionId: 7 };
@@ -21214,6 +21215,70 @@ test("resolved design history reveals its saved version on phone and iPad, inclu
     h.render("DesignsSheet", props);
     assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before + 1);
   }
+});
+
+test("Project Git settings on phone save as you type, validate names and preserve repository rules", async () => {
+  const policy = require("../packages/shared/src/branch-policy.mjs");
+  const react = hookHost({ effects: true });
+  const calls = [];
+  let saved = { local: {}, repository: { dashesOnly: true }, effective: { ...policy.BRANCH_POLICY_DEFAULTS, dashesOnly: true } };
+  const client = {
+    call: async (method, args) => {
+      if (method === "project-git:save") {
+        calls.push(args[1]);
+        saved = { ...saved, local: args[1], effective: { ...policy.BRANCH_POLICY_DEFAULTS, ...args[1], ...saved.repository } };
+      }
+      return saved;
+    },
+  };
+  const { ProjectGitSettings } = load("project-git-settings.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "@milagre/shared/branch-policy": policy,
+    "./theme": { fonts: { mono: "Menlo" } },
+    "./ui": {
+      useStyles: () => fakeStyles,
+      Chip: "Chip",
+      Field: "Field",
+      Group: "Group",
+      InlineError: "InlineError",
+      ListRow: "ListRow",
+      PillButton: "PillButton",
+    },
+  });
+  const render = () => {
+    react.begin();
+    return ProjectGitSettings({ client, path: "/fixture" });
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 700));
+  render();
+  await Promise.resolve();
+  const field = (label) => find(render(), (node) => node.type === "Field" && node.props.label === label);
+  // Token chips add a part, with a dash between parts.
+  find(render(), (node) => node.type === "Chip" && node.props.label === "{username}").props.onPress();
+  find(render(), (node) => node.type === "Chip" && node.props.label === "{slug}").props.onPress();
+  assert.equal(field("Branch name").props.value, "{username}-{slug}");
+  field("Branch name").props.onChangeText("{username}-{ticket?}-{slug}");
+  field("Username").props.onChangeText("victorlucss");
+  field("Base branch").props.onChangeText("release/business-app/v2");
+  const dashes = find(render(), (node) => node.type === "ListRow" && node.props.title === "Dashes only");
+  assert.equal(dashes.props.disabled, true);
+  assert.equal(dashes.props.subtitle, "Set in .milagre/worktree.json");
+  await settle();
+  assert.equal(calls.at(-1).baseBranch, "release/business-app/v2");
+  assert.equal(calls.at(-1).username, "victorlucss");
+  assert.equal(Object.hasOwn(calls.at(-1), "dashesOnly"), false, "a repository field never becomes a personal override");
+  const count = calls.length;
+  field("Branch name").props.onChangeText("milagre/{slug}");
+  assert.match(find(render(), (node) => node.type === "InlineError" && node.props.message).props.message, /dashes only/);
+  await settle();
+  assert.equal(calls.length, count, "an invalid template is never saved");
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Reset to defaults").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(Object.keys(calls.at(-1)).length, 0);
+  assert.equal(saved.effective.dashesOnly, true);
+  assert.equal(field("Branch name").props.value, "");
 });
 
 test("comment Cmd/Ctrl+Return sends the current draft only while its field owns the keyboard", async () => {

@@ -1,3 +1,4 @@
+import type { BranchPolicy, BranchPolicySettings } from "@milagre/shared/branch-policy";
 import type { IdleWorktrees, RemoveWorktree } from "@milagre/shared/storage";
 import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
@@ -387,6 +388,8 @@ export type MilagreBridge = {
   /** Saves the project's setup command; an empty one removes it. `.milagre/worktree.json` still wins. */
   saveWorktreeSetup: (projectPath: string, command: string) => Promise<WorktreeSetupSettings>;
   /** Whether new Worktrees sync their source branch first, and the last sync's result. */
+  readProjectGit: (projectPath: string) => Promise<BranchPolicySettings>;
+  saveProjectGit: (projectPath: string, value: Partial<BranchPolicy>) => Promise<BranchPolicySettings>;
   readMainSync: (projectPath: string) => Promise<MainSyncSettings>;
   /** null brings the global default back. */
   saveMainSync: (projectPath: string, override: boolean | null) => Promise<MainSyncSettings>;

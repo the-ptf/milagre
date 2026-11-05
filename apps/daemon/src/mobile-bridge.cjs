@@ -34,6 +34,8 @@ const METHODS = new Set([
   "project:find",
   "project:image",
   "project:set-icon",
+  "project-git:read",
+  "project-git:save",
   "main-sync:read",
   "main-sync:save",
   "main-sync:default:read",

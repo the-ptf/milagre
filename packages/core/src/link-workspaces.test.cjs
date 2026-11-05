@@ -279,3 +279,29 @@ test("a deleted Link's release keeps unpushed commits, edited copied files and c
   await assert.rejects(workspaces.addLinkWorktree({ link, chatId: 2, project: "web" }), /being deleted/);
   await assert.rejects(workspaces.prepareLinkChat({ link, chatId: 3, prompt: "late", operationId: randomUUID() }), /being deleted/);
 });
+
+test("a Named Link applies each member Project's own Git rules and default base", async (t) => {
+  const { link, store, workspaces, projects } = await fixture(t);
+  for (const [index, project] of projects.entries()) {
+    execFileSync("git", ["-C", project.path, "branch", "release/business-app/v2"]);
+    await fs.mkdir(path.join(project.path, ".milagre"), { recursive: true });
+    await fs.writeFile(
+      path.join(project.path, ".milagre/worktree.json"),
+      JSON.stringify({
+        git: {
+          template: `${index ? "web" : "api"}-{ticket?}-{slug}`,
+          dashesOnly: true,
+          baseBranch: "release/business-app/v2",
+          trackBase: false,
+        },
+      }),
+    );
+  }
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "ARK-123 fix login", operationId: randomUUID() });
+  const members = await addBoth(link, workspaces, 1);
+  for (const [index, member] of members.entries()) {
+    assert.match(member.branch, new RegExp(`^${index ? "web" : "api"}-ark-123-`));
+    assert.equal(member.base, "release/business-app/v2");
+    assert.equal(execFileSync("git", ["-C", member.worktreePath, "branch", "--show-current"], { encoding: "utf8" }).trim(), member.branch);
+  }
+});

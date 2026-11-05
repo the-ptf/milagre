@@ -1,3 +1,4 @@
+import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
 import { radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
@@ -483,7 +484,10 @@ function ChatPane({
   const target = targetChoice.scope === targetScope ? targetChoice : { scope: targetScope, ...savedChatDefaults.readTarget(targetHost, targetProject) };
   if (targetChoice.scope !== targetScope) setTargetChoice(target);
   const { isolation: pickedIsolation, baseBranch = "" } = target;
+  const [explicitBase, setExplicitBase] = useState<{ scope: string; branch: string } | null>(null);
+  const [projectGit, setProjectGit] = useState<{ client: Client; path: string; base: string } | null>(null);
   const chooseTarget = (patch: Partial<typeof target>) => {
+    if (patch.baseBranch !== undefined) setExplicitBase({ scope: targetScope, branch: patch.baseBranch });
     setTargetChoice({ ...target, ...patch });
     void savedChatDefaults.saveTarget(targetHost, targetProject, patch);
   };
@@ -573,6 +577,22 @@ function ChatPane({
   // Stable props keep each memoized ChatReply from re-rendering on every keystroke and poll tick.
   const connected = session.client;
   const projectPath = session.snapshot?.project.path;
+  const readProjectGit = useCallback(() => {
+    if (!connected || !projectPath || session.snapshot?.project.link || params.id) return;
+    let live = true;
+    connected.call<BranchPolicySettings>("project-git:read", [projectPath]).then(
+      (value) => {
+        if (live && value?.effective) setProjectGit({ client: connected, path: projectPath, base: value.effective.baseBranch });
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [connected, projectPath, session.snapshot?.project.link, params.id]);
+  // Split panes can mount without becoming a navigation route's focus target.
+  useEffect(readProjectGit, [readProjectGit]);
+  useFocusEffect(readProjectGit);
   const mentionState = session.snapshot?.project.state;
   const mentionLink = session.snapshot?.project.link;
   // This Chat's streaming turn, read on its own: a runs read for another Chat of the Project re-renders nothing here.
@@ -1174,16 +1194,21 @@ function ChatPane({
     // The right panel holds the routed Chat's Changes; the Chat beside it opens its own as a page.
     changes: secondary ? () => router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } }) : () => panels.showChanges(),
   };
+  const configuredBase = projectGit?.client === client && projectGit?.path === project.path ? projectGit?.base : undefined;
+  const pickedBase = explicitBase?.scope === targetScope ? explicitBase.branch : undefined;
   const branches = branchList?.client === client && branchList.path === project.path ? branchList : null;
   // Until the branch list arrives a new Worktree starts from this checkout's branch, as on desktop, so a busy Mac
   // never holds the send.
-  const base = !branches?.items.length
-    ? worktree?.name || ""
-    : baseBranch && branches.items.includes(baseBranch)
-      ? baseBranch
-      : worktree?.name && branches.items.includes(worktree.name)
-        ? worktree.name
-        : branches.items[0];
+  const base =
+    pickedBase ??
+    (configuredBase ||
+      (!branches?.items.length
+        ? worktree?.name || ""
+        : baseBranch && branches.items.includes(baseBranch)
+          ? baseBranch
+          : worktree?.name && branches.items.includes(worktree.name)
+            ? worktree.name
+            : branches.items[0]));
   // Each Chat without a Project gets its own new, empty folder: a Worktree of the Chats home, never its checkout.
   const isolation = chatsHomeOpen ? "worktree" : pickedIsolation;
   const newWorktree = !project.link && !params.id && isolation === "worktree";
@@ -1582,7 +1607,8 @@ function ChatPane({
             ? {
                 createWorktree: {
                   projectPath: project.path,
-                  baseBranch: base!,
+                  baseBranch: base,
+                  useProjectBase: pickedBase === undefined,
                   prompt: body,
                   ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
                 },
@@ -1684,6 +1710,7 @@ function ChatPane({
               {
                 projectPath: sendingProjectPath,
                 baseBranch: base,
+                useProjectBase: pickedBase === undefined,
                 prompt: sent,
                 ...(issueKey !== undefined ? { issueKey, ...(issue?.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
               },

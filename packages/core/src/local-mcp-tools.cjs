@@ -136,7 +136,11 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             "worktree_create",
             "Create and register a Worktree using Milagre's normal file copy and setup. From a Chat, targeting another Project asks the user on a card first: wait for its result. Reuse requestId when retrying the same creation.",
             "create",
-            { ...projectInput, baseBranch: z.string().min(1).max(1024), prompt: z.string().max(10000).default("") },
+            {
+              ...projectInput,
+              baseBranch: z.string().min(1).max(1024).optional().describe("Omit to use the Project default base branch"),
+              prompt: z.string().max(10000).default(""),
+            },
             (args, operationId, assertActive) => host.createWorktree(args, operationId, assertActive),
           ),
           act(
