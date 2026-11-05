@@ -310,6 +310,18 @@ test("two parents of one family can't both pass the gate across the session read
   assert.equal(w.escalation.family(key(1)).wakes, 1);
 });
 
+test("a parent that owes a turn holds its wake, free of charge, until the turn has run", async () => {
+  const w = world({ sessions: { 1: { id: 1, title: "Redesign the PR panel", provider: "claude", limitResume: { sendId: "r" } } } });
+  w.escalation.observe(key(2), question("q1"));
+  await w.wakeNow();
+  assert.equal(w.wakes.length, 0);
+  assert.equal(w.escalation.family(key(1)).wakes, 0);
+  const { limitResume: _done, ...recovered } = w.sessions[1];
+  w.sessions[1] = recovered;
+  await w.advance(TICK_MS);
+  assert.equal(w.wakes.length, 1);
+});
+
 test("a wake that fails for any other reason is dropped, and costs the family nothing", async () => {
   const w = world();
   w.wakeError = new Error("no model");

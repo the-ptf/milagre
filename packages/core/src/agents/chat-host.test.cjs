@@ -2765,6 +2765,29 @@ test("a wake also waits for messages queued in the Chat", async (t) => {
   await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
 });
 
+test("a wake leaves a scheduled usage-limit retry alone, and the retry still runs", async (t) => {
+  let clock = NOW;
+  const h = harness({ now: () => clock });
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), true);
+  const pending = (await h.states.load(ALPHA, [sessionId])).sessions[sessionId].limitResume;
+  await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  assert.deepEqual((await h.states.load(ALPHA, [sessionId])).sessions[sessionId].limitResume, pending);
+  clock += 180_000;
+  assert.equal(await h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId: pending.sendId }), true);
+});
+
+test("a wake also waits for a turn a quit stopped, or one a usage limit ended", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { sessionId } = await idleChat(h);
+  for (const owed of [{ resumeTurn: { stoppedAt: NOW } }, { limitTurn: { automatic: false } }]) {
+    await h.states.update(ALPHA, (latest) => ({ ...latest, sessions: { ...latest.sessions, [sessionId]: { ...latest.sessions[sessionId], ...owed } } }));
+    await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  }
+});
+
 test("an idle Chat starts a wake's turn with its guard, and the guard ends with that turn", async (t) => {
   const h = harness();
   t.after(() => h.manager.closeAll());

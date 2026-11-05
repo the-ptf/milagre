@@ -28,7 +28,7 @@ const { PERMISSION_MODES } = require("./permissions.cjs");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { CONTEXT_DEFAULTS, shouldAutoCompact } = require("@milagre/shared/context-settings");
 const { routineRunOf } = require("@milagre/shared/routines");
-const { ESCALATION_LEVEL } = require("../escalation-guard.cjs");
+const { ESCALATION_LEVEL, owesTurn } = require("../escalation-guard.cjs");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -1084,7 +1084,10 @@ class ChatHost {
         const chatId = chatKey(projectPath, session.id);
         // A wake only ever starts a turn of its own: steered or queued it would lose the guard its turn runs under. Decided
         // here, in the save, so no send can slip in after the caller looked.
-        if (request.idleOnly && (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId) || session.queued?.length))
+        if (
+          request.idleOnly &&
+          (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId) || session.queued?.length || owesTurn(session))
+        )
           throw Object.assign(new Error("The chat is busy."), { chatBusy: true });
         if (!request.limitResumeId && !request.limitSwitchToken && !request.queueReleaseToken) this.invalidateLimitResume(projectPath, session.id, "send");
         recoveryToken = this.limitResumeToken(projectPath, session.id);

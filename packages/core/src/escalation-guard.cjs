@@ -69,4 +69,7 @@ function turnGuards(guard, stop) {
   return guard?.level === ESCALATION_LEVEL ? { guard: null, escalation: new EscalationTurn(guard, stop) } : { guard: guard ?? null, escalation: null };
 }
 
-module.exports = { ESCALATION_LEVEL, EscalationTurn, ONLY_READS, acpCall, canEscalate, claudeCall, codexMcpCall, turnGuards };
+// A turn this Chat still owes: a usage-limit retry, or one a quit stopped. Any other send would supersede it, so a wake waits.
+const owesTurn = (session) => Boolean(session?.limitResume || session?.limitTurn || session?.resumeTurn);
+
+module.exports = { ESCALATION_LEVEL, EscalationTurn, ONLY_READS, acpCall, canEscalate, claudeCall, codexMcpCall, owesTurn, turnGuards };

@@ -12,7 +12,7 @@ const {
   waitingNote,
 } = require("@milagre/shared/subchat-escalation");
 const { isSecretRequest } = require("../chat-secrets.cjs");
-const { ESCALATION_LEVEL, canEscalate } = require("../escalation-guard.cjs");
+const { ESCALATION_LEVEL, canEscalate, owesTurn } = require("../escalation-guard.cjs");
 const { SubchatSuggestions } = require("./subchat-suggestions.cjs");
 const { wakeBody, wakePrompt } = require("./subchat-wake.cjs");
 
@@ -273,7 +273,7 @@ class SubchatEscalation {
     const session = (await this.ports.read(projectOfKey(parent), [id])).sessions[id];
     if (this.wakes.get(parent) !== wake) return;
     if (this.refuses(parent, session)) return void drop();
-    if (this.ports.busy(parent) || !open()) return;
+    if (this.ports.busy(parent) || owesTurn(session) || !open()) return;
     const requests = [...wake.requests.values()];
     const spent = this.family(family);
     const before = { ...spent };
