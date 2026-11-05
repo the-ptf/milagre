@@ -52,7 +52,7 @@ export function draftImages(questions: AgentQuestion[], drafts: QuestionDrafts):
 }
 
 /** What the answer card says for a question's attached images. */
-export const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
+const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
 
 /** The answers to send: picks in the agent's option order, then the typed answer. Null while a question has none. */
 export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts): QuestionAnswers | null {

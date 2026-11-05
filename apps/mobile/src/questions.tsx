@@ -39,7 +39,7 @@ const NO_IMAGES: Attachment[] = [];
 const MAX_IMAGES = 10;
 
 /** What the answer card and the summary say for a question's attached photos. */
-export const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
+const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
 
 /** The answers as the answer card shows them, with each question's photos counted, as the Mac records them. */
 export function answersWithImages(answers: QuestionAnswers, images: AnswerImages | undefined): QuestionAnswers {
