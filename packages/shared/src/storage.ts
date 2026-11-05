@@ -18,6 +18,9 @@ export type IdleWorktree = {
   chats: number;
   /** Its newest Chat's last message, or the folder's last change. */
   lastAt: number;
+  /** The cutoff and Chat activity reviewed in the list; the host refuses a stale selection. */
+  idleBefore: number;
+  activity: { worktreeId: number; chats: { id: number; lastAt: number | null; lastId: number | null; count: number }[] };
   /** Its size at the host's last measure; null before one. */
   bytes: number | null;
   /** What removing it loses, as the host saw it: the removal is checked against it. */
@@ -46,7 +49,7 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 /** The worktrees unused for at least `days`, oldest first. */
 export function idleFor(list: readonly IdleWorktree[], days: IdleDays, now: number): IdleWorktree[] {
   const cutoff = now - days * DAY;
-  const kept = list.filter((item) => item.lastAt <= cutoff);
+  const kept = list.filter((item) => item.lastAt <= cutoff).map((item) => ({ ...item, idleBefore: Math.min(item.idleBefore, cutoff) }));
   // oxlint-disable-next-line unicorn/no-array-sort -- sorts a copy; toSorted crashes on the phone (Hermes)
   return [...kept].sort((a, b) => a.lastAt - b.lastAt);
 }
@@ -112,7 +115,15 @@ export function cleanupToast({ removed, failed, stopped }: { removed: number; fa
   return `${head}${stop} ${failed.length === 1 ? `One was kept: ${failed[0]}` : `${failed.length} were kept. ${failed[0]}`}`;
 }
 
-export type RemoveWorktree = (request: { projectPath: string; path: string; seen: WorktreeStatus; force: boolean }) => Promise<unknown>;
+export type RemoveWorktree = (request: {
+  projectPath: string;
+  path: string;
+  seen: WorktreeStatus;
+  force: boolean;
+  activity: IdleWorktree["activity"];
+  idleBefore: number;
+  lastAt: number;
+}) => Promise<unknown>;
 
 /**
  * Removes the chosen worktrees one at a time, so the dialog shows progress and Stop takes effect before the next one.
@@ -130,7 +141,15 @@ export async function removeIdleWorktrees(
   for (const item of selected) {
     if (stopped?.()) return { removed, failed, stopped: true };
     try {
-      await remove({ projectPath: item.projectPath, path: item.path, seen: item.status, force: !savedWork(item) });
+      await remove({
+        projectPath: item.projectPath,
+        path: item.path,
+        seen: item.status,
+        force: !savedWork(item),
+        activity: item.activity,
+        idleBefore: item.idleBefore,
+        lastAt: item.lastAt,
+      });
       removed += 1;
     } catch (error) {
       failed.push(`${item.title}: ${ipcErrorMessage(error)}`);

@@ -3,12 +3,43 @@
 // while none of its Chats runs, and its age is its newest Chat's last message, or the folder's when no Chat has one.
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { isDeepStrictEqual } = require("node:util");
+const { backgroundWork } = require("@milagre/shared/chat-activity");
 
 const DAY = 24 * 60 * 60_000;
 /** The shortest idle time the cleanup offers; the dialog narrows it to 30, 60 or 90 days. */
 const MIN_IDLE_DAYS = 30;
 // Each worktree's git status is a few git calls; this many run at once.
 const STATUS_AT_ONCE = 4;
+const ACTIVITY_CHANGED = "Chats on this worktree changed after it was listed, so the worktree is kept. Refresh the cleanup list.";
+
+// Summary identities detect new messages even when their timestamps match. The Worktree id also rejects a folder
+// replaced at the same path. These are the Chats the user agreed to delete, including archived Chats.
+function worktreeActivity(state, worktree) {
+  return {
+    worktreeId: worktree.id,
+    chats: Object.values(state.sessions)
+      .filter((session) => session.worktree_id === worktree.id)
+      .map((session) => ({
+        id: session.id,
+        lastAt: session.summary?.lastAt ?? null,
+        lastId: session.summary?.lastId ?? null,
+        count: session.summary?.count ?? 0,
+      }))
+      .toSorted((a, b) => a.id - b.id),
+  };
+}
+
+async function assertIdleWorktree({ state, worktree, activity, idleBefore, lastAt, busy, now = Date.now() }) {
+  if (!Number.isFinite(idleBefore) || idleBefore > now - MIN_IDLE_DAYS * DAY || !isDeepStrictEqual(activity, worktreeActivity(state, worktree)))
+    throw new Error(ACTIVITY_CHANGED);
+  const own = Object.values(state.sessions).filter((session) => session.worktree_id === worktree.id);
+  const times = own.map((session) => session.summary?.lastAt).filter(Number.isFinite);
+  const currentAt = times.length ? Math.max(...times) : (await fs.stat(worktree.path)).mtimeMs;
+  if (!Number.isFinite(lastAt) || currentAt !== lastAt || currentAt > idleBefore) throw new Error(ACTIVITY_CHANGED);
+  if (own.some((session) => busy(session.id) || backgroundWork(session).length))
+    throw new Error("A Chat on this worktree is in use now, so the worktree is kept.");
+}
 
 const inside = (root, target) => {
   const relative = path.relative(root, target);
@@ -27,7 +58,7 @@ function worktreeCandidates({ projectPath, projectName, state, roots, linkOwned 
     if (!worktree?.base || typeof worktree.path !== "string" || worktree.path === projectPath) continue;
     if (!roots.some((root) => inside(root, worktree.path)) || linkOwned.has(worktree.path)) continue;
     const own = sessions.filter((session) => session.worktree_id === worktree.id);
-    if (own.some((session) => busy(`${projectPath}#${session.id}`))) continue;
+    if (own.some((session) => busy(`${projectPath}#${session.id}`) || backgroundWork(session).length)) continue;
     let lastAt = null;
     let newest = null;
     for (const session of own) {
@@ -47,6 +78,7 @@ function worktreeCandidates({ projectPath, projectName, state, roots, linkOwned 
       title: (newest && titleOf(newest)) || worktree.name || path.basename(worktree.path),
       chats: own.length,
       lastAt,
+      activity: worktreeActivity(state, worktree),
     });
   }
   return list;
@@ -103,7 +135,7 @@ async function idleWorktrees({
     // A folder git still lists but that is gone frees nothing here.
     if (lastAt === null || lastAt > cutoff) continue;
     if (await openAsProject(candidate.path)) continue;
-    idle.push({ ...candidate, lastAt });
+    idle.push({ ...candidate, lastAt, idleBefore: cutoff });
   }
   const checked = await eachLimited(idle, STATUS_AT_ONCE, async (candidate) => {
     const seen = await status(candidate.path, candidate.base).catch(() => null);
@@ -114,4 +146,4 @@ async function idleWorktrees({
   return checked.filter(Boolean).toSorted((a, b) => a.lastAt - b.lastAt);
 }
 
-module.exports = { DAY, MIN_IDLE_DAYS, worktreeCandidates, idleWorktrees, eachLimited };
+module.exports = { DAY, MIN_IDLE_DAYS, worktreeCandidates, idleWorktrees, eachLimited, assertIdleWorktree };

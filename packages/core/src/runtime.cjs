@@ -105,7 +105,7 @@ const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/ru
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
 const { createComputerResources } = require("./computer-resources.cjs");
-const { idleWorktrees } = require("./storage-worktrees.cjs");
+const { idleWorktrees, assertIdleWorktree } = require("./storage-worktrees.cjs");
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
 const { createDoneSettings } = require("./done-settings.cjs");
@@ -1741,7 +1741,7 @@ function createRuntime(options) {
       readState: projectStateReadOnly,
       roots: await handlers.get("worktree:roots")({}),
       linkOwned: await linkStore.ownedWorktrees(),
-      busy: (chatId) => Boolean(chats.runs[chatId]) || chats.isBusy(chatId),
+      busy: (chatId) => Boolean(chats.runs[chatId]) || chats.startingTurns.has(chatId) || chats.isBusy(chatId),
       titleOf: (session) => chatTitle(session),
       openAsProject,
       status: worktreeStatus,
@@ -1749,40 +1749,73 @@ function createRuntime(options) {
     });
     return { worktrees, measuredAt: computerResources.measuredAt() };
   });
-  // Removes one worktree the cleanup listed, with its Chats: they are archived first (what runs for them stops), then the
-  // worktree goes the way a Chat's Delete takes it (worktree:remove: re-checked against `seen`, forced only when asked).
-  // A removal that fails brings the Chats back.
+  // Validation and deletion share the Project's mutation queue with Chat creation, sends and received events. No
+  // accepted activity can land between the final check and removing its Chats. Never call queued state helpers from
+  // inside this change: auxiliary Chat cleanup runs afterwards, once their state is gone.
   commands.handle("storage:remove-worktree", async (_event, request) => {
-    const { projectPath, path: worktreePath, seen, force } = request && typeof request === "object" ? request : {};
+    const { projectPath, path: worktreePath, seen, force, activity, idleBefore, lastAt } = request && typeof request === "object" ? request : {};
     if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) throw new Error("An absolute Project path is required.");
     if (typeof worktreePath !== "string" || !path.isAbsolute(worktreePath)) throw new Error("An absolute worktree path is required.");
     if (!states.has(projectPath)) await openProject(projectPath, { takeNotice: false, focus: false, remember: false, register: false });
-    const state = await states.get(projectPath);
-    const worktree = worktreeAt(state, worktreePath);
-    if (!worktree) return { removed: false, alreadyRemoved: true, branch: null, branchDeleted: false };
-    const own = Object.values(state.sessions).filter((session) => session.worktree_id === worktree.id);
-    const keys = own.map((session) => `${projectPath}#${session.id}`);
-    if (keys.some((key) => chats.runs[key] || chats.isBusy(key))) throw new Error("A Chat on this worktree is in use now, so the worktree is kept.");
-    const archived = own.filter((session) => !session.archived).map((session) => session.id);
-    for (const id of archived) await archiveChat(projectPath, id, { archived: true, unread: false });
-    try {
-      for (const key of keys) {
-        await worktreeSetups.cancel(key);
-        await agents.closeChat(key);
-      }
-      // The client measures again once its whole batch is done (computer:resources:read with `fresh`), not after each one.
-      return await handlers.get("worktree:remove")({}, worktreePath, { projectPath, seen, force: force === true });
-    } catch (error) {
-      if (states.has(projectPath) && archived.length)
-        await editProject(
+    await environmentReady;
+    await ownProject(projectPath);
+    let result = { removed: false, alreadyRemoved: true, branch: null, branchDeleted: false };
+    let keys = [];
+    await editProject(
+      projectPath,
+      async (state) => {
+        const worktree = worktreeAt(state, worktreePath);
+        if (!worktree) return state;
+        if (!worktree.base) throw new Error(`Milagre didn't create ${worktreePath}, so it is kept.`);
+        const owned = await linkStore.ownedWorktrees();
+        if (owned.has(worktreePath)) throw new Error("This Worktree belongs to a shared Link Chat. Archive the Chat to hide it.");
+        if (await openAsProject(worktreePath)) throw new Error(`${worktreePath} is open as a project, so it is kept.`);
+        const busy = (id) => {
+          const key = `${projectPath}#${id}`;
+          return Boolean(chats.runs[key]) || chats.startingTurns.has(key) || chats.isBusy(key) || worktreeSetups.running.has(key);
+        };
+        const check = () => assertIdleWorktree({ state, worktree, activity, idleBefore, lastAt, busy });
+        await check();
+        keys = Object.values(state.sessions)
+          .filter((session) => session.worktree_id === worktree.id)
+          .map((session) => `${projectPath}#${session.id}`);
+        result = await removeWorktree({
+          path: worktreePath,
+          root: worktreeRoot(),
           projectPath,
-          (latest) => archived.reduce((next, id) => (next.sessions[id] ? patchSession(next, id, { archived: false }) : next), latest),
-          {
-            chats: [],
+          base: worktree.base,
+          seen,
+          force: force === true,
+          closeSession: async () => {
+            // Filesystem and Git identity checks yield too; a starting turn or waiting note keeps its worktree.
+            await check();
+            for (const key of keys) {
+              terminals.closeChat(key);
+              await agents.closeChat(key);
+            }
           },
-        ).catch(() => {});
-      throw error;
+        });
+        return reconcileState(
+          state,
+          projectName(projectPath),
+          Object.values(state.worktrees).filter((item) => item.id !== worktree.id),
+          owned,
+        );
+      },
+      { chats: [] },
+    );
+    if (result.removed) {
+      for (const key of keys) {
+        chats.forget(key);
+        computerUseScreen.forget(key);
+        await stopChatWork(key);
+        await artifacts.removeChat(key).catch(() => {});
+        await pageComments.removeChat(key).catch(() => {});
+      }
+      await worktreeSetups.forget(worktreePath);
+      await pruneLinks();
     }
+    return result;
   });
   // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });

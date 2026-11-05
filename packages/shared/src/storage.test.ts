@@ -14,6 +14,8 @@ const item = (title: string, daysAgo: number, bytes: number | null, status = cle
   title,
   chats,
   lastAt: now - daysAgo * DAY,
+  idleBefore: now - 30 * DAY,
+  activity: { worktreeId: 1, chats: [{ id: 2, lastAt: now - daysAgo * DAY, lastId: 3, count: 1 }] },
   bytes,
   status,
 });
@@ -83,4 +85,16 @@ test("removal runs one at a time, forces only unsaved work, keeps going past a f
   );
   assert.deepEqual(stopped, { removed: 1, failed: [], stopped: true });
   assert.equal(cleanupToast(stopped), "Removed 1 worktree. Stopped before the rest.");
+});
+
+test("both clients carry the selected idle cutoff and exact Chat snapshot to removal", async () => {
+  const original = item("old", 95, 1);
+  const selected = idleFor([original], 90, now);
+  await removeIdleWorktrees(selected, async (request) => {
+    assert.equal(request.idleBefore, now - 90 * DAY);
+    assert.equal(request.lastAt, original.lastAt);
+    assert.deepEqual(request.activity, original.activity);
+    assert.deepEqual(request.seen, original.status);
+  });
+  assert.equal(original.idleBefore, now - 30 * DAY, "narrowing the selection leaves the listing unchanged");
 });
