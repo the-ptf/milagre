@@ -176,18 +176,59 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       return;
     }
     if (expectStartupError) {
+      await connection.call("Page.enable");
+      // Exercise both sides of the intro using the production entry point and real animation events.
+      // The slow intro must not keep a recoverable error covered; the fast one ends before Workspace loads.
+      await connection.call("Page.addScriptToEvaluateOnNewDocument", {
+        source: `
+          window.splashIntroFinished = false;
+          document.addEventListener("animationend", (event) => {
+            if (event.animationName === "splash-star-in") window.splashIntroFinished = true;
+          });
+          document.addEventListener("DOMContentLoaded", () => {
+            const style = document.createElement("style");
+            style.textContent = ${JSON.stringify(
+              expectStartupError === "before-intro"
+                ? ".startup-splash-star { animation-delay: 60s !important; }"
+                : ".startup-splash-star { animation-duration: 1ms !important; animation-delay: 0ms !important; }",
+            )};
+            document.head.append(style);
+          });`,
+      });
+      await connection.call("Page.reload");
+      await waitFor(() => evaluate('typeof window.splashIntroFinished === "boolean"'), "reloaded startup timing probe");
       await waitFor(
         () => evaluate('document.body?.textContent.includes("already owned") && !!document.querySelector("[data-startup-error]")'),
         "actionable ownership error",
       );
-      assert.ok(await evaluate('[...document.querySelectorAll("button")].some(button => button.textContent.includes("Open another project"))'));
+      await waitFor(() => evaluate('!document.querySelector(".startup-splash-screen")'), "startup error is uncovered");
+      assert.equal(await evaluate("window.splashIntroFinished"), expectStartupError === "after-intro", "error straddles the intro");
+      const buttonPoint = async (label) => {
+        const point = await evaluate(`(() => {
+          const button = [...document.querySelectorAll("[data-startup-error] button")].find(button => button.textContent === ${JSON.stringify(label)});
+          if (!button || button.disabled) return null;
+          const rect = button.getBoundingClientRect();
+          const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+          return button.contains(document.elementFromPoint(x, y)) ? { x, y } : null;
+        })()`);
+        assert.ok(point, `${label} receives pointer input`);
+        return point;
+      };
+      const clickButton = async (label) => {
+        const point = await buttonPoint(label);
+        await connection.call("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", clickCount: 1 });
+        await connection.call("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", clickCount: 1 });
+      };
+      // Background mode cancels native dialogs; still prove that the other recovery control can receive a real click.
+      if (env.MILAGRE_BACKGROUND === "1" && process.platform === "darwin") await clickButton("Open another project");
+      else await buttonPoint("Open another project");
       if (process.env.MILAGRE_SCREENSHOT_DIR) {
         await fs.mkdir(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
         const shot = await connection.call("Page.captureScreenshot");
         await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "project-owned.png"), Buffer.from(shot.data, "base64"));
       }
       await recoverOwnership();
-      await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent === "Retry").click()');
+      await clickButton("Retry");
       await waitFor(
         () => evaluate('document.body?.textContent.includes("Saved chat") && !document.querySelector("[data-startup-error]")'),
         "retry after releasing ownership",
@@ -709,18 +750,20 @@ async function main() {
       await checkDesignRaster({ executable, raster: packagedRaster(executable), label: "packaged" });
     }
     const { acquireOwnership } = require("@milagre/core/ownership");
-    const owner = acquireOwnership(path.join(project, ".milagre/runtime.lock"));
-    try {
-      await checkApp({
-        executable: require("electron"),
-        args: [path.join(root, "apps/desktop")],
-        profile,
-        project,
-        expectStartupError: true,
-        recoverOwnership: () => owner.release(),
-      });
-    } finally {
-      owner.release();
+    for (const timing of ["before-intro", "after-intro"]) {
+      const owner = acquireOwnership(path.join(project, ".milagre/runtime.lock"));
+      try {
+        await checkApp({
+          executable: require("electron"),
+          args: [path.join(root, "apps/desktop")],
+          profile,
+          project,
+          expectStartupError: timing,
+          recoverOwnership: () => owner.release(),
+        });
+      } finally {
+        owner.release();
+      }
     }
     // Messages are saved in chats.db (ADR-0007): read the state the way the app does.
     const saved = await require("@milagre/core/project-store").readProjectState(project);

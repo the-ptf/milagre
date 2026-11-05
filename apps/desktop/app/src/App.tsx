@@ -3185,6 +3185,7 @@ function App() {
   if (startupError) {
     return (
       <main data-startup-error className="flex min-h-screen items-center justify-center p-8 text-ink">
+        {splashOverlay(true)}
         <section className="w-full max-w-xl rounded-window bg-surface p-6 shadow-overlay" aria-labelledby="startup-error-title">
           <h1 id="startup-error-title" className="text-17 font-semibold">
             Project could not open
@@ -3338,6 +3339,7 @@ function App() {
   if ((selectedLink || !project) && view === "settings")
     return (
       <DotBackground>
+        {splashOverlay(splash === "done")}
         {saveNotices}
         <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
         {/* The same frame as Settings beside a Project: the nav under the top bar, the page from the window's top. */}
@@ -3437,6 +3439,7 @@ function App() {
   if (selectedLink && (loading || !project || !state || splash === "intro"))
     return (
       <>
+        {splashOverlay(splash === "done")}
         {linkWorkspace}
         {linkDialogs}
       </>
@@ -3445,6 +3448,7 @@ function App() {
   if (!loading && !project && splash !== "intro")
     return (
       <DotBackground>
+        {splashOverlay(true)}
         {saveNotices}
         <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
         <div data-project-chooser className="flex h-screen w-full gap-3 text-ink">
