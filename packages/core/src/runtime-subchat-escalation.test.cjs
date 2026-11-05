@@ -138,8 +138,18 @@ async function family(t, { mode = "ask" } = {}) {
       await new Promise((resolve) => setImmediate(resolve));
     }
   };
+  // A real clock goes on ticking, so a wake that misses a tick takes a later one: its note shows before it's queued, and
+  // a Chat that just ended can still be busy. Moved by hand, the clock has to go on until the wake gets through too.
+  const advanceUntil = async (done) => {
+    const deadline = Date.now() + 10000;
+    while (!done()) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for a tick to get through");
+      await advance(TICK_MS);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
   const notes = (kind) => stateOf().messages.filter((message) => message.context?.kind === kind);
-  return { runtime, project, parent, subchat, parentKey, subchatKey, parentId, subchatId, tool, ask, advance, notes, notices, stateOf, runOf };
+  return { runtime, project, parent, subchat, parentKey, subchatKey, parentId, subchatId, tool, ask, advance, advanceUntil, notes, notices, stateOf, runOf };
 }
 
 async function woken(f) {
@@ -147,8 +157,7 @@ async function woken(f) {
   await waitUntil(() => f.runOf(f.subchatKey)?.questions.length === 1);
   await f.advance(ESCALATION_WAIT_MS);
   await waitUntil(() => f.notes("subchat-escalation").length === 1);
-  await f.advance(ESCALATION_BATCH_MS + TICK_MS);
-  await waitUntil(() => f.parent.turns.length === 2);
+  await f.advanceUntil(() => f.parent.turns.length === 2);
 }
 
 test("a Subchat's unanswered question wakes its idle parent on the escalation guard, with the notes on both sides", async (t) => {
@@ -191,8 +200,7 @@ test("a working parent is woken after its turn: nothing steers it, and no Delega
   assert.equal(f.parent.turns.filter((turn) => turn.guard).length, 0);
   f.parent.end();
   await waitUntil(() => !f.runOf(f.parentKey));
-  await f.advance(TICK_MS);
-  await waitUntil(() => f.parent.turns.length === 3);
+  await f.advanceUntil(() => f.parent.turns.length === 3);
   assert.equal(f.parent.turns[2].guard.level, "escalation");
   assert.equal(
     (await f.runtime.invoke("linked:snapshot", [])).delegations.some((item) => item.to_chat === f.parentKey),
