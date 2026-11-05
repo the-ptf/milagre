@@ -106,9 +106,9 @@ const MAX_ANSWER_IMAGES = 10;
 function answerImages(images) {
   if (images === undefined || images === null) return {};
   if (typeof images !== "object" || Array.isArray(images)) throw new Error("Invalid images for an agent question.");
-  const entries = Object.entries(images).filter(([, list]) => Array.isArray(list) && list.length);
-  if (Object.values(images).some((list) => !Array.isArray(list))) throw new Error("Invalid images for an agent question.");
-  if (entries.reduce((total, [, list]) => total + list.length, 0) > MAX_ANSWER_IMAGES)
+  if (Object.values(images).some((attached) => !Array.isArray(attached))) throw new Error("Invalid images for an agent question.");
+  const entries = Object.entries(images).filter(([, attached]) => attached.length);
+  if (entries.reduce((total, [, attached]) => total + attached.length, 0) > MAX_ANSWER_IMAGES)
     throw new Error(`Attach at most ${MAX_ANSWER_IMAGES} images to your answers.`);
   return Object.fromEntries(entries);
 }
