@@ -29,6 +29,7 @@ const run = (approvals, questions) => ({ approvals, questions });
 const runs = { "/a#2": run([{ id: "approval" }], []), "/a#10": run([], [{ id: "question" }]), "/b#2": run([], []) };
 const readLinks = () => JSON.parse(localStorage.getItem("canvas-test-links") || "[]");
 window.milagre = {
+  onLinksChanged: (callback) => { window.__linksChanged = callback; return () => {}; },
   getCanvas: async () => ({ projects, links: readLinks(), worktreePositions: {}, states: [{ path: "/a", state: frontend }, { path: "/b", state: backend }, { path: "/c", state: empty }] }),
   addLink: async (a, b) => { const links = [...readLinks(), { id: "link-1", a, b, created_at: new Date().toISOString() }]; localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
   removeLink: async id => { const links = readLinks().filter(link => link.id !== id); localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
@@ -143,6 +144,11 @@ async function browserChecks() {
     await window.reload();
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     await window.loadURL(`${process.argv[2]}?dark`);
+    await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
+    // A Link changed outside the canvas (the sidebar, the phone) reaches it without waiting for its next read.
+    await evaluate("window.__linksChanged([])");
+    await waitFor('document.querySelectorAll(".react-flow__edge").length === 0');
+    await evaluate('window.__linksChanged(JSON.parse(localStorage.getItem("canvas-test-links") || "[]"))');
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     await delay(300);
     await screenshot("dark");

@@ -65,8 +65,8 @@ const SECTION_HEADER = 52;
 const CARD_GAP = 12;
 const SECTION_GAP = 96;
 const ROW_WIDTH = 1400;
-// Live marks come from the runs, and open Projects from their own states. This read brings new Chats in unopened
-// Projects, and it reads every Project on the host, so it runs rarely.
+// Live marks come from the runs, open Projects from their own states, and Links from their own event. This read brings
+// the rest (new Chats in unopened Projects, a Link workspace's cards), and it reads every Project on the host, so it runs rarely.
 const CANVAS_REFRESH_MS = 60_000;
 // A card: 1px border, 12px padding, then 38px per chat; two or more chats add 21px dividers and a 26px footer.
 const CHAT_ROW = 38;
@@ -538,6 +538,8 @@ export function CanvasView({
     const timer = window.setInterval(() => void refresh(), CANVAS_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
+  // A Link changed elsewhere (the sidebar, the phone, another window) shows at once, not at the next read.
+  useEffect(() => window.milagre.onLinksChanged?.((links) => Array.isArray(links) && setSnapshot((current) => current && { ...current, links })), []);
   // "Idle · 25m ago" stays true without a state change.
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);

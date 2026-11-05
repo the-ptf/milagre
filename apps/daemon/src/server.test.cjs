@@ -913,6 +913,25 @@ test("an open's reply carries its state's number, so the first change is a patch
   assert.equal(again.state.messages.at(-1).body.length, 5000);
 });
 
+test("canvas:snapshot leaves out the messages a lean client reads by Chat, and keeps them for a whole one", async (t) => {
+  const { project, client } = await fixture(t);
+  const lean = await client();
+  await lean.call("daemon:state-patches", [{ messages: false, transcripts: false, archivedSubagents: false }]);
+  const whole = await client();
+  await whole.call("daemon:state-patches");
+  const opened = await whole.call("project:open", [project]);
+  const session = Object.values(opened.state.sessions)[0];
+  await whole.call("chat:git-note", [`${project}#${session.id}`, "A note worth keeping"]);
+  await whole.call("daemon:flush");
+  const stateOf = (snapshot) => snapshot.states.find((entry) => entry.path === project).state;
+  const full = stateOf(await whole.call("canvas:snapshot"));
+  const trimmed = stateOf(await lean.call("canvas:snapshot"));
+  assert.ok(full.messages.some((message) => message.body.includes("A note worth keeping")));
+  assert.deepEqual(trimmed.messages, []);
+  assert.equal(trimmed.messagesInChats, true);
+  assert.equal(trimmed.sessions[session.id].summary.count, full.sessions[session.id].summary.count);
+});
+
 test("a reply whose state differs from the last sent only in a Chat it loaded keeps that number, for lean and whole clients", async (t) => {
   const { daemon, project, client } = await fixture(t, { lazyMessages: { idleMs: 0, sweepMs: 0 } });
   const lean = await client();
