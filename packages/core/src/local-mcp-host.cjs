@@ -10,6 +10,9 @@ const { providerCapabilities } = require("@milagre/shared/provider-capabilities"
 // A tool never gives a Chat more than its caller has without the user's say.
 const { callerMode: asCaller, raisesMode } = require("./agents/permissions.cjs");
 const { inspectProject } = require("./project-identity.cjs");
+const { ancestorChats } = require("@milagre/shared/subchat-escalation");
+const { attentionContext } = require("@milagre/shared/attention");
+const { isSecretRequest } = require("./chat-secrets.cjs");
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
 /** The answers as the Chat shows them in the user's message, as the question card writes them. */
@@ -19,6 +22,32 @@ function answerSummary(questions, answers) {
   if (questions.length === 1) return shown(questions[0]);
   return questions.map((question, index) => `${question.header || `Question ${index + 1}`}: ${shown(question)}`).join("\n");
 }
+
+/**
+ * How `caller` stands to `chatId` in their family of Subchats: "ancestor", "family" for any other member, or null for a
+ * Chat outside it (and an outside client), which goes by the older rules.
+ */
+function kinOf(state, caller, chatId) {
+  if (!caller || projectOfKey(caller) !== projectOfKey(chatId)) return null;
+  const callerId = sessionIdFromKey(caller);
+  const chatSession = sessionIdFromKey(chatId);
+  const above = ancestorChats(state.sessions, chatSession);
+  if (above.includes(callerId)) return "ancestor";
+  return (ancestorChats(state.sessions, callerId).at(-1) ?? callerId) === (above.at(-1) ?? chatSession) ? "family" : null;
+}
+
+/** `answers` kept to what `question` asked and with text in it: anything less reads as a dismissal (PendingQuestions.answer). */
+function givenAnswers(question, answers) {
+  const asked = new Set(question.questions.map((item) => item.id));
+  const given = Object.entries(answers ?? {}).flatMap(([id, values]) => {
+    const kept = values.map((value) => value.trim()).filter(Boolean);
+    return asked.has(id) && kept.length ? [[id, kept]] : [];
+  });
+  if (!given.length) throw Error("Give answers: the picked labels or typed text per question id.");
+  return Object.fromEntries(given);
+}
+
+const WAITS_ON_THE_USER = "This Subchat is waiting on the user, so only they can";
 
 /** What the receiving agent is told about who sent a chat_start message, which arrives as a plain user turn. */
 function senderLine(from, client) {
@@ -34,7 +63,8 @@ function attachmentPrompt(body, files) {
 // Narrow host ports; no caller-supplied method names or command payload forwarding.
 /**
  * Ports beyond reads: stopChat(chatId), setPermissionMode(chatId, mode), respondPermission(chatId, requestId, decision),
- * answerQuestion(chatId, requestId, answers, summary), patchChat(projectPath, sessionId, patch),
+ * answerQuestion(chatId, requestId, answers, summary, sender), patchChat(projectPath, sessionId, patch),
+ * suggestAnswer(callerChat, details), the card chat_respond leaves with suggest (SubchatEscalation.suggest),
  * searchChats(projectPath, query, limit), links: { list(), add(a, b), remove(id) }, activeWorktrees(projectPath) -> paths,
  * models(projectPath) -> { [provider]: [{ id, efforts, defaultEffort }] }, the pickers' catalog,
  * worktreeStatus(path, base) -> { uncommitted, unpushed, branch, removable } (worktree-cleanup.cjs),
@@ -56,6 +86,9 @@ function createLocalMcpHost({
   setPermissionMode,
   respondPermission,
   answerQuestion,
+  suggestAnswer = async () => {
+    throw Error("Suggestions are unavailable");
+  },
   patchChat,
   searchChats,
   links,
@@ -157,6 +190,12 @@ function createLocalMcpHost({
     }
   };
   const runOf = (chatId) => chats.runs[chatId];
+  // A Subchat that waits on the user is theirs until it is answered: the agents above it wait too.
+  const assertNotWaiting = (state, caller, chatId, action) => {
+    if (kinOf(state, caller, chatId) !== "ancestor") return;
+    const { approvals, questions } = pending(chatId);
+    if (approvals.length || questions.length) throw Error(`${WAITS_ON_THE_USER} ${action} it. Tell them instead.`);
+  };
   const pending = (chatId) => {
     const run = runOf(chatId);
     return {
@@ -172,6 +211,29 @@ function createLocalMcpHost({
         ...(reason ? { reason } : {}),
       })),
       questions: run?.questions ?? [],
+    };
+  };
+  // Inside a family the user keeps every decision that matters: an approval or a secret is never an agent's to answer, in
+  // any mode, nor is taking a question away. A question gets a suggestion, which the user sends; a caller in Full may also
+  // answer it alone, and both Chats then say so.
+  const familyResponse = async ({ chatId, requestId, state, approval, question, answers, suggest }, caller) => {
+    if (approval) throw Error(`${WAITS_ON_THE_USER} answer this approval. Tell them what it wants and what you recommend.`);
+    if (isSecretRequest(requestId) || question.questions.some((item) => item.secret)) throw Error(`${WAITS_ON_THE_USER} give this secret.`);
+    if (answers === null) throw Error(`${WAITS_ON_THE_USER} dismiss this question.`);
+    const given = givenAnswers(question, answers);
+    const answerLabel = answerSummary(question.questions, given);
+    const asked = question.questions.map((item) => item.question).join(" ");
+    if (suggest) {
+      const fromTitle = attentionContext(state, "", sessionIdFromKey(chatId)).chatTitle;
+      await suggestAnswer(caller, { from: chatId, fromTitle, requestId, question: asked, answerLabel, answers: given });
+      return { chatId, requestId, accepted: true, note: "Suggested. The human decides." };
+    }
+    if (callerMode(caller) !== "full")
+      throw Error("Only a Chat in Full permission answers a Subchat's question alone. Use suggest: true, and the human decides.");
+    return {
+      chatId,
+      requestId,
+      accepted: Boolean(await answerQuestion(chatId, requestId, given, undefined, { agent: caller, question: asked, answerLabel, answers: given })),
     };
   };
   // A path the caller names for an attachment: inside the Chat's own Worktree, so a file elsewhere on the Mac can't ride along.
@@ -321,6 +383,7 @@ function createLocalMcpHost({
     ) {
       const { state, session } = await chat(projectPath, chatId);
       notBots(chatId);
+      assertNotWaiting(state, caller, chatId, "send");
       if (session.archived) throw Error("This Chat is archived");
       const latest = chats.turnSettings(chatId) ?? {};
       const messages = await scopeStates.chatMessages(projectPath, [session.id]);
@@ -365,6 +428,8 @@ function createLocalMcpHost({
         operationId,
         canStart: () => {
           assertActive();
+          // Again at delivery: a question that opened during the awaits above would be dismissed by this message's steer.
+          assertNotWaiting(state, caller, chatId, "send");
           if (modeNow() !== mode) throw Error("Chat permission mode changed; inspect the Chat before retrying");
           return true;
         },
@@ -378,16 +443,18 @@ function createLocalMcpHost({
         ...(waits ? { note: "This Chat's agent can't take a message mid-turn: it starts this one after its running turn ends." } : {}),
       };
     },
-    async stopChat({ projectPath, chatId }) {
-      await chat(projectPath, chatId);
+    async stopChat({ projectPath, chatId }, caller) {
+      const { state } = await chat(projectPath, chatId);
       notBots(chatId);
+      assertNotWaiting(state, caller, chatId, "stop");
       const running = Boolean(runOf(chatId));
       await stopChat(chatId);
       return { chatId, stopped: running };
     },
     async setMode({ projectPath, chatId, permissionMode: mode }, caller) {
-      const { session } = await chat(projectPath, chatId);
+      const { state, session } = await chat(projectPath, chatId);
       notBots(chatId);
+      assertNotWaiting(state, caller, chatId, "change the mode of");
       if (!runOf(chatId) && permissionMode(chatId, null) === null)
         throw Error("This Chat has no running agent. Pass permissionMode to chat_start to start it in that mode.");
       await checkMode(caller, chatId, mode, session);
@@ -395,14 +462,18 @@ function createLocalMcpHost({
       return { chatId, permissionMode: mode };
     },
     // Answering another Chat's approval is a decision the user makes, unless the caller runs in Full permission itself.
-    async respond({ projectPath, chatId, requestId, decision, answers }, caller) {
-      const { session } = await chat(projectPath, chatId);
+    // Inside a family the user decides more: see `familyResponse`.
+    async respond({ projectPath, chatId, requestId, decision, answers, suggest = false }, caller) {
+      const { state, session } = await chat(projectPath, chatId);
       notBots(chatId);
       if (caller === chatId) throw Error("A Chat can't answer its own approvals or questions.");
       const { approvals, questions } = pending(chatId);
       const approval = approvals.find((item) => item.requestId === requestId);
       const question = questions.find((item) => item.requestId === requestId);
       if (!approval && !question) throw Error("Nothing with that requestId is waiting in this Chat. chat_read lists what is.");
+      const kin = kinOf(state, caller, chatId);
+      if (suggest && !kin) throw Error("suggest is for a question in this Chat's own family of Subchats.");
+      if (kin) return familyResponse({ chatId, requestId, state, approval, question, answers, suggest }, caller);
       const asking = `"${session.title || session.generatedTitle || "Another Chat"}"`;
       if (approval) {
         if (!decision) throw Error("Give a decision: allow, allow-for-chat or deny.");

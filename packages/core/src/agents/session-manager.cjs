@@ -274,6 +274,11 @@ class SessionManager {
     return permissions ? new Promise((resolve) => permissions.add(request, resolve, { fromMilagre: true })) : Promise.resolve("cancelled");
   }
 
+  /** Why a wake's turn refuses this tool call (EscalationTurn), or null: every Milagre tool asks here before it runs. */
+  escalationDenial(chatId, call) {
+    return this.sessions.get(chatId)?.session.escalation?.denial(call) ?? null;
+  }
+
   /** The live session's mode, else `fallback`: a Chat with no agent process has none of its own yet. */
   permissionMode(chatId, fallback = "ask") {
     return this.sessions.get(chatId)?.session.permissions?.mode ?? fallback;

@@ -274,6 +274,7 @@ const PATHS = Object.freeze({
   "usage:accounts:read": denied,
   "usage:accounts:cached": denied,
   "agent:answer-question": ([value]) => [chatProject(value?.chatId)],
+  "agent:dismiss-suggestion": ([value]) => [chatProject(value?.chatId)],
   "agent:set-permission-mode": ([value]) => [chatProject(value?.chatId)],
   "agent:models": (args) => (args[0] == null ? [] : [args[0]]),
   "agent:provider-updates": () => [],

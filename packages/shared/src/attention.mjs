@@ -5,6 +5,7 @@ import { chatTitle } from "./chats.mjs";
 import { projectOfKey } from "./agent-runs.mjs";
 import { activityBusy, chatActivity } from "./chat-activity.mjs";
 import { isLinkScopeKey } from "./chat-scopes.mjs";
+import { ancestorChats } from "./subchat-escalation.mjs";
 
 /** A compact plain-text preview for desktop and phone notifications. */
 export function notificationText(value, { markdown = true } = {}) {
@@ -35,11 +36,18 @@ export function completionNotice(title, { failed, body }) {
   };
 }
 
+/** The title of a notice about a Chat that waits: a Subchat also says which Chat it belongs to. */
+export function attentionTitle(context) {
+  const title = context.chatTitle?.trim() || "Milagre";
+  const parent = context.parentTitle?.trim();
+  return parent ? `${title} · in ${parent}` : title;
+}
+
 /** The notification for an approval or question a turn waits on, or null for any other event. */
 export function attentionNotice(event, context) {
   if (event.type !== "permission-request" && event.type !== "question-request") return null;
   const agent = context.provider ? providerName(context.provider) : "Agent";
-  const title = context.chatTitle?.trim() || "Milagre";
+  const title = attentionTitle(context);
 
   if (event.type === "question-request") {
     const [first, ...rest] = event.questions;
@@ -50,17 +58,23 @@ export function attentionNotice(event, context) {
   return { title, body: notificationText(`${agent} needs approval: ${command ? `Run: ${command}` : event.title}`, { markdown: !command }) };
 }
 
-/** What a notice names about a chat: its project, worktree, title and agent. */
+/** What a notice names about a chat: its project, worktree, title, agent and, for a Subchat, the nearest Chat above it still listed. */
 export function attentionContext(state, projectName, sessionId) {
   const session = state.sessions[sessionId];
   if (!session) return { projectName };
+  const titled = (chat) =>
+    chatTitle(
+      chat,
+      (state.messages ?? []).filter((message) => message.session_id === chat.id),
+    );
+  const parent = ancestorChats(state.sessions, sessionId)
+    .map((id) => state.sessions[id])
+    .find((chat) => chat && !chat.archived);
   return {
     projectName,
     worktreeName: state.worktrees?.[session.worktree_id]?.name,
-    chatTitle: chatTitle(
-      session,
-      state.messages.filter((message) => message.session_id === session.id),
-    ),
+    chatTitle: titled(session),
+    ...(parent ? { parentTitle: titled(parent) } : {}),
     provider: session.provider,
   };
 }

@@ -457,6 +457,7 @@ function InboxLine({
   archiving,
   waiting = 0,
   subchat = false,
+  depth = 1,
 }: {
   item: SidebarRecent;
   project: string;
@@ -471,6 +472,8 @@ function InboxLine({
   waiting?: number;
   /** The row is indented as a subchat. */
   subchat?: boolean;
+  /** How far in: 1 under the parent, 2 under a subchat (the sidebar goes no deeper). */
+  depth?: number;
 }) {
   const shown = pullRequests.slice(0, ROW_PR_LIMIT);
   const hidden = pullRequests.length - shown.length;
@@ -559,7 +562,7 @@ function InboxLine({
     <div
       data-chat-prs
       data-chat-line
-      className={`sidebar-copy pointer-events-none absolute ${subchat ? "left-[66px]" : "left-[50px]"} right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
+      className={`sidebar-copy pointer-events-none absolute ${subchat ? (depth > 1 ? "left-[82px]" : "left-[66px]") : "left-[50px]"} right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
     >
       {parts.map((part, index) => (
         <Fragment key={part.key}>
@@ -616,6 +619,7 @@ export const ChatRow = memo(function ChatRow({
   linkProjects,
   chatKey,
   subchat = false,
+  depth = 1,
   family,
 }: {
   item: SidebarRecent;
@@ -651,6 +655,8 @@ export const ChatRow = memo(function ChatRow({
   chatKey?: string;
   /** A subchat, indented under its parent's row (subchat-rows.ts). */
   subchat?: boolean;
+  /** How far in a subchat sits: 1 under its parent, 2 under another subchat; deeper ones stay at 2. */
+  depth?: number;
   /**
    * A parent's subchats: a count on the Project icon (the One list) or "5 subchats" on line two folds and unfolds them,
    * orange while one of them waits on you (`asking`).
@@ -831,7 +837,7 @@ export const ChatRow = memo(function ChatRow({
         ref={rowRef}
         data-chat-id={item.id}
         data-subchat={subchat && !collapsed ? "" : undefined}
-        className={`group/row relative ${subchat && !collapsed ? "pl-4" : ""} ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
+        className={`group/row relative ${subchat && !collapsed ? (depth > 1 ? "pl-8" : "pl-4") : ""} ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
         onPointerEnter={() => {
           if (doneable) hoveredDone = ownDone.current;
           showCardSoon();
@@ -1002,6 +1008,9 @@ export const ChatRow = memo(function ChatRow({
           </button>
         )}
         {subchat && !collapsed && <span aria-hidden data-subchat-guide className="pointer-events-none absolute inset-y-0 left-[19px] w-px bg-line" />}
+        {subchat && !collapsed && depth > 1 && (
+          <span aria-hidden data-subchat-guide className="pointer-events-none absolute inset-y-0 left-[35px] w-px bg-line" />
+        )}
         {inbox && !renaming && (
           <InboxLine
             item={item}
@@ -1015,13 +1024,14 @@ export const ChatRow = memo(function ChatRow({
             archiving={archiving}
             waiting={waiting}
             subchat={subchat}
+            depth={depth}
           />
         )}
 
         {!inbox && factLine && !renaming && (
           <div
             data-chat-prs
-            className={`sidebar-copy absolute bottom-1 ${subchat && !collapsed ? "left-[52px] max-w-[calc(100%-88px)]" : "left-9 max-w-[calc(100%-72px)]"} z-20 flex min-w-0 items-center gap-2 ${archiving ? "opacity-30" : ""}`}
+            className={`sidebar-copy absolute bottom-1 ${subchat && !collapsed ? (depth > 1 ? "left-[68px] max-w-[calc(100%-104px)]" : "left-[52px] max-w-[calc(100%-88px)]") : "left-9 max-w-[calc(100%-72px)]"} z-20 flex min-w-0 items-center gap-2 ${archiving ? "opacity-30" : ""}`}
           >
             {facts.map((fact, index) => (
               <Fragment key={(fact as { key: string | null }).key}>

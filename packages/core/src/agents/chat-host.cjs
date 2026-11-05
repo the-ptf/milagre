@@ -13,6 +13,7 @@ const {
   projectOfKey,
   recordAnswers,
   sessionIdFromKey,
+  splitRunForSteer,
 } = require("@milagre/shared/agent-runs");
 const { archiveFinishedSubagents, patchSession } = require("@milagre/shared/project-edits");
 const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@milagre/shared/handoff");
@@ -27,6 +28,7 @@ const { PERMISSION_MODES } = require("./permissions.cjs");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { CONTEXT_DEFAULTS, shouldAutoCompact } = require("@milagre/shared/context-settings");
 const { routineRunOf } = require("@milagre/shared/routines");
+const { ESCALATION_LEVEL } = require("../escalation-guard.cjs");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -48,6 +50,13 @@ function duplicateSend(message) {
 const RESUME_BODY = "Milagre restarted. Continue where you left off.";
 const RESUME_PROMPT =
   "Milagre, the app running you, closed while you were working and has just opened again, so your last turn was cut off. Continue where you left off. Check what is already done before repeating any of it.";
+
+// A question that was open when Milagre closed went with its turn: the agent has to ask it again, which starts its wait
+// (subchat-escalation.cjs) over too.
+const resumePrompt = (questions = []) =>
+  questions.length
+    ? `${RESUME_PROMPT} You were waiting for the user's answer to ${questions.map((question) => `"${question}"`).join(" and ")}. That question is gone: ask it again with your question tool.`
+    : RESUME_PROMPT;
 
 const LIMIT_PROMPT =
   "Your last turn stopped because the account hit its plan's usage limit, and Milagre switched this chat to another account. Continue where you left off; if the last request has no answer yet, answer it now. Check what is already done before repeating any of it.";
@@ -231,6 +240,9 @@ class ChatHost {
     this.queueWaiters = new Map();
     // A queued message Send now picked while a turn ran, by chat key: it starts once that turn's Stop lands.
     this.sendNext = new Map();
+    // Chats running a wake's escalation-only turn (subchat-escalation.cjs). Whatever is sent to one queues behind it: the
+    // turn can do almost nothing, so a message steered into it would run with its hands tied.
+    this.wakeTurns = new Set();
   }
 
   /** Whether a chat's turn runs, prepares or has work waiting on it: its messages stay in memory (see ProjectStates). */
@@ -658,6 +670,7 @@ class ChatHost {
       this.runs[chatId] &&
       !this.preparing.has(chatId) &&
       !this.startingTurns.has(chatId) &&
+      !this.wakeTurns.has(chatId) &&
       providerCapabilities(session.provider).steer &&
       state.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind !== "compaction",
     );
@@ -779,6 +792,7 @@ class ChatHost {
   /** Publishes a folded event, then captures the images of the replies it saved. */
   async settle(chatId, { state, changed, event, seq, added }) {
     const sessionId = sessionIdFromKey(chatId);
+    if (isTurnEnd(event)) this.wakeTurns.delete(chatId);
     this.publish(
       chatId,
       event.type === "subagent-update" && changed
@@ -895,6 +909,44 @@ class ChatHost {
       { chats: [sessionIdFromKey(chatId)] },
     );
     if (changed) this.broadcast(projectOfKey(chatId), state);
+  }
+
+  /**
+   * A note that can't wait for the running turn to end: a Subchat's waiting note belongs above the question its turn is
+   * blocked on. The reply so far is saved first, as for a steering message, so the note sits after it. `change(session)`
+   * edits the Chat in the same save. Resolves false when the Chat is gone.
+   */
+  async postNow(chatId, { body, context }, change = (session) => session) {
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    let seq;
+    let live = false;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        if (!latest.sessions[sessionId]) return latest;
+        const split = splitRunForSteer(latest, this.runs, projectPath, chatId);
+        const run = split.runs[chatId];
+        const message = { id: split.state.next_id, session_id: sessionId, body, context, role: "assistant", ...(run ? { model: run.model } : {}) };
+        live = Boolean(run);
+        if (run) {
+          this.runs = { ...split.runs, [chatId]: { ...run, split: true } };
+          seq = ++this.seq;
+        }
+        return {
+          ...split.state,
+          next_id: message.id + 1,
+          sessions: { ...split.state.sessions, [sessionId]: change(split.state.sessions[sessionId]) },
+          messages: [...split.state.messages, message],
+        };
+      },
+      { chats: [sessionId] },
+    );
+    if (!changed) return false;
+    // A window splits its copy of the run on the same event the user's answers use.
+    if (live) this.publish(chatId, { type: "answers-sent" }, state, seq);
+    else this.broadcast(projectPath, state);
+    return true;
   }
 
   /** The state with the chat's waiting notes added. */
@@ -1030,6 +1082,10 @@ class ChatHost {
         // A handed-over chat's first message carries its brief; the body is only what the user typed.
         brief = firstMessage ? session.handoverDraft : undefined;
         const chatId = chatKey(projectPath, session.id);
+        // A wake only ever starts a turn of its own: steered or queued it would lose the guard its turn runs under. Decided
+        // here, in the save, so no send can slip in after the caller looked.
+        if (request.idleOnly && (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId) || session.queued?.length))
+          throw Object.assign(new Error("The chat is busy."), { chatBusy: true });
         if (!request.limitResumeId && !request.limitSwitchToken && !request.queueReleaseToken) this.invalidateLimitResume(projectPath, session.id, "send");
         recoveryToken = this.limitResumeToken(projectPath, session.id);
         const withSession = started.state;
@@ -1087,7 +1143,7 @@ class ChatHost {
         if (
           runningProvider &&
           request.fromQueue === undefined &&
-          (request.delivery === "queue" || compaction || compacting || !providerCapabilities(runningProvider).steer)
+          (request.delivery === "queue" || compaction || compacting || this.wakeTurns.has(chatId) || !providerCapabilities(runningProvider).steer)
         ) {
           queuedEntry = {
             id: randomUUID(),
@@ -1184,6 +1240,7 @@ class ChatHost {
           this.preparing.set(chatId, preparation);
         }
         if (!steering) this.startingTurns.set(chatId, runProvider);
+        if (request.guard?.level === ESCALATION_LEVEL) this.wakeTurns.add(chatId);
         return {
           ...next,
           next_id: message.id + 1,
@@ -1196,7 +1253,10 @@ class ChatHost {
     );
     await saving.catch((error) => {
       // A message saved nowhere starts no turn: nothing may queue behind it.
-      if (target) this.doneStarting(target.chatId);
+      if (target) {
+        this.doneStarting(target.chatId);
+        if (request.guard?.level === ESCALATION_LEVEL) this.wakeTurns.delete(target.chatId);
+      }
       throw error;
     });
     if (duplicate) return duplicateSend(duplicate);
@@ -1215,6 +1275,7 @@ class ChatHost {
       if (newTask && !compaction) await this.beforeTask({ ...request, ...target, messageId: pendingId });
     } catch (error) {
       this.doneStarting(target.chatId);
+      if (request.guard?.level === ESCALATION_LEVEL) this.wakeTurns.delete(target.chatId);
       if (preparation) {
         this.release(target.chatId, preparation);
         preparation.settle(null);
@@ -1557,8 +1618,10 @@ class ChatHost {
     for (const chatId of Object.keys(this.runs)) {
       const turn = this.turns.get(chatId);
       // A Routine's turn isn't resumed: the scheduler recovers its Run on the next start and runs the next slot itself.
-      if (!turn || abandoned.has(chatId) || this.routineTurns.has(chatId)) continue;
-      byProject.set(projectOfKey(chatId), [...(byProject.get(projectOfKey(chatId)) ?? []), [sessionIdFromKey(chatId), turn]]);
+      // Nor is a wake's: the requests it was woken for end with this run.
+      if (!turn || abandoned.has(chatId) || this.routineTurns.has(chatId) || this.wakeTurns.has(chatId)) continue;
+      const openQuestions = this.runs[chatId].questions.flatMap((request) => request.questions.map((question) => question.question));
+      byProject.set(projectOfKey(chatId), [...(byProject.get(projectOfKey(chatId)) ?? []), [sessionIdFromKey(chatId), { ...turn, openQuestions }]]);
     }
     await Promise.all(
       [...byProject].map(([projectPath, chats]) =>
@@ -1567,11 +1630,14 @@ class ChatHost {
             projectPath,
             (latest) => {
               let sessions = latest.sessions;
-              for (const [sessionId, { prompt, ...turn }] of chats) {
+              for (const [sessionId, { prompt, openQuestions, ...turn }] of chats) {
                 const session = sessions[sessionId];
                 if (!session) continue;
                 if (sessions === latest.sessions) sessions = { ...latest.sessions };
-                sessions[sessionId] = { ...session, resumeTurn: { ...turn, stoppedAt, ...(session.native_session_id ? {} : { prompt }) } };
+                sessions[sessionId] = {
+                  ...session,
+                  resumeTurn: { ...turn, stoppedAt, ...(session.native_session_id ? {} : { prompt }), ...(openQuestions.length ? { openQuestions } : {}) },
+                };
               }
               return sessions === latest.sessions ? latest : { ...latest, sessions };
             },
@@ -1629,8 +1695,8 @@ class ChatHost {
     );
     if (!turn) return false;
     if (changed) this.broadcast(projectPath, state);
-    const { prompt, stoppedAt: _stoppedAt, ...options } = turn;
-    await this.send({ ...options, projectPath, sessionId, body: RESUME_BODY, prompt: prompt ?? RESUME_PROMPT, images: [], files: [] });
+    const { prompt, stoppedAt: _stoppedAt, openQuestions, ...options } = turn;
+    await this.send({ ...options, projectPath, sessionId, body: RESUME_BODY, prompt: prompt ?? resumePrompt(openQuestions), images: [], files: [] });
     return true;
   }
 

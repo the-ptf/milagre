@@ -750,7 +750,17 @@ export type MilagreBridge = {
   getMessage: (scope: string, id: number) => Promise<ChatMessage>;
   respondToPermission: (chatId: string, requestId: string, decision: PermissionDecision) => Promise<boolean>;
   /** Sends the answers to a question card, or dismisses it (null). False when the question is gone. */
-  answerQuestion: (chatId: string, requestId: string, answers: QuestionAnswers | null, summary?: string, images?: QuestionImages) => Promise<boolean>;
+  answerQuestion: (
+    chatId: string,
+    requestId: string,
+    answers: QuestionAnswers | null,
+    summary?: string,
+    images?: QuestionImages,
+    /** The Subchat suggestion card this answer sends: the host marks it sent. (agent:answer-question `suggestionId`) */
+    suggestionId?: string,
+  ) => Promise<boolean>;
+  /** Removes a Subchat suggestion's card from Chat `chatId`; the Subchat's question stays open. False when it is gone. (agent:dismiss-suggestion) */
+  dismissSuggestion: (chatId: string, id: string) => Promise<boolean>;
   setAgentPermissionMode: (chatId: string, mode: PermissionMode) => Promise<void>;
   /** Each agent's model list as its CLI reports it, asked once per app run; null for an agent that couldn't be asked. */
   listAccountScopes: () => Promise<ProjectAccountScope[]>;

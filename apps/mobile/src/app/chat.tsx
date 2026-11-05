@@ -1,5 +1,5 @@
 import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
-import { radius } from "../design-tokens";
+import { chrome, radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { compactionContext } from "@milagre/shared/compaction";
@@ -153,7 +153,7 @@ import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
-import { SubchatPanel, SubchatPill, useSubchatPanel } from "../subchat-pill";
+import { SubchatAsk, SubchatPanel, SubchatPill, useSubchatPanel } from "../subchat-pill";
 import { useTheme } from "../theme";
 import { ToastPill } from "../primitives/toast";
 import { undoHistory, useHistoryToast } from "../undo-history";
@@ -183,7 +183,11 @@ import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new
 import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
-import { chatFamily } from "@milagre/shared/subchats";
+import { chatBookmark, chatFamily } from "@milagre/shared/subchats";
+import { subchatNote, subchatNotes, suggestionArguments, isSilentNote } from "../subchat-notes";
+import { SubchatNoteView, SubchatWaitingNote } from "../subchat-note";
+import { SubchatBookmarkHost } from "../subchat-bookmark";
+import { BESIDE_PARENT, familyMenu } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
@@ -261,15 +265,13 @@ function SidebarButton() {
 }
 
 // `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
-// `beside`: a subchat to open beside this one on a wide iPad (the list's subchat rows route to their family's top Chat).
-type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string; beside?: string };
+type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
 
 /**
  * The routed Chat, and on a wide iPad a second Chat beside it, of any Project on any computer, opened from a sidebar
  * row's "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
  */
 const NO_MEMBERS: WorktreeBinding[] = [];
-const NO_MESSAGES: ChatMessage[] = [];
 const NO_QUOTES: ComposerQuote[] = [];
 const NO_REFS: string[] = [];
 
@@ -291,15 +293,16 @@ export default function ChatScreen() {
   useEffect(() => {
     if (state === "ended") closeBeside();
   }, [state]);
-  // A subchat row routed here to open beside this Chat: it opens once, and the route forgets it.
-  const besideParam = params.beside;
-  const routedHost = params.hostId || session.client?.url;
-  const routedPath = params.projectPath || session.snapshot?.project.path;
+  // Every route to a Chat opens it alone (a sidebar row, a pill, a notification, the Attention pill): a route that changes
+  // the open Chat ends the split. Most routes close it themselves, before they navigate, so it never shows for a frame;
+  // this one catches those that don't (a notification, a Live Activity, a Routine's Chat).
+  const routeKey = `${params.hostId}|${params.projectPath}|${params.id}|${params.worktreeId}`;
+  const routed = useRef(routeKey);
   useEffect(() => {
-    if (!besideParam || !routedHost || !routedPath) return;
-    openBeside({ hostId: routedHost, projectPath: routedPath, chatId: Number(besideParam) });
-    router.setParams({ beside: undefined });
-  }, [besideParam, routedHost, routedPath]);
+    if (routed.current === routeKey) return;
+    routed.current = routeKey;
+    closeBeside();
+  }, [routeKey]);
   const shown = state === "shown" && beside ? beside : null;
   // Closing the routed Chat leaves the one beside it in its place.
   const promote = useCallback(() => {
@@ -477,6 +480,11 @@ function ChatPane({
   const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
   const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
   const targetHost = params.hostId || session.client?.url || "";
+  // The Chat above an open Subchat, which a capsule under the header names (subchat-bookmark.tsx). A secondary pane has none.
+  // The transcript and the message jumps keep 16 further down for it.
+  const bookmark =
+    !secondary && params.id && session.snapshot ? chatBookmark(session.snapshot.project.state.sessions, `${session.snapshot.project.path}#${params.id}`) : null;
+  const topClear = insets.top + (bookmark ? 100 : 84);
   const reachableHost = useReachableHost(session.client?.url);
   const targetProject = params.projectPath || session.snapshot?.project.path || "";
   const targetScope = JSON.stringify([targetHost, targetProject]);
@@ -818,7 +826,7 @@ function ChatPane({
     () =>
       messageNavigationIndices(shownEntries.length).flatMap((index) => {
         const entry = shownEntries[index];
-        if (!entry) return [];
+        if (!entry || isSilentNote(entry.message)) return [];
         const { message, merged } = entry;
         const position = `${index + 1} of ${shownEntries.length}`;
         // A routine-run divider, or a Linear Run's issue card carrying its Run.
@@ -875,7 +883,7 @@ function ChatPane({
       const y = messagePositions.current.get(id);
       if (y !== undefined) {
         navigationTarget.current = null;
-        scroll.current?.scrollTo({ y: Math.max(0, y - insets.top - 72), animated: true });
+        scroll.current?.scrollTo({ y: Math.max(0, y - topClear + 12), animated: true });
       }
     }
   };
@@ -890,10 +898,16 @@ function ChatPane({
   // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one. The Chat beside
   // opens it in its own place, so the routed Chat and the open Project stay.
   const openOtherChat = useCallback(
-    (key: string) =>
-      secondary
-        ? openBeside({ hostId: targetHost, projectPath: projectOfKey(key), chatId: sessionIdFromKey(key) })
-        : router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: targetHost, id: String(sessionIdFromKey(key)) } }),
+    (key: string) => {
+      const target = { projectPath: projectOfKey(key), hostId: targetHost, id: String(sessionIdFromKey(key)) };
+      if (secondary) {
+        openBeside({ hostId: targetHost, projectPath: target.projectPath, chatId: sessionIdFromKey(key) });
+        return;
+      }
+      // The target becomes the routed Chat and the split ends: the beside Chat's state outlives the route.
+      closeBeside();
+      router.replace({ pathname: "/chat", params: target });
+    },
     [targetHost, secondary],
   );
   const { rememberChat } = session;
@@ -2008,35 +2022,34 @@ function ChatPane({
       setError((e as Error).message);
     }
   }
-  // A Chat with subchats, or a subchat: its title opens a menu of the family, its top Chat first (subchats.ts).
+  // A Chat with subchats, or a subchat: its title opens a menu of the family (subchats.ts, subchat-family.ts).
   const family = chat && !secondary ? chatFamily(project.state.sessions, `${project.path}#${chat.id}`) : null;
-  // Transcript links and the title picker share family navigation. A secondary pane keeps its own slot.
+  // Transcript links, the pills and the title menu share one route: every Chat opens alone, never beside this one.
   function openFamilyChat(key: string) {
     if (key === `${project.path}#${chat?.id}`) return;
-    const targetFamily = !secondary && split.widthClass === "wide" && projectOfKey(key) === project.path ? chatFamily(project.state.sessions, key) : null;
-    if (targetFamily && targetFamily.root !== key) {
-      if (chat?.id === sessionIdFromKey(targetFamily.root)) openBeside({ hostId: targetHost, projectPath: project.path, chatId: sessionIdFromKey(key) });
-      else
-        router.replace({
-          pathname: "/chat",
-          params: { projectPath: project.path, hostId: targetHost, id: String(sessionIdFromKey(targetFamily.root)), beside: String(sessionIdFromKey(key)) },
-        });
-    } else openOtherChat(key);
+    openOtherChat(key);
   }
-  const familyMenu: MenuSection[] = family
-    ? [
-        { items: [familyItem(family.root, "Parent")] },
-        { title: family.children.length === 1 ? "1 subchat" : `${family.children.length} subchats`, items: family.children.map((key) => familyItem(key)) },
-      ]
-    : [];
-  function familyItem(key: string, subtitle?: string) {
-    const member = project.state.sessions[sessionIdFromKey(key)];
-    return {
-      id: key,
-      title: member ? chatTitle(member, NO_MESSAGES) : "Chat",
-      ...(subtitle ? { subtitle } : {}),
-      checked: chat?.id === sessionIdFromKey(key),
-    };
+  // "Open beside parent" is the one way into a split from a Subchat, for a wide iPad's second pane.
+  const besideParent = bookmark && split.widthClass === "wide" && !secondary ? sessionIdFromKey(bookmark.parent) : undefined;
+  const familyItems: MenuSection[] =
+    family && chat
+      ? familyMenu({
+          sessions: project.state.sessions,
+          key: `${project.path}#${chat.id}`,
+          children: family.children,
+          routines,
+          routinesOn: routinesOn === true,
+          runs: session.snapshot?.runs.runs,
+          now,
+          canOpenBeside: besideParent !== undefined,
+        })
+      : [];
+  function selectFamilyItem(id: string) {
+    if (id === BESIDE_PARENT) {
+      if (besideParent !== undefined) openBeside({ hostId: targetHost, projectPath: project.path, chatId: besideParent });
+      return;
+    }
+    openFamilyChat(id);
   }
   const titleRow = (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
@@ -2051,10 +2064,10 @@ function ChatPane({
       <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr)}>
         {family ? (
           <PullDown
-            label={`${title}, ${family.children.length} subchat${family.children.length === 1 ? "" : "s"} in this family`}
+            label={`${title}, ${family.children.length} Subchat${family.children.length === 1 ? "" : "s"} in this family`}
             title={title}
-            sections={familyMenu}
-            onSelect={openFamilyChat}
+            sections={familyItems}
+            onSelect={selectFamilyItem}
             style={{ maxWidth: "100%" }}
           >
             {titleRow}
@@ -2190,6 +2203,20 @@ function ChatPane({
   const answering = !!question && sentAnswers?.requestId === question.requestId;
   // The host's message replaces the preview as soon as the transcript grows by it.
   const answerPreview = answering && sentAnswers.count === messages.length ? sentAnswers.message : null;
+  // What a Subchat's escalation left in this transcript: which notes draw nothing in place, and the open request's wait note.
+  const notes = subchatNotes(messages, !!question || !!run?.approvals.length);
+  const renderSubchatNote = (message: ChatMessage) => {
+    const note = subchatNote(message);
+    return note ? (
+      <SubchatNoteView
+        note={note}
+        outcomes={notes.outcomes}
+        onOpenChat={openFamilyChat}
+        onSend={(suggestion) => client.call("agent:answer-question", [suggestionArguments(suggestion)])}
+        onDismiss={(id) => client.call("agent:dismiss-suggestion", [{ chatId, id }])}
+      />
+    ) : null;
+  };
   const pendingInput = pending && pendingCanonicalId === null ? pending.preview.message : null;
   const renderToolApproval = (approval: NonNullable<typeof run>["approvals"][number]) => (
     <Approval
@@ -2276,7 +2303,7 @@ function ChatPane({
                   contentContainerStyle={[
                     styles.content,
                     column,
-                    { paddingTop: insets.top + 84, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
+                    { paddingTop: topClear, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
                   ]}
                   scrollEventThrottle={32}
                   onScrollBeginDrag={() => {
@@ -2364,7 +2391,7 @@ function ChatPane({
                   )}
                   {groupedMessages.slice(-visible).flatMap(({ message, hidden, merged }) => [
                     ...(liveReply && message === pendingInput ? [liveReply] : []),
-                    ...(hidden
+                    ...(hidden || notes.silent.has(message.id)
                       ? []
                       : [
                           <View
@@ -2382,65 +2409,66 @@ function ChatPane({
                               }
                               if (navigationTarget.current === message.id) {
                                 navigationTarget.current = null;
-                                scroll.current?.scrollTo({ y: Math.max(0, layout.y - insets.top - 72), animated: true });
+                                scroll.current?.scrollTo({ y: Math.max(0, layout.y - topClear + 12), animated: true });
                               }
                             }}
                           >
-                            {isHandoff(message) ? (
-                              <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
-                            ) : isWorktreeLinked(message) ? (
-                              <WorktreeLinkDivider context={message.context} client={session.client} onOpen={(title, text) => openBrief(text, title)} />
-                            ) : isCompaction(message) ? (
-                              <CompactionDivider context={message.context} />
-                            ) : isAccountSwitch(message) ? (
-                              <AccountSwitchDivider context={message.context} />
-                            ) : isLimitReset(message) ? (
-                              <LimitResetDivider />
-                            ) : isChatReload(message) ? (
-                              <ChatReloadDivider />
-                            ) : isBabysitStopped(message) ? (
-                              <BabysitStoppedDivider context={message.context} />
-                            ) : isRoutineRun(message) ? (
-                              <RoutineRunDivider context={message.context} merged={merged} />
-                            ) : isCheckpointRestore(message) ? (
-                              <CheckpointRestoreDivider
-                                context={message.context}
-                                onPreview={
-                                  run
-                                    ? undefined
-                                    : (recoveryId, intent) => {
-                                        setUndoIntent(intent);
-                                        void undo.inspect(recoveryId);
-                                      }
-                                }
-                              />
-                            ) : (
-                              <>
-                                {/* A Linear Run's first message is its issue card carrying the Run: the divider, then the card. */}
-                                {issueRunDivider(message, merged)}
-                                <ChatReply
-                                  message={message}
-                                  chats={mentionChats}
-                                  media={media}
-                                  basePath={worktree?.path || project.path}
-                                  chatId={chatId}
-                                  designChoice={designChoice}
-                                  designsMoved={designsMoved}
-                                  // A limit card offers other accounts only on the Chat's last message, with no turn running.
-                                  limitPending={message.id === chat?.limitResume?.sourceMessageId ? chat.limitResume : undefined}
-                                  limitResumeAvailable={message.id === chat?.limitTurn?.sourceMessageId}
-                                  limitResumeBlocked={message.id === chat?.limitTurn?.sourceMessageId ? !!chat?.queued?.length : undefined}
-                                  limitProjectPath={
-                                    !run && !pending && message.id === (chat?.limitTurn?.sourceMessageId ?? messages[messages.length - 1]?.id)
-                                      ? project.path
-                                      : undefined
+                            {renderSubchatNote(message) ??
+                              (isHandoff(message) ? (
+                                <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
+                              ) : isWorktreeLinked(message) ? (
+                                <WorktreeLinkDivider context={message.context} client={session.client} onOpen={(title, text) => openBrief(text, title)} />
+                              ) : isCompaction(message) ? (
+                                <CompactionDivider context={message.context} />
+                              ) : isAccountSwitch(message) ? (
+                                <AccountSwitchDivider context={message.context} />
+                              ) : isLimitReset(message) ? (
+                                <LimitResetDivider />
+                              ) : isChatReload(message) ? (
+                                <ChatReloadDivider />
+                              ) : isBabysitStopped(message) ? (
+                                <BabysitStoppedDivider context={message.context} />
+                              ) : isRoutineRun(message) ? (
+                                <RoutineRunDivider context={message.context} merged={merged} />
+                              ) : isCheckpointRestore(message) ? (
+                                <CheckpointRestoreDivider
+                                  context={message.context}
+                                  onPreview={
+                                    run
+                                      ? undefined
+                                      : (recoveryId, intent) => {
+                                          setUndoIntent(intent);
+                                          void undo.inspect(recoveryId);
+                                        }
                                   }
-                                  onActivity={openActivity}
-                                  highlighted={message.id === undoHighlight}
-                                  onOpenChat={openFamilyChat}
                                 />
-                              </>
-                            )}
+                              ) : (
+                                <>
+                                  {/* A Linear Run's first message is its issue card carrying the Run: the divider, then the card. */}
+                                  {issueRunDivider(message, merged)}
+                                  <ChatReply
+                                    message={message}
+                                    chats={mentionChats}
+                                    media={media}
+                                    basePath={worktree?.path || project.path}
+                                    chatId={chatId}
+                                    designChoice={designChoice}
+                                    designsMoved={designsMoved}
+                                    // A limit card offers other accounts only on the Chat's last message, with no turn running.
+                                    limitPending={message.id === chat?.limitResume?.sourceMessageId ? chat.limitResume : undefined}
+                                    limitResumeAvailable={message.id === chat?.limitTurn?.sourceMessageId}
+                                    limitResumeBlocked={message.id === chat?.limitTurn?.sourceMessageId ? !!chat?.queued?.length : undefined}
+                                    limitProjectPath={
+                                      !run && !pending && message.id === (chat?.limitTurn?.sourceMessageId ?? messages[messages.length - 1]?.id)
+                                        ? project.path
+                                        : undefined
+                                    }
+                                    onActivity={openActivity}
+                                    highlighted={message.id === undoHighlight}
+                                    onOpenChat={openFamilyChat}
+                                  />
+                                </>
+                              ))}
                           </View>,
                         ]),
                   ])}
@@ -2480,8 +2508,17 @@ function ChatPane({
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
         transcript's top padding does and gradually strengthens toward the status bar. It shows only while the transcript
         is under the header, so the dots run edge to edge otherwise. */}
-                {underHeader && <EdgeFade edge="top" height={insets.top + 84} width={window.width} />}
+                {underHeader && <EdgeFade edge="top" height={topClear} width={window.width} />}
                 {paneHeader}
+                {bookmark && (
+                  <SubchatBookmarkHost
+                    sessions={project.state.sessions}
+                    chatKey={chatId}
+                    runs={session.snapshot?.runs.runs}
+                    top={insets.top + chrome.header + 8}
+                    onBack={openFamilyChat}
+                  />
+                )}
                 {startingChat && (
                   <Animated.View
                     pointerEvents="box-none"
@@ -2561,7 +2598,17 @@ function ChatPane({
                     )}
                   </Animated.View>
                 )}
-                {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
+                {/* The capsule says when the Chat above needs you and the Subchats pill when a Chat below does: they leave this
+                    pill, which shrinks to its icon beside the capsule. */}
+                {!secondary && (
+                  <AttentionPill
+                    currentChat={chatId}
+                    visibleChat={visibleChat}
+                    hideChats={[...(bookmark ? [bookmark.parent] : []), ...subchatPanel.keys, ...subchatPanel.deeper]}
+                    compact={!!bookmark}
+                    bottom={dockHeight + 12}
+                  />
+                )}
                 {toast ? (
                   <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
                     <ToastPill text={toast.text} />
@@ -2575,7 +2622,7 @@ function ChatPane({
                 <MessageNavigation
                   items={navigationItems}
                   onSelect={navigateToMessage}
-                  top={insets.top + 72}
+                  top={topClear - 12}
                   bottom={dockHeight + 12}
                   keyboardOffset={lift}
                   followKeyboard={!terminalTyping}
@@ -2602,6 +2649,7 @@ function ChatPane({
                       failure={project.state.persistence}
                       offline={!!session.error}
                     />
+                    {chat && !chatsHomeOpen && (!question || answering) && <SubchatAsk panel={subchatPanel} messages={messages} onOpenChat={openFamilyChat} />}
                     {(!question || answering) && (
                       // More pills than fit scroll sideways; the spacer still right-aligns them when they fit.
                       <ScrollView
@@ -2653,6 +2701,7 @@ function ChatPane({
                         onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
                       />
                     ) : null}
+                    {notes.waiting && <SubchatWaitingNote note={notes.waiting} />}
                     {run?.approvals.map(renderToolApproval)}
                     {question && (
                       // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.

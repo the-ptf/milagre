@@ -44,3 +44,9 @@ test("saveSplitChats: keeps the order and leaves a new Chat's draft tile out", (
   saveSplitChats(storage, ["/b#2", "/a#0", "/a#1"]);
   assert.deepEqual(readSplitChats(storage), ["/b#2", "/a#1"]);
 });
+
+test("readSplitChats: a split saved under the old key (auto-split by focus) is not restored", () => {
+  const items = new Map<string, string>([["milagre.chatSplit", '["/a#1", "/b#2"]']]);
+  const storage = { getItem: (name: string) => items.get(name) ?? null, setItem: (name: string, value: string) => void items.set(name, value) };
+  assert.deepEqual(readSplitChats(storage), []);
+});

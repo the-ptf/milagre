@@ -108,11 +108,12 @@ const STRIP_EDGE = 12;
 /**
  * The Routine chip's strip over the open Chat: left and right padding inside <main> (`width` wide, `rightGap` short of the
  * window's right edge) that keep the chip clear of the window corner's buttons (`reserve` px from that edge). The chip
- * stays centered while it has CHIP_ROOM; on a narrower <main> the left side gives way first, never the right.
+ * stays centered while it has CHIP_ROOM; on a narrower <main> the left side gives way first, never the right. `leftReserve`
+ * is how far the Subchat bookmark reaches from <main>'s left edge: the chip starts after it, off-center when it must.
  */
-export function chipStripInsets(width: number, rightGap: number, reserve: number): { left: number; right: number } {
+export function chipStripInsets(width: number, rightGap: number, reserve: number, leftReserve = 0): { left: number; right: number } {
   const right = Math.max(STRIP_EDGE, reserve - rightGap);
-  const left = Math.max(STRIP_EDGE, Math.min(right, width - right - CHIP_ROOM));
+  const left = Math.max(STRIP_EDGE, leftReserve, Math.min(right, width - right - CHIP_ROOM));
   return { left, right };
 }
 

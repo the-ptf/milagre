@@ -435,10 +435,13 @@ async function startDaemon({
     dataDir,
     version,
     isChatFocused,
+    // Open on any screen: a Subchat's wait is deferred, and its family counts a human, on a phone's view too.
+    isChatSeen: (chatId) => isChatFocused(chatId) || push.viewing(chatId),
     notifyWaiting(notice) {
       broadcast("notification:waiting", notice);
       // A flow Run waiting for approval raised no agent event, so the phone hears it here (agent ones go through observe).
-      if (String(notice?.requestId ?? "").startsWith("flow:")) push.notice(notice.chatId, notice);
+      // Nor does a Subchat's reminder: the request it is about was announced minutes ago.
+      if (/^(?:flow|reminder):/.test(String(notice?.requestId ?? ""))) push.notice(notice.chatId, notice);
       runtimeOptions.notifyWaiting?.(notice);
     },
     emit(channel, payload) {

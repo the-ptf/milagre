@@ -3,12 +3,13 @@ import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { BlurView } from "@sbaiahmed1/react-native-blur";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel } from "@milagre/shared/attention";
 import { readAttentionButton, saveAttentionButton } from "./hosts-native";
 import { useSession } from "./session";
+import { closeBeside } from "./split-chats";
 import { chrome, lineHeight, radius, space, type } from "./design-tokens";
 
 import { Icon } from "./icons";
@@ -103,15 +104,33 @@ export function AttentionDot() {
   return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />;
 }
 
-/** Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first. */
-export function AttentionPill({ currentChat, visibleChat, bottom }: { currentChat?: string; visibleChat?: string; bottom?: number }) {
+/**
+ * Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first.
+ * `hideChats` are Chats another surface already announces (the capsule names a waiting parent, the pill a waiting Subchat), so
+ * they aren't counted twice. `compact` shrinks the pill to its icon, so it never meets that capsule on the left.
+ */
+export function AttentionPill({
+  currentChat,
+  visibleChat,
+  hideChats,
+  compact = false,
+  bottom,
+}: {
+  currentChat?: string;
+  visibleChat?: string;
+  hideChats?: readonly string[];
+  compact?: boolean;
+  bottom?: number;
+}) {
   const { colors, scheme } = useTheme();
   const { client, recent, cachedProject, snapshot } = useSession();
   const insets = useSafeAreaInsets();
   const [enabled] = useAttentionButton();
   const [floatingInbox] = useFloatingInbox();
   // Skip the open Chat and Projects hidden from the list.
-  const waiting = useAttention().filter((key) => key !== currentChat && key !== visibleChat && !recent.find((item) => item.path === projectOfKey(key))?.hidden);
+  const waiting = useAttention().filter(
+    (key) => key !== currentChat && key !== visibleChat && !hideChats?.includes(key) && !recent.find((item) => item.path === projectOfKey(key))?.hidden,
+  );
   if (floatingInbox && client) return <FloatingInboxChip bottom={bottom} />;
   if (!enabled || !waiting.length || !client) return null;
   const name = (path: string) => recent.find((item) => item.path === path)?.name || path.split("/").at(-1) || "Project";
@@ -132,8 +151,11 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
     };
   });
   const label = attentionLabel(items.map((item) => item.title));
-  const open = (key: string) =>
+  // Like every route to a Chat, it opens alone: a split ends before the route changes.
+  const open = (key: string) => {
+    closeBeside();
     router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
+  };
   const pill = (
     <View
       style={{
@@ -141,7 +163,7 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
         alignItems: "center",
         gap: 6,
         minHeight: 32,
-        paddingHorizontal: 12,
+        paddingHorizontal: compact ? 8 : 12,
         borderRadius: radius.full,
         borderCurve: "continuous",
         overflow: "hidden",
@@ -155,10 +177,19 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
         style={StyleSheet.absoluteFill}
       />
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.orangeTint }]} />
-      <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", maxWidth: 220 }}>
-        {label}
-      </Text>
-      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} />
+      {compact ? (
+        <Icon icon={Alert02Icon} tone="orange" size={16} />
+      ) : (
+        <>
+          <Text
+            numberOfLines={1}
+            style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", maxWidth: 220 }}
+          >
+            {label}
+          </Text>
+          <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} />
+        </>
+      )}
     </View>
   );
   // Floating overlays sit 8 under the header, clear of it, level with the top Toast.

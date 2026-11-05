@@ -424,6 +424,73 @@ test("a guarded turn in Ask or Auto keeps its policy, denies push and asks about
   }
 });
 
+const WAKE = { level: "escalation", requests: [{ chatId: "/p#2", requestId: "q1" }] };
+const of = (events, type) => events.filter((event) => event.type === type);
+
+test("a wake's turn runs read-only and refuses every approval, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const { session, events } = codex(t, { scenario: "guarded" });
+    await session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(events);
+    assert.equal(replyText(events), "decision:decline decision:decline", permissionMode);
+    assert.equal(of(events, "permission-request").length, 0, permissionMode);
+    const start = (await received(session)).find((message) => message.method === "turn/start").params;
+    assert.equal(start.approvalPolicy, "untrusted", permissionMode);
+    assert.deepEqual(start.sandboxPolicy, { type: "readOnly", networkAccess: false }, permissionMode);
+    // `permissions` keeps the Chat's own mode: chat_respond reads it to know a parent in Full.
+    assert.equal(session.permissions.mode, permissionMode);
+    assert.equal(session.escalation, null, "the guard ends with its turn");
+  }
+});
+
+test("a wake's turn refuses a Milagre plan tool and a file change before their shortcuts, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const plan = codex(t, { scenario: "mcp-plan-approval" });
+    await plan.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(plan.events);
+    assert.equal(of(plan.events, "permission-request").length, 0, permissionMode);
+    assert.match(replyText(plan.events), /decline/, permissionMode);
+    const file = codex(t, { scenario: "file-approval" });
+    await file.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(file.events);
+    assert.equal(of(file.events, "permission-request").length, 0, permissionMode);
+    assert.equal(replyText(file.events), "decision:decline", permissionMode);
+  }
+});
+
+test("a wake's turn can't ask a question", async (t) => {
+  const { session, events } = codex(t, { scenario: "question" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  assert.equal(of(events, "question-request").length, 0);
+});
+
+test("tool calls Codex runs without asking still count: past the grace the host stops the turn", async (t) => {
+  const { ESCALATION_TOOL_CALLS, ESCALATION_TOOL_GRACE } = require("@milagre/shared/subchat-escalation");
+  const { session, events } = codex(t, { scenario: "slow" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await waitUntil(() => session.state.turnId);
+  const threadId = session.state.threadId;
+  const started = (type, id) => session.handleNotification("item/started", { threadId, turnId: session.state.turnId, item: { type, id, command: "ls" } });
+  started("agentMessage", "not-a-tool");
+  for (let call = 0; call < ESCALATION_TOOL_CALLS + ESCALATION_TOOL_GRACE; call++) started("commandExecution", `cmd-${call}`);
+  assert.equal(session.cancelRequested, false);
+  started("commandExecution", "one-too-many");
+  assert.equal(session.cancelRequested, true);
+  await ended(events);
+});
+
+test("the Chat's next turn after a wake runs on its own policy", async (t) => {
+  const { session, events } = codex(t);
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events, 2);
+  const starts = (await received(session)).filter((message) => message.method === "turn/start");
+  assert.equal(starts[1].params.approvalPolicy, "never");
+  assert.deepEqual(starts[1].params.sandboxPolicy, { type: "dangerFullAccess" });
+});
+
 test("a command that writes to GitHub is allowed once, never for the whole Chat", async (t) => {
   const { session, events } = codex(t, { scenario: "guarded" });
   await session.startTurn({ ...TURN, permissionMode: "ask" });

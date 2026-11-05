@@ -32,6 +32,7 @@ const {
 } = require("./permissions.cjs");
 const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = require("./questions.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
+const { codexMcpCall, turnGuards } = require("../escalation-guard.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
@@ -47,7 +48,10 @@ const THREAD_CONFIG = { features: { default_mode_request_user_input: true, send_
 // A babysit Run's turn (`guarded`) must show Milagre every command its level might refuse. Full keeps its sandbox but
 // asks about untrusted commands, which Milagre then allows itself (PendingPermissions); Ask already asks, and Auto's
 // sandbox has no network, so a push or a GitHub write can only run once Codex asks to leave it.
-function codexPolicy(permissionMode, cwd, workspaceRoots = [], { guarded = false } = {}) {
+// A wake's turn (`readOnly`) runs on Codex's strictest policy whatever the Chat's mode: its sandbox writes nothing and
+// reaches no network, and everything Codex doesn't trust as a read asks, which the turn then refuses (EscalationTurn).
+function codexPolicy(permissionMode, cwd, workspaceRoots = [], { guarded = false, readOnly = false } = {}) {
+  if (readOnly) return { approvalPolicy: "untrusted", sandbox: "read-only", sandboxPolicy: { type: "readOnly", networkAccess: false } };
   if (permissionMode === "full")
     return { approvalPolicy: guarded ? "untrusted" : "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
   return {
@@ -119,6 +123,8 @@ const turnInput = (prompt, files) =>
 
 // account/read answers in well under a second; a Codex that doesn't is not held up for the default RPC timeout.
 const ACCOUNT_TIMEOUT_MS = 8000;
+// The items that are tool calls, for what a wake's turn may spend.
+const TOOL_ITEMS = new Set(["commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall"]);
 // thread/start and thread/resume wait for Codex however long it takes (see requestThread).
 const THREAD_TIMEOUT_MS = null;
 
@@ -199,8 +205,9 @@ class CodexSession {
     // fileChange items by id, from item/started: their approval requests carry no diff of their own.
     this.fileChanges = new Map();
     // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
-    // item id ({ command, reason }), so their steps say why.
+    // item id ({ command, reason }), so their steps say why. A wake's EscalationTurn while its turn runs.
     this.guard = null;
+    this.escalation = null;
     this.refused = new Map();
   }
 
@@ -222,7 +229,10 @@ class CodexSession {
     }
     this.turnActive = true;
     this.cancelRequested = false;
-    this.guard = request.guard ?? null;
+    Object.assign(
+      this,
+      turnGuards(request.guard, () => void this.interrupt()),
+    );
     Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false, asyncMessages: new Set() });
     let markReady;
     this.turnReady = new Promise((resolve) => {
@@ -241,7 +251,7 @@ class CodexSession {
   async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false, canStart }) {
     const policy = this.analysisOnly
       ? advisorPolicy("codex", this.linked?.tools ?? [])
-      : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard) });
+      : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard), readOnly: Boolean(this.escalation) });
     // The turn's sandbox writes to every owned root; one made during the turn reaches it through approvals.
     this.access.learned();
     this.permissions.setMode(permissionMode);
@@ -448,6 +458,7 @@ class CodexSession {
 
   handleNotification(method, params) {
     if (method === "item/started" && params.item?.type === "fileChange") this.fileChanges.set(params.item.id, params.item.changes ?? []);
+    if (method === "item/started" && TOOL_ITEMS.has(params.item?.type) && params.threadId === this.state.threadId) this.escalation?.called();
     if (method === "serverRequest/resolved") {
       this.permissions.forget(String(params.requestId));
       this.questions.forget(String(params.requestId));
@@ -593,6 +604,8 @@ class CodexSession {
       const answer = (decision) => this.reply(id, codexMcpResponse(decision));
       if (!this.turnActive || this.cancelRequested || this.closed) answer("cancelled");
       else if (this.analysisOnly || !request) answer("deny");
+      // Before the plan tools' shortcut, which would allow chat_respond on any request and every other tool on its list.
+      else if (this.escalation) answer(this.escalation.denial(codexMcpCall(params, this.linked?.tools)) ? "deny" : "allow");
       else if (isCodexPlanToolApproval(params)) answer("allow");
       else this.permissions.add(request, answer);
       return;
@@ -602,6 +615,8 @@ class CodexSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (approval && this.analysisOnly) answer("deny");
     else if (approval && (!this.turnActive || this.cancelRequested || this.closed)) answer("cancelled");
+    // A wake's turn runs nothing that has to ask, whatever the workspace or the Chat's mode would allow.
+    else if (approval && this.escalation) answer("deny");
     else if (method === "item/commandExecution/requestApproval") {
       const request = codexCommandRequest(id, params);
       // A babysit Run's level refuses it before any card or mode can allow it. Codex takes no reason with a decline.
@@ -615,7 +630,8 @@ class CodexSession {
       const decided = params.grantRoot ? null : this.access.answer(request, this.permissions.mode);
       if (decided) answer(decided.decision);
       else this.permissions.add(request, answer, { inWorkspace: !params.grantRoot && this.access.contains(request.files) });
-    } else if (method === "item/tool/requestUserInput" && (this.analysisOnly || this.executionAdvisor)) this.reply(id, codexQuestionResponse("dismissed"));
+    } else if (method === "item/tool/requestUserInput" && (this.analysisOnly || this.executionAdvisor || this.escalation))
+      this.reply(id, codexQuestionResponse("dismissed"));
     else if (method === "item/tool/requestUserInput") this.askQuestion(id, params);
     // Granting extra sandbox permissions is out of scope: grant none, for this turn only.
     else if (method === "item/permissions/requestApproval") this.reply(id, { permissions: {}, scope: "turn" });
@@ -670,6 +686,7 @@ class CodexSession {
   async finishTurn(events) {
     if (!this.turnActive) return;
     this.turnActive = false;
+    this.escalation = null;
     // Bind to this turn's own resolver: a new turn may start while image cleanup is awaited.
     const markEnded = this.markTurnEnded;
     this.markTurnEnded = null;

@@ -2,7 +2,15 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { CancelCircleIcon, CheckmarkCircle02Icon, Clock01Icon, HelpCircleIcon, Pulse01Icon, StopCircleIcon } from "@hugeicons/core-free-icons";
 import type { ChatMessage } from "@milagre/shared/model";
-import { directSubchats, latestReports, subchatSummary, type SubchatKind, type SubchatState, type SubchatSummary } from "@milagre/shared/subchat-states";
+import {
+  deeperSubchats,
+  directSubchats,
+  latestReports,
+  subchatSummary,
+  type SubchatKind,
+  type SubchatState,
+  type SubchatSummary,
+} from "@milagre/shared/subchat-states";
 import { useDisplayNow } from "./display-clock";
 import { radius, type } from "./design-tokens";
 import { Icon, SpinnerRing, type IconData } from "./icons";
@@ -11,7 +19,8 @@ import { useSession } from "./session";
 import { STATUS_PILL, StatusPill } from "./status-pill";
 import { useTheme } from "./theme";
 import { useRoutines } from "./use-routines";
-import { answerArguments, approvalArguments, inlineQuestion, isRecommended, KIND_TONE, pillSpoken, subchatStates } from "./subchat-view";
+import { SubchatAskCard } from "./subchat-ask-card";
+import { answerArguments, approvalArguments, askLines, inlineQuestion, isRecommended, KIND_TONE, pillSpoken, subchatStates } from "./subchat-view";
 
 const NO_KEYS: string[] = [];
 
@@ -20,8 +29,11 @@ export function useSubchatPanel(sessions: Parameters<typeof directSubchats>[0], 
   // The keys as one string, so a session changing under them (a title, a turn) leaves the pill and its panel as they are.
   const joined = (sessions && chatKey ? directSubchats(sessions, chatKey) : NO_KEYS).join("\n");
   const keys = useMemo(() => (joined ? joined.split("\n") : NO_KEYS), [joined]);
+  // The Subchats of its Subchats, which the pill counts when one waits on the user.
+  const deeperJoined = (sessions && chatKey ? deeperSubchats(sessions, chatKey) : NO_KEYS).join("\n");
+  const deeper = useMemo(() => (deeperJoined ? deeperJoined.split("\n") : NO_KEYS), [deeperJoined]);
   const panel = usePillPanel(keys.length > 0, chatKey ?? "");
-  return useMemo(() => ({ ...panel, keys, chatKey: chatKey ?? "" }), [panel, keys, chatKey]);
+  return useMemo(() => ({ ...panel, keys, deeper, chatKey: chatKey ?? "" }), [panel, keys, deeper, chatKey]);
 }
 
 export type SubchatPanelState = ReturnType<typeof useSubchatPanel>;
@@ -37,10 +49,10 @@ function useSubchats(panel: SubchatPanelState, messages: readonly ChatMessage[],
   const reports = useMemo(() => latestReports(messages), [messages]);
   const sessions = session.snapshot?.project.state.sessions;
   const runs = session.snapshot?.runs.runs;
-  const { keys } = panel;
+  const { keys, deeper } = panel;
   return useMemo(
-    () => subchatStates({ keys, sessions: sessions ?? {}, runs, routines, routinesOn: enabled === true, reports, now }),
-    [keys, sessions, runs, routines, enabled, reports, now],
+    () => subchatStates({ keys, deeper, sessions: sessions ?? {}, runs, routines, routinesOn: enabled === true, reports, now }),
+    [keys, deeper, sessions, runs, routines, enabled, reports, now],
   );
 }
 
@@ -79,8 +91,13 @@ export const SubchatPill = memo(function SubchatPill({ panel, messages }: { pane
   const states = useSubchats(panel, messages, false);
   // The row gives way to a question card: the panel folds away with it rather than covering the question.
   useEffect(() => close, [close]);
-  if (!states.length) return null;
   const summary = subchatSummary(states);
+  // One Subchat waiting on the user has its own two-line pill above the row (SubchatAsk), which opens that Subchat.
+  const asking = !!summary.asking;
+  useEffect(() => {
+    if (asking) close();
+  }, [asking, close]);
+  if (!states.length || asking) return null;
   // While the surface is out, it is the pill: this one keeps its place in the row, invisible.
   const away = phase !== "closed";
   return (
@@ -96,6 +113,26 @@ export const SubchatPill = memo(function SubchatPill({ panel, messages }: { pane
       onLayout={relayout}
     />
   );
+});
+
+/**
+ * The pill while exactly one Subchat waits on the user: orange, two lines that never cut "needs you" (the title gives way
+ * first), then the question, which wraps, so the pill grows with the text size. One tap opens that Subchat alone, where
+ * the question is, instead of the list.
+ */
+export const SubchatAsk = memo(function SubchatAsk({
+  panel,
+  messages,
+  onOpenChat,
+}: {
+  panel: SubchatPanelState;
+  messages: readonly ChatMessage[];
+  onOpenChat: (chatKey: string) => void;
+}) {
+  const states = useSubchats(panel, messages, false);
+  const lines = askLines(subchatSummary(states));
+  if (!lines) return null;
+  return <SubchatAskCard {...lines} onOpen={() => onOpenChat(lines.key)} />;
 });
 
 const STATUS_ICONS: Record<Exclude<SubchatKind, "working">, IconData> = {
@@ -191,7 +228,7 @@ function SubchatRow({
     <View style={{ borderRadius: radius.control, borderCurve: "continuous", backgroundColor: needsYou ? colors.orangeTint : undefined }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${state.title}, ${state.label}${state.elapsed ? `, ${state.elapsed}` : ""}. ${state.detail}`}
+        accessibilityLabel={`${state.title}, ${state.label}${state.elapsed ? `, ${state.elapsed}` : ""}. ${state.via ? `In ${state.via}. ` : ""}${state.detail}`}
         accessibilityHint="Opens this Subchat"
         onPress={onOpen}
         style={({ pressed }) => ({
@@ -215,7 +252,7 @@ function SubchatRow({
           </Text>
         </View>
         <Text numberOfLines={state.kind === "done" ? 2 : 1} style={{ marginLeft: 28, color: detailInk, fontSize: type.footnote }}>
-          {state.detail}
+          {state.via ? `in ${state.via} · ${state.detail}` : state.detail}
         </Text>
       </Pressable>
       {needsYou && request && (

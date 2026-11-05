@@ -419,6 +419,10 @@
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
     "./subchats": "./src/subchats.ts",
+    "./subchat-escalation": {
+      "types": "./src/subchat-escalation.d.mts",
+      "default": "./src/subchat-escalation.mjs"
+    },
     "./subchat-states": "./src/subchat-states.ts",
     "./chats-home": {
       "types": "./src/chats-home.d.mts",

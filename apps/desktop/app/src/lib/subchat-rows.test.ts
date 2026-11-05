@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatFamily, rowKeys, shownChats } from "./subchat-rows.ts";
+import { activeFamilyRoot, chatFamily, rowKeys, shownChats } from "./subchat-rows.ts";
 
 const row = (id: string, parent?: string) => ({ id, label: id, ...(parent ? { parent } : {}) });
 
@@ -61,5 +61,41 @@ test("a family is asking when one of its subchats waits on the user, folded or n
       ["1", true],
       ["5", false],
     ],
+  );
+});
+
+test("a grandchild sits one indent deeper under its own parent, capped at 2", () => {
+  const rows = [row("1"), row("2", "1"), row("3", "2"), row("4", "3"), row("5", "1")];
+  const shown = shownChats(rows, { ...rowKeys("/p"), folded: new Set() });
+  assert.deepEqual(
+    shown.map(({ item, depth }) => [item.id, depth]),
+    [
+      ["1", 0],
+      ["2", 1],
+      ["3", 2],
+      ["4", 2],
+      ["5", 1],
+    ],
+  );
+});
+
+test("activeFamilyRoot: the family to unfold for the open subchat, nothing for a top-level Chat", () => {
+  const rows = [row("1"), row("2", "1"), row("3", "2"), row("6")];
+  const keys = rowKeys("/p");
+  assert.equal(
+    activeFamilyRoot(rows, keys, (item) => item.id === "3"),
+    "/p#1",
+  );
+  assert.equal(
+    activeFamilyRoot(rows, keys, (item) => item.id === "1"),
+    undefined,
+  );
+  assert.equal(
+    activeFamilyRoot(rows, keys, (item) => item.id === "6"),
+    undefined,
+  );
+  assert.equal(
+    activeFamilyRoot(rows, keys, () => false),
+    undefined,
   );
 });
