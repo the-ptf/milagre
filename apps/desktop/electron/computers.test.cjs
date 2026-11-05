@@ -700,6 +700,21 @@ test("the window's focus reaches the computer's daemon, now and after every reco
   assert.equal(mac.focus.at(-1), true, "the reconnect replays the window's state");
 });
 
+test("the same focus twice reaches the computer once", async (t) => {
+  const mac = fakeMac();
+  const { computers, state } = await paired(t, mac);
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online");
+  computers.setFocused(true);
+  await until(() => mac.focus.at(-1) === true, "focus told");
+  const sent = mac.focus.length;
+  for (let index = 0; index < 50; index++) computers.setFocused(true);
+  computers.setFocused(false);
+  await until(() => mac.focus.at(-1) === false, "blur told");
+  assert.equal(mac.focus.length, sent + 1, "repeats of the value the computer has never go out");
+});
+
 test("the first pairing prefers advertised private routes and saves them for reconnects", async (t) => {
   const mac = fakeMac({ lan: [LAN] });
   const { computers, dataDir, state } = await paired(t, mac);
