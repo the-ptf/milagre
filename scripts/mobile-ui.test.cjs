@@ -21357,6 +21357,10 @@ test("mobile Browser preserves edits made while a send is pending and sends them
   tree = render();
   box().props.onSend();
   tree = render();
+  assert.equal(box(), undefined, "sending collapses the editor before the host responds");
+  assert.equal(web().props.pins.find((pin) => pin.id === id)?.text, "Snapshot to send", "the draft stays pinned during delivery");
+  web().props.onPin(id);
+  tree = render();
   box().props.onChange("Edited during send");
   tree = render();
   first.resolve({});

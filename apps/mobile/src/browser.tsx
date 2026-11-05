@@ -261,6 +261,9 @@ export function BrowserSheet({
       setSending(false);
       return;
     }
+    // Leave the pin in place while the host sends; a slow connection must not keep its editor open.
+    setCommenting(false);
+    setBox(null);
     try {
       const comments = batch.map((draft) => ({ page: { ...draft.page, element: draft.element }, text: draft.text }));
       try {

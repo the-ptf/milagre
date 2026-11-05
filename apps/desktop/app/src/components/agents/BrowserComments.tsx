@@ -56,6 +56,9 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
     if (!batch.length) return;
     setSending(true);
     setFailed(false);
+    // Collapse to the anchored pin immediately, even while delivery or saving is slow.
+    // The draft stays available to reopen, edit or retry until its snapshot is recorded.
+    setCommenting(chatKey, false);
     try {
       const images = batch.flatMap((comment) =>
         comment.shot ? [{ id: `page-comment-${comment.id}`, name: `page-comment-${comment.id}.png`, dataUrl: comment.shot }] : [],
