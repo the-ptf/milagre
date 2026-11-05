@@ -25,6 +25,7 @@ export type Command = {
     | "routines"
     | "usage"
     | "newChat"
+    | "storage"
     | "triage";
   run: () => void | Promise<unknown>;
 };

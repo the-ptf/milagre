@@ -882,9 +882,18 @@ class ChatHost {
   async addNote(chatId, { body, context }) {
     this.notes.set(chatId, [...(this.notes.get(chatId) ?? []), { body, context }]);
     if (this.runs[chatId]) return;
-    const { state, changed } = await this.states.update(projectOfKey(chatId), (latest) => (this.runs[chatId] ? latest : this.withNotes(latest, chatId)), {
-      chats: [sessionIdFromKey(chatId)],
-    });
+    const { state, changed } = await this.states.update(
+      projectOfKey(chatId),
+      (latest) => {
+        // A checked Worktree removal can win the mutation queue. Never acknowledge a note that cannot be saved.
+        if (!latest.sessions[sessionIdFromKey(chatId)]) {
+          this.notes.delete(chatId);
+          throw new Error("That Chat no longer exists, so the note was not saved.");
+        }
+        return this.runs[chatId] ? latest : this.withNotes(latest, chatId);
+      },
+      { chats: [sessionIdFromKey(chatId)] },
+    );
     if (changed) this.broadcast(projectOfKey(chatId), state);
   }
 

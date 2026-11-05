@@ -185,6 +185,7 @@ import { besideState, closeBeside, openBeside, useBesideChat } from "../split-ch
 import { chatFamily } from "@milagre/shared/subchats";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
+import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -208,6 +209,8 @@ function issueChoices(issues: LinearIssue[]) {
 /** The workspace the issue sheet showed last, so it opens there again. */
 let lastLinearWorkspace: string | undefined;
 const UNDO_COMMANDS = [{ name: "undo", description: "Undo a task's file changes" }];
+const STORAGE_COMMANDS = [{ name: STORAGE_COMMAND, description: STORAGE_COMMAND_HINT }];
+const CHAT_COMMANDS = [...UNDO_COMMANDS, ...STORAGE_COMMANDS];
 const NO_CHECKPOINTS: CheckpointApi = {
   list: async () => [],
   preview: () => Promise.reject(new Error("Connect to the computer to undo changes")),
@@ -1526,6 +1529,15 @@ function ChatPane({
       setUndoIntent("Undo");
       void undo.open();
       return false;
+    }
+    // `/storage` opens Clean up worktrees for the Chat's computer instead of reaching the agent.
+    if (withAttachments && typed.trim() === `/${STORAGE_COMMAND}` && !sentQuotes.length) {
+      const saved = session.hosts.find((item) => item.id === targetHost || item.address === targetHost);
+      if (saved) {
+        composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
+        router.push({ pathname: "/computer-cleanup", params: { id: saved.id } });
+        return false;
+      }
     }
     const issueKey = issue?.key;
     // Only immediate delivery into a steerable turn keeps a model pick for later.
@@ -2997,7 +3009,7 @@ function ChatPane({
                               onImagePaste={(image) => void pasteImage(image)}
                               known={knownFiles.current}
                               onMention={worktree?.path ? mentionFile : undefined}
-                              commands={chat ? UNDO_COMMANDS : undefined}
+                              commands={chat ? CHAT_COMMANDS : STORAGE_COMMANDS}
                               // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
                                 offline

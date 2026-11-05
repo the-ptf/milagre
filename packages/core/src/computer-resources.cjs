@@ -124,73 +124,145 @@ function milagreFolders({ homeDir, dataDir, worktreeRoot }) {
   return folders.filter((folder) => !folders.some((other) => folder.startsWith(`${other}${path.sep}`)));
 }
 
+// What a folder right inside the app's data folder holds, by its name. Anything not named here is the app's other data.
+const DATA_KINDS = Object.freeze({
+  checkpoints: "checkpoints",
+  Partitions: "browser",
+  dictation: "speech",
+  accounts: "agents",
+  tools: "agents",
+  artifacts: "designs",
+  "design-kits": "designs",
+  "design-page-shares": "designs",
+  "page-comments": "designs",
+  links: "chats",
+  Cache: "caches",
+  "Code Cache": "caches",
+  GPUCache: "caches",
+  GPUPersistentCache: "caches",
+  DawnGraphiteCache: "caches",
+  DawnWebGPUCache: "caches",
+  GraphiteDawnCache: "caches",
+  "Shared Dictionary": "caches",
+  "Service Worker": "caches",
+  blob_storage: "caches",
+  shared_proto_db: "caches",
+});
+const DISK_ORDER = ["worktrees", "chats", "checkpoints", "agents", "browser", "speech", "designs", "caches", "data"];
+
 /**
- * `du -k -d 3` over Milagre's folders, in bytes: the folders' total, the worktrees folder's size and how many
- * worktrees it holds (one level of Projects, then one folder per worktree). Throws when no folder's total came back.
+ * `du -k -d 3` over Milagre's folders, in bytes: the folders' total split by what they hold, how many worktrees the
+ * worktrees folder has (one level of Projects, then one folder per worktree) and each one's size. `chatFolders` are the
+ * Projects' own `.milagre` folders (their Chats' history), measured beside the rest. Throws when no folder's total came
+ * back.
  */
-function parseDu(text, { folders, worktrees }) {
+function parseDu(text, { folders, worktrees, dataDir = null, chatsHome = null, chatFolders = [] }) {
+  const tops = new Set([...folders, ...chatFolders]);
+  const chatTops = new Set(chatFolders);
+  const data = dataDir && path.resolve(dataDir);
+  const home = chatsHome && path.resolve(chatsHome);
+  const bytesOf = new Map(DISK_ORDER.map((kind) => [kind, 0]));
+  const sizes = {};
   let total = 0;
   let found = 0;
-  let worktreeBytes = 0;
   let count = 0;
   for (const line of text.split("\n")) {
     const match = /^(\d+)\s+(.*)$/.exec(line);
     if (!match) continue;
     const bytes = Number(match[1]) * 1024;
     const folder = path.resolve(match[2]);
-    if (folders.includes(folder)) {
+    if (tops.has(folder)) {
       total += bytes;
-      found += 1;
+      if (folders.includes(folder)) found += 1;
     }
-    if (folder === worktrees) worktreeBytes = bytes;
-    else if (path.dirname(path.dirname(folder)) === worktrees) count += 1;
+    if (folder === worktrees) bytesOf.set("worktrees", bytes);
+    else if (path.dirname(path.dirname(folder)) === worktrees) {
+      count += 1;
+      sizes[folder] = bytes;
+    } else if (chatTops.has(folder) || folder === home) bytesOf.set("chats", bytesOf.get("chats") + bytes);
+    else if (data && path.dirname(folder) === data && DATA_KINDS[path.basename(folder)]) {
+      const kind = DATA_KINDS[path.basename(folder)];
+      bytesOf.set(kind, bytesOf.get(kind) + bytes);
+    }
   }
   if (folders.length && !found) throw new Error("du printed no folder's total");
+  // Clones and hard links can make the parts add past the total: the parts are cut to fit, worktrees first.
+  let left = total;
+  for (const kind of DISK_ORDER.slice(0, -1)) {
+    const bytes = Math.min(bytesOf.get(kind), left);
+    bytesOf.set(kind, bytes);
+    left -= bytes;
+  }
+  bytesOf.set("data", left);
   return {
     total,
-    parts: [
-      { kind: "worktrees", bytes: Math.min(worktreeBytes, total), count },
-      { kind: "data", bytes: Math.max(total - worktreeBytes, 0), count: 0 },
-    ].filter((part) => part.bytes > 0),
+    parts: DISK_ORDER.map((kind) => ({ kind, bytes: bytesOf.get(kind), count: kind === "worktrees" ? count : 0 })).filter((part) => part.bytes > 0),
+    sizes,
   };
 }
 
 function createComputerResources({
   dataDir,
   worktreeRoot,
+  chatsHome = null,
+  // The Projects' own `.milagre` folders, read at each measure: the Projects change while the app runs.
+  chatFolders = async () => [],
   homeDir = os.homedir(),
   exec = run,
   readFile = fs.readFile,
   statfs = fs.statfs,
   access = fs.access,
+  realpath = fs.realpath,
   platform = process.platform,
   now = Date.now,
   totalMemory = os.totalmem,
   self = { pid: process.pid, execPath: process.execPath },
 } = {}) {
-  let disk = { bytes: null, parts: null, measuredAt: null, failedAt: null };
+  let disk = { bytes: null, parts: null, sizes: {}, measuredAt: null, failedAt: null };
+  // A cleanup asked for a new measure while one ran: it runs again once that one ends.
+  let again = false;
   const worktrees = path.resolve(worktreeRoot ?? path.join(homeDir, ".milagre", "worktrees"));
   let measuring = null;
   let sampling = null;
   let closed = false;
   const stop = new AbortController();
 
+  const exists = (folder) =>
+    access(folder).then(
+      () => true,
+      () => false,
+    );
+
+  // A new measure even when one runs: what it walks may predate a cleanup, so another follows it.
+  function remeasure() {
+    if (measuring) again = true;
+    return measureDisk();
+  }
+
   function measureDisk() {
     if (closed) return Promise.resolve();
-    measuring ??= (async () => {
+    if (measuring) return measuring;
+    measuring = (async () => {
       const folders = [];
-      for (const folder of milagreFolders({ homeDir, dataDir, worktreeRoot: worktrees }))
-        if (
-          await access(folder).then(
-            () => true,
-            () => false,
-          )
-        )
-          folders.push(folder);
+      for (const folder of milagreFolders({ homeDir, dataDir, worktreeRoot: worktrees })) if (await exists(folder)) folders.push(folder);
+      const chats = [];
+      for (const folder of await Promise.resolve(chatFolders()).catch(() => []))
+        if (typeof folder === "string" && !folders.some((top) => folder === top || folder.startsWith(top + path.sep)) && (await exists(folder)))
+          chats.push(path.resolve(folder));
       const measured = folders.length
-        ? parseDu(await exec("du", ["-k", "-d", "3", ...folders], { allowFailure: true, signal: stop.signal }), { folders, worktrees })
-        : { total: 0, parts: [] };
-      disk = { bytes: measured.total, parts: measured.parts, measuredAt: now(), failedAt: null };
+        ? parseDu(await exec("du", ["-k", "-d", "3", ...folders, ...chats], { allowFailure: true, signal: stop.signal }), {
+            folders,
+            worktrees,
+            dataDir,
+            chatsHome,
+            chatFolders: chats,
+          })
+        : { total: 0, parts: [], sizes: {} };
+      // git names a worktree by its real path; du by the one it was given, which may run through a symlink.
+      const real = await realpath(worktrees).catch(() => worktrees);
+      const sizes = { ...measured.sizes };
+      if (real !== worktrees) for (const [folder, bytes] of Object.entries(measured.sizes)) sizes[path.join(real, path.relative(worktrees, folder))] = bytes;
+      disk = { bytes: measured.total, parts: measured.parts, sizes, measuredAt: now(), failedAt: null };
     })()
       .catch(() => {
         // The last good measure stays; the next try waits.
@@ -198,6 +270,10 @@ function createComputerResources({
       })
       .finally(() => {
         measuring = null;
+        if (again && !closed) {
+          again = false;
+          void measureDisk();
+        }
       });
     return measuring;
   }
@@ -239,8 +315,9 @@ function createComputerResources({
      * What the computer has now. The folders are measured in the background: the first read after a while has
      * `measuring` set and the last measure (or none), and a read a minute later has the new one.
      */
-    async read() {
-      if (due()) void measureDisk();
+    async read(options) {
+      if (options?.fresh === true) void remeasure();
+      else if (due()) void measureDisk();
       const [memoryNow, spaceNow] = await Promise.all([memory(), space().catch(() => null)]);
       return {
         memory: memoryNow,
@@ -248,6 +325,11 @@ function createComputerResources({
       };
     },
     measureDisk,
+    remeasure,
+    /** A worktree's size at the last measure, or null when it wasn't measured (made since, or outside the folder). */
+    worktreeBytes: (folder) => disk.sizes[path.resolve(folder)] ?? null,
+    /** When the folders were last measured, or null. */
+    measuredAt: () => disk.measuredAt,
     /** Stops a measure still running, so a closing daemon doesn't wait on du or leave it walking the disk. */
     close() {
       closed = true;
@@ -256,4 +338,4 @@ function createComputerResources({
   };
 }
 
-module.exports = { createComputerResources, availableMemory, parseProcesses, treeMemory, milagreFolders, parseDu, run, DISK_TTL, DISK_RETRY };
+module.exports = { DATA_KINDS, createComputerResources, availableMemory, parseProcesses, treeMemory, milagreFolders, parseDu, run, DISK_TTL, DISK_RETRY };
