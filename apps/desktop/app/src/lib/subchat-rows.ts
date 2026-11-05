@@ -140,7 +140,7 @@ function toggleSubchats(key: string) {
 }
 
 /** Unfolds the family under the Chat `key` when a route opens one of its Chats, so the row it selects is in view. */
-export function unfoldSubchats(key: string) {
+function unfoldSubchats(key: string) {
   if (!opened.has(key)) setOpened(key, true);
 }
 
