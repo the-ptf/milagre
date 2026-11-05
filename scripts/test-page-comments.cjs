@@ -85,6 +85,8 @@ async function checks() {
     await wait(`document.querySelector('[data-slot=browser-send-comments]').textContent.includes('Retry')`);
     assert.equal(await run("comments().pending.length"), 1, "failed sends retain the draft");
     await run("window.failSend = false");
+    await run(`document.querySelector('[data-slot=artifact-pin]').click()`);
+    await wait(`document.activeElement?.tagName === 'TEXTAREA'`);
     key("Enter", ["meta"]);
     await wait("sent.length === 1 && comments().pending.length === 0");
     assert.match(await run("sent[0]"), /More detail/, "send includes the current open draft");
@@ -104,6 +106,12 @@ async function checks() {
     await run("window.holdSend = true; window.holdSave = true");
     key("Enter", ["meta"]);
     await wait("!!window.finishSend");
+    await wait(`!document.querySelector('[data-slot=artifact-comment-bubble]')`);
+    assert.equal(await run("comments().open"), null, "sending collapses the bubble before delivery finishes");
+    assert.equal(await run("comments().commenting"), false, "sending exits comment placement mode");
+    await run(`document.querySelector('[data-slot=artifact-pin]').click()`);
+    await wait(`document.activeElement?.tagName === 'TEXTAREA'`);
+    await run(`document.querySelector('textarea').setSelectionRange(16,16)`);
     await window.webContents.insertText(" plus later edits");
     await run("window.finishSend()");
     await wait("!!window.finishSave");
