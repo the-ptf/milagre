@@ -154,8 +154,10 @@ async function browserChecks() {
       "Claude · 2 agents1.5 GB",
       "Milagre app512 MB",
       "Worktrees · 1275 GB",
-      "App data5 GB",
+      "Other app data5 GB",
     ]);
+    // Its disk breakdown offers the worktree cleanup for that computer.
+    assert.equal(await text("[data-computer-settings] [data-resource-cleanup]"), "Clean up worktrees…");
     // Auto update flips on that computer, through its own calls.
     await waitFor(`document.querySelector('[data-computer-auto-update] [role=checkbox]')?.getAttribute('aria-checked') === 'false'`);
     await evaluate(`document.querySelector('[data-computer-auto-update] [role=checkbox]').click()`);

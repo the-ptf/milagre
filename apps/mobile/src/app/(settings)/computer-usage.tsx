@@ -1,17 +1,18 @@
 import { useMemo } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, router, useLocalSearchParams } from "expo-router";
+import { CLEANUP_BUTTON } from "@milagre/shared/storage";
 import { HardDriveIcon, RamMemoryIcon } from "@hugeicons/core-free-icons";
 import { BREAKDOWN_TITLE, MEASURING_TOOLTIP, UNREADABLE, partOpacity, resourceGauges, type ResourceGauge } from "@milagre/shared/computer-resources";
 import { useSession } from "../../session";
 import { useComputerStatus } from "../../use-computer-status";
 import { useComputerResources } from "../../computer-resources-group";
 import { Icon } from "../../icons";
-import { ErrorNotice, PageScroll, useStyles } from "../../ui";
+import { ErrorNotice, PageScroll, PillButton, useStyles } from "../../ui";
 import { useTheme } from "../../theme";
 import { radius, type } from "../../design-tokens";
 
-function PartsCard({ gauge }: { gauge: ResourceGauge }) {
+function PartsCard({ gauge, onCleanup }: { gauge: ResourceGauge; onCleanup?: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
@@ -22,6 +23,7 @@ function PartsCard({ gauge }: { gauge: ResourceGauge }) {
         <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: type.subheadline }}>
           {gauge.context}
         </Text>
+        {gauge.refreshing ? <ActivityIndicator size="small" color={colors.ink3} accessibilityLabel={MEASURING_TOOLTIP} /> : null}
       </View>
       {gauge.measuring ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }}>
@@ -51,6 +53,7 @@ function PartsCard({ gauge }: { gauge: ResourceGauge }) {
           ))}
         </>
       )}
+      {onCleanup ? <PillButton title={CLEANUP_BUTTON} variant="secondary" onPress={onCleanup} /> : null}
     </View>
   );
 }
@@ -76,7 +79,9 @@ export default function ComputerUsageScreen() {
         ) : gauges ? (
           <View style={{ gap: 22 }}>
             <PartsCard gauge={gauges.memory} />
-            {gauges.disk ? <PartsCard gauge={gauges.disk} /> : null}
+            {gauges.disk ? (
+              <PartsCard gauge={gauges.disk} onCleanup={host ? () => router.push({ pathname: "/computer-cleanup", params: { id: host.id } }) : undefined} />
+            ) : null}
           </View>
         ) : error || resources ? (
           <ErrorNotice message={error || UNREADABLE} />

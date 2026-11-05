@@ -59,6 +59,9 @@ const METHODS = new Set([
   "browser:sign-ins",
   "browser:sign-ins:clear",
   "computer:resources:read",
+  // What Milagre uses › Clean up worktrees (core storage-worktrees.cjs).
+  "storage:worktrees",
+  "storage:remove-worktree",
   "keybindings:read",
   "keybindings:set-command",
   "keybindings:reset-command",

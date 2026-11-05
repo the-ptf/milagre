@@ -66,6 +66,7 @@ import { DictationNotice } from "./DictationNotice";
 import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
 import { SpinnerRing } from "./primitives/SpinnerRing";
+import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -99,6 +100,7 @@ const UNDO_COMMAND = {
 };
 
 const COMMANDS = [
+  { key: STORAGE_COMMAND, name: `/${STORAGE_COMMAND}`, desc: STORAGE_COMMAND_HINT },
   { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
   {
     key: "blockers",
