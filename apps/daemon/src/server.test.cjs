@@ -1036,6 +1036,15 @@ test("a client that reads transcripts on demand gets each subagent with the end 
   assert.equal(tail.transcriptLength, 20);
   assert.equal((await desktop.call("state:read", [project])).state.sessions[2].subagents[0].transcriptLength, 20);
   assert.equal((await whole.call("project:open", [project])).state.sessions[2].subagents[0].transcript.length, 20);
+  // The canvas reads every Project's state in one reply, under `states`.
+  const canvas = await desktop.call("canvas:snapshot");
+  const canvasState = canvas.states.find((entry) => entry.path === project).state;
+  assert.deepEqual(canvasState.messages, []);
+  assert.equal(canvasState.messagesInChats, true);
+  assert.equal(canvasState.sessions[2].subagents[0].transcript.length, tail.transcript.length);
+  assert.equal(canvasState.sessions[2].subagents[0].transcriptLength, 20);
+  const wholeCanvas = await whole.call("canvas:snapshot");
+  assert.equal(wholeCanvas.states.find((entry) => entry.path === project).state.sessions[2].subagents[0].transcript.length, 20);
   const read = await desktop.call("chat:subagent", [project, 2, "child"]);
   assert.deepEqual(read.transcript, transcript);
   await assert.rejects(desktop.call("chat:subagent", [project, 2, "gone"]), /no longer in this Chat/);

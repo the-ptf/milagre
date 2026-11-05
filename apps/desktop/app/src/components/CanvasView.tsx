@@ -65,6 +65,9 @@ const SECTION_HEADER = 52;
 const CARD_GAP = 12;
 const SECTION_GAP = 96;
 const ROW_WIDTH = 1400;
+// Live marks come from the runs, and open Projects from their own states. This read brings new Chats in unopened
+// Projects, and it reads every Project on the host, so it runs rarely.
+const CANVAS_REFRESH_MS = 60_000;
 // A card: 1px border, 12px padding, then 38px per chat; two or more chats add 21px dividers and a 26px footer.
 const CHAT_ROW = 38;
 const DIVIDER = 21;
@@ -532,7 +535,7 @@ export function CanvasView({
   }, []);
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 15000);
+    const timer = window.setInterval(() => void refresh(), CANVAS_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
   // "Idle · 25m ago" stays true without a state change.
