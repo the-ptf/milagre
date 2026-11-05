@@ -43,6 +43,7 @@ import {
   OpenProject,
   PermissionDecision,
   QuestionAnswers,
+  QuestionImages,
   PermissionMode,
   PullRequestActionContext,
   AgentCliStatus,
@@ -956,14 +957,14 @@ function App() {
   }
 
   /** Sends the answers to the open question, or dismisses it (null). */
-  function answerQuestion(answers: QuestionAnswers | null) {
+  function answerQuestion(answers: QuestionAnswers | null, images?: QuestionImages) {
     if (!project || !selectedSession || !pendingQuestion) return;
     if (readOnly) {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return;
     }
     void agentRuns
-      .answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers)
+      .answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers, images)
       .catch((error) => setNotice(ipcErrorMessage(error)));
   }
 

@@ -46,6 +46,12 @@ export async function prepareAttachments(
   }
   return { files, images };
 }
+/** Uploads the photos attached to a question's answers, by question id, as a send uploads its own. */
+export async function prepareAnswerImages(client: Client, projectPath: string, images: Record<string, Attachment[]> | undefined) {
+  const prepared: Record<string, ImageAttachment[]> = {};
+  for (const [id, list] of Object.entries(images ?? {})) if (list.length) prepared[id] = (await prepareAttachments(client, projectPath, list)).images;
+  return Object.keys(prepared).length ? prepared : undefined;
+}
 export function attachmentPrompt(body: string, files: string[]) {
   return files.length ? `${body || "Please review the attached files."}\n\nAttached files:\n${files.join("\n")}` : body || "Describe the attached images.";
 }

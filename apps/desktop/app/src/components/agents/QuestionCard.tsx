@@ -1,26 +1,34 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
-import type { AgentQuestion, QuestionAnswers, QuestionRequest } from "../../model";
+import { Cancel01Icon, Image01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { IMAGE_ERRORS, IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from "@milagre/shared/limits";
+import type { AgentQuestion, QuestionAnswers, QuestionImages, QuestionRequest } from "../../model";
 import {
   advancesOnPick,
+  answerImageCount,
   draftAnswers,
+  draftImages,
   draftOf,
+  MAX_ANSWER_IMAGES,
   nextTab,
   pickOption,
   primaryAction,
   primaryEnabled,
   questionAnswered,
   sendsOnPick,
+  setAnswerImages,
   tabLabel,
   typeAnswer,
 } from "../../lib/question-answers";
 import type { QuestionDrafts } from "../../lib/question-answers";
 import { SPRING_SWAP } from "../../lib/ease";
 import { SecretCard } from "./SecretCard";
+import { Attachments } from "../Attachments";
+import { readImage } from "../usePastedImages";
+import { InlineError } from "../primitives/InlineError";
 import { ScrollArea } from "../primitives/ScrollArea";
-import { Button } from "../primitives/Button";
+import { Button, IconButton } from "../primitives/Button";
 import { CheckboxBox } from "../primitives/Checkbox";
 import { Input } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
@@ -47,13 +55,15 @@ function OrdinaryQuestionCard({
   waiting: number;
   /** What was already sent for this question, while the agent takes it. */
   answering: "answered" | "dismissed" | null;
-  /** The answers to send, or null to dismiss the question. */
-  onAnswer: (answers: QuestionAnswers | null) => void;
+  /** The answers to send, or null to dismiss the question, and the images attached to them. */
+  onAnswer: (answers: QuestionAnswers | null, images?: QuestionImages) => void;
 }) {
   const reduce = useReducedMotion();
   const [drafts, setDrafts] = useState<QuestionDrafts>({});
   const [selected, setActive] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [imageError, setImageError] = useState("");
   // Next, or a pick that moves on, and the panel remounts, so focus would fall to the page: put it in the new panel.
   const focusPanel = useRef(false);
   const questions = request.questions;
@@ -72,7 +82,7 @@ function OrdinaryQuestionCard({
     setDrafts(next);
     // One single-choice question: the tap is the answer.
     const done = draftAnswers(questions, next);
-    if (sendsOnPick(questions) && done) onAnswer(done);
+    if (sendsOnPick(questions) && done) onAnswer(done, draftImages(questions, next));
     // Several questions: a single-choice pick is the answer to this one, so move on. The last one waits for Send.
     else if (advancesOnPick(questions, active)) {
       focusPanel.current = true;
@@ -85,7 +95,23 @@ function OrdinaryQuestionCard({
     if (action === "next") {
       focusPanel.current = true;
       setActive(nextTab(count, active));
-    } else if (answers) onAnswer(answers);
+    } else if (answers) onAnswer(answers, draftImages(questions, drafts));
+  }
+
+  // Images pasted into the field or chosen with the image button go with this question's answer: the agent gets
+  // their paths and opens them.
+  async function addImages(target: AgentQuestion, files: File[]) {
+    setImageError("");
+    if (!files.length) return;
+    if (files.some((file) => !IMAGE_TYPES.includes(file.type))) return setImageError(IMAGE_ERRORS.type);
+    if (files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) return setImageError(IMAGE_ERRORS.size);
+    if (answerImageCount(drafts) + files.length > MAX_ANSWER_IMAGES) return setImageError(`Attach at most ${MAX_ANSWER_IMAGES} images to your answers.`);
+    try {
+      const read = await Promise.all(files.map(readImage));
+      setDrafts((current) => setAnswerImages(current, target, [...(draftOf(current, target.id).images ?? []), ...read]));
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "Could not read the image. Try again.");
+    }
   }
 
   function handleFieldKeyDown(event: KeyboardEvent<HTMLInputElement>, target: AgentQuestion) {
@@ -172,17 +198,62 @@ function OrdinaryQuestionCard({
             );
           })}
           {question.allowOther && (
-            <Input
-              type={question.secret ? "password" : "text"}
-              value={draft.typed}
-              disabled={!pending}
-              onChange={(event) => setDrafts(typeAnswer(drafts, question, event.target.value))}
-              onKeyDown={(event) => handleFieldKeyDown(event, question)}
-              placeholder={question.options.length ? "Other…" : "Type your answer"}
-              aria-label={`Your own answer to: ${question.question}`}
-              autoComplete="off"
+            <div className="flex items-center gap-1.5">
+              <Input
+                type={question.secret ? "password" : "text"}
+                value={draft.typed}
+                disabled={!pending}
+                onChange={(event) => setDrafts(typeAnswer(drafts, question, event.target.value))}
+                onKeyDown={(event) => handleFieldKeyDown(event, question)}
+                onPaste={(event) => {
+                  if (question.secret) return;
+                  const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+                  if (!files.length) return;
+                  event.preventDefault();
+                  void addImages(question, files);
+                }}
+                placeholder={question.options.length ? "Other…" : "Type your answer"}
+                aria-label={`Your own answer to: ${question.question}`}
+                autoComplete="off"
+                className="min-w-0 flex-1"
+              />
+              {!question.secret && (
+                <>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept={IMAGE_TYPES.join(",")}
+                    multiple
+                    hidden
+                    aria-label="Choose images for your answer"
+                    onChange={(event) => {
+                      void addImages(question, Array.from(event.target.files ?? []));
+                      event.target.value = "";
+                    }}
+                  />
+                  <IconButton label="Attach images" icon={Image01Icon} size={32} disabled={!pending} onClick={() => fileRef.current?.click()} />
+                </>
+              )}
+            </div>
+          )}
+          {!!draft.images?.length && (
+            <Attachments
+              images={draft.images}
+              removeImage={
+                pending
+                  ? (id) =>
+                      setDrafts((current) =>
+                        setAnswerImages(
+                          current,
+                          question,
+                          (draftOf(current, question.id).images ?? []).filter((image) => image.id !== id),
+                        ),
+                      )
+                  : undefined
+              }
             />
           )}
+          <InlineError size={12}>{imageError}</InlineError>
         </div>
       </ScrollArea>
 

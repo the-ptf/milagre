@@ -10,6 +10,8 @@ const {
   codexQuestionRequest,
   codexQuestionResponse,
   validAnswers,
+  answerImages,
+  withAnswerImages,
 } = require("./questions.cjs");
 
 const colors = {
@@ -233,4 +235,18 @@ test("only null or a few short strings per question id count as answers", () => 
   ]) {
     assert.equal(validAnswers(bad), false, JSON.stringify(bad)?.slice(0, 40));
   }
+});
+
+test("images on answers: the agent reads each path in its question's answer, the card counts them", () => {
+  assert.deepEqual(answerImages(undefined), {});
+  assert.deepEqual(answerImages({ a: [], b: [{ dataUrl: "x" }] }), { b: [{ dataUrl: "x" }] });
+  assert.throws(() => answerImages([]), /Invalid images/);
+  assert.throws(() => answerImages({ a: "x" }), /Invalid images/);
+  assert.throws(() => answerImages({ a: Array.from({ length: 11 }, () => ({})) }), /at most 10/);
+  const { agent, shown } = withAnswerImages({ a: ["Grid"], b: [] }, { a: [{ path: "/p/1.png" }], b: [{ path: "/p/2.png" }, { path: "/p/3.png" }] });
+  assert.deepEqual(agent, {
+    a: ["Grid", "Image the user attached: /p/1.png (open the file to see it)"],
+    b: ["Image the user attached: /p/2.png (open the file to see it)", "Image the user attached: /p/3.png (open the file to see it)"],
+  });
+  assert.deepEqual(shown, { a: ["Grid", "1 image"], b: ["2 images"] });
 });

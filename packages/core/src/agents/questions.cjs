@@ -99,6 +99,33 @@ function validAnswers(answers) {
   );
 }
 
+const MAX_ANSWER_IMAGES = 10;
+
+// Images the user attached to their answers, per question id, before they are stored: a few images, each with its
+// data URL. Anything else is refused, so nothing is written for a malformed request.
+function answerImages(images) {
+  if (images === undefined || images === null) return {};
+  if (typeof images !== "object" || Array.isArray(images)) throw new Error("Invalid images for an agent question.");
+  const entries = Object.entries(images).filter(([, list]) => Array.isArray(list) && list.length);
+  if (Object.values(images).some((list) => !Array.isArray(list))) throw new Error("Invalid images for an agent question.");
+  if (entries.reduce((total, [, list]) => total + list.length, 0) > MAX_ANSWER_IMAGES)
+    throw new Error(`Attach at most ${MAX_ANSWER_IMAGES} images to your answers.`);
+  return Object.fromEntries(entries);
+}
+
+// The answers once their images are stored (`stored`: question id -> [{ path, name }]). The agent reads each image's
+// path in that question's answer and opens the file; the answer card shows how many were attached.
+function withAnswerImages(answers, stored) {
+  const agent = { ...answers };
+  const shown = { ...answers };
+  for (const [id, images] of Object.entries(stored)) {
+    if (!images.length) continue;
+    agent[id] = [...(agent[id] ?? []), ...images.map((image) => `Image the user attached: ${image.path} (open the file to see it)`)];
+    shown[id] = [...(shown[id] ?? []), images.length === 1 ? "1 image" : `${images.length} images`];
+  }
+  return { agent, shown };
+}
+
 // The questions a session is waiting on. Each is settled exactly once: answered or dismissed by the
 // user, dismissed when a steering message arrives, or cancelled when its turn stops. `forget` drops
 // one the agent withdrew without replying to it.
@@ -168,4 +195,6 @@ module.exports = {
   codexQuestionRequest,
   codexQuestionResponse,
   validAnswers,
+  answerImages,
+  withAnswerImages,
 };

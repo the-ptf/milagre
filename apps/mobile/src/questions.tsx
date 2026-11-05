@@ -1,14 +1,25 @@
 import { SecretQuestion } from "./secret-question";
-import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
-import { ArrowLeft01Icon, ArrowRight01Icon, ArrowUp01Icon, PencilEdit02Icon, ShieldAlertIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { useRef, useState } from "react";
+import { Image, Pressable, Text, TextInput, View } from "react-native";
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  ArrowUp01Icon,
+  Cancel01Icon,
+  Image01Icon,
+  PencilEdit02Icon,
+  ShieldAlertIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import type { AgentQuestion, PermissionDecision, PermissionRequest, QuestionAnswers, QuestionRequest } from "@milagre/shared/model";
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
 import { SETUP_APPROVAL_COPY } from "@milagre/shared/model-copy";
 import { takeActivityDraft } from "./activity-drafts";
+import { pickAttachments } from "./attachment-picker";
+import type { Attachment } from "./attachments";
 import { Icon } from "./icons";
 import { InboxPage, InboxPager } from "./inbox-motion";
-import { IconButton, PillButton, pressStyle, Tag, useStyles } from "./ui";
+import { IconButton, InlineError, PillButton, pressStyle, PullDown, Tag, useStyles } from "./ui";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
@@ -16,9 +27,26 @@ export type InboxQuestionDraft = {
   page: number;
   picked: QuestionAnswers;
   typed: Record<string, string>;
+  /** Photos attached to each question's answer, by question id. */
+  images?: Record<string, Attachment[]>;
 };
 
+/** Photos attached to the answers, by question id: the caller uploads them and the agent gets their paths. */
+export type AnswerImages = Record<string, Attachment[]>;
+
 const NO_ANSWERS: QuestionAnswers = {};
+const NO_IMAGES: Attachment[] = [];
+const MAX_IMAGES = 10;
+
+/** What the answer card and the summary say for a question's attached photos. */
+export const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
+
+/** The answers as the answer card shows them, with each question's photos counted, as the Mac records them. */
+export function answersWithImages(answers: QuestionAnswers, images: AnswerImages | undefined): QuestionAnswers {
+  const shown = { ...answers };
+  for (const [id, list] of Object.entries(images ?? {})) if (list.length) shown[id] = [...(shown[id] ?? []), imagesLabel(list.length)];
+  return shown;
+}
 
 const RECOMMENDED = /\s*\((recommended)\)\s*$/i;
 
@@ -44,7 +72,7 @@ export function Questions({
   initialAnswers?: QuestionAnswers;
   /** The inbox keeps the choice editable until Send, like desktop's inbox. */
   confirmSingle?: boolean;
-  submit: (answers: QuestionAnswers | null, summary: string) => void;
+  submit: (answers: QuestionAnswers | null, summary: string, images?: AnswerImages) => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -58,6 +86,9 @@ export function Questions({
   }));
   const current = draft ?? localDraft;
   const { page, picked, typed } = current;
+  const images = current.images ?? {};
+  const [pickError, setPickError] = useState("");
+  const picking = useRef(false);
   const change = (patch: Partial<InboxQuestionDraft>) => {
     if (onDraftChange) onDraftChange({ ...current, ...patch });
     else setLocalDraft((previous) => ({ ...previous, ...patch }));
@@ -75,9 +106,10 @@ export function Questions({
   const question = questions[Math.max(0, Math.min(page, questions.length - 1))];
   if (request.secretRequest) return <SecretQuestion key={request.requestId} variant={variant} request={request} busy={busy} submit={submit} />;
   if (!question) return null;
+  const imagesOf = (q: AgentQuestion) => images[q.id] ?? NO_IMAGES;
   const answerOf = (q: AgentQuestion) => {
     const answer = typed[q.id]?.trim();
-    return [...(picked[q.id] || []), ...(answer ? [answer] : [])];
+    return [...(picked[q.id] || []), ...(answer ? [answer] : []), ...imagesOf(q).map((item) => item.name)];
   };
   function finish(next: QuestionAnswers, nextTyped = typed) {
     const answers = Object.fromEntries(
@@ -86,12 +118,44 @@ export function Questions({
         return [q.id, [...(next[q.id] || []), ...(answer ? [answer] : [])]];
       }),
     );
-    const open = questions.findIndex((q) => !answers[q.id]?.length);
+    // A question answered with photos alone is answered too: the agent gets their paths.
+    const open = questions.findIndex((q) => !answers[q.id]?.length && !imagesOf(q).length);
     if (open >= 0) {
       setPage(open);
       return;
     }
-    submit(answers, questions.map((q) => `${q.header || q.question}: ${q.secret ? "[hidden answer]" : (answers[q.id]?.join(", ") ?? "")}`).join("\n"));
+    const attached = Object.fromEntries(questions.flatMap((q) => (imagesOf(q).length ? [[q.id, imagesOf(q)]] : [])));
+    const shown = (q: AgentQuestion) => [
+      ...(q.secret ? (answers[q.id]?.length ? ["[hidden answer]"] : []) : (answers[q.id] ?? [])),
+      ...(imagesOf(q).length ? [imagesLabel(imagesOf(q).length)] : []),
+    ];
+    submit(answers, questions.map((q) => `${q.header || q.question}: ${shown(q).join(", ")}`).join("\n"), Object.keys(attached).length ? attached : undefined);
+  }
+  async function attach(kind: "photos" | "camera" | "paste") {
+    if (!question || picking.current) return;
+    picking.current = true;
+    setPickError("");
+    const target = question.id;
+    try {
+      const added = await pickAttachments(kind);
+      const photos = added.filter((item) => item.image);
+      if (photos.length < added.length) setPickError("Only photos can go with an answer.");
+      if (!photos.length) return;
+      const all = Object.values(images).reduce((total, list) => total + list.length, 0);
+      if (all + photos.length > MAX_IMAGES) {
+        setPickError(`Attach at most ${MAX_IMAGES} photos to your answers.`);
+        return;
+      }
+      change({ images: { ...images, [target]: [...(images[target] ?? []), ...photos] } });
+    } catch (failure) {
+      setPickError((failure as Error).message);
+    } finally {
+      picking.current = false;
+    }
+  }
+  function removeImage(id: string) {
+    if (!question) return;
+    change({ images: { ...images, [question.id]: imagesOf(question).filter((item) => item.id !== id) } });
   }
   function choose(label: string) {
     if (!question) return;
@@ -117,7 +181,7 @@ export function Questions({
     if (page === questions.length - 1 && !confirmLast) finish(next, nextTyped);
   }
   function sendTyped() {
-    if (!question || !typed[question.id]?.trim()) return;
+    if (!question || (!typed[question.id]?.trim() && !imagesOf(question).length)) return;
     setDirection(1);
     const next = question.multiSelect ? picked : { ...picked, [question.id]: [] };
     change({
@@ -269,11 +333,48 @@ export function Questions({
               editable={!busy}
               style={{ flex: 1, minHeight: 44, color: colors.ink, fontSize: type.subheadline, paddingVertical: 12 }}
             />
-            {!!typed[question.id]?.trim() && !question.multiSelect && (
+            {!question.secret && (
+              <PullDown
+                label="Attach photos to your answer"
+                nativeTrigger={{ systemImage: "photo", disabled: busy }}
+                sections={[
+                  {
+                    items: [
+                      { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: busy },
+                      { id: "camera", title: "Take Photo", systemImage: "camera", disabled: busy },
+                      { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: busy },
+                    ],
+                  },
+                ]}
+                onSelect={(kind) => void attach(kind as "photos" | "camera" | "paste")}
+              >
+                <View style={{ width: 32, height: 32, alignItems: "center", justifyContent: "center", opacity: busy ? 0.35 : 1 }}>
+                  <Icon icon={Image01Icon} tone="ink2" size={18} />
+                </View>
+              </PullDown>
+            )}
+            {(!!typed[question.id]?.trim() || imagesOf(question).length > 0) && !question.multiSelect && (
               <IconButton label="Send answer" icon={ArrowUp01Icon} filled size={32} onPress={sendTyped} disabled={busy} />
             )}
           </View>
         )}
+        {imagesOf(question).length > 0 && (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 4 }}>
+            {imagesOf(question).map((item) => (
+              <View key={item.id} style={{ width: 64, height: 64 }}>
+                <Image
+                  source={{ uri: item.uri }}
+                  accessibilityLabel={item.name}
+                  style={{ width: 64, height: 64, borderRadius: radius.control, backgroundColor: colors.field }}
+                />
+                <View style={{ position: "absolute", top: -10, right: -10 }}>
+                  <IconButton label={`Remove ${item.name}`} icon={Cancel01Icon} filled size={32} disabled={busy} onPress={() => removeImage(item.id)} />
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+        <InlineError message={pickError} style={{ paddingHorizontal: inline ? 0 : 4 }} />
       </View>
       {(question.multiSelect || (confirmLast && page === questions.length - 1)) && (
         <PillButton

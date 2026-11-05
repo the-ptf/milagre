@@ -3,6 +3,7 @@ import type {
   AnsweredQuestion,
   ChatStep,
   ContextUsage,
+  ImageAttachment,
   CoordinatorState,
   TranscriptState,
   PermissionDecision,
@@ -70,5 +71,7 @@ export function recordAnswers<T extends TranscriptState>(
   chatId: string,
   body: string,
   answered?: AnsweredQuestion[] | null,
+  /** The images attached to the answers, stored, shown above the answer card. */
+  images?: ImageAttachment[],
 ): { state: T; runs: AgentRuns; messageId: number | null };
 export function answeredQuestions(request: QuestionRequest | undefined, answers: QuestionAnswers | null): AnsweredQuestion[] | null;

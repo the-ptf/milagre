@@ -6,6 +6,8 @@ import {
   answerSummary,
   arrowTab,
   draftAnswers,
+  draftImages,
+  setAnswerImages,
   nextTab,
   pickOption,
   primaryAction,
@@ -145,4 +147,16 @@ test("empty and missing active questions cannot send an answer", () => {
   assert.equal(primaryEnabled([color], {}, 2), false);
   assert.equal(sendsOnPick([]), false);
   assert.equal(answerSummary([], {}), "");
+});
+
+test("images alone answer a question, survive a pick or typing, and the summary counts them", () => {
+  const image = { id: "i1", name: "shot.png", dataUrl: "data:image/png;base64,AA==" };
+  let drafts = setAnswerImages({}, color, [image]);
+  assert.deepEqual(draftAnswers([color], drafts), { color: [] });
+  assert.deepEqual(draftImages([color], drafts), { color: [image] });
+  drafts = pickOption(drafts, color, "Red");
+  drafts = typeAnswer(drafts, color, "teal");
+  assert.deepEqual(draftImages([color], drafts), { color: [image] });
+  assert.equal(answerSummary([color], { color: ["teal"] }, { color: [image] }), "teal, 1 image");
+  assert.equal(draftImages([color], {}), undefined);
 });

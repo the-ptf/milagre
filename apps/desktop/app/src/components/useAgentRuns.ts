@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
-import type { ChatSendRequest, CoordinatorState, LinkState, PermissionDecision, QuestionAnswers } from "../model";
+import type { ChatSendRequest, CoordinatorState, LinkState, PermissionDecision, QuestionAnswers, QuestionImages } from "../model";
 import {
   applyRunEvents,
   clearAnswered,
@@ -177,10 +177,16 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
    * as the user's message, so whatever the agent streams next lands below them, and takes them back if they don't arrive.
    */
   const answerQuestion = useCallback(
-    (chatId: string, requestId: string, answers: QuestionAnswers | null) => {
+    (chatId: string, requestId: string, answers: QuestionAnswers | null, images?: QuestionImages) => {
       const request = runsRef.current[chatId]?.questions.find((item) => item.requestId === requestId);
-      const summary = answers && request ? answerSummary(request.questions, answers) : "";
-      return answer(chatId, requestId, answers ? "answered" : "dismissed", () => bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary));
+      const summary = answers && request ? answerSummary(request.questions, answers, images) : "";
+      // Images go only with answers, and only when there are some: an older host takes the request without them.
+      const attached = answers && images ? images : undefined;
+      return answer(chatId, requestId, answers ? "answered" : "dismissed", () =>
+        attached
+          ? bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary, attached)
+          : bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary),
+      );
     },
     [answer],
   );

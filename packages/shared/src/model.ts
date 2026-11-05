@@ -1034,6 +1034,9 @@ export interface QuestionRequest {
 /** The labels picked and any typed answer, per question id. */
 export type QuestionAnswers = Record<string, string[]>;
 
+/** Images attached to the answers, per question id: the agent gets their paths with that question's answer. */
+export type QuestionImages = Record<string, ImageAttachment[]>;
+
 export type QuestionOutcome = "answered" | "dismissed" | "cancelled";
 
 export interface Subagent {

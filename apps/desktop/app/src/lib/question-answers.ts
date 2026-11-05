@@ -1,10 +1,14 @@
-import type { AgentQuestion, QuestionAnswers } from "../model";
+import type { AgentQuestion, ImageAttachment, QuestionAnswers, QuestionImages } from "../model";
 
-/** What the user has picked and typed for one question on a question card. */
+/** What the user has picked and typed for one question on a question card, and the images attached to the answer. */
 export interface QuestionDraft {
   picked: string[];
   typed: string;
+  images?: ImageAttachment[];
 }
+
+/** At most this many images go with all of a card's answers, as the host takes them. */
+export const MAX_ANSWER_IMAGES = 10;
 
 /** Drafts by question id. */
 export type QuestionDrafts = Record<string, QuestionDraft>;
@@ -16,7 +20,7 @@ export function draftOf(drafts: QuestionDrafts, questionId: string): QuestionDra
 /** Picks an option. A single-choice question keeps only that option and drops a typed answer; a multi-select one toggles it. */
 export function pickOption(drafts: QuestionDrafts, question: AgentQuestion, label: string): QuestionDrafts {
   const draft = draftOf(drafts, question.id);
-  if (!question.multiSelect) return { ...drafts, [question.id]: { picked: [label], typed: "" } };
+  if (!question.multiSelect) return { ...drafts, [question.id]: { ...draft, picked: [label], typed: "" } };
   const picked = draft.picked.includes(label) ? draft.picked.filter((item) => item !== label) : [...draft.picked, label];
   return { ...drafts, [question.id]: { ...draft, picked } };
 }
@@ -25,8 +29,30 @@ export function pickOption(drafts: QuestionDrafts, question: AgentQuestion, labe
 export function typeAnswer(drafts: QuestionDrafts, question: AgentQuestion, typed: string): QuestionDrafts {
   const draft = draftOf(drafts, question.id);
   const picked = !question.multiSelect && typed.trim() ? [] : draft.picked;
-  return { ...drafts, [question.id]: { picked, typed } };
+  return { ...drafts, [question.id]: { ...draft, picked, typed } };
 }
+
+/** Attaches images to a question's answer, or removes one (`images` the question keeps). */
+export function setAnswerImages(drafts: QuestionDrafts, question: AgentQuestion, images: ImageAttachment[]): QuestionDrafts {
+  return { ...drafts, [question.id]: { ...draftOf(drafts, question.id), images } };
+}
+
+/** How many images all the answers carry. */
+export function answerImageCount(drafts: QuestionDrafts): number {
+  return Object.values(drafts).reduce((total, draft) => total + (draft.images?.length ?? 0), 0);
+}
+
+/** The images to send with the answers, by question id, or undefined when none were attached. */
+export function draftImages(questions: AgentQuestion[], drafts: QuestionDrafts): QuestionImages | undefined {
+  const entries = questions.flatMap((question) => {
+    const images = draftOf(drafts, question.id).images ?? [];
+    return images.length ? [[question.id, images] as const] : [];
+  });
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+/** What the answer card says for a question's attached images. */
+export const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
 
 /** The answers to send: picks in the agent's option order, then the typed answer. Null while a question has none. */
 export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts): QuestionAnswers | null {
@@ -36,7 +62,8 @@ export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts)
     const picked = question.options.map((option) => option.label).filter((label) => draft.picked.includes(label));
     const typed = question.allowOther ? draft.typed.trim() : "";
     const values = typed ? [...picked, typed] : picked;
-    if (!values.length) return null;
+    // Images alone answer a question too: the agent gets their paths.
+    if (!values.length && !draft.images?.length) return null;
     answers[question.id] = values;
   }
   return answers;
@@ -46,9 +73,12 @@ export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts)
  * The answers as the chat shows them, in the user's message: one question's answers alone, several
  * one per line under their tab labels. A typed answer to a secret question is masked.
  */
-export function answerSummary(questions: AgentQuestion[], answers: QuestionAnswers): string {
+export function answerSummary(questions: AgentQuestion[], answers: QuestionAnswers, images?: QuestionImages): string {
   const shown = (question: AgentQuestion) =>
-    (answers[question.id] ?? []).map((value) => (question.secret && !question.options.some((option) => option.label === value) ? "••••••" : value)).join(", ");
+    [
+      ...(answers[question.id] ?? []).map((value) => (question.secret && !question.options.some((option) => option.label === value) ? "••••••" : value)),
+      ...(images?.[question.id]?.length ? [imagesLabel(images[question.id]!.length)] : []),
+    ].join(", ");
   if (questions.length === 1 && questions[0]) return shown(questions[0]);
   return questions.map((question, index) => `${tabLabel(question, index)}: ${shown(question)}`).join("\n");
 }

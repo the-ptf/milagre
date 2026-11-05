@@ -3274,7 +3274,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T203"
+            "$ref": "#/$defs/T204"
           }
         }
       ]
@@ -3564,7 +3564,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T204"
+            "$ref": "#/$defs/T205"
           }
         }
       ]
@@ -3602,7 +3602,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/$defs/T206"
+                "$ref": "#/$defs/T207"
               }
             ]
           }
@@ -3626,7 +3626,7 @@
           "name": "state",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T207"
+            "$ref": "#/$defs/T208"
           }
         }
       ]
@@ -3794,7 +3794,7 @@
           "name": "notice",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T208"
+            "$ref": "#/$defs/T209"
           }
         }
       ]
@@ -3805,7 +3805,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T209"
+            "$ref": "#/$defs/T210"
           }
         }
       ]
@@ -3863,7 +3863,7 @@
           "name": "options",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T210"
+            "$ref": "#/$defs/T211"
           }
         }
       ]
@@ -3926,10 +3926,10 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/T211"
+                "$ref": "#/$defs/T212"
               },
               {
-                "$ref": "#/$defs/T212"
+                "$ref": "#/$defs/T213"
               }
             ]
           }
@@ -3949,7 +3949,7 @@
           "name": "entry",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T214"
+            "$ref": "#/$defs/T215"
           }
         }
       ]
@@ -4025,7 +4025,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T215"
+            "$ref": "#/$defs/T216"
           }
         }
       ]
@@ -4041,7 +4041,7 @@
           "schema": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/T221"
+              "$ref": "#/$defs/T222"
             }
           }
         }
@@ -4060,7 +4060,7 @@
           "name": "rect",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T222"
+            "$ref": "#/$defs/T223"
           }
         }
       ]
@@ -8340,6 +8340,9 @@
         },
         "summary": {
           "type": "string"
+        },
+        "images": {
+          "$ref": "#/$defs/T203"
         }
       },
       "required": ["chatId", "requestId", "answers"],
@@ -8357,6 +8360,16 @@
     },
     "T203": {
       "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/T185"
+        }
+      }
+    },
+    "T204": {
+      "type": "object",
       "properties": {
         "chatId": {
           "type": "string"
@@ -8368,7 +8381,7 @@
       "required": ["chatId", "mode"],
       "additionalProperties": false
     },
-    "T204": {
+    "T205": {
       "type": "object",
       "properties": {
         "range": {
@@ -8379,14 +8392,14 @@
           "description": "IANA time zone the days are cut in; the host's own when absent or unknown."
         },
         "days": {
-          "$ref": "#/$defs/T205",
+          "$ref": "#/$defs/T206",
           "description": "Days picked on the calendar (\"2026-10-16\"), both included; they replace `range`. One day reads by the hour."
         }
       },
       "required": ["range"],
       "additionalProperties": false
     },
-    "T205": {
+    "T206": {
       "type": "object",
       "properties": {
         "from": {
@@ -8399,7 +8412,7 @@
       "required": ["from", "to"],
       "additionalProperties": false
     },
-    "T206": {
+    "T207": {
       "type": "object",
       "properties": {
         "days": {
@@ -8421,7 +8434,7 @@
       "required": ["days", "start", "end", "timeZone"],
       "additionalProperties": false
     },
-    "T207": {
+    "T208": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -8453,7 +8466,7 @@
       "required": ["projectPath", "activeChatId", "unread", "notifyOnCompletion", "showDockBadge"],
       "additionalProperties": false
     },
-    "T208": {
+    "T209": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -8466,7 +8479,7 @@
       "required": ["chatId", "title"],
       "additionalProperties": false
     },
-    "T209": {
+    "T210": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -8494,7 +8507,7 @@
       "required": ["projectPath"],
       "additionalProperties": false
     },
-    "T210": {
+    "T211": {
       "type": "object",
       "properties": {
         "name": {
@@ -8503,7 +8516,7 @@
       },
       "additionalProperties": false
     },
-    "T211": {
+    "T212": {
       "type": "object",
       "properties": {
         "kind": {
@@ -8517,7 +8530,7 @@
       "required": ["kind", "scope", "state"],
       "additionalProperties": false
     },
-    "T212": {
+    "T213": {
       "type": "object",
       "properties": {
         "kind": {
@@ -8530,13 +8543,13 @@
           "type": "number"
         },
         "window": {
-          "$ref": "#/$defs/T213"
+          "$ref": "#/$defs/T214"
         }
       },
       "required": ["kind", "scope", "chatId", "window"],
       "additionalProperties": false
     },
-    "T213": {
+    "T214": {
       "type": "object",
       "properties": {
         "messages": {
@@ -8553,7 +8566,7 @@
       "required": ["messages", "hasMore", "total"],
       "additionalProperties": false
     },
-    "T214": {
+    "T215": {
       "type": "object",
       "properties": {
         "kind": {
@@ -8569,11 +8582,11 @@
       "required": ["kind", "scope", "chatId"],
       "additionalProperties": false
     },
-    "T215": {
+    "T216": {
       "type": "object",
       "properties": {
         "audio": {
-          "$ref": "#/$defs/T216"
+          "$ref": "#/$defs/T217"
         },
         "language": {
           "type": "string"
@@ -8588,7 +8601,7 @@
       "required": ["audio", "language", "prompt", "model"],
       "additionalProperties": false
     },
-    "T216": {
+    "T217": {
       "type": "object",
       "properties": {
         "byteLength": {
@@ -8596,7 +8609,7 @@
           "description": "Read-only. The length of the ArrayBuffer (in bytes)."
         },
         "slice": {
-          "$ref": "#/$defs/T217",
+          "$ref": "#/$defs/T218",
           "description": "Returns a section of an ArrayBuffer."
         },
         "maxByteLength": {
@@ -8608,7 +8621,7 @@
           "description": "Returns true if this ArrayBuffer can be resized.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resizable)"
         },
         "resize": {
-          "$ref": "#/$defs/T218",
+          "$ref": "#/$defs/T219",
           "description": "Resizes the ArrayBuffer to the specified size (in bytes).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resize)"
         },
         "detached": {
@@ -8616,20 +8629,15 @@
           "description": "Returns a boolean indicating whether or not this buffer has been detached (transferred).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/detached)"
         },
         "transfer": {
-          "$ref": "#/$defs/T219",
+          "$ref": "#/$defs/T220",
           "description": "Creates a new ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transfer)"
         },
         "transferToFixedLength": {
-          "$ref": "#/$defs/T220",
+          "$ref": "#/$defs/T221",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         }
       },
       "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength"],
-      "additionalProperties": false
-    },
-    "T217": {
-      "type": "object",
-      "properties": {},
       "additionalProperties": false
     },
     "T218": {
@@ -8649,6 +8657,11 @@
     },
     "T221": {
       "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T222": {
+      "type": "object",
       "properties": {
         "contentsId": {
           "type": "number"
@@ -8660,7 +8673,7 @@
       "required": ["contentsId", "chatKey"],
       "additionalProperties": false
     },
-    "T222": {
+    "T223": {
       "type": "object",
       "properties": {
         "x": {
