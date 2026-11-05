@@ -1,7 +1,8 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { Cancel01Icon, Image01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Image01Icon, Mic01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { IMAGE_ERRORS, IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from "@milagre/shared/limits";
 import type { AgentQuestion, QuestionAnswers, QuestionImages, QuestionRequest } from "../../model";
 import {
@@ -20,6 +21,7 @@ import {
   setAnswerImages,
   tabLabel,
   typeAnswer,
+  withDictation,
 } from "../../lib/question-answers";
 import type { QuestionDrafts } from "../../lib/question-answers";
 import { SPRING_SWAP } from "../../lib/ease";
@@ -27,6 +29,9 @@ import { SecretCard } from "./SecretCard";
 import { Attachments } from "../Attachments";
 import { readImage } from "../usePastedImages";
 import { InlineError } from "../primitives/InlineError";
+import { useDictation } from "../useDictation";
+import { DictationNotice } from "../DictationNotice";
+import { DownloadRing, DroppingArrow } from "../DownloadRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button, IconButton } from "../primitives/Button";
 import { CheckboxBox } from "../primitives/Checkbox";
@@ -49,7 +54,10 @@ function OrdinaryQuestionCard({
   waiting,
   answering,
   onAnswer,
+  dictationChat,
 }: {
+  /** The Chat asking: dictation reads its Project's words and its agent fixes misheard names, as in the composer. */
+  dictationChat?: { cwd: string; scope?: string; chatId?: number; provider?: string };
   request: QuestionRequest;
   /** How many more questions are queued behind this one. */
   waiting: number;
@@ -64,6 +72,49 @@ function OrdinaryQuestionCard({
   const panelRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [imageError, setImageError] = useState("");
+  // A dictated answer goes after what was typed: the words show as they're heard, and the fix-up may rewrite them after.
+  const dictated = useRef<{ question: AgentQuestion; base: string } | null>(null);
+  const dictation = useDictation(
+    dictationChat?.cwd ?? "",
+    request.requestId,
+    (text, _anchor, correction) => {
+      const target = dictated.current;
+      dictated.current = null;
+      if (!target) return;
+      const value = withDictation(target.base, text);
+      setDrafts((current) => typeAnswer(current, target.question, value));
+      void correction?.text.then((fixed) =>
+        setDrafts((current) =>
+          draftOf(current, target.question.id).typed === value ? typeAnswer(current, target.question, withDictation(target.base, fixed)) : current,
+        ),
+      );
+    },
+    dictationChat ?? {},
+  );
+  const dictating = dictation.phase !== "idle";
+  const heard = dictation.partial.text;
+  useEffect(() => {
+    const target = dictated.current;
+    if (target && heard) setDrafts((current) => typeAnswer(current, target.question, withDictation(target.base, heard)));
+  }, [heard]);
+  // A take that ends without words (cancelled, no speech, failed) puts back what was typed before it.
+  useEffect(() => {
+    const target = dictated.current;
+    if (dictating || !target) return;
+    dictated.current = null;
+    setDrafts((current) => typeAnswer(current, target.question, target.base));
+  }, [dictating]);
+  const { error: dictationError, dismiss: dismissDictationError } = dictation;
+  useEffect(() => {
+    if (!dictationError || dictationError.kind === "permission") return;
+    const timer = setTimeout(dismissDictationError, NOTICE_SECONDS * 1000);
+    return () => clearTimeout(timer);
+  }, [dictationError, dismissDictationError]);
+  function startDictation(target: AgentQuestion) {
+    const base = draftOf(drafts, target.id).typed;
+    dictated.current = { question: target, base };
+    void dictation.start({ selection: { start: base.length, end: base.length } });
+  }
   // Next, or a pick that moves on, and the panel remounts, so focus would fall to the page: put it in the new panel.
   const focusPanel = useRef(false);
   const questions = request.questions;
@@ -91,7 +142,7 @@ function OrdinaryQuestionCard({
   }
 
   function advance() {
-    if (!ready) return;
+    if (!ready || dictating) return;
     if (action === "next") {
       focusPanel.current = true;
       setActive(nextTab(count, active));
@@ -218,6 +269,61 @@ function OrdinaryQuestionCard({
                 className="min-w-0 flex-1"
               />
               {!question.secret && (
+                <span className="relative flex shrink-0">
+                  {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
+                  {dictation.download ? (
+                    <button
+                      type="button"
+                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
+                      onClick={dictation.cancel}
+                      className="flex size-8 items-center justify-center rounded-full text-ink"
+                    >
+                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
+                        <DroppingArrow size={14} well={20} />
+                      </DownloadRing>
+                    </button>
+                  ) : dictating ? (
+                    <span data-dictation-capsule className="flex h-8 items-center gap-1 rounded-full bg-hover px-1">
+                      <button
+                        type="button"
+                        aria-label="Discard dictation"
+                        title="Discard dictation"
+                        onClick={dictation.cancel}
+                        className="flex size-6 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+                      >
+                        <Icon icon={Cancel01Icon} size={14} />
+                      </button>
+                      {dictation.phase === "recording" ? (
+                        <button
+                          ref={(node) => {
+                            // oxlint-disable-next-line react/immutability -- the hook's meter ref, as the composer sets it: useDictation writes --level on it each frame.
+                            dictation.meter.current = node;
+                          }}
+                          type="button"
+                          aria-label="Stop dictation"
+                          title="Stop dictation"
+                          onClick={() => void dictation.stop()}
+                          className="relative flex size-6 items-center justify-center rounded-full"
+                        >
+                          <span
+                            aria-hidden
+                            className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
+                            style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
+                          />
+                          <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
+                        </button>
+                      ) : (
+                        <span aria-hidden className="flex size-6 items-center justify-center">
+                          <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <IconButton label="Dictate" icon={Mic01Icon} size={32} disabled={!pending} onClick={() => startDictation(question)} />
+                  )}
+                </span>
+              )}
+              {!question.secret && (
                 <>
                   <input
                     ref={fileRef}
@@ -270,7 +376,7 @@ function OrdinaryQuestionCard({
               <Icon icon={Cancel01Icon} size={14} />
               Dismiss
             </Button>
-            <Button disabled={!ready} onClick={advance}>
+            <Button disabled={!ready || dictating} onClick={advance}>
               <Icon icon={Tick02Icon} size={14} />
               {action === "next" ? "Next" : count === 1 ? "Send answer" : "Send answers"}
             </Button>

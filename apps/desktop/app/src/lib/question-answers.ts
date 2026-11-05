@@ -51,6 +51,13 @@ export function draftImages(questions: AgentQuestion[], drafts: QuestionDrafts):
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
+/** A typed answer with dictated words after it, a space between them. */
+export function withDictation(typed: string, words: string): string {
+  const said = words.trim();
+  if (!said) return typed;
+  return typed && !/\s$/.test(typed) ? `${typed} ${said}` : `${typed}${said}`;
+}
+
 /** What the answer card says for a question's attached images. */
 const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
 

@@ -4147,6 +4147,12 @@ function App() {
                                     waiting={(run?.questions.length ?? 1) - 1}
                                     answering={sentReply(run, pendingQuestion.requestId)}
                                     onAnswer={answerQuestion}
+                                    dictationChat={{
+                                      cwd: selectedWorktree?.path ?? project.path,
+                                      scope: project.path,
+                                      chatId: selectedSession?.id,
+                                      provider: selectedModel.provider,
+                                    }}
                                   />
                                 </div>
                               ) : null}

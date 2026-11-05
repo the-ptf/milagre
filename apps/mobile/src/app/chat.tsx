@@ -2625,6 +2625,11 @@ function ChatPane({
                           key={question.requestId}
                           request={question}
                           busy={actionBusy || answering}
+                          dictationChat={
+                            worktree?.path || !project.link
+                              ? { client, cwd: worktree?.path || project.path, chatTitle: title, provider: chat?.provider ?? actualProvider, chatId: chat?.id }
+                              : undefined
+                          }
                           submit={(answers, summary, images) => {
                             const answered = answeredQuestions(question, answers && answersWithImages(answers, images));
                             const photos = Object.values(images ?? {}).flatMap((list) => list.flatMap((item) => (item.image ? [item.image] : [])));

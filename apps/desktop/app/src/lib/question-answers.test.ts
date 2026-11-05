@@ -8,6 +8,7 @@ import {
   draftAnswers,
   draftImages,
   setAnswerImages,
+  withDictation,
   nextTab,
   pickOption,
   primaryAction,
@@ -159,4 +160,11 @@ test("images alone answer a question, survive a pick or typing, and the summary 
   assert.deepEqual(draftImages([color], drafts), { color: [image] });
   assert.equal(answerSummary([color], { color: ["teal"] }, { color: [image] }), "teal, 1 image");
   assert.equal(draftImages([color], {}), undefined);
+});
+
+test("dictated words go after the typed answer, a space between them", () => {
+  assert.equal(withDictation("", " teal "), "teal");
+  assert.equal(withDictation("Red", "and teal"), "Red and teal");
+  assert.equal(withDictation("Red ", "and teal"), "Red and teal");
+  assert.equal(withDictation("Red", "  "), "Red");
 });
