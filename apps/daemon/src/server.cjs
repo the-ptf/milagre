@@ -391,6 +391,8 @@ async function startDaemon({
   let listening = false;
   const sender = createExpoPush({ ...pushOptions, onError, onInvalid: (token) => push.invalidate(token) });
   const isChatFocused = (chatId) => [...views.values()].some((view) => view.focused && view.chatId === chatId);
+  // Whether a window of this host's own is focused: what the computers it drives are told (computers.cjs setFocused).
+  const windowFocused = () => [...views.values()].some((view) => view.focused && !view.peer);
   const push = createMobilePush({
     dataDir,
     send: sender.send,
@@ -631,7 +633,9 @@ async function startDaemon({
     const awaitingPages = new Set();
     // Result pages and paged snapshots share one store and its rules.
     const resultPages = createResultPages(maxFrameBytes, { ttlMs: pagesTtlMs, budgetChars: pagesBudgetChars });
-    const view = { focused: false, projectPath: null, chatId: null };
+    // `peer`: a paired computer's window. Its focus counts for this host's own Chats (isChatFocused), never for the
+    // computers this host drives: passing it on sent every focus round a ring of paired computers forever.
+    const view = { focused: false, projectPath: null, chatId: null, peer: policy === peerPolicy };
     // Never accept an actor supplied in RPC arguments. Each authenticated connection owns its viewer capabilities.
     // A paired desktop's channel can also carry streams back to that desktop (peer-streams.cjs): its Browser pages reach
     // this host's browser service through them.
@@ -898,7 +902,7 @@ async function startDaemon({
           const next = request.args[0];
           if (!next || typeof next.focused !== "boolean") throw new Error("Expected a focused boolean");
           view.focused = next.focused;
-          computers.setFocused([...views.values()].some((view) => view.focused));
+          computers.setFocused(windowFocused());
           if (view.focused) await runtime.focused(view);
         } else if (request.method === "chat:set-open") {
           // A Chat switch reads that Chat and its own Worktree's diff stat, never a whole Project's (see daemon:focus).
@@ -978,7 +982,7 @@ async function startDaemon({
         clients.delete(key);
         desktopCommands.disconnect(key);
         views.delete(key);
-        computers.setFocused([...views.values()].some((view) => view.focused));
+        computers.setFocused(windowFocused());
         patchClients.delete(key);
         for (const claim of noticeClaims) phone.releaseDeviceNotices(claim);
         noticeClaims.clear();

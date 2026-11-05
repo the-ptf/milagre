@@ -105,6 +105,7 @@ const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/ru
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
 const { createComputerResources } = require("./computer-resources.cjs");
+const { idleWorktrees, assertIdleWorktree } = require("./storage-worktrees.cjs");
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
 const { createDoneSettings } = require("./done-settings.cjs");
@@ -1720,8 +1721,102 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
-  const computerResources = createComputerResources({ dataDir, worktreeRoot: worktreeRoot() });
-  commands.handle("computer:resources:read", () => computerResources.read());
+  const computerResources = createComputerResources({
+    dataDir,
+    worktreeRoot: worktreeRoot(),
+    chatsHome: chatsHome.path,
+    chatFolders: async () => (await projectRegistry().list()).map((project) => path.join(project.path, ".milagre")),
+  });
+  // `{ fresh: true }` measures the folders again now (after a cleanup) instead of waiting out the half hour.
+  commands.handle("computer:resources:read", (_event, options) => computerResources.read(options));
+  // Clean up worktrees (Settings › Devices on desktop, a computer's What Milagre uses on the phone): the worktrees Milagre
+  // made that no Chat has used for 30 days or more, with what removing each loses.
+  commands.handle("storage:worktrees", async () => {
+    await environmentReady;
+    const projects = [...(await projectRegistry().list()), ...(await chatsHomeEntries())];
+    const worktrees = await idleWorktrees({
+      projects: projects
+        .filter((project, index) => projects.findIndex((other) => other.path === project.path) === index)
+        .map((project) => ({ path: project.path, name: project.name || projectName(project.path) })),
+      readState: projectStateReadOnly,
+      roots: await handlers.get("worktree:roots")({}),
+      linkOwned: await linkStore.ownedWorktrees(),
+      busy: (chatId) => Boolean(chats.runs[chatId]) || chats.startingTurns.has(chatId) || chats.isBusy(chatId),
+      titleOf: (session) => chatTitle(session),
+      openAsProject,
+      status: worktreeStatus,
+      bytesOf: (folder) => computerResources.worktreeBytes(folder),
+    });
+    return { worktrees, measuredAt: computerResources.measuredAt() };
+  });
+  // Validation and deletion share the Project's mutation queue with Chat creation, sends and received events. No
+  // accepted activity can land between the final check and removing its Chats. Never call queued state helpers from
+  // inside this change: auxiliary Chat cleanup runs afterwards, once their state is gone.
+  commands.handle("storage:remove-worktree", async (_event, request) => {
+    const { projectPath, path: worktreePath, seen, force, activity, idleBefore, lastAt } = request && typeof request === "object" ? request : {};
+    if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) throw new Error("An absolute Project path is required.");
+    if (typeof worktreePath !== "string" || !path.isAbsolute(worktreePath)) throw new Error("An absolute worktree path is required.");
+    if (!states.has(projectPath)) await openProject(projectPath, { takeNotice: false, focus: false, remember: false, register: false });
+    await environmentReady;
+    await ownProject(projectPath);
+    let result = { removed: false, alreadyRemoved: true, branch: null, branchDeleted: false };
+    let keys = [];
+    await editProject(
+      projectPath,
+      async (state) => {
+        const worktree = worktreeAt(state, worktreePath);
+        if (!worktree) return state;
+        if (!worktree.base) throw new Error(`Milagre didn't create ${worktreePath}, so it is kept.`);
+        const owned = await linkStore.ownedWorktrees();
+        if (owned.has(worktreePath)) throw new Error("This Worktree belongs to a shared Link Chat. Archive the Chat to hide it.");
+        if (await openAsProject(worktreePath)) throw new Error(`${worktreePath} is open as a project, so it is kept.`);
+        const busy = (id) => {
+          const key = `${projectPath}#${id}`;
+          return Boolean(chats.runs[key]) || chats.startingTurns.has(key) || chats.isBusy(key) || worktreeSetups.running.has(key);
+        };
+        const check = () => assertIdleWorktree({ state, worktree, activity, idleBefore, lastAt, busy });
+        await check();
+        keys = Object.values(state.sessions)
+          .filter((session) => session.worktree_id === worktree.id)
+          .map((session) => `${projectPath}#${session.id}`);
+        result = await removeWorktree({
+          path: worktreePath,
+          root: worktreeRoot(),
+          projectPath,
+          base: worktree.base,
+          seen,
+          force: force === true,
+          closeSession: async () => {
+            // Filesystem and Git identity checks yield too; a starting turn or waiting note keeps its worktree.
+            await check();
+            for (const key of keys) {
+              terminals.closeChat(key);
+              await agents.closeChat(key);
+            }
+          },
+        });
+        return reconcileState(
+          state,
+          projectName(projectPath),
+          Object.values(state.worktrees).filter((item) => item.id !== worktree.id),
+          owned,
+        );
+      },
+      { chats: [] },
+    );
+    if (result.removed) {
+      for (const key of keys) {
+        chats.forget(key);
+        computerUseScreen.forget(key);
+        await stopChatWork(key);
+        await artifacts.removeChat(key).catch(() => {});
+        await pageComments.removeChat(key).catch(() => {});
+      }
+      await worktreeSetups.forget(worktreePath);
+      await pruneLinks();
+    }
+    return result;
+  });
   // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
   commands.handle("keybindings:read", () => keybindings.read());
@@ -2406,19 +2501,29 @@ function createRuntime(options) {
   // The answers show in the chat as the user's message (`summary`), and are taken back if they don't reach the agent.
   // The message is queued before the answers go out, so the agent's next reply lands below it, but the agent doesn't wait
   // for it: the Project's queue holds every Chat's changes, and a busy one kept the card up for seconds.
-  commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary } = {}) => {
+  // Images attached to an answer are stored first: the agent gets their paths in that question's answer, and the
+  // answers message shows them.
+  commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary, images } = {}) => {
     // Route even stale secret ids here: a late/replayed value must never reach chat persistence.
     if (require("./chat-secrets.cjs").isSecretRequest(requestId)) return chatSecrets.answer(chatId, requestId, answers);
+    const { answerImages, withAnswerImages } = require("./agents/questions.cjs");
+    const attached = answers ? answerImages(images) : {};
+    // A phone uploads its photos first and sends their paths, as a send does: their bytes are read back here.
+    for (const [id, list] of Object.entries(attached))
+      attached[id] = (await mobileUploads.resolveImages(projectOfKey(chatId), list)).map(({ id: imageId, name, dataUrl }) => ({ id: imageId, name, dataUrl }));
+    const stored = Object.keys(attached).length ? await chats.storeAnswerImages(chatId, attached) : {};
+    const { agent, shown } = withAnswerImages(answers, stored);
+    const storedImages = Object.values(stored).flat();
     const recorded =
       answers && typeof summary === "string" && summary && typeof chatId === "string" && scopeStates.has(projectOfKey(chatId))
-        ? chats.recordAnswers(chatId, summary, { requestId, answers }).catch((error) => {
+        ? chats.recordAnswers(chatId, summary, { requestId, answers: shown, images: storedImages }).catch((error) => {
             console.warn("Milagre couldn't show the answers:", error.message);
             return null;
           })
         : Promise.resolve(null);
     let accepted;
     try {
-      accepted = await agents.answerQuestion(chatId, requestId, answers);
+      accepted = await agents.answerQuestion(chatId, requestId, answers && agent);
     } catch (error) {
       const messageId = await recorded;
       if (messageId !== null) await chats.takeBack(chatId, messageId);

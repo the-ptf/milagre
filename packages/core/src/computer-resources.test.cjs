@@ -132,6 +132,7 @@ test("folders are measured once each, wherever the worktrees live", () => {
       { kind: "worktrees", bytes: 9 * 1024, count: 2 },
       { kind: "data", bytes: 23 * 1024, count: 0 },
     ],
+    sizes: { [path.resolve("/Users/me/.milagre/worktrees/app/one")]: 6 * 1024, [path.resolve("/Users/me/.milagre/worktrees/app/two")]: 3 * 1024 },
   });
   // Worktrees on their own volume are a measured folder and still the worktrees part.
   const elsewhere = parseDu("5\t/Volumes/Work/app/one\n5\t/Volumes/Work/app\n5\t/Volumes/Work\n7\t/Users/me/.milagre", {
@@ -144,6 +145,44 @@ test("folders are measured once each, wherever the worktrees live", () => {
   ]);
   // Output cut before the folders' own totals is no measure at all.
   assert.throws(() => parseDu("500\t/Users/me/.milagre/worktrees/app/one\n", { folders, worktrees }), /no folder's total/);
+});
+
+test("the data folder splits by what its folders hold, and Projects' Chat history counts", () => {
+  const dataDir = path.resolve("/Users/me/Library/Application Support/Milagre");
+  const chatFolder = path.resolve("/Users/me/Code/app/.milagre");
+  const du = [
+    "9\t/Users/me/.milagre/worktrees",
+    "2\t/Users/me/.milagre/chats",
+    "12\t/Users/me/.milagre",
+    `5\t${dataDir}/checkpoints`,
+    `4\t${dataDir}/Partitions`,
+    `3\t${dataDir}/dictation`,
+    `1\t${dataDir}/Cache`,
+    `1\t${dataDir}/GPUCache`,
+    `2\t${dataDir}/accounts`,
+    `1\t${dataDir}/tools`,
+    `1\t${dataDir}/something-else`,
+    `20\t${dataDir}`,
+    `3\t${chatFolder}`,
+  ].join("\n");
+  const measured = parseDu(du, {
+    folders: [path.resolve("/Users/me/.milagre"), dataDir],
+    worktrees: path.resolve("/Users/me/.milagre/worktrees"),
+    dataDir,
+    chatsHome: "/Users/me/.milagre/chats",
+    chatFolders: [chatFolder],
+  });
+  assert.equal(measured.total, 35 * 1024);
+  assert.deepEqual(Object.fromEntries(measured.parts.map((part) => [part.kind, part.bytes / 1024])), {
+    worktrees: 9,
+    chats: 5,
+    checkpoints: 5,
+    agents: 3,
+    browser: 4,
+    speech: 3,
+    caches: 2,
+    data: 4,
+  });
 });
 
 function fakeHost({ du }) {

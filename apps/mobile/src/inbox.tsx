@@ -3,7 +3,8 @@ import { AppState, Pressable, Text, View, Keyboard, type ScrollViewInstance } fr
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { prepareAnswerImages } from "./attachments";
 import { providerName } from "@milagre/shared/providers";
 import type { InboxItem, InboxSnapshot, InboxStatus } from "@milagre/shared/attention";
 import { visibleInbox } from "@milagre/shared/attention";
@@ -363,17 +364,19 @@ function PhoneInboxCard({
           confirmSingle
           draft={draft}
           onDraftChange={setDraft}
-          submit={(answers, summary) =>
-            void action(() =>
-              client!.call("agent:answer-question", [
+          submit={(answers, summary, images) =>
+            void action(async () => {
+              const uploaded = await prepareAnswerImages(client!, projectOfKey(item.key), images);
+              return client!.call("agent:answer-question", [
                 {
                   chatId: item.key,
                   requestId: item.question!.requestId,
                   answers,
                   summary,
+                  ...(uploaded ? { images: uploaded } : {}),
                 },
-              ]),
-            )
+              ]);
+            })
           }
         />
       ) : item.permission ? (

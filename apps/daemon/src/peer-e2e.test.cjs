@@ -411,3 +411,34 @@ test("a desktop's Browser page for this Mac's Chat is reached back over its chan
   desktop.close();
   await until(async () => !(await mac.client.call("browser:list", [{ chatId }])).targets.some((item) => item.source === "panel"), "the page is gone");
 });
+
+test("a paired computer's focus stays on this Mac: only this Mac's own window focus reaches the computers it drives", async (t) => {
+  // Two computers paired with each other used to pass each focus back and forth for ever (hundreds a second), until the
+  // 32-call cap closed their channels and every call in flight failed with "Daemon connection closed".
+  const service = require("./computer-service.cjs");
+  const real = service.createComputerService;
+  const told = [];
+  service.createComputerService = (options) => {
+    const computers = real(options);
+    const setFocused = computers.setFocused;
+    computers.setFocused = (value) => {
+      told.push(value);
+      return setFocused(value);
+    };
+    return computers;
+  };
+  t.after(() => {
+    service.createComputerService = real;
+  });
+  const mac = await startTestMac(t);
+  const desktop = mac.dial(connectDesktop, { name: "studio" });
+  assert.ok((await desktop.hello()).channel);
+  await desktop.call("daemon:focus", [{ focused: true }]);
+  assert.equal(told.at(-1) ?? false, false, "a paired computer looking at this Mac is not this Mac's window");
+  await mac.client.call("daemon:focus", [{ focused: true }]);
+  assert.equal(told.at(-1), true, "this Mac's own window is");
+  await desktop.call("daemon:focus", [{ focused: false }]);
+  assert.equal(told.at(-1), true, "nor does the paired computer's blur blur this Mac's window");
+  await mac.client.call("daemon:focus", [{ focused: false }]);
+  assert.equal(told.at(-1), false);
+});

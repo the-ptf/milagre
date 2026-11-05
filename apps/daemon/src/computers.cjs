@@ -715,6 +715,8 @@ function createComputers({
     },
     /** The window gained or lost focus: every connected computer's daemon is told, and a later connection is too. */
     setFocused(value) {
+      // Only a change goes out: a later connection is told at start, and a reconnect replays it (runtime-client.cjs).
+      if (focused === (value === true)) return;
       focused = value === true;
       for (const entry of entries.values()) void entry.runtime?.setFocused(focused).catch(() => {});
     },

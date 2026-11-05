@@ -194,6 +194,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           outboxAttachments: (items) => items,
           useOutbox: () => ({ loaded: true, items: [], error: "" }),
         };
+      // A question's photo picker opens the native library; a test attaches none.
+      if (/^\.\.?\/attachment-picker$/.test(id) && !(id in modules)) return { pickAttachments: async () => [] };
+      if (/^\.\.?\/attachments$/.test(id) && !(id in modules)) return require("../apps/mobile/src/attachments.ts");
       if (id === "expo-haptics" && !(id in modules)) return { selectionAsync: async () => {} };
       if (id === "@sbaiahmed1/react-native-blur" && !(id in modules)) return { LiquidGlassView: "LiquidGlassView", BlurView: "BlurView" };
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
@@ -443,6 +446,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           ...(modules["react-native"]?.Alert?.alert ? { confirmSheet: modules["react-native"].Alert.alert } : {}),
         };
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
+      // /storage's name and hint, which the Chat lists beside /undo.
+      if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -1459,7 +1464,7 @@ function questionHost(request, { confirmSingle = false } = {}) {
     "@milagre/shared/limits": require("@milagre/shared/limits"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   const render = () => {
     react.begin();
@@ -1551,7 +1556,7 @@ test("inbox approval shows the entire action inline, including folders, files an
     "@milagre/shared/limits": require("@milagre/shared/limits"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   const command = "full command\n".repeat(60),
     decisions = [];
@@ -1598,7 +1603,7 @@ test("setup approval shows full setup context and emits each setup decision", ()
     "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   const command = "prepare-project --flag='full value'\necho finished";
   const decisions = [];
@@ -3703,7 +3708,10 @@ test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the lis
   );
   chat.render();
   assert.equal(chat.undo.chatId, "/p#7");
-  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [{ name: "undo", description: "Undo a task's file changes" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [
+    { name: "undo", description: "Undo a task's file changes" },
+    { name: "storage", description: "Clean up old worktrees on this computer" },
+  ]);
   chatMenuEntry(chat.render(), "Undo changes").props.onPress();
   assert.equal(chat.undo.opened, 1);
   let tree = chat.render();
@@ -17971,7 +17979,7 @@ test("provider update cards on the phone install the advertised release on the c
       }),
     },
     "./icons": { ProviderLogo: "ProviderLogo" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   react.begin();
   const tree = ProviderUpdateNotice();

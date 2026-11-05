@@ -43,6 +43,7 @@ import {
   OpenProject,
   PermissionDecision,
   QuestionAnswers,
+  QuestionImages,
   PermissionMode,
   PullRequestActionContext,
   AgentCliStatus,
@@ -176,6 +177,8 @@ import type { SidebarMode } from "./components/bots/SidebarModeSwitch";
 import { BotThread } from "./components/bots/BotThread";
 import { BotProfilePanel } from "./components/bots/BotProfilePanel";
 import { BotProfileSlot } from "./components/bots/BotProfileSlot";
+import { OPEN_STORAGE, openStorage } from "./lib/storage-open";
+import { WorktreeCleanup } from "./components/settings/WorktreeCleanup";
 
 const SIDEBAR_MODE_KEY = "milagre.sidebarMode";
 
@@ -956,14 +959,14 @@ function App() {
   }
 
   /** Sends the answers to the open question, or dismisses it (null). */
-  function answerQuestion(answers: QuestionAnswers | null) {
+  function answerQuestion(answers: QuestionAnswers | null, images?: QuestionImages) {
     if (!project || !selectedSession || !pendingQuestion) return;
     if (readOnly) {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return;
     }
     void agentRuns
-      .answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers)
+      .answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers, images)
       .catch((error) => setNotice(ipcErrorMessage(error)));
   }
 
@@ -2956,6 +2959,13 @@ function App() {
     }
     setView("settings");
   });
+  // /storage in a Chat: Clean up worktrees for its computer, opened right over the Chat. undefined while closed.
+  const [storageComputer, setStorageComputer] = useState<string | null | undefined>(undefined);
+  const onOpenStorage = useEvent((event: Event) => setStorageComputer((event as CustomEvent<string | null>).detail ?? null));
+  useEffect(() => {
+    window.addEventListener(OPEN_STORAGE, onOpenStorage);
+    return () => window.removeEventListener(OPEN_STORAGE, onOpenStorage);
+  }, [onOpenStorage]);
   const selectSettingsComputer = (id: string) => {
     setSettingsComputer(id);
     setSettingsSection("computer");
@@ -3217,6 +3227,14 @@ function App() {
       {deletingLink ? <DeleteLinkDialog link={deletingLink} onClose={() => setDeletingLink(null)} onDeleted={linkDeleted} /> : null}
     </>
   );
+  const storageDialog =
+    storageComputer === undefined ? null : (
+      <WorktreeCleanup
+        bridge={bridgeFor(storageComputer)}
+        computerName={storageComputer ? (pairedComputers.find((computer) => computer.id === storageComputer)?.name ?? null) : null}
+        onClose={() => setStorageComputer(undefined)}
+      />
+    );
   const addComputerDialog = addComputerOpen ? <AddComputerDialog onClose={() => setAddComputerOpen(false)} onAdded={() => setAddComputerOpen(false)} /> : null;
   const addProjectDialog = addProjectOpen ? (
     <AddProjectDialog
@@ -3264,6 +3282,7 @@ function App() {
           </main>
         </div>
         {addComputerDialog}
+        {storageDialog}
       </DotBackground>
     );
   const shownLink = selectedLink ?? lastLink;
@@ -3320,6 +3339,7 @@ function App() {
     <>
       {linkDialog}
       {addComputerDialog}
+      {storageDialog}
       {addProjectDialog}
     </>
   );
@@ -3439,6 +3459,14 @@ function App() {
         keybinding: "usage.open" as const,
         keywords: "tokens cost spend analytics dollars models claude codex",
         run: openUsage,
+      },
+      {
+        id: "storage",
+        label: "Clean up worktrees",
+        group: "Actions",
+        icon: "storage",
+        keywords: "disk space worktrees clean up free what milagre uses",
+        run: () => openStorage(null),
       },
       {
         id: "triage",
@@ -4146,6 +4174,12 @@ function App() {
                                     waiting={(run?.questions.length ?? 1) - 1}
                                     answering={sentReply(run, pendingQuestion.requestId)}
                                     onAnswer={answerQuestion}
+                                    dictationChat={{
+                                      cwd: selectedWorktree?.path ?? project.path,
+                                      scope: project.path,
+                                      chatId: selectedSession?.id,
+                                      provider: selectedModel.provider,
+                                    }}
                                   />
                                 </div>
                               ) : null}
@@ -4226,6 +4260,7 @@ function App() {
           </div>
           {linkDialog}
           {addComputerDialog}
+          {storageDialog}
           {addProjectDialog}
           {commandPaletteOpen && (
             <CommandPalette

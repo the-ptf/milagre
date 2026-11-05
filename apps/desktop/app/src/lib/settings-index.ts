@@ -14,6 +14,7 @@ import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
+import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 
 export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
 
@@ -543,6 +544,12 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     page: "devices",
     title: "Allow pairing again",
     keywords: "pair new devices",
+  },
+  {
+    page: "devices",
+    title: CLEANUP_TITLE,
+    description: CLEANUP_INTRO,
+    keywords: "storage disk space free worktrees delete old what milagre uses",
   },
   {
     page: "devices",
