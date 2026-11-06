@@ -18,7 +18,7 @@ async function fixture(t, linkedNames = ["linked"]) {
     try {
       for (const runtime of runtimes) await runtime.close();
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
   });
   const project = path.join(dir, "project");

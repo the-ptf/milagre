@@ -23,15 +23,21 @@ const OPS = Object.freeze({
 const META = Object.freeze({ kind: "merge", title: "Merge PR #474", command: "gh pr merge 474", target: "/p", botId: "ops", botName: "Ops", expiresAt: 10 });
 const CHAT = Object.freeze({ chatKey: "/p#4", botId: "ops", title: "Fix flaky test", projectPath: "/p", status: "running", createdAt: 1 });
 
+const opened = new WeakMap();
+
 function tmp(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-bots-store-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // Windows can't remove an open database, and after hooks run in the order they were added.
+  t.after(() => {
+    opened.get(t)?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   return dir;
 }
 
 function open(t, file = path.join(tmp(t), "angelo.db")) {
   const store = createBotStore(file);
-  t.after(() => store.close());
+  opened.set(t, store);
   return store;
 }
 

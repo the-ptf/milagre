@@ -64,7 +64,7 @@ async function fixture(t, { approvals = null, hold = null } = {}) {
   };
   t.after(async () => {
     for (const runtime of runtimes) await runtime.close();
-    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   const make = () => {
     const runtime = createRuntime(options);
