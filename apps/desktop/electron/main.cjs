@@ -416,6 +416,16 @@ async function startDesktop() {
     isHidden: (chatId) => hiddenChats.isHidden(chatId),
   });
   hiddenChanged = () => notifier.hiddenChanged();
+  // This Mac's hidden Projects live with its host: read them each time it connects, without waiting for the window.
+  const readHiddenProjects = () =>
+    runtime
+      ?.invoke("project:recent", [])
+      .then((list) => {
+        if (!Array.isArray(list)) return;
+        const hidden = list.filter((project) => project?.hidden === true && typeof project.path === "string").map((project) => project.path);
+        if (hiddenChats.setReported(hidden)) notifier.hiddenChanged();
+      })
+      .catch((error) => console.warn("Hidden Projects:", error.message));
 
   // The window reports the "Notify when waiting" setting, kept with its other settings.
   let notifyWhenWaiting = true;
@@ -429,10 +439,7 @@ async function startDesktop() {
 
   ipcMain.handle("notification:state", (_event, state) => {
     // The window's hidden Projects: this Mac's, kept by its host, and paired computers' (also in preferences).
-    if (state && Array.isArray(state.hidden)) {
-      hiddenChats.setReported(state.hidden);
-      notifier.hiddenChanged();
-    }
+    if (state && Array.isArray(state.hidden) && hiddenChats.setReported(state.hidden)) notifier.hiddenChanged();
     notifier.sync(state);
   });
   ipcMain.handle("notification:completed", (_event, notice) => (notificationsSupported() ? notifier.notifyCompletion(notice) : false));
@@ -536,6 +543,7 @@ async function startDesktop() {
             void remoteBrowserSessions.refresh();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
+            void readHiddenProjects();
           }
         }
         // Add workspace's sign-in opens in a window of its own, and only when this window asked for one.
@@ -732,6 +740,7 @@ async function startDesktop() {
     hostConnected();
     void runtime.resumeRecentProjects().catch((error) => console.warn(error.message));
     void deviceNotices.connected();
+    void readHiddenProjects();
     // The window opened before the host answered, so it may have taken focus already.
     if (mainWindow?.isFocused()) void runtime.setFocused(true).catch(() => {});
     app.on("browser-window-focus", (_event, window) => {
