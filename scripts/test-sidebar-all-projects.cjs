@@ -26,7 +26,7 @@ const restartRecent = JSON.parse(sessionStorage.getItem("restartRecent") ?? "nul
 let recent = restartRecent
   ? restartRecent.map((path) => ({ path, name: path.split("/").at(-1), hidden: path === "/work/api" }))
   : [
-      { path: "/work/arketa", name: "arketa" },
+      { path: "/work/atlas", name: "atlas" },
       { path: "/work/shop", name: "shop" },
       { path: "/work/api", name: "api", hidden: true },
     ];
@@ -81,7 +81,7 @@ function Root() {
   window.setArchiving = (keys) => setArchivingChats(new Set(keys));
   return (
   <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
-    <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", details: { failed: true } }]} activeId="1"
+    <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow", details: { failed: true } }]} activeId="1"
       runningKeys={"/work/shop#7\\nmilagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3"} waitingKeys="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3" attentionPaths={["/work/shop"]} onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }}
       onScopeArchiveCheck={async (key, id) => { window.archiveChecked = [key, id]; return { milagreOwned: false, shared: false, status: null }; }}
       onScopeArchive={async (key, id, mode) => { window.archived = [key, id, mode]; }} archivingChats={archivingChats}
@@ -146,13 +146,13 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id]')`);
     assert.deepEqual(
       await scopes(),
-      ["/work/arketa", "/work/shop", "milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"],
+      ["/work/atlas", "/work/shop", "milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"],
       "Every Project and Link but the hidden one",
     );
-    assert.match((await chats("/work/arketa"))[0], /Fix the login flow/);
+    assert.match((await chats("/work/atlas"))[0], /Fix the login flow/);
     assert.equal(
       await evaluate(`(() => {
-      const dot = document.querySelector('[data-sidebar-scope="/work/arketa"] [data-chat-id="1"] [data-slot="chat-mark"]');
+      const dot = document.querySelector('[data-sidebar-scope="/work/atlas"] [data-chat-id="1"] [data-slot="chat-mark"]');
       const expected = document.createElement('span');
       expected.style.color = 'var(--red)';
       document.body.append(expected);
@@ -223,8 +223,8 @@ async function browserChecks() {
 
     // Every Project offers removal, including the open one.
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope][data-current]").length`), 1, "Exactly one scope is open");
-    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"]')?.hasAttribute("data-current")`), true);
-    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-action]')?.getAttribute("aria-label")`), "New chat");
+    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"]')?.hasAttribute("data-current")`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-action]')?.getAttribute("aria-label")`), "New chat");
     assert.equal(
       await evaluate(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-scope-action]')?.getAttribute("aria-label")`),
       "New chat in shop",
@@ -241,7 +241,7 @@ async function browserChecks() {
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
 
-    await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-menu]').click()`);
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector("[data-scope-menu-panel]")`);
     assert.equal(
       await evaluate(`!!document.querySelector('[data-scope-menu-panel] [data-scope-menu-item="remove"]')`),
@@ -267,7 +267,7 @@ async function browserChecks() {
     await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
 
     // Confirmation is cancellable, and a failed save keeps the dialog open with a retry.
-    await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-menu]').click()`);
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
     await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
     await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
@@ -276,7 +276,7 @@ async function browserChecks() {
     await evaluate(`document.activeElement.click()`);
     await waitFor(`!document.querySelector('[data-project-remove-confirm]')`);
     assert.equal(await evaluate(`(window.forgetCalls ?? []).length`), 0);
-    await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-menu]').click()`);
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
     await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
     await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
@@ -286,7 +286,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`window.removedProject ?? null`), null);
     await evaluate(`window.failForget = false; document.querySelector('[data-project-remove-confirm]').click()`);
     await waitFor(`!document.querySelector('[data-project-remove-confirm]')`);
-    assert.equal(await evaluate(`window.removedProject`), "/work/arketa");
+    assert.equal(await evaluate(`window.removedProject`), "/work/atlas");
     // The fixture keeps the current Project prop; App closes it in response to the removal event.
 
     // The project chooser lists every Project, the hidden one unchecked; checking it brings its group back, unchecking hides it again.
@@ -298,7 +298,7 @@ async function browserChecks() {
       await evaluate(`[...document.querySelectorAll("[data-project-choice]")].map((row) => [row.dataset.projectChoice, row.getAttribute("aria-checked")])`),
       [
         ["/work/api", "false"],
-        ["/work/arketa", "true"],
+        ["/work/atlas", "true"],
         ["milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7", "true"],
         ["/work/shop", "true"],
       ],
@@ -506,33 +506,33 @@ async function browserChecks() {
       assert.deepEqual(await scopes(), expected, message);
     };
     const savedOrder = async () => JSON.parse(await evaluate(`localStorage.getItem("milagre.sidebarScopeOrder")`));
-    // Start from a known order: nothing saved, recent list arketa then shop.
+    // Start from a known order: nothing saved, recent list atlas then shop.
     await evaluate(`localStorage.removeItem("milagre.sidebarScopeOrder")`);
-    await restart(["/work/arketa", "/work/shop", "/work/api"], ["/work/arketa", "/work/shop", LINK], "With nothing saved, the groups follow the recent list");
-    assert.deepEqual(await savedOrder(), ["/work/arketa", "/work/shop"], "The order shown is saved");
+    await restart(["/work/atlas", "/work/shop", "/work/api"], ["/work/atlas", "/work/shop", LINK], "With nothing saved, the groups follow the recent list");
+    assert.deepEqual(await savedOrder(), ["/work/atlas", "/work/shop"], "The order shown is saved");
     await restart(
-      ["/work/shop", "/work/arketa", "/work/api"],
-      ["/work/arketa", "/work/shop", LINK],
+      ["/work/shop", "/work/atlas", "/work/api"],
+      ["/work/atlas", "/work/shop", LINK],
       "After a restart with shop most recent, the groups keep their saved order",
     );
     await screenshot("order-after-restart");
     await restart(
-      ["/work/docs", "/work/shop", "/work/arketa", "/work/api"],
-      ["/work/docs", "/work/arketa", "/work/shop", LINK],
+      ["/work/docs", "/work/shop", "/work/atlas", "/work/api"],
+      ["/work/docs", "/work/atlas", "/work/shop", LINK],
       "A Project new since the last run goes on top, the rest keep their order",
     );
-    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/arketa", "/work/shop"]);
-    await restart(["/work/docs", "/work/arketa"], ["/work/docs", "/work/arketa", LINK], "A Project that is gone drops out");
-    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/arketa"], "Its place is forgotten");
+    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/atlas", "/work/shop"]);
+    await restart(["/work/docs", "/work/atlas"], ["/work/docs", "/work/atlas", LINK], "A Project that is gone drops out");
+    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/atlas"], "Its place is forgotten");
     await restart(
-      ["/work/shop", "/work/docs", "/work/arketa"],
-      ["/work/shop", "/work/docs", "/work/arketa", LINK],
+      ["/work/shop", "/work/docs", "/work/atlas"],
+      ["/work/shop", "/work/docs", "/work/atlas", LINK],
       "Back again, it counts as new and goes on top",
     );
 
     // Another window reorders the groups (same storage). This window's unrelated re-render must not put its old order back,
     // and it follows the other window's change when the storage event arrives.
-    const other = ["/work/arketa", "/work/docs", "/work/shop"];
+    const other = ["/work/atlas", "/work/docs", "/work/shop"];
     await evaluate(`localStorage.setItem("milagre.sidebarScopeOrder", ${JSON.stringify(JSON.stringify(other))})`);
     await click('[data-sidebar-scope="/work/docs"] [data-scope-toggle]');
     await delay(200);
@@ -540,7 +540,7 @@ async function browserChecks() {
     await evaluate(
       `window.dispatchEvent(new StorageEvent("storage", { key: "milagre.sidebarScopeOrder", newValue: localStorage.getItem("milagre.sidebarScopeOrder") }))`,
     );
-    await waitFor(`document.querySelector("[data-sidebar-scope]")?.dataset.sidebarScope === "/work/arketa"`);
+    await waitFor(`document.querySelector("[data-sidebar-scope]")?.dataset.sidebarScope === "/work/atlas"`);
     assert.deepEqual(await scopes(), [...other, LINK], "This window adopts the other window's order");
     assert.deepEqual(await savedOrder(), other);
 

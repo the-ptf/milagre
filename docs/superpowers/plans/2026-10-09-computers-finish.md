@@ -1169,7 +1169,7 @@ test("the dot, dimming and read-only follow the state", () => {
 });
 
 test("the gear's tooltip, the banner and the composer say the spec's words", () => {
-  assert.equal(settingsTooltip("arketa"), "arketa settings: rename, connection, remove");
+  assert.equal(settingsTooltip("atlas"), "atlas settings: rename, connection, remove");
   assert.equal(
     offlineBanner(view({ state: "offline" }), NOW),
     "studio is offline. This is the last copy it sent, 2h ago. You can read it until studio is back.",
@@ -1805,7 +1805,7 @@ import { updateSettings } from "/src/lib/settings";
 import "/src/styles.css";
 const HOUR = 3600000;
 let computers = [
-  { id: "c-arketa", name: "arketa", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: Date.parse("2026-10-08T10:00:00"), message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
+  { id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: Date.parse("2026-10-08T10:00:00"), message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
   { id: "c-studio", name: "studio", hostId: "s".repeat(22), relayHost: "relay.milagre.cloud", state: "offline", route: null, lastSeen: Date.now() - 2 * HOUR, addedAt: Date.parse("2026-10-01T10:00:00"), message: null, lan: false, lanRoutes: [] },
 ];
 let changed = () => {};
@@ -1818,7 +1818,7 @@ window.milagre = new Proxy({
   onComputersChanged: (callback) => ((changed = callback), () => {}),
   computers: {
     list: async () => snapshot(),
-    invoke: async (id, method) => (method === "daemon:status" ? { version: "0.121.0" } : method === "project:recent" ? [{ path: "/a/web", name: "arketa-web" }, { path: "/a/infra", name: "infra" }] : null),
+    invoke: async (id, method) => (method === "daemon:status" ? { version: "0.121.0" } : method === "project:recent" ? [{ path: "/a/web", name: "atlas-web" }, { path: "/a/infra", name: "infra" }] : null),
     rename: async (id, name) => {
       window.renames.push([id, name]);
       computers = computers.map((item) => (item.id === id ? { ...item, name } : item));
@@ -1856,17 +1856,17 @@ and, inside `browserChecks`'s `try`, after `await window.loadURL(process.argv[2]
     await waitFor(`!!document.querySelector('[data-settings-computers]')`);
     assert.deepEqual(
       await evaluate(`[...document.querySelectorAll('[data-settings-computers] button')].map((b) => b.textContent.trim())`),
-      ["victor-mbp", "arketa", "studio"],
+      ["victor-mbp", "atlas", "studio"],
     );
-    await evaluate(`${nav("arketa")}.click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === 'arketa' && !!document.querySelector('[data-computer-settings]')`);
+    await evaluate(`${nav("atlas")}.click()`);
+    await waitFor(`document.querySelector('h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
     await waitFor(`document.querySelector('[data-computer-status]')?.textContent.includes('Milagre 0.121.0')`);
     assert.match(await text("[data-computer-status]"), /^Connected · Milagre 0\.121\.0 · paired Oct 8$/);
     assert.equal(await text('[data-connection="lan"] [data-connection-state]'), "In use");
     assert.match(await text('[data-connection="lan"]'), /ws:\/\/192\.168\.0\.24:8798, end-to-end encrypted/);
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
-    assert.match(await text("[data-computer-projects]"), /arketa-web, infra\. Accounts and simulators stay on arketa\./);
+    assert.match(await text("[data-computer-projects]"), /atlas-web, infra\. Accounts and simulators stay on atlas\./);
     await screenshot("computer-settings");
     console.log("PASS: a computer's settings show its connection routes, which is in use, and what lives there");
 
@@ -1877,7 +1877,7 @@ and, inside `browserChecks`'s `try`, after `await window.loadURL(process.argv[2]
       input.blur();
     })()`);
     await waitFor(`window.renames.length === 1 && document.querySelector('h1')?.textContent === 'lab'`);
-    assert.deepEqual(await evaluate(`window.renames`), [["c-arketa", "lab"]]);
+    assert.deepEqual(await evaluate(`window.renames`), [["c-atlas", "lab"]]);
     console.log("PASS: the name is a label on this Mac, saved when the field is left");
 
     await evaluate(`${nav("studio")}.click()`);
@@ -2164,7 +2164,7 @@ import "/src/styles.css";
 const HOUR = 3600000;
 const local = { next_id: 3, projects: { 1: { id: 1, name: "milagre-ade" } }, worktrees: { 1: { id: 1, name: "main", path: "/work/milagre-ade", project_id: 1 } }, sessions: { 2: { id: 2, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle", title: "Desktop connect sidebar" } }, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 window.computerList = [
-  { id: "c-arketa", name: "arketa", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 1, message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
+  { id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 1, message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
   { id: "c-studio", name: "studio", hostId: "s".repeat(22), relayHost: "relay.milagre.cloud", state: "offline", route: null, lastSeen: Date.now() - 2 * HOUR, addedAt: 1, message: null, lan: false, lanRoutes: [] },
 ];
 let computersChanged = () => {};
@@ -2216,18 +2216,18 @@ Inside `browserChecks`'s `try`, after `await window.loadURL(process.argv[2]);`:
     await openPopover();
     assert.deepEqual(await lines(), [
       ["this-mac", "victor-mbp", "This Mac"],
-      ["c-arketa", "arketa", "Same network"],
+      ["c-atlas", "atlas", "Same network"],
       ["c-studio", "studio", "Offline, seen 2h ago"],
     ]);
     assert.equal(await evaluate(`!!document.querySelector('[data-computers-panel] [data-add-computer-row]')`), true);
     await screenshot("popover");
-    await hover('[data-computer-row="c-arketa"] [data-computer-gear]');
-    await waitFor(`[...document.querySelectorAll('[role="tooltip"]')].some((tip) => tip.textContent.includes('arketa settings: rename, connection, remove'))`);
+    await hover('[data-computer-row="c-atlas"] [data-computer-gear]');
+    await waitFor(`[...document.querySelectorAll('[role="tooltip"]')].some((tip) => tip.textContent.includes('atlas settings: rename, connection, remove'))`);
     await screenshot("popover-gear");
     console.log("PASS: the popover lists This Mac, then each computer with its route line, a gear with its tooltip, and Add computer");
 
-    await evaluate(`document.querySelector('[data-computer-row="c-arketa"] [data-computer-gear]').click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === 'arketa' && !!document.querySelector('[data-computer-settings]')`);
+    await evaluate(`document.querySelector('[data-computer-row="c-atlas"] [data-computer-gear]').click()`);
+    await waitFor(`document.querySelector('h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
     await evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Back').click()`);
     await waitFor(`!!document.querySelector('[data-computers-button]')`);
     await openPopover();
@@ -3694,7 +3694,7 @@ test("a computer's snapshot replaces only its own turns, and a removed computer 
   const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
   const OTHER = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
   const run = (text: string) => ({ text, model: "", startedAt: 0, steps: [], approvals: [], questions: [], answered: {} });
-  const runs = { "/p#1": run("mine"), [`${ID}|/p#1`]: run("studio old"), [`${OTHER}|/p#1`]: run("arketa") };
+  const runs = { "/p#1": run("mine"), [`${ID}|/p#1`]: run("studio old"), [`${OTHER}|/p#1`]: run("atlas") };
   const next = replaceComputerEntries(runs, ID, { [`${ID}|/p#2`]: run("studio new"), "/p#9": run("not studio's") });
   assert.deepEqual(Object.keys(next).sort(), ["/p#1", `${ID}|/p#2`, `${OTHER}|/p#1`].sort());
   assert.equal(next["/p#1"].text, "mine", "this Mac's chat at the same path is untouched");
@@ -4201,16 +4201,16 @@ import test from "node:test";
 (globalThis as any).window = { milagre: {}, addEventListener() {}, removeEventListener() {} };
 const { computerScopes, mergeScopes } = await import("./computer-scopes.ts");
 
-const A = "c-arketa";
+const A = "c-atlas";
 const S = "c-studio";
 test("a computer's Projects (hidden left out) then its Links, keyed as the window keeps them", () => {
-  const scopes = computerScopes(A, [{ path: `${A}|/a/web`, name: "arketa-web", openedAt: "" }, { path: `${A}|/a/old`, name: "old", openedAt: "", hidden: true }], [
+  const scopes = computerScopes(A, [{ path: `${A}|/a/web`, name: "atlas-web", openedAt: "" }, { path: `${A}|/a/old`, name: "old", openedAt: "", hidden: true }], [
     { id: `${A}|f1713d69-569d-405b-a0b2-19bfdf565a76`, name: "Checkout", projectIds: [], createdAt: "" } as any,
   ]);
   assert.deepEqual(
     scopes.map((scope) => [scope.key, scope.name, scope.computerId, Boolean(scope.link)]),
     [
-      [`${A}|/a/web`, "arketa-web", A, false],
+      [`${A}|/a/web`, "atlas-web", A, false],
       [`milagre-link:${A}|f1713d69-569d-405b-a0b2-19bfdf565a76`, "Checkout", A, true],
     ],
   );
@@ -4222,7 +4222,7 @@ test("every computer's scopes in one list: Projects by name, then Links; on a ti
     [
       scope("/work/milagre-ade", "milagre-ade", "local"),
       scope(`${S}|/s/homelab`, "homelab", S),
-      scope(`${A}|/a/web`, "arketa-web", A),
+      scope(`${A}|/a/web`, "atlas-web", A),
       scope(`${S}|/s/app`, "app", S),
       scope("/work/app", "App", "local"),
       scope("milagre-link:x", "Checkout", "local", true),
@@ -4328,7 +4328,7 @@ In `scripts/test-sidebar-computers.cjs`'s fixture, add before `window.milagre = 
 ```js
 const remoteState = (title, body) => ({ next_id: 9, projects: { 1: { id: 1, name: "p" } }, worktrees: { 1: { id: 1, name: "main", path: "/remote", project_id: 1 } }, sessions: { 4: { id: 4, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle", title } }, connections: {}, events: [], messages: [{ id: 4, session_id: 4, role: "user", body }], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] });
 const remoteProjects = {
-  "c-arketa": { path: "c-arketa|/Users/a/arketa-web", name: "arketa-web", state: remoteState("Fix flaky deploy check", "The deploy check fails about one run in five.") },
+  "c-atlas": { path: "c-atlas|/Users/a/atlas-web", name: "atlas-web", state: remoteState("Fix flaky deploy check", "The deploy check fails about one run in five.") },
   "c-studio": { path: "c-studio|/Users/s/homelab", name: "homelab", state: remoteState("Backup rotation", "Rotate the nightly backups.") },
 };
 window.sent = [];
@@ -4346,7 +4346,7 @@ const remote = (id) => new Proxy({
   listBranches: async () => ["main"],
   sendMessage: async (request) => (window.sent.push(request), { sessionId: 4 }),
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
-const remotes = { "c-arketa": remote("c-arketa"), "c-studio": remote("c-studio") };
+const remotes = { "c-atlas": remote("c-atlas"), "c-studio": remote("c-studio") };
 ```
 
 and in the Proxy's target add `on: (id) => remotes[id],`.
@@ -4360,17 +4360,17 @@ In `browserChecks`, insert before the block that starts `await openPopover();` f
     const computerLines = (scope) =>
       evaluate(`[...document.querySelectorAll(${JSON.stringify(inScope(scope, "[data-chat-computer]"))})].map((line) => line.textContent.trim())`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 3`);
-    assert.deepEqual(await scopes(), ["c-arketa|/Users/a/arketa-web", "c-studio|/Users/s/homelab", "/work/milagre-ade"], "one list, by Project name");
+    assert.deepEqual(await scopes(), ["c-atlas|/Users/a/atlas-web", "c-studio|/Users/s/homelab", "/work/milagre-ade"], "one list, by Project name");
     await waitFor(`document.querySelectorAll('[data-chat-computer]').length >= 3`);
     assert.deepEqual(await computerLines("/work/milagre-ade"), ["victor-mbp"]);
-    assert.deepEqual(await computerLines("c-arketa|/Users/a/arketa-web"), ["arketa"]);
+    assert.deepEqual(await computerLines("c-atlas|/Users/a/atlas-web"), ["atlas"]);
     assert.deepEqual(await computerLines("c-studio|/Users/s/homelab"), ["studio, offline"]);
     assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]').hasAttribute('data-offline')`), true, "the offline computer's Project is dimmed");
-    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"]').hasAttribute('data-offline')`), false);
+    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"]').hasAttribute('data-offline')`), false);
     await screenshot("merged-list");
     console.log("PASS: every computer's Projects in one list by name, each row naming its computer, the offline one dimmed");
 
-    await evaluate(`[...document.querySelectorAll('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`);
+    await evaluate(`[...document.querySelectorAll('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`);
     await waitFor(`document.querySelector('[data-chat-pane]')?.textContent.includes('The deploy check fails about one run in five.')`);
     await screenshot("remote-chat");
     console.log("PASS: a remote computer's chat opens from the merged list");
@@ -4383,7 +4383,7 @@ In `browserChecks`, insert before the block that starts `await openPopover();` f
     console.log("PASS: with only this Mac, rows have no computer line");
 ```
 
-and change the later `await evaluate(\`window.setOther(false)\`);` block so that it stays the last step (it already is). Opening a remote chat leaves arketa-web open. With Other computers off, Task 16's effect brings this Mac's Project back, which is what the "only this Mac" step expects.
+and change the later `await evaluate(\`window.setOther(false)\`);` block so that it stays the last step (it already is). Opening a remote chat leaves atlas-web open. With Other computers off, Task 16's effect brings this Mac's Project back, which is what the "only this Mac" step expects.
 
 - [ ] **Step 6: Run the check to verify it fails**
 
@@ -4521,7 +4521,7 @@ In `scripts/test-sidebar-computers.cjs`, after `await screenshot("remote-chat");
       await waitFor(`!document.querySelector('[role="menu"]')`);
       return labels;
     };
-    const remoteMenu = await menuOf("c-arketa|/Users/a/arketa-web", "Fix flaky deploy check");
+    const remoteMenu = await menuOf("c-atlas|/Users/a/atlas-web", "Fix flaky deploy check");
     assert.equal(remoteMenu.some((label) => /Finder|editor|Open in/.test(label)), false, `no local-only entry on a remote chat: ${remoteMenu}`);
     assert.ok(remoteMenu.includes("Commit and open PR…"), "git works on the other Mac");
     const localMenu = await menuOf("/work/milagre-ade", "Desktop connect sidebar");
@@ -4535,7 +4535,7 @@ In `scripts/test-sidebar-computers.cjs`, after `await screenshot("remote-chat");
     console.log("PASS: a remote chat's menus and commands leave out Finder and the editor; this Mac's keep them");
 ```
 
-A right-click opens the row's menu without opening its chat, so the arketa chat from Task 17 is still the one on screen when ⌘K lists its "Current chat" commands.
+A right-click opens the row's menu without opening its chat, so the atlas chat from Task 17 is still the one on screen when ⌘K lists its "Current chat" commands.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -4693,7 +4693,7 @@ The fake bridges from Task 17 already list every Project of their computer and a
     await waitFor(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`);
 ```
 
-Update the earlier merged-list assertion to the four scopes it now has: `["c-arketa|/Users/a/arketa-web", "c-studio|/Users/s/homelab", "/work/milagre-ade", "c-studio|/Users/s/notes"]`, and its wait to `=== 4`.
+Update the earlier merged-list assertion to the four scopes it now has: `["c-atlas|/Users/a/atlas-web", "c-studio|/Users/s/homelab", "/work/milagre-ade", "c-studio|/Users/s/notes"]`, and its wait to `=== 4`.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -6204,7 +6204,7 @@ const HOME = "/Users/a";
 const listings = {
   [HOME]: { path: HOME, home: HOME, parent: null, entries: [{ name: "Code", path: HOME + "/Code", git: false, branch: null, project: false }, { name: "notes", path: HOME + "/notes", git: false, branch: null, project: false }] },
   [HOME + "/Code"]: { path: HOME + "/Code", home: HOME, parent: HOME, entries: [
-    { name: "arketa-web", path: HOME + "/Code/arketa-web", git: true, branch: "main", project: true },
+    { name: "atlas-web", path: HOME + "/Code/atlas-web", git: true, branch: "main", project: true },
     { name: "billing-service", path: HOME + "/Code/billing-service", git: true, branch: "main", project: false },
     { name: "scratch", path: HOME + "/Code/scratch", git: false, branch: null, project: false },
   ] },
@@ -6212,13 +6212,13 @@ const listings = {
 window.listed = [];
 window.opened = [];
 window.localDialogs = 0;
-const arketa = { listDirs: async ({ path } = {}) => (window.listed.push(path ?? null), listings[path ?? HOME]), openProjectAt: async (folder) => (window.opened.push(folder), { path: "c-arketa|" + folder, name: folder.split("/").pop(), state: {} }) };
+const atlas = { listDirs: async ({ path } = {}) => (window.listed.push(path ?? null), listings[path ?? HOME]), openProjectAt: async (folder) => (window.opened.push(folder), { path: "c-atlas|" + folder, name: folder.split("/").pop(), state: {} }) };
 window.milagre = {
   openProject: async () => (window.localDialogs++, null),
-  on: (id) => (id === "c-arketa" ? arketa : {}),
+  on: (id) => (id === "c-atlas" ? atlas : {}),
   onComputersChanged: () => () => {},
   computers: { list: async () => ({ thisMac: "victor-mbp", computers: [
-    { id: "c-arketa", name: "arketa", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 1, message: null, lan: true, lanRoutes: [] },
+    { id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 1, message: null, lan: true, lanRoutes: [] },
     { id: "c-studio", name: "studio", hostId: "s".repeat(22), relayHost: "relay.milagre.cloud", state: "offline", route: null, lastSeen: Date.now() - 7200000, addedAt: 1, message: null, lan: false, lanRoutes: [] },
   ] }) },
 };
@@ -6238,14 +6238,14 @@ Inside `browserChecks`'s `try`, after `await window.loadURL(process.argv[2]);`:
     const on = (id) => `document.querySelector('[data-add-project-on="${id}"]')`;
     await waitFor(`document.querySelector('dialog[data-add-project]')?.open && !!${on("c-studio")}`);
     assert.equal(await evaluate(`${on("c-studio")}.disabled`), true, "an offline computer can't be chosen");
-    assert.match(await text('[data-add-project-on="c-arketa"]'), /arketa\s*Same network/);
+    assert.match(await text('[data-add-project-on="c-atlas"]'), /atlas\s*Same network/);
     assert.match(await text('[data-add-project-on="this-mac"]'), /victor-mbp\s*This Mac/);
     await evaluate(`${on("this-mac")}.click()`);
     await evaluate(`[...document.querySelectorAll('dialog button')].find((b) => b.textContent.trim() === 'Choose folder…').click()`);
     await waitFor(`window.localDialogs === 1`);
     console.log("PASS: This Mac's choice runs the folder dialog, and an offline computer is disabled");
 
-    await evaluate(`${on("c-arketa")}.click()`);
+    await evaluate(`${on("c-atlas")}.click()`);
     await waitFor(`!!document.querySelector('[data-folder="Code"]')`);
     assert.equal(await text("[data-folder-path]"), "~ /");
     await evaluate(`document.querySelector('[data-folder="Code"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
@@ -6253,14 +6253,14 @@ Inside `browserChecks`'s `try`, after `await window.loadURL(process.argv[2]);`:
     assert.equal(await text("[data-folder-path]"), "~ / Code /");
     assert.deepEqual(
       await evaluate(`[...document.querySelectorAll('[data-folder]')].map((row) => [row.dataset.folder, row.querySelector('[data-folder-tag]')?.textContent.trim() ?? ""])`),
-      [["arketa-web", "Added"], ["billing-service", "git · main"], ["scratch", ""]],
+      [["atlas-web", "Added"], ["billing-service", "git · main"], ["scratch", ""]],
     );
-    assert.match(await text("dialog[data-add-project]"), /Opens on arketa\. Its daemon owns the Project; this window drives it\./);
+    assert.match(await text("dialog[data-add-project]"), /Opens on atlas\. Its daemon owns the Project; this window drives it\./);
     await evaluate(`document.querySelector('[data-folder="billing-service"]').click()`);
     await waitFor(`[...document.querySelectorAll('dialog button')].some((b) => b.textContent.trim() === 'Add billing-service' && !b.disabled)`);
     await screenshot("add-project-remote");
     await evaluate(`[...document.querySelectorAll('dialog button')].find((b) => b.textContent.trim() === 'Add billing-service').click()`);
-    await waitFor(`window.added === 'c-arketa|/Users/a/Code/billing-service' && !!document.querySelector('[data-closed]')`);
+    await waitFor(`window.added === 'c-atlas|/Users/a/Code/billing-service' && !!document.querySelector('[data-closed]')`);
     assert.deepEqual(await evaluate(`window.opened`), ["/Users/a/Code/billing-service"]);
     assert.deepEqual(errors, []);
     console.log("PASS: another computer's folders are browsed there, tagged, and the chosen checkout opens on it");

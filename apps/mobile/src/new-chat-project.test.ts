@@ -45,20 +45,20 @@ test("one repository on several computers is one row, opening on the computer la
   const projects = [
     { hostId: "mac", hostName: "Santo", offline: false, path: "/code/app", name: "app", origin: "github.com/x/app" },
     { hostId: "mac", hostName: "Santo", offline: false, path: "/code/plain", name: "plain" },
-    { hostId: "arketa", hostName: "Arketa", offline: false, path: "/work/app", name: "app", origin: "github.com/x/app" },
+    { hostId: "atlas", hostName: "Atlas", offline: false, path: "/work/app", name: "app", origin: "github.com/x/app" },
     { hostId: "away", hostName: "Away", offline: true, path: "/Users/v/app", name: "app", origin: "github.com/x/app" },
   ];
   const groups = newChatProjectGroups(projects);
   assert.deepEqual(
     groups.map((group) => [group.path, group.copies.map((copy) => copy.hostId)]),
     [
-      ["/code/app", ["mac", "arketa", "away"]],
+      ["/code/app", ["mac", "atlas", "away"]],
       ["/code/plain", ["mac"]],
     ],
   );
   const [app] = groups;
   assert.ok(app);
-  assert.equal(preferredCopy(app, "arketa", "mac").hostId, "arketa");
+  assert.equal(preferredCopy(app, "atlas", "mac").hostId, "atlas");
   assert.equal(preferredCopy(app, "away", "mac").hostId, "mac");
   assert.equal(preferredCopy(app, null, "elsewhere").hostId, "mac");
 });

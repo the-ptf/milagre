@@ -68,8 +68,8 @@ test("an issue URL picks its workspace; a workspace that isn't connected says ho
   await tools.issue("https://linear.app/beta/issue/ENG-12/fix-login");
   assert.deepEqual(f.calls, [["beta", "ENG-12"]]);
   await assert.rejects(
-    tools.issue("https://linear.app/arketa/issue/ENG-12/x"),
-    /isn't connected to the "arketa" Linear workspace \(connected: acme, beta\).*Add workspace/,
+    tools.issue("https://linear.app/atlas/issue/ENG-12/x"),
+    /isn't connected to the "atlas" Linear workspace \(connected: acme, beta\).*Add workspace/,
   );
   await assert.rejects(tools.issue("ENG-404"), /ENG-404 isn't in any connected Linear workspace/);
   await assert.rejects(tools.issue("hello"), /issue key such as ENG-12/);

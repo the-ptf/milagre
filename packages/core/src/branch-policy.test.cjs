@@ -25,28 +25,28 @@ async function fixture(t) {
   return { root, project, git, policyFile: path.join(project, ".milagre/worktree.json") };
 }
 
-const arketa = {
+const dashPolicy = {
   ...BRANCH_POLICY_DEFAULTS,
   template: "{username}-{ticket?}-{slug}",
-  username: "victorlucss",
+  username: "developer",
   dashesOnly: true,
-  baseBranch: "release/business-app/v2",
+  baseBranch: "release/example-app/v2",
 };
 
-test("templates keep Arketa names valid, omit optional tickets, and never rewrite slash-containing bases", () => {
+test("templates keep dash-only names valid, omit optional tickets, and never rewrite slash-containing bases", () => {
   assert.equal(
-    formatPolicyBranch(validateBranchPolicy(arketa), { slug: "Fix the Login", ticket: "ARK-123", suffix: "ab12" }),
-    "victorlucss-ark-123-fix-the-login",
+    formatPolicyBranch(validateBranchPolicy(dashPolicy), { slug: "Fix the Login", ticket: "DEMO-123", suffix: "ab12" }),
+    "developer-demo-123-fix-the-login",
   );
-  assert.equal(formatPolicyBranch(arketa, { slug: "Fix the Login", suffix: "ab12" }), "victorlucss-fix-the-login");
-  assert.equal(formatPolicyBranch(arketa, { slug: "ARK-123 fix login", ticket: "ARK-123", suffix: "ab12" }), "victorlucss-ark-123-fix-login");
-  assert.equal(arketa.baseBranch, "release/business-app/v2");
-  assert.throws(() => validateBranchPolicy({ ...arketa, template: "milagre/{slug}" }), /dashes only/);
-  assert.throws(() => validateBranchPolicy({ ...arketa, template: "{unknown}-{slug}" }), /may only use/);
-  assert.throws(() => validateBranchPolicy({ ...arketa, baseBranch: "--detach" }), /base branch/);
-  assert.throws(() => formatPolicyBranch({ ...arketa, template: "{username}-{ticket}-{slug}" }, { slug: "fix", suffix: "a" }), /needs a ticket/);
-  assert.equal(branchTicket("Fix ARK-123 and discuss ARK-123"), "ARK-123");
-  assert.equal(branchTicket("Compare ARK-123 and ARK-456"), "");
+  assert.equal(formatPolicyBranch(dashPolicy, { slug: "Fix the Login", suffix: "ab12" }), "developer-fix-the-login");
+  assert.equal(formatPolicyBranch(dashPolicy, { slug: "DEMO-123 fix login", ticket: "DEMO-123", suffix: "ab12" }), "developer-demo-123-fix-login");
+  assert.equal(dashPolicy.baseBranch, "release/example-app/v2");
+  assert.throws(() => validateBranchPolicy({ ...dashPolicy, template: "milagre/{slug}" }), /dashes only/);
+  assert.throws(() => validateBranchPolicy({ ...dashPolicy, template: "{unknown}-{slug}" }), /may only use/);
+  assert.throws(() => validateBranchPolicy({ ...dashPolicy, baseBranch: "--detach" }), /base branch/);
+  assert.throws(() => formatPolicyBranch({ ...dashPolicy, template: "{username}-{ticket}-{slug}" }, { slug: "fix", suffix: "a" }), /needs a ticket/);
+  assert.equal(branchTicket("Fix DEMO-123 and discuss DEMO-123"), "DEMO-123");
+  assert.equal(branchTicket("Compare DEMO-123 and DEMO-456"), "");
   assert.equal(branchTicket("No ticket"), "");
 });
 
@@ -54,10 +54,10 @@ test("Project settings survive restarts and repository fields override only thei
   const f = await fixture(t);
   const storeFile = path.join(f.root, "profile/settings.json");
   const store = createProjectSettings(storeFile);
-  await store.setGit(f.project, { template: "mine-{slug}", username: "victorlucss", instructions: "Use a short verb." });
+  await store.setGit(f.project, { template: "mine-{slug}", username: "developer", instructions: "Use a short verb." });
   await fs.writeFile(f.policyFile, JSON.stringify({ setup: "npm ci", git: { template: "{username}-{ticket?}-{slug}", dashesOnly: true } }));
   const result = await resolveBranchPolicy(f.project, await createProjectSettings(storeFile).getGit(f.project));
-  assert.equal(result.effective.username, "victorlucss");
+  assert.equal(result.effective.username, "developer");
   assert.equal(result.effective.template, "{username}-{ticket?}-{slug}");
   assert.equal(result.local.template, "mine-{slug}");
   assert.match(branchPolicyNote(f.project, result.effective), /Use a short verb/);
@@ -71,32 +71,41 @@ test("Project settings survive restarts and repository fields override only thei
 
 test("a remote collision gets a suffix and a second collision fails without taking an existing branch", async (t) => {
   const f = await fixture(t);
-  const input = { slug: "fix-login", ticket: "ARK-123", suffix: "ab12" };
-  const expected = "victorlucss-ark-123-fix-login";
+  const input = { slug: "fix-login", ticket: "DEMO-123", suffix: "ab12" };
+  const expected = "developer-demo-123-fix-login";
   f.git("update-ref", `refs/remotes/origin/${expected}`, "HEAD");
-  assert.equal(await availablePolicyBranch(f.project, arketa, input), `${expected}-ab12`);
+  assert.equal(await availablePolicyBranch(f.project, dashPolicy, input), `${expected}-ab12`);
   f.git("branch", `${expected}-ab12`);
-  await assert.rejects(availablePolicyBranch(f.project, arketa, input), /already exists/);
-  assert.equal(await availablePolicyBranch(f.project, BRANCH_POLICY_DEFAULTS, input, { issueBranch: "matt/ark-123-fix-login" }), "matt/ark-123-fix-login");
+  await assert.rejects(availablePolicyBranch(f.project, dashPolicy, input), /already exists/);
+  assert.equal(
+    await availablePolicyBranch(f.project, BRANCH_POLICY_DEFAULTS, input, { issueBranch: "contributor/demo-123-fix-login" }),
+    "contributor/demo-123-fix-login",
+  );
   assert.match(
-    await availablePolicyBranch(f.project, { ...BRANCH_POLICY_DEFAULTS, dashesOnly: true }, input, { issueBranch: "matt/ark-123-fix-login" }),
-    /^ark-123-fix-login$/,
+    await availablePolicyBranch(f.project, { ...BRANCH_POLICY_DEFAULTS, dashesOnly: true }, input, { issueBranch: "contributor/demo-123-fix-login" }),
+    /^demo-123-fix-login$/,
   );
 });
 
 test("a configured Worktree starts at the requested release, has no upstream, and its automatic rename retains the policy", async (t) => {
   const f = await fixture(t);
-  f.git("branch", arketa.baseBranch);
-  const branch = await availablePolicyBranch(f.project, arketa, { slug: "ARK-123 handle login", ticket: "ARK-123", suffix: "ab12" });
-  const created = await createWorktree({ projectPath: f.project, baseBranch: arketa.baseBranch, branch, suffix: "ab12", root: path.join(f.root, "worktrees") });
-  assert.equal(f.git("rev-parse", created.branch), f.git("rev-parse", arketa.baseBranch));
+  f.git("branch", dashPolicy.baseBranch);
+  const branch = await availablePolicyBranch(f.project, dashPolicy, { slug: "DEMO-123 handle login", ticket: "DEMO-123", suffix: "ab12" });
+  const created = await createWorktree({
+    projectPath: f.project,
+    baseBranch: dashPolicy.baseBranch,
+    branch,
+    suffix: "ab12",
+    root: path.join(f.root, "worktrees"),
+  });
+  assert.equal(f.git("rev-parse", created.branch), f.git("rev-parse", dashPolicy.baseBranch));
   assert.throws(() => f.git("rev-parse", `${created.branch}@{u}`));
-  const renamed = await renameWorktreeBranch({ worktreePath: created.path, branch, policy: arketa, suffix: "ab12", ticket: "ARK-123", slug: "fix-login" });
-  assert.equal(renamed, "victorlucss-ark-123-fix-login");
+  const renamed = await renameWorktreeBranch({ worktreePath: created.path, branch, policy: dashPolicy, suffix: "ab12", ticket: "DEMO-123", slug: "fix-login" });
+  assert.equal(renamed, "developer-demo-123-fix-login");
   assert.ok((await fs.stat(created.path)).isDirectory());
   f.git("update-ref", `refs/remotes/origin/${renamed}`, renamed);
   assert.equal(
-    await renameWorktreeBranch({ worktreePath: created.path, branch: renamed, policy: arketa, suffix: "ab12", ticket: "ARK-123", slug: "another-name" }),
+    await renameWorktreeBranch({ worktreePath: created.path, branch: renamed, policy: dashPolicy, suffix: "ab12", ticket: "DEMO-123", slug: "another-name" }),
     null,
   );
 });

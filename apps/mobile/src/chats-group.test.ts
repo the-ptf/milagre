@@ -8,16 +8,16 @@ test("the drawer's Chats group merges every computer's home Chats newest first",
   const merged = chatsGroupChats([
     { hostId: "santo", chats: [entry("regex", 300), entry("port", 100)] },
     { hostId: "studio", chats: [] },
-    { hostId: "arketa", chats: [entry("invoice", 200)] },
+    { hostId: "atlas", chats: [entry("invoice", 200)] },
   ]);
   assert.deepEqual(
     merged.map(({ hostId, entry }) => `${hostId}:${entry.name}`),
-    ["santo:regex", "arketa:invoice", "santo:port"],
+    ["santo:regex", "atlas:invoice", "santo:port"],
   );
   // Pinned Chats lead, in their pin order, whichever computer they are on.
   const pinned = chatsGroupChats([
     { hostId: "santo", chats: [entry("pin-2", 1, { pinned: true, pin_order: 2 }), entry("new", 900)] },
-    { hostId: "arketa", chats: [entry("pin-1", 1, { pinned: true, pin_order: 1 })] },
+    { hostId: "atlas", chats: [entry("pin-1", 1, { pinned: true, pin_order: 1 })] },
   ]);
   assert.deepEqual(
     pinned.map(({ entry }) => entry.name),
