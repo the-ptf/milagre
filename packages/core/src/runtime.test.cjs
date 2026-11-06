@@ -2113,7 +2113,7 @@ test("Project Git settings govern default bases, names, rules and explicit per-C
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   git("commit", "--allow-empty", "-m", "Initial");
-  git("checkout", "-b", "release/business-app/v2");
+  git("checkout", "-b", "release/example-app/v2");
   git("commit", "--allow-empty", "-m", "Release only");
   git("checkout", "main");
   const runtime = make({ worktreeRoot: path.join(dataDir, "worktrees") });
@@ -2121,23 +2121,23 @@ test("Project Git settings govern default bases, names, rules and explicit per-C
   const saved = await runtime.invoke("project-git:save", [
     project,
     {
-      template: "victorlucss-{ticket?}-{slug}",
+      template: "developer-{ticket?}-{slug}",
       dashesOnly: true,
-      baseBranch: "release/business-app/v2",
+      baseBranch: "release/example-app/v2",
       instructions: "Use short verbs.",
     },
   ]);
   assert.equal(saved.effective.trackBase, false);
-  const result = await runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", useProjectBase: true, prompt: "ARK-123 fix login" }]);
+  const result = await runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", useProjectBase: true, prompt: "DEMO-123 fix login" }]);
   const worktree = result.project.state.worktrees[result.worktreeId];
-  assert.match(worktree.name, /^victorlucss-ark-123-[a-z0-9-]+$/);
-  assert.equal(git("rev-parse", worktree.name), git("rev-parse", "release/business-app/v2"));
+  assert.match(worktree.name, /^developer-demo-123-[a-z0-9-]+$/);
+  assert.equal(git("rev-parse", worktree.name), git("rev-parse", "release/example-app/v2"));
   assert.throws(() => git("rev-parse", `${worktree.name}@{u}`));
   assert.equal(worktree.generatedBranch, worktree.name);
   const overridden = await runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", prompt: "another change" }]);
   assert.equal(git("rev-parse", overridden.project.state.worktrees[overridden.worktreeId].name), git("rev-parse", "main"));
   await assert.rejects(runtime.invoke("project-git:save", [project, { template: "milagre/{slug}", dashesOnly: true }]), /dashes only/);
-  assert.equal((await runtime.invoke("project-git:read", [project])).effective.baseBranch, "release/business-app/v2");
+  assert.equal((await runtime.invoke("project-git:read", [project])).effective.baseBranch, "release/example-app/v2");
   await runtime.invoke("project-git:save", [project, { baseBranch: "missing-release" }]);
   await assert.rejects(runtime.invoke("worktree:create", [{ projectPath: project, prompt: "missing base" }]), /missing from this project/);
 });

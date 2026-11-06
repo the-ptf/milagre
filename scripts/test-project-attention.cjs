@@ -15,7 +15,7 @@ import { attentionLabel } from "@milagre/shared/attention";
 import { AttentionButton } from "/src/components/changes/ChangesChrome";
 import "/src/styles.css";
 window.milagre = {
-  listRecentProjects: async () => [{ path: "/work/arketa", name: "arketa" }, { path: "/work/milagre-ade", name: "milagre-ade" }],
+  listRecentProjects: async () => [{ path: "/work/atlas", name: "atlas" }, { path: "/work/milagre-ade", name: "milagre-ade" }],
   readProject: async (path) => ({ path, name: path, state: { sessions: {}, worktrees: {}, messages: [] } }),
   listProjects: async () => [], listNamedLinks: async () => [], getProjectImage: async () => null,
 };
@@ -27,7 +27,7 @@ function Fixture() {
     { key: "/work/shop#9", project: "shop", title: "Which checkout layout?", asking: true },
   ].filter(item => waiting.some(path => item.key.startsWith(path + "#")));
   return <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
-    <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow" }]} activeId="1" attentionPaths={waiting} />
+    <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow" }]} activeId="1" attentionPaths={waiting} />
     {waiting.length > 0 && <AttentionButton label={attentionLabel(items.map(item => item.title))} items={items}
       offset={0} onOpen={key => { window.opened = key; setWaiting(waiting.filter(path => !key.startsWith(path + "#"))); }} />}
   </div>;
@@ -71,7 +71,7 @@ async function browserChecks() {
     const group = '[data-sidebar-scope="/work/milagre-ade"]';
     await waitFor(`!!document.querySelector('${group}')`);
     assert.equal(await dots(group), 1, "The waiting project's group shows a dot");
-    assert.equal(await dots('[data-sidebar-scope="/work/arketa"]'), 0, "The open project's group does not");
+    assert.equal(await dots('[data-sidebar-scope="/work/atlas"]'), 0, "The open project's group does not");
     assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "2 Chats need attention");
     await screenshot("button");
 

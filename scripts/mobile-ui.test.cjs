@@ -21686,14 +21686,14 @@ test("Project Git settings on phone save as you type, validate names and preserv
   find(render(), (node) => node.type === "Chip" && node.props.label === "{slug}").props.onPress();
   assert.equal(field("Branch name").props.value, "{username}-{slug}");
   field("Branch name").props.onChangeText("{username}-{ticket?}-{slug}");
-  field("Username").props.onChangeText("victorlucss");
-  field("Base branch").props.onChangeText("release/business-app/v2");
+  field("Username").props.onChangeText("developer");
+  field("Base branch").props.onChangeText("release/example-app/v2");
   const dashes = find(render(), (node) => node.type === "ListRow" && node.props.title === "Dashes only");
   assert.equal(dashes.props.disabled, true);
   assert.equal(dashes.props.subtitle, "Set in .milagre/worktree.json");
   await settle();
-  assert.equal(calls.at(-1).baseBranch, "release/business-app/v2");
-  assert.equal(calls.at(-1).username, "victorlucss");
+  assert.equal(calls.at(-1).baseBranch, "release/example-app/v2");
+  assert.equal(calls.at(-1).username, "developer");
   assert.equal(Object.hasOwn(calls.at(-1), "dashesOnly"), false, "a repository field never becomes a personal override");
   const count = calls.length;
   field("Branch name").props.onChangeText("milagre/{slug}");

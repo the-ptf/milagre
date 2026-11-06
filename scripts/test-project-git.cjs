@@ -57,12 +57,12 @@ async function checks() {
     await evaluate(`document.querySelector('[data-branch-token="slug"]').click()`);
     await waitFor(`document.querySelector('#branch-template').value === '{username}-{slug}'`);
     await fill("#branch-template", "{username}-{ticket?}-{slug}");
-    await fill('input[aria-label="Username"]', "victorlucss");
-    await fill('input[aria-label="Base branch"]', "release/business-app/v2");
+    await fill('input[aria-label="Username"]', "developer");
+    await fill('input[aria-label="Base branch"]', "release/example-app/v2");
     await evaluate(`document.querySelector('[aria-label="Dashes only"]').click()`);
-    await waitFor(`document.querySelector('[data-branch-preview]').textContent === 'victorlucss-eng-123-fix-login'`);
+    await waitFor(`document.querySelector('[data-branch-preview]').textContent === 'developer-eng-123-fix-login'`);
     // Saves as you type, without a Save button.
-    await waitFor(`window.saved.local.baseBranch === 'release/business-app/v2' && window.saved.local.username === 'victorlucss'`);
+    await waitFor(`window.saved.local.baseBranch === 'release/example-app/v2' && window.saved.local.username === 'developer'`);
     assert.equal(await evaluate(`window.saved.local.dashesOnly`), true);
     assert.equal(await evaluate(`window.saved.local.trackBase ?? false`), false);
     await screenshot("project-git-desktop");

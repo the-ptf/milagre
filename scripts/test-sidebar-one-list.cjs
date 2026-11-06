@@ -35,7 +35,7 @@ const states = {
 };
 window.milagre = {
   listRecentProjects: async () => [
-    { path: "/work/arketa", name: "arketa" },
+    { path: "/work/atlas", name: "atlas" },
     { path: "/work/shop", name: "shop" },
     { path: "/work/api", name: "api" },
   ],
@@ -57,7 +57,7 @@ updateSettings({ chatRowShow: { ...DESKTOP_CHAT_ROW_SHOW, branch: true, lastActi
 function Fixture() {
   return (
     <div style={{ display: "flex", gap: 12, height: "100vh", padding: "60px 12px 12px" }}>
-      <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", mark: "running", details: { lastAt: minutes(60), branch: "fix-login", diff: { added: 142, removed: 38 } } }]} activeId="1" />
+      <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow", mark: "running", details: { lastAt: minutes(60), branch: "fix-login", diff: { added: 142, removed: 38 } } }]} activeId="1" />
       <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section="chat" models={[]} update={null} /></main>
     </div>
   );
@@ -140,7 +140,7 @@ async function browserChecks() {
     const expected = [
       ["Shop chat", "shop"],
       ["API chat", "api"],
-      ["Fix the login flow", "arketa"],
+      ["Fix the login flow", "atlas"],
       ["Older shop chat", "shop"],
     ];
     const flat = await rows("[data-chat-list-flat]");
@@ -261,7 +261,7 @@ async function browserChecks() {
     await choose("By Project");
     await waitFor(`document.querySelectorAll("[data-sidebar-scope]").length === 3`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((node) => node.dataset.sidebarScope)`), [
-      "/work/arketa",
+      "/work/atlas",
       "/work/shop",
       "/work/api",
     ]);

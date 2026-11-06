@@ -12,12 +12,12 @@ const dispatched: string[] = [];
 const { bySection, computerAlias, computerScopes, computerSections, mergeScopes, withLocalVisibility, withoutLocal } = await import("./computer-scopes.ts");
 const { readHiddenComputers, setComputerHidden } = await import("./hidden-projects.ts");
 
-const A = "c-arketa";
+const A = "c-atlas";
 const S = "c-studio";
 test("a computer's Projects and Links use this Mac's visibility, ignoring the remote computer's own hidden flags", () => {
   const local = withLocalVisibility(
     [
-      { path: `${A}|/a/web`, name: "arketa-web", openedAt: "", hidden: true },
+      { path: `${A}|/a/web`, name: "atlas-web", openedAt: "", hidden: true },
       { path: `${A}|/a/old`, name: "old", openedAt: "" },
     ],
     [{ id: `${A}|f1713d69-569d-405b-a0b2-19bfdf565a76`, name: "Checkout", projectIds: [], createdAt: "", hidden: true } as any],
@@ -30,7 +30,7 @@ test("a computer's Projects and Links use this Mac's visibility, ignoring the re
   assert.deepEqual(
     scopes.map((scope) => [scope.key, scope.name, scope.computerId, Boolean(scope.link)]),
     [
-      [`${A}|/a/web`, "arketa-web", A, false],
+      [`${A}|/a/web`, "atlas-web", A, false],
       [`milagre-link:${A}|f1713d69-569d-405b-a0b2-19bfdf565a76`, "Checkout", A, true],
     ],
   );
@@ -42,7 +42,7 @@ test("every computer's scopes in one list: Projects by name, then Links; on a ti
     [
       scope("/work/milagre-ade", "milagre-ade", "local"),
       scope(`${S}|/s/homelab`, "homelab", S),
-      scope(`${A}|/a/web`, "arketa-web", A),
+      scope(`${A}|/a/web`, "atlas-web", A),
       scope(`${S}|/s/app`, "app", S),
       scope("/work/app", "App", "local"),
       scope("milagre-link:x", "Checkout", "local", true),
@@ -64,12 +64,12 @@ test("the open Project of another computer is kept once, as the local list holds
 test("the project chooser's sections: This Mac first, then the computers by name", () => {
   const sections = computerSections("victor", [
     { id: S, name: "studio" },
-    { id: A, name: "Arketa" },
+    { id: A, name: "Atlas" },
     { id: "c-deer", name: "Deer" },
   ]);
   assert.deepEqual(sections, [
     { id: "local", name: "victor", local: true },
-    { id: A, name: "Arketa", local: false },
+    { id: A, name: "Atlas", local: false },
     { id: "c-deer", name: "Deer", local: false },
     { id: S, name: "studio", local: false },
   ]);
