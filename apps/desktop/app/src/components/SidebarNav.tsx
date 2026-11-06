@@ -306,6 +306,8 @@ function ScopeHeader({
   computer,
   onToggle,
   onNewChat,
+  onDragStart,
+  dragging,
   menu,
 }: {
   name: string;
@@ -321,6 +323,10 @@ function ScopeHeader({
   onToggle: () => void;
   /** None hides the +. */
   onNewChat?: () => void;
+  /** A press on the header that may become a drag to move this Project's group; none when the group can't be moved. */
+  onDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
+  /** This Project's group is the one being dragged: dim its header while it moves. */
+  dragging?: boolean;
   /** The ⋯ menu's rows; none hides the button. */
   menu: ScopeMenuItem[];
 }) {
@@ -337,14 +343,15 @@ function ScopeHeader({
         : "group-hover/scope:pr-8 group-has-[:focus-visible]/scope:pr-8"
   }`;
   return (
-    <div className="group/scope relative mx-2 flex h-8 items-center">
+    <div className={`group/scope relative mx-2 flex h-8 items-center ${dragging ? "opacity-40" : ""}`}>
       <button
         type="button"
         data-scope-toggle
         aria-expanded={open}
         aria-label={`${open ? "Collapse" : "Expand"} ${name}${computer ? ` on ${computer.name}${computer.offline ? ", offline" : ""}` : ""}`}
         onClick={onToggle}
-        className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-control pl-2 text-left transition-colors hover:bg-hover active:bg-hover-2 ${rightRoom}`}
+        onPointerDown={onDragStart}
+        className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-control pl-2 text-left transition-colors hover:bg-hover active:bg-hover-2 ${onDragStart ? "cursor-grab" : ""} ${rightRoom}`}
       >
         {/* A Link's stacked avatars are wider than a Project's icon, so the slot grows with them. */}
         <span className="relative flex h-5 min-w-5 shrink-0 items-center justify-center text-ink">
@@ -816,6 +823,8 @@ export default memo(function SidebarNav({
         // The open Project of another computer is already among the local ones, under its qualified key.
         [...localScopes, ...withoutLocal(remoteScopes, localScopes).filter((scope) => !isHome(scope.key))],
         computers.map((computer) => computer.id),
+        // The user's manual group order holds in the merged list too, instead of resetting to name order.
+        scopeOrder.current,
       )
     : localScopes;
   // Every Project, hidden ones too, since the project chooser lists them all.
@@ -1140,6 +1149,29 @@ export default memo(function SidebarNav({
       return next;
     });
 
+  // The Project header being dragged, so its group dims while it moves.
+  const [draggingScope, setDraggingScope] = useState<string | null>(null);
+  // Only a local Project's group moves: Links, the Chats group and another computer's Projects keep their place.
+  const canDragScope = (key: string) => scopeOrder.current.includes(key);
+  // Puts `key` before `beforeKey` in the saved order (last when null), then keeps it across restarts and windows.
+  const reorderScope = (key: string, beforeKey: string | null) => {
+    if (key === beforeKey) return;
+    const without = scopeOrder.current.filter((item) => item !== key);
+    const at = beforeKey === null ? without.length : without.indexOf(beforeKey);
+    if (at === -1) return;
+    const next = [...without.slice(0, at), key, ...without.slice(at)];
+    if (next.length === scopeOrder.current.length && next.every((item, index) => item === scopeOrder.current[index])) return;
+    scopeOrder.current = next;
+    writeScopeOrder(next);
+    setOrderSynced((count) => count + 1);
+  };
+  const startScopeDrag = (event: ReactPointerEvent<HTMLElement>, key: string) => {
+    if (event.button !== 0 || !canDragScope(key)) return;
+    const pressed = event.target as HTMLElement;
+    if (pressed.closest("a, input, [aria-haspopup], [data-scope-action], [data-scope-menu]")) return;
+    dragScopeHeader(event, key, canDragScope, setDraggingScope, reorderScope);
+  };
+
   const [removingProject, setRemovingProject] = useState<{ path: string; name: string } | null>(null);
 
   // Checked in the project chooser; the choice belongs to this Mac alone.
@@ -1450,6 +1482,8 @@ export default memo(function SidebarNav({
           current={!!current}
           attention={copies.some((part) => !part.current && attentionPaths.includes(part.scope.key))}
           onToggle={() => toggleScope(scope.key)}
+          onDragStart={canDragScope(scope.key) ? (event) => startScopeDrag(event, scope.key) : undefined}
+          dragging={draggingScope === scope.key}
           onNewChat={() => {
             if (current) {
               if (activeTitle === undefined) setDemoActiveTitle(null);
@@ -1681,6 +1715,8 @@ export default memo(function SidebarNav({
                                   attention={!current && attentionPaths.includes(scope.key)}
                                   computer={list.show.computer ? list.computer : undefined}
                                   onToggle={() => toggleScope(scope.key)}
+                                  onDragStart={canDragScope(scope.key) ? (event) => startScopeDrag(event, scope.key) : undefined}
+                                  dragging={draggingScope === scope.key}
                                   onNewChat={
                                     current
                                       ? () => {
@@ -1872,6 +1908,108 @@ export default memo(function SidebarNav({
 /** A press that moves this far is a drag; less is still a click that opens the chat. */
 const DRAG_THRESHOLD = 4;
 const DROP_HINTS = { "same-worktree": "Same worktree: a Link joins two different Worktrees", linked: "Already linked" };
+
+/**
+ * Drags a Project's header up or down to move its group. Past the threshold the press becomes a drag: the Project under
+ * the pointer shows a drop line above or below its header, and the release drops the group there. A press that doesn't
+ * move stays a click that folds the group; Escape calls the drag off. `onReorder(key, beforeKey)` puts `key` before
+ * `beforeKey`, or last when `beforeKey` is null.
+ */
+function dragScopeHeader(
+  event: ReactPointerEvent<HTMLElement>,
+  key: string,
+  draggable: (scopeKey: string) => boolean,
+  onDragging: (key: string | null) => void,
+  onReorder: (key: string, beforeKey: string | null) => void,
+) {
+  const start = { x: event.clientX, y: event.clientY };
+  let started = false;
+  let target: { beforeKey: string | null; node: HTMLElement; half: "top" | "bottom" } | null = null;
+  const line = document.createElement("div");
+  line.dataset.scopeDropLine = "";
+  line.className = "pointer-events-none fixed z-[70] h-0.5 rounded-full bg-accent";
+  line.style.display = "none";
+  // Every reorderable Project header on screen, top to bottom, so a drop can land before the first or after the last.
+  const headers = () =>
+    [...document.querySelectorAll<HTMLElement>("[data-sidebar-scope]")].filter((node) => {
+      const scopeKey = node.dataset.sidebarScope;
+      return scopeKey && scopeKey !== key && draggable(scopeKey);
+    });
+  const showLine = (node: HTMLElement, half: "top" | "bottom") => {
+    const header = node.querySelector<HTMLElement>("[data-scope-toggle]")?.closest<HTMLElement>(".group\\/scope") ?? node;
+    const rect = header.getBoundingClientRect();
+    line.style.display = "";
+    line.style.left = `${rect.left}px`;
+    line.style.width = `${rect.width}px`;
+    line.style.top = `${(half === "top" ? rect.top : rect.bottom) - 1}px`;
+  };
+  const hit = (_x: number, y: number) => {
+    const nodes = headers();
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      if (y < rect.top || y > rect.bottom) continue;
+      const half: "top" | "bottom" = y < rect.top + rect.height / 2 ? "top" : "bottom";
+      const scopeKey = node.dataset.sidebarScope!;
+      const index = nodes.indexOf(node);
+      const beforeKey = half === "top" ? scopeKey : (nodes[index + 1]?.dataset.sidebarScope ?? null);
+      return { beforeKey, node, half };
+    }
+    // Past the last header: drop at the end. Above the first: drop before it.
+    const first = nodes[0]?.getBoundingClientRect();
+    if (first && y < first.top) return { beforeKey: nodes[0]!.dataset.sidebarScope!, node: nodes[0]!, half: "top" as const };
+    const last = nodes.at(-1);
+    if (last) return { beforeKey: null, node: last, half: "bottom" as const };
+    return null;
+  };
+  const move = (moveEvent: PointerEvent) => {
+    if (!started) {
+      if (Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < DRAG_THRESHOLD) return;
+      started = true;
+      onDragging(key);
+      document.body.appendChild(line);
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+      window.getSelection()?.removeAllRanges();
+    }
+    target = hit(moveEvent.clientX, moveEvent.clientY);
+    if (target) showLine(target.node, target.half);
+    else line.style.display = "none";
+  };
+  const stop = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", cancel);
+    window.removeEventListener("keydown", escape, true);
+    line.remove();
+    onDragging(null);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  };
+  const end = () => {
+    const dropped = target;
+    stop();
+    if (!started) return;
+    // The press still ends in a click; it was a drag, so that click doesn't fold the group.
+    const swallow = (click: MouseEvent) => {
+      click.preventDefault();
+      click.stopPropagation();
+    };
+    window.addEventListener("click", swallow, { capture: true, once: true });
+    window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+    if (dropped) onReorder(key, dropped.beforeKey);
+  };
+  const cancel = () => stop();
+  const escape = (keyEvent: KeyboardEvent) => {
+    if (keyEvent.key !== "Escape" || !started) return;
+    keyEvent.preventDefault();
+    target = null;
+    stop();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", cancel);
+  window.addEventListener("keydown", escape, true);
+}
 
 /**
  * Where a dragged chat would land: next to or on a row, or (id null) in the empty Pinned section. `scope` is another

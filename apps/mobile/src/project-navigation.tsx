@@ -6,7 +6,7 @@ import { retentionOf, useDoneRetention } from "./done-retention";
 import { doneCountdown } from "@milagre/shared/done";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance, type ViewInstance } from "react-native";
 import { appVersionLine } from "./app-version";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
@@ -31,6 +31,9 @@ import {
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { chatMarkTone, chatPullRequests, chatTitle, comparePins, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
 import { searchMessages } from "@milagre/shared/message-search";
@@ -41,7 +44,8 @@ import type { ChatSearchMatch, Client, RecentProject, RegisteredProject, Snapsho
 import { ALL_CHATS_LABEL, CHATS_GROUP_LABEL, NO_PROJECT_LABEL } from "@milagre/shared/chats-home";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
-import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
+import { savedChatDefaults, savedFoldedProjects, savedProjectOrder } from "./hosts-native";
+import { moveProject } from "./project-order-store";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
 import { chatsGroupChats, chatsGroupList, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
 import { UpdateSettingsBadge } from "./update-sheet";
@@ -57,7 +61,7 @@ import { ChatMarkIcon } from "./status-indicators";
 import { Icon, SpinnerRing, type IconData } from "./icons";
 import { tap } from "./primitives/tap";
 import { LoadingLogo } from "./loading-logo";
-import { ErrorNotice, IconButton, PullDown, useStyles } from "./ui";
+import { ErrorNotice, IconButton, PRESSED_OPACITY, PullDown, useStyles } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./navigation-commands";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
@@ -1314,6 +1318,38 @@ const NavigationBody = memo(function NavigationBody({
         notify: showArchiveNotice,
       });
   }
+  // Each dragged-over Project header's band in window coordinates, set as its row lays out: the drop lands on the one
+  // the finger is over. Only this host's headers matter, since a Project's order is its computer's alone.
+  const headerBands = useRef(new Map<string, { hostId: string; path: string; top: number; bottom: number }>());
+  const setHeaderBand = useCallback((key: string, band: { hostId: string; path: string; top: number; bottom: number } | null) => {
+    if (band) headerBands.current.set(key, band);
+    else headerBands.current.delete(key);
+  }, []);
+  // A Project header dropped at window-Y `y`: saved before the header the finger is over (or after the last one), then
+  // the list reloads so the saved order applies. The order is this computer's, kept on the phone alone.
+  const reorderProjects = useCallback(
+    (hostId: string, path: string, y: number) => {
+      const view = views.find((item) => item.hostId === hostId);
+      if (!view) return;
+      // This computer's Projects in their shown order (home and hidden ones left out, as buildHost lists them).
+      const order = view.projects.filter((project) => !project.hidden && project.path !== view.home?.path).map((project) => project.path);
+      const bands = [...headerBands.current.values()].filter((band) => band.hostId === hostId).sort((a, b) => a.top - b.top);
+      const over = bands.find((band) => y >= band.top && y <= band.bottom);
+      const last = bands.at(-1);
+      // Below the last header: to the end. Over a header's lower half: after it. Otherwise before it.
+      const beforePath = over
+        ? y > (over.top + over.bottom) / 2
+          ? (bands[bands.indexOf(over) + 1]?.path ?? null)
+          : over.path
+        : last && y > last.bottom
+          ? null
+          : (bands[0]?.path ?? null);
+      const next = moveProject(order, path, beforePath);
+      if (next.length === order.length && next.every((item, index) => item === order[index])) return;
+      void savedProjectOrder.save(hostId, next).then(() => reloadProjects().catch((e) => setError(e.message)));
+    },
+    [views, reloadProjects],
+  );
   // Removing a Project takes it off the recent list, as desktop does; its folder and Chats stay on the Mac.
   async function projectAction(hostId: string, projectPath: string, name: string, action: string) {
     if (action === "new") {
@@ -1539,6 +1575,8 @@ const NavigationBody = memo(function NavigationBody({
         }),
       enterSubchat,
       load,
+      setHeaderBand,
+      reorderProjects,
     };
   });
   const doneHours = useDoneRetention(
@@ -1558,6 +1596,8 @@ const NavigationBody = memo(function NavigationBody({
       foldSubchats: (key) => latestActions.current!.foldSubchats(key),
       enterSubchat: (...args) => latestActions.current!.enterSubchat(...args),
       load: (...args) => latestActions.current!.load(...args),
+      setHeaderBand: (...args) => latestActions.current!.setHeaderBand(...args),
+      reorderProjects: (...args) => latestActions.current!.reorderProjects(...args),
     }),
     [],
   );
@@ -1836,6 +1876,10 @@ type RowActions = {
   /** A subchat's row on a wide iPad: its family's top Chat routed, the subchat open beside it. */
   enterSubchat: (hostId: string, projectPath: string, chatId: number, root: number) => void;
   load: (hostId: string, projectPath: string) => Promise<unknown>;
+  /** A Project header's band in window coordinates while the list is on screen, for a drag to find its drop. */
+  setHeaderBand: (key: string, band: { hostId: string; path: string; top: number; bottom: number } | null) => void;
+  /** A Project header dragged and released at window-Y `y`: saves its computer's new order and reloads. */
+  reorderProjects: (hostId: string, path: string, y: number) => void;
 };
 /** What every row reads besides its own item; a change re-renders the rows on screen. */
 type RowView = {
@@ -1863,6 +1907,104 @@ type RowView = {
   background: string;
   actions: RowActions;
 };
+/**
+ * A Project header that folds on a tap and, on a long press, lifts to be dragged up or down to reorder its group, the
+ * way Mail reorders mailboxes. The band it reports as it lays out lets the drop find which Project the finger is over;
+ * the release saves its computer's new order. A short press that doesn't move still folds the group.
+ */
+/**
+ * The long-press-then-drag gesture for a Project header, built outside render (like sliderGesture and resizeGesture) so
+ * the React-compiler rules that ban capitalized calls and ref reads in a component body don't fire. A short press that
+ * doesn't move still folds the group; a long press lifts it, the pan moves it, the release reports where it landed.
+ */
+function headerDragGesture({
+  lifted,
+  offset,
+  top,
+  drop,
+  onFold,
+}: {
+  lifted: SharedValue<number>;
+  offset: SharedValue<number>;
+  top: SharedValue<number>;
+  drop: (y: number) => void;
+  onFold: () => void;
+}) {
+  const pan = Gesture.Pan()
+    .activateAfterLongPress(220)
+    .onStart(() => {
+      "worklet";
+      lifted.set(1);
+    })
+    .onUpdate((event) => {
+      "worklet";
+      offset.set(event.translationY);
+    })
+    .onEnd((event) => {
+      "worklet";
+      // The lifted header's new centre: its own top plus how far it moved, plus half a 44pt row.
+      scheduleOnRN(drop, top.get() + event.translationY + 22);
+    })
+    .onFinalize(() => {
+      "worklet";
+      lifted.set(0);
+      offset.set(0);
+    });
+  const tapFold = Gesture.Tap().onEnd((_event, success) => {
+    "worklet";
+    if (success) scheduleOnRN(onFold);
+  });
+  return Gesture.Exclusive(pan, tapFold);
+}
+
+function ProjectHeaderDrag({
+  hostId,
+  path,
+  rowKey,
+  label,
+  onFold,
+  setHeaderBand,
+  reorderProjects,
+  children,
+}: {
+  hostId: string;
+  path: string;
+  rowKey: string;
+  label: string;
+  onFold: () => void;
+  setHeaderBand: RowActions["setHeaderBand"];
+  reorderProjects: RowActions["reorderProjects"];
+  children: ReactNode;
+}) {
+  const ref = useRef<ViewInstance>(null);
+  const lifted = useSharedValue(0);
+  const offset = useSharedValue(0);
+  // The row's top in window coordinates, held while it is lifted so each move maps the finger to a drop band.
+  const top = useSharedValue(0);
+  // Measured as the row lays out and cleared when it leaves, so a drag reads only the headers on screen.
+  const measure = useCallback(() => {
+    ref.current?.measureInWindow((_x: number, y: number, _width: number, height: number) => {
+      top.set(y);
+      setHeaderBand(rowKey, { hostId, path, top: y, bottom: y + height });
+    });
+  }, [rowKey, hostId, path, setHeaderBand, top]);
+  useEffect(() => () => setHeaderBand(rowKey, null), [rowKey, setHeaderBand]);
+  const drop = useCallback((y: number) => reorderProjects(hostId, path, y), [hostId, path, reorderProjects]);
+  const gesture = headerDragGesture({ lifted, offset, top, drop, onFold });
+  const lift = useAnimatedStyle(() => ({
+    transform: [{ translateY: offset.get() }, { scale: 1 + lifted.get() * 0.02 }],
+    opacity: 1 - lifted.get() * 0.2,
+    zIndex: lifted.get() ? 2 : 0,
+  }));
+  return (
+    <GestureDetector gesture={gesture}>
+      <Animated.View ref={ref} onLayout={measure} accessibilityRole="button" accessibilityLabel={label} style={[{ flex: 1 }, lift]}>
+        {children}
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
 /** One row of the list; memoized, so only a row whose item or view changed renders again. */
 const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; view: RowView }) {
   const s = useS();
@@ -1888,7 +2030,20 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     worktreeForLinks,
     doneHours,
     background,
-    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, enterSubchat, load },
+    actions: {
+      enter,
+      act,
+      projectAction,
+      startNewChat,
+      startWithoutProject,
+      foldChats,
+      foldDone,
+      foldSubchats,
+      enterSubchat,
+      load,
+      setHeaderBand,
+      reorderProjects,
+    },
   } = view;
   if (item.kind === "section")
     return (
@@ -2086,37 +2241,59 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       ...(!linked ? [{ items: [{ id: "remove", title: "Remove Project", systemImage: "minus.circle", destructive: true }] }] : []),
     ];
     const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
-    // A tap folds the group; a long press opens the Project's menu.
+    // A Link, another computer's copy under a shared head, or an offline computer's row can't be reordered.
+    const canReorder = !linked && item.hostId === currentHostId && !offline;
+    const header = (
+      <View style={s.projectTitle}>
+        {item.members ? <ProjectIcons client={client} projects={item.members} /> : <ProjectIcon client={client} path={item.path} />}
+        <Text numberOfLines={1} style={[s.secondary, { flexShrink: 1, fontWeight: "500", color: colors.ink }]}>
+          {item.name}
+        </Text>
+        {(item.chip || !item.expanded) && (
+          <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+            {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
+        )}
+        <View style={{ flex: 1 }} />
+        {unsaved && (
+          <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.redInk }]}>
+            Unsaved
+          </Text>
+        )}
+        {item.hostId === currentHostId && attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
+        <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
+      </View>
+    );
+    // A tap folds the group. A long press lifts it to drag, like Mail's edit-mode reorder; the menu moves to the ⋯ button.
     return (
       <View style={[s.project, { opacity: offline ? 0.6 : 1 }]}>
-        <PullDown
-          label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
-          title={item.name}
-          sections={menu}
-          onSelect={choose}
-          onPress={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
-          style={{ flex: 1 }}
-        >
-          <View style={s.projectTitle}>
-            {item.members ? <ProjectIcons client={client} projects={item.members} /> : <ProjectIcon client={client} path={item.path} />}
-            <Text numberOfLines={1} style={[s.secondary, { flexShrink: 1, fontWeight: "500", color: colors.ink }]}>
-              {item.name}
-            </Text>
-            {(item.chip || !item.expanded) && (
-              <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </Text>
-            )}
-            <View style={{ flex: 1 }} />
-            {unsaved && (
-              <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.redInk }]}>
-                Unsaved
-              </Text>
-            )}
-            {item.hostId === currentHostId && attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
-            <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
+        {canReorder ? (
+          <ProjectHeaderDrag
+            hostId={item.hostId}
+            path={item.path}
+            rowKey={item.key}
+            label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}. Press and hold to reorder.`}
+            onFold={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
+            setHeaderBand={setHeaderBand}
+            reorderProjects={reorderProjects}
+          >
+            {header}
+          </ProjectHeaderDrag>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
+            onPress={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
+            style={({ pressed }) => [{ flex: 1 }, { opacity: pressed ? PRESSED_OPACITY : 1 }]}
+          >
+            {header}
+          </Pressable>
+        )}
+        <PullDown label={`${item.name} actions`} title={item.name} sections={menu} onSelect={choose}>
+          <View style={s.projectMore}>
+            <Icon icon={MoreHorizontalIcon} tone="ink3" size={20} />
           </View>
         </PullDown>
         <IconButton
@@ -2898,6 +3075,12 @@ const makeS = (colors: Palette) =>
       alignItems: "center",
       gap: 8,
       paddingLeft: 8,
+    },
+    projectMore: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
     },
     chat: { flexDirection: "row", alignItems: "center" },
     subchat: { paddingLeft: 16 },

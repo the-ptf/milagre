@@ -15,6 +15,18 @@ export function applyProjectOrder<T extends { path: string }>(saved: string[], p
   ) as T[];
 }
 
+/**
+ * `order` with `path` moved before `beforePath` (to the end when null). The list the user sees, reordered: the dragged
+ * Project lands where it was dropped, the rest keep their places. A path not in `order` or a no-op move returns it unchanged.
+ */
+export function moveProject(order: string[], path: string, beforePath: string | null): string[] {
+  if (!order.includes(path) || path === beforePath) return order;
+  const without = order.filter((item) => item !== path);
+  const at = beforePath === null ? without.length : without.indexOf(beforePath);
+  if (at === -1) return order;
+  return [...without.slice(0, at), path, ...without.slice(at)];
+}
+
 function utf8Length(text: string): number {
   let bytes = 0;
   for (const char of text) {

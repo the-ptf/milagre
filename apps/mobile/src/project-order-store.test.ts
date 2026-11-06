@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyProjectOrder, boundedOrder, createProjectOrderStore } from "./project-order-store.ts";
+import { applyProjectOrder, boundedOrder, createProjectOrderStore, moveProject } from "./project-order-store.ts";
 
 function storage() {
   const values = new Map<string, string>();
@@ -78,6 +78,16 @@ test("a saved value stays under the size SecureStore is safe with, however many 
   const shown = paths(await store.apply("https://mac", many.map((path) => ({ path })).toReversed()));
   assert.deepEqual(shown.slice(-kept.length), kept);
   assert.equal(boundedOrder("x", ["/é".repeat(2000)]).length, 0, "one huge path never exceeds the bound");
+});
+
+test("moveProject drops a Project before another, or at the end", () => {
+  const order = ["/code/a", "/code/b", "/code/c"];
+  assert.deepEqual(moveProject(order, "/code/c", "/code/a"), ["/code/c", "/code/a", "/code/b"], "before the first");
+  assert.deepEqual(moveProject(order, "/code/a", "/code/c"), ["/code/b", "/code/a", "/code/c"], "down one");
+  assert.deepEqual(moveProject(order, "/code/a", null), ["/code/b", "/code/c", "/code/a"], "to the end");
+  assert.deepEqual(moveProject(order, "/code/a", "/code/a"), order, "onto itself is a no-op");
+  assert.deepEqual(moveProject(order, "/code/x", "/code/a"), order, "an unknown Project is a no-op");
+  assert.deepEqual(moveProject(order, "/code/a", "/code/x"), order, "an unknown target is a no-op");
 });
 
 test("each key is safe for SecureStore", async () => {
