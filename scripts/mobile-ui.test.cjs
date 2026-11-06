@@ -2780,6 +2780,7 @@ function sessionHost(
     clientFactory,
     navigationStore,
     permission = "ask",
+    refreshLinks = async () => {},
   } = {},
 ) {
   client.recentScopes ??= () => client.call("project:recent");
@@ -2788,6 +2789,7 @@ function sessionHost(
     return client.snapshot(owner);
   };
   const react = hookHost({ effects });
+  test.after(react.unmount);
   const { useSessionState, PendingChatsProvider, ComposerProvider } = load(
     "session.tsx",
     {
@@ -2830,7 +2832,7 @@ function sessionHost(
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
       "./chat-pages": { prefetchChatPage: () => {}, noteChatProjectOpening: () => {} },
       "./pr-status": { pullRequestsChanged: () => {} },
-      "./use-links": { refreshLinks: async () => {} },
+      "./use-links": { refreshLinks },
       "./use-designs": { useDesigns: () => designsOn },
     },
     "\nexport { useSessionState, PendingChatsProvider, ComposerProvider };",
@@ -3081,7 +3083,7 @@ test("the Projects order survives a relaunch, per computer", async () => {
   const store = createProjectOrderStore({ getItemAsync: async (key) => disk.get(key) ?? null, setItemAsync: async (key, value) => void disk.set(key, value) });
   const launch = async (url, recent) => {
     const render = sessionHost(
-      { url, call: async (method) => (method === "project:recent" ? recent : {}) },
+      { url, call: async (method) => (method === "project:recent" ? recent : {}), live: () => ({ close() {} }) },
       {
         effects: true,
         AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
@@ -3131,6 +3133,79 @@ test("a poll from the previous Project cannot restore it after another Project o
   assert.equal(render().snapshot.project.path, "B");
   await oldSession.refresh();
   assert.equal(render().snapshot.project.path, "B");
+});
+
+test("Canvas opened from All Chats receives external Link changes without selecting a Project", async () => {
+  const { refreshLinks, linksOf } = require("../apps/mobile/src/links-store.ts");
+  let links = [];
+  const sockets = [];
+  const listeners = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener: (_event, listener) => {
+      listeners.add(listener);
+      return { remove: () => listeners.delete(listener) };
+    },
+  };
+  const setApp = (state) => {
+    AppState.currentState = state;
+    for (const listener of listeners) listener(state);
+  };
+  const client = {
+    url: "http://canvas-computer",
+    call: async (method) => (method === "canvas:links" ? links : []),
+    snapshot: async () => {
+      throw new Error("Canvas must not open a Project to receive Links");
+    },
+    runs: async () => {
+      throw new Error("No Project selected for runs");
+    },
+    live: (projectPath, options) => {
+      const socket = {
+        projectPath,
+        options,
+        closed: false,
+        close() {
+          this.closed = true;
+        },
+      };
+      sockets.push(socket);
+      return socket;
+    },
+  };
+  const render = sessionHost(client, { effects: true, AppState, refreshLinks });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  try {
+    await render().connect({ address: client.url, token: "token" });
+    assert.equal(render().snapshot, null, "All Chats has no selected Project");
+    assert.equal(sockets.length, 1, "computer-wide subscription starts before a Project is selected");
+    assert.equal(sockets[0].projectPath, "");
+    sockets[0].options.onStatus(true);
+    await settle();
+    assert.deepEqual(linksOf(client).links, []);
+    links = [{ id: "external", a: { project_id: "a" }, b: { project_id: "b" }, created_at: "" }];
+    sockets[0].options.onSignal("links");
+    await settle();
+    assert.deepEqual(linksOf(client).links, links, "addition reaches the Canvas store without remount or refresh");
+    links = [];
+    sockets[0].options.onSignal("links");
+    await settle();
+    assert.deepEqual(linksOf(client).links, [], "removal reaches the Canvas store without remount or refresh");
+    setApp("background");
+    assert.equal(sockets[0].closed, true);
+    links = [{ id: "missed", a: { project_id: "a" }, b: { project_id: "b" }, created_at: "" }];
+    setApp("active");
+    assert.equal(sockets[1].projectPath, "");
+    sockets[1].options.onStatus(true);
+    await settle();
+    assert.deepEqual(linksOf(client).links, links, "reconnection catches changes made while away");
+    render().disconnect();
+    assert.equal(render().client, null);
+    assert.equal(sockets[1].closed, true, "disconnect releases the computer-wide subscription");
+  } finally {
+    render.unmount();
+  }
+  assert.equal(listeners.size, 0);
 });
 
 test("the session fetches on live signals and polls only while the live socket is down", async (t) => {
@@ -3185,17 +3260,18 @@ test("the session fetches on live signals and polls only while the live socket i
   render();
   assert.deepEqual(
     sockets.map((socket) => socket.projectPath),
-    ["A"],
+    ["", "A"],
   );
+  assert.equal(sockets[0].closed, true, "selecting a Project closes the computer-wide socket");
   await snapshots(2, "opening fetches, then the sync fetches once");
   t.mock.timers.tick(4000);
   await snapshots(3, "it polls while the socket is not open (an older bridge)");
-  sockets[0].options.onStatus(true);
+  sockets[1].options.onStatus(true);
   await snapshots(4, "it catches up once the socket opens");
   t.mock.timers.tick(30000);
   await snapshots(4, "no polling while live");
   const before = render().snapshot;
-  sockets[0].options.onSignal("runs");
+  sockets[1].options.onSignal("runs");
   await settle();
   assert.equal(fetched.runs, 1);
   const live = render();
@@ -3203,22 +3279,22 @@ test("the session fetches on live signals and polls only while the live socket i
   const runsNow = () => render().runsStore.runsFor(`${render().client.url}|A`, render().snapshot);
   assert.equal(runsNow().runs["A#1"].text, "streaming", "its runs show from the runs store");
   assert.equal(live.snapshot.project.path, "A");
-  sockets[0].options.onSignal("project");
+  sockets[1].options.onSignal("project");
   await snapshots(5);
   assert.deepEqual(runsNow().runs, {}, "a whole read after it is newer: its runs show");
-  sockets[0].options.onStatus(false);
+  sockets[1].options.onStatus(false);
   await snapshots(6, "losing the socket fetches at once");
   t.mock.timers.tick(4000);
   await snapshots(7, "and polls again");
   setApp("background");
-  assert.equal(sockets[0].closed, true, "the socket closes in the background");
+  assert.equal(sockets[1].closed, true, "the socket closes in the background");
   t.mock.timers.tick(30000);
   await snapshots(7, "and nothing polls");
   setApp("active");
-  assert.equal(sockets.length, 2, "it opens again in the foreground");
+  assert.equal(sockets.length, 3, "it opens again in the foreground");
   await snapshots(8);
   render.unmount();
-  assert.equal(sockets[1].closed, true);
+  assert.equal(sockets[2].closed, true);
 });
 
 test("disconnect cancels a connection that is still loading recent Projects", async () => {

@@ -679,9 +679,10 @@ function useSessionState() {
   const { refresh: refreshDesigns, connectionChanged: designsConnectionChanged } = designs;
   // The bridge's live socket says when to fetch; polling is the fallback while it is down or the bridge predates it.
   useEffect(() => {
-    if (!client || !projectPath) return;
+    if (!client) return;
     return syncProject({
-      connect: (options) => client.live(projectPath, options),
+      // All Chats can open Canvas before a Project is selected; Links still change on that computer.
+      connect: (options) => client.live(projectPath ?? "", options),
       snapshot: refresh,
       runs: refreshRuns,
       accounts: () => {
