@@ -12,7 +12,15 @@ import { PickerPanel, PickerRow } from "../primitives/Picker";
 import { useDismiss } from "../../lib/use-dismiss";
 import { closeTerminal, newTerminal, openTerminal, takeFocusRequest, toggleTerminalPanel, type TerminalPlace } from "../../lib/terminal-actions";
 import { useSidePanel } from "../agents/PanelToggles";
-import { attachTerminal, fitTerminal, focusTerminal, terminalHasFocus } from "../../lib/terminal-sessions";
+import {
+  attachTerminal,
+  copyTerminalSelection,
+  fitTerminal,
+  focusTerminal,
+  pasteIntoTerminal,
+  terminalHasFocus,
+  terminalHasSelection,
+} from "../../lib/terminal-sessions";
 import {
   chatTerminals,
   saveTerminalHeight,
@@ -27,6 +35,7 @@ import {
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { useEvent } from "../../lib/stable";
 import { AnimatePresence } from "motion/react";
+import { TerminalMenu } from "./TerminalMenu";
 import { TerminalSlide } from "./TerminalSlide";
 
 /**
@@ -50,6 +59,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
   const multiple = (places?.length ?? 0) > 1;
   const [profiles, setProfiles] = useState<TerminalProfiles | null>(null);
   const [savingShell, setSavingShell] = useState(false);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number; canCopy: boolean } | null>(null);
   const profileRevision = useRef(0);
   useEffect(() => {
     profileRevision.current++;
@@ -107,6 +117,11 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
     observer.observe(body.current);
     return () => observer.disconnect();
   }, [open, shownId]);
+
+  const closeMenu = useEvent(() => {
+    if (menu) focusTerminal(menu.id);
+    setMenu(null);
+  });
 
   const close = useEvent((terminal: TerminalInfo) => {
     if (terminal.busy && armed !== terminal.id) {
@@ -292,7 +307,35 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                 <IconButton label="Hide Terminals" icon={ArrowDown01Icon} onClick={() => setTerminalPanelOpen(chatId, false)} />
               </Tooltip>
             </header>
-            <div ref={body} id={bodyId} role="tabpanel" aria-label="Terminal" data-terminal-body className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-1" />
+            <div
+              ref={body}
+              id={bodyId}
+              role="tabpanel"
+              aria-label="Terminal"
+              data-terminal-body
+              className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-1"
+              onContextMenu={(event) => {
+                if (!shownId) return;
+                event.preventDefault();
+                setMenu({ id: shownId, x: event.clientX, y: event.clientY, canCopy: terminalHasSelection(shownId) });
+              }}
+            />
+            {menu && menu.id === shownId && (
+              <TerminalMenu
+                x={menu.x}
+                y={menu.y}
+                canCopy={menu.canCopy}
+                onCopy={() => {
+                  copyTerminalSelection(menu.id);
+                  closeMenu();
+                }}
+                onPaste={() => {
+                  pasteIntoTerminal(menu.id);
+                  closeMenu();
+                }}
+                onClose={closeMenu}
+              />
+            )}
           </section>
         </TerminalSlide>
       )}

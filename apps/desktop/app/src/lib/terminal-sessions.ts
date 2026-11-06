@@ -6,7 +6,8 @@ import { followTerminal, type TerminalFollower } from "@milagre/shared/terminal-
 import type { TerminalInfo } from "@milagre/shared/terminal";
 import { THEME_EVENT } from "./theme-sheet";
 import { APPEARANCE_EVENT } from "./appearance";
-import { isMac } from "./shortcut-hints";
+import { isMac, isWindows } from "./shortcut-hints";
+import { terminalKey } from "./terminal-keys";
 import { removeTerminal, updateTerminal } from "./terminal-store";
 import { bridgeForKey } from "./computer-bridge";
 
@@ -105,8 +106,16 @@ function create(info: TerminalInfo): Session {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  // ⌘ shortcuts belong to the app (⌘T, ⌘K, ⌘1…9); ⌘C and ⌘V go through the window's Edit menu to xterm's copy and paste.
-  term.attachCustomKeyEventHandler((event) => !(isMac ? event.metaKey : event.ctrlKey && event.shiftKey));
+  term.attachCustomKeyEventHandler((event) => {
+    const key = terminalKey(event, { mac: isMac, windows: isWindows }, term.hasSelection());
+    if (key === "shell") return true;
+    if (key !== "app") {
+      // Handled here, or the window would also run its own copy or paste on xterm's textarea.
+      event.preventDefault();
+      if (event.type === "keydown") (key === "copy" ? copySelection : paste)(session);
+    }
+    return false;
+  });
   const element = document.createElement("div");
   element.className = "h-full w-full";
   element.dataset.terminalId = info.id;
@@ -133,6 +142,36 @@ function create(info: TerminalInfo): Session {
   term.onResize(() => claimSize(session));
   sessions.set(info.id, session);
   return session;
+}
+
+/** Clears the selection too: the next Ctrl+C then interrupts, as in Windows Terminal. */
+function copySelection({ term }: Session) {
+  const text = term.getSelection();
+  if (!text) return;
+  term.clearSelection();
+  void navigator.clipboard.writeText(text).catch(() => {});
+}
+
+/** A clipboard with no text, such as an image, sends the program in front the key: an agent's TUI reads it by itself. */
+function paste({ term, follower }: Session) {
+  void navigator.clipboard
+    .readText()
+    .then((text) => (text ? term.paste(text) : follower.send("\x16")))
+    .catch(() => {});
+}
+
+export function terminalHasSelection(id: string) {
+  return Boolean(sessions.get(id)?.term.hasSelection());
+}
+
+export function copyTerminalSelection(id: string) {
+  const session = sessions.get(id);
+  if (session) copySelection(session);
+}
+
+export function pasteIntoTerminal(id: string) {
+  const session = sessions.get(id);
+  if (session) paste(session);
 }
 
 /** Shows the Terminal in `container`, building its xterm the first time. */
