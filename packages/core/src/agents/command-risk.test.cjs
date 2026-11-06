@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const os = require("node:os");
+const path = require("node:path");
 const { commandRisk, windowsPaths } = require("./command-risk.cjs");
 
 const IN = { cwd: "/w/proj", roots: ["/w/proj"] };
@@ -85,6 +86,8 @@ test("a Windows path keeps its separators and an escaped quote stays escaped", (
 });
 
 const onWindows = { skip: process.platform !== "win32" };
+// "/w/proj" lands on the drive the tests run from.
+const worktree = path.resolve("/w/proj");
 
 test("on Windows a command that reaches outside the worktree says why", onWindows, () => {
   const home = os.homedir();
@@ -103,7 +106,7 @@ test("on Windows a command that reaches outside the worktree says why", onWindow
     "type ~\\.ssh\\id_ed25519": "touches saved credentials",
     "type %USERPROFILE%\\.ssh\\id_ed25519": "touches saved credentials",
     "Get-Content $env:USERPROFILE\\.aws\\credentials": "touches saved credentials",
-    "rm -rf c:\\W\\PROJ": "deletes the whole worktree or more",
+    [`rm -rf ${worktree.toLowerCase()}`]: "deletes the whole worktree or more",
   };
   for (const [command, reason] of Object.entries(cases)) assert.equal(risk(command), reason, command);
 });
@@ -114,8 +117,8 @@ test("on Windows work inside the worktree runs without asking", onWindows, () =>
     "rmdir /s /q .\\dist",
     "Remove-Item -Recurse -Force node_modules",
     "copy C:\\Temp\\a.txt .\\a.txt",
-    "del C:\\w\\proj\\stale.txt",
-    "del c:\\W\\PROJ\\stale.txt",
+    `del ${worktree}\\stale.txt`,
+    `del ${worktree.toUpperCase()}\\stale.txt`,
     "cmd /c dir",
   ])
     assert.equal(risk(command), null, command);
