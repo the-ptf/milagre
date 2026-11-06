@@ -313,13 +313,31 @@ test("one Publish workflow cuts betas on a schedule and either channel on dispat
     assert.ok(!fs.existsSync(path.join(__dirname, "../.github/workflows", name)), `${name} is folded into publish.yml`);
 });
 
-test("macOS and Linux always build; Windows waits for the RELEASE_WINDOWS variable", () => {
+test("macOS and Linux always build; Windows builds for betas, and RELEASE_WINDOWS signs it and adds it to stable", () => {
   const jobs = publishWorkflow.jobs;
   assert.equal(jobs.macos.if, "needs.prepare.outputs.changed == 'true'");
   assert.equal(jobs.linux.if, "needs.prepare.outputs.changed == 'true'");
   assert.equal(jobs.windows.if, "needs.prepare.outputs.changed == 'true' && needs.prepare.outputs.windows == 'true'");
-  assert.equal(jobs.prepare.steps.find((step) => step.id === "channel").env.WINDOWS, "${{ vars.RELEASE_WINDOWS == 'true' }}");
-  assert.match(jobs.windows.steps.find((step) => step.name === "Build signed Windows installer").run, /--config\.publish\.channel="\$\{FEED_CHANNEL\}"/);
+  const channel = jobs.prepare.steps.find((step) => step.id === "channel");
+  assert.equal(channel.env.WINDOWS_SIGNED, "${{ vars.RELEASE_WINDOWS == 'true' }}");
+  assert.match(channel.run, /\[ "\$WINDOWS_SIGNED" = true \] \|\| \[ "\$CHANNEL" = beta \]/);
+  assert.match(jobs.windows.steps.find((step) => step.name === "Build Windows installer").run, /--config\.publish\.channel="\$\{FEED_CHANNEL\}"/);
+});
+
+test("an unsigned Windows beta skips the signing steps, and a signed build still forces its signature", () => {
+  const job = publishWorkflow.jobs.windows;
+  assert.equal(job.environment, "${{ needs.prepare.outputs.windows_signed == 'true' && 'windows-signing' || '' }}");
+  assert.equal(job.env.SIGNED, "${{ needs.prepare.outputs.windows_signed }}");
+  for (const name of ["Require Windows signing credentials", "Verify installer Authenticode"])
+    assert.equal(job.steps.find((step) => step.name === name).if, "env.SIGNED == 'true'", name);
+  assert.equal(
+    job.steps.find((step) => step.name === "Authenticate Azure signing identity").if,
+    "env.SIGNED == 'true' && env.WINDOWS_SIGNING_PROVIDER == 'azure'",
+  );
+  const build = job.steps.find((step) => step.name === "Build Windows installer").run;
+  assert.match(build, /if \[ "\$SIGNED" != true \]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; unset CSC_LINK CSC_KEY_PASSWORD/);
+  assert.equal(build.match(/--config\.forceCodeSigning=true/g).length, 2, "both signing providers force the signature");
+  assert.equal(job.steps.find((step) => step.name === "Install and exercise Windows NSIS").if, undefined, "unsigned builds are exercised too");
 });
 
 test("Linux builds on the requested channel and only a stable release signs and builds the package repository", () => {
