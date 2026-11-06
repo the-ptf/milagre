@@ -40,9 +40,10 @@ export function withLocalVisibility(
 }
 
 /**
- * Every computer's scopes in one list: the user's manual order first (the keys in `manualOrder`, the sidebar's saved
- * group order), then the rest by Project name, then Links by name; on a tie This Mac's first, then the computers in the
- * popover's order. A Project the user moved keeps its place across computers instead of resetting to name order.
+ * Every computer's scopes in one list: Projects by name, then Links by name; on a tie This Mac's first, then the
+ * computers in the popover's order. Two Projects the user has placed in `manualOrder` (the sidebar's saved group order)
+ * keep that relative order instead of the name one, so a reorder holds across computers; a Project absent from it still
+ * falls in by name, which keeps the default (nothing moved) as plain name order.
  */
 export function mergeScopes<T extends { key: string; name: string; link: unknown; computerId: string }>(
   scopes: T[],
@@ -50,15 +51,16 @@ export function mergeScopes<T extends { key: string; name: string; link: unknown
   manualOrder: readonly string[] = [],
 ): T[] {
   const rank = (scope: T) => (scope.computerId === LOCAL_COMPUTER ? -1 : computerOrder.indexOf(scope.computerId));
-  // A Project in the saved order ranks by its place there; one absent ranks after all of them, then falls to name order.
-  const manualRank = (scope: T) => {
-    const at = manualOrder.indexOf(scope.key);
-    return at === -1 ? manualOrder.length : at;
+  // Only decides between two Projects both in the saved order; otherwise 0, so the name compare below places them.
+  const manualOrderCompare = (a: T, b: T) => {
+    const ai = manualOrder.indexOf(a.key);
+    const bi = manualOrder.indexOf(b.key);
+    return ai === -1 || bi === -1 ? 0 : ai - bi;
   };
   return [...scopes].sort(
     (a, b) =>
       Number(Boolean(a.link)) - Number(Boolean(b.link)) ||
-      manualRank(a) - manualRank(b) ||
+      manualOrderCompare(a, b) ||
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
       rank(a) - rank(b) ||
       a.key.localeCompare(b.key),
