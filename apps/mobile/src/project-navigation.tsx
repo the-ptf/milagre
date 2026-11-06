@@ -6,7 +6,19 @@ import { retentionOf, useDoneRetention } from "./done-retention";
 import { doneCountdown } from "@milagre/shared/done";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance, type ViewInstance } from "react-native";
+import {
+  FlatList,
+  Platform,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type TextInputInstance,
+  type ViewInstance,
+  type ViewStyle,
+} from "react-native";
 import { appVersionLine } from "./app-version";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
@@ -44,7 +56,7 @@ import type { ChatSearchMatch, Client, RecentProject, RegisteredProject, Snapsho
 import { ALL_CHATS_LABEL, CHATS_GROUP_LABEL, NO_PROJECT_LABEL } from "@milagre/shared/chats-home";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
-import { savedChatDefaults, savedFoldedProjects, savedProjectOrder } from "./hosts-native";
+import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
 import { moveProject } from "./project-order-store";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
 import { chatsGroupChats, chatsGroupList, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
@@ -1323,37 +1335,35 @@ const NavigationBody = memo(function NavigationBody({
         notify: showArchiveNotice,
       });
   }
-  // Each dragged-over Project header's band in window coordinates, set as its row lays out: the drop lands on the one
-  // the finger is over. Only this host's headers matter, since a Project's order is its computer's alone.
-  const headerBands = useRef(new Map<string, { hostId: string; path: string; top: number; bottom: number }>());
-  const setHeaderBand = useCallback((key: string, band: { hostId: string; path: string; top: number; bottom: number } | null) => {
-    if (band) headerBands.current.set(key, band);
-    else headerBands.current.delete(key);
+  // Every Project header on screen, with a way to measure where it is now. The drop measures them as it lands, so a
+  // list scrolled since they laid out still finds the right place.
+  const headers = useRef(new Map<string, ProjectHeaderEntry>());
+  const registerHeader = useCallback((key: string, entry: ProjectHeaderEntry | null) => {
+    if (entry) headers.current.set(key, entry);
+    else headers.current.delete(key);
   }, []);
-  // A Project header dropped at window-Y `y`: saved before the header the finger is over (or after the last one), then
-  // the list reloads so the saved order applies. The order is this computer's, kept on the phone alone.
+  // A Project header released with the finger at window-Y `y`: it goes before the header the finger is over (after it
+  // on that header's lower half, last below them all). Only the open computer's Projects reorder; the order is this
+  // phone's, which the session saves per computer.
   const reorderProjects = useCallback(
-    (hostId: string, path: string, y: number) => {
+    async (hostId: string, path: string, y: number) => {
       const view = views.find((item) => item.hostId === hostId);
-      if (!view) return;
-      // This computer's Projects in their shown order (home and hidden ones left out, as buildHost lists them).
-      const order = view.projects.filter((project) => !project.hidden && project.path !== view.home?.path).map((project) => project.path);
-      const bands = [...headerBands.current.values()].filter((band) => band.hostId === hostId).sort((a, b) => a.top - b.top);
+      if (!view || hostId !== currentHostId) return;
+      const placed = await Promise.all(
+        [...headers.current.values()]
+          .filter((entry) => entry.hostId === hostId && entry.path !== path)
+          .map(async (entry) => ({ path: entry.path, ...(await entry.measure()) })),
+      );
+      const bands = placed.filter((band) => band.bottom > band.top).sort((a, b) => a.top - b.top);
       const over = bands.find((band) => y >= band.top && y <= band.bottom);
-      const last = bands.at(-1);
-      // Below the last header: to the end. Over a header's lower half: after it. Otherwise before it.
-      const beforePath = over
-        ? y > (over.top + over.bottom) / 2
-          ? (bands[bands.indexOf(over) + 1]?.path ?? null)
-          : over.path
-        : last && y > last.bottom
-          ? null
-          : (bands[0]?.path ?? null);
+      const below = bands.find((band) => band.top > y);
+      const beforePath = over ? (y < (over.top + over.bottom) / 2 ? over.path : (bands[bands.indexOf(over) + 1]?.path ?? null)) : (below?.path ?? null);
+      const order = view.projects.map((project) => project.path);
       const next = moveProject(order, path, beforePath);
-      if (next.length === order.length && next.every((item, index) => item === order[index])) return;
-      void savedProjectOrder.save(hostId, next).then(() => reloadProjects().catch((e) => setError(e.message)));
+      if (next.every((item, index) => item === order[index])) return;
+      session.reorderProjects(next);
     },
-    [views, reloadProjects],
+    [views, currentHostId, session],
   );
   // Removing a Project takes it off the recent list, as desktop does; its folder and Chats stay on the Mac.
   async function projectAction(hostId: string, projectPath: string, name: string, action: string) {
@@ -1579,7 +1589,7 @@ const NavigationBody = memo(function NavigationBody({
           return next;
         }),
       load,
-      setHeaderBand,
+      registerHeader,
       reorderProjects,
     };
   });
@@ -1599,7 +1609,7 @@ const NavigationBody = memo(function NavigationBody({
       foldDone: () => latestActions.current!.foldDone(),
       foldSubchats: (key) => latestActions.current!.foldSubchats(key),
       load: (...args) => latestActions.current!.load(...args),
-      setHeaderBand: (...args) => latestActions.current!.setHeaderBand(...args),
+      registerHeader: (...args) => latestActions.current!.registerHeader(...args),
       reorderProjects: (...args) => latestActions.current!.reorderProjects(...args),
     }),
     [],
@@ -1791,6 +1801,7 @@ const NavigationBody = memo(function NavigationBody({
       </View>
       <FlatList
         data={displayedRows}
+        CellRendererComponent={HeaderOverCell}
         keyExtractor={(row) => row.key}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -1866,6 +1877,8 @@ const NavigationBody = memo(function NavigationBody({
   );
 });
 
+/** A Project header the sidebar can measure while it is on screen. */
+type ProjectHeaderEntry = { hostId: string; path: string; measure: () => Promise<{ top: number; bottom: number }> };
 type RowActions = {
   enter: (hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) => Promise<void>;
   act: (row: { hostId: string; path: string; chat: AgentSession }, action: string) => Promise<void>;
@@ -1877,9 +1890,9 @@ type RowActions = {
   /** Folds or unfolds the subchats under the parent row `key`. */
   foldSubchats: (key: string) => void;
   load: (hostId: string, projectPath: string) => Promise<unknown>;
-  /** A Project header's band in window coordinates while the list is on screen, for a drag to find its drop. */
-  setHeaderBand: (key: string, band: { hostId: string; path: string; top: number; bottom: number } | null) => void;
-  /** A Project header dragged and released at window-Y `y`: saves its computer's new order and reloads. */
+  /** A Project header on screen, or null once it leaves: a drag measures them to find its drop. */
+  registerHeader: (key: string, entry: ProjectHeaderEntry | null) => void;
+  /** A Project header dragged and released with the finger at window-Y `y`: its computer's Projects take the new order. */
   reorderProjects: (hostId: string, path: string, y: number) => void;
 };
 /** What every row reads besides its own item; a change re-renders the rows on screen. */
@@ -1914,6 +1927,18 @@ type RowView = {
  * the release saves its computer's new order. A short press that doesn't move still folds the group.
  */
 /**
+ * Each list cell. A Project header's cell sits above the Chat rows from the start, so a header dragged over them stays
+ * on top; the stacking never changes during a drag, which would re-order native views and cancel the touch.
+ */
+function HeaderOverCell({ item, style, children, ...rest }: { item: Row; style?: StyleProp<ViewStyle>; children?: ReactNode }) {
+  return (
+    <View {...rest} style={[style, item.kind === "project" ? { zIndex: 1 } : null]}>
+      {children}
+    </View>
+  );
+}
+
+/**
  * The long-press-then-drag gesture for a Project header, built outside render (like sliderGesture and resizeGesture) so
  * the React-compiler rules that ban capitalized calls and ref reads in a component body don't fire. A short press that
  * doesn't move still folds the group; a long press lifts it, the pan moves it, the release reports where it landed.
@@ -1921,13 +1946,11 @@ type RowView = {
 function headerDragGesture({
   lifted,
   offset,
-  top,
   drop,
   onFold,
 }: {
   lifted: SharedValue<number>;
   offset: SharedValue<number>;
-  top: SharedValue<number>;
   drop: (y: number) => void;
   onFold: () => void;
 }) {
@@ -1943,8 +1966,8 @@ function headerDragGesture({
     })
     .onEnd((event) => {
       "worklet";
-      // The lifted header's new centre: its own top plus how far it moved, plus half a 44pt row.
-      scheduleOnRN(drop, top.get() + event.translationY + 22);
+      // Where the finger let go, in window coordinates: the drop lands on the header under it.
+      scheduleOnRN(drop, event.absoluteY);
     })
     .onFinalize(() => {
       "worklet";
@@ -1964,8 +1987,9 @@ function ProjectHeaderDrag({
   rowKey,
   label,
   onFold,
-  setHeaderBand,
+  registerHeader,
   reorderProjects,
+  background,
   children,
 }: {
   hostId: string;
@@ -1973,34 +1997,41 @@ function ProjectHeaderDrag({
   rowKey: string;
   label: string;
   onFold: () => void;
-  setHeaderBand: RowActions["setHeaderBand"];
+  /** The list's color: a lifted header is drawn on it, so the rows it passes over don't show through. */
+  background: string;
+  registerHeader: RowActions["registerHeader"];
   reorderProjects: RowActions["reorderProjects"];
   children: ReactNode;
 }) {
   const ref = useRef<ViewInstance>(null);
   const lifted = useSharedValue(0);
   const offset = useSharedValue(0);
-  // The row's top in window coordinates, held while it is lifted so each move maps the finger to a drop band.
-  const top = useSharedValue(0);
-  // Measured as the row lays out and cleared when it leaves, so a drag reads only the headers on screen.
-  const measure = useCallback(() => {
-    ref.current?.measureInWindow((_x: number, y: number, _width: number, height: number) => {
-      top.set(y);
-      setHeaderBand(rowKey, { hostId, path, top: y, bottom: y + height });
-    });
-  }, [rowKey, hostId, path, setHeaderBand, top]);
-  useEffect(() => () => setHeaderBand(rowKey, null), [rowKey, setHeaderBand]);
+  // On screen, the header can be measured for a drop; once it leaves the list (scrolled away, folded out) it can't.
+  useEffect(() => {
+    const measure = () =>
+      new Promise<{ top: number; bottom: number }>((resolve) => {
+        const node = ref.current;
+        if (!node) return resolve({ top: 0, bottom: 0 });
+        node.measureInWindow((_x: number, y: number, _width: number, height: number) => resolve({ top: y, bottom: y + height }));
+      });
+    registerHeader(rowKey, { hostId, path, measure });
+    return () => registerHeader(rowKey, null);
+  }, [rowKey, hostId, path, registerHeader]);
   const drop = useCallback((y: number) => reorderProjects(hostId, path, y), [hostId, path, reorderProjects]);
-  const gesture = headerDragGesture({ lifted, offset, top, drop, onFold });
+  const gesture = headerDragGesture({ lifted, offset, drop, onFold });
   const lift = useAnimatedStyle(() => ({
     transform: [{ translateY: offset.get() }, { scale: 1 + lifted.get() * 0.02 }],
-    opacity: 1 - lifted.get() * 0.2,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOpacity: lifted.get() * 0.14,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
     zIndex: lifted.get() ? 2 : 0,
   }));
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View ref={ref} onLayout={measure} accessibilityRole="button" accessibilityLabel={label} style={[{ flex: 1 }, lift]}>
-        {children}
+      <Animated.View ref={ref} accessibilityRole="button" accessibilityLabel={label} style={[{ flex: 1 }, lift]}>
+        <View style={{ backgroundColor: background, borderRadius: 12 }}>{children}</View>
       </Animated.View>
     </GestureDetector>
   );
@@ -2031,7 +2062,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     worktreeForLinks,
     doneHours,
     background,
-    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, load, setHeaderBand, reorderProjects },
+    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, load, registerHeader, reorderProjects },
   } = view;
   if (item.kind === "section")
     return (
@@ -2264,7 +2295,8 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             rowKey={item.key}
             label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}. Press and hold to reorder.`}
             onFold={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
-            setHeaderBand={setHeaderBand}
+            registerHeader={registerHeader}
+            background={background}
             reorderProjects={reorderProjects}
           >
             {header}
