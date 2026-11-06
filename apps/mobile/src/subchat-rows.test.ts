@@ -36,3 +36,17 @@ test("a folded family shows its parent alone, and a list without subchats comes 
   const plain = [chat(1), chat(2)];
   assert.equal(nestChatRows(plain, new Set()), plain);
 });
+
+test("a grandchild sits one level deeper than its parent, and no row goes past the second level", () => {
+  const rows = [chat(5, { parent: 4 }), chat(4, { parent: 2 }), chat(2, { parent: 1 }), chat(1)];
+  const nested = nestChatRows(rows, new Set(["mac|/p#9"]));
+  assert.deepEqual(
+    nested.map((row) => [row.key, "depth" in row ? row.depth : undefined]),
+    [
+      ["mac|/p#1", undefined],
+      ["mac|/p#2", 1],
+      ["mac|/p#4", 2],
+      ["mac|/p#5", 2],
+    ],
+  );
+});

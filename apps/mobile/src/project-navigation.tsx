@@ -68,7 +68,7 @@ import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
 import { ProjectSearch } from "./project-search";
 import { chatMenu, runChatAction } from "./chat-actions";
 import { useSplitLayout } from "./split-context";
-import { canOpenBeside, openBeside, useBesideChat } from "./split-chats";
+import { canOpenBeside, closeBeside, openBeside, useBesideChat } from "./split-chats";
 import { confirm } from "./confirm-store";
 import { confirmLinkDelete, linkDeleteError } from "./link-delete";
 import { deletedLinkText } from "@milagre/shared/worktree-link";
@@ -98,6 +98,7 @@ import { isDesktopComputer } from "./computer-actions";
 import { WaitingLabel } from "./offline-tray";
 import { SENT_FROM } from "./sent-from";
 import { nestChatRows, type SubchatMarks } from "./subchat-rows";
+import { chatFamily } from "@milagre/shared/subchats";
 
 /** Secondary screens push over the current one; a sheet also leaves the sidebar open under it, as confirmations do. */
 type Destination = (href: Href, secondary?: boolean | "sheet") => void;
@@ -258,6 +259,8 @@ const SHOW: [Show, string, string][] = [
   ["running", "Running", "play.circle"],
   ["archived", "Archived", "archivebox"],
 ];
+/** How far each level of a subchat family indents its row. */
+const SUBCHAT_INDENT = 16;
 const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
 // What a Chat row can show under its title (the Filters menu's "On Chats"); the computer is a desktop choice.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
@@ -498,6 +501,16 @@ const NavigationBody = memo(function NavigationBody({
   // folded, its parent alone, until its count is tapped.
   const [subchatOpen, setSubchatOpen] = useState<ReadonlySet<string>>(() => new Set());
   const subchatFolds = useMemo(() => ({ has: (key: string) => !subchatOpen.has(key) }), [subchatOpen]);
+  // The open Chat's family unfolds around it, so its row is on screen and selected (the user can still fold it again).
+  const openRoot =
+    currentHostId && currentPath && activeChatId !== undefined
+      ? chatFamily(snapshot?.project.state.sessions, `${currentPath}#${activeChatId}`)?.root
+      : undefined;
+  useEffect(() => {
+    if (!openRoot || !currentHostId) return;
+    const key = `${currentHostId}|${openRoot}`;
+    setSubchatOpen((open) => (open.has(key) ? open : new Set(open).add(key)));
+  }, [openRoot, currentHostId, activeChatId]);
   // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
   const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
@@ -1044,16 +1057,9 @@ const NavigationBody = memo(function NavigationBody({
   );
 
   /** Where a Chat or a new Chat goes on the computer `hostId`, which is the connected one by now. */
-  // A subchat on a wide iPad opens beside its family's top Chat, which the route shows (chat.tsx opens `beside`).
-  function enterSubchat(hostId: string, projectPath: string, chatId: number, root: number) {
-    if (hostId === currentHostId && projectPath === currentPath && activeChatId === root) {
-      openBeside({ hostId, projectPath, chatId });
-      onClose?.();
-      return;
-    }
-    void enter(hostId, projectPath, root, undefined, undefined, chatId);
-  }
-  function navigateTo(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string, beside?: number) {
+  function navigateTo(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
+    // Every route opens its Chat alone: the beside Chat's state outlives the route, so a split ends here, not by itself.
+    closeBeside();
     const params = { projectPath, hostId };
     if (chatId === undefined)
       onNavigate({
@@ -1085,24 +1091,23 @@ const NavigationBody = memo(function NavigationBody({
         params: {
           ...params,
           id: String(chatId),
-          ...(beside !== undefined ? { beside: String(beside) } : {}),
         },
       });
   }
   // Revisited Chats adopt their full cached Project before routing, including on another computer. Only a cold
   // destination needs to wait for its computer; messages start reading during the route handoff.
-  async function enter(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string, beside?: number) {
+  async function enter(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
     if (busy) return;
     const host = hostId === currentHostId ? undefined : allComputers.hostFor(hostId);
     if (chatId !== undefined && !pending && (hostId === currentHostId || host)) {
       const cached = session.openCachedChat(projectPath, chatId, host);
       if (cached) {
-        navigateTo(hostId, projectPath, chatId, undefined, undefined, beside);
+        navigateTo(hostId, projectPath, chatId);
         return;
       }
     }
     if (hostId === currentHostId && session.client) {
-      navigateTo(hostId, projectPath, chatId, pending, prefill, beside);
+      navigateTo(hostId, projectPath, chatId, pending, prefill);
       return;
     }
     if (!host) {
@@ -1115,7 +1120,7 @@ const NavigationBody = memo(function NavigationBody({
       if (chatId !== undefined && !pending) {
         if (!(await session.openNotificationTarget(host, projectPath, chatId)) || !alive.current) return;
       } else if (!(await session.connect(host, false)) || !alive.current) return;
-      navigateTo(hostId, projectPath, chatId, pending, prefill, beside);
+      navigateTo(hostId, projectPath, chatId, pending, prefill);
     } catch (e) {
       if (alive.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1573,7 +1578,6 @@ const NavigationBody = memo(function NavigationBody({
           if (!next.delete(key)) next.add(key);
           return next;
         }),
-      enterSubchat,
       load,
       setHeaderBand,
       reorderProjects,
@@ -1594,7 +1598,6 @@ const NavigationBody = memo(function NavigationBody({
       foldChats: () => latestActions.current!.foldChats(),
       foldDone: () => latestActions.current!.foldDone(),
       foldSubchats: (key) => latestActions.current!.foldSubchats(key),
-      enterSubchat: (...args) => latestActions.current!.enterSubchat(...args),
       load: (...args) => latestActions.current!.load(...args),
       setHeaderBand: (...args) => latestActions.current!.setHeaderBand(...args),
       reorderProjects: (...args) => latestActions.current!.reorderProjects(...args),
@@ -1873,8 +1876,6 @@ type RowActions = {
   foldDone: () => void;
   /** Folds or unfolds the subchats under the parent row `key`. */
   foldSubchats: (key: string) => void;
-  /** A subchat's row on a wide iPad: its family's top Chat routed, the subchat open beside it. */
-  enterSubchat: (hostId: string, projectPath: string, chatId: number, root: number) => void;
   load: (hostId: string, projectPath: string) => Promise<unknown>;
   /** A Project header's band in window coordinates while the list is on screen, for a drag to find its drop. */
   setHeaderBand: (key: string, band: { hostId: string; path: string; top: number; bottom: number } | null) => void;
@@ -2030,20 +2031,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     worktreeForLinks,
     doneHours,
     background,
-    actions: {
-      enter,
-      act,
-      projectAction,
-      startNewChat,
-      startWithoutProject,
-      foldChats,
-      foldDone,
-      foldSubchats,
-      enterSubchat,
-      load,
-      setHeaderBand,
-      reorderProjects,
-    },
+    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, load, setHeaderBand, reorderProjects },
   } = view;
   if (item.kind === "section")
     return (
@@ -2403,11 +2391,10 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       : undefined;
   // A Mac that keeps Done answers its retention (done-retention.ts); an older one ignores Done, so its rows archive instead.
   const doneable = doneHours[item.hostId] !== undefined;
-  // A subchat opens beside its family's top Chat where a wide iPad shows two (subchat-rows.ts).
+  // A subchat is a Chat like any other: it opens alone, with its family unfolded around it.
   const openRow = () => {
     if (archiving) return;
-    if (item.subchat && item.root !== undefined && wide && !item.pending) enterSubchat(item.hostId, item.path, item.chat.id, item.root);
-    else void enter(item.hostId, item.path, item.chat.id, item.pending);
+    void enter(item.hostId, item.path, item.chat.id, item.pending);
   };
   const family = item.family;
   const familyLabel = family
@@ -2456,7 +2443,12 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     </Pressable>
   ) : null;
   // A subchat sits indented under its parent, with a line down to it.
-  const subchatGuide = item.subchat ? <View pointerEvents="none" style={[s.subchatGuide, { backgroundColor: colors.line }]} /> : null;
+  // One indent deeper per level, two at most (subchat-rows.ts).
+  const depth = item.depth ?? 1;
+  const subchatGuide = item.subchat ? (
+    <View pointerEvents="none" style={[s.subchatGuide, { left: 8 + SUBCHAT_INDENT * depth, backgroundColor: colors.line }]} />
+  ) : null;
+  const subchatIndent = item.subchat ? { paddingLeft: SUBCHAT_INDENT * depth } : null;
   const menu = chatMenu(
     item.chat,
     copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
@@ -2673,7 +2665,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           pointerEvents={archiving ? "none" : "auto"}
           style={{
             opacity: offline ? 0.6 : 1,
-            ...(item.subchat ? s.subchat : null),
+            ...subchatIndent,
           }}
         >
           {subchatGuide}
@@ -2778,7 +2770,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         pointerEvents={archiving ? "none" : "auto"}
         style={{
           opacity: offline ? 0.6 : 1,
-          ...(item.subchat ? s.subchat : null),
+          ...subchatIndent,
         }}
       >
         {subchatGuide}
@@ -3083,10 +3075,8 @@ const makeS = (colors: Palette) =>
       justifyContent: "center",
     },
     chat: { flexDirection: "row", alignItems: "center" },
-    subchat: { paddingLeft: 16 },
     subchatGuide: {
       position: "absolute",
-      left: 24,
       top: 0,
       bottom: 0,
       width: StyleSheet.hairlineWidth,

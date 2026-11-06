@@ -25,6 +25,8 @@ export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "grid.toggle", title: "Show active Chats as a grid", group: "Navigation", defaults: ["mod+shift+m"], forward: true },
   { id: "grid.focusPrevious", title: "Previous Chat in the grid", group: "Navigation", defaults: ["mod+alt+arrowleft"] },
   { id: "grid.focusNext", title: "Next Chat in the grid", group: "Navigation", defaults: ["mod+alt+arrowright"] },
+  // A Subchat's bookmark goes back to its parent; there is no history, so this is a place, not "back".
+  { id: "chat.parent", title: "Open the parent Chat", group: "Navigation", defaults: ["mod+["], mobile: true },
   ...Array.from({ length: 9 }, (_, index) => ({
     id: `chat.jump.${index + 1}`,
     title: `Open Chat ${index + 1}`,

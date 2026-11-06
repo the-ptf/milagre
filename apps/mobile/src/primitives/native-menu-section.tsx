@@ -3,6 +3,9 @@ import { disabled as nativeDisabled, pickerStyle, tag } from "@expo/ui/swift-ui/
 import { NativePickerIcon } from "../native-picker-icon";
 import type { MenuSection } from "./menu";
 
+// A native menu row has one label: the subtitle takes its second line, as the Android menu does (pull-down.tsx).
+const rowLabel = (item: MenuSection["items"][number]) => (item.subtitle ? `${item.title}\n${item.subtitle}` : item.title);
+
 /** Custom native choice labels need a Picker so UIKit retains its selected checkmark. */
 export function NativeMenuSection({ section, onSelect }: { section: MenuSection; onSelect: (id: string) => void }) {
   const customChoices = section.items.length > 0 && section.items.every((item) => item.icon && item.checked !== undefined);
@@ -27,7 +30,7 @@ export function NativeMenuSection({ section, onSelect }: { section: MenuSection;
         item.checked !== undefined ? (
           <IOSToggle
             key={item.id}
-            label={item.title}
+            label={rowLabel(item)}
             systemImage={item.systemImage as never}
             isOn={item.checked}
             onIsOnChange={() => onSelect(item.id)}
@@ -36,7 +39,7 @@ export function NativeMenuSection({ section, onSelect }: { section: MenuSection;
         ) : (
           <IOSButton
             key={item.id}
-            label={item.title}
+            label={rowLabel(item)}
             systemImage={item.systemImage as never}
             role={item.destructive ? "destructive" : undefined}
             onPress={() => onSelect(item.id)}

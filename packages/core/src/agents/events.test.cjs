@@ -401,6 +401,12 @@ test("agents are told to ask with their question tool, and in a short list witho
   assert.match(MILAGRE_INSTRUCTIONS, /otherwise ask in your reply as a short numbered list\.\n/);
 });
 
+test("a delegated agent that is blocked asks with its question tool and waits", () => {
+  assert.match(MILAGRE_INSTRUCTIONS, /When a Delegation blocks you, ask with your question tool and wait; never end the turn with a question in prose\./);
+  // The rest lives in the wake's note, so a Chat that is never woken pays nothing for it.
+  assert.doesNotMatch(MILAGRE_INSTRUCTIONS, /suggest: true|matter of taste/);
+});
+
 test("agents are told about Links, the read-only linked tools, Delegations and Negotiations", () => {
   for (const name of ["linked_overview", "read_linked_chat", "linked_git", "read_linked_file", "search_linked_files", "delegate", "conclude_negotiation"])
     assert.match(MILAGRE_INSTRUCTIONS, new RegExp(name));

@@ -389,6 +389,7 @@ function steeringHost(t, overrides = {}) {
     setPermissionMode: async (chatId, mode) => calls.push(["mode", chatId, mode]),
     respondPermission: async (...args) => (calls.push(["respond", ...args]), true),
     answerQuestion: async (...args) => (calls.push(["answer", ...args]), true),
+    suggestAnswer: async (...args) => calls.push(["suggest", ...args]),
     patchChat: async (...args) => calls.push(["patch", ...args]),
     searchChats: async () => [{ message: { id: 7, session_id: 1 }, snippet: "found it" }],
     links: {
@@ -503,6 +504,128 @@ test("chat_stop stops the Chat's turn", async (t) => {
   const { host, projectPath, chatId, calls } = steeringHost(t, { run: {} });
   assert.deepEqual(await host.stopChat({ projectPath, chatId }), { chatId, stopped: true });
   assert.deepEqual(calls, [["stop", chatId]]);
+});
+
+// Chat 1 is a Subchat of Chat 2, the caller, waiting on an approval, a question and a secret.
+const FAMILY_RUN = {
+  approvals: [{ requestId: "p1", kind: "command", tool: "Bash", title: "Run npm test", command: "npm test" }],
+  questions: [
+    {
+      requestId: "q1",
+      questions: [{ id: "a", header: "Pick", question: "Which?", options: [{ label: "One" }], multiSelect: false, allowOther: true, secret: false }],
+    },
+    {
+      requestId: "milagre-secret-1",
+      questions: [{ id: "secret", header: "Secret", question: "The token?", options: [], multiSelect: false, allowOther: true, secret: true }],
+    },
+    {
+      requestId: "q2",
+      questions: [{ id: "k", header: "Key", question: "The key?", options: [], multiSelect: false, allowOther: true, secret: true }],
+    },
+  ],
+};
+const familyHost = (t, mode, extra = {}) => steeringHost(t, { run: FAMILY_RUN, session: { parent: 2 }, modes: (root) => ({ [`${root}#2`]: mode }), ...extra });
+
+test("chat_respond suggest leaves a card in the caller's Chat, at once and in any mode, with nothing to approve", async (t) => {
+  for (const mode of ["ask", "auto", "full"]) {
+    const { host, projectPath, chatId, caller, calls } = familyHost(t, mode);
+    const result = await host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["One"], stray: ["x"] }, suggest: true }, caller);
+    assert.deepEqual(result, { chatId, requestId: "q1", accepted: true, note: "Suggested. The human decides." });
+    assert.deepEqual(calls, [
+      ["suggest", caller, { from: chatId, fromTitle: "Target", requestId: "q1", question: "Which?", answerLabel: "One", answers: { a: ["One"] } }],
+    ]);
+  }
+});
+
+test("a parent not in Full can only suggest on a family member's question", async (t) => {
+  for (const mode of ["ask", "auto", "bot"]) {
+    const { host, projectPath, chatId, caller, calls } = familyHost(t, mode);
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["One"] } }, caller), /Use suggest: true/);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("a parent in Full may answer a question alone, and says so as the sender", async (t) => {
+  const { host, projectPath, chatId, caller, calls } = familyHost(t, "full");
+  await host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["One"] } }, caller);
+  assert.deepEqual(calls, [
+    ["answer", chatId, "q1", { a: ["One"] }, undefined, { agent: caller, question: "Which?", answerLabel: "One", answers: { a: ["One"] } }],
+  ]);
+});
+
+test("no agent in the family answers an approval or a secret, or dismisses a question, in any mode", async (t) => {
+  for (const mode of ["ask", "auto", "full"]) {
+    const { host, projectPath, chatId, caller, calls } = familyHost(t, mode);
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "p1", decision: "allow" }, caller), /only they can answer this approval/);
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "p1", decision: "deny" }, caller), /only they can answer this approval/);
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "milagre-secret-1", answers: { secret: ["x"] } }, caller), /give this secret/);
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "q2", answers: { k: ["x"] } }, caller), /give this secret/);
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "q2", answers: { k: ["x"] }, suggest: true }, caller), /give this secret/);
+    await assert.rejects(
+      host.respond({ projectPath, chatId, requestId: "p1", decision: "allow", suggest: true }, caller),
+      /only they can answer this approval/,
+    );
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "q1", answers: null }, caller), /dismiss this question/);
+    // Answers with nothing in them would read as a dismissal.
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["  "] } }, caller), /Give answers/);
+    await assert.rejects(host.respond({ projectPath, chatId, requestId: "q1", answers: { other: ["x"] } }, caller), /Give answers/);
+    assert.deepEqual(calls, [], mode);
+  }
+});
+
+test("a sibling in the family goes by the same rules as a parent", async (t) => {
+  const { host, projectPath, chatId, caller } = steeringHost(t, {
+    run: FAMILY_RUN,
+    session: { parent: 3 },
+    sessions: { 2: { id: 2, worktree_id: 1, parent: 3 }, 3: { id: 3, worktree_id: 1 } },
+    modes: (root) => ({ [`${root}#2`]: "full" }),
+  });
+  await assert.rejects(host.respond({ projectPath, chatId, requestId: "p1", decision: "allow" }, caller), /only they can answer this approval/);
+});
+
+test("while a Subchat waits, the agents above it can't stop, steer or switch it; once it doesn't they can", async (t) => {
+  const { host, projectPath, chatId, caller, calls } = familyHost(t, "full");
+  const refused = /waiting on the user/;
+  await assert.rejects(host.stopChat({ projectPath, chatId }, caller), refused);
+  await assert.rejects(
+    host.startChat({ projectPath, chatId, prompt: "Go on" }, "operation", () => {}, caller),
+    refused,
+  );
+  await assert.rejects(host.setMode({ projectPath, chatId, permissionMode: "ask" }, caller), refused);
+  assert.deepEqual(calls, []);
+  // A Chat outside the family is as it was, and so is an outside client.
+  await host.stopChat({ projectPath, chatId });
+  assert.deepEqual(calls, [["stop", chatId]]);
+
+  const idle = steeringHost(t, { session: { parent: 2 }, modes: (root) => ({ [`${root}#2`]: "full" }) });
+  await idle.host.stopChat({ projectPath: idle.projectPath, chatId: idle.chatId }, idle.caller);
+  assert.deepEqual(idle.calls, [["stop", idle.chatId]]);
+});
+
+test("a question that opens while chat_start gets ready stops it at delivery, before any steer", async (t) => {
+  const run = { approvals: [], questions: [] };
+  const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+    session: { parent: 2 },
+    modes: (root) => ({ [`${root}#2`]: "full" }),
+    runs: (root) => ({ [`${root}#1`]: run }),
+  });
+  await host.startChat({ projectPath, chatId, prompt: "Go on" }, "operation", () => {}, caller);
+  const { canStart } = calls.findLast(([kind]) => kind === "send")[1];
+  assert.equal(canStart(), true);
+  run.questions.push({ requestId: "q1", questions: [] });
+  assert.throws(canStart, /waiting on the user/);
+});
+
+test("a Subchat can still act on the Chat above it, and suggest belongs to a family", async (t) => {
+  const { host, projectPath, chatId, caller, calls } = steeringHost(t, { run: FAMILY_RUN });
+  await assert.rejects(host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["One"] }, suggest: true }, caller), /own family of Subchats/);
+  await assert.rejects(host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["One"] }, suggest: true }), /own family of Subchats/);
+  // Outside the family the older rules hold: the user approves on a card, then the answer goes in.
+  await host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["One"] } }, caller);
+  assert.deepEqual(
+    calls.map(([kind]) => kind),
+    ["approve", "answer"],
+  );
 });
 
 test("chat_respond answers another Chat's approval or question, with the user's approval below Full permission", async (t) => {

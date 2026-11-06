@@ -391,8 +391,27 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Subchats pill and panel read the session, the Mac's Routines and a clock: a test draws them as named elements, with no
       // Subchat. A Delegation report's marker (subchat-marker.tsx) is one too; the states it reads (subchat-states.ts) are pure.
       if (base === "subchat-pill" && !(id in modules))
-        return { SubchatPill: "SubchatPill", SubchatPanel: "SubchatPanel", useSubchatPanel: () => ({ phase: "closed", keys: [] }) };
+        return {
+          SubchatPill: "SubchatPill",
+          SubchatAsk: "SubchatAsk",
+          SubchatPanel: "SubchatPanel",
+          useSubchatPanel: () => ({ phase: "closed", keys: [], deeper: [] }),
+        };
       if (base === "subchat-marker" && !(id in modules)) return { SubchatMarker: "SubchatMarker" };
+      // A Subchat's escalation notes: which message is which is pure (subchat-notes.ts, subchat-escalation.ts); the cards, the capsule over
+      // an open Subchat and the pill that asks are drawn as named elements. The family menu (subchat-family.ts) reads the real states.
+      if (id === "@milagre/shared/subchat-escalation" && !(id in modules)) return require("../packages/shared/src/subchat-escalation.mjs");
+      if (base === "subchat-notes" && !(id in modules))
+        return load("subchat-notes.ts", { "@milagre/shared/subchat-escalation": require("../packages/shared/src/subchat-escalation.mjs") }, "", cache);
+      if (base === "subchat-note" && !(id in modules)) return { SubchatNoteView: "SubchatNoteView", SubchatWaitingNote: "SubchatWaitingNote" };
+      if (base === "subchat-bookmark" && !(id in modules)) return { SubchatBookmarkHost: "SubchatBookmarkHost" };
+      if (base === "subchat-family" && !(id in modules)) {
+        const states = require("../packages/shared/src/subchat-states.ts");
+        const subchats = require("../packages/shared/src/subchats.ts");
+        const chats = require("../packages/shared/src/chats.mjs");
+        const view = load("subchat-view.ts", { "@milagre/shared/chats": chats, "@milagre/shared/subchat-states": states }, "", cache);
+        return load("subchat-family.ts", { "@milagre/shared/chats": chats, "@milagre/shared/subchats": subchats, "./subchat-view.ts": view }, "", cache);
+      }
       if (id === "@milagre/shared/subchat-states" && !(id in modules)) return require("../packages/shared/src/subchat-states.ts");
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
@@ -2761,6 +2780,7 @@ function sessionHost(
     clientFactory,
     navigationStore,
     permission = "ask",
+    refreshLinks = async () => {},
   } = {},
 ) {
   client.recentScopes ??= () => client.call("project:recent");
@@ -2769,6 +2789,7 @@ function sessionHost(
     return client.snapshot(owner);
   };
   const react = hookHost({ effects });
+  test.after(react.unmount);
   const { useSessionState, PendingChatsProvider, ComposerProvider } = load(
     "session.tsx",
     {
@@ -2811,7 +2832,7 @@ function sessionHost(
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
       "./chat-pages": { prefetchChatPage: () => {}, noteChatProjectOpening: () => {} },
       "./pr-status": { pullRequestsChanged: () => {} },
-      "./use-links": { refreshLinks: async () => {} },
+      "./use-links": { refreshLinks },
       "./use-designs": { useDesigns: () => designsOn },
     },
     "\nexport { useSessionState, PendingChatsProvider, ComposerProvider };",
@@ -3062,7 +3083,7 @@ test("the Projects order survives a relaunch, per computer", async () => {
   const store = createProjectOrderStore({ getItemAsync: async (key) => disk.get(key) ?? null, setItemAsync: async (key, value) => void disk.set(key, value) });
   const launch = async (url, recent) => {
     const render = sessionHost(
-      { url, call: async (method) => (method === "project:recent" ? recent : {}) },
+      { url, call: async (method) => (method === "project:recent" ? recent : {}), live: () => ({ close() {} }) },
       {
         effects: true,
         AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
@@ -3112,6 +3133,79 @@ test("a poll from the previous Project cannot restore it after another Project o
   assert.equal(render().snapshot.project.path, "B");
   await oldSession.refresh();
   assert.equal(render().snapshot.project.path, "B");
+});
+
+test("Canvas opened from All Chats receives external Link changes without selecting a Project", async () => {
+  const { refreshLinks, linksOf } = require("../apps/mobile/src/links-store.ts");
+  let links = [];
+  const sockets = [];
+  const listeners = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener: (_event, listener) => {
+      listeners.add(listener);
+      return { remove: () => listeners.delete(listener) };
+    },
+  };
+  const setApp = (state) => {
+    AppState.currentState = state;
+    for (const listener of listeners) listener(state);
+  };
+  const client = {
+    url: "http://canvas-computer",
+    call: async (method) => (method === "canvas:links" ? links : []),
+    snapshot: async () => {
+      throw new Error("Canvas must not open a Project to receive Links");
+    },
+    runs: async () => {
+      throw new Error("No Project selected for runs");
+    },
+    live: (projectPath, options) => {
+      const socket = {
+        projectPath,
+        options,
+        closed: false,
+        close() {
+          this.closed = true;
+        },
+      };
+      sockets.push(socket);
+      return socket;
+    },
+  };
+  const render = sessionHost(client, { effects: true, AppState, refreshLinks });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  try {
+    await render().connect({ address: client.url, token: "token" });
+    assert.equal(render().snapshot, null, "All Chats has no selected Project");
+    assert.equal(sockets.length, 1, "computer-wide subscription starts before a Project is selected");
+    assert.equal(sockets[0].projectPath, "");
+    sockets[0].options.onStatus(true);
+    await settle();
+    assert.deepEqual(linksOf(client).links, []);
+    links = [{ id: "external", a: { project_id: "a" }, b: { project_id: "b" }, created_at: "" }];
+    sockets[0].options.onSignal("links");
+    await settle();
+    assert.deepEqual(linksOf(client).links, links, "addition reaches the Canvas store without remount or refresh");
+    links = [];
+    sockets[0].options.onSignal("links");
+    await settle();
+    assert.deepEqual(linksOf(client).links, [], "removal reaches the Canvas store without remount or refresh");
+    setApp("background");
+    assert.equal(sockets[0].closed, true);
+    links = [{ id: "missed", a: { project_id: "a" }, b: { project_id: "b" }, created_at: "" }];
+    setApp("active");
+    assert.equal(sockets[1].projectPath, "");
+    sockets[1].options.onStatus(true);
+    await settle();
+    assert.deepEqual(linksOf(client).links, links, "reconnection catches changes made while away");
+    render().disconnect();
+    assert.equal(render().client, null);
+    assert.equal(sockets[1].closed, true, "disconnect releases the computer-wide subscription");
+  } finally {
+    render.unmount();
+  }
+  assert.equal(listeners.size, 0);
 });
 
 test("the session fetches on live signals and polls only while the live socket is down", async (t) => {
@@ -3166,17 +3260,18 @@ test("the session fetches on live signals and polls only while the live socket i
   render();
   assert.deepEqual(
     sockets.map((socket) => socket.projectPath),
-    ["A"],
+    ["", "A"],
   );
+  assert.equal(sockets[0].closed, true, "selecting a Project closes the computer-wide socket");
   await snapshots(2, "opening fetches, then the sync fetches once");
   t.mock.timers.tick(4000);
   await snapshots(3, "it polls while the socket is not open (an older bridge)");
-  sockets[0].options.onStatus(true);
+  sockets[1].options.onStatus(true);
   await snapshots(4, "it catches up once the socket opens");
   t.mock.timers.tick(30000);
   await snapshots(4, "no polling while live");
   const before = render().snapshot;
-  sockets[0].options.onSignal("runs");
+  sockets[1].options.onSignal("runs");
   await settle();
   assert.equal(fetched.runs, 1);
   const live = render();
@@ -3184,22 +3279,22 @@ test("the session fetches on live signals and polls only while the live socket i
   const runsNow = () => render().runsStore.runsFor(`${render().client.url}|A`, render().snapshot);
   assert.equal(runsNow().runs["A#1"].text, "streaming", "its runs show from the runs store");
   assert.equal(live.snapshot.project.path, "A");
-  sockets[0].options.onSignal("project");
+  sockets[1].options.onSignal("project");
   await snapshots(5);
   assert.deepEqual(runsNow().runs, {}, "a whole read after it is newer: its runs show");
-  sockets[0].options.onStatus(false);
+  sockets[1].options.onStatus(false);
   await snapshots(6, "losing the socket fetches at once");
   t.mock.timers.tick(4000);
   await snapshots(7, "and polls again");
   setApp("background");
-  assert.equal(sockets[0].closed, true, "the socket closes in the background");
+  assert.equal(sockets[1].closed, true, "the socket closes in the background");
   t.mock.timers.tick(30000);
   await snapshots(7, "and nothing polls");
   setApp("active");
-  assert.equal(sockets.length, 2, "it opens again in the foreground");
+  assert.equal(sockets.length, 3, "it opens again in the foreground");
   await snapshots(8);
   render.unmount();
-  assert.equal(sockets[1].closed, true);
+  assert.equal(sockets[2].closed, true);
 });
 
 test("disconnect cancels a connection that is still loading recent Projects", async () => {
@@ -3220,6 +3315,12 @@ function find(node, predicate) {
     const found = find(child, predicate);
     if (found) return found;
   }
+}
+function findAll(node, predicate, found = []) {
+  if (!node || typeof node !== "object") return found;
+  if (predicate(node)) found.push(node);
+  for (const child of [node.props?.children].flat(Infinity)) findAll(child, predicate, found);
+  return found;
 }
 function chatHost({
   pickAttachments = async () => [],
@@ -3374,6 +3475,8 @@ function chatHost({
     "../split-chats": {
       ...load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }),
       openBeside: (target) => beside.push(target),
+      // Every route to a Chat ends a split first (split-chats.ts): the beside Chat's state outlives the route.
+      closeBeside: () => (beside.closed = (beside.closed ?? 0) + 1),
     },
     "../chat-display-setting": {
       useShowContextSize: () => [contextPreferences.showContextSize],
@@ -4168,7 +4271,13 @@ function navigationHost(
   };
   // A row renders apart (NavigationRow, memoized); renderItem hands the tests the row as drawn, as before.
   const drawRows = (type, props, key) => (type?.name === "NavigationRow" ? type(props) : jsx(type, props, key));
+  // A route to a Chat ends any split first (split-chats.ts); `closedSplits` counts how often.
+  const closedSplits = [];
   const { ProjectNavigation } = load("project-navigation.tsx", {
+    "./split-chats": {
+      ...load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }),
+      closeBeside: () => closedSplits.push(1),
+    },
     "./update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge" },
     react: { ...react, useSyncExternalStore: (_subscribe, read) => read(), memo: (component) => component, useLayoutEffect: (fn) => fn() },
     "react/jsx-runtime": { jsx: drawRows, jsxs: drawRows },
@@ -4306,6 +4415,7 @@ function navigationHost(
     prRequests,
     choiceRequests,
     storeCalls,
+    closedSplits,
     unmount: react.unmount,
   };
 }
@@ -4336,6 +4446,163 @@ test("the Project icon count folds a family without opening its Chat in grouped 
     assert.ok(!nav.rows().props.data.some((item) => item.kind === "chat" && item.chat.id === 5));
     nav.unmount();
   }
+});
+
+test("a subchat's row opens it alone, closing any split, and the open subchat's family is unfolded around it", () => {
+  const nav = navigationHost(Promise.resolve(), { activeChatId: 5, effects: true });
+  nav.state.project.state.sessions[4] = { id: 4, worktree_id: 1, title: "Parent" };
+  nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, title: "Child", parent: 4 };
+  nav.state.project.state.sessions[6] = { id: 6, worktree_id: 1, title: "Grandchild", parent: 5 };
+  nav.render();
+  const data = () => nav.rows().props.data.filter((item) => item.kind === "chat");
+  assert.deepEqual(
+    JSON.stringify(
+      data()
+        .filter((item) => item.chat.id >= 4)
+        .map((item) => [item.chat.id, item.depth ?? 0]),
+    ),
+    JSON.stringify([
+      [4, 0],
+      [5, 1],
+      [6, 2],
+    ]),
+    "the family shows without a tap, a grandchild one level deeper",
+  );
+  const child = data().find((item) => item.chat.id === 5);
+  const press = find(nav.rows().props.renderItem({ item: child }), (node) => node.type === "PullDown" && node.props.onPress).props.onPress;
+  press();
+  assert.equal(nav.routes.length, 1);
+  assert.equal(JSON.stringify(nav.routes[0]), JSON.stringify({ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", id: "5" } }));
+  assert.equal(nav.closedSplits.length, 1, "the split ended before the route changed");
+  nav.unmount();
+});
+
+// The Subchat surfaces draw from these (subchat-ask-card.tsx, subchat-bookmark.tsx, subchat-note.tsx): what a screen reader
+// reads, which target is 44pt, and what never truncates.
+// Draws the components a Subchat surface hands on (the capsule's host, a note's card) one level, as React would.
+const expand = (node) => {
+  for (let drawn = node; ; drawn = drawn.type(drawn.props)) if (!drawn || typeof drawn.type !== "function") return drawn;
+};
+const subchatUi = (file) => {
+  const react = { ...hookHost(), memo: (fn) => fn };
+  return load(file, {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", useWindowDimensions: () => ({ width: 402, height: 874 }) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "./icons": { Icon: "Icon" },
+    "./primitives/pill-button": { PillButton: "PillButton" },
+    "./primitives/tap": { tap() {} },
+    "./attention": { useAttention: () => [] },
+  });
+};
+
+test("the ask pill keeps 'needs you' whole, lets the title truncate, wraps the question and opens the one Subchat", () => {
+  const { SubchatAskCard } = subchatUi("subchat-ask-card.tsx");
+  let opened = 0;
+  const card = SubchatAskCard({ title: "Write pill tests", rest: "1 working", ask: "Which badge should Closed use?", onOpen: () => opened++ });
+  assert.equal(card.props.accessibilityRole, "button");
+  assert.equal(card.props.accessibilityLabel, "Write pill tests needs you. 1 working. Which badge should Closed use?");
+  assert.equal(card.props.style({ pressed: false })[0].minHeight, 44);
+  const title = find(card, (node) => node.type === "Text" && node.props.children === "Write pill tests");
+  const verdict = find(card, (node) => node.type === "Text" && node.props.children === " needs you");
+  assert.equal(title.props.numberOfLines, 1, "the title gives way");
+  assert.equal(verdict.props.numberOfLines, undefined, "needs you never truncates");
+  assert.equal(verdict.props.style.flexShrink, 0);
+  const question = find(card, (node) => node.type === "Text" && node.props.children === "Which badge should Closed use?");
+  assert.equal(question.props.numberOfLines, undefined, "the question wraps");
+  card.props.onPress();
+  assert.equal(opened, 1);
+});
+
+test("the capsule is 32 tall with a 44 target, tints orange when the parent needs you and never truncates 'Needs you'", () => {
+  const { SubchatBookmarkHost } = subchatUi("subchat-bookmark.tsx");
+  const sessions = { 1: { id: 1, title: "Redesign the PR panel" }, 2: { id: 2, title: "Audit", parent: 1 } };
+  // The host hands the capsule its Bookmark; the capsule is drawn here, where a screen would draw it.
+  const draw = (runs) =>
+    expand(SubchatBookmarkHost({ sessions, chatKey: "/p#2", runs, top: 60, onBack: (key) => (drawn.backs = [...(drawn.backs ?? []), key]) }));
+  const drawn = {};
+  const calm = draw(undefined);
+  assert.equal(calm.props.style.top, 60);
+  assert.equal(calm.props.style.left, 16);
+  const calmButton = find(calm, (node) => node.type === "Pressable");
+  assert.equal(calmButton.props.accessibilityLabel, "Back to Redesign the PR panel");
+  assert.equal(calmButton.props.style({ pressed: false })[0].height, 32);
+  assert.deepEqual(JSON.stringify(calmButton.props.hitSlop), JSON.stringify({ top: 6, bottom: 6, left: 6, right: 6 }));
+  assert.equal(
+    find(calm, (node) => node.type === "Text" && node.props.children === "Needs you"),
+    undefined,
+  );
+  const needy = draw({ "/p#1": { approvals: [], questions: [{ requestId: "q", questions: [] }] } });
+  const needyButton = find(needy, (node) => node.type === "Pressable");
+  assert.equal(needyButton.props.accessibilityLabel, "Back to Redesign the PR panel, needs you");
+  assert.equal(needyButton.props.style({ pressed: false })[0].backgroundColor, "orangeTint");
+  const verdict = find(needy, (node) => node.type === "Text" && node.props.children === "Needs you");
+  assert.equal(verdict.props.style.color, "orangeInk");
+  assert.equal(verdict.props.numberOfLines, undefined);
+  assert.equal(find(needy, (node) => node.type === "Text" && node.props.children === "Redesign the PR panel").props.numberOfLines, 1, "the title gives way");
+  needyButton.props.onPress();
+  assert.equal(JSON.stringify(drawn.backs), JSON.stringify(["/p#1"]), "back goes to the direct parent");
+  assert.equal(SubchatBookmarkHost({ sessions, chatKey: "/p#1", runs: undefined, top: 60, onBack() {} }), null, "a top Chat has none");
+});
+
+test("a suggestion is a card with Send answer, Open Subchat and Dismiss; an outcome collapses it to one line, a dismissal to nothing", async () => {
+  const { SubchatNoteView } = subchatUi("subchat-note.tsx");
+  const note = {
+    kind: "subchat-suggestion",
+    id: "s1",
+    from: "/p#2",
+    fromTitle: "Write pill tests",
+    requestId: "r1",
+    question: "Which badge should Closed use?",
+    answerLabel: "Grey, like Draft",
+    answers: { q: ["Grey, like Draft"] },
+  };
+  const sent = [],
+    dismissed = [],
+    opened = [];
+  const draw = (outcomes = new Map()) =>
+    expand(
+      SubchatNoteView({
+        note,
+        outcomes,
+        onOpenChat: (key) => opened.push(key),
+        onSend: async (value) => (sent.push(value.id), true),
+        onDismiss: async (id) => dismissed.push(id),
+      }),
+    );
+  const card = draw();
+  const text = (node) => [node.props.children].flat(Infinity).join("");
+  assert.ok(find(card, (node) => node.type === "Text" && text(node) === "Write pill tests · Which badge should Closed use?"));
+  assert.ok(find(card, (node) => node.type === "Text" && text(node) === 'Send "Grey, like Draft" as your answer?'));
+  // PillButton is the real primitive here: an element carrying its title, not yet drawn.
+  const button = (title) => find(card, (node) => node.props?.title === title);
+  button("Send answer").props.onPress();
+  button("Open Subchat").props.onPress();
+  assert.equal(JSON.stringify(sent), JSON.stringify(["s1"]));
+  assert.equal(JSON.stringify(opened), JSON.stringify(["/p#2"]));
+  assert.equal(button("Dismiss").props.accessibilityLabel, "Dismiss the suggested answer from Write pill tests");
+  const outcome = (kind, label) => new Map([["s1", { kind: "subchat-suggestion-outcome", id: "s1", fromTitle: "Write pill tests", outcome: kind, label }]]);
+  const line = draw(outcome("sent", "Grey, like Draft"));
+  assert.equal(
+    find(line, (node) => node.props?.title === "Send answer"),
+    undefined,
+  );
+  assert.ok(find(line, (node) => node.type === "Text" && text(node) === 'Sent "Grey, like Draft" to Write pill tests'));
+  assert.equal(draw(outcome("dismissed")), null);
+  const escalation = expand(
+    SubchatNoteView({
+      note: { kind: "subchat-escalation", from: "/p#2", fromTitle: "Write pill tests", requestId: "r1", waitedMs: 180_000 },
+      outcomes: new Map(),
+      onOpenChat: (key) => opened.push(key),
+      onSend: async () => true,
+      onDismiss: async () => true,
+    }),
+  );
+  assert.equal(escalation.props.accessibilityRole, "link");
+  assert.equal(escalation.props.accessibilityLabel, "Write pill tests has been waiting on you for 3 min");
+  escalation.props.onPress();
+  assert.equal(opened.at(-1), "/p#2", "the ↳ line opens the subchat");
 });
 
 test("the sidebar reads its computers only while shown, all Projects in One list and the unfolded ones when grouped", () => {
@@ -18879,6 +19146,8 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
     },
   };
   let visibleChat;
+  // The split ends before the route changes: each close is recorded with the routes opened so far.
+  const closedSplits = [];
   const { AttentionPill } = load("attention.tsx", {
     // Subscribing starts the shared poller, as React does on mount; a new subscribe (another client) subscribes again.
     react: {
@@ -18891,6 +19160,7 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { AppState: { currentState: "active" }, Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { absoluteFill: {} } },
     "expo-router": { router: { replace: (route) => opened.push(route) } },
+    "./split-chats": { closeBeside: () => closedSplits.push(opened.length) },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 59 }) },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
@@ -18916,6 +19186,7 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
     assert.equal(tree.props.style({ pressed: false })[0].top, 119, "the phone pill stays below header controls");
     tree.props.onPress();
     assert.deepEqual({ ...opened[0].params }, { projectPath: "/other", hostId: "test-host", id: "4" });
+    assert.equal(JSON.stringify(closedSplits), JSON.stringify([0]), "the split closed before the route");
     // A different client forces a refresh without waiting for the poll timer.
     keys = ["/other#4", "/other#5"];
     session.client = { ...client };
@@ -18948,6 +19219,22 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
     visibleChat = "/other#4";
     tree = render();
     assert.equal(tree.props.accessibilityLabel, "Review changes needs attention. Open the Chat.");
+    // A Subchat's capsule announces its waiting parent: that Chat leaves the pill, and the pill shrinks to its icon.
+    visibleChat = undefined;
+    react.begin();
+    tree = AttentionPill({ currentChat: "/other#3", hideChats: ["/other#4"], compact: true });
+    assert.equal(tree.props.accessibilityLabel, "Review changes needs attention. Open the Chat.", "only the other Chat is left");
+    assert.equal(
+      find(tree, (node) => node.type === "Text"),
+      undefined,
+      "no words in the compact pill",
+    );
+    assert.ok(find(tree, (node) => node.type === "Icon"));
+    react.begin();
+    assert.equal(
+      AttentionPill({ currentChat: "/other#3", hideChats: ["/other#5"] }).props.accessibilityLabel,
+      "Renamed toolbar Chat needs attention. Open the Chat.",
+    );
   } finally {
     react.cleanup();
   }
@@ -20638,7 +20925,7 @@ test("the actual phone computer-use card receives the delayed first frame, opens
   assert.equal(calls.length, 3, "one step, no remount, initial/live/final reads");
 });
 
-test("subchat report links keep the parent on wide iPad and switch only the child", () => {
+test("subchat report links open the Chat alone on a wide iPad, closing any split first", () => {
   const host = chatHost({ split: { ...phoneSplit, widthClass: "wide" }, screenWidth: 1400 });
   host.params.id = "1";
   host.session.snapshot.project.state.sessions = { 1: { id: 1, title: "Parent" }, 2: { id: 2, parent: 1 }, 3: { id: 3, parent: 1 } };
@@ -20649,22 +20936,139 @@ test("subchat report links keep the parent on wide iPad and switch only the chil
   try {
     const report = () => find(host.render(), (node) => node.type === "ChatReply").props;
     report().onOpenChat("/p#2");
-    assert.equal(host.router.replaced, undefined, "report keeps parent routed");
-    assert.equal(host.beside.at(-1).chatId, 2);
-    report().onOpenChat("/p#3");
-    assert.equal(host.router.replaced, undefined, "switching children keeps parent routed");
-    assert.equal(host.beside.at(-1).chatId, 3);
+    assert.equal(host.router.replaced.params.id, "2", "the subchat is the routed Chat");
+    assert.equal(host.router.replaced.params.beside, undefined, "no beside param: it opens alone");
+    assert.equal(host.beside.length, 0, "nothing opened beside");
+    assert.equal(host.beside.closed, 1, "the split ended before the route changed");
     const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
     const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
-    menu.props.onSelect("/p#2");
-    assert.equal(host.beside.at(-1).chatId, 2, "title and report use the same navigation");
+    menu.props.onSelect("/p#3");
+    assert.equal(host.router.replaced.params.id, "3", "the title menu and the report use the same route");
+    assert.equal(host.beside.closed, 2);
     host.params.id = "2";
     host.session.snapshot.project.state.messages.push({ id: 11, session_id: 2, role: "assistant", body: "Sibling report", context: null });
     report().onOpenChat("/p#3");
-    assert.equal(host.router.replaced.params.id, "1", "opening a sibling from the child routes its parent");
-    assert.equal(host.router.replaced.params.beside, "3");
+    assert.equal(host.router.replaced.params.id, "3", "opening a sibling from a child routes the sibling itself");
     report().onOpenChat("/other#2");
     assert.equal(host.router.replaced.params.projectPath, "/other", "same id in another Project navigates normally");
+  } finally {
+    delete globalThis.chatPage;
+  }
+});
+
+test("a Subchat's title menu names the family and offers Open beside parent only to a wide iPad", () => {
+  for (const wide of [false, true]) {
+    const host = chatHost(wide ? { split: { ...phoneSplit, widthClass: "wide" }, screenWidth: 1400 } : {});
+    host.params.id = "3";
+    host.session.snapshot.project.state.sessions = {
+      1: { id: 1, title: "Top" },
+      2: { id: 2, title: "Middle", parent: 1 },
+      3: { id: 3, title: "Leaf", parent: 2 },
+      4: { id: 4, title: "Sibling", parent: 2 },
+    };
+    const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
+    const items = menu.props.sections.flatMap((section) => section.items);
+    assert.equal(
+      JSON.stringify(items.filter((item) => item.subtitle === "Top Chat" || item.subtitle === "Parent").map((item) => [item.title, item.subtitle])),
+      JSON.stringify([
+        ["Top", "Top Chat"],
+        ["Middle", "Parent"],
+      ]),
+    );
+    assert.equal(items.find((item) => item.checked)?.title, "Leaf", "the open Chat has the tick");
+    assert.equal(items.find((item) => item.id === "beside-parent") !== undefined, wide);
+    if (wide) {
+      menu.props.onSelect("beside-parent");
+      assert.equal(host.beside.at(-1).chatId, 2, "beside the nearest listed parent");
+      assert.equal(host.router.replaced, undefined, "the route stays");
+    }
+  }
+});
+
+test("a Subchat opens under a capsule that goes back to its parent alone; a top Chat and a secondary pane have none", () => {
+  const sessions = { 1: { id: 1, title: "Top" }, 2: { id: 2, title: "Child", parent: 1 } };
+  const host = chatHost();
+  host.params.id = "2";
+  host.session.snapshot.project.state.sessions = sessions;
+  const capsule = find(host.render(), (node) => node.type === "SubchatBookmarkHost");
+  assert.ok(capsule, "a Subchat shows its bookmark");
+  assert.equal(capsule.props.chatKey, "/p#2");
+  capsule.props.onBack("/p#1");
+  assert.equal(host.router.replaced.params.id, "1", "back goes to the parent by replace");
+  assert.equal(host.beside.closed, 1);
+  const top = chatHost();
+  top.params.id = "1";
+  top.session.snapshot.project.state.sessions = sessions;
+  assert.equal(
+    find(top.render(), (node) => node.type === "SubchatBookmarkHost"),
+    undefined,
+  );
+  const secondary = chatHost({ pane: "secondary", split: { ...phoneSplit, widthClass: "wide" } });
+  secondary.params.id = "2";
+  secondary.session.snapshot.project.state.sessions = sessions;
+  assert.equal(
+    find(secondary.render(), (node) => node.type === "SubchatBookmarkHost"),
+    undefined,
+    "hidden in a secondary pane",
+  );
+});
+
+test("a Subchat's transcript leaves room for its capsule: its content and message jumps sit 16 lower", () => {
+  const sessions = { 1: { id: 1, title: "Top" }, 2: { id: 2, title: "Child", parent: 1 } };
+  const paddingTop = (id) => {
+    const host = chatHost();
+    host.params.id = id;
+    host.session.snapshot.project.state.sessions = sessions;
+    const list = find(host.render(), (node) => node.type === "KeyboardChatScrollView");
+    return [list.props.contentContainerStyle].flat(Infinity).find((style) => style?.paddingTop !== undefined).paddingTop;
+  };
+  assert.equal(paddingTop("2") - paddingTop("1"), 16);
+});
+
+test("a Subchat's escalation notes draw where they fall, and the open request's wait note sits over its question", () => {
+  const host = chatHost();
+  host.params.id = "1";
+  host.session.snapshot.project.state.sessions = { 1: { id: 1, title: "Top" }, 2: { id: 2, title: "Child", parent: 1 } };
+  const waiting = { kind: "subchat-waiting", ask: "question", parentTitle: "Top", waitedMs: 180_000 };
+  const escalation = { kind: "subchat-escalation", from: "/p#2", fromTitle: "Child", requestId: "r1", waitedMs: 180_000 };
+  const suggestion = {
+    kind: "subchat-suggestion",
+    id: "s1",
+    from: "/p#2",
+    fromTitle: "Child",
+    requestId: "r1",
+    question: "Q?",
+    answerLabel: "A",
+    answers: { q: ["A"] },
+  };
+  globalThis.chatPage = () => ({
+    messages: [
+      { id: 10, session_id: 1, role: "assistant", body: "", context: escalation },
+      { id: 11, session_id: 1, role: "assistant", body: "", context: suggestion },
+      { id: 12, session_id: 1, role: "assistant", body: "", context: waiting },
+    ],
+  });
+  host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+  try {
+    const kinds = () => findAll(host.render(), (node) => node.type === "SubchatNoteView").map((node) => node.props.note.kind);
+    assert.deepEqual(kinds(), ["subchat-suggestion", "subchat-waiting"], "the escalation line is dropped for its suggestion; no request is open");
+    // An approval is as open a request as a question: either keeps the note over the card in the dock.
+    host.session.snapshot.runs.runs["/p#1"] = { approvals: [{ requestId: "a1", title: "Run a command" }], questions: [] };
+    const tree = host.render();
+    assert.deepEqual(kinds(), ["subchat-suggestion"], "the waiting note leaves the transcript while its request is open");
+    assert.equal(find(tree, (node) => node.type === "SubchatWaitingNote")?.props.note.waitedMs, 180_000);
+    const note = find(tree, (node) => node.type === "SubchatNoteView");
+    note.props.onSend(suggestion);
+    note.props.onDismiss("s1");
+    const [answer, dismiss] = host.calls.slice(-2);
+    assert.equal(answer.method, "agent:answer-question");
+    assert.equal(answer.args[0].suggestionId, "s1");
+    assert.equal(answer.args[0].chatId, "/p#2");
+    assert.equal(
+      JSON.stringify({ method: dismiss.method, args: dismiss.args }),
+      JSON.stringify({ method: "agent:dismiss-suggestion", args: [{ chatId: "/p#1", id: "s1" }] }),
+    );
   } finally {
     delete globalThis.chatPage;
   }

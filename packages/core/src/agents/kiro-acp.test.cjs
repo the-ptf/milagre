@@ -140,6 +140,24 @@ test("in Ask, every request Kiro makes gets a card", async (t) => {
   await ended(events);
 });
 
+test("a wake's turn refuses all Kiro asks for, in Ask, Auto and Full, where Auto would have run it", async (t) => {
+  const guard = { level: "escalation", requests: [{ chatId: "/p#2", requestId: "q1" }] };
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const { session, events } = kiro(t, "kiro-tools");
+    await session.startTurn({ prompt: "Go", images: [], model: "kiro:auto", permissionMode, guard });
+    await ended(events);
+    assert.equal(events.filter((event) => event.type === "permission-request").length, 0, permissionMode);
+    assert.match(
+      events
+        .filter((event) => event.type === "text-delta")
+        .map((event) => event.text)
+        .join(""),
+      /picked:deny,deny,deny/,
+      permissionMode,
+    );
+  }
+});
+
 test("a Kiro turn ends with what it cost, in credits", async (t) => {
   const { session, events } = kiro(t);
   await session.startTurn({ prompt: "Hi", images: [], model: "kiro:auto", permissionMode: "auto" });

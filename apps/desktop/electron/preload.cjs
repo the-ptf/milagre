@@ -400,7 +400,9 @@ function makeBridge(invoke, listen, send) {
     onCliProgress: (callback) => listen("agent:cli-progress", callback),
     interruptAgent: (chatId) => invoke("agent:interrupt", chatId),
     respondToPermission: (chatId, requestId, decision) => invoke("agent:respond-permission", { chatId, requestId, decision }),
-    answerQuestion: (chatId, requestId, answers, summary, images) => invoke("agent:answer-question", { chatId, requestId, answers, summary, images }),
+    answerQuestion: (chatId, requestId, answers, summary, images, suggestionId) =>
+      invoke("agent:answer-question", { chatId, requestId, answers, summary, images, suggestionId }),
+    dismissSuggestion: (chatId, id) => invoke("agent:dismiss-suggestion", { chatId, id }),
     setAgentPermissionMode: (chatId, mode) => invoke("agent:set-permission-mode", { chatId, mode }),
     onAgentEvent: (callback) => listen("agent:event", callback),
     getAgentPorts: () => invoke("agent:ports"),

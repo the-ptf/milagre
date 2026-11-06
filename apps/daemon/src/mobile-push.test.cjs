@@ -179,6 +179,18 @@ test("focus suppresses only the viewing device and expires after 15 seconds", as
   assert.equal(messages.length, 5);
 });
 
+test("a phone's view counts as the Chat being open, until it expires", async (t) => {
+  let clock = 1000;
+  const { push } = await fixture(t, { now: () => clock });
+  await push.register(registration());
+  assert.equal(push.viewing(chatId), false);
+  push.focus({ deviceId, chatId });
+  assert.equal(push.viewing(chatId), true);
+  assert.equal(push.viewing("/project#2"), false);
+  clock += 16_000;
+  assert.equal(push.viewing(chatId), false);
+});
+
 test("a Chat open in a focused desktop window reaches no phone", async (t) => {
   let viewed = chatId;
   const { push, messages } = await fixture(t, { isChatFocused: (id) => id === viewed });

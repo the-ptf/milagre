@@ -42,8 +42,8 @@ async function browserChecks() {
   window.webContents.on("console-message", (details) => {
     if (details.level === "error") errors.push(details.message);
   });
-  const waitFor = async (source) => {
-    for (let n = 0; n < 200; n++) {
+  const waitFor = async (source, tries = 200) => {
+    for (let n = 0; n < tries; n++) {
       if (await evaluate(source)) return;
       await delay(25);
     }
@@ -61,7 +61,8 @@ async function browserChecks() {
   };
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(String.raw`!!document.querySelector("[data-prompt-editor]")`);
+    // The whole App mounts here, cold on a busy runner; the checks after it keep the short wait.
+    await waitFor(String.raw`!!document.querySelector("[data-prompt-editor]")`, 800);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '2', metaKey: true, bubbles: true, cancelable: true }))`);
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Review PR 10923")`);
     assert.equal(await chip(), "Full", "an idle Chat with no pick shows the default");

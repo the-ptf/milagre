@@ -4,6 +4,7 @@ import Tooltip from "../primitives/Tooltip";
 import { Chip } from "../primitives/Chip";
 import { chatRoutine } from "@milagre/shared/routines";
 import { chipStripInsets, useRoutines } from "../../lib/routines";
+import { useBookmarkReserve } from "../../lib/bookmark-reserve";
 import { useWindowChrome } from "../../lib/window-chrome";
 import { routineIcon } from "./routine-icon";
 
@@ -68,13 +69,14 @@ function Pill({ routine, onOpen, wrapper }: { routine: Routine; onOpen: (routine
 function Strip({ children }: { children: ReactNode }) {
   const strip = useRef<HTMLDivElement>(null);
   const { rightInset } = useWindowChrome();
+  const bookmark = useBookmarkReserve();
   const [insets, setInsets] = useState({ left: CORNER_BUTTONS, right: CORNER_BUTTONS });
   useLayoutEffect(() => {
     const host = strip.current?.offsetParent;
     if (!(host instanceof HTMLElement)) return;
     const update = () => {
       const rect = host.getBoundingClientRect();
-      const next = chipStripInsets(rect.width, window.innerWidth - rect.right, CORNER_BUTTONS + rightInset);
+      const next = chipStripInsets(rect.width, window.innerWidth - rect.right, CORNER_BUTTONS + rightInset, bookmark);
       setInsets((current) => (current.left === next.left && current.right === next.right ? current : next));
     };
     update();
@@ -86,7 +88,7 @@ function Strip({ children }: { children: ReactNode }) {
       observer.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [rightInset]);
+  }, [rightInset, bookmark]);
   return (
     <div
       ref={strip}

@@ -54,14 +54,3 @@ export function gridChats(previous: readonly string[], active: readonly string[]
   const next = [...kept, ...[...wanted].filter((key) => !kept.includes(key))];
   return next.length === previous.length && next.every((key, index) => key === previous[index]) ? previous : next;
 }
-
-/**
- * The split's Chats after focus moves from `previous` to `focused`: a Chat opened from outside the split takes the slot
- * of the one focused before it, as in a browser's split view, so the split keeps its size. Returns `split` itself when
- * nothing changes.
- */
-export function splitChats(split: readonly string[], previous: string | null, focused: string | null): readonly string[] {
-  if (!focused || !previous || split.includes(focused)) return split;
-  const at = split.indexOf(previous);
-  return at < 0 ? split : split.map((key, index) => (index === at ? focused : key));
-}

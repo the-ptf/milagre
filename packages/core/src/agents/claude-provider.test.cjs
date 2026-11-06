@@ -1576,6 +1576,87 @@ test("a guarded command that reaches canUseTool is denied there too", async (t) 
   await ended(events);
 });
 
+const WAKE = { level: "escalation", requests: [{ chatId: "/p#2", requestId: "q1" }] };
+const MILAGRE_TOOLS = [
+  { name: "chat_read", readOnly: true },
+  { name: "chat_respond", readOnly: false },
+  { name: "tasks_set", readOnly: false },
+];
+
+test("a wake's turn denies every tool but reads and chat_respond on its requests, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const { session, events, calls } = claude(t, { script: scripts.held });
+    await session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await waitUntil(() => calls.options);
+    session.linked = { tools: MILAGRE_TOOLS };
+    const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+    const call = (tool_name, tool_input = {}) => hook({ hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: "t" }, "t");
+    // Claude Code runs on its strictest mode, and Milagre's permission mode stays the Chat's own: chat_respond reads it.
+    assert.equal(calls.options.permissionMode, "default", permissionMode);
+    assert.equal(session.permissions.mode, permissionMode);
+    assert.deepEqual(await call("Read", { file_path: "/repo/a.ts" }), {}, permissionMode);
+    assert.deepEqual(await call("mcp__milagre__chat_read"), {}, permissionMode);
+    assert.deepEqual(await call("mcp__milagre__chat_respond", { chatId: "/p#2", requestId: "q1" }), {}, permissionMode);
+    for (const [tool, input] of [
+      ["Bash", { command: "ls" }],
+      ["mcp__milagre__tasks_set", {}],
+      ["mcp__notion__search", {}],
+    ]) {
+      const result = await call(tool, input);
+      assert.equal(result.hookSpecificOutput.permissionDecision, "deny", `${permissionMode} ${tool}`);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /only tells the human/);
+    }
+    calls.release();
+    await ended(events);
+  }
+});
+
+test("past its tool calls the hook says to reply, past the grace the turn stops, and neither touches the next turn", async (t) => {
+  const { ESCALATION_TOOL_CALLS, ESCALATION_TOOL_GRACE } = require("@milagre/shared/subchat-escalation");
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await waitUntil(() => calls.options);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const read = () => hook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: {}, tool_use_id: "t" }, "t");
+  for (let call = 0; call < ESCALATION_TOOL_CALLS; call++) assert.deepEqual(await read(), {});
+  for (let call = 0; call < ESCALATION_TOOL_GRACE; call++) assert.match((await read()).hookSpecificOutput.permissionDecisionReason, /reply to the human now/);
+  assert.equal(session.cancelRequested, false);
+  await read();
+  assert.equal(session.cancelRequested, true, "the host stops a turn that keeps trying");
+  calls.release();
+  await ended(events);
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  assert.deepEqual(await hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "t" }, "t"), {});
+  assert.equal(session.escalation, null);
+});
+
+test("a wake's turn opens no card: what still asks is refused, and a question has nobody to ask", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "ask", guard: WAKE });
+  await waitUntil(() => calls.options);
+  assert.equal((await calls.options.canUseTool("Read", { file_path: "/etc/hosts" }, { requestId: "r1", toolUseID: "u1" })).behavior, "deny");
+  assert.equal(
+    (await calls.options.canUseTool("AskUserQuestion", { questions: [{ question: "Why?" }] }, { requestId: "r2", toolUseID: "u2" })).behavior,
+    "deny",
+  );
+  assert.equal(
+    events.some((event) => ["permission-request", "question-request"].includes(event.type)),
+    false,
+  );
+  calls.release();
+  await ended(events);
+});
+
+test("a babysit guard is untouched by the wake's path", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await waitUntil(() => calls.options);
+  assert.equal(calls.options.permissionMode, "bypassPermissions");
+  assert.equal(session.escalation, null);
+  calls.release();
+  await ended(events);
+});
+
 test("analysis-only Claude gets no hooks at all, even in Bot rules", async (t) => {
   const { session, events, calls } = claude(t, { analysisOnly: true, permissionPolicy: mergePolicy });
   await session.startTurn({ ...TURN, permissionMode: "bot" });

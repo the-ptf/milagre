@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, CoordinatorState } from "./model.ts";
-import { attentionContext, attentionLabel, attentionNotice, chatsNeedingAttention, waitingFor } from "./attention.mjs";
+import { attentionContext, attentionLabel, attentionNotice, attentionTitle, chatsNeedingAttention, waitingFor } from "./attention.mjs";
 
 const context = { projectName: "rd-events", worktreeName: "new-events-structure", chatTitle: "Split the events table", provider: "claude" as const };
 const question = (text: string) => ({ id: text, header: "", question: text, options: [], multiSelect: false, allowOther: true, secret: false });
@@ -35,6 +35,19 @@ test("an approval shows the command's first line, or the request's title", () =>
 test("a missing chat title never falls back to a project or worktree label", () => {
   const event: AgentEvent = { type: "question-request", requestId: "q1", questions: [question("Ship it?")] };
   assert.equal(attentionNotice(event, { projectName: "shop", worktreeName: "shop" })?.title, "Milagre");
+});
+
+test("a Subchat's notice says which Chat it belongs to, the nearest one still listed", () => {
+  const event: AgentEvent = { type: "question-request", requestId: "q1", questions: [question("Ship it?")] };
+  const sessions = {
+    1: { id: 1, worktree_id: 1, agent_name: "a", status: "Created", title: "Redesign the PR panel" },
+    2: { id: 2, worktree_id: 1, agent_name: "a", status: "Created", title: "Hidden step", parent: 1, archived: true },
+    3: { id: 3, worktree_id: 1, agent_name: "a", status: "Created", title: "Write pill tests", parent: 2 },
+  };
+  const state = { sessions, worktrees: {}, messages: [] } as unknown as CoordinatorState;
+  assert.equal(attentionNotice(event, attentionContext(state, "shop", 3))?.title, "Write pill tests · in Redesign the PR panel");
+  assert.equal(attentionNotice(event, attentionContext(state, "shop", 1))?.title, "Redesign the PR panel");
+  assert.equal(attentionTitle({ chatTitle: "Tests", parentTitle: "  " }), "Tests");
 });
 
 test("other events need no notification", () => {

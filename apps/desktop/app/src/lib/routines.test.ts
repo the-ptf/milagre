@@ -260,4 +260,7 @@ test("chipStripInsets centers the chip over <main> and keeps it clear of the win
   // A side panel between <main> and the window's edge takes some or all of the corner.
   assert.deepEqual(chipStripInsets(800, 150, 300), { left: 150, right: 150 });
   assert.deepEqual(chipStripInsets(800, 400, 300), { left: 12, right: 12 });
+  // The Subchat bookmark's reach holds the left side back, so the chip starts after it; the right side is unchanged.
+  assert.deepEqual(chipStripInsets(1000, 0, 300, 420), { left: 420, right: 300 });
+  assert.deepEqual(chipStripInsets(1000, 0, 300, 100), { left: 300, right: 300 });
 });

@@ -22,6 +22,7 @@ const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, lo
 const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell, writesRemote } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
+const { acpCall, turnGuards } = require("../escalation-guard.cjs");
 const { commandRisk } = require("./command-risk.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
@@ -188,8 +189,9 @@ class AcpSession {
     this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
     // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
-    // tool call id ({ command, reason }), so their steps say why.
+    // tool call id ({ command, reason }), so their steps say why. A wake's EscalationTurn while its turn runs.
     this.guard = null;
+    this.escalation = null;
     this.refused = new Map();
   }
 
@@ -222,7 +224,10 @@ class AcpSession {
     }
     this.turnActive = true;
     this.cancelRequested = false;
-    this.guard = request.guard ?? null;
+    Object.assign(
+      this,
+      turnGuards(request.guard, () => void this.interrupt()),
+    );
     this.turnEnded = new Promise((resolve) => {
       this.markTurnEnded = resolve;
     });
@@ -274,7 +279,8 @@ class AcpSession {
       await this.finishTurn([]);
       return { turnId: null, steered: false, cancelled: true };
     }
-    if (this.cancelRequested || this.closed) {
+    // An agent that stays in a mode that doesn't ask would run tools no gate sees: a wake without its guard is no wake.
+    if (this.cancelRequested || this.closed || (this.escalation && !this.inStrictMode())) {
       await this.finishTurn([{ type: "turn-cancelled" }]);
       return { turnId: null, steered: false, cancelled: true };
     }
@@ -447,8 +453,9 @@ class AcpSession {
   // one that refuses both keeps its mode, and the approval cards still follow Milagre's (see PendingPermissions).
   // Full's mode never asks, so a babysit Run's turn in Full runs in Auto's: its commands ask, the level refuses what it
   // doesn't allow, and PendingPermissions allows the rest without a card.
+  // A wake's turn runs in Ask's, the strictest there is, whatever the Chat's; `permissions` keeps the Chat's own.
   async applyMode() {
-    const target = this.config.modes[this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode];
+    const target = this.config.modes[this.escalation ? "ask" : this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode];
     // Kiro's permission mode is its `autopilot` option; its `mode` names its agents (see kiro-acp.cjs).
     const option = this.config.modeOption ?? "mode";
     if (!target || target === this.state[option] || !this.rpc || this.closed) return;
@@ -465,6 +472,11 @@ class AcpSession {
     }
   }
 
+  // Whether the agent is really in Ask's mode: applyMode leaves it as it was when the agent refuses both ways of asking.
+  inStrictMode() {
+    return this.state[this.config.modeOption ?? "mode"] === this.config.modes.ask;
+  }
+
   handleNotification(method, params = {}) {
     if (method !== "session/update" || this.replaying) return;
     if (params.sessionId && this.state.sessionId && params.sessionId !== this.state.sessionId) return;
@@ -474,6 +486,7 @@ class AcpSession {
     if (!this.turnActive && !STATE_UPDATES.has(update.sessionUpdate)) return;
     // Once Stop is pressed, Antigravity answers with "The request was cancelled by the client." as reply text.
     if (this.cancelRequested && update.sessionUpdate === "agent_message_chunk") return;
+    if (update.sessionUpdate === "tool_call") this.escalation?.called();
     this.mapUpdate(update);
   }
 
@@ -512,6 +525,13 @@ class AcpSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) {
       this.reply(id, outcome(null));
+      return;
+    }
+    // Before the plan tools' shortcut and the edits Auto allows without a card. A question has nobody to ask in this turn.
+    if (this.escalation) {
+      const known = this.state.calls.get(String(toolCall.toolCallId ?? "")) ?? {};
+      const refused = this.escalation.denial(acpCall({ ...known, ...toolCall }, this.linked?.tools));
+      this.reply(id, outcome(isQuestionCall(toolCall.toolCallId) ? null : pickOption(options, refused ? "deny" : "allow")));
       return;
     }
     if (isAcpPlanToolPermission(params)) {
@@ -620,6 +640,7 @@ class AcpSession {
   async finishTurn(events) {
     if (!this.turnActive) return;
     this.turnActive = false;
+    this.escalation = null;
     const markEnded = this.markTurnEnded;
     this.markTurnEnded = null;
     clearTimeout(this.interruptTimer);

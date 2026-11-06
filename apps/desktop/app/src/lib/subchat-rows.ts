@@ -1,10 +1,13 @@
-import { createContext, useSyncExternalStore } from "react";
-import { nestSubchats } from "@milagre/shared/subchats";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { nestSubchats, subchatRoot } from "@milagre/shared/subchats";
 export { chatFamily } from "@milagre/shared/subchats";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 
-/** How a sidebar row shows: a subchat sits under its parent (subchats.ts), whose row counts them and folds them away. */
-export type ShownRow = { subchat: boolean; family?: { count: number; folded: boolean; asking: boolean; onToggle: () => void } };
+/**
+ * How a sidebar row shows: a subchat sits under its parent (subchats.ts), whose row counts them and folds them away.
+ * `depth` is 0 for a top-level Chat, then 1 or 2 for how far in a subchat sits (nestSubchats' depths, capped there).
+ */
+export type ShownRow = { subchat: boolean; depth: number; family?: { count: number; folded: boolean; asking: boolean; onToggle: () => void } };
 
 /**
  * `rows` (unpinned, not Done Chats, in the list's order) with each subchat under its topmost listed ancestor; a folded
@@ -19,15 +22,15 @@ export function shownChats<T>(
     asking = () => false,
   }: { key: (row: T) => string; parent: (row: T) => string | undefined; folded: SubchatFolds; asking?: (row: T) => boolean },
 ): (ShownRow & { item: T })[] {
-  if (!rows.some((row) => parent(row) !== undefined)) return rows.map((item) => ({ item, subchat: false }));
+  if (!rows.some((row) => parent(row) !== undefined)) return rows.map((item) => ({ item, subchat: false, depth: 0 }));
   const byKey = new Map(rows.map((row) => [key(row), row]));
   const shown: (ShownRow & { item: T })[] = [];
-  for (const { row, children } of nestSubchats(rows, key, (at) => {
+  for (const { row, children, depths } of nestSubchats(rows, key, (at) => {
     const row = byKey.get(at);
     return row === undefined ? undefined : parent(row);
   })) {
     if (!children.length) {
-      shown.push({ item: row, subchat: false });
+      shown.push({ item: row, subchat: false, depth: 0 });
       continue;
     }
     const rowKey = key(row);
@@ -35,11 +38,51 @@ export function shownChats<T>(
     shown.push({
       item: row,
       subchat: false,
+      depth: 0,
       family: { count: children.length, folded: isFolded, asking: children.some(asking), onToggle: toggleFor(rowKey) },
     });
-    if (!isFolded) for (const child of children) shown.push({ item: child, subchat: true });
+    if (!isFolded) children.forEach((child, index) => shown.push({ item: child, subchat: true, depth: depths[index] ?? 1 }));
   }
   return shown;
+}
+
+/**
+ * The family root above the active row, when it is a subchat: the Chat whose family must be unfolded for that row to show.
+ * Every route that opens a Chat ends with its row active, so the sidebar unfolds from here instead of each route doing it.
+ */
+export function activeFamilyRoot<T>(
+  rows: readonly T[],
+  { key, parent }: { key: (row: T) => string; parent: (row: T) => string | undefined },
+  isActive: (row: T) => boolean,
+): string | undefined {
+  const active = rows.find(isActive);
+  if (!active) return undefined;
+  const byKey = new Map(rows.map((row) => [key(row), row]));
+  return subchatRoot(
+    key(active),
+    (at) => {
+      const row = byKey.get(at);
+      return row === undefined ? undefined : parent(row);
+    },
+    (at) => byKey.has(at),
+  );
+}
+
+/**
+ * Unfolds `root`'s family once each time the active Chat becomes one of its subchats, so folding it by hand afterwards sticks
+ * until another subchat opens. `root` is activeFamilyRoot's answer, `active` the open Chat's key.
+ */
+export function useUnfoldActiveFamily(root: string | undefined, active: string | undefined) {
+  const done = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!root || !active) {
+      done.current = undefined;
+      return;
+    }
+    if (done.current === active) return;
+    done.current = active;
+    unfoldSubchats(root);
+  }, [root, active]);
 }
 
 /** A Chat's key in `scope` and its parent's: the sidebar rows' `id` and `parent`. */
@@ -93,8 +136,18 @@ function readOpened(): ReadonlySet<string> {
 
 /** Folds or unfolds the family under the Chat `key`. */
 function toggleSubchats(key: string) {
+  setOpened(key, !opened.has(key));
+}
+
+/** Unfolds the family under the Chat `key` when a route opens one of its Chats, so the row it selects is in view. */
+function unfoldSubchats(key: string) {
+  if (!opened.has(key)) setOpened(key, true);
+}
+
+function setOpened(key: string, open: boolean) {
   const next = new Set(opened);
-  if (!next.delete(key)) next.add(key);
+  if (open) next.add(key);
+  else next.delete(key);
   opened = next;
   folds = foldsOf(next);
   try {
@@ -115,6 +168,3 @@ export function useSubchatFolds(): SubchatFolds {
     () => folds,
   );
 }
-
-/** Opens a subchat beside its parent (App's openBesideParent); false when the Chat has no parent there. */
-export const OpenSubchatContext = createContext<((key: string) => boolean) | null>(null);
