@@ -55,6 +55,8 @@ export function chatMenu(
         : [{ id: "pin", title: "Pin", systemImage: "pin" }],
     },
     ...(links ? [links] : []),
+    // A subchat, nested under the Chat that delegated to it: desktop's "Detach from parent".
+    ...(chat.parent !== undefined && !chat.archived ? [{ items: [{ id: "detach", title: "Detach from parent", systemImage: "minus.circle" }] }] : []),
     {
       items: [
         ...(chat.archived || !doneable
@@ -149,6 +151,7 @@ export async function runChatAction({
   // The Mac stamps when it went Done, so the countdown follows its clock, not the phone's.
   if (action === "done") await client.call("chat:patch", [projectPath, chat.id, { done: true, unread: false }]);
   if (action === "reopen") await client.call("chat:patch", [projectPath, chat.id, { done: false }]);
+  if (action === "detach") notify(await client.call<string>("chat:detach", [projectPath, chat.id]));
   const worktree = state.worktrees[chat.worktree_id];
   if (action === "copy-path" && worktree) await Clipboard.setStringAsync(worktree.path);
   if (action === "copy-branch" && worktree) await Clipboard.setStringAsync(worktree.name);

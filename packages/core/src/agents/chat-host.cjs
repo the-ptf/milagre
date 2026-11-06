@@ -329,6 +329,31 @@ class ChatHost {
   }
 
   /**
+   * Undoes adoptSubchat: `childKey` lists as a Chat of its own again. With `parentKey`, only while that Chat is its
+   * parent. Resolves true when it saved.
+   */
+  async detachSubchat(childKey, parentKey) {
+    const projectPath = projectOfKey(childKey);
+    const childId = sessionIdFromKey(childKey);
+    const parentId = parentKey === undefined ? undefined : sessionIdFromKey(parentKey);
+    if (parentKey !== undefined && projectOfKey(parentKey) !== projectPath) return false;
+    let detached = false;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const child = latest.sessions[childId];
+        if (child?.parent === undefined || (parentId !== undefined && child.parent !== parentId)) return latest;
+        detached = true;
+        const { parent: _parent, ...rest } = child;
+        return { ...latest, sessions: { ...latest.sessions, [childId]: rest } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+    return detached;
+  }
+
+  /**
    * A mode change from the composer: `live(chatId, mode)` hands it to the running agent, and the chat saves it whatever
    * that says. When both fail, the agent's error is the one reported.
    */

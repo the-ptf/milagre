@@ -312,7 +312,7 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
     },
     {
       name: "delegate",
-      description: `Hand work to another Chat: in a linked Worktree, or in any Worktree of this Chat's own Project (this one included, no Link needed). That Chat's own agent carries it out in the Chat you pick (a Chat ref, or "new"); its Delegation report comes back to this Chat later and reaches you with your next turn, so don't wait for it. Use it instead of chat_start when you want the result back. The message runs in that Chat's own permission mode (a new Chat takes yours); if that is more than yours, the user approves first: the call can wait minutes for that card, so wait for its result, don't end the turn or move on. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
+      description: `Hand work to another Chat: in a linked Worktree, or in any Worktree of this Chat's own Project (this one included, no Link needed). That Chat's own agent carries it out in the Chat you pick (a Chat ref, or "new"); its Delegation report comes back to this Chat later and reaches you with your next turn, so don't wait for it. Use it instead of chat_start when you want the result back; chat_start sends a message without nesting the Chat or reporting back. delegation_detach undoes the nesting. The message runs in that Chat's own permission mode (a new Chat takes yours); if that is more than yours, the user approves first: the call can wait minutes for that card, so wait for its result, don't end the turn or move on. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
       input: {
         worktree: z
           .string()
@@ -333,6 +333,16 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
       },
       readOnly: false,
       run: (args) => delegations.delegate(chatId, args),
+    },
+    {
+      name: "delegation_detach",
+      description:
+        "Stop a Chat being a subchat: a Chat you delegated to (or this Chat itself, when `chat` is left out) leaves its parent in the sidebar, and its open Delegations from you end without stopping its work. Their reports no longer come back.",
+      input: {
+        chat: z.string().optional().describe("The Chat ref (projectPath#id) to detach. Leave out to detach this Chat from its parent."),
+      },
+      readOnly: false,
+      run: ({ chat }) => delegations.detach(chat ?? chatId, chatId),
     },
     {
       name: "conclude_negotiation",

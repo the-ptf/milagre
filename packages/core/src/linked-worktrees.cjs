@@ -1,4 +1,4 @@
-const { isLinkScopeKey, scopeFromKey } = require("@milagre/shared/chat-scopes");
+const { isLinkScopeKey, scopeFromKey, computerOfKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
 const path = require("node:path");
 const { chatKey, lastUserModel, projectOfKey, runStatus, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { activeWorktrees } = require("./project-identity.cjs");
@@ -322,6 +322,8 @@ function createLinkedWorktrees({
         return chatKey(projectPath, await chats.emptyChat(projectPath, worktree.id));
       },
       adoptSubchat: (toChat, fromChat) => chats.adoptSubchat(toChat, fromChat),
+      // Another computer's Chat nests on that computer, never here.
+      detachSubchat: async (chat, parent) => computerOfKey(chat) === LOCAL_COMPUTER && chats.detachSubchat(chat, parent),
       status: (key) => runStatus(chats.runs[key]),
       pendingResults: async (key) => {
         const session = (await project(projectOfKey(key))).sessions[sessionIdFromKey(key)];
@@ -419,6 +421,7 @@ function createLinkedWorktrees({
                 conclude: async () => {
                   throw new Error("Shared Link Chats do not host Negotiations.");
                 },
+                detach: (chat, by) => delegations.detach(chat, by),
               }
             : delegations,
         }),
@@ -454,6 +457,8 @@ function createLinkedWorktrees({
       await delegations.grant(chatId, linkId);
     },
     stop: (target) => delegations.stop(target),
+    /** The sidebar's "Detach from parent": the user detaches the Chat from its parent and every open Delegation to it. */
+    detach: (chatId) => delegations.detach(chatId),
     snapshot,
     // Delegations between computers (spec 2026-10-23): this Mac running another computer's (hosted), and this Mac's
     // Chats hearing back from the computers they delegated to.

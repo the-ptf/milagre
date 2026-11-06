@@ -105,8 +105,8 @@ async function browserChecks() {
       throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
-  async function waitFor(source) {
-    for (let n = 0; n < 200; n++) {
+  async function waitFor(source, tries = 200) {
+    for (let n = 0; n < tries; n++) {
       if (await evaluate(source)) return;
       await delay(25);
     }
@@ -130,7 +130,8 @@ async function browserChecks() {
 
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[aria-label="Settings"]')`);
+    // The whole App boots first, which takes a CI runner well over the 5 s a step gets.
+    await waitFor(`!!document.querySelector('[aria-label="Settings"]')`, 1200);
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
     await click("Devices");
 

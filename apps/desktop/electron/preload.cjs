@@ -399,6 +399,7 @@ function makeBridge(invoke, listen, send) {
     cancelLimitResume: (projectPath, sessionId, sendId) => invoke("chat:limit-resume:cancel", projectPath, sessionId, sendId),
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
     deleteChat: (projectPath, sessionId) => invoke("chat:delete", projectPath, sessionId),
+    detachChat: (projectPath, sessionId) => invoke("chat:detach", projectPath, sessionId),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),
     archiveFinishedSubagents: (projectPath, sessionId) => invoke("chat:archive-finished-subagents", projectPath, sessionId),
     addGitNote: (chatId, body) => invoke("chat:git-note", chatId, body),
