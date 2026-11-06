@@ -58,7 +58,6 @@ import { useEvent } from "../lib/stable";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
 import { projectRows, stableOrder, type RecentProject } from "@/lib/project-list";
-import { ComputersButton } from "./sidebar/ComputersButton";
 import { ChatRow, type ChatRowActions, type RowComputer, type SidebarRecent } from "./sidebar/ChatRow";
 import { useComputers, useHiddenComputers, isDimmed } from "../lib/computers";
 import { computerAlias, computerSections, mergeScopes, useComputerScopes, withoutLocal } from "../lib/computer-scopes";
@@ -1816,6 +1815,7 @@ export default memo(function SidebarNav({
               </Tooltip>
               <FiltersButton
                 projects={pickerProjects}
+                computerMenu={onAddComputer && onOpenComputerSettings ? { onAddComputer, onOpenSettings: onOpenComputerSettings } : null}
                 computers={multi ? computerSections(thisMac, computers) : null}
                 imageOf={scopeImage}
                 currentImage={selectedLink ? undefined : workspace.image}
@@ -1826,9 +1826,6 @@ export default memo(function SidebarNav({
                 collapsed={collapsed}
                 className={FILTERS_BUTTON}
               />
-              {onAddComputer && onOpenComputerSettings && (
-                <ComputersButton collapsed={collapsed} onAddComputer={onAddComputer} onOpenSettings={onOpenComputerSettings} />
-              )}
             </div>
             <Tooltip label="Settings" shortcut={keys.settings} align={collapsed ? "start" : "end"}>
               <IconButton size={32} data-update-settings="" label="Settings" onClick={onOpenSettings}>

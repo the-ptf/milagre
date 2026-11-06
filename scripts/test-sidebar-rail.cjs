@@ -152,12 +152,15 @@ async function browserChecks() {
     await evaluate(`window.render("/work/arketa")`);
     await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/arketa"][data-current]')`);
     assert.match(await chips("/work/arketa"), /#409/);
-    // The Filters icon fills while a Project is hidden (api is), and stays outlined with none hidden.
-    const filled = () =>
-      evaluate(`[...document.querySelectorAll("[data-filters] svg path")].filter((node) => node.getAttribute("fill") === "currentColor").length`);
+    // The Filters funnel stays outlined; a hidden Project (api is) shows as the accent dot, gone with none hidden.
+    const dot = () => evaluate(`document.querySelector("[data-filters] [data-filters-dot]")?.dataset.filtersDot ?? null`);
     assert.equal(await evaluate(`document.querySelector("[data-filters]").hasAttribute("data-filters-active")`), true);
-    assert.equal(await filled(), 2, "Both knobs are filled while a Project is hidden");
-    assert.equal(await evaluate(`!!document.querySelector("[data-filters] .rounded-full")`), false, "No dot any more");
+    assert.equal(await dot(), "filtering", "the dot shows while a Project is hidden");
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll("[data-filters] svg path")].some((node) => node.getAttribute("fill") === "currentColor")`),
+      false,
+      "the funnel is never filled",
+    );
     await screenshot("filters-active");
     await evaluate(`document.querySelector("[data-filters]").click()`);
     await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="projects"]')`);
@@ -165,7 +168,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-project-choice="/work/api"]')`);
     await evaluate(`document.querySelector('[data-project-choice="/work/api"]').click()`);
     await waitFor(`!document.querySelector("[data-filters]").hasAttribute("data-filters-active")`);
-    assert.equal(await filled(), 0, "With nothing hidden the knobs are outlined");
+    assert.equal(await dot(), null, "With nothing hidden there is no dot");
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-filters-panel]")`);

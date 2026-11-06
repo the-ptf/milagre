@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
-import { FilterHorizontalIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { FilterIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
 import { EdgeFade } from "./bottom-fade";
@@ -164,7 +164,7 @@ export function ChatListControls({
                 reducedTransparencyFallbackColor={colors.surface}
                 style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
               />
-              <Icon icon={FilterHorizontalIcon} tone="ink" size={20} />
+              <Icon icon={FilterIcon} tone="ink" size={20} />
             </View>
           </PullDown>
           <View style={s.search}>
