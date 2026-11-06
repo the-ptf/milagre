@@ -283,6 +283,7 @@ const PATHS = Object.freeze({
   "scope:retry-save": ([scope]) => [scope],
   "chat:patch": ([projectPath]) => [projectPath],
   "chat:delete": ([projectPath]) => [projectPath],
+  "chat:detach": ([projectPath]) => [projectPath],
   "chat:archive-subagent": ([projectPath]) => [projectPath],
   "chat:archive-finished-subagents": ([projectPath]) => [projectPath],
   "chat:subagent": ([projectPath]) => [projectPath],

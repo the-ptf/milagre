@@ -98,7 +98,7 @@ test("every read is refused outside the Worktrees the Chat can see", async (t) =
   await assert.rejects(reads.search("api#1", web, "health", "--open-files-in-pager=sh"), /Give a glob/);
 });
 
-test("the tool definitions are read-only except delegate and conclude_negotiation, and check their input", async () => {
+test("the tool definitions are read-only except delegate, delegation_detach and conclude_negotiation, and check their input", async () => {
   const calls = [];
   const definitions = linkedToolDefinitions("api#1", {
     reads: {
@@ -111,7 +111,7 @@ test("the tool definitions are read-only except delegate and conclude_negotiatio
   });
   assert.deepEqual(
     definitions.filter((tool) => !tool.readOnly).map((tool) => tool.name),
-    ["delegate", "conclude_negotiation"],
+    ["delegate", "delegation_detach", "conclude_negotiation"],
   );
   assert.deepEqual(
     definitions.filter((tool) => tool.readOnly).map((tool) => tool.name),

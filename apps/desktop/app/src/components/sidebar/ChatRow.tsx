@@ -180,6 +180,8 @@ export type ChatRowActions = {
   onLinkWith?: (id: string, anchor: { top: number; left: number }) => void;
   /** "Remove Link with…": the chat's Links, at the menu's place. */
   onRemoveLink?: (id: string, anchor: { top: number; left: number }) => void;
+  /** "Detach from parent", on a subchat: it lists on its own, and its open Delegations stop reporting back. */
+  onDetach?: (id: string) => void;
 };
 
 const NO_LINKS: LinkedEnd[] = [];
@@ -1745,6 +1747,16 @@ function ChatMenu({
                 left: position.x,
               }),
             ),
+          },
+        ]
+      : []),
+    ...(actions.onDetach && item.parent
+      ? [
+          {
+            key: "detach",
+            label: "Detach from parent",
+            icon: Unlink04Icon,
+            onSelect: run(() => actions.onDetach?.(item.id)),
           },
         ]
       : []),

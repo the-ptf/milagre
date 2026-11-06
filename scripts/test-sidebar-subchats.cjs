@@ -22,10 +22,12 @@ const recents = [
  { id: "4", label: "Pinned", pinned: true, pinOrder: 1 },
  { id: "5", label: "Done", doneAt: 1 },
 ];
+window.detached = [];
 window.setMode = (chatList) => updateSettings({ chatList });
 window.setMode("list");
 createRoot(document.getElementById("root")).render(
  <SidebarNav fill workspaceName="P" workspaceImage="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" projectPath="/p" recents={recents} activeId="1"
+   chatActions={{ onDetach: (id) => window.detached.push(id) }}
    onJumpChatsChange={(ids) => { window.jumpIds = ids; }} />
 );
 `;
@@ -97,8 +99,28 @@ async function browserChecks() {
       await delay(150);
       await check(["4", "1", "3"]);
     }
+    // "Detach from parent" is on a subchat's menu only.
+    const menuLabels = async (id) => {
+      await evaluate(
+        `document.querySelector('[data-chat-id="${id}"]').dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 40, clientY: 40 }))`,
+      );
+      await waitFor(`document.querySelector('[data-menu-row]')`);
+      const labels = await evaluate(`[...document.querySelectorAll('[data-menu-row]')].map(row => row.textContent.trim())`);
+      return labels;
+    };
+    assert.ok(!(await menuLabels("1")).includes("Detach from parent"), "a top-level Chat has no parent to leave");
+    await evaluate(`document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))`);
+    await waitFor(`!document.querySelector('[data-menu-row]')`);
+    await evaluate(`document.querySelector('[data-subchat-badge]').click()`);
+    await waitFor(`document.querySelector('[data-chat-id="2"]')`);
+    assert.ok((await menuLabels("2")).includes("Detach from parent"));
+    await screenshot("detach-menu");
+    await evaluate(`[...document.querySelectorAll('[data-menu-row]')].find(row => row.textContent.trim() === "Detach from parent").click()`);
+    assert.deepEqual(await evaluate(`window.detached`), ["2"]);
     assert.deepEqual(errors, []);
-    console.log("PASS: grouped, One list and rail hints match keyboard targets with nested (folded at first), pinned and Done Chats");
+    console.log(
+      "PASS: grouped, One list and rail hints match keyboard targets with nested (folded at first), pinned and Done Chats; a subchat's menu detaches it",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);

@@ -113,6 +113,7 @@ class Delegations {
    *     for a Worktree of the Chat's own Project, which needs no Link
    *   chat(chatKey) -> { label, worktreePath, archived } | null; openChat(projectPath, worktreePath) -> a new Chat's key
    *   adoptSubchat(toChat, fromChat) -> nests a Chat of the requester's own Project under it (ChatHost.adoptSubchat)
+   *   detachSubchat(chat, parent?) -> undoes it, only from `parent` when given; resolves whether it did (ChatHost.detachSubchat)
    *   status(chatKey) -> "idle" | "working" | "waiting"
    *   pendingResults(chatKey) -> whether advisor results still need a turn, including saved queued results
    *   deliver(chatKey, { body, prompt, context }) -> { started }, once the message is saved; `started` resolves with
@@ -726,6 +727,11 @@ class Delegations {
   async start(chatKey, item) {
     const delegation = item.kind === "delegation" ? this.data.delegations.find((entry) => entry.id === item.delegationId) : null;
     const negotiation = item.negotiationId ? this.data.negotiations.find((entry) => entry.id === item.negotiationId) : null;
+    // Detached before delivery: the message still goes, but nothing follows it back.
+    if (delegation?.status === "detached") {
+      await Promise.resolve(this.ports.deliver(chatKey, item)).catch((error) => console.warn("Milagre couldn't deliver a detached Delegation:", error.message));
+      return;
+    }
     if ((delegation && delegation.status !== "queued") || (negotiation && negotiation.status !== "running")) return;
     if (delegation) {
       delegation.status = "running";
@@ -841,7 +847,7 @@ class Delegations {
   async undelivered(item, status, problem) {
     const delegation = item.kind === "delegation" ? this.data.delegations.find((entry) => entry.id === item.delegationId) : null;
     const negotiation = item.negotiationId ? this.data.negotiations.find((entry) => entry.id === item.negotiationId) : null;
-    if (delegation) {
+    if (delegation && delegation.status !== "detached") {
       delegation.status = status;
       const body = `Couldn't deliver the Delegation to ${delegation.to_label}: ${problem}.`;
       delegation.report = body;
@@ -1061,6 +1067,33 @@ class Delegations {
         }
       },
     };
+  }
+
+  /**
+   * `delegation_detach` and the sidebar's "Detach from parent": `chatKey` stops being a subchat, and its open
+   * Delegations stop reporting back (status "detached"); its work goes on. `by` is the Chat asking: itself, its parent
+   * or a Chat that delegated to it, and only that Chat's Delegations end. Null is the user, who detaches all of them.
+   */
+  async detach(chatKey, by = null) {
+    await this.ready;
+    const self = by === null || by === chatKey;
+    const open = this.data.delegations.filter((item) => item.to_chat === chatKey && OPEN.has(item.status) && !item.hosted && (self || item.from_chat === by));
+    const unnested = await this.ports.detachSubchat?.(chatKey, self ? undefined : by);
+    if (!open.length && !unnested) throw new Error("That Chat isn't nested under this one and has no open Delegation from it.");
+    for (const delegation of open) delegation.status = "detached";
+    await this.persist();
+    for (const negotiation of this.data.negotiations.filter((item) => open.some((delegation) => delegation.negotiation_id === item.id)))
+      await this.end(negotiation, "stopped", { reason: "the Chat was detached" });
+    // A Delegation to "new" was labelled before that Chat had a title.
+    const label = (await Promise.resolve(this.ports.chat(chatKey)).catch(() => null))?.label ?? open[0]?.to_label ?? "the Chat";
+    for (const from of new Set(open.map((item) => item.from_chat)))
+      await this.ports.note(from, {
+        body: `Detached ${label}. It keeps working, but its Delegation report won't come back here.`,
+        context: { kind: "linked-notice", delegationId: open.find((item) => item.from_chat === from).id },
+      });
+    return open.length
+      ? `Detached. ${open.length === 1 ? "Its Delegation" : `Its ${open.length} Delegations`} won't report back; the Chat keeps working.`
+      : "Detached. It lists as a Chat of its own now.";
   }
 
   /** Ends a running Negotiation, drops its waiting messages and tells both Chats. */
