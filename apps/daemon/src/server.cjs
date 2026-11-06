@@ -229,7 +229,8 @@ function leanResult(result, form = WHOLE) {
     const project = withState(result.project);
     if (project !== result.project) lean = { ...lean, project };
   }
-  for (const key of ["projects", "links"])
+  // canvas:snapshot carries every Project's state, as `states: [{ path, state }]`.
+  for (const key of ["projects", "links", "states"])
     if (Array.isArray(result[key])) {
       const items = result[key].map(withState);
       if (items.some((item, index) => item !== result[key][index])) lean = { ...lean, [key]: items };
