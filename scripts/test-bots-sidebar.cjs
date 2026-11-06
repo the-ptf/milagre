@@ -15,7 +15,7 @@ import SidebarNav from "/src/components/SidebarNav";
 import { updateSettings } from "/src/lib/settings";
 import { DESKTOP_CHAT_ROW_SHOW } from "@milagre/shared/chat-row";
 import "/src/styles.css";
-const PROJECT = "/work/arketa";
+const PROJECT = "/work/atlas";
 const MODEL = { id: "claude-opus-test", name: "Opus test", provider: "claude", description: "" };
 window.MODEL = MODEL;
 window.PROJECT = PROJECT;
@@ -44,7 +44,7 @@ window.setBots = (on) => {
 window.created = [];
 window.picked = [];
 window.milagre = {
-  listRecentProjects: async () => [{ path: PROJECT, name: "arketa" }],
+  listRecentProjects: async () => [{ path: PROJECT, name: "atlas" }],
   listProjects: async () => [],
   listNamedLinks: async () => [],
   getProjectImage: async () => null,
@@ -59,7 +59,7 @@ window.milagre = {
     {
       id: "ops", name: "Ops", role: "Keeps main green and PRs moving", color: "#3b82f6", body: "circle",
       fields: [
-        { id: "projects", label: "Projects to watch", kind: "projects", required: true, options: [{ value: PROJECT, label: "arketa" }] },
+        { id: "projects", label: "Projects to watch", kind: "projects", required: true, options: [{ value: PROJECT, label: "atlas" }] },
         { id: "ci", label: "Checks that count as CI", kind: "text", required: false },
         { id: "linearTeam", label: "Linear team", kind: "text", required: false },
       ],
@@ -82,7 +82,7 @@ function Fixture() {
   const [bot, setBot] = useState(null);
   return (
     <div data-mode={mode} style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
-      <SidebarNav fill workspaceName="arketa" projectPath={PROJECT} recents={rows} activeId="5"
+      <SidebarNav fill workspaceName="atlas" projectPath={PROJECT} recents={rows} activeId="5"
         sidebarMode={mode} onSidebarMode={setMode} selectedBotId={bot}
         onPickBot={(id) => { window.picked.push(id); setBot(id); }}
         models={[MODEL]} defaultModel={MODEL} />
@@ -161,7 +161,7 @@ async function browserChecks() {
       assert.ok(sheetText.includes(label), `The sheet asks for ${label}`);
     assert.equal(await evaluate(`${sheet}.querySelector("#new-bot-name").value`), "Ops", "Named after its template");
     assert.equal(await evaluate(`${sheet}.querySelector('button[type="submit"]').disabled`), true, "A Project to watch is required");
-    await evaluate(`${sheet}.querySelector('input[type="checkbox"][value="/work/arketa"]').click()`);
+    await evaluate(`${sheet}.querySelector('input[type="checkbox"][value="/work/atlas"]').click()`);
     await waitFor(`!${sheet}.querySelector('button[type="submit"]').disabled`);
     await screenshot("bots-new-bot");
     await evaluate(`${sheet}.querySelector('button[type="submit"]').click()`);
@@ -169,7 +169,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.created[0]"), {
       templateId: "ops",
       name: "Ops",
-      answers: { projects: ["/work/arketa"], ci: "", linearTeam: "" },
+      answers: { projects: ["/work/atlas"], ci: "", linearTeam: "" },
       provider: "claude",
       model: "claude-opus-test",
     });

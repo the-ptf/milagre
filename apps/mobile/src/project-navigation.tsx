@@ -6,7 +6,19 @@ import { retentionOf, useDoneRetention } from "./done-retention";
 import { doneCountdown } from "@milagre/shared/done";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
+import {
+  FlatList,
+  Platform,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type TextInputInstance,
+  type ViewInstance,
+  type ViewStyle,
+} from "react-native";
 import { appVersionLine } from "./app-version";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
@@ -31,6 +43,9 @@ import {
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { chatMarkTone, chatPullRequests, chatTitle, comparePins, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
 import { searchMessages } from "@milagre/shared/message-search";
@@ -42,6 +57,7 @@ import { ALL_CHATS_LABEL, CHATS_GROUP_LABEL, NO_PROJECT_LABEL } from "@milagre/s
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
+import { dropBefore, moveProject } from "./project-order-store";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
 import { chatsGroupChats, chatsGroupList, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
 import { UpdateSettingsBadge } from "./update-sheet";
@@ -57,7 +73,7 @@ import { ChatMarkIcon } from "./status-indicators";
 import { Icon, SpinnerRing, type IconData } from "./icons";
 import { tap } from "./primitives/tap";
 import { LoadingLogo } from "./loading-logo";
-import { ErrorNotice, IconButton, PullDown, useStyles } from "./ui";
+import { ErrorNotice, IconButton, PRESSED_OPACITY, PullDown, useStyles } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./navigation-commands";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
@@ -1319,6 +1335,33 @@ const NavigationBody = memo(function NavigationBody({
         notify: showArchiveNotice,
       });
   }
+  // Every Project header on screen, with a way to measure where it is now. The drop measures them as it lands, so a
+  // list scrolled since they laid out still finds the right place.
+  const headers = useRef(new Map<string, ProjectHeaderEntry>());
+  const registerHeader = useCallback((key: string, entry: ProjectHeaderEntry | null) => {
+    if (entry) headers.current.set(key, entry);
+    else headers.current.delete(key);
+  }, []);
+  // A Project header released with the finger at window-Y `y`: it goes before the header the finger is over (after it
+  // on that header's lower half, last below them all). Only the open computer's Projects reorder; the order is this
+  // phone's, which the session saves per computer.
+  const reorderProjects = useCallback(
+    async (hostId: string, path: string, y: number) => {
+      const view = views.find((item) => item.hostId === hostId);
+      if (!view || hostId !== currentHostId) return;
+      const placed = await Promise.all(
+        [...headers.current.values()]
+          .filter((entry) => entry.hostId === hostId && entry.path !== path)
+          .map(async (entry) => ({ path: entry.path, ...(await entry.measure()) })),
+      );
+      const beforePath = dropBefore(placed, y);
+      const order = view.projects.map((project) => project.path);
+      const next = moveProject(order, path, beforePath);
+      if (next.every((item, index) => item === order[index])) return;
+      session.reorderProjects(next);
+    },
+    [views, currentHostId, session],
+  );
   // Removing a Project takes it off the recent list, as desktop does; its folder and Chats stay on the Mac.
   async function projectAction(hostId: string, projectPath: string, name: string, action: string) {
     if (action === "new") {
@@ -1543,6 +1586,8 @@ const NavigationBody = memo(function NavigationBody({
           return next;
         }),
       load,
+      registerHeader,
+      reorderProjects,
     };
   });
   const doneHours = useDoneRetention(
@@ -1561,6 +1606,8 @@ const NavigationBody = memo(function NavigationBody({
       foldDone: () => latestActions.current!.foldDone(),
       foldSubchats: (key) => latestActions.current!.foldSubchats(key),
       load: (...args) => latestActions.current!.load(...args),
+      registerHeader: (...args) => latestActions.current!.registerHeader(...args),
+      reorderProjects: (...args) => latestActions.current!.reorderProjects(...args),
     }),
     [],
   );
@@ -1751,6 +1798,7 @@ const NavigationBody = memo(function NavigationBody({
       </View>
       <FlatList
         data={displayedRows}
+        CellRendererComponent={HeaderOverCell}
         keyExtractor={(row) => row.key}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -1826,6 +1874,8 @@ const NavigationBody = memo(function NavigationBody({
   );
 });
 
+/** A Project header the sidebar can measure while it is on screen. */
+type ProjectHeaderEntry = { hostId: string; path: string; measure: () => Promise<{ top: number; bottom: number }> };
 type RowActions = {
   enter: (hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) => Promise<void>;
   act: (row: { hostId: string; path: string; chat: AgentSession }, action: string) => Promise<void>;
@@ -1837,6 +1887,10 @@ type RowActions = {
   /** Folds or unfolds the subchats under the parent row `key`. */
   foldSubchats: (key: string) => void;
   load: (hostId: string, projectPath: string) => Promise<unknown>;
+  /** A Project header on screen, or null once it leaves: a drag measures them to find its drop. */
+  registerHeader: (key: string, entry: ProjectHeaderEntry | null) => void;
+  /** A Project header dragged and released with the finger at window-Y `y`: its computer's Projects take the new order. */
+  reorderProjects: (hostId: string, path: string, y: number) => void;
 };
 /** What every row reads besides its own item; a change re-renders the rows on screen. */
 type RowView = {
@@ -1864,6 +1918,122 @@ type RowView = {
   background: string;
   actions: RowActions;
 };
+/**
+ * A Project header that folds on a tap and, on a long press, lifts to be dragged up or down to reorder its group, the
+ * way Mail reorders mailboxes. The band it reports as it lays out lets the drop find which Project the finger is over;
+ * the release saves its computer's new order. A short press that doesn't move still folds the group.
+ */
+/**
+ * Each list cell. A Project header's cell sits above the Chat rows from the start, so a header dragged over them stays
+ * on top; the stacking never changes during a drag, which would re-order native views and cancel the touch.
+ */
+function HeaderOverCell({ item, style, children, ...rest }: { item: Row; style?: StyleProp<ViewStyle>; children?: ReactNode }) {
+  return (
+    <View {...rest} style={[style, item.kind === "project" ? { zIndex: 1 } : null]}>
+      {children}
+    </View>
+  );
+}
+
+/**
+ * The long-press-then-drag gesture for a Project header, built outside render (like sliderGesture and resizeGesture) so
+ * the React-compiler rules that ban capitalized calls and ref reads in a component body don't fire. A short press that
+ * doesn't move still folds the group; a long press lifts it, the pan moves it, the release reports where it landed.
+ */
+function headerDragGesture({
+  lifted,
+  offset,
+  drop,
+  onFold,
+}: {
+  lifted: SharedValue<number>;
+  offset: SharedValue<number>;
+  drop: (y: number) => void;
+  onFold: () => void;
+}) {
+  const pan = Gesture.Pan()
+    .activateAfterLongPress(220)
+    .onStart(() => {
+      "worklet";
+      lifted.set(1);
+    })
+    .onUpdate((event) => {
+      "worklet";
+      offset.set(event.translationY);
+    })
+    .onEnd((event) => {
+      "worklet";
+      // Where the finger let go, in window coordinates: the drop lands on the header under it.
+      scheduleOnRN(drop, event.absoluteY);
+    })
+    .onFinalize(() => {
+      "worklet";
+      lifted.set(0);
+      offset.set(0);
+    });
+  const tapFold = Gesture.Tap().onEnd((_event, success) => {
+    "worklet";
+    if (success) scheduleOnRN(onFold);
+  });
+  return Gesture.Exclusive(pan, tapFold);
+}
+
+function ProjectHeaderDrag({
+  hostId,
+  path,
+  rowKey,
+  label,
+  onFold,
+  registerHeader,
+  reorderProjects,
+  background,
+  children,
+}: {
+  hostId: string;
+  path: string;
+  rowKey: string;
+  label: string;
+  onFold: () => void;
+  /** The list's color: a lifted header is drawn on it, so the rows it passes over don't show through. */
+  background: string;
+  registerHeader: RowActions["registerHeader"];
+  reorderProjects: RowActions["reorderProjects"];
+  children: ReactNode;
+}) {
+  const ref = useRef<ViewInstance>(null);
+  const lifted = useSharedValue(0);
+  const offset = useSharedValue(0);
+  // On screen, the header can be measured for a drop; once it leaves the list (scrolled away, folded out) it can't.
+  useEffect(() => {
+    const measure = () =>
+      new Promise<{ top: number; bottom: number }>((resolve) => {
+        const node = ref.current;
+        if (!node) return resolve({ top: 0, bottom: 0 });
+        node.measureInWindow((_x: number, y: number, _width: number, height: number) => resolve({ top: y, bottom: y + height }));
+      });
+    registerHeader(rowKey, { hostId, path, measure });
+    return () => registerHeader(rowKey, null);
+  }, [rowKey, hostId, path, registerHeader]);
+  const drop = useCallback((y: number) => reorderProjects(hostId, path, y), [hostId, path, reorderProjects]);
+  const gesture = headerDragGesture({ lifted, offset, drop, onFold });
+  const lift = useAnimatedStyle(() => ({
+    transform: [{ translateY: offset.get() }, { scale: 1 + lifted.get() * 0.02 }],
+    borderRadius: radius.control,
+    shadowColor: "#000",
+    shadowOpacity: lifted.get() * 0.14,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    zIndex: lifted.get() ? 2 : 0,
+  }));
+  return (
+    <GestureDetector gesture={gesture}>
+      <Animated.View ref={ref} accessibilityRole="button" accessibilityLabel={label} style={[{ flex: 1 }, lift]}>
+        <View style={{ backgroundColor: background, borderRadius: radius.control }}>{children}</View>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
 /** One row of the list; memoized, so only a row whose item or view changed renders again. */
 const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; view: RowView }) {
   const s = useS();
@@ -1889,7 +2059,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     worktreeForLinks,
     doneHours,
     background,
-    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, load },
+    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, load, registerHeader, reorderProjects },
   } = view;
   if (item.kind === "section")
     return (
@@ -2087,37 +2257,60 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       ...(!linked ? [{ items: [{ id: "remove", title: "Remove Project", systemImage: "minus.circle", destructive: true }] }] : []),
     ];
     const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
-    // A tap folds the group; a long press opens the Project's menu.
+    // A Link, another computer's copy under a shared head, or an offline computer's row can't be reordered.
+    const canReorder = !linked && item.hostId === currentHostId && !offline;
+    const header = (
+      <View style={s.projectTitle}>
+        {item.members ? <ProjectIcons client={client} projects={item.members} /> : <ProjectIcon client={client} path={item.path} />}
+        <Text numberOfLines={1} style={[s.secondary, { flexShrink: 1, fontWeight: "500", color: colors.ink }]}>
+          {item.name}
+        </Text>
+        {(item.chip || !item.expanded) && (
+          <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+            {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
+        )}
+        <View style={{ flex: 1 }} />
+        {unsaved && (
+          <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.redInk }]}>
+            Unsaved
+          </Text>
+        )}
+        {item.hostId === currentHostId && attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
+        <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
+      </View>
+    );
+    // A tap folds the group. A long press lifts it to drag, like Mail's edit-mode reorder; the menu moves to the ⋯ button.
     return (
       <View style={[s.project, { opacity: offline ? 0.6 : 1 }]}>
-        <PullDown
-          label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
-          title={item.name}
-          sections={menu}
-          onSelect={choose}
-          onPress={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
-          style={{ flex: 1 }}
-        >
-          <View style={s.projectTitle}>
-            {item.members ? <ProjectIcons client={client} projects={item.members} /> : <ProjectIcon client={client} path={item.path} />}
-            <Text numberOfLines={1} style={[s.secondary, { flexShrink: 1, fontWeight: "500", color: colors.ink }]}>
-              {item.name}
-            </Text>
-            {(item.chip || !item.expanded) && (
-              <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </Text>
-            )}
-            <View style={{ flex: 1 }} />
-            {unsaved && (
-              <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.redInk }]}>
-                Unsaved
-              </Text>
-            )}
-            {item.hostId === currentHostId && attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
-            <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
+        {canReorder ? (
+          <ProjectHeaderDrag
+            hostId={item.hostId}
+            path={item.path}
+            rowKey={item.key}
+            label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}. Press and hold to reorder.`}
+            onFold={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
+            registerHeader={registerHeader}
+            background={background}
+            reorderProjects={reorderProjects}
+          >
+            {header}
+          </ProjectHeaderDrag>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
+            onPress={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
+            style={({ pressed }) => [{ flex: 1 }, { opacity: pressed ? PRESSED_OPACITY : 1 }]}
+          >
+            {header}
+          </Pressable>
+        )}
+        <PullDown label={`${item.name} actions`} title={item.name} sections={menu} onSelect={choose}>
+          <View style={s.projectMore}>
+            <Icon icon={MoreHorizontalIcon} tone="ink3" size={20} />
           </View>
         </PullDown>
         <IconButton
@@ -2903,6 +3096,12 @@ const makeS = (colors: Palette) =>
       alignItems: "center",
       gap: 8,
       paddingLeft: 8,
+    },
+    projectMore: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
     },
     chat: { flexDirection: "row", alignItems: "center" },
     subchatGuide: {

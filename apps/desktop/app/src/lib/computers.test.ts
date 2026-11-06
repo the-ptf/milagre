@@ -68,7 +68,7 @@ test("the dot, dimming and read-only follow the state", () => {
 });
 
 test("the gear's tooltip, the banner and the composer say the spec's words", () => {
-  assert.equal(settingsTooltip("arketa"), "arketa settings: rename, connection, remove");
+  assert.equal(settingsTooltip("atlas"), "atlas settings: rename, connection, remove");
   assert.equal(
     offlineBanner(view({ state: "offline" }), NOW),
     "studio is offline. This is the last copy it sent, 2h ago. What you send waits on this Mac until studio is back.",

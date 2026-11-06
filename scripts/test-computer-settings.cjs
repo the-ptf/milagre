@@ -18,7 +18,7 @@ import { updateSettings } from "/src/lib/settings";
 import "/src/styles.css";
 const HOUR = 3600000;
 let computers = [
-  { id: "c-arketa", name: "arketa", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: Date.parse("2026-10-08T10:00:00"), message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
+  { id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: Date.parse("2026-10-08T10:00:00"), message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
   { id: "c-studio", name: "studio", hostId: "s".repeat(22), relayHost: "relay.milagre.cloud", state: "offline", route: null, lastSeen: Date.now() - 2 * HOUR, addedAt: Date.parse("2026-10-01T10:00:00"), message: null, lan: false, lanRoutes: [] },
 ];
 let changed = () => {};
@@ -69,7 +69,7 @@ window.milagre = new Proxy({
   onComputersChanged: (callback) => ((changed = callback), () => {}),
   computers: {
     list: async () => snapshot(),
-    invoke: async (id, method) => (method === "daemon:status" ? { version: "0.121.0" } : method === "project:recent" ? [{ path: "/a/web", name: "arketa-web" }, { path: "/a/infra", name: "infra" }] : null),
+    invoke: async (id, method) => (method === "daemon:status" ? { version: "0.121.0" } : method === "project:recent" ? [{ path: "/a/web", name: "atlas-web" }, { path: "/a/infra", name: "infra" }] : null),
     rename: async (id, name) => {
       window.renames.push([id, name]);
       computers = computers.map((item) => (item.id === id ? { ...item, name } : item));
@@ -129,18 +129,18 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-settings-computers]')`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-settings-computers] button')].map((b) => b.textContent.trim())`), [
       "victor-mbp",
-      "arketa",
+      "atlas",
       "studio",
     ]);
-    await evaluate(`${nav("arketa")}.click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === 'arketa' && !!document.querySelector('[data-computer-settings]')`);
+    await evaluate(`${nav("atlas")}.click()`);
+    await waitFor(`document.querySelector('h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
     await waitFor(`document.querySelector('[data-computer-status]')?.textContent.includes('Milagre 0.121.0')`);
     assert.match(await text("[data-computer-status]"), /^Connected · Milagre 0\.121\.0 · paired Oct 8$/);
     assert.equal(await text('[data-connection="lan"] [data-connection-state]'), "In use");
     assert.match(await text('[data-connection="lan"]'), /ws:\/\/192\.168\.0\.24:8798, end-to-end encrypted/);
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
-    assert.match(await text("[data-computer-projects]"), /arketa-web, infra\. Accounts and simulators stay on arketa\./);
+    assert.match(await text("[data-computer-projects]"), /atlas-web, infra\. Accounts and simulators stay on atlas\./);
     // Its memory and disk come from that computer; Milagre's amount lives in the bar's hover, and the computer's own page
     // opens with what Milagre uses there.
     await waitFor(`!!document.querySelector('[data-computer-settings] [data-resource-meter=disk]')`);
@@ -164,15 +164,15 @@ async function browserChecks() {
     await waitFor(
       `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=checkbox]').getAttribute('aria-checked') === 'true'`,
     );
-    assert.deepEqual(await evaluate("window.autoSaves"), [["c-arketa", true]]);
+    assert.deepEqual(await evaluate("window.autoSaves"), [["c-atlas", true]]);
     // Its desktop app's update: Install & restart asks first, since it restarts Milagre over there.
     await waitFor(`document.querySelector('[data-computer-update]')?.dataset.computerUpdate === 'downloaded'`);
-    assert.match(await text("[data-computer-update]"), /^Update available: v0\.122\.0arketa runs Milagre 0\.121\.0\. Milagre 0\.122\.0 is ready to install\./);
+    assert.match(await text("[data-computer-update]"), /^Update available: v0\.122\.0atlas runs Milagre 0\.121\.0\. Milagre 0\.122\.0 is ready to install\./);
     await evaluate(`document.querySelector('[data-computer-update-install]').click()`);
     await waitFor(`!!document.querySelector('[data-computer-update-confirm]')`);
     assert.match(
       await text("[data-computer-update]"),
-      /Restart Milagre on arketa to install v0\.122\.0\? Running Chats are saved and resume after the restart\./,
+      /Restart Milagre on atlas to install v0\.122\.0\? Running Chats are saved and resume after the restart\./,
     );
     assert.deepEqual(await evaluate("window.installs"), [], "nothing restarts before the answer");
     await screenshot("computer-update-confirm");
@@ -191,7 +191,7 @@ async function browserChecks() {
       input.blur();
     })()`);
     await waitFor(`window.renames.length === 1 && document.querySelector('h1')?.textContent === 'lab'`);
-    assert.deepEqual(await evaluate(`window.renames`), [["c-arketa", "lab"]]);
+    assert.deepEqual(await evaluate(`window.renames`), [["c-atlas", "lab"]]);
     console.log("PASS: the name is a label on this Mac, saved when the field is left");
 
     await evaluate(`${nav("studio")}.click()`);

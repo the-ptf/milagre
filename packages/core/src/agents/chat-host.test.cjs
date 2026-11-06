@@ -792,6 +792,23 @@ test("a Delegation's Chat in the same Project becomes a subchat once, never acro
   assert.equal(saved.get(BETA)?.sessions[elsewhere]?.parent, undefined);
 });
 
+test("a subchat detaches from its parent, only from that parent when one is named", async () => {
+  const { host, saved } = harness({ failStart: "no agent" });
+  const parent = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const child = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const other = await host.emptyChat(ALPHA, 1, { fresh: true });
+  await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${parent}`);
+
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`, `${ALPHA}#${other}`), false, "another Chat can't detach it");
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`, `${ALPHA}#${parent}`), true);
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`), false, "already on its own");
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[child].parent, undefined);
+
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${other}`), true, "a later Delegation nests it again");
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`), true, "the user detaches it from whichever parent");
+});
+
 test("answers to a question are saved as the user's message after the reply so far, and can be taken back", async (t) => {
   const { host, manager, saved, published, session } = harness();
   t.after(() => manager.closeAll());

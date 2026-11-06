@@ -1432,6 +1432,7 @@ function App() {
     archiveChat,
     linkChatIssue,
     unlinkChatIssue,
+    detachChat,
     reloadChat,
   });
   latest.current = {
@@ -1444,6 +1445,7 @@ function App() {
     archiveChat,
     linkChatIssue,
     unlinkChatIssue,
+    detachChat,
     reloadChat,
   };
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
@@ -2550,6 +2552,13 @@ function App() {
     await reportChatAction(reloaded(), "Could not reload chat", setNotice);
   }
 
+  // "Detach from parent": the subchat lists on its own, and its open Delegations stop reporting back.
+  async function detachChat(sessionId: number, path = projectRef.current?.path) {
+    if (!path) return;
+    const detached = async () => showNotice(await bridgeForKey(path).detachChat(path, sessionId));
+    await reportChatAction(detached(), "Could not detach chat", setNotice);
+  }
+
   async function unlinkChatIssue(sessionId: number, path = projectRef.current?.path) {
     const worktreeId = path ? archiveState(path)?.sessions[sessionId]?.worktree_id : undefined;
     if (!path || worktreeId === undefined) return;
@@ -2829,6 +2838,7 @@ function App() {
     ...(gitless ? { gitless: true } : { onCommit: (id) => void latest.current.openGitDialog(Number(id), path) }),
     onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace, path),
     onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id), path),
+    onDetach: (id) => void latest.current.detachChat(Number(id), path),
   }));
   const chatActions = useMemo<ChatRowActions>(
     () => ({
@@ -2851,6 +2861,7 @@ function App() {
       onUndoArchive: (id) => !!projectRef.current && undoDelete(chatKey(projectRef.current.path, Number(id))),
       onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace),
       onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id)),
+      onDetach: (id) => void latest.current.detachChat(Number(id)),
     }),
     [remoteProject, showGit],
   );

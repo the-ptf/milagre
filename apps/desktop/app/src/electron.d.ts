@@ -737,6 +737,8 @@ export type MilagreBridge = {
   ) => Promise<{ continued: boolean; label: string }>;
   patchChat: (projectPath: string, sessionId: number, patch: SessionPatch) => Promise<void>;
   deleteChat: (projectPath: string, sessionId: number) => Promise<void>;
+  /** "Detach from parent": a subchat lists on its own again, and its open Delegations stop reporting back. */
+  detachChat: (projectPath: string, sessionId: number) => Promise<string>;
   /** Archives one of a chat's subagents, or brings it back; the provider carries on either way. */
   archiveSubagent: (projectPath: string, sessionId: number, id: string, archived: boolean) => Promise<void>;
   archiveFinishedSubagents: (projectPath: string, sessionId: number) => Promise<void>;

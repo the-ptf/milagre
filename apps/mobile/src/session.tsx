@@ -608,6 +608,12 @@ function useSessionState() {
     },
     [client],
   );
+  // A Project header dragged in the sidebar: the list takes the new order at once, and the effect below saves it.
+  const reorderProjects = useCallback((order: string[]) => {
+    // A Project the order doesn't know (added since the drag began) stays on top, as a new one does.
+    const rank = (path: string) => order.indexOf(path);
+    setRecent((previous) => [...previous].sort((a, b) => rank(a.path) - rank(b.path)));
+  }, []);
   // The order shown is this computer's saved order, so the next launch starts from it. An empty list is saved too once
   // the computer has answered, so Projects removed and added back don't return to their old places.
   useEffect(() => {
@@ -725,6 +731,7 @@ function useSessionState() {
     previewProject,
     seedPreview,
     reloadProjects,
+    reorderProjects,
     forgetProject,
     deleteLink,
     /** The open Link this phone left because another device deleted it, set each time; the Chat screen leaves it. */

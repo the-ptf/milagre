@@ -254,6 +254,36 @@ test("an idle Chat starts a turn for the Delegation, and the report reaches the 
   assert.equal(fixture.sessionOf("api").prompts.length, 1, "the report starts no turn");
 });
 
+test("delegation_detach lets the delegated Chat finish its turn with no report, and the user can detach from the sidebar", async (t) => {
+  const fixture = await linkedProjects(t);
+  let detached;
+  fixture.scripts.api = async (session) => {
+    await session.call("delegate", delegation(fixture));
+    detached = await session.call("delegation_detach", { chat: fixture.chatOf("web") });
+    session.finish("Let web go.");
+  };
+  let release;
+  fixture.scripts.web = async (session) => {
+    await new Promise((resolve) => (release = resolve));
+    session.finish("Added it anyway.");
+  };
+  await fixture.send("api", "Ask web");
+  await waitFor(() => detached);
+  assert.equal(detached.isError, false, detached.text);
+  await waitFor(() => release);
+  release();
+  await waitFor(async () => (await fixture.messages(fixture.chatOf("web"))).some((message) => message.body === "Added it anyway."));
+  await settled();
+  const kinds = new Set((await fixture.messages(fixture.chatOf("api"))).map((message) => message.context?.kind));
+  assert.ok(kinds.has("linked-notice"));
+  assert.ok(!kinds.has("delegation-report"), "the report doesn't come back");
+  await assert.rejects(
+    fixture.runtime.invoke("chat:detach", [fixture.folders.web, Number(fixture.chatOf("web").split("#")[1])]),
+    /isn't nested/,
+    "nothing is left to detach",
+  );
+});
+
 test("a working Chat is steered by the Delegation; a Chat waiting on the user receives it once answered", async (t) => {
   const fixture = await linkedProjects(t);
   let release;
@@ -870,6 +900,59 @@ test("a Delegation with no Link (inside its own Project) to a new Chat never ask
   assert.equal(fake.delivered[0].key, "/api#9");
   assert.deepEqual(adopted, [["/api#9", "/api#1"]], "the new Chat becomes the requester's subchat");
   assert.equal(fake.delegations.snapshot().delegations[0].link_id, null);
+});
+
+test("detaching a running Delegation's Chat ends the report but not its turn; the requester gets one notice", async () => {
+  const fake = desk({ target: async () => ({ link_id: null, link_ids: [], projectPath: "/api", projectName: "api", branch: "main" }) });
+  fake.ports.chat = async (key) => ({ label: key, worktreePath: "/api", archived: false });
+  const detached = [];
+  fake.ports.detachSubchat = async (chat, parent) => (detached.push([chat, parent]), true);
+  await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "/api#2", message: "Fix it" });
+  await settled();
+  await fake.delegations.observe("/api#2", { type: "turn-started", turnId: "t1" });
+
+  assert.match(await fake.delegations.detach("/api#2", "/api#1"), /won't report back/);
+  assert.deepEqual(detached, [["/api#2", "/api#1"]]);
+  assert.deepEqual(fake.delegations.snapshot().delegations, [], "nothing nests or shows as open");
+  await fake.delegations.observe("/api#2", { type: "turn-completed" });
+  await settled();
+  assert.deepEqual(
+    fake.notes.map((note) => [note.key, note.context.kind]),
+    [["/api#1", "linked-notice"]],
+    "no Delegation report follows the notice",
+  );
+  assert.equal(await fake.delegations.reportsForTurn("/api#1"), null);
+});
+
+test("a detached Delegation still waiting for its Chat is delivered when that Chat is free, without a report", async () => {
+  const fake = desk();
+  let status = "waiting";
+  fake.ports.status = () => status;
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Later" });
+  assert.equal(fake.delivered.length, 0);
+  await fake.delegations.detach("/web#2", "/api#1");
+  status = "idle";
+  await fake.delegations.observe("/web#2", { type: "permission-resolved", requestId: "r" });
+  await settled();
+  assert.equal(fake.delivered.length, 1, "the message still goes");
+  await end(fake, "/web#2", "t1");
+  await settled();
+  assert.deepEqual(
+    fake.notes.map((note) => note.context.kind),
+    ["linked-notice"],
+  );
+});
+
+test("only the Chat itself, a Chat that delegated to it or the user can detach it", async () => {
+  const fake = desk();
+  fake.ports.detachSubchat = async () => false;
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Fix it" });
+  await settled();
+  await assert.rejects(fake.delegations.detach("/web#2", "/api#5"), /isn't nested under this one/);
+  assert.equal(fake.delegations.snapshot().delegations.length, 1);
+  assert.match(await fake.delegations.detach("/web#2"), /won't report back/, "the user detaches every open one");
+  fake.ports.detachSubchat = async () => true;
+  assert.match(await fake.delegations.detach("/web#3"), /a Chat of its own/, "a subchat with no open Delegation just leaves its parent");
 });
 
 test("acknowledging a report snapshot preserves reports that arrived during startup", async () => {

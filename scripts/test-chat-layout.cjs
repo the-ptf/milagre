@@ -396,17 +396,17 @@ async function browserChecks() {
       require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "desktop-card.png"), shot.toPNG());
     }
     // A Chat started from a Linear issue shows the issue as a card, with the typed note under it.
-    const issueUrl = "https://linear.app/arketa/issue/BIZ-709/home-tab-and-analytics";
+    const issueUrl = "https://linear.app/example/issue/DEMO-123/project-dashboard";
     await evaluate(`window.setExtraMessages([{ id: 999998, session_id: 1, role: "user",
-      body: "Work on Linear issue BIZ-709: Home tab & analytics: formatting, comparison clarity, drill-downs, report links\\n\\n## Items\\n\\n- [ ] Long class names wrap\\n\\n${issueUrl}\\n\\nStart with the Revenue by Class row",
-      context: { kind: "linear-issue", key: "BIZ-709", title: "Home tab & analytics: formatting, comparison clarity, drill-downs, report links",
-        url: "${issueUrl}", state: { name: "In Progress", type: "started", color: "#f2c94c" }, workspace: "arketa", note: "Start with the Revenue by Class row" } }])`);
-    await waitFor('!!document.querySelector("[data-slot=linear-issue][data-key=BIZ-709]")');
+      body: "Work on Linear issue DEMO-123: Project dashboard: formatting, comparison clarity, navigation, and report links\\n\\n## Items\\n\\n- [ ] Long project names wrap\\n\\n${issueUrl}\\n\\nStart with the Activity by Project row",
+      context: { kind: "linear-issue", key: "DEMO-123", title: "Project dashboard: formatting, comparison clarity, navigation, and report links",
+        url: "${issueUrl}", state: { name: "In Progress", type: "started", color: "#f2c94c" }, workspace: "example", note: "Start with the Activity by Project row" } }])`);
+    await waitFor('!!document.querySelector("[data-slot=linear-issue][data-key=DEMO-123]")');
     assert.ok(await evaluate('document.querySelector("[data-slot=linear-issue]").textContent.includes("In Progress")'));
     assert.equal(await evaluate('document.querySelector("[data-slot=linear-issue] a").getAttribute("href")'), issueUrl);
     assert.ok(await evaluate('!!document.querySelector("[data-slot=linear-issue] a [data-linear-logo]")'), "the card shows Linear's mark");
     assert.ok(
-      await evaluate('document.querySelector("[data-slot=linear-issue] p").textContent === "Start with the Revenue by Class row"'),
+      await evaluate('document.querySelector("[data-slot=linear-issue] p").textContent === "Start with the Activity by Project row"'),
       "the typed note sits under the card",
     );
     assert.equal(

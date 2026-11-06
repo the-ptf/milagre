@@ -197,7 +197,7 @@ test("a computer's snapshot replaces only its own turns, and a removed computer 
   const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
   const OTHER = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
   const run = (text: string) => ({ text, model: "", startedAt: 0, steps: [], approvals: [], questions: [], answered: {} });
-  const runs = { "/p#1": run("mine"), [`${ID}|/p#1`]: run("studio old"), [`${OTHER}|/p#1`]: run("arketa") };
+  const runs = { "/p#1": run("mine"), [`${ID}|/p#1`]: run("studio old"), [`${OTHER}|/p#1`]: run("atlas") };
   const next = replaceComputerEntries(runs, ID, { [`${ID}|/p#2`]: run("studio new"), "/p#9": run("not studio's") });
   assert.deepEqual(Object.keys(next).sort(), ["/p#1", `${ID}|/p#2`, `${OTHER}|/p#1`].sort());
   assert.equal(next["/p#1"].text, "mine", "this Mac's chat at the same path is untouched");

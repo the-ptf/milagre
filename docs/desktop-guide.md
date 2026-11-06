@@ -18,7 +18,7 @@ Restart Electron after updating to register the media protocol and file-search I
 
 **Settings > Project > Branches** on desktop and phone controls naming, the default base branch and upstream tracking for new Worktrees. A branch deliberately selected for one Chat overrides the Project default; remembered choices do not. Tracking is off by default (`--no-track`), so the first push sets the new branch's own upstream.
 
-Use a template such as `{username}-{ticket?}-{slug}` with your username and **Dashes only** to produce `victorlucss-ark-123-fix-login`. Tickets come from a linked Linear issue or one unambiguous uppercase issue key in the prompt, such as `ARK-123`. `{ticket}` requires a ticket; `{ticket?}` omits a missing ticket and its preceding dash or slash. `{slug}` is the task's short name and `{suffix}` is Milagre's unique suffix. A collision with a local or origin branch adds the suffix, or fails if that is also taken. Dashes only restricts new names, so a base such as `release/business-app/v2` remains valid.
+Use a template such as `{username}-{ticket?}-{slug}` with your username and **Dashes only** to produce `developer-demo-123-fix-login`. Tickets come from a linked Linear issue or one unambiguous uppercase issue key in the prompt, such as `DEMO-123`. `{ticket}` requires a ticket; `{ticket?}` omits a missing ticket and its preceding dash or slash. `{slug}` is the task's short name and `{suffix}` is Milagre's unique suffix. A collision with a local or origin branch adds the suffix, or fails if that is also taken. Dashes only restricts new names, so a base such as `release/example-app/v2` remains valid.
 
 Personal values live in Milagre's Project settings on the Computer that owns the Project. To share conventions, add a `git` object to the main checkout's `.milagre/worktree.json` (alongside any existing `setup`):
 
@@ -27,7 +27,7 @@ Personal values live in Milagre's Project settings on the Computer that owns the
   "git": {
     "template": "{username}-{ticket?}-{slug}",
     "dashesOnly": true,
-    "baseBranch": "release/business-app/v2",
+    "baseBranch": "release/example-app/v2",
     "trackBase": false,
     "instructions": "Use a short verb. Create branches with --no-track."
   }

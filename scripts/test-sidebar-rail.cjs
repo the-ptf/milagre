@@ -23,7 +23,7 @@ const state = (id, body, path) => ({
   messages: [{ id, session_id: id, role: "user", body }],
 });
 let recent = [
-  { path: "/work/arketa", name: "arketa" },
+  { path: "/work/atlas", name: "atlas" },
   { path: "/work/shop", name: "shop" },
   { path: "/work/api", name: "api", hidden: true },
 ];
@@ -31,18 +31,18 @@ window.milagre = {
   listRecentProjects: async () => params.has("single") ? recent.slice(0, 1) : recent,
   setProjectHidden: async (path, hidden) => (recent = recent.map((project) => (project.path === path ? { ...project, hidden } : project))),
   listProjects: async () => [
-    { id: "p-arketa", path: "/work/arketa", name: "arketa", position: null, openedAt: "" },
+    { id: "p-atlas", path: "/work/atlas", name: "atlas", position: null, openedAt: "" },
     { id: "p-shop", path: "/work/shop", name: "shop", position: null, openedAt: "" },
     { id: "p-api", path: "/work/api", name: "api", position: null, openedAt: "" },
   ],
   listNamedLinks: async () => params.has("single") ? [] : [
-    { id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], createdAt: "", updatedAt: "" },
+    { id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Atlas + Shop + API", projectIds: ["p-atlas", "p-shop", "p-api"], createdAt: "", updatedAt: "" },
   ],
   getProjectImage: async () => null,
   listEditors: async () => [],
   chatsHome: async () => ({ path: "/work/chats", exists: params.has("home") }),
-  readProject: async (path) => ({ path, name: path, state: path === "/work/chats" ? state(11, "Chat without a Project", "") : path === "/work/shop" ? state(7, "Shop chat", "/work/shop") : state(1, "Fix the login flow", "/work/arketa") }),
-  readLink: async () => ({ id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], state: state(7, "Link chat", "") }),
+  readProject: async (path) => ({ path, name: path, state: path === "/work/chats" ? state(11, "Chat without a Project", "") : path === "/work/shop" ? state(7, "Shop chat", "/work/shop") : state(1, "Fix the login flow", "/work/atlas") }),
+  readLink: async () => ({ id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Atlas + Shop + API", projectIds: ["p-atlas", "p-shop", "p-api"], state: state(7, "Link chat", "") }),
   onProjectState: () => () => {},
   onLinkState: () => () => {},
   patchChat: async () => {},
@@ -51,13 +51,13 @@ localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre.sidebarScopeOrder");
 updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: params.size ? "list" : "grouped" });
 const root = createRoot(document.getElementById("root"));
-const arketaRows = [{ id: "1", label: "Fix the login flow", mark: "running", details: { path: "/work/arketa", branch: "main", pullRequests: [pr] } }];
-arketaRows.push(
+const atlasRows = [{ id: "1", label: "Fix the login flow", mark: "running", details: { path: "/work/atlas", branch: "main", pullRequests: [pr] } }];
+atlasRows.push(
   { id: "2", label: "Idle current chat", details: { lastAt: 10 } },
   { id: "3", label: "Pinned current chat", pinned: true, pinOrder: 1 },
   { id: "4", label: "Done current chat", doneAt: Date.now() },
 );
-if (params.has("empty")) arketaRows.length = 0;
+if (params.has("empty")) atlasRows.length = 0;
 window.oneList = () => updateSettings({ chatList: "list" });
 window.grouped = () => updateSettings({ chatList: "grouped" });
 const shopRows = [{ id: "7", label: "Shop chat", details: { path: "/work/shop", branch: "main" } }];
@@ -65,8 +65,8 @@ window.render = (projectPath) =>
   root.render(
     <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
       <SidebarNav fill workspaceName={projectPath.split("/").at(-1)} projectPath={projectPath}
-        recents={projectPath === "/work/arketa" ? arketaRows : shopRows} activeId={projectPath === "/work/arketa" ? "1" : "7"}
-        runningKeys={"/work/arketa#1\\n/work/shop#7"} waitingKeys={"/work/shop#7"} attentionPaths={["/work/shop"]}
+        recents={projectPath === "/work/atlas" ? atlasRows : shopRows} activeId={projectPath === "/work/atlas" ? "1" : "7"}
+        runningKeys={"/work/atlas#1\\n/work/shop#7"} waitingKeys={"/work/shop#7"} attentionPaths={["/work/shop"]}
         onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }}
         onSwitchProject={(path) => { window.switched = path; }}
         onSwitchLink={(id) => { window.switchedLink = id; }}
@@ -74,7 +74,7 @@ window.render = (projectPath) =>
         onNewChat={() => { window.newChatCount = (window.newChatCount ?? 0) + 1; }} />
     </div>,
   );
-window.render("/work/arketa");
+window.render("/work/atlas");
 `;
 
 async function browserChecks() {
@@ -135,23 +135,23 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await trackPointer();
     await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id]')`);
-    assert.match(await chips("/work/arketa"), /#409/, "The open Project's row shows its PR");
+    assert.match(await chips("/work/atlas"), /#409/, "The open Project's row shows its PR");
     assert.equal(await chips("/work/shop"), "", "Another Project's row has no PR to show");
-    // Switching to shop: arketa's row keeps the PR chip it showed, so it doesn't shrink.
+    // Switching to shop: atlas's row keeps the PR chip it showed, so it doesn't shrink.
     await evaluate(`window.render("/work/shop")`);
     await waitFor(
-      `!!document.querySelector('[data-sidebar-scope="/work/shop"][data-current]') && !!document.querySelector('[data-sidebar-scope="/work/arketa"] [data-chat-id="1"]')`,
+      `!!document.querySelector('[data-sidebar-scope="/work/shop"][data-current]') && !!document.querySelector('[data-sidebar-scope="/work/atlas"] [data-chat-id="1"]')`,
     );
-    assert.match(await chips("/work/arketa"), /#409/, "Left behind, arketa's row keeps its PR chip");
+    assert.match(await chips("/work/atlas"), /#409/, "Left behind, atlas's row keeps its PR chip");
     assert.equal(
-      await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-chat-id="1"] [data-mark]')?.dataset.mark`),
+      await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-chat-id="1"] [data-mark]')?.dataset.mark`),
       "running",
       "Its mark stays live",
     );
     await screenshot("kept-pr");
-    await evaluate(`window.render("/work/arketa")`);
-    await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/arketa"][data-current]')`);
-    assert.match(await chips("/work/arketa"), /#409/);
+    await evaluate(`window.render("/work/atlas")`);
+    await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/atlas"][data-current]')`);
+    assert.match(await chips("/work/atlas"), /#409/);
     // The Filters funnel stays outlined; a hidden Project (api is) shows as the accent dot, gone with none hidden.
     const dot = () => evaluate(`document.querySelector("[data-filters] [data-filters-dot]")?.dataset.filtersDot ?? null`);
     assert.equal(await evaluate(`document.querySelector("[data-filters]").hasAttribute("data-filters-active")`), true);
@@ -181,7 +181,7 @@ async function browserChecks() {
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-filters-panel]")`);
-    // Collapsed: one icon per Project, the open one marked, shop's dot over its ring, arketa's ring.
+    // Collapsed: one icon per Project, the open one marked, shop's dot over its ring, atlas's ring.
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
     // The sidebar narrows over 280 ms: hover only once the icons have stopped moving.
     await waitFor(`!!document.querySelector("[data-scope-rail]") && Math.round(document.querySelector("aside").getBoundingClientRect().width) === 44`);
@@ -191,7 +191,7 @@ async function browserChecks() {
         `[...document.querySelectorAll("[data-rail-scope]")].map((node) => [node.dataset.railScope, node.dataset.railStatus, node.getAttribute("aria-current")])`,
       ),
       [
-        ["/work/arketa", "running", "true"],
+        ["/work/atlas", "running", "true"],
         ["/work/shop", "attention", null],
         ["milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76", "idle", null],
       ],
@@ -243,14 +243,14 @@ async function browserChecks() {
     await click('[data-rail-scope="/work/shop"]');
     assert.equal(await evaluate("window.switched"), "/work/shop");
     await evaluate(`window.switched = null`);
-    await click('[data-rail-scope="/work/arketa"]');
+    await click('[data-rail-scope="/work/atlas"]');
     assert.equal(await evaluate("window.switched"), null, "The open Project's icon doesn't switch");
     // Moving away closes the popover; the open Project's icon lists its own live chat and opens it in place.
     await leaveRail();
     await waitFor(`!document.querySelector("[data-scope-rail-popover]")`);
-    await hover('[data-rail-scope="/work/arketa"]');
-    await waitFor(`!!document.querySelector('[data-scope-rail-popover="/work/arketa"] [data-rail-chat="1"]')`);
-    await click('[data-scope-rail-popover="/work/arketa"] [data-rail-chat="1"]');
+    await hover('[data-rail-scope="/work/atlas"]');
+    await waitFor(`!!document.querySelector('[data-scope-rail-popover="/work/atlas"] [data-rail-chat="1"]')`);
+    await click('[data-scope-rail-popover="/work/atlas"] [data-rail-chat="1"]');
     assert.equal(await evaluate("window.picked"), "1", "The open Project's chat opens through onPick");
     // Expanded again, the groups are back.
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
@@ -273,15 +273,15 @@ async function browserChecks() {
     );
     assert.deepEqual(
       rail.filter((entry) => entry.current).map((entry) => entry.key),
-      ["/work/arketa#1"],
+      ["/work/atlas#1"],
       "Only the active Chat is marked current",
     );
     assert.equal(rail.find((entry) => entry.current).current, "page", "An active Chat keeps the page navigation semantics of ChatRow");
     assert.ok(
-      await evaluate(`document.querySelector('[data-rail-scope="/work/arketa#1"][data-row]').textContent.includes("Fix the login flow")`),
+      await evaluate(`document.querySelector('[data-rail-scope="/work/atlas#1"][data-row]').textContent.includes("Fix the login flow")`),
       "A collapsed Chat keeps its row marker and hidden title",
     );
-    assert.equal(rail.find((entry) => entry.key === "/work/arketa#1").status, "running");
+    assert.equal(rail.find((entry) => entry.key === "/work/atlas#1").status, "running");
     assert.equal(rail.find((entry) => entry.key === "/work/shop#7").status, "attention");
     assert.equal(
       rail.find((entry) => entry.key === "milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76#7").status,
@@ -296,27 +296,27 @@ async function browserChecks() {
       await evaluate(
         `[...document.querySelectorAll("[data-rail-scope]")].filter(node => node.querySelector("[data-shortcut-hint]")).map(node => node.dataset.railScope)`,
       ),
-      ["/work/arketa#3", "/work/arketa#1", "/work/arketa#2"],
+      ["/work/atlas#3", "/work/atlas#1", "/work/atlas#2"],
       "Shortcut hints belong only to the current scope, including pinned Chats",
     );
     await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifier.key)} }))`);
 
-    await evaluate(`document.querySelector('[data-rail-scope="/work/arketa#2"]').click()`);
+    await evaluate(`document.querySelector('[data-rail-scope="/work/atlas#2"]').click()`);
     assert.equal(await evaluate("window.picked"), "2", "An idle Chat in the current Project opens directly");
     await evaluate(`document.querySelector('[data-rail-scope="/work/shop#7"]').click()`);
     assert.equal(await evaluate("window.opened"), "/work/shop#7", "Another Project's Chat opens directly");
     await evaluate(`document.querySelector('[data-rail-scope="milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76#7"]').click()`);
     assert.equal(await evaluate("window.opened"), "milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76#7", "A Link Chat opens directly with its scope");
     await waitFor(`Math.round(document.querySelector("aside").getBoundingClientRect().width) === 44`);
-    await hover('[data-rail-scope="/work/arketa#2"]');
-    await waitFor(`!!document.querySelector('[data-scope-rail-popover="/work/arketa#2"]')`);
-    assert.match(await evaluate(`document.querySelector('[data-scope-rail-popover="/work/arketa#2"]').textContent`), /arketa.*Idle current chat/);
-    await evaluate(`document.querySelector('[data-scope-rail-popover="/work/arketa#2"] [data-rail-chat]').click()`);
+    await hover('[data-rail-scope="/work/atlas#2"]');
+    await waitFor(`!!document.querySelector('[data-scope-rail-popover="/work/atlas#2"]')`);
+    assert.match(await evaluate(`document.querySelector('[data-scope-rail-popover="/work/atlas#2"]').textContent`), /atlas.*Idle current chat/);
+    await evaluate(`document.querySelector('[data-scope-rail-popover="/work/atlas#2"] [data-rail-chat]').click()`);
     assert.equal(await evaluate("window.picked"), "2", "Idle Chat also opens from its hover popover");
     await screenshot("one-list-rail");
     // Switching settings while collapsed changes the rail immediately and preserves the grouped behavior.
     await evaluate(`window.grouped()`);
-    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 3 && !!document.querySelector('[data-rail-scope="/work/arketa"]')`);
+    await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 3 && !!document.querySelector('[data-rail-scope="/work/atlas"]')`);
     await evaluate(`window.oneList()`);
     await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 5`);
     // Narrow-window auto collapse uses the same list, then restores the expanded list when widened.
@@ -331,7 +331,7 @@ async function browserChecks() {
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 2`);
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
     await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 3`);
-    assert.ok(await evaluate(`[...document.querySelectorAll("[data-rail-scope]")].every((node) => node.dataset.railScope.startsWith("/work/arketa#"))`));
+    assert.ok(await evaluate(`[...document.querySelectorAll("[data-rail-scope]")].every((node) => node.dataset.railScope.startsWith("/work/atlas#"))`));
     await window.loadURL(process.argv[2] + "?single&empty");
     await waitFor(`!!document.querySelector('[aria-label="Collapse sidebar"]')`);
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);

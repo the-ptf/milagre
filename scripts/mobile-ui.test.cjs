@@ -491,6 +491,15 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
 }
 // The long-press wrapper gives its children no `open`; elements built through `jsx` show them in its place, so a test reads the message.
 const messageActionsStub = ({ children }) => children(undefined, (formatted) => formatted);
+// A minimal react-native-gesture-handler Gesture for rendering: each recognizer chains (every builder returns itself),
+// and Exclusive just carries the recognizers it was given. The reorder behavior is the project-order-store's own test.
+function gestureStub() {
+  const recognizer = () => {
+    const self = new Proxy(() => self, { get: (_t, key) => (key === "then" ? undefined : () => self) });
+    return self;
+  };
+  return { Pan: recognizer, Tap: recognizer, Exclusive: (...gestures) => ({ gestures }) };
+}
 // The real phone primitives (primitives/*.tsx), loaded once over a minimal native layer: no hook state, announcements
 // recorded on primitiveAnnouncements. A screen's named Chip, CheckRow, SheetHeader, Group, ErrorNotice (any in DRAWN)
 // keeps its name and props (tests read them) and holds what the real primitive draws as its children, so the roles,
@@ -4376,6 +4385,17 @@ function navigationHost(
     "./app-version": { appVersionLine: () => "1.2.3" },
     "expo-haptics": { selectionAsync: async () => {} },
     "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
+    // A Project header drags to reorder; the gesture and animation libs are stubbed so building the module here never
+    // touches the native layer (the reorder itself is the project-order-store's own unit test).
+    "react-native-gesture-handler": { Gesture: gestureStub(), GestureDetector: "GestureDetector" },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      useAnimatedStyle: (fn) => fn(),
+      useSharedValue: (value) => ({ get: () => value, set: () => {} }),
+    },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+    // Its moveProject computes the dragged Project's new order; the real pure module, since it has no native deps.
+    "./project-order-store": require("../apps/mobile/src/project-order-store.ts"),
     // The store's polling is the store's own test; here each computer's views come from the test's session or `computers`.
     "./all-computers": allComputersFake(session, computers, storeCalls),
   });
@@ -4396,7 +4416,9 @@ function navigationHost(
     return list.props.renderItem({ item: list.props.data.filter((item) => item.kind === kind)[index] });
   };
   // A row's tap target is the menu that also has onPress; its ⋯ is the menu without one.
-  const open = (node) => find(node, (child) => child.type === "PullDown" && child.props.onPress);
+  // The row's menu is its PullDown with the actions (onSelect). A Project header's menu is its ⋯ button (no onPress);
+  // the Chats and Done rows keep their menu on the row itself (onPress folds, long press opens).
+  const open = (node) => find(node, (child) => child.type === "PullDown" && child.props.onSelect);
   const more = (node) => find(node, (child) => child.type === "PullDown" && !child.props.onPress);
   return {
     state,
@@ -21664,14 +21686,14 @@ test("Project Git settings on phone save as you type, validate names and preserv
   find(render(), (node) => node.type === "Chip" && node.props.label === "{slug}").props.onPress();
   assert.equal(field("Branch name").props.value, "{username}-{slug}");
   field("Branch name").props.onChangeText("{username}-{ticket?}-{slug}");
-  field("Username").props.onChangeText("victorlucss");
-  field("Base branch").props.onChangeText("release/business-app/v2");
+  field("Username").props.onChangeText("developer");
+  field("Base branch").props.onChangeText("release/example-app/v2");
   const dashes = find(render(), (node) => node.type === "ListRow" && node.props.title === "Dashes only");
   assert.equal(dashes.props.disabled, true);
   assert.equal(dashes.props.subtitle, "Set in .milagre/worktree.json");
   await settle();
-  assert.equal(calls.at(-1).baseBranch, "release/business-app/v2");
-  assert.equal(calls.at(-1).username, "victorlucss");
+  assert.equal(calls.at(-1).baseBranch, "release/example-app/v2");
+  assert.equal(calls.at(-1).username, "developer");
   assert.equal(Object.hasOwn(calls.at(-1), "dashesOnly"), false, "a repository field never becomes a personal override");
   const count = calls.length;
   field("Branch name").props.onChangeText("milagre/{slug}");

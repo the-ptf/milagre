@@ -2945,6 +2945,24 @@
         }
       ]
     },
+    "chat:detach": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
     "chat:archive-subagent": {
       "parameters": [
         {

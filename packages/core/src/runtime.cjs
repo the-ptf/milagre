@@ -3125,6 +3125,11 @@ function createRuntime(options) {
   remoteComputers?.onRemoved?.((computerId) => {
     void linked.computerRemoved(computerId).catch((error) => console.warn("Milagre couldn't settle a removed computer's Delegations:", error.message));
   });
+  // The sidebar's "Detach from parent" on a subchat: it lists on its own again, and its open Delegations stop reporting back.
+  commands.handle("chat:detach", (_event, projectPath, sessionId) => {
+    if (typeof projectPath !== "string" || !Number.isSafeInteger(sessionId)) throw new Error("Choose a Chat to detach.");
+    return linked.detach(`${projectPath}#${sessionId}`);
+  });
   commands.handle("linked:stop-negotiation", (_event, id) => (typeof id === "string" ? linked.stop({ negotiationId: id }) : undefined));
   // Each Project an open resolved this run, by its path (see openProject).
   const openedIdentities = new Map();
