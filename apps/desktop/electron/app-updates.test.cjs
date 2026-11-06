@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
-const { createAppUpdates, createAutoInstall, watchAppUpdates, INPUT_IDLE_SECONDS } = require("./app-updates.cjs");
+const { deferUpdater, createAppUpdates, createAutoInstall, watchAppUpdates, INPUT_IDLE_SECONDS } = require("./app-updates.cjs");
 function fixture() {
   let time = 0,
     checks = 0,
@@ -317,4 +317,23 @@ test("the auto update check runs every minute next to the five-minute refresh", 
   assert.equal(ticks, 1);
   app.emit("will-quit");
   assert.ok(intervals.every((entry) => entry.cancelled));
+});
+
+test("a deferred updater loads on the first check, with the settings and listeners made before it", async () => {
+  const real = new EventEmitter();
+  real.checkForUpdates = async () => real.emit("update-not-available");
+  let loads = 0;
+  const updater = deferUpdater(() => {
+    loads++;
+    return real;
+  });
+  const controller = createAppUpdates({ updater, enabled: true, prepare: async () => {}, stopHost: async () => {}, publish() {} });
+  assert.equal(loads, 0);
+  await controller.check(true);
+  assert.equal(loads, 1);
+  assert.equal(real.autoDownload, false);
+  assert.equal(real.autoInstallOnAppQuit, false);
+  assert.equal(controller.get().status, "up-to-date");
+  assert.equal(updater.loaded(), real);
+  assert.equal(loads, 1);
 });

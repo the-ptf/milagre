@@ -1,6 +1,28 @@
 // @ts-check
 /** @typedef {typeof import("../app/src/electron.d.ts")} BridgeTypes */
-const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const { contextBridge, ipcRenderer: electronIpc, webUtils } = require("electron");
+
+// The window opens before the host answers, and main registers the host's commands once it has (main.cjs), so calls
+// made until then wait here instead of finding no handler.
+let hostConnected = false;
+const hostReady = electronIpc.invoke("app:host-ready").then(() => {
+  hostConnected = true;
+});
+const ipcRenderer = {
+  /** @type {typeof electronIpc.on} */
+  on: (channel, listener) => electronIpc.on(channel, listener),
+  /** @type {typeof electronIpc.removeListener} */
+  removeListener: (channel, listener) => electronIpc.removeListener(channel, listener),
+  /** @type {typeof electronIpc.sendSync} */
+  sendSync: (channel, ...args) => electronIpc.sendSync(channel, ...args),
+  /** @type {typeof electronIpc.invoke} */
+  invoke: (channel, ...args) => (hostConnected ? electronIpc.invoke(channel, ...args) : hostReady.then(() => electronIpc.invoke(channel, ...args))),
+  /** @type {typeof electronIpc.send} */
+  send: (channel, ...args) => {
+    if (hostConnected) electronIpc.send(channel, ...args);
+    else void hostReady.then(() => electronIpc.send(channel, ...args));
+  },
+};
 
 // What only this Mac's own window does: its editors and Finder, the folder dialog, the clipboard and image menus,
 // notifications, updates, its own host, devices and accounts. A paired computer's bridge refuses them before any IPC,
