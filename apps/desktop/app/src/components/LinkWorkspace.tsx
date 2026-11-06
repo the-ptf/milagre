@@ -3,7 +3,7 @@ import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../l
 import { OfflineTray, useOfflineTray } from "./OfflineTray";
 import { useDisplayNow } from "../lib/display-clock";
 import { computerOfKey } from "@milagre/shared/chat-scopes";
-import { computerNameOf, offlineBanner, useComputers } from "../lib/computers";
+import { computerNameOf, offlineBanner, useComputers, useHiddenComputers } from "../lib/computers";
 import { archiveLinkChat } from "../lib/archive-flow";
 import { shortcutCommand } from "../lib/keybindings";
 import { prepareImageUploads, prepareLocalFileUploads } from "../lib/attachment-uploads";
@@ -182,7 +182,8 @@ export function LinkWorkspace({
   const run = chatId ? agents.runs[chatId] : undefined;
   // Every project's chats that wait on the user, except in Projects hidden from the sidebar; the Link's own are marked in its sidebar.
   const hiddenProjects = useHiddenProjects();
-  const attentionKey = chatsNeedingAttention(agents.runs, "", hiddenProjects).join("\n");
+  const hiddenComputers = useHiddenComputers();
+  const attentionKey = chatsNeedingAttention(agents.runs, "", hiddenProjects, hiddenComputers).join("\n");
   const sidebarRunKeys = runKeys(agents.runs);
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const { showAttentionButton, floatingInbox, chatOrder } = useSettings();
@@ -432,9 +433,10 @@ export function LinkWorkspace({
           .map((session) => chatKeyForScope(scope, session.id)),
         notifyOnCompletion: settings.notifyOnCompletion,
         showDockBadge: settings.showDockBadge,
+        hidden: [...hiddenProjects],
       })
       .catch(() => {});
-  }, [owner, chatId, state.sessions]);
+  }, [owner, chatId, state.sessions, hiddenProjects]);
   // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
   async function send(body = draftStore.get().trim(), preserve = false, attach = true, delivery?: MessageDelivery) {
     const images = attach ? imageDraft.images : [];

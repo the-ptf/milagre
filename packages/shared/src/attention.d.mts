@@ -28,8 +28,16 @@ export function attentionTitle(context: Pick<AttentionContext, "chatTitle" | "pa
 /** The notification for an approval or question a turn waits on, or null for any other event. */
 export function attentionNotice(event: AgentEvent, context: AttentionContext): AttentionNotice | null;
 export function attentionContext(state: CoordinatorState, projectName: string, sessionId: number): AttentionContext;
-/** Chat keys other than `currentChat` whose turn waits on an approval or question. Link Chats and `hidden` Projects are left out. */
-export function chatsNeedingAttention(runs: AgentRuns | undefined, currentChat?: string, hidden?: ReadonlySet<string>): string[];
+/** Whether a Chat or scope key is left out of this Mac's sidebar: its scope in `scopes`, or its computer in `computers`. */
+export function hiddenHere(key: string, scopes?: ReadonlySet<string>, computers?: ReadonlySet<string>): boolean;
+/** Chat keys other than `currentChat` whose turn waits on an approval or question. Link Chats, `hidden` Projects and
+ * Projects on `hiddenComputers` are left out. */
+export function chatsNeedingAttention(
+  runs: AgentRuns | undefined,
+  currentChat?: string,
+  hidden?: ReadonlySet<string>,
+  hiddenComputers?: ReadonlySet<string>,
+): string[];
 /** Name the waiting Chat, or count Chats when the button opens a menu. */
 export function attentionLabel(titles: string[]): string;
 /** What a waiting run asks for, in one line: the approval's command or title, or its first question. */

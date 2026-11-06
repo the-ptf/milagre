@@ -8673,6 +8673,13 @@
         },
         "showDockBadge": {
           "enum": [false, true]
+        },
+        "hidden": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Projects hidden from this Mac's sidebar (this Mac's paths, `${computerId}|/path` for paired ones): they stay quiet."
         }
       },
       "required": ["projectPath", "activeChatId", "unread", "notifyOnCompletion", "showDockBadge"],

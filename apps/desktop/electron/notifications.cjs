@@ -25,10 +25,11 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // A chat's notification plays the chime picked in Settings > Notifications: the system notice goes silent and playChime
 // plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
-  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void; now?: () => number }} options */
+  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void; isHidden?: (chatId: string) => boolean; now?: () => number }} options */
   constructor({
     createNotification,
     isAppFocused,
+    isHidden = () => false,
     openChat,
     openPhoneSettings = () => {},
     setBadge = () => {},
@@ -37,6 +38,8 @@ class AttentionNotifier {
     now = Date.now,
   }) {
     this.createNotification = createNotification;
+    // A Chat this Mac's sidebar leaves out (its Project or its computer unchecked in Filters) stays quiet here.
+    this.isHidden = isHidden;
     this.now = now;
     this.schedule = null;
     this.canPlayChime = canPlayChime;
@@ -103,8 +106,11 @@ class AttentionNotifier {
   }
 
   updateBadge() {
-    const chats = new Set(this.unread);
-    for (const key of this.open.keys()) chats.add(key.slice(0, key.lastIndexOf("\n")));
+    const chats = new Set([...this.unread].filter((chatId) => !this.isHidden(chatId)));
+    for (const key of this.open.keys()) {
+      const chatId = key.slice(0, key.lastIndexOf("\n"));
+      if (!this.isHidden(chatId)) chats.add(chatId);
+    }
     this.setBadge(this.showDockBadge && chats.size ? String(chats.size) : "");
   }
 
@@ -142,7 +148,8 @@ class AttentionNotifier {
   /** @param {{ chatId?: string; requestId?: string; title?: string; body?: string }} [notice] */
   notify({ chatId, requestId, title, body } = {}) {
     const key = keyOf(String(chatId), String(requestId));
-    if (!this.open.has(key) || this.open.get(key) || this.isAppFocused() || !notificationAllowed(this.schedule, this.now())) return false;
+    if (!this.open.has(key) || this.open.get(key) || this.isHidden(String(chatId)) || this.isAppFocused() || !notificationAllowed(this.schedule, this.now()))
+      return false;
     const { notification, played } = this.chatNotification({
       title: capped(title, MAX_TITLE) || "Milagre",
       subtitle: "",
@@ -167,7 +174,7 @@ class AttentionNotifier {
   }
 
   showCompletion(chatId, title, result) {
-    if (!notificationAllowed(this.schedule, this.now())) return false;
+    if (this.isHidden(chatId) || !notificationAllowed(this.schedule, this.now())) return false;
     if (this.isAppFocused() && this.activeChatId === chatId) return false;
     const notice = completionNotice(title, result);
     const { notification, played } = this.chatNotification({
@@ -260,6 +267,22 @@ class AttentionNotifier {
     const notification = this.open.get(key);
     this.open.delete(key);
     notification?.close();
+  }
+
+  /** Projects or computers were hidden or shown in Filters: notices of what is now hidden close, and the badge follows. */
+  hiddenChanged() {
+    for (const [key, notification] of this.open) {
+      if (notification && this.isHidden(key.slice(0, key.lastIndexOf("\n")))) {
+        notification.close();
+        this.open.set(key, null);
+      }
+    }
+    for (const [chatId, notification] of Array.from(this.completionNotifications)) {
+      if (!this.isHidden(chatId)) continue;
+      notification.close();
+      this.completionNotifications.delete(chatId);
+    }
+    this.updateBadge();
   }
 
   /** A computer was removed or switched off: what it waited on, and its unread chats, leave the badge. */

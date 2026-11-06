@@ -183,26 +183,36 @@ async function browserChecks() {
       );
       window.webContents.sendInputEvent({ type: "mouseMove", x: Math.round(rect.x), y: Math.round(rect.y) });
     };
+    // Filters › Computers (the laptop button's popover before it joined Filters).
     const openPopover = async () => {
-      await evaluate(`document.querySelector('[data-computers-button]').click()`);
-      await waitFor(`!!document.querySelector('[data-computers-panel]')`);
+      await evaluate(`document.querySelector('[data-filters]').click()`);
+      await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="computers"]')`);
+      await evaluate(`document.querySelector('[data-filters-panel] [data-sub="computers"]').click()`);
+      await waitFor(`!!document.querySelector('[data-filters-sub="computers"]')`);
       // Measure rows after the pop-in scale settles, so a hover lands where the row ends up.
-      await waitFor(`document.querySelector('[data-computers-panel]').getAnimations().every((a) => a.playState === "finished")`);
+      await waitFor(`document.querySelector('[data-filters-sub="computers"]').getAnimations().every((a) => a.playState === "finished")`);
+    };
+    // Escape steps back from Computers › to Filters, and again closes Filters.
+    const closePopover = async () => {
+      await evaluate(`document.querySelector('[data-filters-sub="computers"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await waitFor(`!document.querySelector('[data-filters-sub]')`);
+      await evaluate(`document.querySelector('[data-filters-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await waitFor(`!document.querySelector('[data-filters-panel]')`);
     };
     const lines = () =>
       evaluate(
-        `[...document.querySelectorAll('[data-computers-panel] [data-computer-row]')].map((row) => [row.dataset.computerRow, row.querySelector('[data-computer-name]').textContent.trim(), row.querySelector('[data-computer-line]').textContent.trim()])`,
+        `[...document.querySelectorAll('[data-filters-sub="computers"] [data-computer-row]')].map((row) => [row.dataset.computerRow, row.querySelector('[data-computer-name]').textContent.trim(), row.querySelector('[data-computer-line]').textContent.trim()])`,
       );
     // A cold Vite dependency scan can reload the full App before its startup animation finishes.
     // Give initial boot its own budget; interaction assertions keep the normal five-second deadline.
-    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`, 20000);
+    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`, 20000);
     await openPopover();
     assert.deepEqual(await lines(), [
       ["this-mac", "victor-mbp", ThisComputer],
       ["c-atlas", "atlas", "Same network"],
       ["c-studio", "studio", "Offline, seen 2h ago"],
     ]);
-    assert.equal(await evaluate(`!!document.querySelector('[data-computers-panel] [data-add-computer-row]')`), true);
+    assert.equal(await evaluate(`!!document.querySelector('[data-filters-sub="computers"] [data-add-computer-row]')`), true);
     await screenshot("popover");
     await hover('[data-computer-row="c-atlas"] [data-computer-gear]');
     await waitFor(`[...document.querySelectorAll('[role="tooltip"]')].some((tip) => tip.textContent.includes('atlas settings: rename, connection, remove'))`);
@@ -219,7 +229,7 @@ async function browserChecks() {
     await evaluate(`${sidebarSwitch}.click()`);
     await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'true' && !localStorage.getItem("milagre.hiddenComputers")`);
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
-    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
+    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`);
     await openPopover();
     await evaluate(`document.querySelector('[data-computer-row="this-mac"] [data-computer-gear]').click()`);
     await waitFor(`document.querySelector('h1')?.textContent === 'Devices'`);
@@ -230,7 +240,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('dialog[data-add-computer]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(`!document.querySelector('dialog')`);
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
-    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
+    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`);
     console.log("PASS: a computer's gear opens its settings, with Show in sidebar; This Mac's opens Settings › Devices, which adds a computer");
 
     const scopes = () => evaluate(`[...document.querySelectorAll('[data-sidebar-scope]')].map((section) => section.dataset.sidebarScope)`);
@@ -377,12 +387,11 @@ async function browserChecks() {
     await evaluate(`${studioShow}.click()`);
     await waitFor(`!document.querySelector('[data-sidebar-scope^="c-studio|"]')`);
     assert.equal(await evaluate(`${studioShow}.getAttribute('aria-checked')`), "false");
-    assert.equal(await evaluate(`!!document.querySelector('[data-computers-panel]')`), true, "the popover stays open");
+    assert.equal(await evaluate(`!!document.querySelector('[data-filters-sub="computers"]')`), true, "the popover stays open");
     assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenComputers") || "[]")`), ["c-studio"]);
     assert.deepEqual(await scopes(), ["c-atlas|/Users/a/atlas-web", "/work/milagre-ade"]);
     await screenshot("popover-hidden-computer");
-    await evaluate(`document.querySelector('[data-computers-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
-    await waitFor(`!document.querySelector('[data-computers-panel]')`);
+    await closePopover();
     // Filters › Projects leaves its Projects out too; the count is still the unchecked Projects listed.
     await evaluate(`document.querySelector('[data-filters]').click()`);
     await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="projects"]')`);
@@ -405,7 +414,7 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-filters-panel]')`);
     // A restart keeps it hidden; checking it again brings its Projects back.
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
+    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 2`);
     await delay(150);
     assert.deepEqual(await scopes(), ["c-atlas|/Users/a/atlas-web", "/work/milagre-ade"], "still hidden after a restart");
@@ -414,8 +423,7 @@ async function browserChecks() {
     await evaluate(`${studioShow}.click()`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope^="c-studio|"]').length === 2`);
     assert.equal(await evaluate(`localStorage.getItem("milagre.hiddenComputers")`), null);
-    await evaluate(`document.querySelector('[data-computers-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
-    await waitFor(`!document.querySelector('[data-computers-panel]')`);
+    await closePopover();
     assert.deepEqual(errors, []);
     console.log("PASS: unchecking a computer in the popover hides its Projects from the sidebar and Filters › Projects, and a restart keeps it");
 
@@ -640,17 +648,17 @@ async function browserChecks() {
 
     await evaluate(`window.setOther(false)`);
     await waitFor(`!document.querySelector('[data-chat-computer], [data-scope-computer]')`);
-    await waitFor(`!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!document.querySelector('[data-filters][data-computers-on]')`);
     await evaluate(`window.setOther(true)`);
-    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
+    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`);
     console.log("PASS: with only this Mac, rows have no computer line");
     await openPopover();
     await evaluate(`document.querySelector('[data-add-computer-row]').click()`);
-    await waitFor(`document.querySelector('dialog[data-add-computer]')?.open && !document.querySelector('[data-computers-panel]')`);
+    await waitFor(`document.querySelector('dialog[data-add-computer]')?.open && !document.querySelector('[data-filters-sub="computers"]')`);
     await evaluate(`document.querySelector('dialog[data-add-computer]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(`!document.querySelector('dialog')`);
     await evaluate(`window.setOther(false)`);
-    await waitFor(`!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!document.querySelector('[data-filters][data-computers-on]')`);
     assert.deepEqual(errors, []);
     console.log("PASS: Add computer opens from the popover, and nothing about computers shows while Other computers is off");
 
@@ -695,7 +703,7 @@ async function browserChecks() {
     console.log("PASS: remote chats retain live pin settings through a delayed read and follow both Chat order choices");
     // A host enabled outside this window overrides stale local preferences without a disconnect on launch.
     await window.loadURL(process.argv[2] + "?daemon=1");
-    await waitFor(`!!document.querySelector('[data-computers-button]') && document.querySelectorAll('[data-sidebar-scope]').length === 4`);
+    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && document.querySelectorAll('[data-sidebar-scope]').length === 4`);
     assert.deepEqual(await evaluate(`window.computerEnableCalls`), [], "opening a window never overwrites the daemon's saved choice");
     await evaluate(`window.setChatList('list')`);
     await waitFor(`!!document.querySelector('[data-chat-list-flat] [data-chat-computer]')`);
@@ -704,9 +712,9 @@ async function browserChecks() {
     assert.ok(rowNames.includes("atlas"), "the online remote computer is tagged");
     await screenshot("one-list-computer-tags");
     await evaluate(`window.setDaemonEnabled(false)`);
-    await waitFor(`!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!document.querySelector('[data-filters][data-computers-on]')`);
     await evaluate(`window.setDaemonEnabled(true)`);
-    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]')`);
     assert.deepEqual(await evaluate(`window.computerEnableCalls`), [], "external changes reach the UI without writing them back");
     await evaluate(`window.setOther(false)`);
     await waitFor(`window.computerEnableCalls.includes(false)`);
@@ -721,7 +729,7 @@ async function browserChecks() {
     console.error(
       "Fixture state:",
       await evaluate(
-        `({ ready: document.readyState, buttons: [...document.querySelectorAll("[data-computers-button]")].length, splash: document.querySelector(".startup-splash-screen")?.outerHTML, body: document.body.innerText.slice(0, 1600) })`,
+        `({ ready: document.readyState, buttons: [...document.querySelectorAll("[data-filters][data-computers-on]")].length, splash: document.querySelector(".startup-splash-screen")?.outerHTML, body: document.body.innerText.slice(0, 1600) })`,
       ),
     );
     await screenshot("failure").catch(() => {});

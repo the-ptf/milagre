@@ -867,6 +867,8 @@ export type MilagreBridge = {
     unread: string[];
     notifyOnCompletion: boolean;
     showDockBadge: boolean;
+    /** Projects hidden from this Mac's sidebar (this Mac's paths, `${computerId}|/path` for paired ones): they stay quiet. */
+    hidden?: string[];
   }) => Promise<void>;
   notifyCompletion: (notice: { chatId: string; title: string }) => Promise<boolean>;
   getInbox: () => Promise<import("@milagre/shared/attention").InboxSnapshot>;

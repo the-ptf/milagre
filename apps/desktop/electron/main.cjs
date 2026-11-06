@@ -100,6 +100,9 @@ async function startDesktop() {
   background.start();
   await app.whenReady();
   const preferences = require("./preferences.cjs").createPreferencesStore(path.join(app.getPath("userData"), "preferences.json"));
+  const hiddenChats = require("./hidden-chats.cjs").createHiddenChats(preferences);
+  /** @type {(() => void) | null} */
+  let hiddenChanged = null;
   // Synchronous writes finish before an updater can close the window.
   electronIpcMain.on("preferences:storage", (event, operation, key, value) => {
     try {
@@ -118,6 +121,7 @@ async function startDesktop() {
         const previous = preferences.get(key);
         preferences.set(key, value);
         if (previous !== value) {
+          if (hiddenChats.affects(key)) hiddenChanged?.();
           for (const window of BrowserWindow.getAllWindows()) {
             if (window.webContents !== event.sender) window.webContents.send("preferences:changed", { key, value });
           }
@@ -167,7 +171,7 @@ async function startDesktop() {
     openFromNotification("notification:open-experimental");
   });
   // An Artifact page's files come from the computer its Chat is on: this Mac's host, or a paired one's.
-  const { computerOfKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
+  const { computerOfKey, LOCAL_COMPUTER, qualifyKey } = require("@milagre/shared/chat-scopes");
   const previews = require("./artifact-preview.cjs").createArtifactPreviews({
     readAsset: (chatId, name, offset, length) => {
       const request = { chatId, name, offset, length };
@@ -409,7 +413,19 @@ async function startDesktop() {
     openChat: openChatFromNotification,
     openPhoneSettings: () => openFromNotification("notification:open-phone-settings"),
     setBadge: (value) => background.setBadge(value),
+    isHidden: (chatId) => hiddenChats.isHidden(chatId),
   });
+  hiddenChanged = () => notifier.hiddenChanged();
+  // This Mac's hidden Projects live with its host: read them each time it connects, without waiting for the window.
+  const readHiddenProjects = () =>
+    runtime
+      ?.invoke("project:recent", [])
+      .then((list) => {
+        if (!Array.isArray(list)) return;
+        const hidden = list.filter((project) => project?.hidden === true && typeof project.path === "string").map((project) => project.path);
+        if (hiddenChats.setReported(hidden)) notifier.hiddenChanged();
+      })
+      .catch((error) => console.warn("Hidden Projects:", error.message));
 
   // The window reports the "Notify when waiting" setting, kept with its other settings.
   let notifyWhenWaiting = true;
@@ -421,7 +437,11 @@ async function startDesktop() {
   ipcMain.handle("settings:notification-chime", (_event, chime) => notifier.setChime(chime));
   ipcMain.handle("settings:notification-schedule", (_event, schedule) => notifier.setSchedule(schedule));
 
-  ipcMain.handle("notification:state", (_event, state) => notifier.sync(state));
+  ipcMain.handle("notification:state", (_event, state) => {
+    // The window's hidden Projects: this Mac's, kept by its host, and paired computers' (also in preferences).
+    if (state && Array.isArray(state.hidden) && hiddenChats.setReported(state.hidden)) notifier.hiddenChanged();
+    notifier.sync(state);
+  });
   ipcMain.handle("notification:completed", (_event, notice) => (notificationsSupported() ? notifier.notifyCompletion(notice) : false));
 
   // The theme's page color, pushed by the renderer whenever its theme resolves.
@@ -523,6 +543,7 @@ async function startDesktop() {
             void remoteBrowserSessions.refresh();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
+            void readHiddenProjects();
           }
         }
         // Add workspace's sign-in opens in a window of its own, and only when this window asked for one.
@@ -624,6 +645,8 @@ async function startDesktop() {
     })
     .catch((error) => console.warn("Computer credentials:", error.message));
   ipcMain.handle("floating-inbox:snapshot", async () => {
+    // Only what this Mac's sidebar lists: a hidden Project's, or a hidden computer's, Chats stay out.
+    const listed = (computerId) => (item) => !hiddenChats.isHidden(qualifyKey(computerId, item.key));
     const local = await runtime.invoke("chat:inbox", []);
     const remote = await Promise.all(
       (await runtime.invoke("computers:list")).computers
@@ -632,13 +655,18 @@ async function startDesktop() {
           try {
             const snapshot = await lane.invoke("computers:invoke", [computer.id, "chat:inbox", []]);
             const label = (item) => ({ ...item, computer: computer.name });
-            return { agents: snapshot.agents.map(label), items: snapshot.items.map(label) };
+            const shown = listed(computer.id);
+            return { agents: snapshot.agents.filter(shown).map(label), items: snapshot.items.filter(shown).map(label) };
           } catch {
             return { agents: [], items: [] };
           }
         }),
     );
-    return { agents: [...local.agents, ...remote.flatMap((value) => value.agents)], items: [...local.items, ...remote.flatMap((value) => value.items)] };
+    const here = listed(LOCAL_COMPUTER);
+    return {
+      agents: [...local.agents.filter(here), ...remote.flatMap((value) => value.agents)],
+      items: [...local.items.filter(here), ...remote.flatMap((value) => value.items)],
+    };
   });
   // An older host can't load very large Projects; the window offers to replace it with this desktop's own.
   ipcMain.handle("runtime:restart-host", async () => {
@@ -712,6 +740,7 @@ async function startDesktop() {
     hostConnected();
     void runtime.resumeRecentProjects().catch((error) => console.warn(error.message));
     void deviceNotices.connected();
+    void readHiddenProjects();
     // The window opened before the host answered, so it may have taken focus already.
     if (mainWindow?.isFocused()) void runtime.setFocused(true).catch(() => {});
     app.on("browser-window-focus", (_event, window) => {
