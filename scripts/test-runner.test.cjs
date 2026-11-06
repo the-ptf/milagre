@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { test } = require("node:test");
-const { shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST, UNIT_SECONDS } = require("./test-runner.cjs");
+const { needsShell, shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST, UNIT_SECONDS } = require("./test-runner.cjs");
 const root = path.join(__dirname, "..");
 
 test("discovers every node:test file and every Electron check", () => {
@@ -152,4 +152,11 @@ test("every Electron check that loads the built renderer asks for the build", ()
     if (fs.readFileSync(path.join(root, file), "utf8").includes("apps/desktop/dist/index.html"))
       assert.equal(MANIFEST[name]?.needsBuild, true, `${name} loads apps/desktop/dist but is missing needsBuild in MANIFEST`);
   }
+});
+
+test("only npm on Windows runs through a shell", () => {
+  assert.equal(needsShell("npm", "win32"), true);
+  assert.equal(needsShell(process.execPath, "win32"), false);
+  assert.equal(needsShell("npm", "darwin"), false);
+  assert.equal(needsShell("npm", "linux"), false);
 });

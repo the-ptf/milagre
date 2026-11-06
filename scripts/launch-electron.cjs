@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { spawn, execFileSync } = require("node:child_process");
+const { launchOptions } = require("./launch-env.cjs");
 
 const projectRoot = path.resolve(__dirname, "..");
 const desktopRoot = path.join(projectRoot, "apps", "desktop");
@@ -61,9 +62,10 @@ async function main() {
   if (process.platform === "darwin") await prepareMacBundle();
 
   const executable = process.platform === "darwin" ? appExecutable : electronBinary;
-  const child = spawn(executable, [desktopRoot, ...process.argv.slice(2)], {
+  const { args, env } = launchOptions(process.argv.slice(2), process.env);
+  const child = spawn(executable, [desktopRoot, ...args], {
     cwd: projectRoot,
-    env: process.env,
+    env,
     stdio: "inherit",
   });
 

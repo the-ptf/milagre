@@ -27,7 +27,7 @@
     "perf": "node scripts/perf/run.cjs",
     "release:preview": "node scripts/plan-release.cjs preview",
     "package:mac": "npm run build && electron-builder --mac dmg zip --publish never",
-    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never --config.npmRebuild=false",
     "package:linux": "npm run build && electron-builder --linux AppImage deb rpm --x64 --publish never",
     "package:managers": "node scripts/generate-package-managers.cjs",
     "package:mac:local": "npm run package:mac -- --config.mac.identity=- --config.mac.notarize=false",
