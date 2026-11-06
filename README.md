@@ -33,7 +33,7 @@ Native installer checks pass on all three platforms. Public distribution is at d
 | Platform                       | Packages                                        | Availability                                                         |
 | ------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------- |
 | macOS, Apple Silicon and Intel | DMG, ZIP, Homebrew cask                         | Signed releases and Homebrew are live                                |
-| Windows, x64                   | Per-user NSIS installer, WinGet manifest        | Native checks pass; signed public release and WinGet listing pending |
+| Windows, x64                   | Per-user NSIS installer, WinGet manifest        | Unsigned betas; signed public release and WinGet listing pending     |
 | Linux, x64                     | AppImage, DEB, RPM, signed APT/RPM repositories | Native checks pass; public release and repository deployment pending |
 
 You need at least one local agent CLI, installed and logged in:
