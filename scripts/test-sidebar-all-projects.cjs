@@ -544,10 +544,59 @@ async function browserChecks() {
     assert.deepEqual(await scopes(), [...other, LINK], "This window adopts the other window's order");
     assert.deepEqual(await savedOrder(), other);
 
+    // Dragging a Project header moves its group: shop's header is dragged above atlas and the new order is saved.
+    await waitFor(`document.querySelectorAll("[data-sidebar-scope]").length === 4`);
+    await screenshot("reorder-before");
+    const headerPoint = async (scope, dy = 0) =>
+      evaluate(
+        `(() => { const r = document.querySelector('[data-sidebar-scope="${scope}"] [data-scope-toggle]').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + r.height / 2 + ${dy}), top: Math.round(r.top) }; })()`,
+      );
+    const mouse2 = (type, x, y) => window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
+    const dragScope = `document.documentElement.querySelector("[data-scope-drop-line]")`;
+    let start, aim;
+    for (
+      let attempt = 0;
+      !(await evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((n) => n.dataset.sidebarScope)[0] === "/work/shop"`));
+      attempt++
+    ) {
+      if (attempt === 6) throw new Error("Timed out: the header drag never reordered");
+      if (attempt) mouse2("mouseUp", start.x, start.y);
+      start = await headerPoint("/work/shop");
+      aim = await headerPoint("/work/atlas");
+      mouse2("mouseMove", start.x, start.y);
+      mouse2("mouseDown", start.x, start.y);
+      // Past the threshold, then up onto atlas's top half so the drop lands before it.
+      for (let step = 1; step <= 10; step++) {
+        mouse2("mouseMove", start.x, Math.round(start.y + ((aim.top + 2 - start.y) * step) / 10));
+        await delay(16);
+      }
+      // Let the drop line show before releasing.
+      for (let i = 0; i < 40 && !(await evaluate(dragScope)); i++) await delay(50);
+      if (await evaluate(dragScope)) await screenshot("reorder-dragging");
+      const landing = await headerPoint("/work/atlas");
+      mouse2("mouseUp", landing.x, landing.top + 2);
+      await delay(200);
+    }
+    assert.deepEqual(await scopes(), ["/work/shop", "/work/atlas", "/work/docs", LINK], "shop moved to the top by its header");
+    assert.deepEqual(await savedOrder(), ["/work/shop", "/work/atlas", "/work/docs"], "the new group order is saved");
+    await screenshot("reorder-after");
+    // A press that drags a few pixels sideways and lets go inside its own header keeps the group where it was.
+    const own = await headerPoint("/work/atlas");
+    mouse2("mouseMove", own.x, own.y);
+    mouse2("mouseDown", own.x, own.y);
+    for (let step = 1; step <= 3; step++) {
+      mouse2("mouseMove", own.x + step * 2, own.y);
+      await delay(16);
+    }
+    mouse2("mouseUp", own.x + 6, own.y);
+    await delay(250);
+    assert.deepEqual(await scopes(), ["/work/shop", "/work/atlas", "/work/docs", LINK], "a drop inside the dragged group's own header leaves the order");
+    assert.deepEqual(await savedOrder(), ["/work/shop", "/work/atlas", "/work/docs"]);
+
     assert.deepEqual(errors, []);
     await reset();
     console.log(
-      "PASS: the sidebar lists each Project and Link with its chats, skips a hidden Project, chooses Projects with checkboxes, marks one open scope, offers New chat and confirmed removal for every Project, pins chats to one Pinned section on top, opens them, marks Link chats waiting on the user, follows live changes, folds groups, and keeps the group order across restarts",
+      "PASS: the sidebar lists each Project and Link with its chats, skips a hidden Project, chooses Projects with checkboxes, marks one open scope, offers New chat and confirmed removal for every Project, pins chats to one Pinned section on top, opens them, marks Link chats waiting on the user, follows live changes, folds groups, reorders groups by dragging a Project header, and keeps the group order across restarts",
     );
     app.exit(0);
   } catch (error) {

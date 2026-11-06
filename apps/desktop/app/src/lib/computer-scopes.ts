@@ -40,14 +40,27 @@ export function withLocalVisibility(
 }
 
 /**
- * Every computer's scopes in one list (spec "sidebar-scopes.ts … merged by Project name order"): Projects by name, then
- * Links by name; on a tie This Mac's first, then the computers in the popover's order.
+ * Every computer's scopes in one list: Projects by name, then Links by name; on a tie This Mac's first, then the
+ * computers in the popover's order. Two Projects the user has placed in `manualOrder` (the sidebar's saved group order)
+ * keep that relative order instead of the name one, so a reorder holds across computers; a Project absent from it still
+ * falls in by name, which keeps the default (nothing moved) as plain name order.
  */
-export function mergeScopes<T extends { key: string; name: string; link: unknown; computerId: string }>(scopes: T[], computerOrder: string[]): T[] {
+export function mergeScopes<T extends { key: string; name: string; link: unknown; computerId: string }>(
+  scopes: T[],
+  computerOrder: string[],
+  manualOrder: readonly string[] = [],
+): T[] {
   const rank = (scope: T) => (scope.computerId === LOCAL_COMPUTER ? -1 : computerOrder.indexOf(scope.computerId));
+  // Only decides between two Projects both in the saved order; otherwise 0, so the name compare below places them.
+  const manualOrderCompare = (a: T, b: T) => {
+    const ai = manualOrder.indexOf(a.key);
+    const bi = manualOrder.indexOf(b.key);
+    return ai === -1 || bi === -1 ? 0 : ai - bi;
+  };
   return [...scopes].sort(
     (a, b) =>
       Number(Boolean(a.link)) - Number(Boolean(b.link)) ||
+      manualOrderCompare(a, b) ||
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
       rank(a) - rank(b) ||
       a.key.localeCompare(b.key),

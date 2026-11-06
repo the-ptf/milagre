@@ -105,6 +105,7 @@ export const PullDown = ({children, label, onPress}) => <div role="button" aria-
 export const SectionLabel = ({children}) => <span>{children}</span>;
 export const Toast = ({text}) => <span>{text}</span>;
 export const DISABLED_OPACITY = { row: 0.4 };
+export const PRESSED_OPACITY = 0.6;
 export const pressStyle = () => ({});
 export const announce = () => {};
 export const useAnnounce = () => {};
@@ -130,6 +131,13 @@ const stubs = {
   "expo-linking": "export const openURL = async () => {};",
   "expo-clipboard": "export const setStringAsync = async () => {};",
   "react-native-safe-area-context": "export const useSafeAreaInsets = () => ({ top: 0, bottom: 0 });",
+  // A Project header drags to reorder on the phone; these native libs are stubbed so Vite never bundles their web
+  // builds (react-native-reanimated pulls react-native-web paths that don't resolve here).
+  "react-native-gesture-handler":
+    "const chain = () => new Proxy(() => chain(), { get: () => () => chain() }); export const Gesture = { Pan: chain, Tap: chain, Exclusive: () => chain() }; export const GestureDetector = ({ children }) => children;",
+  "react-native-reanimated":
+    "import React from 'react'; const View = ({ children, accessibilityLabel, onLayout }) => <div aria-label={accessibilityLabel} ref={onLayout ? (node => node && onLayout({ nativeEvent: { layout: {} } })) : undefined}>{children}</div>; export default { View }; export const useAnimatedStyle = fn => fn(); export const useSharedValue = value => ({ get: () => value, set() {} });",
+  "react-native-worklets": "export const scheduleOnRN = (fn, ...args) => fn(...args);",
   "./chat-list-controls":
     "export const CONTROLS_HEIGHT = 48; export const useControlsBottomInset = () => 48 + 36; export const useControlsVisibility = () => ({ hidden: false, onScroll() {}, reveal() {} }); export const ChatListControls = () => null;",
   "./computer-actions": "export const isDesktopComputer = name => /studio|mini|imac/i.test(name);",
@@ -250,7 +258,7 @@ async function browserChecks() {
     // Every Project's group starts open; only a group folded by hand stays folded.
     await waitFor(contains("alpha Chat"));
     await waitFor(contains("beta Chat"));
-    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Collapse beta"]')`), true, "another Project's group is open too");
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label^="Collapse beta"]')`), true, "another Project's group is open too");
     await evaluate("window.drawer(false)");
     await delay(50);
     await evaluate("window.hold = true; window.drawer(true)");
@@ -262,7 +270,7 @@ async function browserChecks() {
     await evaluate("window.drawer(true)");
     await delay(100);
     assert.equal(await evaluate("window.requests.length"), 2, "remount joins the in-flight previews");
-    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Collapse beta"]')`), true, "beta stays open across remounts");
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label^="Collapse beta"]')`), true, "beta stays open across remounts");
     await evaluate("window.finish('/alpha', 'Fresh alpha')");
     await waitFor(contains("Fresh alpha Chat"));
     assert.equal(await evaluate(contains("beta Chat")), true);
@@ -356,6 +364,9 @@ async function main() {
   const server = await createServer({
     configFile: path.resolve("apps/desktop/vite.config.ts"),
     server: { host: "127.0.0.1", port: 0 },
+    // The mobile fixture's native libs are stubbed by the plugin below; keep Vite's optimizer from pre-bundling their
+    // real web builds, which pull react-native-web paths that don't resolve here.
+    optimizeDeps: { exclude: ["react-native-gesture-handler", "react-native-reanimated", "react-native-worklets"] },
     plugins: [
       {
         name: "project-cache-fixtures",
