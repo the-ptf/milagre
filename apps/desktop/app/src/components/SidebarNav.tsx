@@ -1928,11 +1928,11 @@ function dragScopeHeader(
   line.dataset.scopeDropLine = "";
   line.className = "pointer-events-none fixed z-[70] h-0.5 rounded-full bg-accent";
   line.style.display = "none";
-  // Every reorderable Project header on screen, top to bottom, so a drop can land before the first or after the last.
-  const headers = () =>
+  // The dragged group and every group it can land beside, top to bottom.
+  const groups = () =>
     [...document.querySelectorAll<HTMLElement>("[data-sidebar-scope]")].filter((node) => {
       const scopeKey = node.dataset.sidebarScope;
-      return scopeKey && scopeKey !== key && draggable(scopeKey);
+      return scopeKey && (scopeKey === key || draggable(scopeKey));
     });
   const showLine = (node: HTMLElement, half: "top" | "bottom") => {
     const header = node.querySelector<HTMLElement>("[data-scope-toggle]")?.closest<HTMLElement>(".group\\/scope") ?? node;
@@ -1942,23 +1942,26 @@ function dragScopeHeader(
     line.style.width = `${rect.width}px`;
     line.style.top = `${(half === "top" ? rect.top : rect.bottom) - 1}px`;
   };
+  // Over another group: before it on its top half, after it on its bottom half. Over the dragged group itself: no drop,
+  // so it stays where it is. In the gap between two groups: before the one below; past the last: at the end.
   const hit = (_x: number, y: number) => {
-    const nodes = headers();
-    for (const node of nodes) {
+    const all = groups();
+    const others = all.filter((node) => node.dataset.sidebarScope !== key);
+    const over = all.find((node) => {
       const rect = node.getBoundingClientRect();
-      if (y < rect.top || y > rect.bottom) continue;
+      return y >= rect.top && y <= rect.bottom;
+    });
+    if (over?.dataset.sidebarScope === key) return null;
+    if (over) {
+      const rect = over.getBoundingClientRect();
       const half: "top" | "bottom" = y < rect.top + rect.height / 2 ? "top" : "bottom";
-      const scopeKey = node.dataset.sidebarScope!;
-      const index = nodes.indexOf(node);
-      const beforeKey = half === "top" ? scopeKey : (nodes[index + 1]?.dataset.sidebarScope ?? null);
-      return { beforeKey, node, half };
+      const beforeKey = half === "top" ? over.dataset.sidebarScope! : (others[others.indexOf(over) + 1]?.dataset.sidebarScope ?? null);
+      return { beforeKey, node: over, half };
     }
-    // Past the last header: drop at the end. Above the first: drop before it.
-    const first = nodes[0]?.getBoundingClientRect();
-    if (first && y < first.top) return { beforeKey: nodes[0]!.dataset.sidebarScope!, node: nodes[0]!, half: "top" as const };
-    const last = nodes.at(-1);
-    if (last) return { beforeKey: null, node: last, half: "bottom" as const };
-    return null;
+    const below = others.find((node) => node.getBoundingClientRect().top > y);
+    if (below) return { beforeKey: below.dataset.sidebarScope!, node: below, half: "top" as const };
+    const last = others.at(-1);
+    return last ? { beforeKey: null, node: last, half: "bottom" as const } : null;
   };
   const move = (moveEvent: PointerEvent) => {
     if (!started) {

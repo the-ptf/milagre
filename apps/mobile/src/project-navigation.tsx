@@ -57,7 +57,7 @@ import { ALL_CHATS_LABEL, CHATS_GROUP_LABEL, NO_PROJECT_LABEL } from "@milagre/s
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
-import { moveProject } from "./project-order-store";
+import { dropBefore, moveProject } from "./project-order-store";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
 import { chatsGroupChats, chatsGroupList, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
 import { UpdateSettingsBadge } from "./update-sheet";
@@ -1354,10 +1354,7 @@ const NavigationBody = memo(function NavigationBody({
           .filter((entry) => entry.hostId === hostId && entry.path !== path)
           .map(async (entry) => ({ path: entry.path, ...(await entry.measure()) })),
       );
-      const bands = placed.filter((band) => band.bottom > band.top).sort((a, b) => a.top - b.top);
-      const over = bands.find((band) => y >= band.top && y <= band.bottom);
-      const below = bands.find((band) => band.top > y);
-      const beforePath = over ? (y < (over.top + over.bottom) / 2 ? over.path : (bands[bands.indexOf(over) + 1]?.path ?? null)) : (below?.path ?? null);
+      const beforePath = dropBefore(placed, y);
       const order = view.projects.map((project) => project.path);
       const next = moveProject(order, path, beforePath);
       if (next.every((item, index) => item === order[index])) return;

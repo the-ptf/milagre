@@ -580,6 +580,18 @@ async function browserChecks() {
     assert.deepEqual(await scopes(), ["/work/shop", "/work/arketa", "/work/docs", LINK], "shop moved to the top by its header");
     assert.deepEqual(await savedOrder(), ["/work/shop", "/work/arketa", "/work/docs"], "the new group order is saved");
     await screenshot("reorder-after");
+    // A press that drags a few pixels sideways and lets go inside its own header keeps the group where it was.
+    const own = await headerPoint("/work/arketa");
+    mouse2("mouseMove", own.x, own.y);
+    mouse2("mouseDown", own.x, own.y);
+    for (let step = 1; step <= 3; step++) {
+      mouse2("mouseMove", own.x + step * 2, own.y);
+      await delay(16);
+    }
+    mouse2("mouseUp", own.x + 6, own.y);
+    await delay(250);
+    assert.deepEqual(await scopes(), ["/work/shop", "/work/arketa", "/work/docs", LINK], "a drop inside the dragged group's own header leaves the order");
+    assert.deepEqual(await savedOrder(), ["/work/shop", "/work/arketa", "/work/docs"]);
 
     assert.deepEqual(errors, []);
     await reset();

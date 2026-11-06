@@ -27,6 +27,19 @@ export function moveProject(order: string[], path: string, beforePath: string | 
   return [...without.slice(0, at), path, ...without.slice(at)];
 }
 
+/**
+ * Where a Project header released at window-Y `y` lands, given the other headers' bands: the path it goes before, or null
+ * for the end. Over a header's top half, before it; its lower half, after it. Over the Chats or the gap between two
+ * headers, before the one below; past the last, at the end. The dragged header isn't among `bands`, so a release over
+ * its own group finds the header after it and keeps its place.
+ */
+export function dropBefore(bands: { path: string; top: number; bottom: number }[], y: number): string | null {
+  const sorted = bands.filter((band) => band.bottom > band.top).sort((a, b) => a.top - b.top);
+  const over = sorted.find((band) => y >= band.top && y <= band.bottom);
+  if (over) return y < (over.top + over.bottom) / 2 ? over.path : (sorted[sorted.indexOf(over) + 1]?.path ?? null);
+  return sorted.find((band) => band.top > y)?.path ?? null;
+}
+
 function utf8Length(text: string): number {
   let bytes = 0;
   for (const char of text) {
