@@ -2021,7 +2021,7 @@ function ProjectHeaderDrag({
   const gesture = headerDragGesture({ lifted, offset, drop, onFold });
   const lift = useAnimatedStyle(() => ({
     transform: [{ translateY: offset.get() }, { scale: 1 + lifted.get() * 0.02 }],
-    borderRadius: 12,
+    borderRadius: radius.control,
     shadowColor: "#000",
     shadowOpacity: lifted.get() * 0.14,
     shadowRadius: 10,
@@ -2031,7 +2031,7 @@ function ProjectHeaderDrag({
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View ref={ref} accessibilityRole="button" accessibilityLabel={label} style={[{ flex: 1 }, lift]}>
-        <View style={{ backgroundColor: background, borderRadius: 12 }}>{children}</View>
+        <View style={{ backgroundColor: background, borderRadius: radius.control }}>{children}</View>
       </Animated.View>
     </GestureDetector>
   );
