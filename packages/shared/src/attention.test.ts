@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, CoordinatorState } from "./model.ts";
-import { attentionContext, attentionLabel, attentionNotice, attentionTitle, chatsNeedingAttention, waitingFor } from "./attention.mjs";
+import { attentionContext, attentionLabel, attentionNotice, attentionTitle, chatsNeedingAttention, hiddenHere, waitingFor } from "./attention.mjs";
 
 const context = { projectName: "rd-events", worktreeName: "new-events-structure", chatTitle: "Split the events table", provider: "claude" as const };
 const question = (text: string) => ({ id: text, header: "", question: text, options: [], multiSelect: false, allowOther: true, secret: false });
@@ -102,6 +102,27 @@ test("waiting Chats need attention, including the same Project; the open Chat an
 test("a Project hidden from the sidebar never asks for attention", () => {
   const runs = { "/shop#1": { approvals: [{}], questions: [] }, "/gym#2": { approvals: [], questions: [{}] } } as never;
   assert.deepEqual(chatsNeedingAttention(runs, "", new Set(["/gym"])), ["/shop#1"]);
+});
+
+test("a paired computer's Project hidden here, or a hidden computer, never asks for attention", () => {
+  const runs = {
+    "/shop#1": { approvals: [{}], questions: [] },
+    "studio|/gym#2": { approvals: [], questions: [{}] },
+    "studio|/blog#3": { approvals: [{}], questions: [] },
+    "atlas|/api#4": { approvals: [{}], questions: [] },
+  } as never;
+  assert.deepEqual(chatsNeedingAttention(runs, "", new Set(["studio|/gym"])), ["/shop#1", "studio|/blog#3", "atlas|/api#4"]);
+  assert.deepEqual(chatsNeedingAttention(runs, "", new Set(), new Set(["studio"])), ["/shop#1", "atlas|/api#4"]);
+  assert.deepEqual(chatsNeedingAttention(runs, "", new Set(), new Set(["local"])), ["studio|/gym#2", "studio|/blog#3", "atlas|/api#4"]);
+});
+
+test("hiddenHere reads a Chat or scope key against hidden Projects and computers", () => {
+  assert.equal(hiddenHere("studio|/gym#2", new Set(["studio|/gym"])), true);
+  assert.equal(hiddenHere("studio|/gym", new Set(["studio|/gym"])), true);
+  assert.equal(hiddenHere("/gym#2", new Set(["studio|/gym"])), false);
+  assert.equal(hiddenHere("studio|/gym#2", new Set(), new Set(["studio"])), true);
+  assert.equal(hiddenHere("/gym#2", new Set(), new Set(["local"])), true);
+  assert.equal(hiddenHere("/gym#2"), false);
 });
 
 test("the attention button names one Chat and counts multiple Chats, even with duplicate titles", () => {

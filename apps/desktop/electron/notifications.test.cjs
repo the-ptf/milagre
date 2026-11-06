@@ -240,6 +240,27 @@ test("a remote chat notification keeps only the chat name and still opens that c
   assert.deepEqual(opened, [chatId]);
 });
 
+test("a Chat hidden from this Mac's sidebar is never announced or counted, and closes once hidden", () => {
+  const badges = [];
+  const { notifier, shown } = setup();
+  const hidden = new Set(["studio|/gym#2"]);
+  notifier.isHidden = (chatId) => hidden.has(chatId);
+  notifier.setBadge = (badge) => badges.push(badge);
+  notifier.observe("studio|/gym#2", question);
+  assert.equal(notifier.notify({ ...notice, chatId: "studio|/gym#2" }), false);
+  assert.equal(badges.at(-1), "");
+  notifier.observe("studio|/shop#3", question);
+  assert.equal(notifier.notify({ ...notice, chatId: "studio|/shop#3" }), true);
+  assert.equal(badges.at(-1), "1");
+  hidden.add("studio|/shop#3");
+  notifier.hiddenChanged();
+  assert.equal(shown[0].closed, true);
+  assert.equal(badges.at(-1), "");
+  hidden.clear();
+  notifier.hiddenChanged();
+  assert.equal(badges.at(-1), "2");
+});
+
 test("forgetComputer closes what a removed computer waited on and clears the badge", () => {
   const badges = [];
   const { notifier, shown } = setup();

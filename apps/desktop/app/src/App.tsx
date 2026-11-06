@@ -141,7 +141,7 @@ import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences
 import { useComposerPreferences } from "./lib/use-composer-preferences";
 import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
-import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
+import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, useHiddenComputers } from "./lib/computers";
 import { OfflineEmpty } from "./components/OfflineEmpty";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
@@ -1059,13 +1059,15 @@ function App() {
     () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
     [linkedWork, project, selectedSession],
   );
-  // Other Chats that wait on an approval or question, except in Projects hidden from the sidebar. Joined, so a
+  // Other Chats that wait on an approval or question, except in Projects (or on computers) hidden from the sidebar. Joined, so a
   // streamed batch that changes nothing keeps the arrays.
   const hiddenProjects = useHiddenProjects();
+  const hiddenComputers = useHiddenComputers();
   const attentionKey = chatsNeedingAttention(
     agentRuns.runs,
     view === "chat" && project && selectedSession ? chatKey(project.path, selectedSession.id) : "",
     hiddenProjects,
+    hiddenComputers,
   ).join("\n");
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
@@ -1735,9 +1737,10 @@ function App() {
         unread: unreadChatIds,
         notifyOnCompletion,
         showDockBadge,
+        hidden: [...hiddenProjects],
       })
       .catch(() => {});
-  }, [selectedLink?.link.id, project?.path, view, runPaneOpen, selectedSessionId, unreadChatIds.join("\n"), notifyOnCompletion, showDockBadge]);
+  }, [selectedLink?.link.id, project?.path, view, runPaneOpen, selectedSessionId, unreadChatIds.join("\n"), notifyOnCompletion, showDockBadge, hiddenProjects]);
 
   // The main process notifies about a chat that waits on the user while Milagre is in the background.
   useEffect(() => {

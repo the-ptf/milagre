@@ -4,7 +4,7 @@ import { providerName } from "./providers.mjs";
 import { chatTitle } from "./chats.mjs";
 import { projectOfKey } from "./agent-runs.mjs";
 import { activityBusy, chatActivity } from "./chat-activity.mjs";
-import { isLinkScopeKey } from "./chat-scopes.mjs";
+import { computerOfKey, isLinkScopeKey } from "./chat-scopes.mjs";
 import { ancestorChats } from "./subchat-escalation.mjs";
 
 /** A compact plain-text preview for desktop and phone notifications. */
@@ -81,13 +81,24 @@ export function attentionContext(state, projectName, sessionId) {
 
 const NO_HIDDEN = new Set();
 
+/** Whether a Chat (or scope) key is left out of this Mac's sidebar: its Project or Link is in `scopes` (this Mac's hidden
+ * Projects, `${computerId}|/path` for a paired computer's), or its computer is in `computers` ("local" for this Mac). A
+ * Chat the sidebar doesn't list stays quiet: no notice, badge, inbox row or attention button. */
+export function hiddenHere(key, scopes = NO_HIDDEN, computers = NO_HIDDEN) {
+  const scope = projectOfKey(key);
+  return scopes.has(scope) || computers.has(computerOfKey(scope));
+}
+
 /** Chat keys other than `currentChat` whose turn waits on an approval or question, oldest key first. Link Chats and the
- * Projects in `hidden` (hidden from the sidebar and the phone's list) are left out. */
-export function chatsNeedingAttention(runs, currentChat = "", hidden = NO_HIDDEN) {
+ * Projects in `hidden` (hidden from the sidebar and the phone's list), or on a computer in `hiddenComputers`, are left out. */
+export function chatsNeedingAttention(runs, currentChat = "", hidden = NO_HIDDEN, hiddenComputers = NO_HIDDEN) {
   return Object.entries(runs ?? {})
     .filter(
       ([key, run]) =>
-        (run?.approvals?.length || run?.questions?.length) && !isLinkScopeKey(projectOfKey(key)) && !hidden.has(projectOfKey(key)) && key !== currentChat,
+        (run?.approvals?.length || run?.questions?.length) &&
+        !isLinkScopeKey(projectOfKey(key)) &&
+        !hiddenHere(key, hidden, hiddenComputers) &&
+        key !== currentChat,
     )
     .map(([key]) => key);
 }
