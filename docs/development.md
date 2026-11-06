@@ -26,6 +26,15 @@ The repo uses npm workspaces with one root lockfile. Run the existing commands f
 
 An unpackaged app (`npm run dev`, the test scripts) reads two folder overrides and passes them to the background host it starts: `MILAGRE_WORKTREE_ROOT` for Milagre Worktrees (`~/.milagre/worktrees` otherwise) and `MILAGRE_CHATS_HOME` for the Chats home that holds Chats without a Project (`~/.milagre/chats` otherwise). Use absolute paths. A host that is already running keeps its folders, so stop it first. Packaged builds ignore both.
 
+## Developing on Windows
+
+`npm ci`, `npm run dev`, `npm run typecheck`, `npm run lint` and `npm test` run from PowerShell or Git Bash. No C++ toolchain is needed: `node-pty` and the other native modules ship prebuilt.
+
+- Every checkout is LF, set by `.gitattributes`, because `oxfmt` and the pre-commit hook fail on CRLF. A clone made before that file existed needs one fresh checkout: with no uncommitted work, run `git rm --cached -r -q .` and then `git reset --hard`.
+- `npm ci` does not download Electron's binary. The first `npm run dev` does, or run `node node_modules/electron/install.js`.
+- Keep a dev copy off an installed Milagre's profile. Both use `%APPDATA%\Milagre`, so a dev copy attaches to the installed app's host and can replace it, stopping its agents. In PowerShell, `$env:MILAGRE_USER_DATA_DIR = "$env:TEMP\milagre-dev"; npm run dev`. This works on every platform. Set `MILAGRE_WORKTREE_ROOT` and `MILAGRE_CHATS_HOME` too to keep its folders apart.
+- Many unit tests still assume POSIX paths and processes, so `npm test -- --unit` fails on Windows. CI runs the Windows-specific suites in `native-tests`; use `--only <name>` for the area you touched and compare with `main`. A daemon test that fails can leave a `cli.cjs serve` process with a temporary `--data-dir` running.
+
 ## Releases
 
 Merges into `main` cut no release. Releases ride a train with two stops, both run by the **Publish** workflow (`scripts/plan-release.cjs` plans each one):

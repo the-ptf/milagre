@@ -9,7 +9,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1 --port 5180\" \"wait-on http://127.0.0.1:5180 && MILAGRE_DEV_SERVER_URL=http://127.0.0.1:5180 node ../../scripts/launch-electron.cjs\"",
+    "dev": "concurrently -k \"vite --host 127.0.0.1 --port 5180\" \"wait-on http://127.0.0.1:5180 && node ../../scripts/launch-electron.cjs --dev-server=http://127.0.0.1:5180\"",
     "start": "node ../../scripts/launch-electron.cjs",
     "build": "npm run typecheck && vite build",
     "build:renderer": "vite build",

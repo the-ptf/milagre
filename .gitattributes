@@ -1,0 +1,5 @@
+# Every text file is LF in every checkout, whatever core.autocrlf says: oxfmt fails on CRLF, and generated digests hash the bytes.
+* text=auto eol=lf
+
+# This upstream license mixes line endings; it stays byte for byte.
+packages/shared/src/design-catalog-fonts/LICENSE.txt -text

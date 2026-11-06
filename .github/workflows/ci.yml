@@ -176,6 +176,11 @@ jobs:
             shell: pwsh
             timeout-minutes: 15
             run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
+          # Through npm test itself, so a change that breaks the runner on Windows fails here.
+          - name: Test Windows development scripts
+            shell: pwsh
+            timeout-minutes: 5
+            run: npm test -- --unit --only scripts/test-runner && npm test -- --unit --only scripts/launch-env
 
   native-gate:
     # The required check for native tests. A skipped matrix never reports per-leg names, so this

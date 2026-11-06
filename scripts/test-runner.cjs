@@ -76,7 +76,8 @@ function walk(dir, out) {
 function discoverUnitTests(root) {
   const out = [];
   for (const dir of UNIT_ROOTS) walk(path.join(root, dir), out);
-  return out.map((file) => path.relative(root, file)).sort();
+  // Forward slashes on every platform: WORKSPACES and UNIT_SECONDS match on them.
+  return out.map((file) => path.relative(root, file).split(path.sep).join("/")).sort();
 }
 
 function discoverElectronChecks(root) {
@@ -258,4 +259,12 @@ function shouldRetry({ platform, ci, attempt }) {
   return platform === "linux" && Boolean(ci) && attempt === 1;
 }
 
-module.exports = { shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST, UNIT_SECONDS, WORKSPACES };
+/**
+ * Only npm needs cmd.exe on Windows, where it is a .cmd script. Node must not go through it: cmd.exe splits its path at
+ * "C:\Program Files" and caps a command line at 8,191 characters, under the length of the unit test file list.
+ */
+function needsShell(command, platform) {
+  return platform === "win32" && command === "npm";
+}
+
+module.exports = { needsShell, shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST, UNIT_SECONDS, WORKSPACES };

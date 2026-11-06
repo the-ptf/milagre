@@ -167,6 +167,7 @@ test("Windows native tests run without building an installer; Linux repository s
       text.includes("process-tree.test.cjs") &&
       text.includes("ownership.test.cjs"),
   );
+  assert.ok(text.includes("npm test -- --unit --only scripts/test-runner"), "the runner itself runs on Windows");
   assert.ok(!text.includes("package:"), "native tests never package");
   const signing = steps(ci.jobs["quick-checks"]).find((step) => step.name === "Test real Linux repository signing");
   assert.match(signing.run, /MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts\/linux-repository\.test\.cjs/);
