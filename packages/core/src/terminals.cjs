@@ -59,10 +59,12 @@ function terminalShell({ platform = process.platform, env = process.env, exists 
   return { file, args: ["-l"] };
 }
 
+const TERMINAL_TYPE = "xterm-256color";
+
 function terminalEnvironment(env = process.env) {
   const result = {};
   for (const [key, value] of Object.entries(env)) if (!HOST_ONLY.has(key) && typeof value === "string") result[key] = value;
-  result.TERM = "xterm-256color";
+  result.TERM = TERMINAL_TYPE;
   result.COLORTERM = "truecolor";
   result.TERM_PROGRAM = "Milagre";
   if (!result.LANG && process.platform !== "win32") result.LANG = "en_US.UTF-8";
@@ -197,19 +199,23 @@ function createTerminals(options = {}) {
     const plain = name.replace(/\.exe$/i, "").toLowerCase();
     return plain === shellName(terminal) || UNIX_SHELLS.has(plain) || ["pwsh", "powershell", "cmd"].includes(plain);
   };
-  function foreground(terminal) {
-    let name = "";
+  function ptyProcess(terminal) {
     try {
-      name = terminal.pty.process || "";
+      return terminal.pty.process || "";
     } catch {
-      name = "";
+      return "";
     }
-    name = path.basename(name).replace(/^-/, "");
-    return name || shellName(terminal);
+  }
+  // On Windows node-pty answers with the terminal type it was given, and has no call for the program in front.
+  const foregroundUnknown = (terminal) => ptyProcess(terminal) === TERMINAL_TYPE;
+  function foreground(terminal) {
+    if (foregroundUnknown(terminal)) return shellName(terminal);
+    return path.basename(ptyProcess(terminal)).replace(/^-/, "") || shellName(terminal);
   }
   function info(terminal) {
     const title = terminal.exited ? terminal.title : foreground(terminal);
-    const busy = !terminal.exited && !idle(terminal, title);
+    // Unknown counts as busy: closing a Terminal asks first rather than end a command nobody can see.
+    const busy = !terminal.exited && (foregroundUnknown(terminal) || !idle(terminal, title));
     return {
       id: terminal.id,
       chatId: terminal.chatId,
@@ -362,7 +368,7 @@ function createTerminals(options = {}) {
         : shell();
       const env = { ...environment() };
       if (!/\.exe$/i.test(file)) env.SHELL = file;
-      const pty = spawn(file, args, { name: "xterm-256color", cols, rows, cwd: chosen.path, env });
+      const pty = spawn(file, args, { name: TERMINAL_TYPE, cols, rows, cwd: chosen.path, env });
       const terminal = {
         id: randomUUID(),
         chatId,

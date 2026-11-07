@@ -209,6 +209,16 @@ test("a Terminal running a command is busy and titled after it", async (t) => {
   assert.ok(f.changes.filter((chatId) => chatId === "/p#1").length >= 2);
 });
 
+test("a Terminal titled after its shell where node-pty names only the terminal type, and busy to be safe", async (t) => {
+  const f = fixture(t, { shell: () => ({ file: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", args: [] }) });
+  await f.terminals.open({ chatId: "/p#1" });
+  f.ptys[0].process = "xterm-256color";
+  const [listed] = (await f.terminals.list({ chatId: "/p#1" })).terminals;
+  assert.equal(listed.title.toLowerCase().endsWith("powershell"), true, listed.title);
+  assert.notEqual(listed.title, "xterm-256color");
+  assert.equal(listed.busy, true);
+});
+
 test("a shell at its prompt is idle even when it reports another shell's name", async (t) => {
   const f = fixture(t, { shell: () => ({ file: "/bin/sh", args: [] }) });
   await f.terminals.open({ chatId: "/p#1" });
