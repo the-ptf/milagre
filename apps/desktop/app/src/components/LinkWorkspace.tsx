@@ -59,7 +59,7 @@ import { QuestionCard } from "./agents/QuestionCard";
 import { getSettings } from "../lib/settings";
 import { EditorLinks } from "./editor-links";
 import { openInEditor } from "../lib/editors";
-import { isModalOpen } from "../lib/modal";
+import { appShortcutsBlocked, isModalOpen } from "../lib/modal";
 import { GitActionsDialog } from "./GitActionsDialog";
 import { gitChatContext } from "../lib/git-dialog";
 import { Select } from "./primitives/Select";
@@ -351,7 +351,10 @@ export function LinkWorkspace({
   }, [chatId, session?.provider, messages, preferences.models]);
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
+      // The Settings modal lets the app's shortcuts through (App closes it for all but ⌘K, which opens this palette on
+      // top). Escape is Settings' own: it never reaches the canvas, Find or a running turn behind it.
+      if (event.defaultPrevented || event.isComposing || appShortcutsBlocked()) return;
+      if (event.key === "Escape" && isModalOpen()) return;
       if (canvasOpen && event.key === "Escape") {
         event.preventDefault();
         setCanvasOpen(false);
