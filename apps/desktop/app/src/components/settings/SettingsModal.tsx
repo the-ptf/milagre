@@ -31,6 +31,8 @@ export function SettingsModal({ nav, children, onClose }: { nav: ReactNode; chil
       data-settings-modal
       tabIndex={-1}
       onCancel={(event) => {
+        // Nested dialogs portal to the body, but their cancel events still follow the React tree.
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
         onClose();
       }}

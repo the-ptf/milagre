@@ -30,7 +30,19 @@ window.deviceNotesSaves = [];
 // Babysit PRs as the host keeps it: saves merge shallowly, like babysit-settings.cjs.
 window.babysit = { enabled: false, intervalMinutes: 1, wake: ["comments", "checks", "conflicts"], level: 3, resolveThreads: true, stopWhenGreen: true, stopAfterDays: { on: true, days: 7 }, stopAfterFailures: { on: false, times: 3 }, ownRule: false, ownRuleText: "", instructions: "" };
 window.babysitSaves = [];
+window.cleanupCalls = [];
+const idleWorktrees = [1, 2].map((id) => ({
+  projectPath: '/cleanup-project', projectName: 'Cleanup project', path: '/cleanup-project/worktree-' + id,
+  branch: 'saved-' + id, title: 'Saved worktree ' + id, chats: 1, bytes: 1024,
+  lastAt: Date.now() - 45 * 86400000, idleBefore: Date.now() - 30 * 86400000,
+  activity: { worktreeId: id, chats: [] }, status: { removable: true },
+}));
 window.milagre = {
+  readIdleWorktrees: async () => ({ worktrees: idleWorktrees, measuredAt: Date.now() }),
+  removeIdleWorktree: async (request) => {
+    window.cleanupCalls.push(request.path);
+    await new Promise(resolve => { window.finishCleanupRemoval = resolve; });
+  },
   readDeviceNotesEnabled: async () => window.deviceNotes,
   saveDeviceNotesEnabled: async (enabled) => {
     window.deviceNotesSaves.push(enabled);
@@ -77,11 +89,13 @@ window.milagre = {
 };
 function Fixture() {
   const [section, setSection] = useState('appearance');
+  const [open, setOpen] = useState(true);
   useApplyTheme();
   useApplyOtherComputers();
+  if (!open) return null;
   return (
     <SettingsModal
-      onClose={() => { window.settingsCloseCalls = (window.settingsCloseCalls ?? 0) + 1; }}
+      onClose={() => { window.settingsCloseCalls = (window.settingsCloseCalls ?? 0) + 1; if (window.unmountSettingsOnClose) setOpen(false); }}
       nav={<SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} showProjectSettings={false} />}
     >
       <SettingsPanel section={section} models={[]} update={null} />
@@ -570,6 +584,48 @@ async function browserChecks() {
     await searchKey("Escape");
     await waitFor(`${searchField}.value === ""`);
     await waitFor(`[...document.querySelectorAll('aside button')].some((button) => button.textContent.trim() === "Usage")`);
+    // Worktrees opens cleanup inside Settings' React tree, even though its dialog portals to the body.
+    // Native Escape must dismiss only idle cleanup, preserve busy cleanup, and leave Stop usable.
+    await openSection("Worktrees");
+    await evaluate(`window.unmountSettingsOnClose = true`);
+    const closeCalls = await evaluate("window.settingsCloseCalls");
+    const clickCleanupControl = async (selector) => {
+      const point = await evaluate(
+        `(() => { const button = document.querySelector(${JSON.stringify(selector)}); button.scrollIntoView({ block: 'center' }); const rect = button.getBoundingClientRect(); return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }; })()`,
+      );
+      window.webContents.sendInputEvent({ type: "mouseDown", ...point, button: "left", clickCount: 1 });
+      window.webContents.sendInputEvent({ type: "mouseUp", ...point, button: "left", clickCount: 1 });
+    };
+    const openCleanup = async () => {
+      await clickCleanupControl("[data-worktrees-cleanup]");
+      await waitFor(`!!document.querySelector('[data-cleanup-remove]:not(:disabled)')`);
+    };
+    const escape = async () => {
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+      await delay(100);
+    };
+    await openCleanup();
+    await escape();
+    await waitFor(`!document.querySelector('[data-worktree-cleanup]')`);
+    assert.equal(await evaluate("window.settingsCloseCalls"), closeCalls, "idle cleanup Escape leaves Settings open");
+    assert.equal(await evaluate(`document.querySelector('[data-settings-modal]')?.open`), true);
+    await openCleanup();
+    await clickCleanupControl("[data-cleanup-remove]");
+    await waitFor(`window.cleanupCalls.length === 1 && !!document.querySelector('[data-cleanup-stop]')`);
+    await escape();
+    assert.equal(await evaluate("window.settingsCloseCalls"), closeCalls, "busy cleanup Escape leaves Settings open");
+    assert.equal(await evaluate(`document.querySelector('[data-worktree-cleanup]')?.open`), true, "busy cleanup stays mounted");
+    await evaluate(`document.querySelector('[data-cleanup-stop]').click()`);
+    await waitFor(`document.querySelector('[data-cleanup-stop]')?.disabled`);
+    await evaluate(`window.finishCleanupRemoval()`);
+    await waitFor(`!document.querySelector('[data-worktree-cleanup]')`);
+    assert.deepEqual(await evaluate("window.cleanupCalls"), ["/cleanup-project/worktree-1"], "Stop prevents the next queued removal");
+    assert.equal(await evaluate(`document.querySelector('[data-settings-modal]')?.open`), true, "finishing cleanup preserves Settings");
+    await escape();
+    await waitFor(`!document.querySelector('[data-settings-modal]')`);
+    assert.equal(await evaluate("window.settingsCloseCalls"), closeCalls + 1, "Settings' own Escape still closes it");
+    console.log("PASS: Worktrees cleanup contains idle and busy Escape; Stop prevents the next removal; Settings still closes on its own Escape");
     assert.deepEqual(errors, []);
     console.log(
       "PASS: Labs lists only Floating inbox, Ultracode Fatality, Bots, Delegate and Device notes; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
