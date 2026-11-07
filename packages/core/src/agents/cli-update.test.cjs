@@ -14,7 +14,7 @@ test("runCliUpdate: claude returns immediately if linkVersion finds compliant ve
   const inspect = async () => ({ command: "/bin/claude", version: "2.1.287" });
   const linkVersion = () => true;
 
-  const result = await runCliUpdate("claude", { execImpl, inspect, linkVersion });
+  const result = await runCliUpdate("claude", { execImpl, inspect, linkVersion, platform: "darwin" });
   assert.equal(result.ok, true);
   assert.equal(result.version, "2.1.287");
   assert.deepEqual(executed, []);
@@ -36,7 +36,7 @@ test("runCliUpdate: claude install --force latest succeeds", async () => {
   };
   const linkVersion = () => {};
 
-  const result = await runCliUpdate("claude", { execImpl, inspect, linkVersion });
+  const result = await runCliUpdate("claude", { execImpl, inspect, linkVersion, platform: "darwin" });
   assert.equal(result.ok, true);
   assert.equal(result.version, "2.1.287");
   assert.deepEqual(executed, ["claude install --force latest"]);
@@ -58,7 +58,7 @@ test("runCliUpdate: claude falls back to install.sh latest", async () => {
   };
   const linkVersion = () => {};
 
-  const result = await runCliUpdate("claude", { execImpl, inspect, linkVersion });
+  const result = await runCliUpdate("claude", { execImpl, inspect, linkVersion, platform: "darwin" });
   assert.equal(result.ok, true);
   assert.equal(result.version, "2.1.287");
   assert.deepEqual(executed, ["claude install --force latest", "curl -fsSL https://claude.ai/install.sh | bash -s latest"]);
@@ -72,7 +72,7 @@ test("runCliUpdate: codex update succeeds", async () => {
   };
   const inspect = async () => ({ command: "/bin/codex", version: "0.158.0" });
 
-  const result = await runCliUpdate("codex", { execImpl, inspect });
+  const result = await runCliUpdate("codex", { execImpl, inspect, platform: "darwin" });
   assert.equal(result.ok, true);
   assert.equal(result.version, "0.158.0");
   assert.deepEqual(executed, ["codex update"]);
@@ -82,12 +82,13 @@ test("runCliUpdate: returns error when CLI remains broken or outdated", async ()
   const execImpl = (cmd, opts, callback) => callback(new Error("fail"), "", "failed");
   const inspect = async () => ({ command: "/bin/codex", version: "0.150.0", problem: "Still too old" });
 
-  const result = await runCliUpdate("codex", { execImpl, inspect });
+  const result = await runCliUpdate("codex", { execImpl, inspect, platform: "darwin" });
   assert.equal(result.ok, false);
   assert.equal(result.error, "Still too old");
 });
 
-test("linkNewestClaudeVersion: symlinks highest compliant version", () => {
+// Windows has no symlinked Claude versions: linkNewestClaudeVersion returns false there.
+test("linkNewestClaudeVersion: symlinks highest compliant version", { skip: process.platform === "win32" }, () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "claude-link-test-"));
   const versionsDir = path.join(tempHome, ".local/share/claude/versions");
   fs.mkdirSync(versionsDir, { recursive: true });
@@ -175,7 +176,7 @@ test("Codex latest upgrade uses npm and verifies the newly activated version on 
   const result = await runCliUpdate("codex", {
     targetVersion: "0.163.0",
     platform: "win32",
-    resolve: async () => "C:\\npm.cmd",
+    resolve: async () => "C:\\nodejs\\npm.exe",
     inspect: async () => ({ command: "C:\\codex.cmd", version }),
     execFileImpl: (file, args, opts, callback) => {
       commands.push([file, args]);
@@ -195,7 +196,7 @@ test("a Codex release upgrade runs codex update through its own install first, w
     platform: "darwin",
     inspect: async () => ({ command: "/opt/homebrew/bin/codex", version }),
     execImpl: (cmd, opts, callback) => {
-      calls.push({ cmd, first: opts.env.PATH.split(":")[0] });
+      calls.push({ cmd, first: opts.env.PATH.split(path.delimiter)[0] });
       version = "0.165.0";
       callback(null, "", "");
     },

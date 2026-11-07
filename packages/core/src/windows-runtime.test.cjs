@@ -231,6 +231,30 @@ test("npm cmd shims run their JavaScript entry directly with literal arguments",
     assert.deepEqual(invocation.args, [entry, ...args]);
     fs.writeFileSync(shim, "@echo dangerous %*");
     assert.throws(() => commandInvocation(shim, args, { platform: "win32" }), /Unsupported Windows command wrapper/);
+    // npm's own npm.cmd (Node 24) names its script through a variable.
+    const npm = path.join(root, "npm.cmd");
+    const npmCli = path.join(root, "node_modules/npm/bin/npm-cli.js");
+    fs.mkdirSync(path.dirname(npmCli), { recursive: true });
+    fs.writeFileSync(npmCli, "");
+    fs.writeFileSync(path.join(root, "node_modules/npm/bin/npm-prefix.js"), "");
+    const npmShim = [
+      "@ECHO OFF",
+      'SET "NODE_EXE=%~dp0\\node.exe"',
+      'IF NOT EXIST "%NODE_EXE%" (',
+      '  SET "NODE_EXE=node"',
+      ")",
+      'SET "NPM_PREFIX_JS=%~dp0\\node_modules\\npm\\bin\\npm-prefix.js"',
+      'SET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"',
+      '"%NODE_EXE%" "%NPM_CLI_JS%" %*',
+      "",
+    ].join("\r\n");
+    fs.writeFileSync(npm, npmShim);
+    assert.deepEqual(commandInvocation(npm, args, { platform: "win32" }), { file: process.execPath, args: [npmCli, ...args] });
+    // The variable must name a script beside the launcher, as the direct form must.
+    fs.writeFileSync(npm, npmShim.replace("%~dp0\\node_modules\\npm\\bin\\npm-cli.js", "%~dp0\\..\\elsewhere\\npm-cli.js"));
+    assert.throws(() => commandInvocation(npm, args, { platform: "win32" }), /Unsafe Windows command wrapper|ENOENT/);
+    fs.writeFileSync(npm, npmShim.replace("%~dp0\\node_modules\\npm\\bin\\npm-cli.js", "C:\\other\\npm-cli.js"));
+    assert.throws(() => commandInvocation(npm, args, { platform: "win32" }), /Unsupported Windows command wrapper/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
