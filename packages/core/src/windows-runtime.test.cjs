@@ -481,6 +481,36 @@ test("Windows job facade preserves large output, strips control frames and close
   assert.equal(killed, true);
 });
 
+test("Windows job facade hands over a stderr line at once and still strips a split control frame", async () => {
+  const { EventEmitter } = require("node:events");
+  const { PassThrough } = require("node:stream");
+  const { spawnWindowsJob } = require("./agents/windows-job.cjs");
+  const keeper = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+  keeper.kill = () => true;
+  let payload;
+  const child = spawnWindowsJob("C:\\node.exe", [], {}, (_file, _args, options) => {
+    payload = JSON.parse(Buffer.from(options.env.MILAGRE_WINDOWS_JOB_SPEC, "base64"));
+    return keeper;
+  });
+  let seen = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => (seen += chunk));
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  keeper.stderr.write(payload.marker + "PID:123\n");
+  await settle();
+  // Nothing follows this line, as with a sign-in link.
+  keeper.stderr.write("Open the following link: https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=x\n");
+  await settle();
+  assert.equal(seen, "Open the following link: https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=x\n");
+  keeper.stderr.write("short\n" + payload.marker.slice(0, 7));
+  await settle();
+  assert.equal(seen.endsWith("short\n"), true);
+  keeper.stderr.write(payload.marker.slice(7) + "EXIT:0\n");
+  await settle();
+  assert.equal(child.exitCode, 0);
+  assert.equal(seen.includes(payload.marker.slice(0, 7)), false);
+});
+
 test("Windows native job handles literal arguments and releases an empty job", { skip: process.platform !== "win32" }, async () => {
   const { once } = require("node:events");
   const { spawnCommand } = require("./agents/command.cjs");
