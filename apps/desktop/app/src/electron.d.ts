@@ -300,9 +300,9 @@ export type MilagreBridge = {
   ) => Promise<string>;
   releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
-  /** Experimental: agents operate desktop apps on this computer (Settings › Experimental). */
+  /** Experimental: agents operate desktop apps on this computer (Settings › Devices & sharing). */
   computerUse: import("@milagre/shared/computer-use").ComputerUseApi;
-  /** Experimental: devices leased from a Simlock pool (Settings › Experimental). */
+  /** Experimental: devices leased from a Simlock pool (Settings › Devices & sharing). */
   simlock: import("@milagre/shared/simulator").SimlockApi;
   browsers: BrowserApi;
   pageComments: import("@milagre/shared/page-comments").PageCommentsApi;
@@ -448,7 +448,7 @@ export type MilagreBridge = {
   checkHostUpdate: () => Promise<HostUpdate>;
   /** Restarts Milagre there to install a downloaded update; rejects when none is ready. Running Chats resume after the restart. */
   installHostUpdate: () => Promise<HostUpdate>;
-  /** Settings › Devices: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
+  /** Settings › Devices & sharing: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
   readComputerResources: (options?: { fresh?: boolean }) => Promise<ComputerResources>;
   /** Clean up worktrees: the worktrees Milagre made there that no Chat has used for 30 days or more, oldest first. */
   readIdleWorktrees: () => Promise<IdleWorktrees>;
@@ -521,7 +521,7 @@ export type MilagreBridge = {
     onChanged: (callback: (event: McpChangedEvent) => void) => () => void;
   };
   localMcp: LocalMcpApi;
-  /** The Linear switch (Settings › Connections › Linear) changed, on this Mac or from a phone. */
+  /** The Linear switch (Settings › Integrations › Linear) changed, on this Mac or from a phone. */
   onLinearEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** Assigned issues when query is empty, otherwise workspace matches (a key also finds that issue first). Never rejects. */
   listLinearIssues: (query?: string, options?: { fresh?: boolean; workspace?: string }) => Promise<LinearIssuesResult>;
@@ -693,7 +693,7 @@ export type MilagreBridge = {
   grantDelegations?: (chatId: string, linkId: string) => Promise<void>;
   /** Delegations and Negotiations still open across Links, and the Codex Chats that only receive. */
   getLinkedWork: () => Promise<LinkedWork>;
-  /** Settings > Experimental: whether this Mac's Chats may delegate to another paired computer's Projects. */
+  /** Settings › Labs: whether this Mac's Chats may delegate to another paired computer's Projects. */
   readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
   saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;

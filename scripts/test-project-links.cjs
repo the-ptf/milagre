@@ -260,6 +260,18 @@ async function main() {
     assert.equal(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('RDFood / Link')`), false);
     assert.ok(await evaluate(`document.body.textContent.includes('2 Worktrees')`));
     await shot("shared-chat");
+    // Settings over a Link: ⌘K opens the Link's palette on top of it (App hands the key to the Link's workspace), and the
+    // palette closes back to Settings.
+    await evaluate(`[...document.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Settings').click()`);
+    await waitFor(() => evaluate(`!!document.querySelector('dialog[data-settings-modal]')?.open`), "Settings over the Link");
+    const mod = process.platform === "darwin" ? "metaKey" : "ctrlKey";
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ${mod}: true, bubbles: true, cancelable: true }))`);
+    await waitFor(() => evaluate(`!!document.querySelector('dialog[aria-label="Command palette"]')?.open`), "the Link's palette over Settings");
+    await evaluate(`document.querySelector('dialog[aria-label="Command palette"]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
+    await waitFor(() => evaluate(`!document.querySelector('dialog[aria-label="Command palette"]')`), "palette closed");
+    assert.equal(await evaluate(`!!document.querySelector('dialog[data-settings-modal]')?.open`), true, "closing the palette leaves Settings open");
+    await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
+    await waitFor(() => evaluate(`!document.querySelector('dialog[data-settings-modal]')`), "Settings closed");
     await input("[data-prompt-editor]", "Keep my draft while viewing the linked Projects");
     await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('[data-canvas]')`), "Link canvas");

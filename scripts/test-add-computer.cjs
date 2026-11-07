@@ -145,9 +145,9 @@ async function browserChecks() {
       ["denied", `studio didn't allow ${thisComputer}.`],
       ["unknown-phone", "This link expired. Copy a new one on studio."],
       ["kind", "Update Milagre on studio to connect."],
-      ["full", "studio has too many devices connected. Remove one in its Settings › Devices."],
+      ["full", "studio has too many devices connected. Remove one in its Settings › Devices & sharing."],
       ["busy", "studio is answering another computer. Try again in a minute."],
-      ["offline", "studio isn't reachable. Open Milagre on it and check Settings › Devices."],
+      ["offline", "studio isn't reachable. Open Milagre on it and check Settings › Devices & sharing."],
       ["keys", `${ThisComputer} can't keep keys in its keychain, so it can't pair with computers.`],
     ];
     for (const [code, message] of refusals) {

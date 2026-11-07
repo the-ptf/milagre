@@ -157,7 +157,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
     // Every recent Project is listed; the open one is picked.
     const settingsProject = (name) =>
-      `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find(el => el.querySelector('.sidebar-copy')?.textContent.trim() === ${JSON.stringify(name)})`;
+      `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find(el => el.querySelector('[data-settings-nav-label]')?.textContent.trim() === ${JSON.stringify(name)})`;
     await waitFor(`!!(${settingsProject("blog")})`);
     await evaluate(`(${settingsProject("shop")}).click()`);
     await waitFor(`!!document.querySelector('#setup-command') && !document.querySelector('#setup-command').disabled`);
@@ -186,7 +186,7 @@ async function browserChecks() {
 
     // Another Project's settings, and its icon: the chosen image is scaled down and saved for that Project.
     await evaluate(`(${settingsProject("blog")}).click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === "blog" && !!document.querySelector('[data-project-icon-input]')`);
+    await waitFor(`document.querySelector('dialog[data-settings-modal] h1')?.textContent === "blog" && !!document.querySelector('[data-project-icon-input]')`);
     await evaluate(`(async () => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1024;
@@ -212,7 +212,8 @@ async function browserChecks() {
     await click("Reset");
     await waitFor(`window.calls.icons.length === 2 && window.calls.icons[1].icon === null && !document.querySelector('[data-project-icon-preview] img')`);
     console.log("PASS: every Project is listed in Settings, and its icon can be chosen and reset");
-    await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
+    await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
+    await waitFor(`!document.querySelector('dialog[data-settings-modal]')`);
 
     // Repository setup uses the same approval controls on desktop and phone, with explicit trust scope.
     await sendInNewWorktree("Add a checkout page");

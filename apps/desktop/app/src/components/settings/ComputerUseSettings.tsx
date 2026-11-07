@@ -64,7 +64,7 @@ function useComputerUse() {
   return api ? { status, error, save, grant } : null;
 }
 
-/** Settings › Experimental: the row that opens the Computer use page. */
+/** Settings › Devices & sharing: the row that opens the Computer use page. */
 export function ComputerUseRow({ onOpen }: { onOpen: () => void }) {
   const computerUse = useComputerUse();
   if (!computerUse?.status) return null;
@@ -89,7 +89,7 @@ export function ComputerUseRow({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/** Settings › Experimental › Computer use: agents operate desktop apps through agent-desktop. Kept by the host. */
+/** Settings › Devices & sharing › Computer use: agents operate desktop apps through agent-desktop. Kept by the host. */
 export function ComputerUseSettings({ onBack }: { onBack: () => void }) {
   const computerUse = useComputerUse();
   const status = computerUse?.status;
@@ -99,14 +99,14 @@ export function ComputerUseSettings({ onBack }: { onBack: () => void }) {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          aria-label="Back to Experimental"
+          aria-label="Back to Devices & sharing"
           onClick={onBack}
           className="flex size-7 shrink-0 items-center justify-center rounded-control bg-field text-ink-2 transition-colors hover:bg-hover hover:text-ink"
         >
           <Icon icon={ArrowLeft01Icon} />
         </button>
         <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.01em] text-ink">
-          <span className="text-ink-3">Experimental</span>
+          <span className="text-ink-3">Devices & sharing</span>
           <span className="text-ink-3">
             <Icon icon={ArrowRight01Icon} />
           </span>

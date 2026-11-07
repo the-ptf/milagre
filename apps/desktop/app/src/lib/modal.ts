@@ -14,3 +14,12 @@ export function openModal(root: ParentNode = document): HTMLElement | null {
 export function isModalOpen(root: ParentNode = document): boolean {
   return openModal(root) !== null;
 }
+
+/**
+ * Whether a modal is open that the app's own shortcuts (⌘K, ⌘N, …) must not act behind. The Settings modal doesn't
+ * count: over it ⌘K opens the palette on top, and any other app shortcut closes Settings and runs in the Chat.
+ */
+export function appShortcutsBlocked(root: ParentNode = document): boolean {
+  for (const dialog of root.querySelectorAll<HTMLElement>("dialog[open]")) if (!dialog.hasAttribute("data-settings-modal")) return true;
+  return root.querySelector(MODAL_SELECTOR) !== null;
+}

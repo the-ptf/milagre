@@ -533,39 +533,6 @@ export function GlideGroup({ children }: { children: ReactNode }) {
   );
 }
 
-export function RailButton({
-  icon,
-  label,
-  active = false,
-  count,
-  onClick,
-}: {
-  icon: ReactNode;
-  label: string;
-  active?: boolean;
-  count?: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      data-row
-      type="button"
-      onClick={onClick}
-      className={`sidebar-row relative z-10 mx-2 flex h-9 items-center rounded-control px-2 text-left
-        transition-[width,background-color,color] duration-fast active:bg-hover-2
-        ${active ? "bg-hover-2 group-hover/glide:bg-transparent" : ""}`}
-    >
-      <span className={`flex size-5 shrink-0 items-center justify-center ${active ? "text-ink" : "text-ink-2"}`}>{icon}</span>
-      <span
-        className={`sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[length:calc(15px+var(--sidebar-delta))] font-medium ${active ? "text-ink" : "text-ink-2"}`}
-      >
-        {label}
-      </span>
-      {count && <span className="sidebar-copy mr-2 shrink-0 text-[length:calc(12px+var(--sidebar-delta))] font-medium tabular-nums text-ink-3">{count}</span>}
-    </button>
-  );
-}
-
 // memo: App rebuilds on every streamed batch and keystroke elsewhere; the sidebar only follows its own props.
 export default memo(function SidebarNav({
   workspaceName = WORKSPACE.name,

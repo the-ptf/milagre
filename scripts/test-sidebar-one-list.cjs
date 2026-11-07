@@ -1,7 +1,7 @@
 // Browser check: the One list sidebar (the default) shows the pinned Chats under Pinned and every other Chat of every
 // Project in one list, latest first. Its rows are inbox rows: the Project's icon, the title with its time (a spinner
 // while it runs, a dot when unread), and one line naming the Project, what the Chat is doing and its diff, with no
-// branch and no ⋯ button (the menu opens on a right-click). Settings › Chat's By Project brings the Project groups back,
+// branch and no ⋯ button (the menu opens on a right-click). Settings › General's By Project brings the Project groups back,
 // and One list takes them away again. The bridge is stubbed; no agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -58,7 +58,7 @@ function Fixture() {
   return (
     <div style={{ display: "flex", gap: 12, height: "100vh", padding: "60px 12px 12px" }}>
       <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow", mark: "running", details: { lastAt: minutes(60), branch: "fix-login", diff: { added: 142, removed: 38 } } }]} activeId="1" />
-      <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section="chat" models={[]} update={null} /></main>
+      <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section="general" models={[]} update={null} /></main>
     </div>
   );
 }
@@ -111,7 +111,7 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
 
-    assert.equal(await evaluate(checked), "One list", "Settings › Chat starts on One list");
+    assert.equal(await evaluate(checked), "One list", "Settings › General starts on One list");
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0, "No Project groups");
     // The Chats group (Chats without a Project) shows only once such a Chat exists; these Projects have none.
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 0, "No Chats group without a Chat without a Project");
@@ -283,7 +283,7 @@ async function browserChecks() {
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: the One list sidebar shows pinned Chats under Pinned and every other Chat in one latest-first list of inbox rows (Project icon, title with time, spinner or unread dot, Project leading the second line, no branch or ⋯ button, menu on right-click and Shift-F10), and Settings › Chat switches to Project groups and back",
+      "PASS: the One list sidebar shows pinned Chats under Pinned and every other Chat in one latest-first list of inbox rows (Project icon, title with time, spinner or unread dot, Project leading the second line, no branch or ⋯ button, menu on right-click and Shift-F10), and Settings › General switches to Project groups and back",
     );
     app.exit(0);
   } catch (error) {

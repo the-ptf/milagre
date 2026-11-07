@@ -5,4 +5,4 @@ import { thisComputer } from "./shortcut-hints.ts";
 export const allowQuestion = (request: Pick<PendingComputer, "name">) => `${request.name ?? "A computer"} wants to drive ${thisComputer}'s chats`;
 
 /** Under the question: what Allow gives it, and how to take it back. */
-export const ALLOW_DETAIL = "It can do anything this window can, except pair and remove devices. You can remove it any time in Settings › Devices.";
+export const ALLOW_DETAIL = "It can do anything this window can, except pair and remove devices. You can remove it any time in Settings › Devices & sharing.";

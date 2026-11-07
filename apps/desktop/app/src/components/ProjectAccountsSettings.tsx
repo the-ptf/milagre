@@ -200,13 +200,19 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
   });
 }
 
-function Footnote({ onManageAccounts }: { onManageAccounts: () => void }) {
+// Without onManageAccounts the saved accounts are on the same page, so there is no link to them.
+function Footnote({ onManageAccounts }: { onManageAccounts?: () => void }) {
   return (
     <p className="mt-2 px-1 text-12 text-ink-3">
-      Running replies keep their original account. The next turn uses the one chosen here.{" "}
-      <button type="button" className={INLINE_LINK} onClick={onManageAccounts}>
-        Manage saved accounts
-      </button>
+      Running replies keep their original account. The next turn uses the one chosen here.
+      {onManageAccounts && (
+        <>
+          {" "}
+          <button type="button" className={INLINE_LINK} onClick={onManageAccounts}>
+            Manage saved accounts
+          </button>
+        </>
+      )}
     </p>
   );
 }
@@ -215,7 +221,7 @@ function Card({ children }: { children: ReactNode }) {
   return <div className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">{children}</div>;
 }
 
-export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { projectPath?: string; onManageAccounts: () => void }) {
+export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { projectPath?: string; onManageAccounts?: () => void }) {
   const [scopeReload, setScopeReload] = useState(0);
   const [scopesLoaded, setScopesLoaded] = useState(false);
   const [scopes, setScopes] = useState<ProjectAccountScope[]>([]);

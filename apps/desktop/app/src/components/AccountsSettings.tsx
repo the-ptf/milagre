@@ -134,7 +134,7 @@ export function AccountsSettings() {
     <div className="mt-6 grid gap-5" data-accounts-settings>
       <div className="flex items-start justify-between gap-6">
         <p className="max-w-[430px] text-13 leading-5 text-ink-3">
-          Choose the computer default for each provider. Projects and Links can choose a different account in Project Accounts.
+          Choose the computer default for each provider. Projects and Links can choose a different account under Per Project, below.
         </p>
         <Button
           variant="secondary"
