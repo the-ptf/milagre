@@ -278,7 +278,10 @@ function App() {
   const linksSeen = useRef(new Map<string, OpenLink>());
   const selectedLinkRef = useRef(selectedLink);
   selectedLinkRef.current = selectedLink;
-  const [linkInitialSession, setLinkInitialSession] = useState<number | undefined>();
+  // The Chat a Link opens on: a number for that Chat, null for a new one, undefined for the one it showed last.
+  const [linkInitialSession, setLinkInitialSession] = useState<number | null | undefined>();
+  // Text typed in a Project's new Chat before its heading's dropdown moved it to a Link: the Link's new Chat starts with it.
+  const [linkNewChatText, setLinkNewChatText] = useState("");
   // `true` creates a Link; a Link edits that one.
   const [linkDialogOpen, setLinkDialogOpen] = useState<boolean | NamedProjectLink>(false);
   // The Link whose deletion is being confirmed.
@@ -2063,12 +2066,12 @@ function App() {
     window.addEventListener(PROJECT_REMOVED, onProjectRemoved);
     return () => window.removeEventListener(PROJECT_REMOVED, onProjectRemoved);
   }, [onProjectRemoved]);
-  async function selectLink(id: string, sessionId?: number, { keepView = false } = {}) {
+  async function selectLink(id: string, sessionId?: number | null, { keepView = false } = {}) {
     const scope = `milagre-link:${id}`;
     const known = linksSeen.current.get(id) ?? knownLink(id);
     const held = linkStatesRef.current[id] ?? cachedScopeState(scope) ?? scopeStates[scope];
     // The Chat's page read, then the Link's open, go out before anything renders.
-    if (sessionId !== undefined) {
+    if (typeof sessionId === "number") {
       prefetchLeanChat(scope, sessionId, held);
       beginChatSwitch(chatKey(scope, sessionId));
     }
@@ -2880,9 +2883,15 @@ function App() {
     }
     startNewChatIn(key);
   });
-  // The new-chat heading's dropdown picked a Link: its new Chat opens there, as the Link header's + opens it. What was
-  // typed stays as the Project's draft (selectLink saves it).
-  const newChatInLink = useEvent((id: string) => newChatInScope(`milagre-link:${id}`));
+  // The new-chat heading's dropdown picked a Link: a new Chat opens there (never the Link's last one, which its sidebar
+  // header returns to), and what was typed goes along with it, leaving the Project's new Chat empty (as a move to another
+  // Project does).
+  const newChatInLink = useEvent((id: string) => {
+    leaveBots();
+    const carried = draftStore.take(draftKey(projectRef.current?.path ?? "", selectedSessionRef.current));
+    setLinkNewChatText(carried);
+    void selectLink(id, null);
+  });
   // A new Chat in a Project, switched to first (a Link on screen closes). `draftText` replaces what waits there.
   function startNewChatIn(key: string, draftText = "") {
     if (!selectedLinkRef.current && projectRef.current?.path === key) {
@@ -3409,6 +3418,7 @@ function App() {
       agents={agentRuns}
       drafts={scopeDrafts}
       initialSessionId={linkInitialSession}
+      initialDraft={linkNewChatText}
       preferences={{
         models,
         selectedModel,

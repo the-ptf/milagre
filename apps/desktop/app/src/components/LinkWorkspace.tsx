@@ -111,6 +111,7 @@ export function LinkWorkspace({
   onCanvasChat,
   usage,
   initialSessionId,
+  initialDraft = "",
   openNonce = 0,
   hostConnection,
   saveNotice,
@@ -127,7 +128,10 @@ export function LinkWorkspace({
   agents: ReturnType<typeof useAgentRuns>;
   preferences: Preferences;
   drafts: ReturnType<typeof createScopeDrafts>;
-  initialSessionId?: number;
+  /** The Chat to show: null for a new one. */
+  initialSessionId?: number | null;
+  /** With `initialSessionId` null: text the new Chat starts with, carried from a Project's new Chat. */
+  initialDraft?: string;
   /** Counts the requests to show `initialSessionId`, so the same Chat asked for again (from a Project's sidebar) is shown again. */
   openNonce?: number;
   hostConnection: { connected: boolean };
@@ -339,7 +343,13 @@ export function LinkWorkspace({
       latest.current.selection++;
       drafts.newSelection(scope);
       setSessionId(initialSessionId);
-      if (initialSessionId === null) setDraftId((id) => id + 1);
+      if (initialSessionId === null) {
+        setDraftId((id) => id + 1);
+        if (initialDraft) {
+          draftStore.select(draftKey(owner, null));
+          draftStore.set(initialDraft);
+        }
+      }
     }
   }, [initialSessionId, openNonce]);
   const { modelForChat: _modelForChat, showModel: _showModel, onModelChange: _onModelChange, ...composerModels } = preferences;

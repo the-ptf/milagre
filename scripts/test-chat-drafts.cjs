@@ -22,7 +22,12 @@ state.messages = [
   { id: 8, session_id: 3, role: "user", body: "Commit the changes", context: { kind: "git-action" } },
 ];
 state.next_id = 9;
+// A Link that already has a Chat: a new Chat picked for it from the heading must not open that one.
+const link = { id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Shop + API", projectIds: ["p1", "p2"], createdAt: "" };
+const linkState = { next_id: 9, messagesInChats: true, sessions: { 3: { id: 3, agent_name: "Claude", provider: "claude", status: "Idle", title: "Old link chat", workspacePath: "/w", worktrees: [], summary: { count: 1, firstId: 1, lastId: 1, titleLine: "Old link chat" } } }, messages: [], preparations: {} };
 window.milagre = new Proxy({
+  listNamedLinks: async () => [link],
+  openNamedLink: async () => ({ link, projects: [{ id: "p1", path: "/fixture", name: "Fixture" }, { id: "p2", path: "/second", name: "Second" }], state: structuredClone(linkState), version: 1, epoch: "link-host" }),
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
   getLinkedWork: async () => ({ delegations: [], negotiations: [], receiveOnly: [] }),
@@ -177,6 +182,17 @@ async function browserChecks() {
     await waitFor(`document.querySelector('[data-new-chat-project]')?.textContent.includes('Second')`);
     await promptIs("Edited while connecting");
     console.log("PASS: a slow or failed Project switch keeps the draft visible and carries edits made during the wait");
+
+    // Picking a Link from the same dropdown opens a new Chat there, not the Link's last one, and the draft goes with it.
+    await type("Carry me to the Link");
+    await evaluate(`document.querySelector('[data-new-chat-project]').click()`);
+    const linkRow = `[...document.querySelectorAll('[data-new-chat-heading] [data-picker-row]')].find(row => row.querySelector('strong')?.textContent === 'Shop + API')`;
+    await waitFor(`!!(${linkRow})`);
+    await evaluate(`(${linkRow}).click()`);
+    await promptIs("Carry me to the Link");
+    await waitFor(`!document.querySelector('[aria-label="Conversation"]')?.textContent.includes('Old link chat')`);
+    await screenshot("link-new-chat-draft");
+    console.log("PASS: a Link picked for a new Chat opens a new Chat there with the draft, not its last Chat");
     app.exit(0);
   } catch (error) {
     console.error(error);
