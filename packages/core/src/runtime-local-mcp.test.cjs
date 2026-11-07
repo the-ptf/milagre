@@ -76,7 +76,7 @@ async function fixture(t) {
   };
   t.after(async () => {
     for (const runtime of runtimes) await runtime.close();
-    await fs.rm(directory, { recursive: true, force: true });
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   const runtime = make();
   const opened = await runtime.openProject(project);

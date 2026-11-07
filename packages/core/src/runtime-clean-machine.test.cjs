@@ -6,9 +6,15 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 
+const open = new WeakMap();
+
 function temporary(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-clean-machine-")));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  // After hooks run in the order they were added, and Windows can't remove what a runtime still holds.
+  t.after(async () => {
+    await open.get(t)?.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+  });
   return root;
 }
 
@@ -27,7 +33,7 @@ test("Install accepts an omitted version after the daemon JSON round trip and st
       return { ok: true };
     },
   });
-  t.after(() => runtime.close());
+  open.set(t, runtime);
   for (const provider of ["claude", "codex"]) {
     const args = JSON.parse(JSON.stringify([provider, undefined]));
     assert.equal((await runtime.invoke("agent:update-cli", args)).ok, true);

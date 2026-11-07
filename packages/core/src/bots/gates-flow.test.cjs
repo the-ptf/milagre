@@ -21,7 +21,6 @@ const META = Object.freeze({
 // The service on a real store and home, with fake agent sessions (they record answers) and Chats (they record sends).
 async function harness(t, { store, home } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-bots-gates-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   home ??= await createBotHome(path.join(dir, "bots"), "ops");
   const OPS = {
     id: "ops",
@@ -73,7 +72,11 @@ async function harness(t, { store, home } = {}) {
     },
     now: () => NOW,
   });
-  t.after(() => bots.close());
+  // Windows can't remove an open database.
+  t.after(() => {
+    bots.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   return { bots, store, agents, chats, opened, OPS, THREAD: `${home}#1` };
 }
 

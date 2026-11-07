@@ -18,7 +18,7 @@ const TIMEOUT_MS = windows ? 8000 : 300;
 
 async function tempDir(t, prefix = "milagre-setup-") {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   return dir;
 }
 

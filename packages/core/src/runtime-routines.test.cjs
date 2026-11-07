@@ -111,7 +111,7 @@ async function fixture(t, { restart, open = true, titleModels = {}, terminals } 
   });
   t.after(async () => {
     await runtime.close();
-    if (!restart) await fs.rm(dir, { recursive: true, force: true });
+    if (!restart) await fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   // `open: false` leaves the Project as a restart leaves it: listed, not opened by anyone yet.
   const opened = open ? await runtime.openProject(project) : null;

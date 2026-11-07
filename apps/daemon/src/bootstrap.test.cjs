@@ -9,6 +9,9 @@ const { spawn } = require("node:child_process");
 const { socketPath, prepareSocketDirectory } = require("./paths.cjs");
 const { ensureDaemon } = require("./bootstrap.cjs");
 
+// These stand in for a host with a bare socket; a Windows pipe answers only a host that passes its handshake (windows-transport.test.cjs).
+const NEEDS_UNIX_SOCKET = { skip: process.platform === "win32" && "a fake host can't pass the Windows pipe handshake" };
+
 async function stopClients(clients) {
   for (const client of clients) {
     try {
@@ -24,7 +27,7 @@ test("two detached starts attach to one daemon and reconnect preserves its PID",
   const clients = [];
   t.after(async () => {
     await stopClients(clients);
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   const options = { dataDir, version: "9.8.7", cwd: dataDir };
   clients.push(...(await Promise.all([ensureDaemon(options), ensureDaemon(options)])));
@@ -40,7 +43,7 @@ test("two detached starts attach to one daemon and reconnect preserves its PID",
 
 test("a live owner's lock is reported and never removed", async (t) => {
   const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-bootstrap-live-")));
-  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  t.after(() => fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   await fs.mkdir(path.join(dataDir, "runtime.lock"));
   // This test's own process: alive, and started before the lock was taken.
   const record = JSON.stringify({ pid: process.pid, token: "preserve-me", startedAt: new Date().toISOString() });
@@ -54,7 +57,7 @@ test("a host that crashed is started again over its lock and socket", async (t) 
   const clients = [];
   t.after(async () => {
     await stopClients(clients);
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   const options = { dataDir, version: "1", cwd: dataDir };
   const first = await ensureDaemon(options);
@@ -64,7 +67,7 @@ test("a host that crashed is started again over its lock and socket", async (t) 
   await closed;
   // A crash leaves both behind.
   assert.equal(JSON.parse(await fs.readFile(path.join(dataDir, "runtime.lock/owner.json"), "utf8")).pid, pid);
-  assert.ok(await fs.stat(socketPath(dataDir)));
+  if (process.platform !== "win32") assert.ok(await fs.stat(socketPath(dataDir)));
   const again = await ensureDaemon(options);
   clients.push(again);
   const status = await again.call("daemon:status");
@@ -77,7 +80,7 @@ test("a host that is still exiting when the start begins is started again once i
   const clients = [];
   t.after(async () => {
     await stopClients(clients);
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   // Stands in for a crashed host the kernel hasn't finished with: its lock still names a live process, for a moment.
   const exiting = spawn(process.execPath, ["-e", "setTimeout(() => {}, 500)"], { stdio: "ignore" });
@@ -90,7 +93,7 @@ test("a host that is still exiting when the start begins is started again once i
   assert.notEqual((await again.call("daemon:status")).pid, exiting.pid);
 });
 
-test("a host that drops each connection while it exits is started again", async (t) => {
+test("a host that drops each connection while it exits is started again", NEEDS_UNIX_SOCKET, async (t) => {
   const clients = [];
   const dataDir = await dataDirFor(t, "dropping", clients);
   const socket = socketPath(dataDir);
@@ -112,7 +115,7 @@ test("a host that drops each connection while it exits is started again", async 
   assert.notEqual((await again.call("daemon:status")).pid, process.pid);
 });
 
-test("a reachable older daemon is rejected without starting a competing runtime", async (t) => {
+test("a reachable older daemon is rejected without starting a competing runtime", NEEDS_UNIX_SOCKET, async (t) => {
   const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-bootstrap-old-")));
   const socket = socketPath(dataDir);
   prepareSocketDirectory(socket);
@@ -126,7 +129,7 @@ test("a reachable older daemon is rejected without starting a competing runtime"
   await once(server, "listening");
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   await assert.rejects(ensureDaemon({ dataDir, version: "new", executable: "/never-run" }), { code: "INCOMPATIBLE_DAEMON" });
   await assert.rejects(fs.stat(path.join(dataDir, "runtime.lock")), { code: "ENOENT" });
@@ -136,7 +139,7 @@ async function dataDirFor(t, label, clients = []) {
   const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), `milagre-bootstrap-${label}-`)));
   t.after(async () => {
     await stopClients(clients);
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   return dataDir;
 }
@@ -188,7 +191,7 @@ test("a host from an older app version is stopped and replaced by one from this 
   assert.notEqual(status.pid, oldStatus.pid);
 });
 
-test("a host that reports no app version is stopped and replaced", async (t) => {
+test("a host that reports no app version is stopped and replaced", NEEDS_UNIX_SOCKET, async (t) => {
   const clients = [];
   const dataDir = await dataDirFor(t, "unversioned", clients);
   const calls = await fakeHost(t, dataDir, { ...compatible, pid: 1 });
@@ -220,7 +223,7 @@ test("a host from a newer app version is reused by an older desktop", async (t) 
   assert.equal((await again.call("daemon:status")).pid, pid);
 });
 
-test("a host whose close failed is stopped again and replaced, even from the same app version", async (t) => {
+test("a host whose close failed is stopped again and replaced, even from the same app version", NEEDS_UNIX_SOCKET, async (t) => {
   const clients = [];
   const dataDir = await dataDirFor(t, "closing", clients);
   const calls = await fakeHost(t, dataDir, { ...compatible, version: "1.2.3", closing: true });
@@ -232,14 +235,14 @@ test("a host whose close failed is stopped again and replaced, even from the sam
   assert.notEqual(status.pid, undefined);
 });
 
-test("a closing host that does not stop is reported instead of connected to", async (t) => {
+test("a closing host that does not stop is reported instead of connected to", NEEDS_UNIX_SOCKET, async (t) => {
   const dataDir = await dataDirFor(t, "closing-stubborn");
   const calls = await fakeHost(t, dataDir, { ...compatible, version: "0.2.0", closing: true }, { stubborn: true });
   await assert.rejects(ensureDaemon({ dataDir, version: "0.2.0", executable: "/never-run", startupTimeoutMs: 300 }), { code: "STALE_DAEMON" });
   assert.ok(calls.includes("daemon:stop"));
 });
 
-test("an older host that does not stop is reported instead of connected to", async (t) => {
+test("an older host that does not stop is reported instead of connected to", NEEDS_UNIX_SOCKET, async (t) => {
   const dataDir = await dataDirFor(t, "stubborn");
   const calls = await fakeHost(t, dataDir, { ...compatible, version: "0.1.0" }, { stubborn: true });
   await assert.rejects(ensureDaemon({ dataDir, version: "0.2.0", executable: "/never-run", startupTimeoutMs: 300 }), {

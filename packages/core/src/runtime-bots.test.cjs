@@ -85,7 +85,7 @@ async function fixture(t, { before = async () => {} } = {}) {
   };
   t.after(async () => {
     for (const runtime of runtimes) await runtime.close();
-    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   await before(dataDir);
   const runtime = make();
