@@ -88,13 +88,15 @@ export function ChatsHomeIcon({ size = 28 }: { size?: number }) {
   );
 }
 
-export function ProjectIcons({ client, projects }: { client: Client | null; projects: { id: string; path: string }[] }) {
+/** A Link's mark: its first three Projects' tiles, fanned out. `size` is one tile's (the step between them scales with it). */
+export function ProjectIcons({ client, projects, size = 28 }: { client: Client | null; projects: { id: string; path: string }[]; size?: number }) {
   const visible = projects.slice(0, 3);
+  const step = Math.round((size * 10) / 28);
   return (
-    <View accessibilityLabel={`${projects.length} linked Projects`} style={{ width: 28 + Math.max(0, visible.length - 1) * 10, height: 28 }}>
+    <View accessibilityLabel={`${projects.length} linked Projects`} style={{ width: size + Math.max(0, visible.length - 1) * step, height: size }}>
       {visible.map((project, index) => (
-        <View key={project.id} style={{ position: "absolute", left: index * 10, top: 0 }}>
-          <ProjectIcon client={client} path={project.path} />
+        <View key={project.id} style={{ position: "absolute", left: index * step, top: 0 }}>
+          <ProjectIcon client={client} path={project.path} size={size} />
         </View>
       ))}
     </View>

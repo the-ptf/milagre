@@ -144,8 +144,6 @@ type Row = { key: string; path: string } & (
       offline: boolean;
       homes: { hostId: string; path: string }[];
     }
-  /** The line between the Chats group and the flat list of the Projects' Chats. */
-  | { kind: "divider" }
   | ({
       kind: "chat";
       chat: AgentSession;
@@ -433,6 +431,8 @@ class Held<T> {
  * showed: the session's changes (a Project read, a turn's runs, a keystroke in the composer) reach it once it shows again,
  * which is when it wakes after sliding in (side-panels.tsx), so no render lands on the slide's frames.
  */
+/** The Chats group header's menu, on a long press and on its ⋯. */
+const CHATS_GROUP_MENU = [{ items: [{ id: "new", title: "New Chat", systemImage: "square.and.pencil" }] }];
 /** A Done row's menu: it only leaves Done. */
 const DONE_MENU = [
   {
@@ -737,9 +737,10 @@ const NavigationBody = memo(function NavigationBody({
     // A search lists like ⌘K whichever way the list is set: matching Chats, then Messages and Projects below.
     if (needle || chatList === "list") {
       let rank = 0;
-      // A search finds Chats without a Project too; the list without one shows them in the Chats group instead.
+      // The One list has no groups, so no Chats group either: Chats without a Project merge in by the same order as every
+      // other row, as a search finds them too.
       const lists = builds.flatMap((build) =>
-        build.projects.concat(needle && build.home ? [build.home] : []).map((project) => {
+        build.projects.concat(build.home ? [build.home] : []).map((project) => {
           const mine = rank++;
           if (needle && project.copy)
             found.push({
@@ -767,10 +768,6 @@ const NavigationBody = memo(function NavigationBody({
           kind: "section",
           name: "Chats",
         });
-      if (!needle) {
-        result.push(...chatsGroup);
-        if (chatsGroup.length && chats.length) result.push({ key: "chats-divider", path: "", kind: "divider" });
-      }
       result.push(...chats);
       for (const build of builds) {
         const notice = hostNotice(build);
@@ -2078,25 +2075,15 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       </Text>
     );
   if (item.kind === "offline") return <OfflineLine hostIds={item.hostIds} />;
-  if (item.kind === "divider") return <View style={[s.divider, { backgroundColor: colors.line }]} />;
   if (item.kind === "chatsGroup")
-    // Styled like a Project group: a tap folds it, a long press opens its menu, + starts a Chat without a Project.
+    // Styled like a Project group: a tap folds it, a long press or ⋯ opens its menu, + starts a Chat without a Project.
+    // Its ⋯ keeps the chevron and attention dot in the same column as every Project header's.
     return (
       <View style={[s.project, { opacity: item.offline ? 0.6 : 1 }]}>
         <PullDown
           label={`${item.expanded ? "Collapse" : "Expand"} ${CHATS_GROUP_LABEL}`}
           title={CHATS_GROUP_LABEL}
-          sections={[
-            {
-              items: [
-                {
-                  id: "new",
-                  title: "New Chat",
-                  systemImage: "square.and.pencil",
-                },
-              ],
-            },
-          ]}
+          sections={CHATS_GROUP_MENU}
           onSelect={() => void startWithoutProject()}
           onPress={foldChats}
           style={{ flex: 1 }}
@@ -2114,6 +2101,11 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             <View style={{ flex: 1 }} />
             {chatsGroupNeedsAttention(item.homes, currentHostId, attention.map(projectOfKey)) && <AttentionDot />}
             <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
+          </View>
+        </PullDown>
+        <PullDown label={`${CHATS_GROUP_LABEL} actions`} title={CHATS_GROUP_LABEL} sections={CHATS_GROUP_MENU} onSelect={() => void startWithoutProject()}>
+          <View style={s.projectMore}>
+            <Icon icon={MoreHorizontalIcon} tone="ink3" size={20} />
           </View>
         </PullDown>
         <IconButton label="New Chat without a Project" icon={Add01Icon} size={44} disabled={busy} onPress={() => void startWithoutProject()} />
@@ -2266,7 +2258,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           {item.name}
         </Text>
         {(item.chip || !item.expanded) && (
-          <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+          <Text numberOfLines={1} style={[s.detail, { flexShrink: 100 }]}>
             {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
               .filter(Boolean)
               .join(" · ")}
@@ -2384,7 +2376,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   const linearIssue = rowShow.linearIssue ? item.linearIssue : undefined;
   const hasChips = pullRequests.length > 0 || !!linearIssue;
   const copy = copyOf(item.hostId, item.path);
-  const worktreeDiff = rowShow.diff && !copy?.project.link ? copy?.project.state.worktrees[item.chat.worktree_id]?.diff : undefined;
+  const worktreeDiff = rowShow.diff && !copy?.project.link && !item.home ? copy?.project.state.worktrees[item.chat.worktree_id]?.diff : undefined;
   const diff = worktreeDiff && (worktreeDiff.added > 0 || worktreeDiff.removed > 0) ? worktreeDiff : undefined;
   const lastAt = rowShow.lastActivity ? item.chat.summary?.lastAt : undefined;
   // The diff and the last activity sit after the branch, or after the chips.
@@ -2499,13 +2491,14 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   const rowProjectIcon = (
     <View pointerEvents="box-none">
       <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <ProjectIcon client={clientOf(item.hostId)} path={item.members?.[0]?.path ?? item.path} size={32} />
+        {item.home ? <ChatsHomeIcon size={32} /> : <ProjectIcon client={clientOf(item.hostId)} path={item.members?.[0]?.path ?? item.path} size={32} />}
       </View>
       {!archiving && familyBadge}
     </View>
   );
-  // A Chat without a Project, in the Chats group or a search: its title, then its computer and age, never a branch or PR.
-  if (item.home) {
+  // A Chat without a Project, in the Chats group or a grouped list's search: its title, then its computer and age, never a
+  // branch or PR. The One list draws it as an inbox row like the others, with the Chats bubble for its icon.
+  if (item.home && chatList === "grouped") {
     const detail = chatsRowDetail(item.hostName + (offline ? ", offline" : ""), item.chat.summary?.lastAt, now);
     return (
       <ChatSwipeRow
@@ -2578,14 +2571,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             </View>
             {!item.pending && !archiving && (
               <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
-                <View
-                  style={{
-                    width: 40,
-                    height: 44,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
+                <View style={s.rowMore}>
                   <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
                 </View>
               </PullDown>
@@ -2616,7 +2602,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       title,
       item.chat.pinned ? "pinned" : "",
       item.chat.unread ? "unread" : "",
-      copy?.project.link ? `${copy.project.link.projects.length} Projects` : item.project,
+      copy?.project.link ? `${copy.project.link.projects.length} Projects` : item.home ? CHATS_GROUP_LABEL : item.project,
       word,
       otherComputer ? `${item.hostName}${offline ? ", offline" : ""}` : "",
       linked.length ? linkedAccessibilityLabel(linked) : "",
@@ -2636,7 +2622,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           </>
         ) : (
           <Text numberOfLines={1} style={[s.inboxText, { flexShrink: 1 }]}>
-            {item.project}
+            {item.home ? CHATS_GROUP_LABEL : item.project}
           </Text>
         ),
       },
@@ -2897,14 +2883,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           </View>
           {!item.pending && !archiving && (
             <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
-              <View
-                style={{
-                  width: 40,
-                  height: 44,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
+              <View style={s.rowMore}>
                 <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
               </View>
             </PullDown>
@@ -3084,11 +3063,6 @@ const makeS = (colors: Palette) =>
       minHeight: 44,
       paddingHorizontal: 16,
     },
-    divider: {
-      height: StyleSheet.hairlineWidth,
-      marginHorizontal: 16,
-      marginTop: 12,
-    },
     projectTitle: {
       flex: 1,
       minHeight: 44,
@@ -3098,6 +3072,13 @@ const makeS = (colors: Palette) =>
       paddingLeft: 8,
     },
     projectMore: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    // A Chat row's ⋯: 44 wide like a header's + (both end 8 pt in), so the two right-hand columns line up.
+    rowMore: {
       width: 44,
       height: 44,
       alignItems: "center",
@@ -3133,10 +3114,12 @@ const makeS = (colors: Palette) =>
       borderRadius: radius.control,
       borderCurve: "continuous",
     },
+    // The mark's 20 pt column sits under a header's Project icon (both centred 30 pt in), and the gap puts the title
+    // under the header's name: 8 + 12 + 20 + 12 = 52, as 8 + 8 + 28 + 8 in projectTitle.
     chatBody: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
+      gap: 12,
       minHeight: 56,
       paddingLeft: 12,
       paddingVertical: 8,
@@ -3168,10 +3151,11 @@ const makeS = (colors: Palette) =>
     inboxSeparator: { color: colors.ink3, fontSize: type.subheadline },
     inboxPart: { flexDirection: "row", alignItems: "center", gap: 6 },
     chatTitle: { color: colors.ink, fontSize: 15, lineHeight: 20 },
+    // Under the Project's name, where its Chats' titles start.
     notice: {
       minHeight: 44,
       justifyContent: "center",
-      paddingLeft: 42,
+      paddingLeft: 52,
       paddingRight: 12,
     },
     offlineLine: {

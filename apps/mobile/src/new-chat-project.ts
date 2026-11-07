@@ -1,7 +1,7 @@
 import { NO_PROJECT_LABEL, type ChatsHome } from "@milagre/shared/chats-home";
 import { groupByOrigin } from "@milagre/shared/project-origin";
 import type { HostView } from "./all-computers-store";
-import type { RecentProject } from "./client";
+import type { RecentProject, RegisteredProject } from "./client";
 
 /** A Project a new Chat can start in, on any shown computer. */
 export type NewChatProject = { hostId: string; hostName: string; offline: boolean; path: string; name: string; origin?: string };
@@ -15,16 +15,20 @@ export type NoProjectChoice = { kind: "no-project"; name: string; computerId: st
 /** One row of the new-chat picker: No project, or a Project with its copies. */
 export type NewChatChoice = NoProjectChoice | (NewChatProjectGroup & { kind: "project" });
 
+/** A Link (a canvas named Link, scope `milagre-link:<id>`) a new Chat can start in, on the open computer. */
+export type NewChatLink = { hostId: string; hostName: string; offline: boolean; path: string; name: string; members: RegisteredProject[] };
+
 /**
  * Every shown computer's Projects, including those hidden from the sidebar, in sidebar order. With `known` (each
  * computer's project:known answer), the Projects it knows beyond its recent ones follow them: a repository opened long ago
- * on one computer is still offered there, and its computer chip lists that copy.
+ * on one computer is still offered there, and its computer chip lists that copy. Links are not Projects: newChatLinks
+ * lists them after.
  */
 export function newChatProjects(views: readonly HostView[], known?: ReadonlyMap<string, readonly RecentProject[]>): NewChatProject[] {
   return views.flatMap((view) =>
     withKnown(view.projects, known?.get(view.hostId)).flatMap((project) =>
-      // A computer's Chats home is never one of its Projects, even should a list name it.
-      project.path === view.home?.path
+      // A computer's Chats home is never one of its Projects, even should a list name it; nor is a Link.
+      project.path === view.home?.path || project.link || project.path.startsWith("milagre-link:")
         ? []
         : [
             {
@@ -37,6 +41,29 @@ export function newChatProjects(views: readonly HostView[], known?: ReadonlyMap<
             },
           ],
     ),
+  );
+}
+
+/**
+ * The new-chat picker's Links, after the Projects: the open computer's named Links in sidebar order, leaving out the
+ * ones hidden from the sidebar. A Link lives on one computer, so another computer's Links are not offered here.
+ */
+export function newChatLinks(views: readonly HostView[], currentHostId: string | undefined): NewChatLink[] {
+  const view = views.find((item) => item.hostId === currentHostId);
+  if (!view) return [];
+  return view.projects.flatMap((project) =>
+    project.link && !project.hidden
+      ? [
+          {
+            hostId: view.hostId,
+            hostName: view.name,
+            offline: view.state === "offline",
+            path: project.path,
+            name: project.name || project.link.name || "Link",
+            members: project.projects ?? [],
+          },
+        ]
+      : [],
   );
 }
 

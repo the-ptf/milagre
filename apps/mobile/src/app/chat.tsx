@@ -30,6 +30,7 @@ import {
   GitForkIcon,
   ComputerIcon,
   LaptopIcon,
+  Link04Icon,
   MoreHorizontalIcon,
   SidebarLeftIcon,
   StopIcon,
@@ -179,8 +180,8 @@ import {
   NO_PROJECT_LABEL,
   NO_PROJECT_LINE,
 } from "@milagre/shared/chats-home";
-import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
-import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
+import { newChatLinks as linksOf, newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
+import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { chatBookmark, chatFamily } from "@milagre/shared/subchats";
@@ -994,6 +995,8 @@ function ChatPane({
   // The Projects a new Chat can switch to, on every shown computer: each computer's every known Project while it is new.
   const newChatProjects = useNewChatProjects(!params.id);
   const noProject = useNoProjectChoice(session.client?.url);
+  // The open computer's Links, after the Projects: picking one starts the Chat there, as the sidebar's + on a Link does.
+  const newChatLinks = useMemo(() => linksOf(computerViews, session.client?.url), [computerViews, session.client?.url]);
   // The "Start building in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
   // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
   const keyboard = useReanimatedKeyboardAnimation();
@@ -1358,10 +1361,30 @@ function ChatPane({
           ...(hostIds.size > 1 ? { section: item.hostName } : {}),
           leading: <ProjectIcon client={item.hostId === client.url ? client : allComputers.clientFor(item.hostId)} path={item.path} size={24} />,
         })),
+        // Then the open computer's Links, under their own heading, each with its Projects' tiles as in the sidebar.
+        ...newChatLinks.map((link, index) => ({
+          id: `link:${index}`,
+          title: link.name,
+          subtitle: `${link.members.length} ${link.members.length === 1 ? "Project" : "Projects"}`,
+          keywords: `link ${link.members.map((member) => member.name).join(" ")}`,
+          checked: link.hostId === client.url && link.path === project.path,
+          disabled: link.offline,
+          section: "Links",
+          leading: link.members.length ? (
+            <ProjectIcons client={link.hostId === client.url ? client : allComputers.clientFor(link.hostId)} projects={link.members} size={24} />
+          ) : (
+            <Icon icon={Link04Icon} tone="ink3" size={20} />
+          ),
+        })),
       ],
       onSelect: (id) => {
         if (id === "no-project") {
           if (!chatsHomeOpen && noProject) void startWithoutProject(noProject.computerId);
+          return;
+        }
+        if (id.startsWith("link:")) {
+          const link = newChatLinks[Number(id.slice("link:".length))];
+          if (link) void switchProject(link.hostId, link.path);
           return;
         }
         const group = projectGroups[Number(id)];
