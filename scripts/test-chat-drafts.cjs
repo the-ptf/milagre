@@ -27,7 +27,11 @@ const link = { id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Shop + API", p
 const linkState = { next_id: 9, messagesInChats: true, sessions: { 3: { id: 3, agent_name: "Claude", provider: "claude", status: "Idle", title: "Old link chat", workspacePath: "/w", worktrees: [], summary: { count: 1, firstId: 1, lastId: 1, titleLine: "Old link chat" } } }, messages: [], preparations: {} };
 window.milagre = new Proxy({
   listNamedLinks: async () => [link],
-  openNamedLink: async () => ({ link, projects: [{ id: "p1", path: "/fixture", name: "Fixture" }, { id: "p2", path: "/second", name: "Second" }], state: structuredClone(linkState), version: 1, epoch: "link-host" }),
+  openNamedLink: () => new Promise((resolve, reject) => {
+    window.finishLinkSwitch = () => resolve({ link, projects: [{ id: "p1", path: "/fixture", name: "Fixture" }, { id: "p2", path: "/second", name: "Second" }], state: structuredClone(linkState), version: 1, epoch: "link-host" });
+    window.failLinkSwitch = () => reject(new Error("Link unavailable"));
+    if (!window.delayLinkSwitch) window.finishLinkSwitch();
+  }),
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
   getLinkedWork: async () => ({ delegations: [], negotiations: [], receiveOnly: [] }),
@@ -188,11 +192,48 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-new-chat-project]').click()`);
     const linkRow = `[...document.querySelectorAll('[data-new-chat-heading] [data-picker-row]')].find(row => row.querySelector('strong')?.textContent === 'Shop + API')`;
     await waitFor(`!!(${linkRow})`);
+    await evaluate(`window.delayLinkSwitch = true`);
     await evaluate(`(${linkRow}).click()`);
+    await waitFor(`typeof window.failLinkSwitch === 'function'`);
     await promptIs("Carry me to the Link");
+    await type("Edited while Link opens");
+    await evaluate(`window.failLinkSwitch()`);
+    await waitFor(`document.body.textContent.includes('Link unavailable')`);
+    await promptIs("Edited while Link opens");
+    console.log("PASS: a rejected Link open keeps the latest draft in its source Project");
+
+    const pickLink = async () => {
+      await evaluate(`window.finishLinkSwitch = null; document.querySelector('[data-new-chat-project]').click()`);
+      await waitFor(`!!(${linkRow})`);
+      await evaluate(`(${linkRow}).click()`);
+      await waitFor(`typeof window.finishLinkSwitch === 'function'`);
+    };
+    await pickLink();
+    // Even leaving and returning to the same new Chat cancels this handoff.
+    await newChat();
+    await evaluate(`window.finishLinkSwitch()`);
+    await delay(150);
+    await waitFor(`document.querySelector('[data-new-chat-project]')?.textContent.includes('Second')`);
+    await promptIs("Edited while Link opens");
+    console.log("PASS: superseded Link opens do not adopt or consume the source draft");
+
+    await pickLink();
+    await promptIs("Edited while Link opens");
+    await type("Latest Link draft");
+    await evaluate(`window.finishLinkSwitch()`);
+    await promptIs("Latest Link draft");
     await waitFor(`!document.querySelector('[aria-label="Conversation"]')?.textContent.includes('Old link chat')`);
     await screenshot("link-new-chat-draft");
-    console.log("PASS: a Link picked for a new Chat opens a new Chat there with the draft, not its last Chat");
+    console.log("PASS: a slow Link open carries the latest draft to a new Chat, not its last Chat");
+
+    await type("Edited in the Link");
+    await newChat();
+    await promptIs("");
+    await pickLink();
+    await promptIs("");
+    await evaluate(`window.finishLinkSwitch()`);
+    await promptIs("Edited in the Link");
+    console.log("PASS: a cached Link keeps its destination draft on an empty handoff and never replays the previous transfer");
     app.exit(0);
   } catch (error) {
     console.error(error);

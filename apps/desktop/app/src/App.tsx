@@ -2066,7 +2066,7 @@ function App() {
     window.addEventListener(PROJECT_REMOVED, onProjectRemoved);
     return () => window.removeEventListener(PROJECT_REMOVED, onProjectRemoved);
   }, [onProjectRemoved]);
-  async function selectLink(id: string, sessionId?: number | null, { keepView = false } = {}) {
+  async function selectLink(id: string, sessionId?: number | null, { keepView = false, draftFrom }: { keepView?: boolean; draftFrom?: string } = {}) {
     const scope = `milagre-link:${id}`;
     const known = linksSeen.current.get(id) ?? knownLink(id);
     const held = linkStatesRef.current[id] ?? cachedScopeState(scope) ?? scopeStates[scope];
@@ -2083,8 +2083,11 @@ function App() {
     }
     leaveBots();
     const navigation = ++projectNavigation.current;
+    const sourceView = chatView.current;
     const adopt = (next: OpenLink) => {
       handOverShownScope();
+      // A picker handoff commits only after the destination opens. Read now so late edits and quotes move too.
+      setLinkNewChatText(draftFrom ? draftStore.take(draftFrom) : "");
       if (!selectedLinkRef.current && projectRef.current)
         scopeDrafts.save({ kind: "project", projectPath: projectRef.current.path }, { text: draftStore.get(), sessionId: selectedSessionRef.current });
       advanceChatView();
@@ -2098,11 +2101,16 @@ function App() {
     };
     // The Link shows at once from what this window holds (the host's last open, or the sidebar's read); the host's
     // open then refreshes it in place. Opening on the host recovers its Chats and can take a while when the Mac is busy.
-    const instant = known && held && !("worktrees" in held) ? { link: known.link, projects: known.projects, state: held } : null;
+    const instant = !draftFrom && known && held && !("worktrees" in held) ? { link: known.link, projects: known.projects, state: held } : null;
     if (instant) adopt(instant);
     try {
       const reply = await request;
       if (navigation !== projectNavigation.current) return;
+      if (
+        draftFrom &&
+        (sourceView !== chatView.current || selectedLinkRef.current || draftFrom !== draftKey(projectRef.current?.path ?? "", selectedSessionRef.current))
+      )
+        return;
       // Its state's number goes to state-events (the host's next patch applies to it); the window keeps the Link alone.
       const { version: _version, epoch: _epoch, ...next } = reply;
       linksSeen.current.set(id, next);
@@ -2886,11 +2894,16 @@ function App() {
   // The new-chat heading's dropdown picked a Link: a new Chat opens there (never the Link's last one, which its sidebar
   // header returns to), and what was typed goes along with it, leaving the Project's new Chat empty (as a move to another
   // Project does).
-  const newChatInLink = useEvent((id: string) => {
+  const newChatInLink = useEvent(async (id: string) => {
+    if (movingDraft.current) return;
     leaveBots();
-    const carried = draftStore.take(draftKey(projectRef.current?.path ?? "", selectedSessionRef.current));
-    setLinkNewChatText(carried);
-    void selectLink(id, null);
+    const draftFrom = draftKey(projectRef.current?.path ?? "", selectedSessionRef.current);
+    movingDraft.current = true;
+    try {
+      await selectLink(id, null, { draftFrom });
+    } finally {
+      movingDraft.current = false;
+    }
   });
   // A new Chat in a Project, switched to first (a Link on screen closes). `draftText` replaces what waits there.
   function startNewChatIn(key: string, draftText = "") {
