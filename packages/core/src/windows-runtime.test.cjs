@@ -511,6 +511,20 @@ test("Windows job facade hands over a stderr line at once and still strips a spl
   assert.equal(seen.includes(payload.marker.slice(0, 7)), false);
 });
 
+test("Windows native job leaves its folder free as soon as the process closes", { skip: process.platform !== "win32" }, async (t) => {
+  const { once } = require("node:events");
+  const { spawnCommand } = require("./agents/command.cjs");
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "milagre job folder "));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const child = spawnCommand(process.execPath, ["-e", "process.stdout.write(process.cwd())"], { cwd: folder, stdio: ["ignore", "pipe", "pipe"] });
+  const chunks = [];
+  child.stdout.on("data", (chunk) => chunks.push(chunk));
+  child.stderr.resume();
+  await once(child, "close");
+  assert.equal(Buffer.concat(chunks).toString(), folder);
+  fs.rmdirSync(folder);
+});
+
 test("Windows native job handles literal arguments and releases an empty job", { skip: process.platform !== "win32" }, async () => {
   const { once } = require("node:events");
   const { spawnCommand } = require("./agents/command.cjs");
