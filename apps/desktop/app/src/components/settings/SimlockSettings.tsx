@@ -11,7 +11,7 @@ const inputClass =
 const LEASE_MINUTES = [15, 30, 60, 120, 240];
 const SIMLOCK_URL = "https://github.com/callstackincubator/simlock";
 
-/** Settings › Experimental: lease simulators and emulators from a Simlock worker or gateway. Kept by the host. */
+/** Settings › Devices & sharing: lease simulators and emulators from a Simlock worker or gateway. Kept by the host. */
 export function SimlockSettings() {
   // A test bridge or an older paired host may not offer it.
   const api = useBridge().simlock as SimlockApi | undefined;

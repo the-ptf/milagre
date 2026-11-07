@@ -1,7 +1,7 @@
-// Settings sections in Electron: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (Routines and Designs left it; Designs are always
-// on and Published pages are in Milagre), plus the Babysit PRs row, which opens its own page; Notifications holds the
-// chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
-// tells main each time it flips. The legacy sidebar switch is gone everywhere. Search settings (⌘F) finds sections and rows
+// Settings sections in Electron, inside the Settings modal: Labs lists only Floating inbox, Ultracode Fatality, Bots, Delegate
+// and Device notes; Integrations holds the Babysit PRs row, which opens its own page; Devices & sharing holds Published pages
+// (Designs are always on) and Drive other computers, which tells main each time it flips; Notifications holds the chime picker
+// (picking one saves and plays it; the replay button plays it again). The legacy sidebar switch is gone everywhere. Search settings (⌘F) finds sections and rows
 // and opens a row lit up.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -13,6 +13,7 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
+import { SettingsModal } from '/src/components/settings/SettingsModal';
 import { useApplyTheme } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
 import '/src/styles.css';
@@ -79,12 +80,12 @@ function Fixture() {
   useApplyTheme();
   useApplyOtherComputers();
   return (
-    <div style={{ display: 'flex', gap: 12, height: '100vh', padding: '0 12px 0 0' }}>
-      <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
-        <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
-      </div>
-      <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section={section} models={[]} update={null} /></main>
-    </div>
+    <SettingsModal
+      onClose={() => { window.settingsCloseCalls = (window.settingsCloseCalls ?? 0) + 1; }}
+      nav={<SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} showProjectSettings={false} />}
+    >
+      <SettingsPanel section={section} models={[]} update={null} />
+    </SettingsModal>
   );
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
@@ -125,20 +126,12 @@ async function browserChecks() {
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
     // The mini window preview shows where each row applies: hovering a row highlights its region.
     await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
-    // Back sits in the top bar on every decoration, after the window controls when they lead, and stays
-    // above the app's drag strip.
-    await evaluate(`Object.defineProperty(navigator, 'windowControlsOverlay', { configurable: true, value: undefined })`);
-    for (const [controls, expectedLeft] of [
-      ["leading", 92],
-      ["overlay", 12],
-      ["external", 12],
-    ]) {
-      await evaluate(`window.milagreWindowChrome = { controls: ${JSON.stringify(controls)} }; window.dispatchEvent(new Event('resize'))`);
-      await waitFor(
-        `(() => { const r = document.querySelector('button[aria-label="Back"]').getBoundingClientRect(); return r.top === 6 && r.left === ${expectedLeft}; })()`,
-      );
-    }
-    assert.equal(await evaluate(`getComputedStyle(document.querySelector('button[aria-label="Back"]')).webkitAppRegion`), "no-drag");
+    // Settings is a modal <dialog>: the × and Esc (the dialog's cancel) both ask to close it.
+    assert.equal(await evaluate(`document.querySelector('dialog[data-settings-modal]').open`), true);
+    await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
+    await waitFor(`window.settingsCloseCalls === 1`);
+    await evaluate(`document.querySelector('dialog[data-settings-modal]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
+    await waitFor(`window.settingsCloseCalls === 2`);
     const region = (area) => `document.querySelector('[data-preview-area=${JSON.stringify(area)}]')`;
     const rowOf = (label) => `document.querySelector('button[aria-label=${JSON.stringify(label)}]').closest('[data-preview-row]')`;
     assert.equal(await evaluate(`${region("sidebar")}.hasAttribute("data-highlighted")`), false, "nothing is highlighted at rest");
@@ -271,14 +264,14 @@ async function browserChecks() {
     await openMenu("Sidebar usage");
     await pick("Expanded");
     await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
-    await openSection("Experimental");
+    await openSection("Labs");
     await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Bots"]')`);
     // Routines have no switch: every computer runs them.
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
       ["Bots", "Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
-      "Experimental retains Device notes alongside the other settings",
+      "Labs keeps Device notes alongside the other betas",
     );
     const deviceNotes = `document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`;
     assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "false", "device notes default off");
@@ -303,21 +296,23 @@ async function browserChecks() {
     await waitFor(`${deviceNotes}.getAttribute("aria-checked") === "true"`);
     await openSection("Appearance");
     await evaluate(`window.deviceNotesRead = window.milagre.readDeviceNotesEnabled; delete window.milagre.readDeviceNotesEnabled`);
-    await openSection("Experimental");
+    await openSection("Labs");
     assert.equal(await evaluate(`!!${deviceNotes}`), false, "a bridge without device notes hides the setting");
     await openSection("Appearance");
     await evaluate(`window.milagre.readDeviceNotesEnabled = window.deviceNotesRead; void 0`);
-    await openSection("Experimental");
+    await openSection("Labs");
     await waitFor(`${deviceNotes}?.getAttribute("aria-checked") === "false"`);
     assert.equal(
       await evaluate(
         `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear|Published pages/i.test(document.querySelector("main").textContent) || /Other computers|Designs/.test(document.querySelector("main").textContent)`,
       ),
       false,
-      "settings that graduated are not in Experimental",
+      "settings that graduated are not in Labs",
     );
     await screenshot("experimental");
-    // Babysit PRs is a row that opens its own page; Back returns to Experimental.
+    // Babysit PRs left Labs for Integrations: a row that opens its own page; Back returns to Integrations.
+    assert.equal(await evaluate(`!!document.querySelector("main [data-babysit-prs-row]")`), false, "Babysit PRs is not in Labs");
+    await openSection("Integrations");
     const babysitRow = `document.querySelector("main [data-babysit-prs-row]")`;
     await waitFor(`${babysitRow}?.textContent.includes("Off")`);
     assert.equal(
@@ -326,8 +321,8 @@ async function browserChecks() {
     );
     await evaluate(`${babysitRow}.click()`);
     await waitFor(`!!document.querySelector("main [data-babysit-prs-page] [role=checkbox]")`);
-    assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Experimental's");
-    assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "ExperimentalBabysit PRs");
+    assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Integrations'");
+    assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "IntegrationsBabysit PRs");
     assert.deepEqual(await switches(), ["Babysit new PRs", "Resolve threads it answered"]);
     assert.equal(
       await evaluate(
@@ -414,33 +409,24 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.activeElement?.getAttribute("aria-label")`), null, "Reset leaves the field");
     assert.equal(await evaluate("window.babysitSaves.length"), savesBeforeReset + 1, "only the reset saves, not the half-typed text");
     assert.equal(await evaluate(`!!document.querySelector('main input[aria-label="Your own rule"]')`), false, "reset turns Your own rule off");
-    await evaluate(`document.querySelector('main button[aria-label="Back to Experimental"]').click()`);
-    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
+    await evaluate(`document.querySelector('main button[aria-label="Back to Integrations"]').click()`);
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Integrations"`);
     // Typing then going Back at once still saves the text.
     await evaluate(`${babysitRow}.click()`);
     await waitFor(`!!document.querySelector('main textarea[aria-label="Your instructions"]')`);
     await typeInto('main textarea[aria-label="Your instructions"]', "Report checks that fail outside this PR.");
-    await evaluate(`document.querySelector('main button[aria-label="Back to Experimental"]').click()`);
+    await evaluate(`document.querySelector('main button[aria-label="Back to Integrations"]').click()`);
     await delay(100);
     // Well inside the 500 ms debounce: leaving the page saved it, not the timer.
     assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Report checks that fail outside this PR." });
-    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
-    assert.deepEqual(
-      [...(await switches())].sort(),
-      ["Bots", "Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
-      "Back returns to Experimental",
-    );
-    // Designs are always on now: Settings › Milagre has no switch, only Published pages, above the Milagre MCP.
-    await openSection("Milagre");
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Integrations"`);
+    assert.equal(await evaluate(`!!${babysitRow}`), true, "Back returns to Integrations");
+    // Designs are always on: Devices & sharing lists Published pages with no Designs switch; the Milagre MCP moved to MCP servers.
+    await openSection("Devices & sharing");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
     assert.equal(await evaluate(`!!document.querySelector('main [role="checkbox"][aria-label="Designs"]')`), false, "Designs can't be turned off");
     await screenshot("milagre");
-    assert.equal(
-      await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent).join("|")`).then((t) =>
-        t.startsWith("Designs and artifacts|Milagre MCP"),
-      ),
-      true,
-    );
+    assert.equal(await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent).includes("Designs and artifacts")`), true);
     const pagesSetting = 'document.querySelector("[data-slot=published-pages-setting]")';
     await evaluate(`[...${pagesSetting}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
     const shareDialog = 'document.querySelector("[data-slot=design-page-share]")';
@@ -455,7 +441,7 @@ async function browserChecks() {
     await screenshot("published-pages-orphan-revoked");
     await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog}`);
-    await openSection("Experimental");
+    await openSection("Labs");
     const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=checkbox][aria-label=Bots]")';
     await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
     assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
@@ -470,7 +456,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.botsSaves"), [true]);
     await screenshot("bots-on");
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
-    for (const label of ["Appearance", "Notifications", "Devices"]) {
+    for (const label of ["Appearance", "Notifications", "Devices & sharing"]) {
       await openSection(label);
       assert.equal(
         await evaluate(`!!document.querySelector('[aria-label="Use legacy sidebar"]') || /legacy sidebar/i.test(document.querySelector("main").textContent)`),
@@ -478,7 +464,7 @@ async function browserChecks() {
         "no legacy sidebar switch in " + label,
       );
     }
-    await openSection("Devices");
+    await openSection("Devices & sharing");
     const other = `document.querySelector('main [role="checkbox"][aria-label="Drive other computers"]')`;
     await waitFor(`!!${other}`);
     assert.equal(await evaluate(`${other}.getAttribute("aria-checked")`), "false", "Drive other computers is off by default");
@@ -493,8 +479,8 @@ async function browserChecks() {
     await openSection("Notifications");
     assert.deepEqual(
       await switches(),
-      ["Notify when finished", "Dock badge", "Notify when waiting", "Attention button"],
-      "Notifications lists the four alerts, then the chime picker",
+      ["Notify when finished", "Dock badge", "Notify when waiting", "Attention button", "Unread Runs dot"],
+      "Notifications lists the four alerts, the chime picker, then Routines' Unread Runs dot",
     );
     const scheduleTrigger = `document.querySelector('button[aria-label="Notification schedule"]')`;
     assert.equal(await evaluate(`${scheduleTrigger}.textContent.trim()`), "Anytime");
@@ -582,7 +568,7 @@ async function browserChecks() {
     await waitFor(`[...document.querySelectorAll('aside button')].some((button) => button.textContent.trim() === "Usage")`);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (no Routines or Designs switch), and its Babysit PRs row opens a page that saves each change and goes Back; Milagre holds Published pages (no Designs switch) above the Milagre MCP; with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
+      "PASS: Labs lists only Floating inbox, Ultracode Fatality, Bots, Delegate and Device notes; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Devices & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
     );
     app.exit(0);
   } catch (error) {

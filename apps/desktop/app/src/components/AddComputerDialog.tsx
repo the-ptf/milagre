@@ -127,7 +127,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       }
     >
       <ol className="mt-4 list-decimal space-y-1 pl-5 text-13 text-ink-2">
-        <li>On the other computer, open Milagre Settings › Devices.</li>
+        <li>On the other computer, open Milagre Settings › Devices & sharing.</li>
         <li>Click Pair a device, then Copy link.</li>
         <li>Paste it here. The link works for 10 minutes.</li>
       </ol>
@@ -194,7 +194,8 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       )}
       {preview && (
         <p className="mt-3 text-12 text-ink-3">
-          This window gets full control of {preview.name}'s Projects, like its own window. Remove it any time from {preview.name}'s Settings › Devices.
+          This window gets full control of {preview.name}'s Projects, like its own window. Remove it any time from {preview.name}'s Settings › Devices &
+          sharing.
         </p>
       )}
       <InlineError size={12} data-add-computer-error className="mt-3">

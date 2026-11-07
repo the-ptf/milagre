@@ -32,8 +32,8 @@ test("each state reads as the popover's second line", () => {
   assert.equal(routeLine(view({ state: "connecting", route: null }), NOW), "Connecting…");
   assert.equal(routeLine(view({ state: "reconnecting", route: null }), NOW), "Reconnecting…");
   assert.equal(
-    routeLine(view({ state: "reconnecting", message: "studio has too many devices connected. Remove one in its Settings › Devices." }), NOW),
-    "studio has too many devices connected. Remove one in its Settings › Devices.",
+    routeLine(view({ state: "reconnecting", message: "studio has too many devices connected. Remove one in its Settings › Devices & sharing." }), NOW),
+    "studio has too many devices connected. Remove one in its Settings › Devices & sharing.",
   );
   assert.equal(routeLine(view({ state: "offline" }), NOW), "Offline, seen 2h ago");
   assert.equal(routeLine(view({ state: "offline", lastSeen: null }), NOW), "Offline");

@@ -10,6 +10,7 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
 import { SettingsNav } from "/src/components/Settings";
+import { SettingsModal } from "/src/components/settings/SettingsModal";
 import { DotBackground } from "/src/components/DotBackground";
 import { DesignPageEditor } from "/src/components/agents/DesignPageEditor";
 import { createExampleDesign, designHtml } from "@milagre/shared/design";
@@ -60,15 +61,12 @@ function Fixture() {
   useSidePanel("terminal", { open: terminal, toggle: () => setTerminal(v => !v) });
   return <><DotBackground><div style={{ width: "100%", height: "100vh", background: "#141820", color: "#ddd" }}>
     <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-    {!diff && !settings && <><PanelToggles right={12} changes={{open: changes, toggle: () => setChanges(v => !v)}} pullRequest={prAvailable ? {number: 90, open: pr, toggle: () => setPr(v => !v)} : undefined} />
+    {!diff && <><PanelToggles right={12} changes={{open: changes, toggle: () => setChanges(v => !v)}} pullRequest={prAvailable ? {number: 90, open: pr, toggle: () => setPr(v => !v)} : undefined} />
     <AttentionButton label="Review the notification toolbar layout and accessibility needs attention" items={[{ key: "1", project: "Layout", asking: false }]} offset={sidePanelCount(sidePanels, true, prAvailable)} onOpen={() => window.attentionOpened = true} /></>}
     <div style={{ display: "flex", height: "100%", gap: 12 }}>
-      <div data-sidebar-host className={"min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 " + (settings ? "hidden" : "flex")}>
+      <div data-sidebar-host className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
         <SidebarNav fill workspaceName="Layout" recents={[{ id: "1", label: "Check window controls" }]} activeId="1" onOpenCanvas={() => {}} onOpenCommands={() => {}} />
       </div>
-      {settings && <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
-        <SettingsNav section="appearance" onSelect={() => {}} onSelectProject={() => {}} showProjectSettings={false} onBack={() => window.settingsBackCalls = (window.settingsBackCalls ?? 0) + 1} />
-      </div>}
       <main style={{ flex: 1, minWidth: 0, background: "#20242c", borderRadius: 12, padding: 20, margin: "var(--window-chrome-height) 12px 12px 0" }}>
         <p>Window layout check</p><p>Sidebar, changes and panels remain clickable.</p>
       </main>
@@ -77,6 +75,7 @@ function Fixture() {
       <DiffBar open onBack={() => setDiff(false)} trailing={<button data-diff-action onClick={() => window.diffAction = true} className="h-8 px-3 bg-surface rounded-control [-webkit-app-region:no-drag]">Diff action</button>} />
     </div>}
   </div></DotBackground>
+    {settings && <SettingsModal onClose={() => window.settingsCloseCalls = (window.settingsCloseCalls ?? 0) + 1} nav={<SettingsNav section="appearance" onSelect={() => {}} onSelectProject={() => {}} showProjectSettings={false} />}><p>Settings page</p></SettingsModal>}
     {editor && <DesignPageEditor chatId="/chrome#1" artifact={artifact} onClose={() => setEditor(false)} />}
   </>;
 }
@@ -233,27 +232,17 @@ async function browserChecks() {
         await capture(integrated ? "integrated-diff" : "native-diff");
         await click("[data-diff-back]");
         await waitFor('!document.querySelector("[data-diff-back]")');
-        // A mounted sidebar inherits its hidden parent in Settings, and its local stacking stays below the real editor.
         const toggleBefore = await bounds("[data-sidebar-toggle] button");
         const collapsedBefore = await evaluate('document.querySelector("aside[data-sidebar-collapsed]").dataset.sidebarCollapsed');
+        // Settings is a modal over the window, inset below the top bar so the window controls stay clear; its × closes it.
         await evaluate("window.showSettings(true)");
-        await waitFor(`!!document.querySelector('[aria-label="Settings navigation"]')`);
-        assert.equal((await bounds("[data-sidebar-toggle] button")).width, 0, "a hidden sidebar cannot leave a visible toggle outside its parent");
-        const backSelector = '[aria-label="Settings navigation"] button[aria-label="Back"]';
-        const settingsBack = await bounds(backSelector);
-        assert.equal(settingsBack.top, 6, "Settings Back sits in the top bar, on the toolbar line");
-        assert.equal(settingsBack.x, await evaluate("readChrome().sidebarLeft"), "Settings Back starts where the sidebar toggle does");
-        assert.equal((await bounds('[aria-label="Settings navigation"] > div:last-child')).top, 44, "the Settings card starts right under the bar");
-        assert.equal(
-          await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(backSelector)})).webkitAppRegion`),
-          "no-drag",
-          "Settings Back remains clickable inside the title bar",
-        );
-        clickAt(settingsBack.x + settingsBack.width / 2, settingsBack.y + 4);
-        await waitFor("window.settingsBackCalls === 1");
-        clickAt(settingsBack.x + settingsBack.width / 2, settingsBack.bottom - 4);
-        await waitFor("window.settingsBackCalls === 2");
-        await capture(integrated ? "integrated-settings-back" : "native-settings-back");
+        await waitFor(`!!document.querySelector('dialog[data-settings-modal]')?.open`);
+        const chromeHeight = await evaluate(`parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--window-chrome-height'))`);
+        assert.ok((await bounds("dialog[data-settings-modal]")).top >= chromeHeight, "the Settings modal starts below the top bar");
+        const settingsClose = await bounds('dialog[data-settings-modal] button[aria-label="Close Settings"]');
+        clickAt(settingsClose.x + settingsClose.width / 2, settingsClose.y + settingsClose.height / 2);
+        await waitFor("window.settingsCloseCalls === 1");
+        await capture(integrated ? "integrated-settings-modal" : "native-settings-modal");
         await evaluate("window.showSettings(false); window.showEditor(true)");
         await waitFor('!!document.querySelector("[data-slot=design-editor]")');
         let previewReady = false;

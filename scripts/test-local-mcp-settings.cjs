@@ -21,8 +21,8 @@ const localMcp = {
  revoke: async id=>{window.records=window.records.map(c=>c.id===id?{...c,revokedAt:'2026-10-13T00:00:00Z'}:c);},
 };
 document.documentElement.classList.add('dark');
-window.milagre={localMcp,listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
-createRoot(document.getElementById('root')).render(<div style={{display:'flex',height:'100vh',padding:16,gap:16}}><SettingsNav section="local-mcp" onSelect={()=>{}} onBack={()=>{}} /><main className="bg-page rounded-2xl" style={{flex:1}}><SettingsPanel section="local-mcp" models={[]} /></main></div>);
+window.milagre={localMcp,mcp:{accounts:async()=>[],check:async()=>({servers:[]}),onChanged:()=>()=>{}},listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
+createRoot(document.getElementById('root')).render(<div style={{display:'flex',height:'100vh',padding:16,gap:16}}><SettingsNav section="mcp" onSelect={()=>{}} /><main className="bg-page rounded-2xl" style={{flex:1}}><SettingsPanel section="mcp" models={[]} /></main></div>);
 `;
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
@@ -56,10 +56,9 @@ async function browserChecks() {
     win.focus();
     await waitFor(`document.hasFocus()`);
     await waitFor(`document.querySelectorAll('[data-local-mcp] [role=checkbox]').length===8`);
-    // Milagre holds Published pages above its MCP, and no Designs switch.
-    assert.equal(await evaluate(`document.querySelector('[data-slot=published-pages-setting]').textContent.includes('Published pages')`), true);
-    assert.equal(await evaluate(`!!document.querySelector('[role=checkbox][aria-label="Designs"]')`), false);
-    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Milagre");
+    // The Milagre MCP sits on MCP servers, under the servers each provider uses; Published pages moved to Devices & sharing.
+    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "MCP servers");
+    assert.equal(await evaluate(`!!document.querySelector('[data-slot=published-pages-setting]')`), false);
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
     assert.equal(await evaluate(`!!document.querySelector('#custom-mcp-settings')`), false);
     assert.equal(await evaluate(`document.body.textContent.includes('Create MCP config')`), false);

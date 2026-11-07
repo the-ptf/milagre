@@ -1,4 +1,5 @@
-// Settings › Chat in Electron: Chat list, Reasoning and Tool calls are each two picture cards in a radio group. Expanded
+// Settings › Chat, Voice, Models and General in Electron: Reasoning and Tool calls (Chat) and Chat list (General) are each two
+// picture cards in a radio group; dictation lives on Voice and context size on Models. Expanded
 // reasoning opens thinking rows until they are toggled, and Full detail shows a reply's tool calls one row each instead
 // of folding them into one line. A window that had Murilo mode on opens on Full detail.
 const assert = require("node:assert/strict");
@@ -77,11 +78,15 @@ async function browserChecks() {
     await delay(250);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const openChat = async () => {
-    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Chat')`);
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Chat').click()`);
-    await waitFor(`!!${card("Tool calls", "Compact")}`);
+  const openPage = async (label, ready) => {
+    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === ${JSON.stringify(label)})`);
+    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}).click()`);
+    await waitFor(`document.querySelector('main h1')?.textContent === ${JSON.stringify(label)} && !!(${ready})`);
   };
+  const openChat = () => openPage("Chat", card("Tool calls", "Compact"));
+  const openVoice = () => openPage("Voice", card("How the shortcut works", "Hold to talk"));
+  const openGeneral = () => openPage("General", card("Chat list", "One list"));
+  const openModels = () => openPage("Models", `document.querySelector('[role="checkbox"][aria-label="Show context size"]')`);
   const card = (group, label) => `document.querySelector('[role="radiogroup"][aria-label="${group}"] [role="radio"][aria-label="${label}"]')`;
   const checked = (group) =>
     `document.querySelector('[role="radiogroup"][aria-label="${group}"] [role="radio"][aria-checked="true"]')?.getAttribute("aria-label")`;
@@ -91,11 +96,33 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await openChat();
-    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Chat");
     assert.equal(
-      await evaluate(`document.querySelectorAll('[role="radiogroup"]:not([aria-label="Speech model"]) [role="radio"]').length`),
-      10,
-      "five settings, two choices each",
+      await evaluate(`document.querySelectorAll('main [role="radiogroup"] [role="radio"]').length`),
+      4,
+      "Chat has two settings, Reasoning and Tool calls, two choices each",
+    );
+    assert.equal(await evaluate(checked("Reasoning")), "Folded", "reasoning starts folded");
+    assert.equal(await evaluate(checked("Tool calls")), "Compact", "tool calls start compact");
+    assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), true, "Compact folds the activity into one line");
+    assert.equal(await evaluate(shows("lone", "Only one way")), false, "a thinking row starts closed");
+    // Messages during a turn: one host-kept choice instead of a picker beside Send.
+    const followUps = `document.querySelector('[aria-label="Messages during a turn"]')`;
+    await waitFor(`${followUps}?.disabled === false`);
+    assert.match(await evaluate(`${followUps}.textContent`), /Send now/, "follow-ups steer by default");
+    await screenshot("chat-settings-follow-ups");
+    await evaluate(`${followUps}.click()`);
+    await waitFor(`!![...document.querySelectorAll('[role="option"]')].find((el) => el.textContent.includes("Queue"))`);
+    await evaluate(`[...document.querySelectorAll('[role="option"]')].find((el) => el.textContent.includes("Queue")).click()`);
+    await waitFor(`window.readHostSettings().followUps === "queue"`);
+    await waitFor(`/Queue/.test(${followUps}.textContent)`);
+    await screenshot("chat-settings-follow-ups-queue");
+
+    // Voice: dictation moved out of Chat to a page of its own.
+    await openVoice();
+    assert.equal(
+      await evaluate(`document.querySelectorAll('main [role="radiogroup"]:not([aria-label="Speech model"]) [role="radio"]').length`),
+      4,
+      "two dictation choices, two cards each",
     );
     assert.equal(await evaluate(checked("How the shortcut works")), "Hold to talk");
     await evaluate(`${card("How the shortcut works", "Press to start, press to stop")}.click()`);
@@ -117,33 +144,18 @@ async function browserChecks() {
     await evaluate(`${card("Speech model", "Best, any language")}.click()`);
     assert.equal((await saved()).dictationModel, "large-v3-turbo");
     await waitFor(`document.querySelector('[aria-label="Dictation language"]')?.disabled === false`);
-    assert.equal(await evaluate(checked("Reasoning")), "Folded", "reasoning starts folded");
-    assert.equal(await evaluate(checked("Tool calls")), "Compact", "tool calls start compact");
-    assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), true, "Compact folds the activity into one line");
-    assert.equal(await evaluate(shows("lone", "Only one way")), false, "a thinking row starts closed");
-    assert.equal(await evaluate(checked("Chat list")), "One list", "the sidebar lists Chats in one list by default");
     assert.equal(await evaluate(checked("When dictation finishes")), "Paste text", "dictation defaults to review before sending");
     await evaluate(`${card("When dictation finishes", "Send now")}.click()`);
     assert.equal((await saved()).dictationAction, "send", "automatic send is saved");
     await window.loadURL(process.argv[2]);
-    await openChat();
+    await openVoice();
     assert.equal(await evaluate(checked("When dictation finishes")), "Send now", "dictation choice survives reload");
     await evaluate(`${card("When dictation finishes", "Paste text")}.click()`);
     assert.equal((await saved()).dictationAction, "paste");
-    await evaluate(`${card("When dictation finishes", "Paste text")}.scrollIntoView({ block: "center" })`);
-    await screenshot("chat-settings-default");
-    // Messages during a turn: one host-kept choice instead of a picker beside Send.
-    const followUps = `document.querySelector('[aria-label="Messages during a turn"]')`;
-    await waitFor(`${followUps}?.disabled === false`);
-    assert.match(await evaluate(`${followUps}.textContent`), /Send now/, "follow-ups steer by default");
-    await evaluate(`${followUps}.scrollIntoView({ block: "center" })`);
-    await screenshot("chat-settings-follow-ups");
-    await evaluate(`${followUps}.click()`);
-    await waitFor(`!![...document.querySelectorAll('[role="option"]')].find((el) => el.textContent.includes("Queue"))`);
-    await evaluate(`[...document.querySelectorAll('[role="option"]')].find((el) => el.textContent.includes("Queue")).click()`);
-    await waitFor(`window.readHostSettings().followUps === "queue"`);
-    await waitFor(`/Queue/.test(${followUps}.textContent)`);
-    await screenshot("chat-settings-follow-ups-queue");
+    await screenshot("voice-settings");
+
+    // Models: context size and compaction moved here from Chat.
+    await openModels();
     const contextSwitch = 'document.querySelector(\'[role="checkbox"][aria-label="Show context size"]\')';
     assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "true");
     await evaluate(`${contextSwitch}.click()`);
@@ -157,19 +169,24 @@ async function browserChecks() {
     await waitFor(`document.querySelector('[aria-label="Auto compact quietly"]').getAttribute("aria-checked") === "true"`);
     await evaluate(`document.querySelector('[aria-label="Increase automatic threshold"]').click()`);
     await waitFor(`document.querySelector('[aria-label="Auto compact threshold percentage"]').value === "86"`);
-    await screenshot("chat-settings-context");
+    await screenshot("models-settings");
     await window.reload();
-    await openChat();
+    await openModels();
     assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "false", "context visibility survives reload");
     assert.equal(await evaluate(`${belowSwitch}.getAttribute("aria-checked")`), "true");
-    // The arrow keys move the choice between a group's cards, as in any radio group.
-    // A card takes the choice when focus lands on it, which needs the page focused.
+
+    // General: the sidebar's Chat list moved here from Chat. The arrow keys move the choice between its cards, as in any
+    // radio group; a card takes the choice when focus lands on it, which needs the page focused.
+    await openGeneral();
+    assert.equal(await evaluate(checked("Chat list")), "One list", "the sidebar lists Chats in one list by default");
     window.webContents.focus();
     await evaluate(`${card("Chat list", "One list")}.focus()`);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))`);
     await waitFor(`${checked("Chat list")} === "By Project"`);
     assert.equal((await saved()).chatList, "grouped", "By Project is saved");
+    await screenshot("general-settings");
 
+    await openChat();
     await evaluate(`${card("Reasoning", "Expanded")}.click()`);
     await waitFor(shows("lone", "Only one way"));
     assert.equal((await saved()).expandReasoning, true, "Expanded reasoning is saved");

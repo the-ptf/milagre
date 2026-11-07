@@ -55,7 +55,7 @@ const STEPS: Record<BabysitStep, { icon: IconSvgElement; name: string }> = {
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const options = (values: readonly number[], one: string, many: string) => values.map((value) => ({ value: String(value), label: plural(value, one, many) }));
 
-/** The Experimental › Babysit PRs row: whether babysitting is on, and the way into its page. */
+/** The Integrations › Babysit PRs row: whether babysitting is on, and the way into its page. */
 export function BabysitPrsRow({ onOpen }: { onOpen: () => void }) {
   const { settings } = useBabysitSettings();
   return (
@@ -394,15 +394,15 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
   );
 }
 
-/** Settings › Experimental › Babysit PRs: the one configuration every Chat's babysitting follows. */
+/** Settings › Integrations › Babysit PRs: the one configuration every Chat's babysitting follows. */
 export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
   const { settings, error, save } = useBabysitSettings();
   return (
     <div data-babysit-prs-page>
       <div className="flex items-center gap-3">
-        <IconButton label="Back to Experimental" icon={ArrowLeft01Icon} onClick={onBack} />
+        <IconButton label="Back to Integrations" icon={ArrowLeft01Icon} onClick={onBack} />
         <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.02em] text-ink">
-          <span className="text-ink-3">Experimental</span>
+          <span className="text-ink-3">Integrations</span>
           <span className="text-ink-3">
             <Icon icon={ArrowRight01Icon} size={16} />
           </span>

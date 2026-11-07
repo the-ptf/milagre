@@ -298,7 +298,7 @@ test("a refusal while pairing is worded for pairing, with its code", async (t) =
     [{ code: "unknown-phone" }, "This link expired. Copy a new one on studio.", "unknown-phone"],
     [{ code: "unknown-phone", reason: "denied" }, `studio didn't allow ${thisComputer}.`, "denied"],
     [{ code: "bad-hello", reason: "kind" }, "Update Milagre on studio to connect.", "kind"],
-    ["full", "studio has too many devices connected. Remove one in its Settings › Devices.", "full"],
+    ["full", "studio has too many devices connected. Remove one in its Settings › Devices & sharing.", "full"],
   ]) {
     const mac = fakeMac({ hello });
     const { computers } = await paired(t, mac);
@@ -374,7 +374,7 @@ test("a computer that stops answering reads Reconnecting…, then Offline, and c
   mac.drop();
   await until(() => state() === "reconnecting", "reconnecting");
   await until(() => computers.list()[0].message !== null, "the reason");
-  assert.equal(computers.list()[0].message, "studio has too many devices connected. Remove one in its Settings › Devices.");
+  assert.equal(computers.list()[0].message, "studio has too many devices connected. Remove one in its Settings › Devices & sharing.");
   await until(() => state() === "offline", "offline");
   mac.hello = "accept";
   await until(() => state() === "online", "online again");

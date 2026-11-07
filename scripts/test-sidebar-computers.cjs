@@ -129,6 +129,9 @@ window.milagre = new Proxy({
   // A paired computer's bridge: the app asks it for its turns once it is online.
   on: (id) => remotes[id],
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
+  // Devices & sharing lists Simlock and Computer use only for a bridge that has them; this one doesn't.
+  simlock: undefined,
+  computerUse: undefined,
   listDevices: async () => [],
   onComputersChanged: (callback) => { computerListeners.add(callback); return () => computerListeners.delete(callback); },
   onComputerEvent: (callback) => (computerEvents.add(callback), () => computerEvents.delete(callback)),
@@ -141,7 +144,7 @@ window.milagre = new Proxy({
     invoke: async (id, method) => (method === "daemon:status" ? { version: "0.121.0" } : method === "project:recent" ? [] : null),
     preview: async () => { throw new Error("That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac."); },
   },
-}, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
+}, { get(target, key) { return key in target ? target[key] : String(key).startsWith("on") ? () => () => {} : async () => null; } });
 // settings.ts read localStorage when it was imported above, so the saved settings go through its own setter.
 updateSettings({ defaultModelId: "claude-opus-5-5", defaultPermissionMode: "ask", otherComputers: !daemonSettings, chatList: "grouped" });
 window.setOther = (otherComputers) => updateSettings({ otherComputers });
@@ -220,7 +223,7 @@ async function browserChecks() {
     console.log("PASS: the popover lists This Mac, then each computer with its route line, a gear with its tooltip, and Add computer");
 
     await evaluate(`document.querySelector('[data-computer-row="c-atlas"] [data-computer-gear]').click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
+    await waitFor(`document.querySelector('dialog[data-settings-modal] h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
     const sidebarSwitch = `document.querySelector('[data-computer-show-in-sidebar] [role="checkbox"]')`;
     assert.equal(await evaluate(`${sidebarSwitch}.getAttribute('aria-checked')`), "true");
     await evaluate(`${sidebarSwitch}.click()`);
@@ -228,19 +231,19 @@ async function browserChecks() {
     assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenComputers") || "[]")`), ["c-atlas"]);
     await evaluate(`${sidebarSwitch}.click()`);
     await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'true' && !localStorage.getItem("milagre.hiddenComputers")`);
-    await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
-    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`);
+    await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
+    await waitFor(`!document.querySelector('dialog[data-settings-modal]') && !!document.querySelector('[data-filters][data-computers-on]')`);
     await openPopover();
     await evaluate(`document.querySelector('[data-computer-row="this-mac"] [data-computer-gear]').click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === 'Devices'`);
+    await waitFor(`document.querySelector('dialog[data-settings-modal] h1')?.textContent === 'Devices & sharing'`);
     // Settings › Devices adds a computer too, not only the laptop button.
     await evaluate(`document.querySelector('[data-settings-add-computer]').click()`);
     await waitFor(`!!document.querySelector('dialog[data-add-computer]')?.open`);
     await screenshot("devices-add-computer");
     await evaluate(`document.querySelector('dialog[data-add-computer]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
-    await waitFor(`!document.querySelector('dialog')`);
-    await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
-    await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`);
+    await waitFor(`!document.querySelector('dialog[data-add-computer]')`);
+    await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
+    await waitFor(`!document.querySelector('dialog[data-settings-modal]') && !!document.querySelector('[data-filters][data-computers-on]')`);
     console.log("PASS: a computer's gear opens its settings, with Show in sidebar; This Mac's opens Settings › Devices, which adds a computer");
 
     const scopes = () => evaluate(`[...document.querySelectorAll('[data-sidebar-scope]')].map((section) => section.dataset.sidebarScope)`);

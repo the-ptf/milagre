@@ -25,20 +25,12 @@ export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
  */
 export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   // General
-  { page: "general", title: "Agents" },
+  { page: "general", title: "Editor" },
   {
     page: "general",
-    title: "Default model",
-    group: "Agents",
-    description: "Used for new chats; remembers your last selection",
-    keywords: "model claude codex gpt",
-  },
-  {
-    page: "general",
-    title: "Default permission",
-    group: "Agents",
-    description: "Used for new chats; remembers your last selection",
-    keywords: "approval ask auto full access mode",
+    title: "Open files in",
+    group: "Editor",
+    keywords: "cursor vscode zed editor ide",
   },
   { page: "general", title: "Sidebar" },
   {
@@ -48,12 +40,41 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Newest Chat first keeps chats in place as replies arrive",
     keywords: "sort newest latest message recent",
   },
-  { page: "general", title: "Editor" },
+  { page: "general", title: "Chat list", keywords: "sidebar layout" },
   {
     page: "general",
-    title: "Open files in",
-    group: "Editor",
-    keywords: "cursor vscode zed editor ide",
+    title: "One list",
+    group: "Chat list",
+    description: "Newest first, Project on each row.",
+  },
+  {
+    page: "general",
+    title: "By Project",
+    group: "Chat list",
+    description: "A group per Project that folds.",
+    keywords: "grouped folders",
+  },
+  { page: "general", title: "Done" },
+  {
+    page: "general",
+    title: "Archive Done chats after",
+    group: "Done",
+    keywords: "retention days hours cleanup",
+  },
+  { page: "general", title: "Plan usage" },
+  {
+    page: "general",
+    title: "Show",
+    group: "Plan usage",
+    description: "Claude, Codex and Antigravity plan limits",
+    keywords: "usage used remaining limits",
+  },
+  {
+    page: "general",
+    title: "Show in sidebar",
+    group: "Plan usage",
+    description: "Hover a provider for its limits and reset times",
+    keywords: "usage limits",
   },
   { page: "general", title: "Worktrees" },
   {
@@ -71,64 +92,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description:
       "While Milagre runs, so your phone and other computers can reach it. The screen can still turn off. Plugged in, it stays awake with the lid closed; on battery, closing the lid sleeps it.",
     keywords: "sleep caffeinate lid",
-  },
-  { page: "general", title: "Plan usage" },
-  {
-    page: "general",
-    title: "Show",
-    group: "Plan usage",
-    description: "Claude, Codex and Antigravity plan limits",
-    keywords: "usage used remaining limits",
-  },
-  {
-    page: "general",
-    title: "Show in sidebar",
-    group: "Plan usage",
-    description: "Hover a provider for its limits and reset times",
-    keywords: "usage limits",
-  },
-
-  // Usage
-  {
-    page: "usage",
-    title: "Where it went",
-    keywords: "cost tokens spend breakdown",
-  },
-  { page: "usage", title: "Models", keywords: "cost tokens spend" },
-  { page: "usage", title: "Token mix", keywords: "input output cache tokens" },
-
-  // Accounts
-  {
-    page: "accounts",
-    title: "Add account",
-    keywords: "sign in login provider claude codex antigravity",
-  },
-  { page: "accounts", title: "Usage limits" },
-  {
-    page: "accounts",
-    title: "Switch accounts at usage limits",
-    group: "Usage limits",
-    description: "When a Chat hits its plan's usage limit, move its Project to the next signed-in account and continue.",
-    keywords: "rate limit auto switch",
-  },
-  {
-    page: "accounts",
-    title: "Continue when the limit resets",
-    group: "Usage limits",
-    description: "When a Chat hits its plan's usage limit and no other account can take over, continue it at the reset time, up to a day later.",
-    keywords: "resume rate limit wait",
-  },
-
-  // Project Accounts
-  {
-    page: "project-accounts",
-    title: "Project or Link",
-    keywords: "account choose which",
-  },
-  {
-    page: "project-accounts",
-    title: "Manage saved accounts",
-    keywords: "accounts",
   },
 
   // Appearance
@@ -230,51 +193,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Send now steers the running turn; Queue waits for it to end.",
     keywords: "steer queue follow-up send now later",
   },
-  { page: "chat", title: "Context size beside Send", description: "Click it for usage and Compact now.", keywords: "context window tokens ring" },
-  {
-    page: "chat",
-    title: "Auto compact quietly",
-    description: "Compacts at your limit without context controls or notifications.",
-    keywords: "compact context summarize",
-  },
-  {
-    page: "chat",
-    title: "Thresholds on this computer",
-    description: "Drag either marker or enter a percentage. Auto compact waits for the reply to finish.",
-    keywords: "compact context percent",
-  },
-  {
-    page: "chat",
-    title: "Reset to defaults",
-    keywords: "thresholds compact context",
-  },
-  {
-    page: "chat",
-    title: "Show Compact below threshold",
-    description: "Off by default. The button appears only at your threshold.",
-    keywords: "compact button context",
-  },
-  { page: "chat", title: "Chat list", keywords: "sidebar layout" },
-  {
-    page: "chat",
-    title: "One list",
-    group: "Chat list",
-    description: "Newest first, Project on each row.",
-  },
-  {
-    page: "chat",
-    title: "By Project",
-    group: "Chat list",
-    description: "A group per Project that folds.",
-    keywords: "grouped folders",
-  },
-  { page: "chat", title: "Done" },
-  {
-    page: "chat",
-    title: "Archive Done chats after",
-    group: "Done",
-    keywords: "retention days hours cleanup",
-  },
   { page: "chat", title: "Reasoning", keywords: "thinking" },
   {
     page: "chat",
@@ -297,108 +215,55 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Tool calls",
     description,
   })),
-  { page: "chat", title: "Replies" },
+
+  // Voice
   {
-    page: "chat",
-    title: "TLDR writing",
-    group: "Replies",
-    description: "Shape Claude, Codex and Antigravity updates and replies with /tldr. Applies on the next turn after the current reply finishes.",
-    keywords: "short concise summary",
-  },
-  {
-    page: "chat",
-    title: "Claude replies",
-    group: "Replies",
-    keywords: "concise normal length verbose",
-  },
-  {
-    page: "chat",
+    page: "voice",
     title: "Dictation",
     keywords: "voice speech microphone whisper",
   },
   {
-    page: "chat",
+    page: "voice",
     title: "Shortcut",
     group: "Dictation",
     keywords: "dictate voice keyboard alt space hold",
   },
   {
-    page: "chat",
+    page: "voice",
     title: "How the shortcut works",
     group: "Dictation",
     keywords: "hold press toggle start stop",
   },
   {
-    page: "chat",
+    page: "voice",
     title: "Fix-up model",
     group: "Dictation",
     keywords: "correction automatic haiku codex gemini kiro",
   },
   {
-    page: "chat",
+    page: "voice",
     title: "Fix names with AI",
     group: "Dictation",
     keywords: "post processing correction automatic model haiku codex gemini kiro",
   },
   {
-    page: "chat",
+    page: "voice",
     title: "When dictation finishes",
     group: "Dictation",
     keywords: "send insert voice",
   },
   {
-    page: "chat",
+    page: "voice",
     title: "Speech model",
     group: "Dictation",
     description: "Transcribes on this computer. Picking a model downloads it once.",
     keywords: "whisper download",
   },
   {
-    page: "chat",
+    page: "voice",
     title: "Language",
     group: "Dictation",
     keywords: "dictation voice english",
-  },
-
-  // Keybindings
-  {
-    page: "keybindings",
-    title: "Add keybinding",
-    keywords: "shortcut hotkey key",
-  },
-  { page: "keybindings", title: "Advanced" },
-  {
-    page: "keybindings",
-    title: "Conditions",
-    group: "Advanced",
-    description: "Adds When to each keybinding, to run a key only in some places (for example not in a Terminal).",
-    keywords: "when keybinding",
-  },
-  {
-    page: "keybindings",
-    title: "Reset all to defaults",
-    keywords: "keys shortcuts restore",
-  },
-
-  // Browser
-  { page: "browser", title: "Links" },
-  {
-    page: "browser",
-    title: "Open links in",
-    group: "Links",
-    description: "Where web links open when you click them: links in the agent's replies and the servers the Chat runs.",
-    keywords: "default browser external",
-  },
-  {
-    page: "browser",
-    title: SIGN_INS_TITLE,
-    keywords: "logins cookies sessions",
-  },
-  {
-    page: "browser",
-    title: SIGN_OUT,
-    group: SIGN_INS_TITLE,
-    keywords: "log out logins cookies sessions",
   },
 
   // Notifications
@@ -451,18 +316,176 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Plays when a Chat finishes or needs you. Picking one plays it.",
     keywords: "sound audio ding",
   },
-
-  // Routines
-  { page: "routines", title: "Nudges" },
+  { page: "notifications", title: "Routines" },
   {
-    page: "routines",
+    page: "notifications",
     title: "Unread Runs dot",
-    group: "Nudges",
+    group: "Routines",
     description: "On the Routines button and each Routine's row, while a Run's Chat has a result you haven't opened",
     keywords: "unread badge",
   },
 
-  // Connections
+  // Keybindings
+  {
+    page: "keybindings",
+    title: "Add keybinding",
+    keywords: "shortcut hotkey key",
+  },
+  { page: "keybindings", title: "Advanced" },
+  {
+    page: "keybindings",
+    title: "Conditions",
+    group: "Advanced",
+    description: "Adds When to each keybinding, to run a key only in some places (for example not in a Terminal).",
+    keywords: "when keybinding",
+  },
+  {
+    page: "keybindings",
+    title: "Reset all to defaults",
+    keywords: "keys shortcuts restore",
+  },
+
+  // Models
+  { page: "models", title: "New chats" },
+  {
+    page: "models",
+    title: "Default model",
+    group: "New chats",
+    description: "Used for new chats; remembers your last selection",
+    keywords: "model claude codex gpt",
+  },
+  {
+    page: "models",
+    title: "Default permission",
+    group: "New chats",
+    description: "Used for new chats; remembers your last selection",
+    keywords: "approval ask auto full access mode",
+  },
+  { page: "models", title: "Context", keywords: "compact context window tokens" },
+  {
+    page: "models",
+    title: "Context size beside Send",
+    group: "Context",
+    description: "Click it for usage and Compact now.",
+    keywords: "context window tokens ring",
+  },
+  {
+    page: "models",
+    title: "Auto compact quietly",
+    group: "Context",
+    description: "Compacts at your limit without context controls or notifications.",
+    keywords: "compact context summarize",
+  },
+  {
+    page: "models",
+    title: "Thresholds on this computer",
+    group: "Context",
+    description: "Drag either marker or enter a percentage. Auto compact waits for the reply to finish.",
+    keywords: "compact context percent",
+  },
+  { page: "models", title: "Reset to defaults", group: "Context", keywords: "thresholds compact context" },
+  {
+    page: "models",
+    title: "Show Compact below threshold",
+    group: "Context",
+    description: "Off by default. The button appears only at your threshold.",
+    keywords: "compact button context",
+  },
+  { page: "models", title: "Replies" },
+  {
+    page: "models",
+    title: "TLDR writing",
+    group: "Replies",
+    description: "Shape Claude, Codex and Antigravity updates and replies with /tldr. Applies on the next turn after the current reply finishes.",
+    keywords: "short concise summary",
+  },
+  {
+    page: "models",
+    title: "Claude replies",
+    group: "Replies",
+    keywords: "concise normal length verbose",
+  },
+
+  // Accounts
+  {
+    page: "accounts",
+    title: "Add account",
+    keywords: "sign in login provider claude codex antigravity",
+  },
+  { page: "accounts", title: "Usage limits" },
+  {
+    page: "accounts",
+    title: "Switch accounts at usage limits",
+    group: "Usage limits",
+    description: "When a Chat hits its plan's usage limit, move its Project to the next signed-in account and continue.",
+    keywords: "rate limit auto switch",
+  },
+  {
+    page: "accounts",
+    title: "Continue when the limit resets",
+    group: "Usage limits",
+    description: "When a Chat hits its plan's usage limit and no other account can take over, continue it at the reset time, up to a day later.",
+    keywords: "resume rate limit wait",
+  },
+  { page: "accounts", title: "Per Project" },
+  {
+    page: "accounts",
+    title: "Project or Link",
+    group: "Per Project",
+    keywords: "account choose which",
+  },
+
+  // Usage
+  {
+    page: "usage",
+    title: "Where it went",
+    keywords: "cost tokens spend breakdown",
+  },
+  { page: "usage", title: "Models", keywords: "cost tokens spend" },
+  { page: "usage", title: "Token mix", keywords: "input output cache tokens" },
+
+  // MCP servers
+  { page: "mcp", title: "Add server", keywords: "tool server install connect" },
+  {
+    page: "mcp",
+    title: "Milagre MCP",
+    keywords: "clients claude desktop cursor",
+  },
+  {
+    page: "mcp",
+    title: "Custom MCP",
+    group: "Milagre MCP",
+    keywords: "connection token config",
+  },
+  {
+    page: "mcp",
+    title: "Create MCP config",
+    group: "Milagre MCP",
+    keywords: "connection token custom",
+  },
+
+  // Browser
+  { page: "browser", title: "Links" },
+  {
+    page: "browser",
+    title: "Open links in",
+    group: "Links",
+    description: "Where web links open when you click them: links in the agent's replies and the servers the Chat runs.",
+    keywords: "default browser external",
+  },
+  {
+    page: "browser",
+    title: SIGN_INS_TITLE,
+    keywords: "logins cookies sessions",
+  },
+  {
+    page: "browser",
+    title: SIGN_OUT,
+    group: SIGN_INS_TITLE,
+    keywords: "log out logins cookies sessions",
+  },
+
+  // Integrations
   { page: "connections", title: "Issue trackers" },
   {
     page: "connections",
@@ -485,38 +508,24 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: LINEAR_ADD_WORKSPACE_HINT,
     keywords: "linear connect sign in",
   },
-
-  // MCP
-  { page: "mcp", title: "Add server", keywords: "tool server install connect" },
-
-  // Milagre
-  { page: "local-mcp", title: "Designs and artifacts" },
+  { page: "connections", title: "Pull requests" },
   {
-    page: "local-mcp",
+    page: "connections",
+    title: "Babysit PRs",
+    group: "Pull requests",
+    description: "Watch every PR a Chat opens and fix review comments, failed checks and conflicts.",
+    keywords: "pull request review ci conflicts",
+  },
+
+  // Devices & sharing
+  { page: "devices", title: "Designs and artifacts" },
+  {
+    page: "devices",
     title: "Published pages",
     group: "Designs and artifacts",
     description: "Manage public links to designs and artifacts, including pages from deleted Chats.",
     keywords: "share public links revoke",
   },
-  {
-    page: "local-mcp",
-    title: "Milagre MCP",
-    keywords: "clients claude desktop cursor",
-  },
-  {
-    page: "local-mcp",
-    title: "Custom MCP",
-    group: "Milagre MCP",
-    keywords: "connection token config",
-  },
-  {
-    page: "local-mcp",
-    title: "Create MCP config",
-    group: "Milagre MCP",
-    keywords: "connection token custom",
-  },
-
-  // Devices
   {
     page: "devices",
     title: "Allow devices to connect",
@@ -560,7 +569,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   {
     page: "devices",
     title: "Add computer",
-    description: "Pair with another computer using the link from its Settings › Devices. The laptop button in the sidebar adds one too.",
+    description: "Pair with another computer using the link from its Settings › Devices & sharing. The laptop button in the sidebar adds one too.",
     keywords: "pair mac remote",
   },
   {
@@ -568,8 +577,24 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     title: "Reset access",
     keywords: "new code revoke phones",
   },
+  { page: "devices", title: "Automation" },
+  {
+    page: "devices",
+    title: "Simlock devices",
+    group: "Automation",
+    description:
+      "Agents lease a simulator or emulator of their own from a Simlock pool, watch it here and on the phone, and return it wiped. Simlock runs on your own Macs; Milagre doesn't install it.",
+    keywords: "simulator emulator lease ios android",
+  },
+  {
+    page: "devices",
+    title: "Computer use",
+    group: "Automation",
+    description: "Agents see and operate apps on this computer, asking before each new app.",
+    keywords: "desktop apps control screen",
+  },
 
-  // Experimental
+  // Labs
   { page: "experimental", title: "Beta" },
   {
     page: "experimental",
@@ -606,28 +631,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Beta",
     description: DEVICE_NOTES_DESCRIPTION,
     keywords: "phone tokens",
-  },
-  {
-    page: "experimental",
-    title: "Simlock devices",
-    group: "Beta",
-    description:
-      "Agents lease a simulator or emulator of their own from a Simlock pool, watch it here and on the phone, and return it wiped. Simlock runs on your own Macs; Milagre doesn't install it.",
-    keywords: "simulator emulator lease ios android",
-  },
-  {
-    page: "experimental",
-    title: "Computer use",
-    group: "Beta",
-    description: "Agents see and operate apps on this computer, asking before each new app.",
-    keywords: "desktop apps control screen",
-  },
-  {
-    page: "experimental",
-    title: "Babysit PRs",
-    group: "Beta",
-    description: "Watch every PR a Chat opens and fix review comments, failed checks and conflicts.",
-    keywords: "pull request review ci conflicts",
   },
 
   // About
