@@ -129,7 +129,8 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-settings-computers]')`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-settings-computers] button')].map((b) => b.textContent.trim())`), [
       "Devices & sharing",
-      "victor-mbp (this Mac)",
+      // The nav names this computer as shortcut-hints' computerNoun does: "Mac" on macOS, "computer" elsewhere.
+      `victor-mbp (this ${process.platform === "darwin" ? "Mac" : "computer"})`,
       "atlas",
       "studio",
     ]);
