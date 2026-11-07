@@ -7,6 +7,17 @@ const { randomUUID } = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 
+/** A CLI that prints `status`. Windows runs npm's launchers, so there it is a .cmd beside its script. */
+async function fakeCli(file, status) {
+  if (process.platform !== "win32") {
+    await fs.writeFile(file, `#!/bin/sh\nprintf '%s\\n' '${status}'\n`, { mode: 0o700 });
+    return file;
+  }
+  await fs.writeFile(`${file}.cjs`, `console.log(${JSON.stringify(status)});\n`);
+  await fs.writeFile(`${file}.cmd`, `@"%~dp0\\${path.basename(file)}.cjs" %*\r\n`);
+  return `${file}.cmd`;
+}
+
 async function until(check) {
   for (let i = 0; i < 200; i++) {
     if (check()) return;
@@ -105,8 +116,8 @@ async function fixture(t) {
   await fs.mkdir(path.dirname(accountFile), { recursive: true, mode: 0o700 });
   const save = () => fs.writeFile(accountFile, JSON.stringify(saved));
   await save();
-  const cli = path.join(dir, "fake-claude");
-  await fs.writeFile(cli, '#!/bin/sh\nprintf \'%s\\n\' \'{"loggedIn":true,"email":"fixture@example.test","subscriptionType":"pro"}\'\n', { mode: 0o700 });
+  const cliFile = path.join(dir, "fake-claude");
+  const cli = await fakeCli(cliFile, '{"loggedIn":true,"email":"fixture@example.test","subscriptionType":"pro"}');
   const events = [],
     created = [],
     runtimes = [];
@@ -177,7 +188,7 @@ async function fixture(t) {
   const profile = (id) => path.join(dataDir, "accounts", id);
   const send = (runtime, projectPath, sessionId, body = "Use this account") =>
     runtime.invoke("chat:send", [{ projectPath, sessionId, body, provider: "claude", model: "test", permissionMode: "auto" }]);
-  return { make, projects, saved, save, ids, profile, created, events, send, dataDir, cli };
+  return { make, projects, saved, save, ids, profile, created, events, send, dataDir, cli, cliFile };
 }
 
 test("concurrent Projects route by their own scope and reuse accounts after switching the viewed Project", async (t) => {
@@ -706,8 +717,8 @@ test("usage overview defaults follow the computer while explicit Project and Lin
 });
 
 test("the usage overview retains signed-out accounts without reading their provider or inventing windows", async (t) => {
-  const { make, cli } = await fixture(t);
-  await fs.writeFile(cli, "#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n", { mode: 0o700 });
+  const { make, cliFile } = await fixture(t);
+  await fakeCli(cliFile, '{"loggedIn":false}');
   let reads = 0;
   const runtime = make({
     usageReaders: {

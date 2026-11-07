@@ -65,7 +65,7 @@ test("new profiles isolate credentials, preserve connected CLI auth and resume h
   f.accounts.select("codex", added.id);
   assert.equal(f.accounts.environment("codex").CODEX_HOME, env.CODEX_HOME);
   assert.equal(createAccounts(f.options).selected("codex"), added.id);
-  assert.equal(fs.statSync(path.join(f.root, "profile/accounts/accounts.json")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(f.root, "profile/accounts/accounts.json")).mode & 0o777, 0o600);
   assert.doesNotMatch(JSON.stringify(await f.accounts.list()), /secret|accessToken|refreshToken|CODEX_HOME/);
 });
 
@@ -236,7 +236,7 @@ test("Antigravity's default is a Milagre-owned private profile that signs in fro
   assert.equal(env.AGY_ACP_FORCE_FILE_STORAGE, "1");
   assert.equal(env.GEMINI_API_KEY, undefined);
   assert.equal(f.env.GEMINI_API_KEY, "secret-gemini");
-  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  if (process.platform !== "win32") assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   assert.equal(fs.existsSync(path.join(f.home, ".gemini")), false);
   const before = group(await f.accounts.list(), "antigravity");
   assert.equal(before.accounts[0].label, "Default account");
@@ -257,7 +257,7 @@ test("an added Antigravity account gets its own profile, shares history and keep
   assert.equal((await settled(f.accounts, "antigravity", added.id)).state, "ready");
   const dir = f.accounts.environment("antigravity", added.id).GEMINI_HOME;
   assert.equal(dir, path.join(f.root, "profile", "accounts", added.id));
-  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  if (process.platform !== "win32") assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   const shared = path.join(f.root, "profile", "accounts", "antigravity-default", "antigravity-acp", "conversations");
   assert.equal(fs.realpathSync(path.join(dir, "antigravity-acp", "conversations")), fs.realpathSync(shared));
   f.accounts.select("antigravity", added.id);

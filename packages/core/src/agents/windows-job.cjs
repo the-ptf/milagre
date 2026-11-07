@@ -195,9 +195,12 @@ function spawnWindowsJob(file, args, options = {}, spawnImpl = spawn) {
     while (true) {
       const at = control.indexOf(marker);
       if (at < 0) {
-        const keep = Math.min(marker.length - 1, control.length);
-        if (!closed && !ignored(2) && control.length > keep) child.stderr.write(control.slice(0, -keep));
-        control = control.slice(-keep);
+        // Only what could start a marker waits: a line an agent printed last (a sign-in link) must arrive now, whole.
+        let keep = Math.min(marker.length - 1, control.length);
+        while (keep && !marker.startsWith(control.slice(-keep))) keep--;
+        const held = control.length - keep;
+        if (!closed && !ignored(2) && held) child.stderr.write(control.slice(0, held));
+        control = control.slice(held);
         return;
       }
       if (at && !closed && !ignored(2)) child.stderr.write(control.slice(0, at));

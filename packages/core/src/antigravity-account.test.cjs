@@ -37,8 +37,12 @@ test("sign-in opens Google's link once, finishes after the browser callback and 
   const env = f.recorded();
   assert.equal(env.GEMINI_API_KEY, undefined, "Ambient credentials are scrubbed");
   assert.equal(env.AGY_ACP_FORCE_FILE_STORAGE, "1");
-  assert.ok(fs.statSync(env.BROWSER).mode & 0o100, "BROWSER is an executable helper");
-  assert.doesNotMatch(env.BROWSER, /[:;]/);
+  // BROWSER is split on the path separator, a semicolon on Windows, where a .cmd is what runs.
+  if (process.platform === "win32") assert.match(env.BROWSER, /^[^;]+\.cmd$/);
+  else {
+    assert.ok(fs.statSync(env.BROWSER).mode & 0o100, "BROWSER is an executable helper");
+    assert.doesNotMatch(env.BROWSER, /[:;]/);
+  }
   assert.equal(fs.existsSync(env.TMPDIR), false, "The temporary directory is removed");
   assert.throws(() => process.kill(env.pid, 0), "The agent was stopped");
 });
