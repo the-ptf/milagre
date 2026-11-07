@@ -11,7 +11,7 @@ const { kindOf, lanes } = require("./process-lanes.cjs");
 // (the commit message, the PR body) goes in on stdin.
 
 const NO_ORIGIN = gitMessage(GIT_CODES.NO_ORIGIN);
-const GH_MISSING = gitMessage(GIT_CODES.GH_MISSING);
+const GH_MISSING = gitMessage(GIT_CODES.GH_MISSING, process.platform);
 const GH_LOGIN = "Run `gh auth login` in a terminal.";
 const PUSH_REJECTED_HINT = "The remote branch has commits you don't have. Pull or rebase, then push again.";
 const DETACHED = gitMessage(GIT_CODES.DETACHED);

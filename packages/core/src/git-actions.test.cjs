@@ -5,6 +5,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { CONFLICTS, DETACHED_COMMIT, GH_LOGIN, GH_MISSING, NOT_REPO, NOT_TOP, NO_ORIGIN, createGitActions, looksSecret } = require("./git-actions.cjs");
+const { gitMessage } = require("@milagre/shared/git-codes");
 
 // A stand-in for the GitHub CLI: it records each call (arguments, stdin, folder) and answers
 // `gh pr view`, `gh pr create` and `gh repo set-default --view` from a state file beside it. Like gh,
@@ -62,6 +63,33 @@ process.stderr.write("You are not logged into any GitHub hosts. To log in, run: 
 process.exit(4);
 `;
 
+// Run first in a gh.exe that is node (Windows): it runs the gh script beside it with gh's own arguments. Node took the
+// first argument for its script and made it absolute, so it is given back as typed.
+const WINDOWS_GH_PRELOAD = `
+const path = require("node:path");
+if (/^gh\\.exe$/i.test(path.basename(process.execPath))) {
+  const script = path.join(path.dirname(process.execPath), "gh");
+  const first = process.argv[1] === undefined ? [] : [path.basename(process.argv[1])];
+  process.argv = [process.execPath, script, ...first, ...process.argv.slice(2)];
+  require("node:module").prototype._compile.call(new (require("node:module"))(script), require("node:fs").readFileSync(script, "utf8").replace(/^#!.*\\n/, ""), script);
+  process.exit(process.exitCode ?? 0);
+}
+`;
+
+// A copy of node, made once per run, that the gh.exe links point at: a link to the node running these tests is the
+// running program's file, which Windows won't let a test's cleanup delete.
+let nodeCopy;
+function windowsNodeCopy() {
+  nodeCopy ??= (async () => {
+    const folder = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-actions-node-"));
+    process.once("exit", () => require("node:fs").rmSync(folder, { recursive: true, force: true }));
+    const file = path.join(folder, "node.exe");
+    await fs.copyFile(process.execPath, file);
+    return file;
+  })();
+  return nodeCopy;
+}
+
 /**
  * A project on main with a local bare repo as origin, and a worktree on its own branch. Git reads no
  * global or system config. The actions run the fake gh by its path (`gh: false` gives them a path where
@@ -70,18 +98,31 @@ process.exit(4);
  */
 async function fixture(t, { origin = true, gh = true } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-actions-")));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
   const bin = path.join(root, "bin");
   const decoy = path.join(root, "decoy");
   await fs.mkdir(bin);
   await fs.mkdir(decoy);
   if (gh) await fs.writeFile(path.join(bin, "gh"), FAKE_GH, { mode: 0o755 });
   await fs.writeFile(path.join(decoy, "gh"), DECOY_GH, { mode: 0o755 });
+  // Windows runs a program without a shell only if it is an executable, so there each gh is node itself, linked as
+  // gh.exe beside its script, which a preload runs in its place.
+  const nodeOptions = {};
+  if (process.platform === "win32") {
+    const node = await windowsNodeCopy();
+    for (const folder of gh ? [bin, decoy] : [decoy])
+      await fs.link(node, path.join(folder, "gh.exe")).catch(() => fs.copyFile(node, path.join(folder, "gh.exe")));
+    const preload = path.join(root, "gh-preload.cjs");
+    await fs.writeFile(preload, WINDOWS_GH_PRELOAD);
+    // NODE_OPTIONS reads a backslash as an escape.
+    nodeOptions.NODE_OPTIONS = `--require "${preload.replaceAll("\\", "/")}"`;
+  }
   const gitconfig = path.join(root, "gitconfig");
   await fs.writeFile(gitconfig, "[user]\n\tname = Milagre\n\temail = milagre@example.com\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n");
   const env = {
     HOME: root,
-    PATH: `${decoy}:${process.env.PATH ?? ""}:/usr/bin:/bin`,
+    PATH: [decoy, process.env.PATH ?? "", "/usr/bin", "/bin"].join(path.delimiter),
+    ...nodeOptions,
     GIT_CONFIG_GLOBAL: gitconfig,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_EDITOR: "true",
@@ -469,6 +510,14 @@ test("without gh, opening a PR says how to install it", async (t) => {
     message: GH_MISSING,
     code: "GH_MISSING",
   });
+});
+
+test("the gh install hint names the host's platform", () => {
+  assert.match(gitMessage("GH_MISSING", "darwin"), /brew install gh/);
+  assert.match(gitMessage("GH_MISSING", "win32"), /winget install --id GitHub\.cli/);
+  assert.match(gitMessage("GH_MISSING", "linux"), /cli\.github\.com/);
+  assert.equal(GH_MISSING, gitMessage("GH_MISSING", process.platform));
+  assert.equal(gitMessage("NO_ORIGIN", "win32"), NO_ORIGIN);
 });
 
 test("when gh is signed out, opening a PR says to log in", async (t) => {
