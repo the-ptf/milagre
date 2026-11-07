@@ -63,15 +63,45 @@ foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdent
 }
 if (-not $ownAccess) { throw 'Private path must allow the current Windows user to read it' }
 `;
-  execFileSyncImpl(powershell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
-    env: powershellEnvironment(),
-    encoding: "utf8",
-    // Windows PowerShell 5.1 can take over 10 s to start on a busy machine (CI runners hit it); a slow start isn't a
-    // permissions failure.
-    timeout: 30000,
-    windowsHide: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  try {
+    execFileSyncImpl(powershell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
+      env: powershellEnvironment(),
+      encoding: "utf8",
+      // Windows PowerShell 5.1 can take over 10 s to start on a busy machine (CI runners hit it); a slow start isn't a
+      // permissions failure.
+      timeout: 30000,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    throw aclError(error, file);
+  }
+}
+const XML_ENTITIES = { "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&amp;": "&" };
+// PowerShell writes a failed check to stderr as CLIXML, and Node's message holds the whole encoded command: the error
+// says the script's own reason and the path instead. Its code (ENOENT, ETIMEDOUT) stays for callers that read it.
+function aclError(error, file) {
+  const stderr = String(error?.stderr ?? "");
+  const clixml = /<S S="Error">([\s\S]*?)<\/S>/.exec(stderr)?.[1];
+  const text =
+    clixml === undefined
+      ? stderr
+      : clixml
+          .replace(/_x([0-9a-f]{4})_/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+          .replace(/&(?:lt|gt|quot|apos|amp);/g, (entity) => XML_ENTITIES[entity]);
+  const firstLine = (value) =>
+    String(value)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+  const message = String(error?.message ?? error);
+  const reason =
+    firstLine(text) ??
+    (message.startsWith("Command failed:")
+      ? `Windows PowerShell could not check its permissions${error?.code ? ` (${error.code})` : ""}`
+      : firstLine(message)) ??
+    "Windows PowerShell could not check its permissions";
+  return Object.assign(new Error(`${reason}: ${file}`, { cause: error }), error?.code ? { code: error.code } : {});
 }
 function assertPrivate(file, { platform = process.platform } = {}) {
   const stat = fs.lstatSync(file);

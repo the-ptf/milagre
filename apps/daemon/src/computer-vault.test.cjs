@@ -5,11 +5,15 @@ const os = require("node:os");
 const path = require("node:path");
 const { randomBytes } = require("node:crypto");
 const { boxKeyPair, b64url } = require("@milagre/shared/relay-crypto");
+const { execFileSync } = require("node:child_process");
+const { preparePrivateDirectory } = require("@milagre/core/private-files");
 const { createComputerVault } = require("./computer-vault.cjs");
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-vault-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  // The key file's folder must be private. mkdtemp makes it 0700 on macOS and Linux; Windows needs its ACL set.
+  if (process.platform === "win32") preparePrivateDirectory(root);
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   const dataDir = path.join(root, "profile");
   await fs.mkdir(dataDir, { mode: 0o700 });
   return { root, dataDir };
@@ -61,6 +65,11 @@ test("vault setup refuses insecure paths and missing keys never replace saved cr
     await fs.chmod(file, 0o644);
     await assert.rejects(createComputerVault({ dataDir }).identity(), /0600/);
     await fs.chmod(file, 0o600);
+  } else {
+    // Builtin Users may read it, then not.
+    execFileSync("icacls", [file, "/grant", "*S-1-5-32-545:(R)"], { stdio: "ignore" });
+    await assert.rejects(createComputerVault({ dataDir }).identity(), { message: `Private path grants access to another Windows account: ${file}` });
+    execFileSync("icacls", [file, "/remove:g", "*S-1-5-32-545"], { stdio: "ignore" });
   }
   const backup = path.join(root, "backup.key");
   await fs.writeFile(backup, await fs.readFile(file), { mode: 0o600 });

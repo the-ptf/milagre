@@ -212,6 +212,47 @@ test("Windows ACL operations encode paths and fail closed on command errors", ()
       }),
     /ACL denied/,
   );
+  // PowerShell's CLIXML and the encoded command stay out of the message: the script's reason and the path go in.
+  const failed = (fields) =>
+    Object.assign(new Error(`Command failed: powershell.exe -EncodedCommand ${"A".repeat(4000)}`), { status: 1, stderr: "", ...fields });
+  assert.throws(
+    () =>
+      windowsAcl("C:\\private", {
+        execFileSyncImpl() {
+          throw failed({
+            stderr:
+              '#< CLIXML\r\n<Objs Version="1.1.0.1"><S S="Error">Private path grants access to another Windows account_x000D__x000A_</S><S S="Error">At line:18 char:59_x000D__x000A_</S></Objs>',
+          });
+        },
+      }),
+    (error) => error.message === "Private path grants access to another Windows account: C:\\private",
+  );
+  assert.throws(
+    () =>
+      windowsAcl("C:\\private", {
+        execFileSyncImpl() {
+          throw failed({ code: "ETIMEDOUT" });
+        },
+      }),
+    (error) => error.code === "ETIMEDOUT" && error.message === "Windows PowerShell could not check its permissions (ETIMEDOUT): C:\\private",
+  );
+});
+
+test("a Windows private path another account can read fails with that reason and the path", { skip: process.platform !== "win32", timeout: 90000 }, (t) => {
+  const { execFileSync } = require("node:child_process");
+  const { preparePrivateDirectory, assertPrivate } = require("./private-files.cjs");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-private-shared-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  preparePrivateDirectory(directory);
+  const file = path.join(directory, "token");
+  fs.writeFileSync(file, "fixture");
+  assertPrivate(file);
+  // Builtin Users may read it.
+  execFileSync("icacls", [file, "/grant", "*S-1-5-32-545:(R)"], { stdio: "ignore" });
+  assert.throws(
+    () => assertPrivate(file),
+    (error) => error.message === `Private path grants access to another Windows account: ${file}`,
+  );
 });
 
 test("Windows process creation times preserve PID reuse protection and unknown owners stay live", () => {
