@@ -391,7 +391,9 @@ function NavRow({ icon, label, active, onClick }: { icon: ReactNode; label: stri
       }`}
     >
       <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4">{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-13 font-medium">{label}</span>
+      <span data-settings-nav-label className="min-w-0 flex-1 truncate text-13 font-medium">
+        {label}
+      </span>
     </button>
   );
 }
