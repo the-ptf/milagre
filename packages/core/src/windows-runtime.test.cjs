@@ -145,17 +145,19 @@ test("Windows protects a private folder once per process, and again when it is m
   for (let attempt = 0; attempt < 3; attempt++) privateFiles.preparePrivateDirectory(directory);
   privateFiles.assertPrivate(directory);
   assert.equal(runs, 1);
-  // A file is checked every time.
+  // A file is checked every time. It is protected first, as the stores write theirs: an elevated process (CI) makes
+  // its files owned by Administrators.
   const file = path.join(directory, "endpoint.json");
   fs.writeFileSync(file, "{}");
+  privateFiles.windowsAcl(file, { mode: "protect" });
   privateFiles.assertPrivate(file);
   privateFiles.assertPrivate(file);
-  assert.equal(runs, 3);
+  assert.equal(runs, 4);
   // The same path made again is another folder: it is protected again.
   fs.rmSync(directory, { recursive: true });
   privateFiles.preparePrivateDirectory(directory);
   privateFiles.assertPrivate(directory);
-  assert.equal(runs, 4);
+  assert.equal(runs, 5);
   // A junction in its place is refused before any PowerShell run.
   fs.rmSync(directory, { recursive: true });
   const elsewhere = path.join(root, "elsewhere");
@@ -163,7 +165,7 @@ test("Windows protects a private folder once per process, and again when it is m
   fs.symlinkSync(elsewhere, directory, "junction");
   assert.throws(() => privateFiles.preparePrivateDirectory(directory), /Not a private directory/);
   assert.throws(() => privateFiles.assertPrivate(directory), /must not be a symlink/);
-  assert.equal(runs, 4);
+  assert.equal(runs, 5);
 });
 
 test("Windows executable lookup searches only absolute PATH directories and prefers PATHEXT launchers", async (t) => {
