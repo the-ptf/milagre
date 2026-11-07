@@ -354,7 +354,7 @@ export function GitActionsDialog({
           const opened = await bridge.git.openPr({ cwd, base, title: prTitle, body: prBody });
           if (!opened.ok) {
             failed = true;
-            setFailure({ message: opened.code ? gitMessage(opened.code) : opened.message });
+            setFailure({ message: opened.message || (opened.code ? gitMessage(opened.code) : "") });
           } else {
             outcome.pr = { url: opened.url, number: opened.number, created: true };
             update(step, "done", opened.number ? `Opened PR #${opened.number}` : "Opened the PR");
