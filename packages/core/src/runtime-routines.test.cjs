@@ -844,7 +844,8 @@ test("a webhook Routine gets a URL; a delivery starts a Run whose first message 
     assert.ok(!text.includes(secretOf(hookUrl)));
     assert.ok(!text.includes(ownerKey));
   }
-  assert.equal((await fs.stat(hookFile(f))).mode & 0o777, 0o600);
+  // Windows has no mode bits: the folder's ACL keeps the file private there.
+  if (process.platform !== "win32") assert.equal((await fs.stat(hookFile(f))).mode & 0o777, 0o600);
 
   const sent = delivery(routine.trigger.hookId);
   assert.deepEqual(f.runtime.routines.receiveHook(sent), { ack: true });

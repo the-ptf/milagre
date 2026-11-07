@@ -332,7 +332,7 @@ test("a Chat mention reaches an active steering turn without repeating linked co
   await waitUntil(() => f.sessions[1].turns.length === 2);
   const steering = f.sessions[1].turns[1].prompt;
   assert.ok(steering.includes("<chat_mentions>"));
-  assert.ok(steering.includes(`chatId: "${f.project}#${source.id}"`));
+  assert.ok(steering.includes(`chatId: ${JSON.stringify(`${f.project}#${source.id}`)}`));
   assert.ok(!steering.includes("<linked_worktrees>"));
 });
 
