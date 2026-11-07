@@ -116,6 +116,17 @@ test("a command runs in the login shell in its folder and streams its output", a
   assert.equal((await runSetupCommand({ command: windows ? "exit /b 0" : "true", cwd: dir })).status, "done");
 });
 
+test("a Windows setup reads cmd.exe's own output as UTF-8, and its command means what it would in cmd.exe", { skip: !windows }, async (t) => {
+  const dir = await tempDir(t);
+  // cmd.exe's echo writes in the console code page: 850 on a Portuguese Windows, 437 on an English one.
+  const echoed = await runSetupCommand({ command: 'echo ação& echo "a & b" | findstr "&"& exit /b 4', cwd: dir });
+  assert.equal(echoed.exitCode, 4);
+  assert.match(echoed.output, /^ação\r?\n"a & b" ?\r?\n$/);
+  // The command is not parsed twice: %, ! and ^ reach its cmd.exe as typed.
+  const literal = await runSetupCommand({ command: "echo 100%% !OS! a^&b", cwd: dir });
+  assert.equal(literal.output.trim(), "100%% !OS! a&b");
+});
+
 test("a timeout stops the command and everything it started", async (t) => {
   const dir = await tempDir(t);
   await writeLongCommand(dir);

@@ -52,6 +52,20 @@ function loginShell(env, platform = process.platform) {
 }
 
 /**
+ * cmd.exe writes its own messages and built-ins (echo, dir) in the console's OEM code page (850 on a Portuguese
+ * Windows), which reads as "n\uFFFDo" in UTF-8. The command's cmd.exe starts after chcp 65001, since cmd.exe reads the
+ * code page once when it starts. The command reaches it through an environment variable expanded with !...! after the
+ * outer cmd.exe has parsed its line, so its quotes, & and | mean what they would in a cmd.exe of its own.
+ */
+function windowsSetupCommand(shell, command, env) {
+  const chcp = path.win32.join(env.SystemRoot || "C:\\Windows", "System32", "chcp.com");
+  return {
+    args: ["/d", "/v:on", "/s", "/c", `""${chcp}" 65001>nul & "${shell}" /d /s /c "!MILAGRE_SETUP_COMMAND!""`],
+    env: { ...env, MILAGRE_SETUP_COMMAND: command },
+  };
+}
+
+/**
  * Runs the command in `cwd` through the login shell, so npm, pnpm or uv resolve as in the user's terminal.
  * Resolves (never rejects) to { status: "done" | "failed" | "timed-out" | "cancelled", exitCode, signal,
  * error?, output, durationMs }. A timeout or an aborted `signal` stops the shell and everything it started.
@@ -89,9 +103,10 @@ function runSetupCommand({
     const onAbort = () => stop("cancelled");
     const timer = setTimeout(() => stop("timed-out"), timeoutMs);
     try {
-      child = spawnCommand(shell, process.platform === "win32" ? ["/d", "/s", "/c", `"${command}"`] : ["-l", "-c", command], {
+      const windows = process.platform === "win32" ? windowsSetupCommand(shell, command, env) : null;
+      child = spawnCommand(shell, windows ? windows.args : ["-l", "-c", command], {
         cwd,
-        env,
+        env: windows ? windows.env : env,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
         windowsVerbatimArguments: process.platform === "win32",
@@ -100,11 +115,13 @@ function runSetupCommand({
       void finish({ status: "failed", error: error.message });
       return;
     }
-    const append = (chunk) => {
-      const text = chunk.toString("utf8");
+    const append = (text) => {
       output = capOutput(output + text);
       onOutput(text);
     };
+    // Decoded per stream, so a character split across two chunks stays whole.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     child.stdout.on("data", append);
     child.stderr.on("data", append);
     child.on("error", (error) => void finish({ status: "failed", error: error.message }));
