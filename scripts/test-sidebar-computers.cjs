@@ -129,7 +129,7 @@ window.milagre = new Proxy({
   // A paired computer's bridge: the app asks it for its turns once it is online.
   on: (id) => remotes[id],
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
-  // Devices & sharing lists Simlock and Computer use only for a bridge that has them; this one doesn't.
+  // Phone & sharing and This Mac list Simlock and Computer use only for a bridge that has them; this one doesn't.
   simlock: undefined,
   computerUse: undefined,
   listDevices: async () => [],
@@ -235,7 +235,9 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('dialog[data-settings-modal]') && !!document.querySelector('[data-filters][data-computers-on]')`);
     await openPopover();
     await evaluate(`document.querySelector('[data-computer-row="this-mac"] [data-computer-gear]').click()`);
-    await waitFor(`document.querySelector('dialog[data-settings-modal] h1')?.textContent === 'Devices & sharing'`);
+    await waitFor(
+      `document.querySelector('dialog[data-settings-modal] h1')?.textContent === 'victor-mbp' && !!document.querySelector('[data-this-mac-settings]')`,
+    );
     // Settings › Devices adds a computer too, not only the laptop button.
     await evaluate(`document.querySelector('[data-settings-add-computer]').click()`);
     await waitFor(`!!document.querySelector('dialog[data-add-computer]')?.open`);
@@ -244,7 +246,7 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('dialog[data-add-computer]')`);
     await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
     await waitFor(`!document.querySelector('dialog[data-settings-modal]') && !!document.querySelector('[data-filters][data-computers-on]')`);
-    console.log("PASS: a computer's gear opens its settings, with Show in sidebar; This Mac's opens Settings › Devices, which adds a computer");
+    console.log("PASS: a computer's gear opens its settings, with Show in sidebar; This Mac's opens its own page, which adds a computer");
 
     const scopes = () => evaluate(`[...document.querySelectorAll('[data-sidebar-scope]')].map((section) => section.dataset.sidebarScope)`);
     // Scope keys hold "|" and "/", which a double-quoted attribute selector takes as they are.

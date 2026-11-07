@@ -1882,7 +1882,7 @@ function App() {
   });
   useEffect(() => window.milagre.onOpenChat(openChatByKey), []);
 
-  // Clicking the "phone paired" notification opens Settings → Devices, where it can be removed.
+  // Clicking the "phone paired" notification opens Settings › Phone & sharing, where it can be removed.
   useEffect(
     () =>
       window.milagre.onOpenPhoneSettings(() => {
@@ -3060,9 +3060,9 @@ function App() {
     setSettingsSection("accounts");
     setSettingsOpen(true);
   });
-  // The computers popover's gears: a computer's own section, or This Mac's devices.
+  // The computers popover's gears: a computer's own section, or This Mac's.
   const openComputerSettings = useEvent((id: string | null) => {
-    if (id === null) setSettingsSection("devices");
+    if (id === null) setSettingsSection("this-mac");
     else {
       setSettingsComputer(id);
       setSettingsSection("computer");
@@ -3475,6 +3475,7 @@ function App() {
       usage={sidebarUsage}
       onNewChatInScope={newChatInScope}
       onNewChat={startNewChatOnThisMac}
+      onPickChat={() => setSettingsOpen(false)}
       archivingChats={archivingChats}
       onArchiving={trackLinkArchive}
       scopeChatActions={scopeChatActions}

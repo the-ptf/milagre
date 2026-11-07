@@ -300,9 +300,9 @@ export type MilagreBridge = {
   ) => Promise<string>;
   releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
-  /** Experimental: agents operate desktop apps on this computer (Settings › Devices & sharing). */
+  /** Experimental: agents operate desktop apps on this computer (Settings › This Mac). */
   computerUse: import("@milagre/shared/computer-use").ComputerUseApi;
-  /** Experimental: devices leased from a Simlock pool (Settings › Devices & sharing). */
+  /** Experimental: devices leased from a Simlock pool (Settings › Phone & sharing). */
   simlock: import("@milagre/shared/simulator").SimlockApi;
   browsers: BrowserApi;
   pageComments: import("@milagre/shared/page-comments").PageCommentsApi;
@@ -448,7 +448,7 @@ export type MilagreBridge = {
   checkHostUpdate: () => Promise<HostUpdate>;
   /** Restarts Milagre there to install a downloaded update; rejects when none is ready. Running Chats resume after the restart. */
   installHostUpdate: () => Promise<HostUpdate>;
-  /** Settings › Devices & sharing: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
+  /** Settings › This Mac: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
   readComputerResources: (options?: { fresh?: boolean }) => Promise<ComputerResources>;
   /** Clean up worktrees: the worktrees Milagre made there that no Chat has used for 30 days or more, oldest first. */
   readIdleWorktrees: () => Promise<IdleWorktrees>;

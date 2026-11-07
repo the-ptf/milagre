@@ -52,7 +52,7 @@ import {
   Globe02Icon,
   InformationCircleIcon,
   LaptopIcon,
-  LaptopPhoneSyncIcon,
+  FolderTreeIcon,
   Mic01Icon,
   AiBrain01Icon,
   Notification01Icon,
@@ -91,6 +91,8 @@ import { isRemoteScopeHidden, setComputerHidden, setRemoteScopeHidden } from "..
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup } from "./SidebarNav";
+import { WorktreeCleanup } from "./settings/WorktreeCleanup";
+import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 import { lazyView } from "../lib/lazy-view";
 import { SETTINGS_INDEX } from "../lib/settings-index";
 import { findSetting } from "../lib/settings-find";
@@ -160,15 +162,17 @@ export type SettingsSection =
   | "skills"
   | "mcp"
   | "browser"
+  | "worktrees"
   | "connections"
   | "devices"
+  | "this-mac"
   | "experimental"
   | "about"
   | "project"
   | "computer";
 
 /** The nav's groups, top to bottom; `null` has no heading. Computers and Projects follow; Labs and About sit in the footer. */
-type SectionGroup = null | "Agents" | "footer";
+type SectionGroup = null | "Agents" | "Code" | "footer";
 
 const SECTIONS: Array<{
   key: SettingsSection;
@@ -188,17 +192,22 @@ const SECTIONS: Array<{
   { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} />, group: "Agents" },
   { key: "mcp", label: "MCP servers", icon: <Icon icon={Plug01Icon} />, group: "Agents" },
   { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} />, group: "Agents" },
-  { key: "connections", label: "Integrations", icon: <Icon icon={ConnectIcon} />, group: "Agents" },
+  { key: "worktrees", label: "Worktrees", icon: <Icon icon={FolderTreeIcon} />, group: "Code" },
+  { key: "connections", label: "Integrations", icon: <Icon icon={ConnectIcon} />, group: "Code" },
   { key: "experimental", label: "Labs", icon: <Icon icon={FlaskConicalIcon} />, group: "footer" },
   { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} />, group: "footer" },
 ];
 
-// Devices & sharing heads the Computers group, above one row per paired computer.
-const DEVICES_SECTION = { key: "devices" as const, label: "Devices & sharing", icon: <Icon icon={LaptopPhoneSyncIcon} /> };
+// Phone & sharing heads the Computers group, above This Mac's row and one row per paired computer.
+const DEVICES_SECTION = { key: "devices" as const, label: "Phone & sharing", icon: <Icon icon={SmartphoneIcon} /> };
+// This Mac's page; the nav names it after the computer, the search as This Mac.
+const THIS_MAC_SECTION = { key: "this-mac" as const, label: `This ${computerNoun}`, icon: <Icon icon={LaptopIcon} /> };
 
 // Other words for a section, so the search finds it by what it holds.
 const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
-  general: "editor sidebar chat order chat list done archive plan usage keep awake worktrees main sync",
+  general: "editor sidebar chat order chat list done archive plan usage keep awake",
+  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle",
+  "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
   accounts: "sign in login claude codex antigravity profile per project link usage limits",
   appearance: "theme dark light mode font size colors look",
@@ -210,13 +219,13 @@ const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   notifications: "alerts sounds chimes push routines unread runs",
   connections: "linear issues integrations babysit pull requests",
   mcp: "servers tools model context protocol milagre mcp",
-  devices: "phone pairing computers remote qr published pages share simlock computer use",
+  devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
   experimental: "experimental beta labs",
   about: "version update privacy support",
 };
 
-const ALL_SECTIONS = [...SECTIONS, DEVICES_SECTION];
-const SELF_TITLED = new Set<SettingsSection>(["mcp", "connections", "devices", "experimental"]);
+const ALL_SECTIONS = [...SECTIONS, DEVICES_SECTION, THIS_MAC_SECTION];
+const SELF_TITLED = new Set<SettingsSection>(["mcp", "connections", "devices", "this-mac", "experimental"]);
 const sectionTitle = (page: string) => ALL_SECTIONS.find((item) => item.key === page)?.label ?? page;
 
 export type SettingsProject = { path: string; name: string };
@@ -314,7 +323,7 @@ export function SettingsNav({
       ) : (
         <>
           <ScrollArea className="min-h-0 flex-1 pb-2">
-            {([null, "Agents"] as const).map((group) => (
+            {([null, "Agents", "Code"] as const).map((group) => (
               <div key={group ?? "top"}>
                 {group && <NavHeading>{group}</NavHeading>}
                 <GlideGroup>
@@ -328,7 +337,12 @@ export function SettingsNav({
               <NavHeading>Computers & devices</NavHeading>
               <GlideGroup>
                 <NavRow icon={DEVICES_SECTION.icon} label={DEVICES_SECTION.label} active={section === "devices"} onClick={() => onSelect("devices")} />
-                <NavRow icon={<ComputerDot tone="online" />} label={`${thisMac} (this ${computerNoun})`} active={false} onClick={() => onSelect("devices")} />
+                <NavRow
+                  icon={<ComputerDot tone="online" />}
+                  label={`${thisMac} (this ${computerNoun})`}
+                  active={section === "this-mac"}
+                  onClick={() => onSelect("this-mac")}
+                />
                 {computers.map((computer) => (
                   <NavRow
                     key={computer.id}
@@ -386,7 +400,7 @@ function NavRow({ icon, label, active, onClick }: { icon: ReactNode; label: stri
       type="button"
       aria-current={active ? "page" : undefined}
       onClick={onClick}
-      className={`relative z-10 mx-2 flex h-8 items-center gap-2.5 rounded-control px-2 text-left transition-[background-color,color] duration-fast active:bg-hover-2 ${
+      className={`relative z-10 mx-2 flex h-8 w-[calc(100%-16px)] items-center gap-2.5 rounded-control px-2 text-left transition-[background-color,color] duration-fast active:bg-hover-2 ${
         active ? "bg-hover-2 text-ink group-hover/glide:bg-transparent" : "text-ink-2"
       }`}
     >
@@ -714,7 +728,7 @@ function RemoteDelegationSettings() {
     <div data-slot="remote-delegation-setting">
       <Row
         label="Delegate to other computers"
-        description="A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings › Devices & sharing."
+        description={`A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings › This ${computerNoun}.`}
       >
         <SettingCheckbox
           label="Delegate to other computers"
@@ -840,7 +854,7 @@ function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }
   return (
     <>
       <ChoiceGroup title="Dictation">
-        <div className="mb-4 overflow-hidden rounded-card bg-surface shadow-card">
+        <div className="mb-4 overflow-hidden rounded-card border border-line bg-surface">
           <Row label="Shortcut" description="Starts dictation in the composer from anywhere in the Chat. Change the keys in Keybindings.">
             <span className="flex items-center gap-2">
               <kbd data-dictation-shortcut className="rounded-control border border-line-strong bg-surface px-2 py-1 font-sans text-13 font-semibold text-ink">
@@ -862,7 +876,7 @@ function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }
         />
         <p className="mt-4 mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
         <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
-        <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
+        <div className="mt-4 overflow-hidden rounded-card border border-line bg-surface">
           <Row
             label="Fix names with AI"
             description="After you stop, a small model corrects misheard file, code and provider names using this Chat. Your words show at once and update a few seconds later, unless you edit them first."
@@ -885,7 +899,7 @@ function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }
         <p className="mt-4 px-1 text-14 font-semibold text-ink">Speech model</p>
         <p className="mb-2 px-1 text-12 text-ink-3">Transcribes on this computer. Picking a model downloads it once.</p>
         <SpeechModelChoice value={settings.dictationModel} onChange={(dictationModel) => updateSettings({ dictationModel })} />
-        <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
+        <div className="mt-4 overflow-hidden rounded-card border border-line bg-surface">
           <Row
             label="Language"
             description={
@@ -1044,21 +1058,54 @@ function IntegrationsSettings({ title }: { title?: string }) {
   );
 }
 
-/** This computer's devices and what it shares: pairing, computers, published pages, simulators, computer use. */
-function DevicesPage({ title, onAddComputer }: { title?: string; onAddComputer?: () => void }) {
-  const [page, setPage] = useState<"devices" | "computer-use">("devices");
-  if (page === "computer-use") return <ComputerUseSettings onBack={() => setPage("devices")} />;
+/** Who can reach this computer and what it shares: device access and pairing, simulators, published pages. */
+function PhoneSharingPage({ title }: { title?: string }) {
   return (
     <>
       <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>
-      <DevicesSettings onAddComputer={onAddComputer} />
-      <Group title="Automation">
-        <ComputerUseRow onOpen={() => setPage("computer-use")} />
+      <DevicesSettings />
+      <Group title="Simulators">
         <SimlockSettings />
       </Group>
       <Group title="Designs and artifacts">
         <PublishedPagesSettings />
       </Group>
+    </>
+  );
+}
+
+/** This computer's own page: its memory and disk, the other computers it drives, and Computer use. */
+function ThisMacPage({ title, onAddComputer }: { title?: string; onAddComputer?: () => void }) {
+  const [page, setPage] = useState<"this-mac" | "computer-use">("this-mac");
+  if (page === "computer-use") return <ComputerUseSettings parent={title} onBack={() => setPage("this-mac")} />;
+  return (
+    <div data-this-mac-settings>
+      <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+      <DeviceResources />
+      <OtherComputersSetting onAddComputer={onAddComputer} />
+      <Group title="Automation">
+        <ComputerUseRow onOpen={() => setPage("computer-use")} />
+      </Group>
+    </div>
+  );
+}
+
+/** Worktrees on every Project: how they follow main, and cleaning up the ones no Chat uses. Each Project's page sets its own. */
+function WorktreesSettings() {
+  const [cleaning, setCleaning] = useState(false);
+  return (
+    <>
+      <Group title="Main branch">
+        <MainSyncDefaultSetting />
+      </Group>
+      <Group title="Storage" footer="Each Project's page sets how its new Worktrees are named and set up.">
+        <Row label={CLEANUP_TITLE} description={CLEANUP_INTRO}>
+          <button type="button" data-worktrees-cleanup onClick={() => setCleaning(true)} className={SECONDARY_BUTTON}>
+            Review
+          </button>
+        </Row>
+      </Group>
+      {cleaning && <WorktreeCleanup bridge={window.milagre} computerName={null} onClose={() => setCleaning(false)} />}
     </>
   );
 }
@@ -1128,9 +1175,6 @@ function GeneralSettings() {
             onChange={(showUsageInSidebar) => updateSettings({ showUsageInSidebar })}
           />
         </Row>
-      </Group>
-      <Group title="Worktrees">
-        <MainSyncDefaultSetting />
       </Group>
       <Group title="System">
         <Row
@@ -1544,7 +1588,7 @@ function AppearanceSettings() {
   );
 }
 
-/** Settings › Devices & sharing: memory and disk on this Mac and on every computer it drives, Milagre's share marked. */
+/** Settings › This Mac: memory and disk on this Mac and on every computer it drives, Milagre's share marked. */
 /** A paired computer as a memory and disk row: its route while it answers, else when it was last seen. */
 function resourceComputer(computer: ComputerView, now: number): ResourceComputer {
   const online = computer.state === "online";
@@ -1559,7 +1603,7 @@ function resourceComputer(computer: ComputerView, now: number): ResourceComputer
   };
 }
 
-/** Settings › Devices & sharing: memory and disk on this Mac and on every computer it drives. */
+/** Settings › This Mac: memory and disk on this Mac and on every computer it drives. */
 function DeviceResources() {
   const { otherComputers } = useSettings();
   const { thisMac, computers } = useComputers();
@@ -1596,7 +1640,7 @@ function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }
       {otherComputers && onAddComputer && (
         <Row
           label="Add computer"
-          description="Pair with another computer using the link from its Settings › Devices & sharing. The laptop button in the sidebar adds one too."
+          description="Pair with another computer using the link from its Settings › Phone & sharing. The laptop button in the sidebar adds one too."
         >
           <button type="button" data-settings-add-computer onClick={onAddComputer} className={SECONDARY_BUTTON}>
             Add computer…
@@ -1797,7 +1841,7 @@ function DeviceGroup({
   );
 }
 
-function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
+function DevicesSettings() {
   const { status, setStatus, loadError } = usePhoneStatus();
   const paired = usePairedDevices();
   const [error, setError] = useState<string | null>(null);
@@ -1870,8 +1914,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const { computers, phones } = devicesByKind(paired.list ?? []);
   return (
     <>
-      <p className="mt-1 text-13 text-ink-2">Phones and other computers that can see and drive {thisComputer}'s chats.</p>
-      <DeviceResources />
+      <p className="mt-1 text-13 text-ink-2">Phones and other computers that can see and drive {thisComputer}'s chats, and what you share.</p>
       <Group>
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
           <SettingCheckbox
@@ -1982,7 +2025,6 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
           </div>
         </Group>
       )}
-      <OtherComputersSetting onAddComputer={onAddComputer} />
       {computers.length > 0 && <DeviceGroup devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
       <DeviceGroup
         devices={phones}
@@ -2868,13 +2910,15 @@ export function SettingsPanel({
   models: ModelOption[];
   update: UpdateState | null;
 }) {
-  const { computers } = useComputers();
+  const { computers, thisMac } = useComputers();
   const title =
     section === "project"
       ? project?.name
       : section === "computer"
         ? (computers.find((computer) => computer.id === computerId)?.name ?? "Computer")
-        : sectionTitle(section);
+        : section === "this-mac"
+          ? thisMac
+          : sectionTitle(section);
   const content = useRef<HTMLDivElement>(null);
   // A search result's row lights up once this section shows it.
   useFoundRow(content, section);
@@ -2922,7 +2966,9 @@ export function SettingsPanel({
         )}
         {section === "browser" && <BrowserSettings />}
         {section === "connections" && <IntegrationsSettings title={title} />}
-        {section === "devices" && <DevicesPage title={title} onAddComputer={onAddComputer} />}
+        {section === "worktrees" && <WorktreesSettings />}
+        {section === "devices" && <PhoneSharingPage title={title} />}
+        {section === "this-mac" && <ThisMacPage title={title} onAddComputer={onAddComputer} />}
         {section === "experimental" && <ExperimentalSettings title={title} />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}
         {section === "about" && <AboutSettings update={update} />}

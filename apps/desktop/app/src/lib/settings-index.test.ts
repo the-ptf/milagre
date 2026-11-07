@@ -21,8 +21,10 @@ const PAGES = new Set([
   "skills",
   "mcp",
   "browser",
+  "worktrees",
   "connections",
   "devices",
+  "this-mac",
   "experimental",
   "about",
 ]);
@@ -96,6 +98,7 @@ const NOT_INDEXED: Record<string, string> = {
   // Settings › Project (one page per Project; not a section the search opens).
   Appearance: "Project page group",
   "New worktrees": "Project page group",
+  Worktrees: "Project page group; the Worktrees section is found by its own name",
   "Remove Project": "Project page group",
   "Remove from Projects list": "Project page row",
   // The row is on the Project page and the Plan usage row on General; the aria label of both is covered by "Show in sidebar".

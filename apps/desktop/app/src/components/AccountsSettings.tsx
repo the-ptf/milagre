@@ -155,7 +155,7 @@ export function AccountsSettings() {
         </p>
       )}
       {snapshot?.providers.map((group) => (
-        <section key={group.provider} className={`overflow-hidden rounded-card bg-surface shadow-card ${group.installed === false ? "pb-3" : ""}`}>
+        <section key={group.provider} className={`overflow-hidden rounded-card border border-line bg-surface ${group.installed === false ? "pb-3" : ""}`}>
           <div className="flex items-center justify-between border-b border-line px-4 py-4">
             <h2 className="flex items-center gap-2 text-15 font-semibold">
               <ProviderLogo provider={group.provider} size={20} />

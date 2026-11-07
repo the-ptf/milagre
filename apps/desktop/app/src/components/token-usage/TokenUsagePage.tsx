@@ -48,7 +48,7 @@ const PREFS_KEY = "milagre.tokenUsage";
 const REFRESHING_POLL_MS = 2500;
 // Chats a Project shows when opened, before "Show N more Chats".
 const FIRST_CHATS = 5;
-const card = "rounded-card bg-surface shadow-card";
+const card = "rounded-card border border-line bg-surface";
 // The calendar's shades: nothing, then the accent mixed in more strongly for each fifth of the busy days.
 const SHADES = ["var(--hover-2)", ...[20, 38, 56, 76, 100].map((share) => `color-mix(in oklab, var(--accent) ${share}%, var(--surface))`)];
 const WEEKDAYS = ["Mon", "", "Wed", "", "Fri", "", ""];

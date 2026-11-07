@@ -80,7 +80,8 @@ async function browserChecks() {
       const row = document.querySelector('[data-antigravity-row]');
       return Math.round(row.closest('section').getBoundingClientRect().bottom - row.getBoundingClientRect().bottom);
     })()`),
-      12,
+      // pb-3 plus the card's 1px border.
+      13,
       "The install row keeps its bottom inset without account controls",
     );
     await evaluate(`${antigravitySection}.scrollIntoView({block:'center'})`);

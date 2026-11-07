@@ -127,7 +127,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       }
     >
       <ol className="mt-4 list-decimal space-y-1 pl-5 text-13 text-ink-2">
-        <li>On the other computer, open Milagre Settings › Devices & sharing.</li>
+        <li>On the other computer, open Milagre Settings › Phone & sharing.</li>
         <li>Click Pair a device, then Copy link.</li>
         <li>Paste it here. The link works for 10 minutes.</li>
       </ol>

@@ -18,7 +18,7 @@ export function Group({ title, action, footer, children }: { title?: string; act
           {action}
         </div>
       )}
-      <div className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">{children}</div>
+      <div className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">{children}</div>
       {footer && <p className="mt-2 px-1 text-12 text-ink-3">{footer}</p>}
     </section>
   );

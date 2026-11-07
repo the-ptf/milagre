@@ -76,14 +76,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "Hover a provider for its limits and reset times",
     keywords: "usage limits",
   },
-  { page: "general", title: "Worktrees" },
-  {
-    page: "general",
-    title: MAIN_SYNC_TITLE,
-    group: "Worktrees",
-    description: MAIN_SYNC_HINT,
-    keywords: "git pull fast-forward branch main",
-  },
   { page: "general", title: "System" },
   {
     page: "general",
@@ -485,6 +477,24 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "log out logins cookies sessions",
   },
 
+  // Worktrees
+  { page: "worktrees", title: "Main branch" },
+  {
+    page: "worktrees",
+    title: MAIN_SYNC_TITLE,
+    group: "Main branch",
+    description: MAIN_SYNC_HINT,
+    keywords: "git pull fast-forward branch main",
+  },
+  { page: "worktrees", title: "Storage" },
+  {
+    page: "worktrees",
+    title: CLEANUP_TITLE,
+    group: "Storage",
+    description: CLEANUP_INTRO,
+    keywords: "storage disk space free worktrees delete old idle",
+  },
+
   // Integrations
   { page: "connections", title: "Issue trackers" },
   {
@@ -517,15 +527,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "pull request review ci conflicts",
   },
 
-  // Devices & sharing
-  { page: "devices", title: "Designs and artifacts" },
-  {
-    page: "devices",
-    title: "Published pages",
-    group: "Designs and artifacts",
-    description: "Manage public links to designs and artifacts, including pages from deleted Chats.",
-    keywords: "share public links revoke",
-  },
+  // Phone & sharing
   {
     page: "devices",
     title: "Allow devices to connect",
@@ -556,38 +558,43 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
   {
     page: "devices",
-    title: CLEANUP_TITLE,
-    description: CLEANUP_INTRO,
-    keywords: "storage disk space free worktrees delete old what milagre uses",
+    title: "Reset access",
+    keywords: "new code revoke phones",
   },
+  { page: "devices", title: "Simulators" },
   {
     page: "devices",
+    title: "Simlock devices",
+    group: "Simulators",
+    description:
+      "Agents lease a simulator or emulator of their own from a Simlock pool, watch it here and on the phone, and return it wiped. Simlock runs on your own Macs; Milagre doesn't install it.",
+    keywords: "simulator emulator lease ios android",
+  },
+  { page: "devices", title: "Designs and artifacts" },
+  {
+    page: "devices",
+    title: "Published pages",
+    group: "Designs and artifacts",
+    description: "Manage public links to designs and artifacts, including pages from deleted Chats.",
+    keywords: "share public links revoke",
+  },
+
+  // This Mac
+  {
+    page: "this-mac",
     title: "Drive other computers",
     description: "Drive the chats of other computers running Milagre from this window. Their Projects join the sidebar.",
     keywords: "remote pair mac",
   },
   {
-    page: "devices",
+    page: "this-mac",
     title: "Add computer",
-    description: "Pair with another computer using the link from its Settings › Devices & sharing. The laptop button in the sidebar adds one too.",
+    description: "Pair with another computer using the link from its Settings › Phone & sharing. The laptop button in the sidebar adds one too.",
     keywords: "pair mac remote",
   },
+  { page: "this-mac", title: "Automation" },
   {
-    page: "devices",
-    title: "Reset access",
-    keywords: "new code revoke phones",
-  },
-  { page: "devices", title: "Automation" },
-  {
-    page: "devices",
-    title: "Simlock devices",
-    group: "Automation",
-    description:
-      "Agents lease a simulator or emulator of their own from a Simlock pool, watch it here and on the phone, and return it wiped. Simlock runs on your own Macs; Milagre doesn't install it.",
-    keywords: "simulator emulator lease ios android",
-  },
-  {
-    page: "devices",
+    page: "this-mac",
     title: "Computer use",
     group: "Automation",
     description: "Agents see and operate apps on this computer, asking before each new app.",

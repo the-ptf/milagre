@@ -58,7 +58,7 @@ async function browserChecks() {
     assert.equal(win.isVisible(), false);
     assert.equal(win.isFocused(), false);
     await waitFor(`document.querySelectorAll('[data-local-mcp] [role=checkbox]').length===8`);
-    // The Milagre MCP sits on MCP servers, under the servers each provider uses; Published pages moved to Devices & sharing.
+    // The Milagre MCP sits on MCP servers, under the servers each provider uses; Published pages moved to Phone & sharing.
     assert.equal(await evaluate(`document.querySelector('h1').textContent`), "MCP servers");
     assert.equal(await evaluate(`!!document.querySelector('[data-slot=published-pages-setting]')`), false);
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
