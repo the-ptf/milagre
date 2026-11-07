@@ -56,6 +56,7 @@ const MANIFEST = {
   "test-bots-sidebar.cjs": { seconds: 10 },
   "test-bots-thread.cjs": { seconds: 10 },
   "test-windows-cli.cjs": { platforms: ["win32"] },
+  "test-terminal-clipboard.cjs": { platforms: ["win32"] },
   "test-ports.cjs": { needs: ["zsh", "ps", "lsof"] },
   // needsBuild: loads apps/desktop/dist; test-project-links only passed serially because test-desktop built it first.
   "test-design-csp.cjs": { needsBuild: true },
