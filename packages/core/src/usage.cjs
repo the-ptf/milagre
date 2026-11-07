@@ -177,7 +177,8 @@ function bankedResetsOf(count) {
 }
 
 async function readCodexUsage(deps = {}) {
-  const { spawnImpl = spawn, now = Date.now, timeoutMs = PROVIDER_TIMEOUT_MS } = deps;
+  // spawnCommandImpl stands in for the whole launch, Windows job keeper included, so a test's fake Codex runs as is.
+  const { spawnImpl = spawn, spawnCommandImpl = spawnCommand, now = Date.now, timeoutMs = PROVIDER_TIMEOUT_MS } = deps;
   const done = (status, windows, message) => providerResult("codex", now, status, windows, message);
 
   const command = deps.command || (process.platform === "win32" ? await resolveExecutable("codex") : "codex");
@@ -185,7 +186,7 @@ async function readCodexUsage(deps = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawnCommand(command, ["app-server"], { stdio: ["pipe", "pipe", "ignore"], env: deps.env || process.env, windowsHide: true }, spawnImpl);
+      child = spawnCommandImpl(command, ["app-server"], { stdio: ["pipe", "pipe", "ignore"], env: deps.env || process.env, windowsHide: true }, spawnImpl);
     } catch {
       resolve(done("error", [], "Codex could not start."));
       return;

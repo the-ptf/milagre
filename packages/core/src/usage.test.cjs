@@ -10,7 +10,8 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const TOKEN = "sk-ant-oat01-SECRET-TOKEN";
 const NOW = Date.parse("2026-10-01T19:30:00Z");
 const CREDENTIALS = JSON.stringify({ claudeAiOauth: { accessToken: TOKEN, expiresAt: NOW + 60 * 60_000, subscriptionType: "max" } });
-const CREDENTIALS_FILE = "/Users/test/.claude/.credentials.json";
+// Joined as the reader joins it: with backslashes on Windows.
+const CREDENTIALS_FILE = path.join("/Users/test", ".claude", ".credentials.json");
 
 const USAGE_BODY = {
   five_hour: { utilization: 73, resets_at: "2026-10-01T20:49:59Z" },
@@ -226,7 +227,7 @@ function codexDeps(child, overrides = {}) {
     now: () => NOW,
     timeoutMs: 200,
     command: "codex",
-    spawnImpl: (command, args) => {
+    spawnCommandImpl: (command, args) => {
       spawnCalls.push({ command, args });
       return child;
     },
