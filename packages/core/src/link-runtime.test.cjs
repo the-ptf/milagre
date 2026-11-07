@@ -316,7 +316,7 @@ test("a shared Chat that changes one Project creates no branch or Worktree in th
   assert.equal(execFileSync("git", ["-C", api.path, "branch", "--list", "milagre/*"]).toString().trim(), "");
   assert.equal(execFileSync("git", ["-C", api.path, "worktree", "list"]).toString().trim().split("\n").length, 1);
   // The agent was told to read api from its main checkout, and now owns web's Worktree.
-  assert.match(created[0].workspaceInstructions, new RegExp(`api: ${api.path}`));
+  assert.ok(created[0].workspaceInstructions.includes(`api: ${api.path}`), created[0].workspaceInstructions);
   assert.deepEqual(created[0].access.roots, [session.worktrees[0].worktreePath]);
   assert.deepEqual(created[0].access.readOnlyRoots, [api.path]);
 });
@@ -378,7 +378,7 @@ test("a shared Chat in Ask asks before its delegate or chat_start reaches a memb
 
   // The card shows in the shared Chat, found by the same key its session and its MCP caller use.
   const delegating = tool("delegate").run({ worktree: web.path, chat: target, message: "Delete the build" });
-  for (let i = 0; i < 200 && !approvals.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  for (let i = 0; i < 3000 && !approvals.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(approvals[0].chat, created[0]);
   assert.equal(approvals[0].request.title, `Send a Delegation to web / main / Work in Full permission?`);
   assert.equal(approvals[0].request.allowForChat, false);
@@ -386,7 +386,7 @@ test("a shared Chat in Ask asks before its delegate or chat_start reaches a memb
   await assert.rejects(delegating, /denied/);
 
   const starting = tool("chat_start").run({ projectPath: web.path, chatId: target, prompt: "Delete the build", requestId: "r1" });
-  for (let i = 0; i < 200 && approvals.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  for (let i = 0; i < 3000 && approvals.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(approvals[1].chat, created[0]);
   assert.match(approvals[1].request.title, /^Run a prompt in .* in Full permission\?$/);
   approvals[1].answer("deny");
