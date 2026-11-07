@@ -122,7 +122,9 @@ test("a linked worktree's old chats come back with fresh ids, and the old file i
   assert.deepEqual(opened.restoredChats, [{ worktree: "linked", count: 2 }]);
 
   await assert.rejects(fs.stat(oldFile(linked.linked)), { code: "ENOENT" });
-  assert.equal((await migratedFiles(linked.linked)).length, 1);
+  const [renamed, ...others] = await migratedFiles(linked.linked);
+  assert.deepEqual(others, []);
+  assert.ok(!renamed.includes(":"), "Windows refuses a colon in a file name");
   const saved = await readSavedState(project);
   assert.equal(Object.values(saved.sessions).filter((session) => session.native_session_id?.startsWith("native-")).length, 2);
   for (const key of ["approvals", "outputs", "connections", "events", "artifacts", "conflicts"]) assert.equal(key in saved, false, `${key} stays behind`);
