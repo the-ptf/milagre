@@ -108,6 +108,8 @@ test("Windows private directories can be protected repeatedly without elevated p
   t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   for (let attempt = 0; attempt < 3; attempt++) {
     preparePrivateDirectory(directory);
+    // preparePrivateDirectory protects a folder once per process; this protects it again each time.
+    windowsAcl(directory, { mode: "protect" });
     assertPrivate(directory);
   }
   const file = path.join(directory, "token");
@@ -117,6 +119,53 @@ test("Windows private directories can be protected repeatedly without elevated p
     assertPrivate(file);
   }
   assert.equal(fs.readFileSync(file, "utf8"), "fixture");
+});
+
+test("Windows protects a private folder once per process, and again when it is made anew", { skip: process.platform !== "win32", timeout: 90000 }, (t) => {
+  // A fresh copy of the module, counting the PowerShell runs it starts.
+  const childProcess = require("node:child_process");
+  const execFileSync = childProcess.execFileSync;
+  let runs = 0;
+  childProcess.execFileSync = function (...args) {
+    runs++;
+    return execFileSync.apply(this, args);
+  };
+  const modulePath = require.resolve("./private-files.cjs");
+  delete require.cache[modulePath];
+  let privateFiles;
+  try {
+    privateFiles = require("./private-files.cjs");
+  } finally {
+    childProcess.execFileSync = execFileSync;
+    delete require.cache[modulePath];
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-private-once-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const directory = path.join(root, "local-mcp");
+  for (let attempt = 0; attempt < 3; attempt++) privateFiles.preparePrivateDirectory(directory);
+  privateFiles.assertPrivate(directory);
+  assert.equal(runs, 1);
+  // A file is checked every time. It is protected first, as the stores write theirs: an elevated process (CI) makes
+  // its files owned by Administrators.
+  const file = path.join(directory, "endpoint.json");
+  fs.writeFileSync(file, "{}");
+  privateFiles.windowsAcl(file, { mode: "protect" });
+  privateFiles.assertPrivate(file);
+  privateFiles.assertPrivate(file);
+  assert.equal(runs, 4);
+  // The same path made again is another folder: it is protected again.
+  fs.rmSync(directory, { recursive: true });
+  privateFiles.preparePrivateDirectory(directory);
+  privateFiles.assertPrivate(directory);
+  assert.equal(runs, 5);
+  // A junction in its place is refused before any PowerShell run.
+  fs.rmSync(directory, { recursive: true });
+  const elsewhere = path.join(root, "elsewhere");
+  fs.mkdirSync(elsewhere);
+  fs.symlinkSync(elsewhere, directory, "junction");
+  assert.throws(() => privateFiles.preparePrivateDirectory(directory), /Not a private directory/);
+  assert.throws(() => privateFiles.assertPrivate(directory), /must not be a symlink/);
+  assert.equal(runs, 5);
 });
 
 test("Windows executable lookup searches only absolute PATH directories and prefers PATHEXT launchers", async (t) => {

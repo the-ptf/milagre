@@ -73,17 +73,34 @@ if (-not $ownAccess) { throw 'Private path must allow the current Windows user t
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
+// Windows folders this process has protected, by path, with the file ID each had then. Each check starts PowerShell
+// (250 ms or more, blocking), and a daemon start asked for the same folders up to five times. A folder deleted and made
+// again gets a new ID, so it is protected again; a junction in its place fails the lstat check first.
+const protectedFolders = new Map();
+function folderId(directory) {
+  const stat = fs.lstatSync(directory, { bigint: true });
+  return stat.isDirectory() && stat.ino ? `${stat.dev}:${stat.ino}` : null;
+}
+const protectedHere = (directory) => {
+  const id = folderId(directory);
+  return id !== null && protectedFolders.get(path.resolve(directory)) === id;
+};
 function assertPrivate(file, { platform = process.platform } = {}) {
   const stat = fs.lstatSync(file);
   if (stat.isSymbolicLink()) throw new Error(`Private path must not be a symlink: ${file}`);
-  if (platform === "win32") windowsAcl(file);
-  else if (stat.uid !== /** @type {() => number} */ (process.getuid)() || (stat.mode & 0o777) !== (stat.isDirectory() ? 0o700 : 0o600))
+  if (platform === "win32") {
+    if (!protectedHere(file)) windowsAcl(file);
+  } else if (stat.uid !== /** @type {() => number} */ (process.getuid)() || (stat.mode & 0o777) !== (stat.isDirectory() ? 0o700 : 0o600))
     throw new Error(`Private path must be owned by you with permissions ${stat.isDirectory() ? "0700" : "0600"}: ${file}`);
 }
 function preparePrivateDirectory(directory) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (!fs.lstatSync(directory).isDirectory()) throw new Error(`Not a private directory: ${directory}`);
-  if (process.platform === "win32") windowsAcl(directory, { mode: "protect" });
-  else assertPrivate(directory);
+  if (process.platform !== "win32") return assertPrivate(directory);
+  if (protectedHere(directory)) return;
+  // Read before protecting: a folder swapped in meanwhile has another ID, so the next call protects it again.
+  const id = folderId(directory);
+  windowsAcl(directory, { mode: "protect" });
+  if (id !== null) protectedFolders.set(path.resolve(directory), id);
 }
 module.exports = { powershell, powershellEnvironment, windowsAcl, assertPrivate, preparePrivateDirectory };
