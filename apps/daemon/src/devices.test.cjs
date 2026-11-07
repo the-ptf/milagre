@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const { preparePrivateDirectory, assertPrivate } = require("@milagre/core/private-files");
+const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("@milagre/core/private-files");
 const { createDevices, MAX_DEVICES, CLAIM_MS } = require("./devices.cjs");
 
 // The daemon keeps these in its data folder, which it makes private first: mkdtemp is 0700 on macOS and Linux, and
@@ -15,6 +15,12 @@ const tmp = async (name) => {
   return dir;
 };
 const saved = async (dir) => JSON.parse(await fs.readFile(path.join(dir, "devices.json"), "utf8"));
+// Written as the daemon writes its files: 0600, and on Windows a protected ACL (an elevated process's new files are
+// owned by Administrators, which the check refuses).
+const writeOwn = async (file, text) => {
+  await fs.writeFile(file, text, { mode: 0o600 });
+  if (process.platform === "win32") windowsAcl(file, { mode: "protect" });
+};
 // 0600 on macOS and Linux; on Windows, an ACL only this user and SYSTEM hold.
 const assertPrivateFile = async (dir, name) => {
   if (process.platform === "win32") assertPrivate(path.join(dir, name));
@@ -93,7 +99,7 @@ test("only the 32 newest devices are remembered", async () => {
 
 test("phones from relay-phones.json move to devices.json as nameless phones, and the old file goes", async () => {
   const dir = await tmp("devices-migrate");
-  await fs.writeFile(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA", "phoneB"] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA", "phoneB"] }));
   const devices = createDevices(dir);
   await devices.load();
   assert.deepEqual(devices.list(), [
@@ -110,7 +116,7 @@ test("phones from relay-phones.json move to devices.json as nameless phones, and
 
 test("a migrated phone takes its name from its next hello", async () => {
   const dir = await tmp("devices-migrate-name");
-  await fs.writeFile(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }));
   const devices = createDevices(dir, { now: () => 50 });
   await devices.load();
   await devices.seen("phoneA", { name: "Victor's iPhone" });
@@ -127,7 +133,7 @@ test("a migrated phone takes its name from its next hello", async () => {
 
 test("a store used before load still keeps the migrated phones", async () => {
   const dir = await tmp("devices-early");
-  await fs.writeFile(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }));
   await createDevices(dir).add("phoneC");
   const again = createDevices(dir);
   await again.load();
@@ -215,7 +221,7 @@ test("list during an in-flight load still returns the previous devices", async (
   const devices = createDevices(dir, { now: () => 5 });
   await devices.load();
   await devices.add("phoneA", { name: "A" });
-  await fs.writeFile(path.join(dir, "devices.json"), JSON.stringify({ devices: [{ key: "phoneB", kind: "phone" }], removed: [] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "devices.json"), JSON.stringify({ devices: [{ key: "phoneB", kind: "phone" }], removed: [] }));
   const load = { settled: false };
   const loading = devices.load().then(() => (load.settled = true));
   const seen = [];
@@ -382,10 +388,9 @@ test("an acknowledge whose write fails leaves the phone New, so the next one wri
 
 test("a removed phone is no longer announced, and devices saved before these fields are neither announced nor New", async () => {
   const dir = await tmp("devices-new-old");
-  await fs.writeFile(
+  await writeOwn(
     path.join(dir, "devices.json"),
     JSON.stringify({ devices: [{ key: "phoneA", kind: "phone", name: null, pairedAt: 1, lastSeen: 1 }], removed: [] }),
-    { mode: 0o600 },
   );
   const devices = createDevices(dir, { now: () => 2 });
   await devices.load();
