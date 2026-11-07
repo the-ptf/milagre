@@ -181,13 +181,19 @@ test("Antigravity's CLI failures point at Milagre Settings, not a shell command"
 });
 
 test("CLI failures name the fix", () => {
+  // Windows installs with PowerShell's installers; everywhere else with the shell scripts.
+  const windows = process.platform === "win32";
   assert.equal(
     missingCliMessage("claude"),
-    "Milagre couldn't find Claude Code. Install it with `curl -fsSL https://claude.ai/install.sh | bash`, then send your message again.",
+    windows
+      ? "Milagre couldn't find Claude Code. Install it with `irm https://claude.ai/install.ps1 | iex`, then send your message again."
+      : "Milagre couldn't find Claude Code. Install it with `curl -fsSL https://claude.ai/install.sh | bash`, then send your message again.",
   );
   assert.equal(
     missingCliMessage("codex"),
-    "Milagre couldn't find Codex. Install it with `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, then send your message again.",
+    windows
+      ? "Milagre couldn't find Codex. Install it with `irm https://chatgpt.com/codex/install.ps1 | iex`, then send your message again."
+      : "Milagre couldn't find Codex. Install it with `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, then send your message again.",
   );
   assert.equal(
     cliTooOldMessage("claude", "2.1.200", "2.1.286"),
@@ -649,7 +655,8 @@ test("a default Chat's system prompt stays under its size budget", () => {
 test("the instructions say Milagre's tools may be missing, and name the skills to read before attaching", () => {
   assert.match(MILAGRE_INSTRUCTIONS, /work only when they are in your tool list/);
   for (const skill of ["simulator", "browser"]) {
-    const file = new RegExp(`Before the first attach, read (\\S+${skill}.SKILL\\.md)`).exec(MILAGRE_INSTRUCTIONS)?.[1];
+    // A checkout's path may have spaces (C:\Users\Me\My Projects): the path runs from the read to SKILL.md.
+    const file = new RegExp(`Before the first attach, read (.+?${skill}.SKILL\\.md)`).exec(MILAGRE_INSTRUCTIONS)?.[1];
     assert.ok(file, `the instructions name the ${skill} skill's file`);
     assert.match(require("node:fs").readFileSync(file, "utf8"), new RegExp(`^name: ${skill}$`, "m"));
   }
@@ -802,7 +809,7 @@ test("Codex: turn/plan/updated maps the plan to tasks and respects thread and tu
 });
 
 test("the design instructions point the agent at the bundled design skill, which exists", () => {
-  const file = /read the bundled design skill at (\S+SKILL\.md)/.exec(MILAGRE_INSTRUCTIONS)?.[1];
+  const file = /read the bundled design skill at (.+?SKILL\.md)/.exec(MILAGRE_INSTRUCTIONS)?.[1];
   assert.ok(file, "the instructions name the skill's file");
   assert.match(require("node:fs").readFileSync(file, "utf8"), /^name: design$/m);
 });
@@ -825,7 +832,7 @@ test("design instructions teach editable documents and version-safe revisions", 
 });
 
 test("the instructions point the agent at the bundled genui skill, which exists", () => {
-  const file = /read the bundled genui skill at (\S+SKILL\.md)/.exec(MILAGRE_INSTRUCTIONS)?.[1];
+  const file = /read the bundled genui skill at (.+?SKILL\.md)/.exec(MILAGRE_INSTRUCTIONS)?.[1];
   assert.ok(file, "the instructions name the skill's file");
   assert.match(require("node:fs").readFileSync(file, "utf8"), /^name: genui$/m);
   assert.match(MILAGRE_INSTRUCTIONS, /fenced block whose info string is `openui`/);
