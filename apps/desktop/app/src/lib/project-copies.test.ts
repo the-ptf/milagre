@@ -15,7 +15,8 @@ const stored = new Map<string, string>();
   dispatchEvent() {},
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };
-const { chatsGroup, createChatsHomes, missingHomeAt, pickedProjectKey, projectGroups, projectPickerRows, withHome } = await import("./project-copies.ts");
+const { chatsGroup, createChatsHomes, missingHomeAt, pickedProjectKey, pickerLinks, projectGroups, projectPickerRows, withHome } =
+  await import("./project-copies.ts");
 
 const STUDIO = "c-studio";
 const HOME = "/Users/v/Library/Application Support/Milagre/chats";
@@ -169,4 +170,16 @@ test("the sidebar and the composer share one read of each computer's Chats home"
   await settle();
   assert.equal(reads.length, 6);
   back();
+});
+
+test("pickerLinks offers the Links the sidebar shows, by name", () => {
+  const links = [
+    { id: "b", name: "Shop + API", hidden: false },
+    { id: "h", name: "Archive", hidden: true },
+    { id: "a", name: "App + Site" },
+  ];
+  assert.deepEqual(
+    pickerLinks(links).map((link) => link.id),
+    ["a", "b"],
+  );
 });

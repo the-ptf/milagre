@@ -2880,6 +2880,9 @@ function App() {
     }
     startNewChatIn(key);
   });
+  // The new-chat heading's dropdown picked a Link: its new Chat opens there, as the Link header's + opens it. What was
+  // typed stays as the Project's draft (selectLink saves it).
+  const newChatInLink = useEvent((id: string) => newChatInScope(`milagre-link:${id}`));
   // A new Chat in a Project, switched to first (a Link on screen closes). `draftText` replaces what waits there.
   function startNewChatIn(key: string, draftText = "") {
     if (!selectedLinkRef.current && projectRef.current?.path === key) {
@@ -4213,7 +4216,7 @@ function App() {
                         permissionMode={permissionMode}
                         onPermissionModeChange={changePermissionMode}
                         onRecommendationSelect={sendRecommendation}
-                        newChatProject={{ key: project.path, name: project.name, kind: project.kind, onChange: moveNewChat }}
+                        newChatProject={{ key: project.path, name: project.name, kind: project.kind, onChange: moveNewChat, onLinkPick: newChatInLink }}
                         worktrees={composerWorktrees}
                         selectedWorktreeId={selectedWorktree?.id}
                         onWorktreeChange={(id) => {

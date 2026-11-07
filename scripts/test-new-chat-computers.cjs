@@ -41,6 +41,11 @@ window.milagre = {
     { path: "/Users/v/Code/milagre-ade", name: "milagre-ade", openedAt: "", origin: ORIGIN },
     { path: "/Users/v/Code/website", name: "website", openedAt: "" },
   ],
+  // This Mac's Links follow the Projects in the picker; a hidden one is left out.
+  listNamedLinks: async () => [
+    { id: "link-shop", name: "Shop + API", projectIds: ["p-shop", "p-api", "p-site"], createdAt: "" },
+    { id: "link-old", name: "Old pair", projectIds: ["p-a", "p-b"], createdAt: "", hidden: true },
+  ],
   getProjectImage: async () => null,
   on: (id) => bridges[id] ?? {},
   onComputersChanged: () => () => {},
@@ -55,7 +60,7 @@ function Fixture() {
   const move = (next) => (window.moves.push(next), setKey(next));
   return (
     <div style={{ width: 640, margin: "80px auto", display: "flex", flexDirection: "column", gap: 260 }}>
-      <NewChatHeading projectKey={key} projectName={name} groups={groups} onProjectChange={move} />
+      <NewChatHeading projectKey={key} projectName={name} groups={groups} onProjectChange={move} onLinkPick={(id) => { window.linkPicked = id; }} />
       <NewChatHeader
         worktrees={[{ id: 1, name: "main", path: key }]}
         selectedWorktreeId={1}
@@ -113,11 +118,12 @@ async function browserChecks() {
     assert.equal(await heading(), "milagre-ade");
     assert.deepEqual(await chip(), ["victor-mbp", "New Worktree", "main"]);
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
-    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
+    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 4`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll("[data-new-chat-heading] [data-picker-row]")].map((row) => row.textContent)`), [
       "Mmilagre-ade3 computers",
       "Wwebsite",
       "Bbillingatlas",
+      "Shop + API3 Projects",
     ]);
     await screenshot("new-chat-project-picker");
     console.log("PASS: the Project picker shows a repository on three computers as one row");
@@ -143,25 +149,34 @@ async function browserChecks() {
 
     // Another Project, then this one again: it opens on atlas, the computer last chosen for it.
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
-    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
+    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 4`);
     await pickRow("[data-new-chat-heading]", "website");
     await waitFor(`window.moves.at(-1) === "/Users/v/Code/website"`);
     await waitFor(`document.querySelector("[data-new-chat-pickers] button[aria-expanded]").textContent === "victor-mbp"`);
     assert.deepEqual(await chip(), ["victor-mbp", "New Worktree", "main"]);
     assert.equal(await heading(), "website");
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
-    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
+    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 4`);
     await pickRow("[data-new-chat-heading]", "milagre-ade");
     await waitFor(`window.moves.at(-1) === "c-atlas|/Users/a/work/milagre-ade"`);
     // A Project on one other computer names it in the chip, never the heading.
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
-    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
+    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 4`);
     await pickRow("[data-new-chat-heading]", "billing");
     await waitFor(`window.moves.at(-1) === "c-atlas|/Users/a/work/billing"`);
     await waitFor(`document.querySelector("[data-new-chat-pickers] button[aria-expanded]").textContent === "atlas"`);
     assert.equal(await heading(), "billing");
     assert.deepEqual(errors, []);
     console.log("PASS: picking the Project again opens on the computer last chosen, and a one-computer Project has a chip too");
+
+    // A Link from the same dropdown: the new Chat starts in it, and the picker closes.
+    await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
+    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 4`);
+    await pickRow("[data-new-chat-heading]", "Shop + API");
+    await waitFor(`window.linkPicked === "link-shop"`);
+    await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 0`);
+    assert.deepEqual(errors, []);
+    console.log("PASS: the Project picker lists this Mac's Links after the Projects, and picking one starts the new Chat there");
     app.exit(0);
   } catch (error) {
     console.error(error);

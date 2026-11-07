@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ArrowDown01Icon, BubbleChatIcon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, BubbleChatIcon, Link04Icon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
 import { UI_COPY } from "@milagre/shared/model-copy";
@@ -9,7 +9,7 @@ import { Icon } from "./primitives/Icon";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { useDismiss } from "../lib/use-dismiss";
 import { useComputers } from "../lib/computers";
-import { pickedProjectKey, projectPickerRows, type ProjectGroup } from "../lib/project-copies";
+import { pickedProjectKey, projectPickerRows, useNamedLinks, type ProjectGroup } from "../lib/project-copies";
 import { newChatLook } from "../lib/new-chat-look";
 import { useProjectImages } from "../lib/project-images";
 
@@ -19,6 +19,7 @@ import { useProjectImages } from "../lib/project-images";
  * there. The composer's computer chip names the computer, so the heading drops it; only a Project not yet found in the
  * lists (no chip yet) keeps "Computer /" here.
  * No project, first in the list, moves it to a Chats home: "Just chat [No project ▾]", the computer left to the chip too.
+ * This Mac's Links follow the Projects; picking one opens a new Chat in that Link, as its sidebar header's + does.
  */
 export function NewChatHeading({
   projectKey,
@@ -27,6 +28,7 @@ export function NewChatHeading({
   groups,
   noProject,
   onProjectChange,
+  onLinkPick,
   onOpenChange,
 }: {
   projectKey: string;
@@ -37,6 +39,8 @@ export function NewChatHeading({
   noProject?: ProjectGroup;
   /** `home`: the key is a Chats home, and whether that computer has made it yet. */
   onProjectChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void;
+  /** A Link picked by id: the new Chat starts there instead. Without it the picker lists no Links. */
+  onLinkPick?: (id: string) => void;
   /** The picker opened or closed, so the caller can raise the heading above the composer only while it is open. */
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -104,6 +108,13 @@ export function NewChatHeading({
                 close();
                 if (key !== projectKey) onProjectChange(key, home);
               }}
+              onLinkPick={
+                onLinkPick &&
+                ((id) => {
+                  setOpen(false);
+                  onLinkPick(id);
+                })
+              }
               onClose={close}
             />
           )}
@@ -120,24 +131,28 @@ function ProjectPicker({
   noProject,
   currentKey,
   onPick,
+  onLinkPick,
   onClose,
 }: {
   groups: ProjectGroup[];
   noProject?: ProjectGroup;
   currentKey: string;
   onPick: (key: string, home?: Pick<ChatsHome, "exists">) => void;
+  onLinkPick?: (id: string) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const image = useProjectImages(groups.map((group) => group.key));
   const rows = projectPickerRows({ groups, noProject, query });
+  const search = query.trim().toLowerCase();
+  const links = useNamedLinks(Boolean(onLinkPick)).filter((link) => link.name.toLowerCase().includes(search));
   return (
     <PickerPanel
       query={query}
       onQueryChange={setQuery}
       placeholder="Search Projects"
       emptyLabel={UI_COPY.noProjects}
-      isEmpty={rows.length === 0}
+      isEmpty={rows.length === 0 && links.length === 0}
       className="absolute top-[calc(100%+0.375rem)] left-0 z-30 w-[300px] max-w-[calc(100vw-2rem)] text-left"
       style={{ transformOrigin: "top left" }}
       onKeyDown={(event) => {
@@ -181,6 +196,25 @@ function ProjectPicker({
           />
         );
       })}
+      {onLinkPick && links.length > 0 && (
+        <>
+          {rows.length > 0 && <MenuSeparator />}
+          {links.map((link) => (
+            <PickerRow
+              key={link.id}
+              icon={
+                <span className="flex size-4 items-center justify-center rounded-inline bg-ink text-on-ink">
+                  <Icon icon={Link04Icon} size={12} />
+                </span>
+              }
+              label={link.name}
+              trailing={link.projectIds.length === 1 ? "1 Project" : `${link.projectIds.length} Projects`}
+              selected={false}
+              onClick={() => onLinkPick(link.id)}
+            />
+          ))}
+        </>
+      )}
     </PickerPanel>
   );
 }
