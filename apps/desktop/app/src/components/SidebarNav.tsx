@@ -1031,10 +1031,7 @@ export default memo(function SidebarNav({
     chatOrder,
   );
   const chatsScopes = new Map(
-    homeGroups.map(({ key, list, pinned, rest }) => [
-      key,
-      { name: CHATS_GROUP_LABEL, badge: { projectImage: null, projectInitial: "" }, list, rows: [...pinned, ...rest] },
-    ]),
+    homeGroups.map(({ key, list, pinned, rest }) => [key, { name: CHATS_GROUP_LABEL, badge: CHATS_BADGE, list, rows: [...pinned, ...rest] }]),
   );
   // Grouped by Project: one repository's copies on several computers (one Git origin) share a heading, in its first
   // copy's place, and their chats merge under it, each naming its computer.
@@ -1310,25 +1307,28 @@ export default memo(function SidebarNav({
 
   // One list: the unpinned rows of every scope in one column. The pinned ones stay in their scope's slot of the Pinned
   // section, where they still drag; each scope's list renders just those.
-  const flatScopes = new Map(
-    groups.map(({ scope, current, list, pinned, rest }) => [
+  // Chats without a Project join it like any Project's, with the Chats bubble for their icon: the One list has no
+  // groups, so it has no Chats group either.
+  const flatScopes = new Map<string, FlatScope>([
+    ...chatsScopes,
+    ...groups.map(({ scope, current, list, pinned, rest }): [string, FlatScope] => [
       scope.key,
       { name: scope.name, badge: scopeBadge(scope, current), list, rows: [...pinned, ...rest] },
     ]),
-  );
-  const flatChats = oneList
+  ]);
+  const offlineHomes = new Set(homeGroups.filter(({ offline }) => offline).map(({ key }) => key));
+  const flatChats: (FlatChat & { offline?: boolean })[] = oneList
     ? mergeScopeChats(
-        groups.map(({ scope, rest }) => ({ key: scope.key, rows: rest })),
+        [...homeGroups.map(({ key, rest }) => ({ key, rows: rest })), ...groups.map(({ scope, rest }) => ({ key: scope.key, rows: rest }))],
         chatOrder,
-      )
+      ).map((chat) => (offlineHomes.has(chat.scopeKey) ? { ...chat, offline: true } : chat))
     : [];
-  // Match the expanded list: pinned homes and Projects first, then the Chats group and the merged Project rows.
+  // Match the expanded list: pinned homes and Projects first, then every unpinned row, homes' among them.
   const railItems: RailScope[] | null =
     collapsed && oneList
       ? [
           ...homeGroups.flatMap(({ key, pinned }) => pinned.map((row) => ({ scopeKey: key, row }))),
           ...groups.flatMap(({ scope, pinned }) => pinned.map((row) => ({ scopeKey: scope.key, row }))),
-          ...chatsRows,
           ...flatChats,
         ].map(({ scopeKey, row }) => {
           const scope = scopes.find((item) => item.key === scopeKey);
@@ -1423,9 +1423,6 @@ export default memo(function SidebarNav({
           />
         </Tooltip>
       </div>
-      {chatsGroup}
-      {/* It parts the Chats from the Projects' rows below, so it shows only when there are both. */}
-      {chatsGroup && flatChats.length > 0 && <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />}
       <FlatChatList chats={flatChats} scopes={flatScopes} />
       {groups
         .filter(({ scope, state, current }) => !state && !current && failedScopes.has(scope.key))
@@ -1437,7 +1434,7 @@ export default memo(function SidebarNav({
             </button>
           </p>
         ))}
-      {groups.length > 0 && flatChats.length === 0 && chatsRows.length === 0 && !anyPinned && (
+      {groups.length > 0 && flatChats.length === 0 && !anyPinned && (
         <p data-one-list-empty className="mx-2 h-8 pl-2 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
           {loadingScopes ? "Loading Chats…" : "No Chats yet"}
         </p>
@@ -2128,7 +2125,7 @@ function chatRowActions(actions: ChatRowActions, linkProjectId: string | null, s
 }
 
 /** An inbox row's Project icon, as ChatRow's props: plain values, so memo'd rows keep them. */
-type ScopeBadge = { projectImage: string | null; projectInitial: string; linkProjects?: number };
+type ScopeBadge = { projectImage: string | null; projectInitial: string; linkProjects?: number; projectChats?: boolean };
 
 /** What the one-list sidebar knows of a scope: the props its ChatList would get, and all its rows. */
 type FlatScope = {
@@ -2210,6 +2207,8 @@ function dragRowToGrid(event: ReactPointerEvent<HTMLElement>, key: string, onDra
 /** One copy of a repository merged under a shared heading: its key and computer, for picking where + starts a Chat. */
 type ScopeCopy = { key: string; computerId: string };
 const NO_BADGE: ScopeBadge = { projectImage: null, projectInitial: "" };
+/** A Chat without a Project, in the One list: the Chats bubble stands in for a Project's icon. */
+const CHATS_BADGE: ScopeBadge = { projectImage: null, projectInitial: "", projectChats: true };
 
 /**
  * Chats of several scopes in one column. `inbox` (the One list): each row leads with its Project's icon and name. Off,

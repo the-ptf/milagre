@@ -329,7 +329,7 @@ function inboxStatus(item: SidebarRecent): { label: string; tone: string } | nul
   return { label: INBOX_STATUS[mark], tone: markToneClass[chatMarkTone(mark)] };
 }
 
-function RowProjectIcon({ image, initial = "" }: { image?: string | null; initial?: string }) {
+function RowProjectIcon({ image, initial = "", chats = false }: { image?: string | null; initial?: string; chats?: boolean }) {
   const letter = initial.trim().slice(0, 1).toUpperCase() || "P";
   return (
     <span
@@ -337,7 +337,8 @@ function RowProjectIcon({ image, initial = "" }: { image?: string | null; initia
       data-chat-project-icon
       className="sidebar-copy flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-on-ink"
     >
-      <WorkspaceIcon src={image} fallback={letter} />
+      {/* A Chat without a Project wears the Chats group's bubble, as its header does in the grouped sidebar. */}
+      {chats ? <HugeiconsIcon icon={BubbleChatIcon} size={14} /> : <WorkspaceIcon src={image} fallback={letter} />}
     </span>
   );
 }
@@ -618,6 +619,7 @@ export const ChatRow = memo(function ChatRow({
   project,
   projectImage,
   projectInitial,
+  projectChats = false,
   linkProjects,
   chatKey,
   subchat = false,
@@ -651,6 +653,8 @@ export const ChatRow = memo(function ChatRow({
   /** The inbox row's Project icon (a Link's first Project's), and the letter shown without one. */
   projectImage?: string | null;
   projectInitial?: string;
+  /** The chat has no Project: the inbox row's icon is the Chats bubble instead of a Project's. */
+  projectChats?: boolean;
   /** A shared Link Chat's Projects: "3 Projects" stands in for the Project's name. */
   linkProjects?: number;
   /** The row's chat key (scope#id): messages waiting on this Mac for it show as "· 2 waiting". */
@@ -862,7 +866,7 @@ export const ChatRow = memo(function ChatRow({
       >
         {renaming && inbox ? (
           <div data-row className="sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-control bg-hover-2 px-2 py-[7px]">
-            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
+            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />
             <RenameField
               inbox
               initial={item.label}
@@ -904,7 +908,7 @@ export const ChatRow = memo(function ChatRow({
               active ? "bg-hover-2" : "hover:bg-hover-2"
             } ${archiving ? "opacity-30" : ""}`}
           >
-            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
+            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />
             <InboxTitleLine
               item={item}
               linked={linked}
@@ -944,7 +948,7 @@ export const ChatRow = memo(function ChatRow({
             </span>
             {shownFamily && (
               <span className="mr-2">
-                <RowProjectIcon image={projectImage} initial={projectInitial} />
+                <RowProjectIcon image={projectImage} initial={projectInitial} chats={projectChats} />
               </span>
             )}
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />

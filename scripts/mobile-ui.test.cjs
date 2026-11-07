@@ -5722,6 +5722,81 @@ test("the new Chat computer picker keeps its composer and draft through slow and
   assert.ok(find(host.render(), (node) => node.type === "ErrorNotice" && node.props.message === "Computer unavailable"));
 });
 
+test("a superseded mobile Link open never commits the draft handoff, including when cached", async () => {
+  const path = "milagre-link:shop-api";
+  let loading;
+  const client = { url: "mac", call: async () => [], open: (target) => loading?.promise ?? Promise.resolve(snapshot(target)) };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open(path);
+  await render().open("/current");
+  loading = deferred();
+  let committed = false;
+  const switching = render().open(path, {
+    background: true,
+    onOpen: () => {
+      committed = true;
+    },
+  });
+  assert.equal(render().snapshot.project.path, "/current");
+  render().cancelNavigation();
+  loading.resolve(snapshot(path));
+  await switching;
+  assert.equal(committed, false);
+  assert.equal(render().snapshot.project.path, "/current");
+});
+
+test("the mobile Link picker preserves text and quotes on failure and transfers late edits on success", async () => {
+  const path = "milagre-link:shop-api";
+  const host = chatHost({
+    effects: true,
+    computers: {
+      useNewChatProjects: () => [],
+      useNoProjectChoice: () => undefined,
+      useComputerViews: () => [
+        { hostId: "mac", name: "Mac", state: "online", projects: [{ path, name: "Shop + API", link: { id: "shop-api" }, projects: [] }] },
+      ],
+      allComputers: { viewOf: () => undefined },
+    },
+  });
+  const quote = { id: "quote", text: "Keep this passage" };
+  host.session.quotes["/p#new:1"] = [quote];
+  let opening;
+  host.session.open = async (target, options) => {
+    assert.equal(target, path);
+    assert.equal(options.background, true);
+    opening = deferred();
+    const state = await opening.promise;
+    options.onOpen(state);
+    host.session.snapshot = state;
+  };
+  const pick = () => {
+    find(host.render(), (node) => node.props?.accessibilityLabel === "Start building in P. Change project").props.onPress();
+    host.choices.at(-1).onSelect("link:0");
+  };
+  pick();
+  await settle();
+  host.field().onChangeText("Edited while the Link opens");
+  opening.reject(new Error("Link unavailable"));
+  await settle();
+  assert.equal(host.field().value, "Edited while the Link opens");
+  assert.deepEqual(host.session.quotes["/p#new:1"], [quote]);
+  assert.equal(host.params.projectPath, undefined);
+  pick();
+  await settle();
+  host.field().onChangeText("Latest Link draft");
+  const state = structuredClone(host.session.snapshot);
+  state.project.path = path;
+  state.project.state.worktrees = { 9: { id: 9, name: "main", path } };
+  opening.resolve(state);
+  await settle();
+  assert.equal(host.params.projectPath, path);
+  assert.equal(host.field().value, "Latest Link draft");
+  assert.equal(host.session.drafts["/p#new:1"], undefined);
+  assert.equal(host.session.quotes["/p#new:1"], undefined);
+  assert.deepEqual(Array.from(host.session.quotes[`${path}#new:9`]), [quote]);
+});
+
 test("a Chat in another Project loads it behind the splash mark, and shows a failure with Retry", async () => {
   const host = chatHost({ effects: true });
   const opening = [];

@@ -340,13 +340,26 @@ async function browserChecks() {
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     assert.equal(await evaluate(`window.newChatCount`), 1, "An empty collapsed One list still starts a new Chat");
     await window.loadURL(process.argv[2] + "?home");
+    // The One list has no groups: a Chat without a Project is one of its rows, with no Chats group around it.
+    await waitFor(`!!document.querySelector('[data-chat-list-flat] [data-chat-id="11"]')`);
+    assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 0, "No Chats group in the One list");
+    assert.ok(
+      await evaluate(`!!document.querySelector('[data-chat-list-flat] [data-chat-key="/work/chats#11"] [data-chat-project-icon] svg')`),
+      "A Chat without a Project wears the Chats bubble for its icon",
+    );
+    await screenshot("one-list-home");
+    // Grouped by Project, the Chats group comes back as a group of its own, and its rows leave the merged list.
+    await evaluate(`window.grouped()`);
     await waitFor(`!!document.querySelector('[data-sidebar-chats] [data-chat-id="11"]')`);
+    await screenshot("grouped-home");
+    await evaluate(`window.oneList()`);
+    await waitFor(`!document.querySelector("[data-sidebar-chats]") && !!document.querySelector('[data-chat-list-flat] [data-chat-id="11"]')`);
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
     await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 6`);
     assert.equal(
       await evaluate(`document.querySelectorAll("[data-rail-scope]")[1].dataset.railScope`),
       "/work/chats#11",
-      "No-project Chats follow pinned Chats and precede the merged Project list",
+      "No-project Chats follow pinned Chats and merge into the Project list by time",
     );
     await evaluate(`document.querySelector('[data-rail-scope="/work/chats#11"]').click()`);
     assert.equal(await evaluate("window.opened"), "/work/chats#11");

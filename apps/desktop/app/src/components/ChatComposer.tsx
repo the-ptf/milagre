@@ -1049,7 +1049,14 @@ interface ChatComposerProps {
    * `kind: "chats"` is a Chats home draft (No project); `onChange` gets `home` when the move is to a Chats home, saying
    * whether that computer has made it yet.
    */
-  newChatProject?: { key: string; name: string; kind?: ProjectKind; onChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void };
+  newChatProject?: {
+    key: string;
+    name: string;
+    kind?: ProjectKind;
+    onChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void;
+    /** Starts the new Chat in one of this Mac's Links instead, picked from the same dropdown. */
+    onLinkPick?: (id: string) => void;
+  };
   worktrees: Array<{ id: number; name: string; path: string }>;
   selectedWorktreeId?: number;
   onWorktreeChange: (id: number) => void;
@@ -1707,6 +1714,7 @@ export function ChatComposer({
               groups={projectGroups}
               noProject={noProjectGroup}
               onProjectChange={newChatChange ? moveDraft : undefined}
+              onLinkPick={newChatProject?.onLinkPick}
               onOpenChange={setHeadingOpen}
             />
           </div>

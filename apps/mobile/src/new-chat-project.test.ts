@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HostView } from "./all-computers-store.ts";
-import { newChatChoices, newChatProjectGroups, newChatProjects, noProjectChoice, pickNewChatProject, preferredCopy } from "./new-chat-project.ts";
+import { newChatChoices, newChatLinks, newChatProjectGroups, newChatProjects, noProjectChoice, pickNewChatProject, preferredCopy } from "./new-chat-project.ts";
 
 const view = (hostId: string, state: HostView["state"], paths: string[], hidden: string[] = [], home?: HostView["home"]): HostView => ({
   hostId,
@@ -125,4 +125,47 @@ test("No Project defaults to the computer last used for a Chat", () => {
   // The last new Chat having run in a home never makes New Chat pick that home as a Project.
   const projects = newChatProjects(views);
   assert.equal(pickNewChatProject(projects, { hostId: "mac", projectPath: "/m/chats" }, { hostId: "mac", projectPath: "/m/chats" })?.path, "/a");
+});
+
+const withLinks = (base: HostView, links: { id: string; name: string; hidden?: boolean }[]): HostView => ({
+  ...base,
+  projects: [
+    ...base.projects,
+    ...links.map(({ id, name, hidden }) => ({
+      path: `milagre-link:${id}`,
+      name,
+      link: { id, name, projectIds: ["p1"] } as unknown as NonNullable<HostView["projects"][number]["link"]>,
+      projects: [{ id: "p1", path: "/code/a", name: "a" }],
+      ...(hidden ? { hidden: true } : {}),
+    })),
+  ],
+});
+
+test("Links are never New Chat Projects", () => {
+  const views = [withLinks(view("mac", "online", ["/code/a"]), [{ id: "l1", name: "Web + API" }])];
+  assert.deepEqual(
+    newChatProjects(views).map((project) => project.path),
+    ["/code/a"],
+  );
+});
+
+test("New Chat offers the open computer's shown Links, in sidebar order, with their Projects", () => {
+  const views = [
+    withLinks(view("mac", "online", ["/code/a"]), [
+      { id: "l1", name: "Web + API" },
+      { id: "l2", name: "Secret", hidden: true },
+      { id: "l3", name: "Docs" },
+    ]),
+    withLinks(view("deer", "online", ["/code/b"]), [{ id: "l4", name: "Other Mac" }]),
+  ];
+  assert.deepEqual(newChatLinks(views, "mac"), [
+    { hostId: "mac", hostName: "MAC", offline: false, path: "milagre-link:l1", name: "Web + API", members: [{ id: "p1", path: "/code/a", name: "a" }] },
+    { hostId: "mac", hostName: "MAC", offline: false, path: "milagre-link:l3", name: "Docs", members: [{ id: "p1", path: "/code/a", name: "a" }] },
+  ]);
+  assert.deepEqual(
+    newChatLinks(views, "deer").map((link) => link.name),
+    ["Other Mac"],
+  );
+  assert.deepEqual(newChatLinks(views, undefined), []);
+  assert.deepEqual(newChatLinks(views, "gone"), []);
 });

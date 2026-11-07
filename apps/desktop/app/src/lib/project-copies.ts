@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
 import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
+import type { NamedProjectLink } from "@milagre/shared/model";
 import { groupByOrigin } from "@milagre/shared/project-origin";
 import { bridgeFor } from "./computer-bridge.ts";
 import { useComputers, useHiddenComputers } from "./computers.ts";
@@ -357,4 +358,33 @@ export function projectGroups({
     choices.push(copy(scope.path, scope.name, scope.origin));
   }
   return groupByOrigin(choices);
+}
+
+/**
+ * This Mac's Links a new Chat can start in, for the new-chat picker: the ones the sidebar shows (not hidden), by name.
+ * Read when `enabled` turns on, so each opening of the picker sees the Links as they are then.
+ */
+export function useNamedLinks(enabled: boolean): NamedProjectLink[] {
+  const [links, setLinks] = useState<NamedProjectLink[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    void Promise.resolve()
+      .then(() => window.milagre?.listNamedLinks?.())
+      .then(
+        (list) => {
+          if (live && Array.isArray(list)) setLinks(pickerLinks(list));
+        },
+        () => {},
+      );
+    return () => {
+      live = false;
+    };
+  }, [enabled]);
+  return links;
+}
+
+/** The Links the new-chat picker offers: not hidden, by name. */
+export function pickerLinks<T extends { name: string; hidden?: boolean }>(links: readonly T[]): T[] {
+  return links.filter((link) => !link.hidden).toSorted((a, b) => a.name.localeCompare(b.name));
 }
