@@ -461,7 +461,7 @@ test("Chat edits still report a disk failure while streaming writes are deferred
   const rename = fs.rename;
   let fail = true;
   t.mock.method(fs, "rename", async (...args) => {
-    if (fail && String(args[1]).endsWith("/coordination.json")) throw new Error("disk full");
+    if (fail && path.basename(String(args[1])) === "coordination.json") throw new Error("disk full");
     return rename(...args);
   });
   for (const [method, args] of [
@@ -553,7 +553,7 @@ test("quit stops agents after a disk failure and can retry before releasing owne
   const rename = fs.rename;
   let fail = true;
   t.mock.method(fs, "rename", async (...args) => {
-    if (fail && String(args[1]).endsWith("/coordination.json")) throw new Error("disk full");
+    if (fail && path.basename(String(args[1])) === "coordination.json") throw new Error("disk full");
     return rename(...args);
   });
   await assert.rejects(runtime.close(), /disk full/);
@@ -1239,7 +1239,7 @@ async function trailingClone(project) {
   await fs.writeFile(path.join(remote, "README.md"), "shop\n");
   remoteGit("add", ".");
   remoteGit("commit", "-qm", "init");
-  execFileSync("git", ["clone", "--quiet", remote, clone]);
+  execFileSync("git", ["clone", "--quiet", "--config", "core.autocrlf=false", remote, clone]);
   await fs.writeFile(path.join(remote, "NEWS.md"), "shipped\n");
   remoteGit("add", ".");
   remoteGit("commit", "-qm", "ship");
