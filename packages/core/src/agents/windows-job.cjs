@@ -1,4 +1,5 @@
 const { spawn } = require("node:child_process");
+const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
 const { randomBytes } = require("node:crypto");
@@ -118,6 +119,8 @@ function spawnWindowsJob(file, args, options = {}, spawnImpl = spawn) {
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     {
       ...keeperOptions,
+      // The job's process gets the folder (the spec's cwd). The keeper outlives it, and would hold a Worktree against removal.
+      cwd: path.dirname(powershell()),
       detached: false,
       env: { ...powershellEnvironment(targetEnvironment), MILAGRE_WINDOWS_JOB_SPEC: payload },
       stdio: ["pipe", "pipe", "pipe"],
