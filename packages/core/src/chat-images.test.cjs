@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
+const { pathToFileURL } = require("node:url");
 const { ProjectStates } = require("./project-states.cjs");
 const { ChatImages } = require("./chat-images.cjs");
 const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from("image")]);
@@ -54,7 +55,8 @@ test("only actual image references grant access, scoped to their Project", async
 test("file URIs and relative image paths resolve against the Chat Worktree", async (t) => {
   for (const kind of ["relative", "uri"]) {
     const { project, file, state, images } = await fixture(t);
-    state.messages[0].body = kind === "relative" ? "![image](../left%20bar.png)" : `![image](file://${file.replaceAll(" ", "%20")})`;
+    // pathToFileURL: a Windows path's URL is file:///C:/..., not file://C:\...
+    state.messages[0].body = kind === "relative" ? "![image](../left%20bar.png)" : `![image](${pathToFileURL(file).href})`;
     assert.ok(await images.resolve(project, file));
   }
 });
