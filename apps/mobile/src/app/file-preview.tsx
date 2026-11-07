@@ -11,6 +11,7 @@ import { saveAttachment } from "../save-attachment";
 import { Toast } from "../primitives/toast";
 import { Markdown } from "../markdown";
 import { ErrorNotice, HeaderButton, PageScroll, PillButton, useStyles } from "../ui";
+import { fileLinkFolder } from "@milagre/shared/file-link";
 
 export default function FilePreview() {
   const styles = useStyles();
@@ -66,7 +67,7 @@ export default function FilePreview() {
       setDownloading(false);
     }
   };
-  const folder = path ? path.slice(0, path.lastIndexOf("/")) || "/" : undefined;
+  const folder = path ? fileLinkFolder(path) : undefined;
   return (
     <View style={{ flex: 1 }}>
       <Stack.Screen options={{ title: name }} />

@@ -1,6 +1,6 @@
 import { Children, createContext, isValidElement, memo, useContext, useState, useEffect, useRef } from "react";
 import type { ReactElement, ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import type { Components } from "react-markdown";
 import type { ImageAttachment } from "@milagre/shared/model";
 import remarkGfm from "remark-gfm";
@@ -8,7 +8,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { codeLanguageFromClassName } from "../../lib/code-languages";
 import { fileLinkTarget } from "../../lib/file-links";
-import { localFileLink } from "@milagre/shared/file-link";
+import { fileLinkName, isWindowsPath, localFileLink } from "@milagre/shared/file-link";
 import { isGenuiFence } from "@milagre/shared/genui";
 import { useFileOpener, useFilesRoot } from "../editor-links";
 import { lazyView } from "../../lib/lazy-view";
@@ -191,7 +191,7 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
       </a>
     );
 
-  const name = file.path.split("/").pop() || file.path;
+  const name = fileLinkName(file.path);
   const kind = mediaKind(file.path);
   const remote = isRemoteKey(scope);
   const supportedMedia = kind && (!remote || kind === "image");
@@ -252,6 +252,8 @@ const components: Components = {
 };
 
 const REMARK_PLUGINS = [remarkGfm];
+// C:\ reads as an unknown protocol to the default, which would drop the link.
+const urlTransform = (url: string) => (isWindowsPath(url) ? url : defaultUrlTransform(url));
 const HTML_PLUGINS = [rehypeRaw, rehypeSanitize];
 // Cache keys of `html` texts: the same text parses to a different tree.
 const HTML_KEY = "\0html\0";
@@ -259,7 +261,7 @@ const HTML_KEY = "\0html\0";
 function parseMarkdown(text: string, html = false): ReactElement {
   // react-markdown's sync component uses no hooks: called directly it parses now and returns the element tree, whose
   // components (links, code blocks) still render, and read their context, wherever the tree is mounted.
-  return ReactMarkdown({ children: text, remarkPlugins: REMARK_PLUGINS, rehypePlugins: html ? HTML_PLUGINS : undefined, components });
+  return ReactMarkdown({ children: text, remarkPlugins: REMARK_PLUGINS, rehypePlugins: html ? HTML_PLUGINS : undefined, components, urlTransform });
 }
 
 // Parsed bodies outlive their Chat's transcript, so reopening a Chat (or a transcript slot remounting) reuses them
