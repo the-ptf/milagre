@@ -5,6 +5,7 @@ const { createHash } = require("node:crypto");
 const MarkdownIt = require("markdown-it");
 const { MAX_ATTACHMENT_BYTES, IMAGE_ERRORS } = require("@milagre/shared/limits");
 const { chatInProject, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { isWindowsPath } = require("@milagre/shared/file-link");
 const { storeImages } = require("./project-content.cjs");
 const markdown = new MarkdownIt({ html: false });
 const validate = markdown.validateLink.bind(markdown);
@@ -14,7 +15,9 @@ const mimeTypes = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/j
 function localPath(source, cwd) {
   try {
     if (/^file:/i.test(source)) return fileURLToPath(source);
-    if (/^[a-z][a-z\d+.-]*:/i.test(source) || source.startsWith("//")) return null;
+    // C:\ looks like a URL scheme; on Windows it is the drive of a path an agent shared.
+    const windowsPath = process.platform === "win32" && isWindowsPath(source);
+    if ((/^[a-z][a-z\d+.-]*:/i.test(source) && !windowsPath) || source.startsWith("//")) return null;
     return path.resolve(cwd, decodeURIComponent(source));
   } catch {
     return null;
