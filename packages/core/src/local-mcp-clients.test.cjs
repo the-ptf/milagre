@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { assertPrivate } = require("./private-files.cjs");
 const { createLocalMcpStore, privateJson, hash } = require("./local-mcp-store.cjs");
 const { clientCatalog, readConfig, clientEntry, entryToken, canonical, prepareEdit } = require("./local-mcp-client-files.cjs");
 const config = { label: "Editor", grants: { designs: { chatId: "/project#1", designIds: ["one"], capabilities: ["read"] } } };
@@ -33,7 +34,9 @@ test("every client toggle installs its native config, preserves unrelated settin
     const text = fs.readFileSync(client.configPath, "utf8");
     assert.match(text, /keep me/);
     assert.match(text, /127\.0\.0\.1:43210/);
-    assert.equal(fs.statSync(client.configPath).mode & 0o777, 0o600);
+    // 0600 on macOS and Linux; on Windows, an ACL only this user and SYSTEM hold.
+    if (process.platform === "win32") assertPrivate(client.configPath);
+    else assert.equal(fs.statSync(client.configPath).mode & 0o777, 0o600);
     const record = f.store.list().find((c) => c.id === result.connection.id);
     assert.equal(record.clientId, client.id);
     assert.deepEqual(record.grants, config.grants);
