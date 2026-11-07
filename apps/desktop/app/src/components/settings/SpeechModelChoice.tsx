@@ -85,7 +85,7 @@ export function SpeechModelChoice({ value, onChange }: { value: string; onChange
     if (!state?.ready && state?.received == null) void dictationModels.download(model.id).catch(() => {});
   };
   return (
-    <div role="radiogroup" aria-label="Speech model" className="rounded-card bg-surface shadow-card">
+    <div role="radiogroup" aria-label="Speech model" className="rounded-card border border-line bg-surface">
       {WHISPER_MODELS.desktop.map((model, index) => {
         const state = states[model.id];
         const selected = model.id === value;

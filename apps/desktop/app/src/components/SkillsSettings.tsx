@@ -97,7 +97,7 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
           <SectionLabel className="mb-2 px-1">
             {group.label} · {group.skills.length}
           </SectionLabel>
-          <ul className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">
+          <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
             {group.skills.map((skill) => (
               <SkillRow key={skill.path} skill={skill} hidden={shadowedBy(shadowed, skill).length} onOpen={() => setSelectedPath(skill.path)} />
             ))}
@@ -117,7 +117,7 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
       {warnings.length > 0 && (
         <section data-skill-warnings>
           <SectionLabel className="mb-2 px-1">Warnings · {warnings.length}</SectionLabel>
-          <ul className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">
+          <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
             {warnings.map((warning) => (
               <li key={warning} className="break-words px-4 py-2 text-12 text-ink-2 [overflow-wrap:anywhere]">
                 {shortenHome(warning)}
@@ -215,7 +215,7 @@ function SkillDetail({
           All skills
         </Button>
       </div>
-      <section className="grid gap-3 rounded-card bg-surface p-4 shadow-card">
+      <section className="grid gap-3 rounded-card border border-line bg-surface p-4">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate text-15 font-semibold text-ink">/{skill.name}</h2>
           <span className={badge}>{skillProviderLabel(skill.provider)}</span>
@@ -251,7 +251,7 @@ function SkillDetail({
       {hidden.length > 0 && (
         <section data-skill-shadowed>
           <SectionLabel className="mb-2 px-1">{others(hidden.length)}</SectionLabel>
-          <ul className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">
+          <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
             {hidden.map((item) => (
               <li key={item.path} className="grid gap-0.5 px-4 py-2">
                 <span className="flex items-center gap-2 text-12 text-ink-2">
@@ -264,7 +264,7 @@ function SkillDetail({
           </ul>
         </section>
       )}
-      <section className="rounded-card bg-surface px-5 py-4 text-13 leading-5 text-ink shadow-card">
+      <section className="rounded-card bg-surface px-5 py-4 text-13 leading-5 text-ink border border-line">
         {!content ? (
           <p role="status" className="text-ink-3">
             Reading SKILL.md…

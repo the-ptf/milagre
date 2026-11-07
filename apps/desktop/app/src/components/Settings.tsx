@@ -854,7 +854,7 @@ function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }
   return (
     <>
       <ChoiceGroup title="Dictation">
-        <div className="mb-4 overflow-hidden rounded-card bg-surface shadow-card">
+        <div className="mb-4 overflow-hidden rounded-card border border-line bg-surface">
           <Row label="Shortcut" description="Starts dictation in the composer from anywhere in the Chat. Change the keys in Keybindings.">
             <span className="flex items-center gap-2">
               <kbd data-dictation-shortcut className="rounded-control border border-line-strong bg-surface px-2 py-1 font-sans text-13 font-semibold text-ink">
@@ -876,7 +876,7 @@ function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }
         />
         <p className="mt-4 mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
         <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
-        <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
+        <div className="mt-4 overflow-hidden rounded-card border border-line bg-surface">
           <Row
             label="Fix names with AI"
             description="After you stop, a small model corrects misheard file, code and provider names using this Chat. Your words show at once and update a few seconds later, unless you edit them first."
@@ -899,7 +899,7 @@ function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () => void }
         <p className="mt-4 px-1 text-14 font-semibold text-ink">Speech model</p>
         <p className="mb-2 px-1 text-12 text-ink-3">Transcribes on this computer. Picking a model downloads it once.</p>
         <SpeechModelChoice value={settings.dictationModel} onChange={(dictationModel) => updateSettings({ dictationModel })} />
-        <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
+        <div className="mt-4 overflow-hidden rounded-card border border-line bg-surface">
           <Row
             label="Language"
             description={

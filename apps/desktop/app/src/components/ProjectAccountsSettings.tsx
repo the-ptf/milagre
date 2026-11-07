@@ -218,7 +218,7 @@ function Footnote({ onManageAccounts }: { onManageAccounts?: () => void }) {
 }
 
 function Card({ children }: { children: ReactNode }) {
-  return <div className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">{children}</div>;
+  return <div className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">{children}</div>;
 }
 
 export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { projectPath?: string; onManageAccounts?: () => void }) {

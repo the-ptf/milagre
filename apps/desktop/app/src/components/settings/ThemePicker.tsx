@@ -30,7 +30,7 @@ function Tile({ id, label, name, detail, focusable }: { id: ThemeChoice; label: 
       tabIndex={focusable ? 0 : -1}
       onClick={() => updateSettings({ colorTheme: id })}
       // The chosen theme is ringed in ink: accent is for focus and links.
-      className={`flex items-center gap-3 rounded-card bg-surface p-3 text-left shadow-card transition-colors hover:bg-hover ${selected ? "ring-2 ring-ink" : ""}`}
+      className={`flex items-center gap-3 rounded-card border border-line bg-surface p-3 text-left transition-colors hover:bg-hover ${selected ? "ring-2 ring-ink" : ""}`}
     >
       <span className="relative size-8 shrink-0 overflow-hidden rounded-full shadow-hairline" style={{ background: page }}>
         <span className="absolute right-0 bottom-0 size-1/2" style={{ background: accent }} />
