@@ -270,8 +270,15 @@ async function main() {
     await evaluate(`document.querySelector('dialog[aria-label="Command palette"]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(() => evaluate(`!document.querySelector('dialog[aria-label="Command palette"]')`), "palette closed");
     assert.equal(await evaluate(`!!document.querySelector('dialog[data-settings-modal]')?.open`), true, "closing the palette leaves Settings open");
-    await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
-    await waitFor(() => evaluate(`!document.querySelector('dialog[data-settings-modal]')`), "Settings closed");
+    // Opening a Chat from the Link's palette leaves Settings, as it does outside a Link.
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ${mod}: true, bubbles: true, cancelable: true }))`);
+    await waitFor(() => evaluate(`!!document.querySelector('dialog[aria-label="Command palette"]')?.open`), "the Link's palette again");
+    await evaluate(
+      `[...document.querySelectorAll('dialog[aria-label="Command palette"] [role="option"]')].find((option) => option.textContent.includes('New Chat')).click()`,
+    );
+    await waitFor(() => evaluate(`!document.querySelector('dialog[data-settings-modal]')`), "a Chat from the Link's palette closes Settings");
+    // Back to the shared Chat for the steps below.
+    await evaluate(`[...document.querySelectorAll('[data-chat-row], [data-row]')].find((row) => row.textContent.includes('Update status'))?.click()`);
     await input("[data-prompt-editor]", "Keep my draft while viewing the linked Projects");
     await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('[data-canvas]')`), "Link canvas");

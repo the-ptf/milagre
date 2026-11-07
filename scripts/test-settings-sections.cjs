@@ -1,6 +1,6 @@
 // Settings sections in Electron, inside the Settings modal: Labs lists only Floating inbox, Ultracode Fatality, Bots, Delegate
-// and Device notes; Integrations holds the Babysit PRs row, which opens its own page; Devices & sharing holds Published pages
-// (Designs are always on) and Drive other computers, which tells main each time it flips; Notifications holds the chime picker
+// and Device notes; Integrations holds the Babysit PRs row, which opens its own page; Phone & sharing holds Published pages
+// (Designs are always on); This Mac holds Drive other computers, which tells main each time it flips; Notifications holds the chime picker
 // (picking one saves and plays it; the replay button plays it again). The legacy sidebar switch is gone everywhere. Search settings (⌘F) finds sections and rows
 // and opens a row lit up.
 const assert = require("node:assert/strict");
@@ -421,8 +421,8 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Report checks that fail outside this PR." });
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Integrations"`);
     assert.equal(await evaluate(`!!${babysitRow}`), true, "Back returns to Integrations");
-    // Designs are always on: Devices & sharing lists Published pages with no Designs switch; the Milagre MCP moved to MCP servers.
-    await openSection("Devices & sharing");
+    // Designs are always on: Phone & sharing lists Published pages with no Designs switch; the Milagre MCP moved to MCP servers.
+    await openSection("Phone & sharing");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
     assert.equal(await evaluate(`!!document.querySelector('main [role="checkbox"][aria-label="Designs"]')`), false, "Designs can't be turned off");
     await screenshot("milagre");
@@ -456,7 +456,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.botsSaves"), [true]);
     await screenshot("bots-on");
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
-    for (const label of ["Appearance", "Notifications", "Devices & sharing"]) {
+    for (const label of ["Appearance", "Notifications", "Phone & sharing"]) {
       await openSection(label);
       assert.equal(
         await evaluate(`!!document.querySelector('[aria-label="Use legacy sidebar"]') || /legacy sidebar/i.test(document.querySelector("main").textContent)`),
@@ -464,7 +464,11 @@ async function browserChecks() {
         "no legacy sidebar switch in " + label,
       );
     }
-    await openSection("Devices & sharing");
+    // Drive other computers is on This Mac's page, the nav row named after the computer.
+    await evaluate(
+      `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find((b) => /\\(this (Mac|computer)\\)$/.test(b.textContent.trim())).click()`,
+    );
+    await waitFor(`!!document.querySelector("main [data-this-mac-settings]")`);
     const other = `document.querySelector('main [role="checkbox"][aria-label="Drive other computers"]')`;
     await waitFor(`!!${other}`);
     assert.equal(await evaluate(`${other}.getAttribute("aria-checked")`), "false", "Drive other computers is off by default");
@@ -568,7 +572,7 @@ async function browserChecks() {
     await waitFor(`[...document.querySelectorAll('aside button')].some((button) => button.textContent.trim() === "Usage")`);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Labs lists only Floating inbox, Ultracode Fatality, Bots, Delegate and Device notes; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Devices & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
+      "PASS: Labs lists only Floating inbox, Ultracode Fatality, Bots, Delegate and Device notes; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
     );
     app.exit(0);
   } catch (error) {

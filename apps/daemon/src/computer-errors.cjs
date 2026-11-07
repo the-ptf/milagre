@@ -22,9 +22,9 @@ function computerProblem(code, { name, pairing = false }) {
     case "outdated":
       return `Update Milagre on ${name} to connect.`;
     case "full":
-      return `${name} has too many devices connected. Remove one in its Settings › Devices & sharing.`;
+      return `${name} has too many devices connected. Remove one in its Settings › Phone & sharing.`;
     case "offline":
-      return pairing ? `${name} isn't reachable. Open Milagre on it and check Settings › Devices & sharing.` : `${name} is offline.`;
+      return pairing ? `${name} isn't reachable. Open Milagre on it and check Settings › Phone & sharing.` : `${name} is offline.`;
     case "bad-host":
       return `This isn't the computer the link was made on. Copy a new link on ${name}.`;
     case "bad-hello":

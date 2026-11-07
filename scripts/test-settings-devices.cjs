@@ -1,4 +1,4 @@
-// Run with npm test -- --only test-settings-devices. Exercises Settings › Devices & sharing in the real App against a real daemon (its
+// Run with npm test -- --only test-settings-devices. Exercises Settings › Phone & sharing in the real App against a real daemon (its
 // own temporary data directory and socket, port chosen by the OS): see the devices list fail soft on a host without it,
 // turn device access on, see the QR code and the relay status, copy the link, see a phone and a computer pair and the
 // Computers list appear, see a new phone marked New until seen, remove the phone, see a phone that paired while the owner
@@ -22,7 +22,7 @@ import "/src/styles.css";
 const { ipcRenderer } = window.require("electron");
 const state = { next_id: 3, projects: { 1: { id: 1, name: "shop" } }, worktrees: { 1: { id: 1, name: "main", path: "/fixture", project_id: 1 } }, sessions: { 2: { id: 2, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle" } }, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 window.milagre = new Proxy({
-  // Devices & sharing lists Simlock and Computer use only for a bridge that has them; this one doesn't.
+  // Phone & sharing lists Simlock and Computer use only for a bridge that has them; this one doesn't.
   simlock: undefined,
   computerUse: undefined,
   getRuntimeConnection: async () => ({ connected: true }),
@@ -136,7 +136,7 @@ async function browserChecks() {
     // The whole App boots first, which takes a CI runner well over the 5 s a step gets.
     await waitFor(`!!document.querySelector('[aria-label="Settings"]')`, 1200);
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
-    await click("Devices & sharing");
+    await click("Phone & sharing");
 
     // A host from before devices:list: the access controls still work, and the lists say they couldn't be read.
     await waitFor(`!!${toggle} && document.body.textContent.includes('Allow devices to connect')`);
@@ -262,14 +262,14 @@ async function browserChecks() {
     // The window that took it shows it, then confirms.
     assert.equal(await host.call("devices:confirm-notices", [notices.find((reply) => reply.claim).claim]), 1);
     assert.deepEqual(await host.call("devices:take-notices"), { claim: null, devices: [] });
-    await click("Devices & sharing");
+    await click("Phone & sharing");
     await waitFor(`${newMark(awayKey)} === 'New'`);
     await evaluate(`document.querySelector('[data-device-row="phone"]').scrollIntoView({ block: 'center' })`);
     await screenshot("device-new");
     // Seen: leaving and coming back shows it without the mark.
     await click("About");
     await waitFor(`!document.querySelector('[data-device-row]')`);
-    await click("Devices & sharing");
+    await click("Phone & sharing");
     await waitFor(`document.querySelector('[data-device-row="phone"]')?.textContent.includes('Pixel 9')`);
     assert.equal(await evaluate(`${newMark(awayKey)} ?? null`), null);
     await screenshot("device-seen");

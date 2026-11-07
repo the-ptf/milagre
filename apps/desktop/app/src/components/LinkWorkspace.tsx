@@ -119,6 +119,7 @@ export function LinkWorkspace({
   ports,
   onNewChatInScope,
   onNewChat,
+  onPickChat,
   archivingChats,
   onArchiving,
   scopeChatActions,
@@ -155,6 +156,8 @@ export function LinkWorkspace({
   onNewChatInScope?: (scopeKey: string) => void;
   /** New chat (⌘N, the sidebar's +, the command palette) starts on this Mac's Project; only the Link's own + starts a Link Chat. */
   onNewChat?: (draftText?: string) => void;
+  /** Another Chat (or a new one) was picked here, from the palette, the sidebar or a notification: App closes Settings. */
+  onPickChat?: () => void;
   /** Chats with an archive under way, by chat key: their rows are gone from every sidebar until it ends. */
   archivingChats?: ReadonlySet<string>;
   /** A Chat's archive started; its row comes back if `work` fails. */
@@ -419,6 +422,7 @@ export function LinkWorkspace({
     return () => window.removeEventListener("keydown", shortcut);
   }, [chatId, run, findOpen, session, changes.toggle, canvasOpen, terminalChatId, onNewChat]);
   function pick(id: number | null) {
+    if (id !== sessionId) onPickChat?.();
     // Another Chat: its page read goes out before this pick renders anything, and the switch is measured from here.
     if (id !== null && Number.isSafeInteger(id) && id > 0 && id !== sessionId) {
       if (lean) prefetchChatMessages(owner, id);
@@ -1014,7 +1018,17 @@ export function LinkWorkspace({
           {commandsOpen && (
             <CommandPalette
               commands={[
-                { id: "new", label: "New Chat", group: "Actions", icon: "chat", run: onNewChat ? () => onNewChat() : () => pick(null) },
+                {
+                  id: "new",
+                  label: "New Chat",
+                  group: "Actions",
+                  icon: "chat",
+                  run: () => {
+                    onPickChat?.();
+                    if (onNewChat) onNewChat();
+                    else pick(null);
+                  },
+                },
                 { id: "link", label: "Link Projects…", group: "Actions", icon: "folder", run: onLinkProject },
                 { id: "edit-link", label: "Edit Link…", group: "Actions", icon: "folder", run: () => onEditLink(opened.link.id) },
                 ...recents.map((row) => ({ id: row.id, label: row.label, group: "Chats", icon: "chat" as const, run: () => pick(Number(row.id)) })),
@@ -1036,6 +1050,7 @@ export function LinkWorkspace({
                   : undefined
               }
               onStartChat={(query) => {
+                onPickChat?.();
                 if (onNewChat) {
                   onNewChat(query);
                   return;
