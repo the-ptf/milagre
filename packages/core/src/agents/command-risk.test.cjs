@@ -1,7 +1,8 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const os = require("node:os");
-const { commandRisk } = require("./command-risk.cjs");
+const path = require("node:path");
+const { commandRisk, windowsPaths } = require("./command-risk.cjs");
 
 const IN = { cwd: "/w/proj", roots: ["/w/proj"] };
 const risk = (command, options = IN) => commandRisk(command, options);
@@ -73,4 +74,52 @@ test("a command run from outside the Chat's folders always asks", () => {
   // A Link's other worktree is the Chat's too.
   assert.equal(risk("rm stale.txt", { cwd: "/w/proj", roots: ["/w/proj", "/w/api"] }), null);
   assert.equal(risk("rm /w/api/stale.txt", { cwd: "/w/proj", roots: ["/w/proj", "/w/api"] }), null);
+});
+
+test("a Windows path keeps its separators and an escaped quote stays escaped", () => {
+  assert.equal(windowsPaths("rm -rf C:\\Users\\me"), "rm -rf C:/Users/me");
+  assert.equal(windowsPaths("del ..\\other.txt .\\a\\b"), "del ../other.txt ./a/b");
+  assert.equal(windowsPaths("rm -rf C:\\ && echo done"), "rm -rf C:/ && echo done");
+  assert.equal(windowsPaths('rm "C:\\"'), 'rm "C:/"');
+  assert.equal(windowsPaths("rm C:\\\\Users\\\\me\\"), "rm C:/Users/me/");
+  assert.equal(windowsPaths('echo \\"hi\\"'), 'echo \\"hi\\"');
+});
+
+const onWindows = { skip: process.platform !== "win32" };
+// "/w/proj" lands on the drive the tests run from.
+const worktree = path.resolve("/w/proj");
+
+test("on Windows a command that reaches outside the worktree says why", onWindows, () => {
+  const home = os.homedir();
+  const cases = {
+    "rm -rf C:\\": "deletes the whole worktree or more",
+    [`rmdir /s /q ${home}`]: "deletes the whole worktree or more",
+    [`Remove-Item -Recurse -Force ${home}`]: "deletes the whole worktree or more",
+    [`REMOVE-ITEM -Recurse ${home.toUpperCase()}`]: "deletes the whole worktree or more",
+    "del /s /q ..\\other": "deletes files outside the worktree",
+    "rd /s /q C:\\Temp\\other": "deletes files outside the worktree",
+    "cmd /c del /q C:\\Temp\\other": "deletes files outside the worktree",
+    'powershell -Command "Remove-Item -Recurse C:\\Temp\\other"': "deletes files outside the worktree",
+    "copy a.txt C:\\Temp\\a.txt": "writes outside the worktree",
+    "Set-Content C:\\Temp\\a.txt hello": "writes outside the worktree",
+    "echo hi > C:\\Temp\\a.txt": "writes outside the worktree",
+    "type ~\\.ssh\\id_ed25519": "touches saved credentials",
+    "type %USERPROFILE%\\.ssh\\id_ed25519": "touches saved credentials",
+    "Get-Content $env:USERPROFILE\\.aws\\credentials": "touches saved credentials",
+    [`rm -rf ${worktree.toLowerCase()}`]: "deletes the whole worktree or more",
+  };
+  for (const [command, reason] of Object.entries(cases)) assert.equal(risk(command), reason, command);
+});
+
+test("on Windows work inside the worktree runs without asking", onWindows, () => {
+  for (const command of [
+    "del /s /q build",
+    "rmdir /s /q .\\dist",
+    "Remove-Item -Recurse -Force node_modules",
+    "copy C:\\Temp\\a.txt .\\a.txt",
+    `del ${worktree}\\stale.txt`,
+    `del ${worktree.toUpperCase()}\\stale.txt`,
+    "cmd /c dir",
+  ])
+    assert.equal(risk(command), null, command);
 });

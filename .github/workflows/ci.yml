@@ -175,7 +175,7 @@ jobs:
           - name: Test Windows process tree and ownership
             shell: pwsh
             timeout-minutes: 15
-            run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
+            run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs packages/core/src/agents/command-risk.test.cjs
           # Through npm test itself, so a change that breaks the runner on Windows fails here.
           - name: Test Windows development scripts
             shell: pwsh
