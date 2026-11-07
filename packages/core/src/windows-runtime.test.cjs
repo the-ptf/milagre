@@ -240,12 +240,14 @@ test("Windows ACL operations encode paths and fail closed on command errors", ()
 
 test("a Windows private path another account can read fails with that reason and the path", { skip: process.platform !== "win32", timeout: 90000 }, (t) => {
   const { execFileSync } = require("node:child_process");
-  const { preparePrivateDirectory, assertPrivate } = require("./private-files.cjs");
+  const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("./private-files.cjs");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-private-shared-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   preparePrivateDirectory(directory);
   const file = path.join(directory, "token");
   fs.writeFileSync(file, "fixture");
+  // Protected as the stores write theirs: an elevated process (CI) makes its files owned by Administrators.
+  windowsAcl(file, { mode: "protect" });
   assertPrivate(file);
   // Builtin Users may read it.
   execFileSync("icacls", [file, "/grant", "*S-1-5-32-545:(R)"], { stdio: "ignore" });
