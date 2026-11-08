@@ -13,7 +13,7 @@ import { lineHeight, radius, type } from "./design-tokens";
 import { narrowSettingsRoutes, selectedSettingsRow, wideSettingsRoutes, type SettingsStackRoute } from "./settings-split-routes";
 
 /** From this card width the list sits beside the page, as desktop's Settings modal; narrower, it is the Stack's first page. */
-export const SETTINGS_SPLIT_MIN = 700;
+const SETTINGS_SPLIT_MIN = 700;
 const SIDEBAR_WIDTH = 320;
 /** Desktop's Settings modal: at most 1120 × 800, kept 24 pt off the window's edges. */
 const CARD_MAX = { width: 1120, height: 800 };

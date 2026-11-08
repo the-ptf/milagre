@@ -6,7 +6,7 @@
 export type SettingsStackRoute = { key?: string; name: string; params?: object };
 
 /** The page a wide sheet opens on when nothing else was asked for. */
-export const FIRST_SETTINGS_PAGE = "appearance";
+const FIRST_SETTINGS_PAGE = "appearance";
 const LIST = "settings";
 
 export function wideSettingsRoutes(routes: readonly SettingsStackRoute[]): SettingsStackRoute[] | null {
