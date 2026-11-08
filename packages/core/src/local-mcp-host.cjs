@@ -151,17 +151,17 @@ function createLocalMcpHost({
         }
       : {};
   // The caller's live agent's mode. An idle Chat (no agent process, as when a script runs a command for it) has none, so
-  // it counts as the mode it runs in next: its latest turn's, else the one saved with it (#973).
+  // it counts as the mode it runs in next: its latest turn's, else the one saved with it (#973). `saved` is read once
+  // (savedMode, async); the rest is read again each time, so a check at delivery sees a switch made since.
   const savedMode = async (caller) => {
-    const latest = chats.turnSettings?.(caller)?.permissionMode;
-    if (latest) return latest;
     try {
       return (await chat(projectOfKey(caller), caller)).session.permissionMode ?? "ask";
     } catch {
       return "ask";
     }
   };
-  const callerMode = async (caller) => (caller ? asCaller(permissionMode(caller, null) ?? (await savedMode(caller))) : "ask");
+  const callerModeWith = (caller, saved) => (caller ? asCaller(permissionMode(caller, null) ?? chats.turnSettings?.(caller)?.permissionMode ?? saved) : "ask");
+  const callerMode = async (caller) => callerModeWith(caller, caller ? await savedMode(caller) : "ask");
   // A bot's Chat runs under its gates and only the bot steers it, until the user takes it over in Milagre: no other Chat
   // or outside client starts, stops, switches, answers for or renames it.
   const notBots = (chatId) => {
@@ -183,8 +183,9 @@ function createLocalMcpHost({
     if (decision !== "allow" && decision !== "allow-for-chat") throw Error("The user declined.");
   };
   // `prompt`, for chat_start: what would run there. Without `asked` the Chat already runs in `mode`, above the caller's.
-  const checkMode = async (caller, chatId, mode, session, { prompt, asked = true } = {}) => {
-    if (!raisesMode(mode, await callerMode(caller))) return;
+  // True when the user allowed it on a card, false when the caller's own mode did.
+  const checkMode = async (caller, chatId, mode, session, { prompt, asked = true, fromCaller } = {}) => {
+    if (!raisesMode(mode, fromCaller ?? (await callerMode(caller)))) return false;
     const name = session?.title || session?.generatedTitle;
     const chatName = name ? `"${name}"` : "another Chat";
     const modeName = mode === "full" ? "Full permission" : mode === "auto" ? "Auto mode" : "Bot rules";
@@ -197,6 +198,7 @@ function createLocalMcpHost({
           }),
       ...(prompt ? { detail: JSON.stringify({ permissionMode: mode, prompt }, null, 2) } : {}),
     });
+    return true;
   };
   // "Project / branch / title (ref)": how the receiving agent can tell which Chat sent it, and reach it again.
   const callerLabel = async (caller) => {
@@ -415,10 +417,11 @@ function createLocalMcpHost({
       const chosenEffort = effort ?? (entry && latest.effort && !entry.efforts.includes(latest.effort) ? entry.defaultEffort : latest.effort);
       // The prompt runs in the asked mode, else the Chat's own (a Chat with no live agent takes the caller's): either way,
       // more than the caller has needs the user's say first.
-      const fromCaller = await callerMode(caller);
-      const modeNow = () => asked ?? permissionMode(chatId, fromCaller);
+      const saved = caller ? await savedMode(caller) : "ask";
+      const callerNow = () => callerModeWith(caller, saved);
+      const modeNow = () => asked ?? permissionMode(chatId, callerNow());
       const mode = modeNow();
-      await checkMode(caller, chatId, mode, session, { prompt, asked: Boolean(asked) });
+      const approved = await checkMode(caller, chatId, mode, session, { prompt, asked: Boolean(asked), fromCaller: callerNow() });
       const root = session.workspacePath ?? state.worktrees?.[session.worktree_id]?.path;
       if ((files.length || images.length) && !root) throw Error("This Chat has no Worktree to attach files from.");
       const attached = await Promise.all(files.map((file) => attachment(root, file)));
@@ -451,6 +454,9 @@ function createLocalMcpHost({
           // Again at delivery: a question that opened during the awaits above would be dismissed by this message's steer.
           assertNotWaiting(state, caller, chatId, "send");
           if (modeNow() !== mode) throw Error("Chat permission mode changed; inspect the Chat before retrying");
+          // No card was shown because the caller's own mode allowed `mode`. A caller switched lower since then no longer does.
+          if (!approved && raisesMode(mode, callerNow()))
+            throw Error("The calling Chat's permission mode changed to less than this needs; nothing was sent. Retry to ask the user.");
           return true;
         },
       });
