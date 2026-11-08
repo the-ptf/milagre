@@ -474,6 +474,46 @@ test("chat_start into a Chat already in more than the caller's mode asks first a
   );
 });
 
+// #973: a script running chat_start for an idle Chat (no agent process) got "The user declined." with no card anywhere.
+test("an idle caller counts as the mode saved with it, and one that needs a card it can't show says so", async (t) => {
+  const idle = (saved, extra = {}) =>
+    steeringHost(t, {
+      modes: (root) => ({ [`${root}#2`]: null }),
+      sessions: { 2: { id: 2, worktree_id: 1, ...(saved ? { permissionMode: saved } : {}) } },
+      ...extra,
+    });
+  const full = idle("full");
+  await full.host.startChat({ projectPath: full.projectPath, chatId: full.chatId, prompt: "Go", permissionMode: "full" }, "a", () => {}, full.caller);
+  assert.equal(full.calls.filter(([kind]) => kind === "approve").length, 0);
+  assert.equal(full.calls.findLast(([kind]) => kind === "send")[1].permissionMode, "full");
+  // Without permissionMode the target takes the idle caller's saved mode, not Ask.
+  await full.host.startChat({ projectPath: full.projectPath, chatId: full.chatId, prompt: "Go" }, "b", () => {}, full.caller);
+  assert.equal(full.calls.findLast(([kind]) => kind === "send")[1].permissionMode, "full");
+
+  // The latest turn's mode wins over the saved one.
+  const turn = idle("ask", { turn: { permissionMode: "full" } });
+  await turn.host.startChat({ projectPath: turn.projectPath, chatId: turn.chatId, prompt: "Go", permissionMode: "full" }, "a", () => {}, turn.caller);
+  assert.equal(turn.calls.filter(([kind]) => kind === "approve").length, 0);
+
+  for (const saved of ["ask", undefined]) {
+    const low = idle(saved);
+    await assert.rejects(
+      low.host.startChat({ projectPath: low.projectPath, chatId: low.chatId, prompt: "Go", permissionMode: "full" }, "a", () => {}, low.caller),
+      (error) => error.message.startsWith("PERMISSION_APPROVAL_REQUIRED: ") && !/user declined/.test(error.message),
+    );
+    assert.equal(low.calls.length, 0);
+  }
+});
+
+test("an approval card that closes unanswered isn't reported as a refusal", async (t) => {
+  const { host, projectPath, chatId, caller, calls } = steeringHost(t, { decision: "cancelled" });
+  await assert.rejects(
+    host.startChat({ projectPath, chatId, prompt: "Go", permissionMode: "full" }, "a", () => {}, caller),
+    /^Error: APPROVAL_CANCELLED: /,
+  );
+  assert.equal(calls.filter(([kind]) => kind === "send").length, 0);
+});
+
 test("chat_start into a Chat in the caller's mode or less, or with no live agent, sends without a card", async (t) => {
   for (const [target, callerMode] of [
     ["ask", "ask"],
