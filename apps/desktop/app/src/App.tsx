@@ -143,7 +143,8 @@ import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, useHiddenComputers } from "./lib/computers";
 import { OfflineEmpty } from "./components/OfflineEmpty";
-import { settingsCommands } from "./lib/settings-commands";
+import { settingsCommands, settingsPageCommands } from "./lib/settings-commands";
+import { findSetting } from "./lib/settings-find";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { noteScopeOpening, prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
@@ -3809,6 +3810,14 @@ function App() {
             void switchProject(recent.path);
           },
         })),
+    );
+    // Every Settings page and row, once something is typed: last, so a Chat or an action with the same words comes first.
+    commands.push(
+      ...settingsPageCommands((section, row) => {
+        setSettingsSection(section);
+        setSettingsOpen(true);
+        if (row) findSetting(section, row);
+      }),
     );
     return commands;
   }

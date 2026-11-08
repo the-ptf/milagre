@@ -94,7 +94,7 @@ import { GlideGroup } from "./SidebarNav";
 import { WorktreeCleanup } from "./settings/WorktreeCleanup";
 import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 import { lazyView } from "../lib/lazy-view";
-import { SETTINGS_INDEX } from "../lib/settings-index";
+import { SECTION_KEYWORDS, SECTION_TITLES, SETTINGS_INDEX } from "../lib/settings-index";
 import { findSetting } from "../lib/settings-find";
 import { SettingsSearchField, SettingsSearchResults, useFoundRow, useSettingsSearch, type SettingsSearchItem } from "./settings/SettingsSearch";
 import { Select } from "./primitives/Select";
@@ -180,49 +180,28 @@ const SECTIONS: Array<{
   icon: ReactNode;
   group: SectionGroup;
 }> = [
-  { key: "general", label: "General", icon: <Icon icon={Settings01Icon} />, group: null },
-  { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} />, group: null },
-  { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} />, group: null },
-  { key: "voice", label: "Voice", icon: <Icon icon={Mic01Icon} />, group: null },
-  { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} />, group: null },
-  { key: "keybindings", label: "Keybindings", icon: <Icon icon={KeyboardIcon} />, group: null },
-  { key: "models", label: "Models", icon: <Icon icon={AiBrain01Icon} />, group: "Agents" },
-  { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} />, group: "Agents" },
-  { key: "usage", label: "Usage", icon: <Icon icon={ChartColumnIcon} />, group: "Agents" },
-  { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} />, group: "Agents" },
-  { key: "mcp", label: "MCP servers", icon: <Icon icon={Plug01Icon} />, group: "Agents" },
-  { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} />, group: "Agents" },
-  { key: "worktrees", label: "Worktrees", icon: <Icon icon={FolderTreeIcon} />, group: "Code" },
-  { key: "connections", label: "Integrations", icon: <Icon icon={ConnectIcon} />, group: "Code" },
-  { key: "experimental", label: "Church", icon: <Icon icon={ChurchIcon} />, group: "footer" },
-  { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} />, group: "footer" },
+  { key: "general", label: SECTION_TITLES.general, icon: <Icon icon={Settings01Icon} />, group: null },
+  { key: "appearance", label: SECTION_TITLES.appearance, icon: <Icon icon={PaintBoardIcon} />, group: null },
+  { key: "chat", label: SECTION_TITLES.chat, icon: <Icon icon={BubbleChatIcon} />, group: null },
+  { key: "voice", label: SECTION_TITLES.voice, icon: <Icon icon={Mic01Icon} />, group: null },
+  { key: "notifications", label: SECTION_TITLES.notifications, icon: <Icon icon={Notification01Icon} />, group: null },
+  { key: "keybindings", label: SECTION_TITLES.keybindings, icon: <Icon icon={KeyboardIcon} />, group: null },
+  { key: "models", label: SECTION_TITLES.models, icon: <Icon icon={AiBrain01Icon} />, group: "Agents" },
+  { key: "accounts", label: SECTION_TITLES.accounts, icon: <Icon icon={UserCircleIcon} />, group: "Agents" },
+  { key: "usage", label: SECTION_TITLES.usage, icon: <Icon icon={ChartColumnIcon} />, group: "Agents" },
+  { key: "skills", label: SECTION_TITLES.skills, icon: <Icon icon={BookOpen01Icon} />, group: "Agents" },
+  { key: "mcp", label: SECTION_TITLES.mcp, icon: <Icon icon={Plug01Icon} />, group: "Agents" },
+  { key: "browser", label: SECTION_TITLES.browser, icon: <Icon icon={Globe02Icon} />, group: "Agents" },
+  { key: "worktrees", label: SECTION_TITLES.worktrees, icon: <Icon icon={FolderTreeIcon} />, group: "Code" },
+  { key: "connections", label: SECTION_TITLES.connections, icon: <Icon icon={ConnectIcon} />, group: "Code" },
+  { key: "experimental", label: SECTION_TITLES.experimental, icon: <Icon icon={ChurchIcon} />, group: "footer" },
+  { key: "about", label: SECTION_TITLES.about, icon: <Icon icon={InformationCircleIcon} />, group: "footer" },
 ];
 
 // Phone & sharing heads the Computers group, above This Mac's row and one row per paired computer.
-const DEVICES_SECTION = { key: "devices" as const, label: "Phone & sharing", icon: <Icon icon={SmartphoneIcon} /> };
+const DEVICES_SECTION = { key: "devices" as const, label: SECTION_TITLES.devices, icon: <Icon icon={SmartphoneIcon} /> };
 // This Mac's page; the nav names it after the computer, the search as This Mac.
-const THIS_MAC_SECTION = { key: "this-mac" as const, label: `This ${computerNoun}`, icon: <Icon icon={LaptopIcon} /> };
-
-// Other words for a section, so the search finds it by what it holds.
-const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
-  general: "editor sidebar chat order chat list done archive plan usage keep awake",
-  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle",
-  "this-mac": "computer resources memory disk drive other computers add computer computer use",
-  usage: "token tokens cost spend dollars analytics estimated",
-  accounts: "sign in login claude codex antigravity profile per project link usage limits",
-  appearance: "theme dark light mode font size colors look",
-  chat: "messages transcript reasoning tool calls follow-up queue steer",
-  voice: "dictation speech whisper microphone language transcribe",
-  models: "default model permission mode compact context replies tldr concise",
-  keybindings: "shortcuts keyboard keys hotkeys",
-  browser: "links web sign-ins cookies",
-  notifications: "alerts sounds chimes push routines unread runs",
-  connections: "linear issues integrations babysit pull requests",
-  mcp: "servers tools model context protocol milagre mcp",
-  devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
-  experimental: "church experimental beta labs",
-  about: "version update privacy support",
-};
+const THIS_MAC_SECTION = { key: "this-mac" as const, label: SECTION_TITLES["this-mac"], icon: <Icon icon={LaptopIcon} /> };
 
 const ALL_SECTIONS = [...SECTIONS, DEVICES_SECTION, THIS_MAC_SECTION];
 const SELF_TITLED = new Set<SettingsSection>(["mcp", "connections", "devices", "this-mac", "experimental"]);

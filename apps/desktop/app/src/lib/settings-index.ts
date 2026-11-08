@@ -18,6 +18,49 @@ import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 
 export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
 
+/** A Settings section's name, as the nav shows it (This Mac's row is named after the computer there). */
+export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "computer">, string> = {
+  general: "General",
+  appearance: "Appearance",
+  chat: "Chat",
+  voice: "Voice",
+  notifications: "Notifications",
+  keybindings: "Keybindings",
+  models: "Models",
+  accounts: "Accounts",
+  usage: "Usage",
+  skills: "Skills",
+  mcp: "MCP servers",
+  browser: "Browser",
+  worktrees: "Worktrees",
+  connections: "Integrations",
+  devices: "Phone & sharing",
+  "this-mac": `This ${computerNoun}`,
+  experimental: "Church",
+  about: "About",
+};
+
+/** Other words for a section, so the search finds it by what it holds. */
+export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
+  general: "editor sidebar chat order chat list done archive plan usage keep awake",
+  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle",
+  "this-mac": "computer resources memory disk drive other computers add computer computer use",
+  usage: "token tokens cost spend dollars analytics estimated",
+  accounts: "sign in login claude codex antigravity profile per project link usage limits",
+  appearance: "theme dark light mode font size colors look",
+  chat: "messages transcript reasoning tool calls follow-up queue steer",
+  voice: "dictation speech whisper microphone language transcribe",
+  models: "default model permission mode compact context replies tldr concise",
+  keybindings: "shortcuts keyboard keys hotkeys",
+  browser: "links web sign-ins cookies",
+  notifications: "alerts sounds chimes push routines unread runs",
+  connections: "linear issues integrations babysit pull requests",
+  mcp: "servers tools model context protocol milagre mcp",
+  devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
+  experimental: "church experimental beta labs",
+  about: "version update privacy support",
+};
+
 /**
  * Every row a Settings section shows, in the order it shows them; each section's own name comes from the Settings nav.
  * `title` is the row's text exactly as on screen: the section opens with that row lit up. settings-index.test.ts checks

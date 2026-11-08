@@ -4,7 +4,7 @@ import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL } from "@milagre/shared/device-notes";
 import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE, LINEAR_TITLE } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
-import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
+import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
 
 /**
  * The Settings pages the phone's search can open, by route, with the title each shows and what it needs: "computer" for
@@ -430,3 +430,27 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "shortcuts keys",
   },
 ];
+
+/** A Settings page (`row` false) or a row on one, as a search result. */
+export type PhoneSettingsItem = PhoneSettingsEntry & { row: boolean };
+
+const SEARCH_ITEMS: readonly PhoneSettingsItem[] = [
+  ...(Object.keys(SETTINGS_PAGES) as SettingsRoute[]).map((route) => ({ page: route, title: SETTINGS_PAGES[route].title, row: false })),
+  ...SETTINGS_INDEX.map((entry) => ({ ...entry, row: true })),
+];
+
+/**
+ * The Settings pages and rows matching `query`, best first, as the Settings search and the Chats search list them. A page
+ * of the connected Mac's settings counts only with one connected, and Keybindings only on an iPad, as on the list.
+ */
+export function searchPhoneSettings(query: string, shows: { connected: boolean; ipad: boolean }): SettingsSearchHit<PhoneSettingsItem>[] {
+  const shown = (route: SettingsRoute) => {
+    const needs: string | undefined = (SETTINGS_PAGES[route] as { needs?: string }).needs;
+    return needs === "computer" ? shows.connected : needs === "ipad" ? shows.ipad : true;
+  };
+  return searchSettings(
+    SEARCH_ITEMS.filter((item) => shown(item.page)),
+    query,
+    (route) => SETTINGS_PAGES[route].title,
+  );
+}

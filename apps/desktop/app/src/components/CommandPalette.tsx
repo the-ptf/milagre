@@ -18,6 +18,7 @@ import {
   HardDriveIcon,
 } from "@hugeicons/core-free-icons";
 import { filterCommands, type Command } from "../lib/commands";
+import { recentCommandIds, recentCommands, rememberCommand, rememberedId } from "../lib/recent-commands";
 import { useShortcutHints } from "../lib/shortcut-hints";
 import { shortcutCommand, useShortcutLabel } from "../lib/keybindings";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
@@ -96,9 +97,14 @@ export function CommandPalette({
   const executing = useRef(false);
   const animation = useRef<Animation | null>(null);
   const listId = useId();
-  const matches = filterCommands(commands, query);
+  // Read once per opening, so a command run from this palette doesn't reshuffle the list under the pointer.
+  const [recentIds] = useState(recentCommandIds);
+  const typed = query.trim().length > 0;
+  const matches = typed ? filterCommands(commands, query) : [...recentCommands(commands, recentIds), ...filterCommands(commands, query)];
+  // Settings rows found by their words don't stand in for a Chat's: messages are still searched beside them.
+  const commandMatches = matches.filter((command) => !command.searchOnly);
   const [found, setFound] = useState<{ query: string; commands: Command[] }>({ query: "", commands: [] });
-  const searchHost = !matches.length && !searchMessages && searchMessagesAsync && query.trim().length >= 2;
+  const searchHost = !commandMatches.length && !searchMessages && searchMessagesAsync && query.trim().length >= 2;
   useEffect(() => {
     if (!searchHost) return;
     let cancelled = false;
@@ -114,9 +120,10 @@ export function CommandPalette({
       clearTimeout(timer);
     };
   }, [searchHost, query, searchMessagesAsync]);
-  const searched = matches.length ? matches : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
+  const messages = commandMatches.length || !typed ? [] : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
+  const searched = [...matches, ...messages];
   // The host is still looking: nothing is offered until it answers, so the new-chat row doesn't flash in and out.
-  const searching = !matches.length && !searchMessages && searchHost && found.query !== query;
+  const searching = !commandMatches.length && !searchMessages && searchHost && found.query !== query;
   const results: Command[] =
     searched.length || searching || !onStartChat || !query.trim()
       ? searched
@@ -175,6 +182,8 @@ export function CommandPalette({
     void animation.current.finished.then(
       () => {
         onClose();
+        if (command && command.id !== "start-chat-with-search" && commands.some((item) => item.id === rememberedId(command)))
+          rememberCommand(rememberedId(command));
         // Let focus restore before the action opens a new surface.
         if (command)
           window.setTimeout(() => {
