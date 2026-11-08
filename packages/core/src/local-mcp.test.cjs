@@ -410,7 +410,7 @@ function steeringHost(t, overrides = {}) {
     },
     ...(overrides.botOf ? { botOf: overrides.botOf } : {}),
   });
-  return { host, projectPath, otherPath, calls, chatId: `${projectPath}#1`, caller: `${projectPath}#2`, links: () => links };
+  return { host, projectPath, otherPath, calls, modes, chatId: `${projectPath}#1`, caller: `${projectPath}#2`, links: () => links };
 }
 
 test("chat_start switches provider, model and effort when given, and keeps the Chat's otherwise", async (t) => {
@@ -503,6 +503,27 @@ test("an idle caller counts as the mode saved with it, and one that needs a card
     );
     assert.equal(low.calls.length, 0);
   }
+});
+
+// The caller's mode is checked again at delivery: Full the caller allowed by itself doesn't run once it is switched to Ask.
+test("chat_start refuses at delivery when the caller was switched lower, unless the user allowed it on a card", async (t) => {
+  for (const asked of ["full", undefined]) {
+    const { host, projectPath, chatId, caller, calls, modes } = steeringHost(t, { modes: (root) => ({ [`${root}#2`]: "full" }) });
+    await host.startChat({ projectPath, chatId, prompt: "Go", ...(asked ? { permissionMode: asked } : {}) }, "a", () => {}, caller);
+    const { canStart, permissionMode } = calls.findLast(([kind]) => kind === "send")[1];
+    assert.equal(permissionMode, "full");
+    assert.equal(canStart(), true);
+    modes[caller] = "ask";
+    assert.throws(canStart, asked ? /calling Chat's permission mode changed/ : /permission mode changed/, `${asked}`);
+    assert.equal(calls.filter(([kind]) => kind === "approve").length, 0);
+  }
+
+  // The user allowed Full on a card: a later switch of the caller doesn't take that back.
+  const card = steeringHost(t);
+  await card.host.startChat({ projectPath: card.projectPath, chatId: card.chatId, prompt: "Go", permissionMode: "full" }, "a", () => {}, card.caller);
+  assert.equal(card.calls.filter(([kind]) => kind === "approve").length, 1);
+  card.modes[card.caller] = "auto";
+  assert.equal(card.calls.findLast(([kind]) => kind === "send")[1].canStart(), true);
 });
 
 test("an approval card that closes unanswered isn't reported as a refusal", async (t) => {
