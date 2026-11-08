@@ -290,6 +290,7 @@ const PATHS = Object.freeze({
   "chat:task-output": ([chatId]) => [chatProject(chatId)],
   "worktree:pull-request": ([worktreePath]) => [worktreePath],
   "worktree:pull-requests": ([worktreePath]) => [worktreePath],
+  "pull-requests:open": ([projectPath]) => [projectPath],
   "project:branches": ([projectPath]) => [projectPath],
   "attachment:preview": ([file]) => [attached(file)],
   "attachment:read": ([file]) => [attached(file)],

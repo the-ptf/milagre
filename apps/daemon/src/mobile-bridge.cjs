@@ -230,6 +230,7 @@ const METHODS = new Set([
   "attachment:read",
   "worktree:pull-request",
   "worktree:pull-requests",
+  "pull-requests:open",
   "project:branches",
   "skills:list",
   "project:files",

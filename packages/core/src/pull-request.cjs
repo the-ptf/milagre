@@ -197,7 +197,28 @@ function checksState(rollup) {
   return running ? "running" : undefined;
 }
 
+// A new Chat's PR card: the repository's open PRs, newest first, whoever opened them.
+const OPEN_LIMIT = 20;
+
+/** The open PRs of the repository `cwd` is in, as `toPullRequest` reads them plus when each was last updated. Throws when gh fails. */
+async function listOpenPullRequests(cwd, exec = execFileAsync) {
+  const { stdout } = await scheduled(exec)(
+    "gh",
+    ["pr", "list", "--state", "open", "--limit", String(OPEN_LIMIT), "--json", `${FIELDS},updatedAt`],
+    execOptions(cwd),
+  );
+  const parsed = JSON.parse(stdout);
+  if (!Array.isArray(parsed)) throw new Error("Unexpected gh output");
+  return parsed.flatMap((item) => {
+    const pr = toPullRequest(item);
+    if (!pr) return [];
+    const updatedAt = typeof item.updatedAt === "string" && !Number.isNaN(Date.parse(item.updatedAt)) ? item.updatedAt : undefined;
+    return [{ ...pr, ...(updatedAt && { updatedAt }) }];
+  });
+}
+
 module.exports = {
+  listOpenPullRequests,
   readPullRequest,
   readPullRequestState,
   readPullRequests,

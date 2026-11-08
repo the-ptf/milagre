@@ -1584,7 +1584,7 @@ export default memo(function SidebarNav({
       <aside
         data-sidebar-collapsed={collapsed}
         aria-label="Workspace navigation"
-        className="relative flex min-h-0 shrink-0 overflow-hidden rounded-window bg-surface shadow-card transition-[width]"
+        className="relative flex min-h-0 shrink-0 overflow-hidden rounded-window bg-surface shadow-card transition-[width,background-color]"
         style={
           {
             width: collapsed ? SIDEBAR_MOTION.collapsedWidth : expandedWidth,

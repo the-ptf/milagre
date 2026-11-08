@@ -73,3 +73,33 @@ test("pull-requests:snapshot answers for the Worktrees whose Chats have messages
   assert.deepEqual(snapshot, { worktrees: { [project]: pr }, chats: {}, pending: false });
   assert.deepEqual(reads, [project]);
 });
+
+test("pull-requests:open lists the repository's open PRs, once a minute at most", async (t) => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-pr-open-")));
+  const project = path.join(dir, "project");
+  await fs.mkdir(project);
+  execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
+  const lists = [];
+  const runtime = createRuntime({
+    dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
+    cwd: project,
+    environmentReady: Promise.resolve(),
+    titleModels: {},
+    agentCli: async () => ({ command: "fixture" }),
+    listOpenPullRequests: async (folder) => {
+      lists.push(folder);
+      return [{ ...pr, updatedAt: "2026-11-08T10:00:00Z" }];
+    },
+  });
+  t.after(async () => {
+    await runtime.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+  await runtime.openProject(project);
+  assert.deepEqual(await runtime.invoke("pull-requests:open", [project]), [{ ...pr, updatedAt: "2026-11-08T10:00:00Z" }]);
+  await runtime.invoke("pull-requests:open", [project]);
+  assert.deepEqual(lists, [project]);
+  assert.deepEqual(await runtime.invoke("pull-requests:open", [path.join(dir, "elsewhere")]), []);
+  assert.deepEqual(lists, [project]);
+});

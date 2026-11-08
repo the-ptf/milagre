@@ -136,6 +136,7 @@ import { openStorage } from "../lib/storage-open";
 import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
 import { headingLayer, newChatLook } from "../lib/new-chat-look";
 import { WelcomeSky } from "./WelcomeSky";
+import { NewChatGlance } from "./NewChatGlance";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
@@ -1695,7 +1696,7 @@ export function ChatComposer({
             <ProgressiveBlurLayers />
           </div>
         )}
-        {isNewChat && <WelcomeSky />}
+        {isNewChat && !offScreen && <WelcomeSky />}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
@@ -2019,6 +2020,8 @@ export function ChatComposer({
             </p>
           )}
         </div>
+        {/* The Project's open PRs, plan usage and today's tokens, under a new Chat's composer. */}
+        {projectNewChat && !offScreen && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} />}
       </div>
     </ReplyProviders>
   );

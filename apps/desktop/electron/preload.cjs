@@ -290,6 +290,7 @@ function makeBridge(invoke, listen, send) {
     readPullRequest: (worktreePath) => invoke("worktree:pull-request", worktreePath),
     readPullRequests: (worktreePath, refs) => invoke("worktree:pull-requests", worktreePath, refs),
     readPullRequestSnapshot: (projectPath) => invoke("pull-requests:snapshot", projectPath),
+    listOpenPullRequests: (projectPath) => invoke("pull-requests:open", projectPath),
     onPullRequestsChanged: (callback) => listen("pull-requests:changed", callback),
     revealInFolder: (folder) => invoke("project:reveal", folder),
     copyImage: (file) => invoke("image:copy", file),

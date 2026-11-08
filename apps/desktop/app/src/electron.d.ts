@@ -540,6 +540,8 @@ export type MilagreBridge = {
    * waiting on GitHub. `pending` when some were never read: they arrive with `onPullRequestsChanged`.
    */
   readPullRequestSnapshot: (projectPath: string) => Promise<PullRequestSnapshot>;
+  /** The repository's open PRs, newest first, read at most once a minute; [] when gh can't answer. */
+  listOpenPullRequests: (projectPath: string) => Promise<Array<PullRequest & { updatedAt?: string }>>;
   /** A Project's PRs changed on the host's poll; read the snapshot again. */
   onPullRequestsChanged: (callback: (change: { projectPath: string }) => void) => () => void;
   /** Opens a project or worktree folder in the file manager; rejects for any other folder. */

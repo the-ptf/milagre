@@ -85,6 +85,7 @@ import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMe
 import { usePrDetail } from "../pr-store";
 import { openThreads } from "@milagre/shared/pull-request-review";
 import { openPrPage, openPullRequest } from "../pr-nav";
+import { NewChatGlance } from "../new-chat-glance";
 import { onPullRequestRequest, prChoiceKey, registerPrChat, type PrChoice } from "../pr-chat";
 import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
@@ -2618,6 +2619,13 @@ function ChatPane({
                           <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
                         </View>
                       </Pressable>
+                    )}
+                    {restingKeyboard === 0 && (
+                      <NewChatGlance
+                        client={session.client}
+                        projectPath={chatsHomeOpen ? null : (session.snapshot?.project.path ?? null)}
+                        scopeKey={session.snapshot?.project.path ?? ""}
+                      />
                     )}
                   </Animated.View>
                 )}

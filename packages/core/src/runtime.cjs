@@ -66,7 +66,7 @@ const { readDiffStat } = require("./diffstat.cjs");
 const { registerCheckpoints } = require("./checkpoint-runtime.cjs");
 const { createSentFromNotes } = require("./sent-from.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
-const { createPullRequestReader, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
+const { createPullRequestReader, listOpenPullRequests, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
 const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
 const { createPullRequestWatch } = require("./pull-request-watch.cjs");
@@ -1338,6 +1338,21 @@ function createRuntime(options) {
       }),
     );
     return { worktrees, chats, pending: false };
+  });
+  // The repository's open PRs for a new Chat's card, read once a minute at most per Project; a failed read answers [].
+  const openPullRequests = new Map();
+  const OPEN_PULL_REQUESTS_MS = 60_000;
+  commands.handle("pull-requests:open", async (_event, projectPath) => {
+    if (typeof projectPath !== "string" || !states.has(projectPath)) return [];
+    await environmentReady;
+    const hit = openPullRequests.get(projectPath);
+    if (hit && Date.now() - hit.at < OPEN_PULL_REQUESTS_MS) return hit.read;
+    const read = (options.listOpenPullRequests ?? listOpenPullRequests)(projectPath).catch(() => {
+      if (openPullRequests.get(projectPath)?.read === read) openPullRequests.delete(projectPath);
+      return [];
+    });
+    openPullRequests.set(projectPath, { at: Date.now(), read });
+    return read;
   });
   // The Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
   // On until the renderer pushes the saved setting.

@@ -1920,6 +1920,11 @@ code.step-running.step-sweep {
   animation-iteration-count: infinite;
   animation-fill-mode: both;
 }
+/* The sky spans the window, so the sidebar card lets it through while a new Chat shows; no blur, so the glints under
+ * it cost nothing. */
+:root[data-welcome-sky] aside[data-sidebar-collapsed] {
+  background-color: color-mix(in srgb, var(--surface) 82%, transparent);
+}
 @keyframes welcome-sky-wash {
   from {
     opacity: 0.6;
