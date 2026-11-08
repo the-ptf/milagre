@@ -450,6 +450,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           openPrPage: (page, route, extra) => (globalThis.openedPrPages ??= []).push([page, route, extra]),
           openPrFile: (route, path) => (globalThis.openedPrPages ??= []).push(["file", route, { path }]),
         };
+      // A new Chat's glance cards (PRs, plan usage, today) read the host on their own; Chat tests render none.
+      if (base === "new-chat-glance" && !(id in modules)) return { NewChatGlance: () => null };
       // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
       if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };
       // Settings search: a found row renders bare, and a Settings page's scroll is the PageScroll it wraps.

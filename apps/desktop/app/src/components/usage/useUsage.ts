@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UsageSnapshot } from "../../model";
 import { mergeSnapshot, seedSnapshot } from "./format";
 import { bridgeForKey } from "../../lib/computer-bridge";
+import type { MilagreBridge } from "../../electron";
 
 const POLL_MS = 5 * 60_000;
 // A switch back to a scope read this recently shows its last numbers and reads nothing (usage:read runs the provider's
@@ -10,6 +11,11 @@ const FRESH_MS = 60_000;
 // Each scope's last numbers, so switching Projects shows them at once instead of an empty usage row, and when they were read.
 const lastSnapshots = new Map<string, UsageSnapshot>();
 const lastReads = new Map<string, number>();
+
+// A bridge without the usage calls (a check's fixture, an older paired computer) reads nothing instead of throwing:
+// the new Chat's cards and the sidebar then show no usage.
+const readUsage = (bridge: MilagreBridge, scopeKey?: string) => bridge.readUsage?.(scopeKey) ?? Promise.reject(new Error("Usage isn't available"));
+const cachedUsage = (bridge: MilagreBridge, scopeKey?: string) => bridge.getCachedUsage?.(scopeKey) ?? Promise.reject(new Error("Usage isn't available"));
 
 export function useUsage(scopeKey?: string) {
   const bridge = useMemo(() => bridgeForKey(scopeKey), [scopeKey]);
@@ -27,8 +33,7 @@ export function useUsage(scopeKey?: string) {
     if (inFlight.current) return inFlight.current;
     setLoading(true);
     const version = generation.current;
-    inFlight.current = bridge
-      .readUsage(scopeKey)
+    inFlight.current = readUsage(bridge, scopeKey)
       .then((next) => {
         if (version !== generation.current || currentScope.current !== scopeKey) return;
         cacheGeneration.current++;
@@ -69,8 +74,7 @@ export function useUsage(scopeKey?: string) {
     const version = generation.current;
     if (!last || Date.now() - lastReadAt.current >= FRESH_MS) {
       // Saved numbers first, so the sidebar isn't empty while the first read runs.
-      bridge
-        .getCachedUsage(scopeKey)
+      cachedUsage(bridge, scopeKey)
         .then((cached) => {
           if (version === generation.current && currentScope.current === scopeKey) {
             setSnapshotScope(scopeKey);
@@ -100,8 +104,7 @@ export function useUsage(scopeKey?: string) {
       if (changedScope !== scopeKey) return;
       const pushGeneration = generation.current;
       const cacheVersion = ++cacheGeneration.current;
-      void bridge
-        .getCachedUsage(scopeKey)
+      void cachedUsage(bridge, scopeKey)
         .then((cached) => {
           if (pushGeneration !== generation.current || cacheVersion !== cacheGeneration.current || currentScope.current !== scopeKey) return;
           setSnapshot((previous) => {

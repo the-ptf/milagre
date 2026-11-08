@@ -1956,6 +1956,17 @@
         }
       ]
     },
+    "pull-requests:open": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "project:reveal": {
       "parameters": [
         {
