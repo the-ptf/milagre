@@ -1917,6 +1917,9 @@ function App() {
     const latest = openState();
     if (latest && projectRef.current) restoreProjectChoices(latest, projectRef.current.path);
     setSelectedSessionId(null);
+    // The Changes panel is one for every Chat: a new Chat starts without it, rather than have it come back once its first
+    // message makes the Chat.
+    changes.hide();
     // The new-chat screen keeps its own draft; only text handed in replaces it.
     if (draftText) setDraft(draftText);
     setNewChatError(null);

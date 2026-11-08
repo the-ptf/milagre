@@ -3413,6 +3413,8 @@ function createRuntime(options) {
   commands.handle("linked:grant", (_event, chatId, linkId) => linked.grant(chatId, linkId));
   commands.handle("canvas:worktree-position", (_event, id, worktreePath, position) => projectRegistry().setWorktreePosition(id, worktreePath, position));
   commands.handle("canvas:open-project", async (_event, requested) => {
+    // A project-less Chat's row opens the Chats home, which no registry lists (as project:switch accepts it).
+    if (chatsHome.isHome(requested) && (await chatsHome.exists())) return openProject(chatsHome.path, { remember: false, register: false });
     if (!(await projectRegistry().list()).some((project) => project.path === requested)) throw new Error("Project is not in the registry.");
     return openProject(requested);
   });

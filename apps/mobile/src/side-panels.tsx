@@ -179,6 +179,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   }, [endHandoff, slideAway, clear]);
   const attach = useCallback(
     (next: Screen) => {
+      // A draft starts with Changes closed, including after its first send creates a Worktree.
+      if (next.chatId === undefined) setDocked(false);
       if (handoff.current && !arriving.current && current.current?.token !== next.token) {
         arriving.current = next.token;
         replacingUnderPanel = false;
@@ -208,6 +210,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   // swaps what the panels show.
   const update = useCallback((next: Screen) => {
     if (current.current?.token !== next.token) return;
+    if (next.chatId === undefined) setDocked(false);
     current.current = next;
     setScreen(next);
   }, []);
