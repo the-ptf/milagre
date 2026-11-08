@@ -1145,7 +1145,7 @@ test("a send to a Chat that isn't a hidden Run Chat keeps nothing without waitin
   assert.deepEqual(reads, [f.project], "a kept Run Chat");
 });
 
-test("pinning or renaming a hidden Run Chat keeps it; reading it, a blank name, an unpin or an agent's chat_update doesn't", async (t) => {
+test("pinning (kept) or renaming a hidden Run Chat keeps it; reading it, a blank name, an unpin or an agent's chat_update doesn't", async (t) => {
   const f = await fixture(t);
   await f.finish("ok");
   const routine = await createTriage(f, "project");
@@ -1163,6 +1163,11 @@ test("pinning or renaming a hidden Run Chat keeps it; reading it, a blank name, 
   assert.equal(await hiddenOf(f, first.session.id), false);
   await patch(second, { title: "Mine" });
   assert.equal(await hiddenOf(f, second.session.id), false);
+  // A pin is the device's own now: it keeps the Chat with `kept` and saves nothing on it.
+  const third = await endedRunChat(f, routine.id);
+  await patch(third, { kept: true });
+  assert.equal(await hiddenOf(f, third.session.id), false);
+  assert.equal((await sessionOf(f, third.session.id)).kept, undefined);
 });
 
 test("a Heartbeat set on a hidden Run Chat from the Routines form keeps it, when made and when moved to another", async (t) => {

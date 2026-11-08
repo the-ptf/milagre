@@ -72,6 +72,8 @@ window.milagre = {
 window.addEventListener("milagre:project-removed", (event) => { window.removedProject = event.detail; });
 window.pushShop = (state) => listeners.forEach((callback) => callback({ path: "/work/shop", state }));
 localStorage.removeItem("milagre.sidebarClosedScopes");
+// Pins are this Mac's own (chat-pins.ts), kept in the same storage: a page reload in the restart checks keeps them.
+if (!restartRecent) localStorage.removeItem("milagre.chatPins");
 // A restart keeps the saved group order; a first load starts clean.
 if (!restartRecent) localStorage.removeItem("milagre.sidebarScopeOrder");
 updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: "grouped" });
@@ -132,7 +134,7 @@ async function browserChecks() {
   // Other checks share this storage: leave the sidebar as they expect it.
   const reset = () =>
     evaluate(
-      `localStorage.removeItem("milagre.sidebarClosedScopes"); localStorage.removeItem("milagre.sidebarScopeOrder"); sessionStorage.removeItem("restartRecent")`,
+      `localStorage.removeItem("milagre.sidebarClosedScopes"); localStorage.removeItem("milagre.sidebarScopeOrder"); localStorage.removeItem("milagre.chatPins"); sessionStorage.removeItem("restartRecent")`,
     ).catch(() => {});
   const scopes = () => evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((node) => node.dataset.sidebarScope)`);
   // A folded group keeps its rows mounted (inert, zero height) so it can animate shut; they don't count as shown.
@@ -362,7 +364,10 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"] [aria-label="Chat actions"]').click()`);
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
     await evaluate(`[...document.querySelectorAll("[data-chat-menu] [data-menu-row]")].find((row) => row.textContent.trim() === "Pin").click()`);
-    assert.deepEqual(await evaluate("window.patched"), ["/work/shop", 7, { pinned: true, pin_order: 0 }]);
+    // The pin stays on this Mac: the Chat's host is never told (only a hidden Run Chat's would hear it was kept).
+    await waitFor(`!!localStorage.getItem("milagre.chatPins")`);
+    assert.deepEqual(JSON.parse(await evaluate(`localStorage.getItem("milagre.chatPins")`)), { "/work/shop": { 7: 0 } });
+    assert.equal(await evaluate("window.patched ?? null"), null, "Pinning writes nothing to the Chat's computer");
     await waitFor(`!!document.querySelector('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]')`);
     assert.equal(
       await evaluate(
@@ -491,10 +496,10 @@ async function browserChecks() {
     await screenshot("drag-into-pinned");
     const drop = await target();
     mouse("mouseUp", drop.x, drop.bottom - 4);
-    await waitFor(`window.patched?.[1] === 8`);
-    const [scope, id, patch] = await evaluate("window.patched");
-    assert.deepEqual([scope, id, patch.pinned], ["/work/shop", 8, true], "dropped below the pinned chat, another Project's chat is pinned");
-    assert.ok(patch.pin_order > 0, "after the pinned one");
+    await waitFor(`"8" in (JSON.parse(localStorage.getItem("milagre.chatPins") ?? "{}")["/work/shop"] ?? {})`);
+    const pins = JSON.parse(await evaluate(`localStorage.getItem("milagre.chatPins")`))["/work/shop"];
+    assert.ok(pins[8] > pins[7], "dropped below the pinned chat, another Project's chat is pinned after it");
+    assert.equal(await evaluate("window.patched ?? null"), null);
 
     // The group order survives a restart: the page reloads (module state gone, storage kept) with the recent list in a new order.
     const LINK = "milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";

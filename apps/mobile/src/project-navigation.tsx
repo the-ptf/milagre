@@ -5,7 +5,7 @@ import { ChatSwipeRow, hideRevealed } from "./chat-swipe-row";
 import { retentionOf, useDoneRetention } from "./done-retention";
 import { doneCountdown } from "@milagre/shared/done";
 import { chatSummary } from "@milagre/shared/chat-summary";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   FlatList,
   Platform,
@@ -58,7 +58,8 @@ import type { ChatSearchMatch, Client, RecentProject, RegisteredProject, Snapsho
 import { ALL_CHATS_LABEL, CHATS_GROUP_LABEL, NO_PROJECT_LABEL } from "@milagre/shared/chats-home";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
-import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
+import { savedChatDefaults, savedChatPins, savedFoldedProjects } from "./hosts-native";
+import { sessionsWithPins, type DevicePins } from "@milagre/shared/chat-pins";
 import { dropBefore, moveProject } from "./project-order-store";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
 import { chatsGroupChats, chatsGroupList, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
@@ -254,6 +255,8 @@ type BuildContext = {
   doneMark: (projectPath: string, chatId: number) => DoneMark | undefined;
   fallback: (path: string) => ProjectCopy | undefined;
   show: Show;
+  /** This phone's pins on the computer: the Mac's own never show here (chat-pins-store.ts). */
+  pins: DevicePins;
 };
 
 /** A Done or Reopen asked from this list, shown until its computer answers (`doneAt` null: reopened). */
@@ -335,7 +338,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     list.push(message);
     byChat.set(message.session_id, list);
   }
-  const entries = Object.values(copy?.project.state.sessions || {}).map((saved) => {
+  const entries = Object.values(copy ? sessionsWithPins(copy.project.state.sessions, copy.project.path, ctx.pins) : {}).map((saved) => {
     const chat = withDoneMark(saved, ctx.doneMark(project.path, saved.id));
     const run = copy?.runs.runs[`${copy.project.path}#${chat.id}`];
     const pending = pendingById.get(chat.id);
@@ -578,6 +581,10 @@ const NavigationBody = memo(function NavigationBody({
 
   // Each computer's rows are rebuilt only when that computer's data, the search or what it overlays changes.
   const [cache] = useState(() => new Map<string, { deps: unknown[]; build: HostBuild }>());
+  const pinsVersion = useSyncExternalStore(savedChatPins.subscribe, savedChatPins.version);
+  useEffect(() => {
+    for (const view of views) void savedChatPins.load(view.hostId);
+  }, [views]);
   const builds = useMemo(() => {
     const archiving = (hostId: string) => (projectPath: string, chatId: number) =>
       archives.chats.has(`${projectPath}#${chatId}`) && (hostId === currentHostId || archiveRequests.has(`${hostId}|${projectPath}#${chatId}`));
@@ -591,6 +598,7 @@ const NavigationBody = memo(function NavigationBody({
         archives.chats,
         archives.hidden,
         doneMarks,
+        savedChatPins.pins(view.hostId),
         current ? snapshot : null,
         current ? cachedProject : null,
         current,
@@ -607,13 +615,30 @@ const NavigationBody = memo(function NavigationBody({
         doneMark: (projectPath, chatId) => (doneMarks.size ? doneMarks.get(`${view.hostId}|${projectPath}#${chatId}`) : undefined),
         fallback: cachedProject,
         show,
+        pins: savedChatPins.pins(view.hostId),
       });
       cache.set(view.hostId, { deps, build });
       return build;
     });
     for (const id of cache.keys()) if (!views.some((view) => view.hostId === id)) cache.delete(id);
     return next;
-  }, [views, needle, show, pendingChats, archives.chats, archives.hidden, doneMarks, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
+    // pinsVersion: a pin changes savedChatPins.pins, which the deps above read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    views,
+    needle,
+    show,
+    pendingChats,
+    archives.chats,
+    archives.hidden,
+    doneMarks,
+    snapshot,
+    cachedProject,
+    currentHostId,
+    cache,
+    archiveRequests,
+    pinsVersion,
+  ]);
 
   const manyHosts = builds.length > 1;
   const { rows, searchable, projectHits } = useMemo(() => {
@@ -1241,6 +1266,10 @@ const NavigationBody = memo(function NavigationBody({
         link: copy.project.link,
         chatsHome: row.home,
         hostId,
+        pins: {
+          saved: savedChatPins.pins(hostId),
+          set: (sessions, id, order) => savedChatPins.set(hostId, copy.project.path, sessions, id, order),
+        },
         onConfirm: () => {
           confirmed = true;
         },

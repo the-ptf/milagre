@@ -8471,6 +8471,10 @@
         "done": {
           "enum": [false, true],
           "description": "Marks the chat Done (the host stamps `done_at` with its own clock) or reopens it."
+        },
+        "kept": {
+          "enum": [true],
+          "description": "The user took the Chat over: a hidden Run Chat stays in the lists from then on. Pins are this device's own\n(chat-pins.ts) and never reach the host, so pinning one says so with this instead. Nothing is saved for it."
         }
       },
       "additionalProperties": false

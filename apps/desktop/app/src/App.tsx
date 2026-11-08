@@ -124,6 +124,8 @@ import { createPendingChat, createResendMemory, pendingChatSessionId, withPendin
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
+import { pinChat, useChatPins } from "./lib/chat-pins";
+import { keepsOnPin, sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
 import { clearNoticeOnNavigate, showNotice } from "./lib/notice";
@@ -926,6 +928,7 @@ function App() {
     floatingInbox,
     routineNudges,
   } = useSettings();
+  const chatPins = useChatPins();
   useEffect(() => {
     void window.milagre.setFloatingInbox?.(floatingInbox).catch(() => {});
   }, [floatingInbox]);
@@ -1364,7 +1367,9 @@ function App() {
   const chats = useMemo(() => {
     const state = sidebarState;
     if (!state) return [];
-    const withMessages = Object.values(state.sessions)
+    // Pinned the way this Mac pinned them: pins never cross computers.
+    const sessions = project ? sessionsWithPins(state.sessions, project.path, chatPins) : state.sessions;
+    const withMessages = Object.values(sessions)
       .filter((session) => !session.archived && !(project && archivingChats.has(chatKey(project.path, session.id))))
       .map((session) => ({ session, sessionMessages: messagesBySession.get(session.id) ?? NO_MESSAGES }))
       // A hidden Run Chat shows only while its run waits on an approval or a question.
@@ -1422,6 +1427,7 @@ function App() {
     return (previousChats.current = reuseRows<SidebarRecent>(previousChats.current, rows));
   }, [
     sidebarState,
+    chatPins,
     pendingSends,
     failedSends,
     messagesBySession,
@@ -1442,6 +1448,7 @@ function App() {
   ]);
   const latest = useRef({
     patchChat,
+    pinChatHere,
     markChatDone,
     revealChat,
     openChatInEditor,
@@ -1455,6 +1462,7 @@ function App() {
   });
   latest.current = {
     patchChat,
+    pinChatHere,
     markChatDone,
     revealChat,
     openChatInEditor,
@@ -1469,6 +1477,16 @@ function App() {
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
   function patchChat(sessionId: number, patch: SessionPatch, path = projectRef.current?.path) {
     if (path) void reportChatAction(patchChatShowingDone(path, sessionId, patch), "Could not update Chat", setNotice);
+  }
+  // Pins stay on this Mac (chat-pins.ts); pinning a hidden Run Chat still tells its host the user took it over.
+  function pinChatHere(sessionId: number, order: number | null) {
+    const path = projectRef.current?.path;
+    if (!path) return;
+    pinChat(path, Object.values(state?.sessions ?? {}), sessionId, order);
+    if (order !== null && keepsOnPin(state?.sessions[sessionId]))
+      void bridgeForKey(path)
+        .patchChat(path, sessionId, { kept: true })
+        .catch(() => {});
   }
   // Done on the open Chat leaves it for a new Chat in the same Project, as archiving it does: the work there is
   // finished, and the next thing starts fresh. The row keeps moving to the Done section meanwhile.
@@ -2869,7 +2887,7 @@ function App() {
       onRename: (id, title) => latest.current.patchChat(Number(id), { title }),
       onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }),
       onReload: (id) => void latest.current.reloadChat(Number(id)),
-      onPin: (id, order) => latest.current.patchChat(Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order }),
+      onPin: (id, order) => latest.current.pinChatHere(Number(id), order ?? null),
       onDone: (id) => latest.current.markChatDone(Number(id)),
       onReopen: (id) => latest.current.patchChat(Number(id), { done: false }),
       ...(remoteProject

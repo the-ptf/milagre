@@ -25,6 +25,32 @@ const state = {
   messages: [message(1, 1, "Fix checkout"), message(2, 2, "Add search"), message(3, 3, "Old"), message(4, 4, "Pinned one")],
 } as unknown as CoordinatorState;
 
+test("another Project's chats are pinned the way this Mac pinned them, not as their host saved", () => {
+  const none = { running: new Set<string>(), waiting: new Set<string>(), asking: new Set<string>() };
+  const order = (pins: Record<string, Record<string, number>>) => scopeChats("/code/shop", state, "created", none, { pins }).map((row) => [row.id, row.pinned]);
+  // Never pinned here: the pins the Chats carry from before pins were per computer.
+  assert.deepEqual(order({}), [
+    ["4", true],
+    ["2", false],
+    ["1", false],
+  ]);
+  assert.deepEqual(order({ "/code/shop": { 1: 0 } }), [
+    ["1", true],
+    ["4", false],
+    ["2", false],
+  ]);
+  assert.deepEqual(order({ "/code/shop": {} }), [
+    ["4", false],
+    ["2", false],
+    ["1", false],
+  ]);
+  assert.deepEqual(order({ "/code/other": { 1: 0 } }), [
+    ["4", true],
+    ["2", false],
+    ["1", false],
+  ]);
+});
+
 test("another Project's chats: pinned first, newest next, archived left out, marks from its runs", () => {
   const rows = scopeChats("/code/shop", state, "created", { running: new Set(["/code/shop#1"]), waiting: new Set(), asking: new Set() });
   assert.deepEqual(

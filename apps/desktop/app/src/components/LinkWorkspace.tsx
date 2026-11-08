@@ -39,6 +39,7 @@ import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
 import { useHiddenProjects } from "../lib/hidden-projects";
 import { useSettings } from "../lib/settings";
+import { useChatPins } from "../lib/chat-pins";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
@@ -194,6 +195,7 @@ export function LinkWorkspace({
   const sidebarRunKeys = runKeys(agents.runs);
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const { showAttentionButton, floatingInbox, chatOrder } = useSettings();
+  const pins = useChatPins();
   const runMarks = useMemo(
     () => ({
       running: new Set(sidebarRunKeys.running.split("\n").filter(Boolean)),
@@ -597,7 +599,7 @@ export function LinkWorkspace({
   }
   // The same rows the sidebar builds for this Link while a Project is open: its Chat order, pins and times, so the
   // one-list sidebar keeps every row where it was when the window switches between the Link and a Project.
-  const recents = scopeChats(owner, state, chatOrder, runMarks).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
+  const recents = scopeChats(owner, state, chatOrder, runMarks, { pins }).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
