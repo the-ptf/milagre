@@ -13609,6 +13609,129 @@ test("mobile General shows the Mac's Milagre update, checks, installs after aski
   assert.ok(find(MacUpdatesSection(), (node) => node.props?.title === "Auto update"));
 });
 
+function settingsCardHost(pages, width = 820, isPad = true) {
+  // Exercise the rendered handlers with the installed router, including a nested Settings stack over a Chat.
+  const { StackRouter } = require("../node_modules/expo-router/build/react-navigation/routers/StackRouter.js");
+  const stack = StackRouter({});
+  const options = { routeNames: ["index", "chat", "(settings)", "routines"], routeParamList: {}, routeGetIdList: {} };
+  const nested = {
+    type: "stack",
+    stale: false,
+    routeKeySeq: 10,
+    routeNames: pages,
+    key: "settings-stack",
+    index: pages.length - 1,
+    routes: pages.map((name) => ({ name, key: name })),
+  };
+  const chat = { name: "chat", key: "chat-42", params: { id: "42" } };
+  let rootState = {
+    type: "stack",
+    stale: false,
+    routeKeySeq: 10,
+    routeNames: options.routeNames,
+    key: "root-stack",
+    index: 2,
+    routes: [{ name: "index", key: "home" }, chat, { name: "(settings)", key: "modal", state: nested }],
+  };
+  const applyRoot = (action) => {
+    assert.equal(action.target, rootState.key, "dismissal must target the modal's containing navigator");
+    const result = stack.getStateForAction(rootState, action, options);
+    assert.ok(result.state, "the installed StackRouter must handle the action");
+    rootState = result.state;
+  };
+  const { SettingsSplit } = load("settings-split.tsx", {
+    react: hookHost(),
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      View: "View",
+      Text: "Text",
+      Pressable: "Pressable",
+      ScrollView: "ScrollView",
+      Platform: { OS: "ios", isPad },
+      StyleSheet: { hairlineWidth: 1, absoluteFill: {} },
+      useWindowDimensions: () => ({ width, height: 1180 }),
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 20 }) },
+    "react-native-keyboard-controller": { useKeyboardState: (select) => select({ isVisible: false, height: 0 }) },
+    "expo-router": {
+      useNavigation: (path) => {
+        assert.equal(path, "/");
+        return { getState: () => rootState, dispatch: applyRoot };
+      },
+      router: {
+        back: () => {
+          throw new Error("Untargeted Back pops the child page instead of closing Settings");
+        },
+        push: () => {
+          throw new Error("Routines must replace the containing Settings modal");
+        },
+      },
+    },
+    "@hugeicons/core-free-icons": {},
+    "./ui": { HeaderButton: "HeaderButton" },
+    "./app/(settings)/settings": { SettingsView: "SettingsView", SettingsResults: "SettingsResults" },
+    "./primitives/field": { Field: "Field" },
+    "./icons": { Icon: "Icon" },
+    "./theme": { useTheme: () => ({ colors: {} }) },
+    "./design-tokens": { radius: {}, type: {}, lineHeight: {} },
+    "./settings-split-routes": require("../apps/mobile/src/settings-split-routes.ts"),
+  });
+  const split = SettingsSplit({ state: nested, navigation: { reset() {} }, children: jsx("Pages", {}) });
+  const card = typeof split.type === "function" ? split.type(split.props) : split;
+  const sidebarElement = find(card, (node) => node.type?.name === "SettingsSidebar");
+  const sidebar = sidebarElement?.type(sidebarElement.props);
+  return { card, sidebar, state: () => rootState, chat, nested, stack, options };
+}
+
+test("iPad Settings Close and scrim dismiss the containing modal from nested Voice and Computer pages", () => {
+  for (const pages of [
+    ["voice", "dictation-model"],
+    ["computers", "computer", "computer-usage"],
+  ]) {
+    for (const width of [820, 600]) {
+      for (const control of width >= 748 ? ["close", "scrim"] : ["scrim"]) {
+        const host = settingsCardHost(width >= 748 ? pages : ["settings", ...pages], width);
+        const button =
+          control === "close"
+            ? find(host.sidebar, (node) => node.props?.label === "Close Settings")
+            : find(host.card, (node) => node.props?.accessibilityLabel === "Close Settings");
+        button.props.onPress();
+        assert.deepEqual(
+          host.state().routes.map((route) => route.name),
+          ["index", "chat"],
+        );
+        assert.equal(host.state().routes[1], host.chat, "the underlying Chat and its params survive");
+        // Back within Settings retains its separate meaning: pop only the current child.
+        const back = host.stack.getStateForAction(host.nested, { type: "GO_BACK" }, host.options);
+        assert.equal(back.state.index, host.nested.index - 1);
+      }
+    }
+  }
+});
+
+test("iPad Routines replaces Settings at any child depth, so Back returns directly to the Chat", () => {
+  for (const pages of [["appearance"], ["voice", "dictation-model"], ["computers", "computer", "computer-cleanup"]]) {
+    const host = settingsCardHost(pages);
+    find(host.sidebar, (node) => node.type === "SettingsView").props.onOpen("routines");
+    assert.deepEqual(
+      host.state().routes.map((route) => route.name),
+      ["index", "chat", "routines"],
+    );
+    const back = host.stack.getStateForAction(host.state(), { type: "GO_BACK" }, host.options);
+    assert.equal(back.state.routes[back.state.index], host.chat);
+  }
+});
+
+test("phones keep the native Settings stack without an iPad dismissal surface", () => {
+  const host = settingsCardHost(["settings", "voice", "dictation-model"], 390, false);
+  assert.equal(host.sidebar, undefined);
+  assert.ok(find(host.card, (node) => node.type === "Pages"));
+  assert.equal(
+    find(host.card, (node) => node.props?.accessibilityLabel === "Close Settings"),
+    undefined,
+  );
+});
+
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
 function loadSettings(state) {
   return load("app/(settings)/settings.tsx", {

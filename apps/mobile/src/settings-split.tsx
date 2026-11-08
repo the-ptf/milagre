@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardState } from "react-native-keyboard-controller";
-import { router } from "expo-router";
+import { useNavigation } from "expo-router";
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HeaderButton } from "./ui";
 import { SettingsResults, SettingsView } from "./app/(settings)/settings";
@@ -44,6 +44,12 @@ export function SettingsSplit({ state, navigation, children }: Props) {
 
 function SettingsCard({ state, navigation, children }: Props) {
   const { colors } = useTheme();
+  const root = useNavigation("/");
+  // Target the containing Stack: an untargeted Back/Pop is consumed by a nested Settings page.
+  const close = () => {
+    const target = root.getState()?.key;
+    if (target) root.dispatch({ type: "POP", target, payload: { count: 1 } });
+  };
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const width = Math.min(CARD_MAX.width, window.width - 2 * CARD_MARGIN);
@@ -59,10 +65,10 @@ function SettingsCard({ state, navigation, children }: Props) {
     if (next) reset(next);
   });
   const open = (page: string, params?: object) => {
-    // Routines is a full page of the app, not a page of Settings: close Settings, then open it over the Chat.
+    // Replace the containing modal in one action, keeping the Chat under Routines at any Settings depth.
     if (page === "routines") {
-      router.back();
-      router.push("/routines");
+      const target = root.getState()?.key;
+      if (target) root.dispatch({ type: "REPLACE", target, payload: { name: "routines" } });
       return;
     }
     reset([{ name: page, ...(params ? { params } : {}) }]);
@@ -72,7 +78,7 @@ function SettingsCard({ state, navigation, children }: Props) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close Settings"
-        onPress={() => router.back()}
+        onPress={close}
         style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]}
       />
       <View
@@ -90,7 +96,7 @@ function SettingsCard({ state, navigation, children }: Props) {
       >
         {wide ? (
           <View style={{ width: SIDEBAR_WIDTH, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.line, backgroundColor: colors.page }}>
-            <SettingsSidebar selected={selectedSettingsRow(state.routes)} onOpen={open} />
+            <SettingsSidebar selected={selectedSettingsRow(state.routes)} onOpen={open} onClose={close} />
           </View>
         ) : null}
         {/* Until the Stack drops the list, the page side would draw the list beside itself for a frame. */}
@@ -100,7 +106,7 @@ function SettingsCard({ state, navigation, children }: Props) {
   );
 }
 
-function SettingsSidebar({ selected, onOpen }: { selected?: string; onOpen: (page: string, params?: object) => void }) {
+function SettingsSidebar({ selected, onOpen, onClose }: { selected?: string; onOpen: (page: string, params?: object) => void; onClose: () => void }) {
   const { colors } = useTheme();
   const [query, setQuery] = useState("");
   return (
@@ -114,7 +120,7 @@ function SettingsSidebar({ selected, onOpen }: { selected?: string; onOpen: (pag
         <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600" }}>
           Settings
         </Text>
-        <HeaderButton label="Close Settings" icon={Cancel01Icon} onPress={() => router.back()} />
+        <HeaderButton label="Close Settings" icon={Cancel01Icon} onPress={onClose} />
       </View>
       <Field
         label="Search settings"
