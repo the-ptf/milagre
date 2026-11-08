@@ -159,6 +159,13 @@ test("the @ menu finds nothing in a new Chats home: Milagre's own metadata is ne
   assert.deepEqual(await runtime.invoke("project:files", [home, ""]), []);
 });
 
+test("a project-less Chat's sidebar row opens the Chats home, which no registry lists", async (t) => {
+  const { runtime, chatsHome } = await fixture(t);
+  await runtime.invoke("chats:ensure");
+  assert.equal((await runtime.invoke("canvas:open-project", [chatsHome])).path, chatsHome);
+  assert.ok(!(await runtime.invoke("project:registry")).some((entry) => entry.path === chatsHome), "the home stays unregistered");
+});
+
 test("chats:ensure makes the Chats home without taking the shown Project from the window", async (t) => {
   const { project, runtime, chatsHome } = await fixture(t);
   assert.equal((await runtime.invoke("chats:ensure")).path, chatsHome);
