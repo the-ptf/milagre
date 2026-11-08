@@ -47,6 +47,7 @@
     "src/linear.ts",
     "src/chat-row.ts",
     "src/subchats.ts",
+    "src/chat-pins.ts",
     "src/subchat-states.ts",
     "src/chat-display.ts",
     "src/canvas.ts",
@@ -421,6 +422,7 @@
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
     "./subchats": "./src/subchats.ts",
+    "./chat-pins": "./src/chat-pins.ts",
     "./subchat-escalation": {
       "types": "./src/subchat-escalation.d.mts",
       "default": "./src/subchat-escalation.mjs"

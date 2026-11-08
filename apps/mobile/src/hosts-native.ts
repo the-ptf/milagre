@@ -14,6 +14,7 @@ import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
 import { createProjectOrderStore } from "./project-order-store";
 import { createFoldedProjectsStore } from "./folded-projects-store";
+import { createChatPinsStore } from "./chat-pins-store";
 import { createHiddenProjectsStore } from "./hidden-projects-store";
 import { createProviderUpdateDismissals } from "./provider-update-dismissals";
 
@@ -36,6 +37,12 @@ export const savedProviderUpdateDismissals = createProviderUpdateDismissals({
 
 /** The Project groups folded by hand in the sidebar, per computer; every other group is open. */
 export const savedFoldedProjects = createFoldedProjectsStore({
+  getItemAsync: SecureStore.getItemAsync,
+  setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+});
+
+/** The Chats pinned on this phone, per computer; the Macs keep their own. */
+export const savedChatPins = createChatPinsStore({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });

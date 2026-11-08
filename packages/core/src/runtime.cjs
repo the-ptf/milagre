@@ -2421,11 +2421,12 @@ function createRuntime(options) {
     return true;
   }
   // Pinning, naming or restoring a Chat from the archive is the user taking a Run Chat over (a restored one would be
-  // hidden, out of every list, and archived again by the next sweep). An agent's chat_update calls patchChat itself and
-  // never keeps one, and nor does a read mark, an unpin or a blank name.
+  // hidden, out of every list, and archived again by the next sweep). Pins stay on the device that made them, which
+  // sends `kept` instead; an older one still sends `pinned`. An agent's chat_update calls patchChat itself and never
+  // keeps one, and nor does a read mark, an unpin or a blank name.
   commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {
     await patchChat(projectPath, sessionId, patch);
-    if (patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
+    if (patch?.kept === true || patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
       await keepRunChat(projectPath, sessionId);
   });
   commands.handle("chat:delete", async (_event, projectPath, sessionId) => {

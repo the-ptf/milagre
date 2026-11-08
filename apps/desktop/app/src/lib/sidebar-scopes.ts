@@ -11,6 +11,7 @@ import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { chatMark, chatTitle, isChatListed, orderChats, type ChatOrder } from "./chat-list.ts";
 import type { ProjectKind } from "@milagre/shared/chats-home";
+import { sessionsWithPins, type DevicePins } from "@milagre/shared/chat-pins";
 
 // The last full copy of each Project the sidebar read, so opening one of its chats shows it before the main process answers.
 const projectCopies = new Map<string, OpenProject>();
@@ -75,17 +76,19 @@ export function railLive(rows: readonly SidebarRecent[]): { status: RailStatus; 
   return { status: attention ? "attention" : chats.length ? "running" : "idle", chats };
 }
 
+const NO_PINS: DevicePins = {};
+
 /**
  * The chat rows of a Project or Link that isn't open, for the all-Projects sidebar; the marks come from `runKeys`.
  * Each row keeps the PRs, Linear issue and ports it showed while its scope was open (`rememberScopeRows`). A `gitless`
- * scope (a Chats home, whose repository is internal) gives its rows no branch, diff or folder path.
+ * scope (a Chats home, whose repository is internal) gives its rows no branch, diff or folder path. `pins` are this Mac's.
  */
 export function scopeChats(
   key: string,
   state: CoordinatorState | LinkState,
   order: ChatOrder,
   { running, waiting, asking }: { running: Set<string>; waiting: Set<string>; asking: Set<string> },
-  { gitless = false }: { gitless?: boolean } = {},
+  { gitless = false, pins = NO_PINS }: { gitless?: boolean; pins?: DevicePins } = {},
 ): SidebarRecent[] {
   // Chats carry a summary of their messages; only an older host's state, without one, is read message by message.
   const bySession = new Map<number, CoordinatorState["messages"]>();
@@ -95,7 +98,8 @@ export function scopeChats(
       if (list) list.push(message);
       else bySession.set(message.session_id, [message]);
     }
-  const listed = Object.values(state.sessions)
+  // Pinned the way this Mac pinned them (chat-pins.ts): pins never cross computers.
+  const listed = Object.values(sessionsWithPins<(typeof state.sessions)[string]>(state.sessions, key, pins))
     .filter((session) => !session.archived)
     .map((session) => ({ session, sessionMessages: bySession.get(session.id) ?? [] }))
     // A hidden Run Chat shows only while it waits on an approval or a question.

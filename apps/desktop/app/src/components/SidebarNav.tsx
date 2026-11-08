@@ -72,6 +72,8 @@ import { groupByOrigin } from "@milagre/shared/project-origin";
 import { preferredCopy, rememberProjectComputer } from "../lib/project-copies";
 import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkScopeChats } from "./sidebar/SidebarLinks";
 import { updateSettings, useSettings } from "../lib/settings";
+import { pinChat, useChatPins } from "../lib/chat-pins";
+import { keepsOnPin } from "@milagre/shared/chat-pins";
 import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
 import { MODEL_CATALOG, type ModelOption } from "../model";
@@ -597,6 +599,8 @@ export default memo(function SidebarNav({
   const recents = useMemo(() => (listedRecents.some((row) => row.doneAt) ? listedRecents.filter((row) => !row.doneAt) : listedRecents), [listedRecents]);
   const { settings: doneSettings } = useDoneSettings();
   const { chatOrder, chatRowShow, chatList } = useSettings();
+  // This Mac's pins: another computer's or the phone's never show here (chat-pins.ts).
+  const pins = useChatPins();
   // Other computers (Settings › Devices): their Projects join the list, and every row says its computer.
   const { thisMac, computers } = useComputers();
   const remote = useComputerScopes(computers);
@@ -849,6 +853,8 @@ export default memo(function SidebarNav({
   // stay with the open one. One object per scope, so its rows keep their memo. A Chats home's rows are `gitless`: no
   // branch to copy, no PR to open.
   const scopeActions = useRef(new Map<string, ChatRowActions>());
+  const scopeSessions = useRef(scopeStates);
+  scopeSessions.current = scopeStates;
   const scopeArchive = useRef({ check: onScopeArchiveCheck, archive: onScopeArchive });
   scopeArchive.current = { check: onScopeArchiveCheck, archive: onScopeArchive };
   const actionsFor = (key: string, gitless = false) => {
@@ -860,10 +866,15 @@ export default memo(function SidebarNav({
         ...scopeChatActions?.(key, gitless),
         remote: isRemoteKey(key),
         ...(gitless ? { gitless: true } : {}),
-        onPin: (id, order) =>
-          void bridgeForKey(key)
-            .patchChat(key, Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order })
-            .catch(() => {}),
+        // Pins stay on this Mac; pinning a hidden Run Chat still tells its host the user took it over.
+        onPin: (id, order) => {
+          const state = scopeSessions.current[key] ?? cachedProjectCopy(key)?.state;
+          pinChat(key, Object.values(state?.sessions ?? {}), Number(id), order ?? null);
+          if (order != null && keepsOnPin(state?.sessions[Number(id)]))
+            void bridgeForKey(key)
+              .patchChat(key, Number(id), { kept: true })
+              .catch(() => {});
+        },
         onDone: (id) => void patchChatShowingDone(key, Number(id), { done: true, unread: false }).catch(() => {}),
         onReopen: (id) => void patchChatShowingDone(key, Number(id), { done: false }).catch(() => {}),
         ...(archivable
@@ -921,7 +932,7 @@ export default memo(function SidebarNav({
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
         const all = withBeats(
           scope.key,
-          current ? listedRecents : state ? unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks))) : [],
+          current ? listedRecents : state ? unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks, { pins }))) : [],
         );
         const rows = withoutDone(all);
         const list = current
@@ -966,7 +977,7 @@ export default memo(function SidebarNav({
         const state = scopeStates[key] ?? cachedProjectCopy(key)?.state;
         const all = withBeats(
           key,
-          current ? listedRecents : state ? unarchived(key, pendingDone(key, scopeChats(key, state, chatOrder, marks, { gitless: true }))) : [],
+          current ? listedRecents : state ? unarchived(key, pendingDone(key, scopeChats(key, state, chatOrder, marks, { gitless: true, pins }))) : [],
         );
         const rows = withoutDone(all);
         const list = {
@@ -1049,7 +1060,7 @@ export default memo(function SidebarNav({
           const rows = current
             ? recents
             : state
-              ? withoutDone(unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks))))
+              ? withoutDone(unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks, { pins }))))
               : [];
           const { status, chats } = railLive(rows);
           return { key: scope.key, name: scope.name, icon: scopeIcon(scope, current), current, status, chats };

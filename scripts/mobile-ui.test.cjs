@@ -283,6 +283,13 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
       if (id === "@milagre/shared/pull-request-review" && !(id in modules)) return require("../packages/shared/src/pull-request-review.ts");
       const base = id.replace(/^\.\.?\//, "");
+      // The phone's own pins (chat-pins-store.ts): none saved unless a test gives its own store.
+      if (base === "hosts-native" && id in modules && !modules[id].savedChatPins)
+        return {
+          savedChatPins: { subscribe: () => () => {}, version: () => 0, pins: () => ({}), load: async () => {}, set: async () => {} },
+          ...modules[id],
+        };
+      if (id === "@milagre/shared/chat-pins" && !(id in modules)) return require("../packages/shared/src/chat-pins.ts");
       if (base === "theme" || base === "ui") {
         // Themed code reads colors through hooks; a test's own fake wins over these defaults.
         const own = modules[id] ?? {};

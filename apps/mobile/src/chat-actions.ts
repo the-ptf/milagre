@@ -7,6 +7,7 @@ import { archiveFromPhone, startArchiving, type ArchiveRequest } from "./archive
 import { archiveLinkChat } from "@milagre/shared/archive";
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { pinPatch } from "./pins";
+import { keepsOnPin, sessionsWithPins, type DevicePins } from "@milagre/shared/chat-pins";
 
 /**
  * Desktop's ⋯ menu for a Chat, less what only makes sense at the Mac (Finder, editor, commit). `links` is the Link
@@ -86,6 +87,7 @@ export async function runChatAction({
   link,
   chatsHome,
   hostId,
+  pins,
   refresh,
   expectActivity,
   notify,
@@ -102,6 +104,11 @@ export async function runChatAction({
   chatsHome?: boolean;
   /** The Computer the Chat is on, so its deletion hides and undoes only its own row. */
   hostId?: string;
+  /**
+   * This phone's pins on the Chat's computer and how to change one (chat-pins-store.ts). Pins stay on the phone, so
+   * without them a pin choice does nothing.
+   */
+  pins?: { saved: DevicePins; set: (sessions: AgentSession[], id: number, order: number | null) => Promise<void> };
   onConfirm?: () => void;
   refresh: () => Promise<unknown>;
   expectActivity: () => void;
@@ -143,9 +150,12 @@ export async function runChatAction({
     });
   }
   if (action === "archive") await client.call("chat:patch", [projectPath, chat.id, { archived: false }]);
-  if (action === "pin" || action === "unpin" || action === "pin-up" || action === "pin-down") {
-    const patch = pinPatch(action, chat, Object.values(state.sessions));
-    if (patch) await client.call("chat:patch", [projectPath, chat.id, patch]);
+  if (pins && (action === "pin" || action === "unpin" || action === "pin-up" || action === "pin-down")) {
+    const mine = Object.values(sessionsWithPins(state.sessions, projectPath, pins.saved));
+    const patch = pinPatch(action, mine.find((session) => session.id === chat.id) ?? chat, mine);
+    if (patch) await pins.set(Object.values(state.sessions), chat.id, patch.pinned ? (patch.pin_order ?? 0) : null);
+    // Pinning a hidden Run Chat is still the user taking it over, which its computer keeps (runtime.cjs chat:patch).
+    if (action === "pin" && keepsOnPin(chat)) await client.call("chat:patch", [projectPath, chat.id, { kept: true }]).catch(() => {});
   }
   if (action === "read" || action === "unread") await client.call("chat:patch", [projectPath, chat.id, { unread: action === "unread" }]);
   // The Mac stamps when it went Done, so the countdown follows its clock, not the phone's.
