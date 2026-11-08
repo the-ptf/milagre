@@ -150,7 +150,18 @@ function createLocalMcpHost({
           },
         }
       : {};
-  const callerMode = (caller) => (caller ? asCaller(permissionMode(caller, "ask")) : "ask");
+  // The caller's live agent's mode. An idle Chat (no agent process, as when a script runs a command for it) has none, so
+  // it counts as the mode it runs in next: its latest turn's, else the one saved with it (#973).
+  const savedMode = async (caller) => {
+    const latest = chats.turnSettings?.(caller)?.permissionMode;
+    if (latest) return latest;
+    try {
+      return (await chat(projectOfKey(caller), caller)).session.permissionMode ?? "ask";
+    } catch {
+      return "ask";
+    }
+  };
+  const callerMode = async (caller) => (caller ? asCaller(permissionMode(caller, null) ?? (await savedMode(caller))) : "ask");
   // A bot's Chat runs under its gates and only the bot steers it, until the user takes it over in Milagre: no other Chat
   // or outside client starts, stops, switches, answers for or renames it.
   const notBots = (chatId) => {
@@ -158,14 +169,22 @@ function createLocalMcpHost({
     if (bot) throw Error(`${bot} runs this Chat; open it in Milagre to take it over.`);
   };
   // Past what the caller may do alone: the user decides on a card in the caller's Chat. An outside client has no Chat.
+  // A caller with no live agent has nowhere to show the card: that is no one's refusal, so it says so (#973).
   const confirm = async (caller, request) => {
-    if (!caller) throw Error(`${request.title.replace(/\?$/, "")} needs approval in Milagre, which an outside client can't ask for. Do it in Milagre instead.`);
+    const action = request.title.replace(/\?$/, "");
+    if (!caller) throw Error(`${action} needs approval in Milagre, which an outside client can't ask for. Do it in Milagre instead.`);
+    if (permissionMode(caller, null) == null)
+      throw Error(
+        `PERMISSION_APPROVAL_REQUIRED: ${action} needs the user's approval on a card in the calling Chat, which has no running agent to show it. Nobody declined. Run the calling Chat in a mode that allows this (Full permission does), or do it in Milagre.`,
+      );
     const decision = await approve(caller, { requestId: `mcp-${crypto.randomUUID()}`, kind: "other", tool: "Milagre", allowForChat: false, ...request });
+    if (decision === "cancelled")
+      throw Error(`APPROVAL_CANCELLED: the card for ${action} closed before anyone answered it (the calling Chat's turn ended). Nobody declined.`);
     if (decision !== "allow" && decision !== "allow-for-chat") throw Error("The user declined.");
   };
   // `prompt`, for chat_start: what would run there. Without `asked` the Chat already runs in `mode`, above the caller's.
   const checkMode = async (caller, chatId, mode, session, { prompt, asked = true } = {}) => {
-    if (!raisesMode(mode, callerMode(caller))) return;
+    if (!raisesMode(mode, await callerMode(caller))) return;
     const name = session?.title || session?.generatedTitle;
     const chatName = name ? `"${name}"` : "another Chat";
     const modeName = mode === "full" ? "Full permission" : mode === "auto" ? "Auto mode" : "Bot rules";
@@ -228,7 +247,7 @@ function createLocalMcpHost({
       await suggestAnswer(caller, { from: chatId, fromTitle, requestId, question: asked, answerLabel, answers: given });
       return { chatId, requestId, accepted: true, note: "Suggested. The human decides." };
     }
-    if (callerMode(caller) !== "full")
+    if ((await callerMode(caller)) !== "full")
       throw Error("Only a Chat in Full permission answers a Subchat's question alone. Use suggest: true, and the human decides.");
     return {
       chatId,
@@ -261,7 +280,7 @@ function createLocalMcpHost({
     if (!caller) throw Error("Project is outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.");
     notBots(caller);
     await validateProject(projectPath);
-    if (callerMode(caller) === "full") return;
+    if ((await callerMode(caller)) === "full") return;
     const key = `${caller}\0${projectPath}`;
     let running = scopeRequests.get(key);
     if (!running) {
@@ -323,7 +342,7 @@ function createLocalMcpHost({
             throw Error(
               "Project is already registered in Milagre, and outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.",
             );
-          if (callerMode(caller) !== "full")
+          if ((await callerMode(caller)) !== "full")
             await confirm(caller, {
               title: `Grant this Chat access to "${name}"?`,
               description: "Project is already in Milagre. Grants this Chat access to inspect and manage its Worktrees and Chats.",
@@ -333,7 +352,7 @@ function createLocalMcpHost({
         }
         return { id: existing.id, path: existing.path, name, created: false, ...(caller ? { inScope: true } : {}) };
       }
-      if (!caller || callerMode(caller) !== "full")
+      if (!caller || (await callerMode(caller)) !== "full")
         await confirm(caller, {
           title: `Add Project "${identity.name}" to Milagre?`,
           description: "Registers this repository in Milagre and lets this Chat inspect and manage its Worktrees and Chats.",
@@ -396,7 +415,8 @@ function createLocalMcpHost({
       const chosenEffort = effort ?? (entry && latest.effort && !entry.efforts.includes(latest.effort) ? entry.defaultEffort : latest.effort);
       // The prompt runs in the asked mode, else the Chat's own (a Chat with no live agent takes the caller's): either way,
       // more than the caller has needs the user's say first.
-      const modeNow = () => asked ?? permissionMode(chatId, callerMode(caller));
+      const fromCaller = await callerMode(caller);
+      const modeNow = () => asked ?? permissionMode(chatId, fromCaller);
       const mode = modeNow();
       await checkMode(caller, chatId, mode, session, { prompt, asked: Boolean(asked) });
       const root = session.workspacePath ?? state.worktrees?.[session.worktree_id]?.path;
@@ -478,7 +498,7 @@ function createLocalMcpHost({
       if (approval) {
         if (!decision) throw Error("Give a decision: allow, allow-for-chat or deny.");
         // The card shows what the other Chat would do, in the fields its own card uses.
-        if (decision !== "deny" && callerMode(caller) !== "full")
+        if (decision !== "deny" && (await callerMode(caller)) !== "full")
           await confirm(caller, {
             title: decision === "allow-for-chat" ? `Always allow this in ${asking}?` : `Allow this in ${asking}?`,
             description: `That Chat asks: ${approval.title.replace(/\?$/, "")}. This Chat's agent wants to answer for you.`,
@@ -492,7 +512,7 @@ function createLocalMcpHost({
       }
       if (answers === undefined) throw Error("Give answers: the picked labels or typed text per question id, or null to dismiss.");
       const summary = answers ? answerSummary(question.questions, answers) : undefined;
-      if (answers && callerMode(caller) !== "full")
+      if (answers && (await callerMode(caller)) !== "full")
         await confirm(caller, {
           title: `Answer ${asking}'s questions?`,
           description: "This Chat's agent wants to answer them for you.",
@@ -526,7 +546,7 @@ function createLocalMcpHost({
       const b = await endpoint(targetProjectPath, targetWorktreeId);
       const existing = (await links.list()).find((link) => [link.a, link.b].some((end) => sameEnd(end, a)) && [link.a, link.b].some((end) => sameEnd(end, b)));
       if (existing) return { linkId: existing.id, created: false };
-      if (callerMode(caller) === "ask" && caller)
+      if ((await callerMode(caller)) === "ask" && caller)
         await confirm(caller, {
           title: "Link this Worktree to another?",
           description: "Its agent could read the other Worktree's files, git and Chats, and send it Delegations.",
@@ -579,7 +599,7 @@ function createLocalMcpHost({
               ? `It has ${status.uncommitted} uncommitted ${status.uncommitted === 1 ? "file" : "files"}, so it is kept. Commit or discard them first.`
               : `Its branch has ${status.unpushed} ${status.unpushed === 1 ? "commit" : "commits"} on neither ${worktree.base} nor its upstream, so it is kept. Push or merge them first.`,
         );
-      if (caller && callerMode(caller) === "ask")
+      if (caller && (await callerMode(caller)) === "ask")
         await confirm(caller, {
           title: `Remove the Worktree "${worktree.name}"?`,
           description: "Its checkout goes, with its archived Chats. It has nothing uncommitted or unpushed.",
