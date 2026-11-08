@@ -23,9 +23,10 @@ const statusLabel = (state: string, message?: string) =>
 
 const dividerFor = (colors: Palette) => ({ borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line });
 
-export function ProjectAccountsSection() {
+/** `onAccountsPage`: shown under the saved accounts themselves, so the footnote has no link back to them. */
+export function ProjectAccountsSection({ onAccountsPage = false }: { onAccountsPage?: boolean } = {}) {
   const session = useSession();
-  return <ProjectAccountsForComputer key={session.client?.url || "disconnected"} />;
+  return <ProjectAccountsForComputer key={session.client?.url || "disconnected"} onAccountsPage={onAccountsPage} />;
 }
 
 // The same choice inside a Project's own settings, fixed to that Project.
@@ -44,15 +45,20 @@ export function ProjectAccountsGroup({ path }: { path: string }) {
   );
 }
 
-function Footnote() {
+function Footnote({ link = true }: { link?: boolean }) {
   const { colors } = useTheme();
   const styles = useStyles();
   return (
     <Text style={styles.caption}>
-      Running turns keep their original account. The next turn uses the one chosen here.{" "}
-      <Text accessibilityRole="link" style={{ color: colors.ink2, textDecorationLine: "underline" }} onPress={() => router.push("/accounts")}>
-        Manage saved accounts
-      </Text>
+      Running turns keep their original account. The next turn uses the one chosen here.
+      {link ? (
+        <>
+          {" "}
+          <Text accessibilityRole="link" style={{ color: colors.ink2, textDecorationLine: "underline" }} onPress={() => router.push("/accounts")}>
+            Manage saved accounts
+          </Text>
+        </>
+      ) : null}
     </Text>
   );
 }
@@ -237,7 +243,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
   });
 }
 
-function ProjectAccountsForComputer() {
+function ProjectAccountsForComputer({ onAccountsPage = false }: { onAccountsPage?: boolean } = {}) {
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
@@ -331,7 +337,7 @@ function ProjectAccountsForComputer() {
           )}
         </View>
       </View>
-      <Footnote />
+      <Footnote link={!onAccountsPage} />
     </View>
   );
 }

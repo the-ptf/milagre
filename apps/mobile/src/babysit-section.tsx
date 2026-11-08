@@ -89,7 +89,7 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
 }
 
 /**
- * Settings › Experimental › Babysit PRs: the one configuration every Chat's babysitting follows, kept by the connected
+ * Settings › Integrations › Babysit PRs: the one configuration every Chat's babysitting follows, kept by the connected
  * Mac (desktop's BabysitPrsSettings). Re-read on focus: it may have changed on the Mac while the phone was elsewhere.
  */
 export function BabysitSection() {

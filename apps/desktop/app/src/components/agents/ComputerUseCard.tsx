@@ -74,7 +74,7 @@ export function ComputerUseCard({ steps }: { steps: ChatStep[] }) {
       ) : (
         <p className="max-w-[240px] px-4 py-10 text-center text-12 text-ink-3">
           {shown?.error === "screen-recording"
-            ? "Turn on Screen Recording for Milagre in Settings › Experimental › Computer use to see the screen here."
+            ? "Turn on Screen Recording for Milagre in Settings › This Mac › Computer use to see the screen here."
             : "The screen shows here while the agent works in an app."}
         </p>
       )}

@@ -441,7 +441,7 @@ function App() {
   const bots = useBots();
   const botsRef = useRef(bots.snapshot);
   botsRef.current = bots.snapshot;
-  // Projects | Bots in the sidebar. Bots off (Settings › Labs), the sidebar is back on Projects.
+  // Projects | Bots in the sidebar. Bots off (Settings › Church), the sidebar is back on Projects.
   const [storedSidebarMode, setStoredSidebarMode] = useState<SidebarMode>(() => (localStorage.getItem(SIDEBAR_MODE_KEY) === "bots" ? "bots" : "projects"));
   const sidebarMode: SidebarMode = bots.enabled ? storedSidebarMode : "projects";
   const storedSidebarModeRef = useRef(storedSidebarMode);

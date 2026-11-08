@@ -1,6 +1,6 @@
 import type { ChatStep } from "./model.ts";
 
-/** A computer use step: one of Milagre's desktop_* tools (Settings › Experimental › Computer use). */
+/** A computer use step: one of Milagre's desktop_* tools (Settings › This Mac › Computer use). */
 export const isDesktopStep = (step: ChatStep) => step.source?.server === "milagre" && !!step.source.name?.startsWith("desktop_");
 
 type DesktopInput = { app?: string; action?: string; text?: string; keys?: string; intent?: string; role?: string; name?: string; window?: string };

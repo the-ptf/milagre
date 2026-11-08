@@ -1,6 +1,6 @@
 import type { BabysitSettings } from "@milagre/shared/babysit";
 
-// Settings › Experimental › Babysit PRs on the phone: the same saves as desktop's lib/babysit-settings.ts, reaching the
+// Settings › Integrations › Babysit PRs on the phone: the same saves as desktop's lib/babysit-settings.ts, reaching the
 // connected Mac's daemon through the client instead of the preload bridge.
 
 type Patch = Partial<BabysitSettings>;

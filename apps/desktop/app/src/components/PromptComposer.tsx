@@ -259,7 +259,7 @@ export function PromptComposer({
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
-  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
+  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
   const { ultracodeFatality, appearance, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
   const { settings: contextSettings } = useContextSettings();

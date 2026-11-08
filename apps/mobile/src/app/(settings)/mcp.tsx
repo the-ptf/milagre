@@ -1,9 +1,10 @@
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
-import { HeaderButton } from "../../ui";
+import { HeaderButton, SectionLabel } from "../../ui";
 import { SettingsScroll } from "../../settings-find";
 import { McpSection } from "../../mcp-section";
+import { LocalMcpSection } from "../../local-mcp-section";
 import { useMcp } from "../../use-mcp";
 
 const add = () => router.push("/mcp-add");
@@ -33,6 +34,10 @@ export default function McpScreen() {
       </Stack.Toolbar>
       <SettingsScroll>
         <McpSection />
+        <View style={{ gap: 8 }}>
+          <SectionLabel>Milagre MCP</SectionLabel>
+          <LocalMcpSection />
+        </View>
       </SettingsScroll>
     </>
   );

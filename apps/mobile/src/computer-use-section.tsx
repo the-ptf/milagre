@@ -11,7 +11,7 @@ import { ErrorNotice, Toggle, useStyles } from "./ui";
 const message = (error: unknown) => (error instanceof Error ? error.message : "Could not reach this Mac.");
 
 /**
- * Settings › Experimental › Computer use, as on desktop: agents operate apps on the connected Mac. Grant opens System
+ * Settings › This Mac › Computer use, as on desktop: agents operate apps on the connected Mac. Grant opens System
  * Settings there, where the user (or someone at the Mac) turns the permission on.
  */
 export function ComputerUseSection() {

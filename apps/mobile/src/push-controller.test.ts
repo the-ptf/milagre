@@ -149,7 +149,7 @@ test("a sheet over the Chat keeps it viewed; other pages and another computer do
   assert.deepEqual(viewedChat("/permission-sheet", null, chat, host.id), chat);
   assert.deepEqual(viewedChat("/viewer", null, chat, host.id), chat);
   assert.deepEqual(viewedChat("/settings", null, chat, host.id), chat);
-  assert.deepEqual(viewedChat("/general", null, chat, host.id), chat);
+  assert.deepEqual(viewedChat("/worktrees", null, chat, host.id), chat);
   assert.equal(viewedChat("/permission-sheet", null, chat, "https://other.example"), null);
   assert.equal(viewedChat("/terminal-sheet", null, chat, host.id), null);
   assert.equal(viewedChat("/changes", null, chat, host.id), null);

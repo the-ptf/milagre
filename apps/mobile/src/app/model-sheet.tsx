@@ -52,7 +52,7 @@ export default function ModelSheet() {
   const effort = effortFor(model, draft.effort);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const [closing, setClosing] = useState(false);
-  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
+  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
   // The settings panel floats over the bottom of the models list (the sheet stretches its ScrollView to the full
   // sheet), so the list pads its end by the panel's height and every model can scroll above it.

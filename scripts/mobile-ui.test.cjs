@@ -11199,19 +11199,24 @@ test("mobile provider discovery uses the selected scope and ignores late respons
   }
 });
 
-test("mobile Project Accounts opens from Settings as a native stack screen", () => {
+test("mobile Accounts lists each Project's accounts under its saved accounts, with no link back to itself", () => {
   const opened = [];
   const { SettingsView } = loadSettings({ client: { url: "http://mac", call: async () => null } });
-  find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Project Accounts").props.onPress();
-  assert.deepEqual(opened, ["project-accounts"]);
-  const { default: Screen } = load("app/(settings)/project-accounts.tsx", {
+  find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Accounts").props.onPress();
+  assert.deepEqual(opened, ["accounts"]);
+  const { default: Screen } = load("app/(settings)/accounts.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
+    "react-native": { View: "View" },
+    "../ui": { PageScroll: "PageScroll", SectionLabel: "SectionLabel" },
+    "../accounts-section": { AccountsSection: "AccountsSection" },
+    "../limit-switch-section": { LimitAutoSwitchSection: "LimitAutoSwitchSection" },
     "../project-accounts-section": { ProjectAccountsSection: "ProjectAccountsSection" },
   });
-  assert.equal(find(Screen(), (n) => n.type === "Screen").props.options.title, "Project Accounts");
-  assert.ok(find(Screen(), (n) => n.type === "ProjectAccountsSection"));
+  const rendered = Screen();
+  assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, "Accounts");
+  assert.ok(find(rendered, (n) => n.type === "SectionLabel" && n.props.children === "Per Project"));
+  assert.equal(find(rendered, (n) => n.type === "ProjectAccountsSection").props.onAccountsPage, true);
 });
 
 test("new mobile Chat has no simulator pill; an existing Chat carries its identity", () => {
@@ -13333,7 +13338,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
       throw new Error("This demo computer only opens its demo project.");
     },
   };
-  const { GeneralSection } = load("general-section.tsx", {
+  const { MainSyncSection } = load("mac-settings-sections.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
@@ -13351,12 +13356,11 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   });
   const render = () => {
     react.begin();
-    return GeneralSection();
+    return MainSyncSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const toggle = () => find(render(), (n) => n.props?.title === "Sync source branch before new Worktrees");
-  find(render(), (n) => n.type === "ListRow" && n.props.title === "Plan usage").props.onPress();
-  assert.deepEqual(pushed, ["/usage"]);
+  render();
   focused.at(-1)();
   await settle();
   assert.equal(toggle().props.toggle.value, false);
@@ -13392,7 +13396,7 @@ test("mobile Auto update switch shows the Mac's setting, saves a change and hide
       throw new Error("Unknown method");
     },
   };
-  const { GeneralSection } = load("general-section.tsx", {
+  const { MacUpdatesSection } = load("mac-settings-sections.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
@@ -13410,7 +13414,7 @@ test("mobile Auto update switch shows the Mac's setting, saves a change and hide
   });
   const render = () => {
     react.begin();
-    return GeneralSection();
+    return MacUpdatesSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const toggle = () => find(render(), (n) => n.props?.title === "Auto update");
@@ -13444,7 +13448,7 @@ test("mobile General lists the Mac's Done retention, saves a pick there and hide
       throw new Error("Unknown method");
     },
   };
-  const { GeneralSection } = load("general-section.tsx", {
+  const { DoneRetention } = load("mac-settings-sections.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
@@ -13464,8 +13468,7 @@ test("mobile General lists the Mac's Done retention, saves a pick there and hide
   // The list is its own component inside General: render it as React would.
   const section = () => {
     react.begin();
-    const element = find(GeneralSection(), (node) => typeof node.type === "function" && node.type.name === "DoneRetention");
-    return element.type(element.props);
+    return DoneRetention();
   };
   const rows = () => {
     const tree = section();
@@ -13530,7 +13533,7 @@ test("mobile General shows the Mac's Milagre update, checks, installs after aski
     "./ui": ui,
     "./theme": themeHooks,
   };
-  const { GeneralSection } = load("general-section.tsx", {
+  const { MacUpdatesSection } = load("mac-settings-sections.tsx", {
     ...modules,
     "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
     "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
@@ -13546,7 +13549,7 @@ test("mobile General shows the Mac's Milagre update, checks, installs after aski
   // The update's rows are their own component inside General: render them as React would.
   const rows = () => {
     react.begin();
-    const element = find(GeneralSection(), (node) => typeof node.type === "function" && node.type.name === "MacUpdateRows");
+    const element = find(MacUpdatesSection(), (node) => typeof node.type === "function" && node.type.name === "MacUpdateRows");
     return element?.type(element.props) ?? null;
   };
   const texts = () => allNodes(rows(), (node) => node.type === "Text").map((node) => [node.props.children].flat().join(""));
@@ -13603,7 +13606,7 @@ test("mobile General shows the Mac's Milagre update, checks, installs after aski
   await focus();
   assert.equal(rows(), null);
   react.begin();
-  assert.ok(find(GeneralSection(), (node) => node.props?.title === "Auto update"));
+  assert.ok(find(MacUpdatesSection(), (node) => node.props?.title === "Auto update"));
 });
 
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
@@ -13670,20 +13673,20 @@ function settingsGroups(tree) {
   return groups;
 }
 
-test("mobile Settings splits this device from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
+test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code and own pages as desktop does, and ends with the version", async () => {
   const state = {};
   const { SettingsView } = loadSettings(state);
   // No Mac: the phone's own settings and About only; Routines waits for a computer and Computers says none is paired.
   const alone = SettingsView({ onOpen() {} });
   assert.deepEqual(
     settingsGroups(alone).map((group) => group.title),
-    ["This device", "About"],
+    ["On this iPhone", undefined],
   );
   const tile = (tree, title) => find(tree, (n) => typeof n.type === "function" && n.type.name === "Tile" && n.props.title === title);
   assert.equal(tile(alone, "Computers").props.value, "None paired");
   assert.equal(tile(alone, "Routines").props.disabled, true);
   assert.equal(tile(alone, "Routines").props.value, "No computer connected");
-  // A Mac that answers for Linear lists Connections; an older Mac that answers null keeps it hidden.
+  // Integrations shows Linear for a Mac that answers for it; an older Mac that answers null shows no value.
   state.client = { url: "http://studio", call: async () => ({ enabled: false }) };
   state.focus = [];
   SettingsView({ onOpen() {} });
@@ -13696,7 +13699,7 @@ test("mobile Settings splits this device from the connected Mac, lists Connectio
   state.focus.at(-1)();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(state.set.at(-1), null);
-  assert.ok(!settingsGroups(SettingsView({ onOpen() {} })).some((group) => group.rows.some(([title]) => title === "Connections")));
+  assert.ok(settingsGroups(SettingsView({ onOpen() {} })).some((group) => group.rows.some(([title, value]) => title === "Integrations" && value === "")));
   state.client = { url: "http://studio", call: async () => ({ enabled: true }) };
   state.linear = { client: state.client, enabled: true };
   state.recent = [{ path: "/work/milagre", name: "milagre" }];
@@ -13707,32 +13710,45 @@ test("mobile Settings splits this device from the connected Mac, lists Connectio
     groups.map(({ title, rows }) => [title, rows]),
     [
       [
-        "This device",
+        "On this iPhone",
         [
-          ["Notifications", "On"],
           ["Appearance", "System"],
-          ["Browser", "Milagre"],
           ["Chat", "One list"],
+          ["Voice", ""],
+          ["Notifications", "On"],
+          ["Browser", "Milagre"],
           ["Archived Chats", ""],
-          ["Experimental", ""],
+        ],
+      ],
+      [
+        "Agents on Studio",
+        [
+          ["Models", ""],
+          ["Accounts", ""],
+          ["Usage", ""],
+          ["Skills", ""],
+          ["MCP servers", ""],
+        ],
+      ],
+      [
+        "Code on Studio",
+        [
+          ["Worktrees", ""],
+          ["Integrations", "Linear"],
         ],
       ],
       [
         "Studio",
         [
-          ["General", ""],
-          ["Accounts", ""],
-          ["Project Accounts", ""],
-          ["Connections", "Linear"],
-          ["Skills", ""],
-          ["MCP", ""],
-          ["Milagre", ""],
+          ["Phone & sharing", ""],
+          ["This Mac", ""],
         ],
       ],
       ["Projects", [["milagre", ""]]],
       [
-        "About",
+        undefined,
         [
+          ["Church", ""],
           ["Privacy policy", ""],
           ["Support", ""],
           ["App update", "Up to date"],
@@ -13740,25 +13756,29 @@ test("mobile Settings splits this device from the connected Mac, lists Connectio
       ],
     ],
   );
-  for (const row of [...groups[0].elements, ...groups[1].elements]) row.props.onPress();
+  for (const row of groups.slice(0, 4).flatMap((group) => group.elements)) row.props.onPress();
+  groups[5].elements[0].props.onPress();
   assert.deepEqual(opened, [
-    "notifications",
     "appearance",
-    "browser-settings",
     "chat-display",
+    "voice",
+    "notifications",
+    "browser-settings",
     "archived",
-    "experimental",
-    "general",
+    "models",
     "accounts",
-    "project-accounts",
-    "connections",
+    "usage",
     "skills",
     "mcp",
-    "local-mcp",
+    "worktrees",
+    "connections",
+    "phone-sharing",
+    "this-mac",
+    "experimental",
   ]);
   // Privacy policy and Support open Milagre's site in the browser.
-  groups[3].elements[0].props.onPress();
-  groups[3].elements[1].props.onPress();
+  groups[5].elements[1].props.onPress();
+  groups[5].elements[2].props.onPress();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(state.urls, ["https://milagre.cloud/privacy", "https://milagre.cloud/support"]);
   // The tiles: the green dot and counts follow the computers' answers; Routines counts what is on once the Mac has them.
@@ -13796,16 +13816,21 @@ test("mobile Settings splits this device from the connected Mac, lists Connectio
     assert.ok(find(rendered, (n) => n.type === name));
     return rendered;
   };
-  page("app/(settings)/general.tsx", "General", "general-section", "GeneralSection");
-  page("app/(settings)/connections.tsx", "Connections", "linear-section", "LinearSection");
-  // Milagre: Designs and artifacts first, then the Milagre MCP.
-  const milagre = page("app/(settings)/local-mcp.tsx", "Milagre", "local-mcp-section", "LocalMcpSection", {
-    "../published-pages-section": { PublishedPagesSection: "PublishedPagesSection" },
-    "../theme": { useTheme: () => ({ colors: {} }) },
+  page("app/(settings)/worktrees.tsx", "Worktrees", "mac-settings-sections", "MainSyncSection");
+  page("app/(settings)/models.tsx", "Models", "context-settings-section", "ContextSettingsSection");
+  page("app/(settings)/voice.tsx", "Voice", "voice-section", "VoiceSection");
+  // Integrations: Linear, then the Babysit PRs row.
+  const integrations = page("app/(settings)/connections.tsx", "Integrations", "linear-section", "LinearSection", {
+    "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
   });
-  assert.ok(find(milagre, (n) => n.type === "PublishedPagesSection"));
-  assert.ok(find(milagre, (n) => n.type === "SectionLabel" && n.props.children === "Designs and artifacts"));
-  page("app/(settings)/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
+  assert.equal(find(integrations, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
+  // Phone & sharing: Simlock devices, then Designs and artifacts.
+  const sharing = page("app/(settings)/phone-sharing.tsx", "Phone & sharing", "published-pages-section", "PublishedPagesSection", {
+    "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
+  });
+  assert.equal(find(sharing, (n) => n.type === "MacFeatureRow").props.href, "/simlock");
+  assert.ok(find(sharing, (n) => n.type === "SectionLabel" && n.props.children === "Designs and artifacts"));
+  page("app/(settings)/experimental.tsx", "Church", "experimental-section", "ExperimentalSection");
   page("app/(settings)/babysit-prs.tsx", "Babysit PRs", "babysit-section", "BabysitSection");
 });
 
@@ -14276,7 +14301,7 @@ test("mobile Device notes serializes taps, retains confirmed values and ignores 
   await settle();
 });
 
-test("mobile Experimental shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
+test("mobile Integrations shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
   const react = hookHost();
   const focused = [];
   const pushed = [];
@@ -14287,20 +14312,23 @@ test("mobile Experimental shows a Babysit PRs row that opens its page, hidden fo
       return null;
     },
   };
-  const { ExperimentalSection } = load("experimental-section.tsx", {
+  const { MacFeatureRow } = load("mac-feature-row.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push: (path) => pushed.push(path) } },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
     "./session": { useSession: () => ({ client }) },
     "./settings-list": { Row: "Row" },
-    "./ui": { Toggle: "Toggle" },
+    "./ui": { useStyles: () => ({}) },
   });
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return MacFeatureRow({
+      read: "babysit:settings:read",
+      title: "Babysit PRs",
+      description: "Watch every PR a Chat opens and fix review comments, failed checks and conflicts.",
+      href: "/babysit-prs",
+    });
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const row = () => find(render(), (n) => n.type === "Row" && n.props.title === "Babysit PRs");

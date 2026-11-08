@@ -48,7 +48,7 @@ import {
   ChartColumnIcon,
   KeyboardIcon,
   ConnectIcon,
-  FlaskConicalIcon,
+  ChurchIcon,
   Globe02Icon,
   InformationCircleIcon,
   LaptopIcon,
@@ -171,7 +171,7 @@ export type SettingsSection =
   | "project"
   | "computer";
 
-/** The nav's groups, top to bottom; `null` has no heading. Computers and Projects follow; Labs and About sit in the footer. */
+/** The nav's groups, top to bottom; `null` has no heading. Computers and Projects follow; Church and About sit in the footer. */
 type SectionGroup = null | "Agents" | "Code" | "footer";
 
 const SECTIONS: Array<{
@@ -194,7 +194,7 @@ const SECTIONS: Array<{
   { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} />, group: "Agents" },
   { key: "worktrees", label: "Worktrees", icon: <Icon icon={FolderTreeIcon} />, group: "Code" },
   { key: "connections", label: "Integrations", icon: <Icon icon={ConnectIcon} />, group: "Code" },
-  { key: "experimental", label: "Labs", icon: <Icon icon={FlaskConicalIcon} />, group: "footer" },
+  { key: "experimental", label: "Church", icon: <Icon icon={ChurchIcon} />, group: "footer" },
   { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} />, group: "footer" },
 ];
 
@@ -220,7 +220,7 @@ const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   connections: "linear issues integrations babysit pull requests",
   mcp: "servers tools model context protocol milagre mcp",
   devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
-  experimental: "experimental beta labs",
+  experimental: "church experimental beta labs",
   about: "version update privacy support",
 };
 
