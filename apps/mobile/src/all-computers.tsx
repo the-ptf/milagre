@@ -34,15 +34,21 @@ AppState.addEventListener("change", (state) => {
 let foldVersion = 0;
 savedFoldedProjects.subscribe(() => foldVersion++);
 const subscribeFolds = (listener: () => void) => savedFoldedProjects.subscribe(listener);
-let heldFolds: { version: number; key: string; sets: ReadonlyMap<string, ReadonlySet<string>> } | null = null;
+// One held value per list of computers: callers ask for different lists (the store every saved computer, a sidebar only
+// the shown ones), and a single shared slot would hand each a new map on every read, which React re-renders forever
+// ("Maximum update depth exceeded" as soon as a computer is hidden). Stale versions are dropped on the next read.
+const heldFolds = new Map<string, { version: number; sets: ReadonlyMap<string, ReadonlySet<string>> }>();
 
 /** Each of these computers' folded Project groups. A new map only when some fold, or the computers, change. */
 export function useFoldedProjects(hostIds: string[]): ReadonlyMap<string, ReadonlySet<string>> {
   const key = hostIds.join("\n");
   return useSyncExternalStore(subscribeFolds, () => {
-    if (heldFolds?.version === foldVersion && heldFolds.key === key) return heldFolds.sets;
-    heldFolds = { version: foldVersion, key, sets: new Map(hostIds.map((id) => [id, savedFoldedProjects.folded(id)])) };
-    return heldFolds.sets;
+    const held = heldFolds.get(key);
+    if (held?.version === foldVersion) return held.sets;
+    for (const [other, value] of heldFolds) if (value.version !== foldVersion) heldFolds.delete(other);
+    const sets = new Map(hostIds.map((id) => [id, savedFoldedProjects.folded(id)]));
+    heldFolds.set(key, { version: foldVersion, sets });
+    return sets;
   });
 }
 
