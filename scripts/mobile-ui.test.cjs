@@ -20982,7 +20982,7 @@ test("artifact feedback refreshes comments received after a dock was opened", as
   h.cleanup();
 });
 
-function panelHandoffHost() {
+function panelHandoffHost(width = 390) {
   const react = hookHost();
   react.useEffect = react.effect;
   const painted = new Set();
@@ -20998,7 +20998,7 @@ function panelHandoffHost() {
       },
     },
     "react-native": {
-      useWindowDimensions: () => ({ width: 390 }),
+      useWindowDimensions: () => ({ width }),
       Keyboard: { dismiss() {} },
       BackHandler: { addEventListener: () => ({ remove() {} }) },
     },
@@ -21064,6 +21064,54 @@ function panelHandoffHost() {
     },
   };
 }
+
+test("a new iPad Chat clears docked Changes through attachment, sidebar handoff and in-place updates", () => {
+  for (const transition of ["attach", "handoff", "update"]) {
+    const host = panelHandoffHost(1194);
+    try {
+      host.render().update({ ...host.old, worktreeId: 1 });
+      host.render().show("right");
+      assert.equal(host.render().docked, true);
+      const draft = { token: transition === "update" ? host.old.token : {} };
+      if (transition === "update") host.render().update(draft);
+      else {
+        if (transition === "handoff") {
+          host.render().show("left");
+          host.render().navigate({ pathname: "/chat", params: { projectPath: "/p" } });
+        }
+        host.render().detach(host.old.token);
+        host.render().attach(draft);
+        host.paint();
+      }
+      assert.equal(host.render().docked, false, `${transition}: the draft clears Changes intent`);
+      host.render().update({ ...draft, chatId: 2, worktreeId: 2 });
+      assert.equal(host.render().docked, false, `${transition}: the first send keeps Changes closed`);
+      host.render().show("right");
+      assert.equal(host.render().docked, true, "Changes can still be opened explicitly");
+    } finally {
+      host.cleanup();
+    }
+  }
+});
+
+test("switching existing iPad Chats keeps docked Changes open", () => {
+  const host = panelHandoffHost(1194);
+  try {
+    host.render().update({ ...host.old, worktreeId: 1 });
+    host.render().show("right");
+    host.render().show("left");
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    host.render().detach(host.old.token);
+    const next = { token: {}, chatId: 2, worktreeId: 2 };
+    host.render().attach(next);
+    host.paint();
+    assert.equal(host.render().docked, true);
+    host.render().update({ ...next, worktreeId: 3 });
+    assert.equal(host.render().docked, true, "Worktree updates preserve the open panel");
+  } finally {
+    host.cleanup();
+  }
+});
 
 test("a Chat committed under the sidebar is revealed without a native transition event or the one-second watchdog", () => {
   const host = panelHandoffHost();
