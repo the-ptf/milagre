@@ -36,6 +36,7 @@ export function ListRow({
   compact = false,
   destructive = false,
   chevron = true,
+  selected = false,
   leading,
   trailing,
 }: {
@@ -57,6 +58,8 @@ export function ListRow({
   disabled?: boolean;
   destructive?: boolean;
   chevron?: boolean;
+  /** The page this row opens is the one showing beside it (the iPad Settings sidebar): a filled row, without its chevron. */
+  selected?: boolean;
   leading?: React.ReactNode;
   /** Replaces the value and the chevron, for a custom accessory. */
   trailing?: React.ReactNode;
@@ -87,7 +90,7 @@ export function ListRow({
         accessible={interactive}
         accessibilityRole={toggle ? "checkbox" : onPress ? "button" : undefined}
         accessibilityLabel={[toggle?.label ?? title, subtitle, value].filter(Boolean).join(". ")}
-        accessibilityState={toggle ? { checked: toggle.value, disabled } : { disabled }}
+        accessibilityState={toggle ? { checked: toggle.value, disabled } : { disabled, selected }}
         disabled={disabled || !interactive}
         onPress={
           press &&
@@ -99,7 +102,11 @@ export function ListRow({
         onLongPress={onLongPress}
         accessibilityActions={onLongPress ? [{ name: "longpress", label: "Actions" }] : undefined}
         onAccessibilityAction={onLongPress}
-        style={({ pressed }) => [metrics.box, hovered && interactive && !disabled && rowHover(colors.hover), pressStyle({ pressed, disabled, kind: "row" })]}
+        style={({ pressed }) => [
+          metrics.box,
+          selected ? rowHover(colors.hover2) : hovered && interactive && !disabled && rowHover(colors.hover),
+          pressStyle({ pressed, disabled, kind: "row" }),
+        ]}
       >
         {leading ?? (icon ? <Icon icon={icon} tone={destructive ? "red" : "ink"} size={20} /> : null)}
         <View
@@ -134,7 +141,7 @@ export function ListRow({
           (trailing ?? (
             <>
               {stacked ? null : valueText}
-              {chevron ? <Icon icon={ArrowRight01Icon} tone="ink3" size={16} /> : null}
+              {chevron && !selected ? <Icon icon={ArrowRight01Icon} tone="ink3" size={16} /> : null}
             </>
           ))
         )}

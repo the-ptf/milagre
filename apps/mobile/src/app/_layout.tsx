@@ -1,6 +1,7 @@
 import { OutboxService } from "../outbox";
 import { ProviderUpdateNotice } from "../provider-update-notice";
 import { useState } from "react";
+import { Platform } from "react-native";
 import { Stack, router } from "expo-router";
 import { ThemeProvider, DarkTheme, DefaultTheme } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
@@ -62,8 +63,17 @@ export default function Layout() {
                         {/* A sheet opened from the Chat beside reads that Chat's Project (beside-session.tsx). */}
                         <Stack screenOptions={stackScreenOptions(palette)} screenLayout={paneScreenLayout}>
                           <Stack.Screen name="index" options={{ title: "Computers" }} />
-                          {/* Settings: one sheet holding a Stack of its own (app/(settings)/_layout.tsx), so its pages open inside it. */}
-                          <Stack.Screen name="(settings)" options={{ ...sheet, sheetAllowedDetents: [1] }} />
+                          {/* Settings: one sheet holding a Stack of its own (app/(settings)/_layout.tsx), so its pages open inside it; a card on an iPad. */}
+                          <Stack.Screen
+                            name="(settings)"
+                            options={
+                              // A native sheet stops near 580 pt on an iPad, too narrow for the list beside a page: there
+                              // Settings draws its own card over a scrim, as desktop's modal (settings-split.tsx).
+                              Platform.OS === "ios" && Platform.isPad
+                                ? { presentation: "transparentModal", animation: "fade", headerShown: false, contentStyle: { backgroundColor: "transparent" } }
+                                : { ...sheet, sheetAllowedDetents: [1] }
+                            }
+                          />
                           <Stack.Screen name="update-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="update-notes" options={{ ...sheet, sheetAllowedDetents: [0.75, 1] }} />
                           <Stack.Screen name="confirm-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
