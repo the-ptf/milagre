@@ -41,8 +41,8 @@ import { useComputerStatus } from "../../use-computer-status";
 import { useRoutines, useRoutinesAvailable } from "../../use-routines";
 import { appVersionLine } from "../../app-version";
 import { Group, Row } from "../../settings-list";
-import { searchSettings, searchTrail } from "@milagre/shared/settings-search";
-import { SETTINGS_INDEX, SETTINGS_PAGES, type PhoneSettingsEntry, type SettingsRoute } from "../../settings-index";
+import { searchTrail } from "@milagre/shared/settings-search";
+import { SETTINGS_PAGES, searchPhoneSettings, type SettingsRoute } from "../../settings-index";
 import { useTheme } from "../../theme";
 import { HeaderButton, PageScroll, pressStyle, useStyles } from "../../ui";
 import { lineHeight, radius, type } from "../../design-tokens";
@@ -113,28 +113,7 @@ export function SettingsResults({ query, onOpen }: { query: string; onOpen: (pag
   const { colors } = useTheme();
   const styles = useStyles();
   const connected = Boolean(useSession().client);
-  const items = useMemo(
-    () => [
-      ...(Object.keys(SETTINGS_PAGES) as SettingsRoute[]).map((route): PhoneSettingsEntry & { row: boolean } => ({
-        page: route,
-        title: SETTINGS_PAGES[route].title,
-        row: false,
-      })),
-      ...SETTINGS_INDEX.map((entry) => ({ ...entry, row: true })),
-    ],
-    [],
-  );
-  const hits = useMemo(() => {
-    const shown = (route: SettingsRoute) => {
-      const needs: string | undefined = (SETTINGS_PAGES[route] as { needs?: string }).needs;
-      return needs === "computer" ? connected : needs === "ipad" ? Platform.OS === "ios" && Platform.isPad : true;
-    };
-    return searchSettings(
-      items.filter((item) => shown(item.page)),
-      query,
-      (route) => SETTINGS_PAGES[route].title,
-    );
-  }, [items, query, connected]);
+  const hits = useMemo(() => searchPhoneSettings(query, { connected, ipad: Platform.OS === "ios" && Platform.isPad }), [query, connected]);
   if (!hits.length) {
     return <Text style={{ color: colors.ink2, fontSize: 15, textAlign: "center", marginTop: 32 }}>No settings match “{query.trim()}”.</Text>;
   }

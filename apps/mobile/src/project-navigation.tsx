@@ -49,6 +49,8 @@ import { scheduleOnRN } from "react-native-worklets";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { chatMarkTone, chatPullRequests, chatTitle, comparePins, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
 import { searchMessages } from "@milagre/shared/message-search";
+import { searchTrail } from "@milagre/shared/settings-search";
+import { SETTINGS_PAGES, searchPhoneSettings, type SettingsRoute } from "./settings-index";
 import { unreadRunRoutines } from "@milagre/shared/routines";
 import type { AgentSession, PullRequest } from "@milagre/shared/model";
 import type { LinearIssue } from "@milagre/shared/linear";
@@ -135,6 +137,8 @@ type Row = { key: string; path: string } & (
     } & HostTag)
   /** Nothing matched the search: start a new Chat with it. */
   | { kind: "start" }
+  /** A Settings page or a row on one whose words match the search: a tap opens it, the row lit up. */
+  | { kind: "settingHit"; title: string; trail: string; page: SettingsRoute; find?: string }
   | { kind: "section"; name: string }
   /** The Chats group's header: every computer's Chats without a Project, above the Projects. */
   | {
@@ -399,6 +403,9 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     failure: view.errors.get(project.path),
   };
 }
+
+/** How many Settings matches the Chats search lists under its results. */
+const SETTINGS_SHOWN = 6;
 
 /** The same project tree is the first-run destination and the drawer over a Chat: every computer's Chats, their ⋯ actions and search. */
 type NavigationProps = {
@@ -993,10 +1000,23 @@ const NavigationBody = memo(function NavigationBody({
         },
         ...projectHits,
       );
+    // Settings found by the same words, as ⌘K on desktop lists them: last, under everything said in the Chats.
+    const settings: Row[] = searchPhoneSettings(query, { connected: Boolean(session.client), ipad: Platform.OS === "ios" && Platform.isPad })
+      .slice(0, SETTINGS_SHOWN)
+      .map(({ entry }) => ({
+        key: `setting:${entry.row ? "row" : "page"}:${entry.page}:${entry.group ?? ""}:${entry.title}`,
+        path: "",
+        kind: "settingHit" as const,
+        title: entry.title,
+        trail: entry.row ? searchTrail(entry, SETTINGS_PAGES[entry.page].title) : "Settings",
+        page: entry.page,
+        find: entry.row ? entry.title : undefined,
+      }));
+    const settingsSection: Row[] = settings.length ? [{ key: "section:Settings", path: "", kind: "section", name: "Settings" }, ...settings] : [];
     if (!next.some((row) => row.kind === "chat" || row.kind === "message" || row.kind === "projectHit"))
-      return [...next.filter((row) => row.kind === "notice"), { key: "start", path: "", kind: "start" as const }];
-    return next;
-  }, [rows, needle, searchable, hostMatches, projectHits, manyHosts]);
+      return [...next.filter((row) => row.kind === "notice"), { key: "start", path: "", kind: "start" as const }, ...settingsSection];
+    return [...next, ...settingsSection];
+  }, [rows, needle, query, session.client, searchable, hostMatches, projectHits, manyHosts]);
 
   // A hidden Run Chat nobody opened lights the dock's Routines button, read from the open computer's Projects.
   const unreadRuns = useMemo(() => {
@@ -1574,6 +1594,9 @@ const NavigationBody = memo(function NavigationBody({
       projectAction,
       startNewChat,
       startWithoutProject,
+      // Routines is a page of the app; the rest open in the Settings sheet, with Settings under them to go back to.
+      openSetting: (page, find) =>
+        onNavigate(find ? { pathname: `/${page}`, params: { find, findAt: String(Date.now()) } } : (`/${page}` as Href), page === "routines" ? true : "sheet"),
       foldChats: () => setChatsFolded((folded) => !folded),
       foldDone: () => setDoneOpen((open) => !open),
       foldSubchats: (key) =>
@@ -1599,6 +1622,7 @@ const NavigationBody = memo(function NavigationBody({
       projectAction: (...args) => latestActions.current!.projectAction(...args),
       startNewChat: (...args) => latestActions.current!.startNewChat(...args),
       startWithoutProject: () => latestActions.current!.startWithoutProject(),
+      openSetting: (...args) => latestActions.current!.openSetting(...args),
       foldChats: () => latestActions.current!.foldChats(),
       foldDone: () => latestActions.current!.foldDone(),
       foldSubchats: (key) => latestActions.current!.foldSubchats(key),
@@ -1879,6 +1903,8 @@ type RowActions = {
   projectAction: (hostId: string, projectPath: string, name: string, action: string) => Promise<void>;
   startNewChat: (prefill?: string) => void;
   startWithoutProject: () => Promise<void>;
+  /** Opens a Settings page, scrolled to the row titled `find` and lit up when given. */
+  openSetting: (page: SettingsRoute, find?: string) => void;
   foldChats: () => void;
   foldDone: () => void;
   /** Folds or unfolds the subchats under the parent row `key`. */
@@ -2056,7 +2082,20 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     worktreeForLinks,
     doneHours,
     background,
-    actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, foldSubchats, load, registerHeader, reorderProjects },
+    actions: {
+      enter,
+      act,
+      projectAction,
+      startNewChat,
+      startWithoutProject,
+      openSetting,
+      foldChats,
+      foldDone,
+      foldSubchats,
+      load,
+      registerHeader,
+      reorderProjects,
+    },
   } = view;
   if (item.kind === "section")
     return (
@@ -2201,6 +2240,27 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           onPress: () => !busy && startNewChat(query.trim()),
         }}
       />
+    );
+  if (item.kind === "settingHit")
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={item.trail === item.title ? item.title : `${item.title}. ${item.trail}`}
+        onPress={() => openSetting(item.page, item.find)}
+        style={({ pressed }) => [s.projectHit, { backgroundColor: pressed ? colors.hover : "transparent" }]}
+      >
+        <Icon icon={Settings01Icon} tone="ink2" size={18} />
+        <View style={{ flex: 1, gap: 2, paddingVertical: 8 }}>
+          <Text numberOfLines={1} style={[s.secondary, { color: colors.ink }]}>
+            {item.title}
+          </Text>
+          {item.trail !== item.title && (
+            <Text numberOfLines={1} style={s.detail}>
+              {item.trail}
+            </Text>
+          )}
+        </View>
+      </Pressable>
     );
   const offline = item.reach === "offline";
   if (item.kind === "projectHit")

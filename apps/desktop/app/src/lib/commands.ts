@@ -28,13 +28,20 @@ export type Command = {
     | "storage"
     | "triage";
   run: () => void | Promise<unknown>;
+  /** Listed only once something is typed: every Settings row would bury the actions in an empty palette. */
+  searchOnly?: boolean;
 };
 
-/** Match every word across the title, location and aliases, preserving the curated group order. */
+/**
+ * Match every word across the title, location and aliases, preserving the curated group order. An empty query lists
+ * everything but the search-only rows. Those don't match on their group's name, so "settings" finds the Settings
+ * actions and pages, not every row in them.
+ */
 export function filterCommands(commands: Command[], query: string): Command[] {
   const words = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return commands.filter((command) => !command.searchOnly);
   return commands.filter((command) => {
-    const text = `${command.label} ${command.detail ?? ""} ${command.keywords ?? ""} ${command.group}`.toLocaleLowerCase();
+    const text = `${command.label} ${command.detail ?? ""} ${command.keywords ?? ""} ${command.searchOnly ? "" : command.group}`.toLocaleLowerCase();
     return words.every((word) => text.includes(word));
   });
 }
