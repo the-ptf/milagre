@@ -109,7 +109,7 @@ function Marked({ text, ranges, color }: { text: string; ranges: [number, number
  * What Settings search found: pages first when their name matches, then rows, each with the page and card it sits in.
  * A page of the connected Mac's settings shows only with one connected, and Keybindings only on an iPad, as on the list.
  */
-function SettingsResults({ query, onOpen }: { query: string; onOpen: (page: SettingsPage, find?: string) => void }) {
+export function SettingsResults({ query, onOpen }: { query: string; onOpen: (page: SettingsPage, find?: string) => void }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const connected = Boolean(useSession().client);
@@ -177,6 +177,7 @@ function Tile({
   value,
   dot,
   disabled = false,
+  selected = false,
   onPress,
 }: {
   title: string;
@@ -185,6 +186,8 @@ function Tile({
   /** A status dot before the value. */
   dot?: string;
   disabled?: boolean;
+  /** The page it opened shows beside it (the iPad sheet's sidebar). */
+  selected?: boolean;
   onPress: () => void;
 }) {
   const { colors } = useTheme();
@@ -193,10 +196,15 @@ function Tile({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={value ? `${title}. ${value}` : title}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, selected }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.card, { flex: 1, minHeight: 101, gap: 6, padding: 16 }, pressStyle({ pressed, disabled })]}
+      style={({ pressed }) => [
+        styles.card,
+        { flex: 1, minHeight: 101, gap: 6, padding: 16 },
+        selected && { backgroundColor: colors.hover2 },
+        pressStyle({ pressed, disabled }),
+      ]}
     >
       <Icon icon={icon} tone="ink" size={20} />
       <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>
@@ -219,8 +227,19 @@ function openSite(url: string) {
   void Linking.openURL(url).catch(() => Alert.alert("Could not open this page", `Visit ${url} in your browser.`));
 }
 
+const openProjectSettings = (path: string, name: string) => router.push({ pathname: "/project-settings", params: { path, name } });
+
 /** The first page of the Settings sheet; each row opens a page inside the same sheet. */
-export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void }) {
+export function SettingsView({
+  onOpen,
+  onOpenProject = openProjectSettings,
+  selected,
+}: {
+  onOpen: (page: SettingsPage) => void;
+  onOpenProject?: (path: string, name: string) => void;
+  /** Beside the page it opened (the iPad sheet's sidebar): that page's row, or `project:<path>`, shows selected. */
+  selected?: string;
+}) {
   const { colors, settings: theme } = useTheme();
   const styles = useStyles();
   const push = usePush();
@@ -294,47 +313,70 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           value={computersValue}
           // The presence palette (presenceTone): green while one answers, ink4 when none does.
           dot={online > 0 ? colors.green : colors.ink4}
+          selected={selected === "computers"}
           onPress={() => onOpen("computers")}
         />
         <Tile title="Routines" icon={RepeatIcon} value={routinesValue} disabled={!routinesAvailable} onPress={() => onOpen("routines")} />
       </View>
       <Group title={Platform.OS === "ios" && Platform.isPad ? "On this iPad" : Platform.OS === "ios" ? "On this iPhone" : "On this device"}>
-        <Row title="Appearance" icon={PaintBoardIcon} value={MODE_LABEL[theme.mode]} onPress={() => onOpen("appearance")} />
-        <Row title="Chat" icon={BubbleChatIcon} value={chatListLabel(chatList)} onPress={() => onOpen("chat-display")} />
-        <Row title="Voice" icon={Mic01Icon} onPress={() => onOpen("voice")} />
+        <Row
+          title="Appearance"
+          icon={PaintBoardIcon}
+          value={MODE_LABEL[theme.mode]}
+          selected={selected === "appearance"}
+          onPress={() => onOpen("appearance")}
+        />
+        <Row title="Chat" icon={BubbleChatIcon} value={chatListLabel(chatList)} selected={selected === "chat-display"} onPress={() => onOpen("chat-display")} />
+        <Row title="Voice" icon={Mic01Icon} selected={selected === "voice"} onPress={() => onOpen("voice")} />
         <Row
           title="Notifications"
           icon={Notification01Icon}
           value={push.state ? (push.state.enabled ? "On" : "Off") : undefined}
+          selected={selected === "notifications"}
           onPress={() => onOpen("notifications")}
         />
-        <Row title="Browser" icon={BrowserIcon} value={internalBrowser ? "Milagre" : "Default browser"} onPress={() => onOpen("browser-settings")} />
-        <Row title="Archived Chats" icon={Archive02Icon} value={archived === null ? undefined : String(archived)} onPress={() => onOpen("archived")} />
+        <Row
+          title="Browser"
+          icon={BrowserIcon}
+          value={internalBrowser ? "Milagre" : "Default browser"}
+          selected={selected === "browser-settings"}
+          onPress={() => onOpen("browser-settings")}
+        />
+        <Row
+          title="Archived Chats"
+          icon={Archive02Icon}
+          value={archived === null ? undefined : String(archived)}
+          selected={selected === "archived"}
+          onPress={() => onOpen("archived")}
+        />
         {/* The Mac's keybindings.json, which an iPad's hardware keyboard runs too. */}
-        {client && Platform.OS === "ios" && Platform.isPad ? <Row title="Keybindings" icon={KeyboardIcon} onPress={() => onOpen("keybindings")} /> : null}
+        {client && Platform.OS === "ios" && Platform.isPad ? (
+          <Row title="Keybindings" icon={KeyboardIcon} selected={selected === "keybindings"} onPress={() => onOpen("keybindings")} />
+        ) : null}
       </Group>
       {/* The connected Mac's settings, grouped as desktop groups them; without one there is nothing here the phone can change. */}
       {client ? (
         <>
           <Group title={`Agents on ${macName}`}>
-            <Row title="Models" icon={AiBrain01Icon} onPress={() => onOpen("models")} />
-            <Row title="Accounts" icon={UserCircleIcon} onPress={() => onOpen("accounts")} />
-            <Row title="Usage" icon={ChartColumnIcon} onPress={() => onOpen("usage")} />
-            <Row title="Skills" icon={BookOpen01Icon} onPress={() => onOpen("skills")} />
-            <Row title="MCP servers" icon={Plug01Icon} onPress={() => onOpen("mcp")} />
+            <Row title="Models" icon={AiBrain01Icon} selected={selected === "models"} onPress={() => onOpen("models")} />
+            <Row title="Accounts" icon={UserCircleIcon} selected={selected === "accounts"} onPress={() => onOpen("accounts")} />
+            <Row title="Usage" icon={ChartColumnIcon} selected={selected === "usage"} onPress={() => onOpen("usage")} />
+            <Row title="Skills" icon={BookOpen01Icon} selected={selected === "skills"} onPress={() => onOpen("skills")} />
+            <Row title="MCP servers" icon={Plug01Icon} selected={selected === "mcp"} onPress={() => onOpen("mcp")} />
           </Group>
           <Group title={`Code on ${macName}`}>
-            <Row title="Worktrees" icon={FolderTreeIcon} onPress={() => onOpen("worktrees")} />
+            <Row title="Worktrees" icon={FolderTreeIcon} selected={selected === "worktrees"} onPress={() => onOpen("worktrees")} />
             <Row
               title="Integrations"
               icon={ConnectIcon}
               value={linear?.client === client ? (linear.enabled ? "Linear" : "Off") : undefined}
+              selected={selected === "connections"}
               onPress={() => onOpen("connections")}
             />
           </Group>
           <Group title={macName}>
-            <Row title="Phone & sharing" icon={SmartphoneIcon} onPress={() => onOpen("phone-sharing")} />
-            <Row title="This Mac" icon={LaptopIcon} onPress={() => onOpen("this-mac")} />
+            <Row title="Phone & sharing" icon={SmartphoneIcon} selected={selected === "phone-sharing"} onPress={() => onOpen("phone-sharing")} />
+            <Row title="This Mac" icon={LaptopIcon} selected={selected === "this-mac"} onPress={() => onOpen("this-mac")} />
           </Group>
         </>
       ) : null}
@@ -346,13 +388,14 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
               key={project.path}
               title={project.name || project.path.split("/").findLast(Boolean) || project.path}
               leading={<ProjectIcon client={client} path={project.path} size={20} />}
-              onPress={() => router.push({ pathname: "/project-settings", params: { path: project.path, name: project.name ?? "" } })}
+              selected={selected === `project:${project.path}`}
+              onPress={() => onOpenProject(project.path, project.name ?? "")}
             />
           ))}
         </Group>
       ) : null}
       <Group>
-        <Row title="Church" icon={ChurchIcon} onPress={() => onOpen("experimental")} />
+        <Row title="Church" icon={ChurchIcon} selected={selected === "experimental"} onPress={() => onOpen("experimental")} />
         <Row title="Privacy policy" icon={SecurityCheckIcon} onPress={() => openSite(PRIVACY_URL)} />
         <Row title="Support" icon={HelpCircleIcon} onPress={() => openSite(SUPPORT_URL)} />
         {/* Checks now and shows the update sheet, which follows the check to Up to date or Update now. */}

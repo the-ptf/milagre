@@ -3,6 +3,7 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HeaderButton } from "../../ui";
 import { stackScreenOptions } from "../../stack-options";
 import { useTheme } from "../../theme";
+import { SettingsSplit } from "../../settings-split";
 
 // Opening a settings page by its own address (a link, the usage card's Manage accounts) still puts Settings under it.
 export const unstable_settings = { anchor: "settings" };
@@ -11,12 +12,14 @@ const closeButton = () => <HeaderButton label="Close" icon={Cancel01Icon} onPres
 
 /**
  * Settings is one bottom sheet with a Stack of its own: the root layout presents this group as a single formSheet, so a
- * page opened from Settings slides in inside the sheet, back pops it, and a swipe down closes the whole sheet.
+ * page opened from Settings slides in inside the sheet, back pops it, and a swipe down closes the whole sheet. On a wide
+ * iPad the list sits beside the Stack instead of being its first page (SettingsSplit).
  */
 export default function SettingsLayout() {
   const { colors } = useTheme();
   return (
     <Stack
+      layout={SettingsSplit}
       screenOptions={({ navigation, route }) => ({
         ...stackScreenOptions(colors),
         // A page opened by its own address (Manage accounts on a usage card) is the first one in the sheet: nothing to go back to, so it closes.
