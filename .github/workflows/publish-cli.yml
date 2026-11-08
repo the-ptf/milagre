@@ -1,0 +1,68 @@
+name: Publish CLI
+
+# Publishes the `milagre` CLI to npm when apps/daemon/package.json's cliVersion names a version npm doesn't have yet:
+# bump cliVersion in a PR, merge it, and this runs. Run it by hand to retry a failed publish. A version already on npm
+# is skipped, so a merge that touches the file for anything else publishes nothing.
+#
+# npm auth: trusted publishing (OIDC) from this workflow, set up once on npmjs.com (package milagre > Settings >
+# Trusted publisher: GitHub Actions, the-ptf/milagre, publish-cli.yml). Until then an NPM_TOKEN repository secret
+# (a granular token with publish rights on milagre that bypasses 2FA) works too.
+on:
+  push:
+    branches: [main]
+    paths: [apps/daemon/package.json]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-cli
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          node-version: 24
+      - name: Read the CLI version
+        id: version
+        run: |
+          version=$(node -p 'const p = require("./apps/daemon/package.json"); p.cliVersion ?? p.version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "milagre@$version" version >/dev/null 2>&1; then
+            echo "milagre@$version is already on npm; nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      # The same check CI runs: install the packed tarball outside the checkout and drive the installed command.
+      - name: Test the installed package
+        if: steps.version.outputs.publish == 'true'
+        run: node scripts/test-cli-package.cjs
+      - name: Pack
+        if: steps.version.outputs.publish == 'true'
+        id: pack
+        run: echo "archive=$(node scripts/package-cli.cjs)" >> "$GITHUB_OUTPUT"
+      # Trusted publishing needs npm 11.5.1 or later; Node 24's bundled npm may be older.
+      - name: Publish to npm
+        if: steps.version.outputs.publish == 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          ARCHIVE: ${{ steps.pack.outputs.archive }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm install --global npm@^11.5.1
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$RUNNER_TEMP/.npmrc"
+            export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/.npmrc"
+          fi
+          npm publish "$ARCHIVE" --access public --provenance
+          echo "Published milagre@$VERSION: https://www.npmjs.com/package/milagre/v/$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"

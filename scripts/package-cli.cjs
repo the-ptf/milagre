@@ -54,7 +54,7 @@ async function packageCli({ outDir = path.join(root, "release", "cli") } = {}) {
       version: daemon.cliVersion ?? daemon.version,
       description: "Run Milagre agents on a computer without a desktop UI",
       license: "MIT",
-      repository: { type: "git", url: "https://github.com/the-ptf/milagre-ade.git", directory: "apps/daemon" },
+      repository: { type: "git", url: "https://github.com/the-ptf/milagre.git", directory: "apps/daemon" },
       type: "commonjs",
       bin: daemon.bin,
       engines: daemon.engines,
