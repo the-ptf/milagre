@@ -130,6 +130,7 @@ export function useChanges({
     open: shown,
     toggle,
     toggleDefault,
+    hide,
     diffOpen,
     closeDiff,
     mode,
