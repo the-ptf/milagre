@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { BookOpen01Icon, ConnectIcon, Plug01Icon, Settings01Icon, UserCircleIcon } from "@hugeicons/core-free-icons";
+import {
+  AiBrain01Icon,
+  BookOpen01Icon,
+  ChartColumnIcon,
+  ConnectIcon,
+  FolderTreeIcon,
+  LaptopIcon,
+  Plug01Icon,
+  SmartphoneIcon,
+  UserCircleIcon,
+} from "@hugeicons/core-free-icons";
 import { useSession } from "../../session";
 import { usePush } from "../../push";
 import { savedHosts } from "../../hosts-native";
@@ -15,7 +25,7 @@ import { useTheme } from "../../theme";
 import { radius } from "../../design-tokens";
 import { presenceTone } from "@milagre/shared/chat-scopes";
 
-type MacPage = "general" | "accounts" | "connections" | "skills" | "mcp";
+type MacPage = "models" | "accounts" | "usage" | "skills" | "mcp" | "worktrees" | "connections" | "phone-sharing" | "this-mac";
 
 /** Settings › Computers › one computer: whether it answers, its Chats in the list, its settings, rename and forget. */
 export default function ComputerScreen() {
@@ -97,12 +107,16 @@ export default function ComputerScreen() {
           />
         </Group>
         <ComputerResourcesGroup host={host} online={state === "online"} />
-        <Group title="Settings on this Mac" footer={connecting ? "Connecting…" : "Changes here apply to this Mac and every device paired with it."}>
-          <Row title="General" icon={Settings01Icon} disabled={connecting} onPress={() => void open("general")} />
+        <Group title="Settings on this Mac" footer={connecting ? "Connecting…" : undefined}>
+          <Row title="Models" icon={AiBrain01Icon} disabled={connecting} onPress={() => void open("models")} />
           <Row title="Accounts" icon={UserCircleIcon} disabled={connecting} onPress={() => void open("accounts")} />
-          <Row title="Connections" icon={ConnectIcon} disabled={connecting} onPress={() => void open("connections")} />
+          <Row title="Usage" icon={ChartColumnIcon} disabled={connecting} onPress={() => void open("usage")} />
           <Row title="Skills" icon={BookOpen01Icon} disabled={connecting} onPress={() => void open("skills")} />
-          <Row title="MCP" icon={Plug01Icon} disabled={connecting} onPress={() => void open("mcp")} />
+          <Row title="MCP servers" icon={Plug01Icon} disabled={connecting} onPress={() => void open("mcp")} />
+          <Row title="Worktrees" icon={FolderTreeIcon} disabled={connecting} onPress={() => void open("worktrees")} />
+          <Row title="Integrations" icon={ConnectIcon} disabled={connecting} onPress={() => void open("connections")} />
+          <Row title="Phone & sharing" icon={SmartphoneIcon} disabled={connecting} onPress={() => void open("phone-sharing")} />
+          <Row title="This Mac" icon={LaptopIcon} disabled={connecting} onPress={() => void open("this-mac")} />
         </Group>
         <Group inset={0}>
           <Row title="Rename" chevron={false} onPress={() => renameComputer(host, { onRenamed: () => session.loadHosts(), onError: setError })} />

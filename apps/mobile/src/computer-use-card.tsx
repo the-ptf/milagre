@@ -89,7 +89,7 @@ export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?:
         ) : (
           <Text style={{ color: colors.ink3, fontSize: 13, textAlign: "center", paddingVertical: 36, paddingHorizontal: 24 }}>
             {shown?.error === "screen-recording"
-              ? "Turn on Screen Recording for Milagre on the Mac (Settings › Experimental › Computer use) to see the screen here."
+              ? "Turn on Screen Recording for Milagre on the Mac (Settings › This Mac › Computer use) to see the screen here."
               : "The screen shows here while the agent works in an app."}
           </Text>
         )}

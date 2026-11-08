@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { space } from "./design-tokens";
-import { router, useFocusEffect } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
 import { useSession } from "./session";
 import type { Client } from "./client";
-import { Row } from "./settings-list";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { Toggle, useStyles } from "./ui";
 import { useTheme } from "./theme";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 
-/** Settings › Experimental: this phone's experimental features, like desktop's Experimental section. */
+/** Settings › Church: features still taking shape, like desktop's Church section. Babysit PRs, Simlock and Computer use graduated. */
 export function ExperimentalSection() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -19,13 +18,6 @@ export function ExperimentalSection() {
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
   const session = useSession();
-  // Babysit PRs lives on the connected Mac; null until it answers, and an older Mac never has it. Re-read on focus: its
-  // page or the Mac may have changed it.
-  const [babysit, setBabysit] = useState<boolean | null>(null);
-  // Simlock devices, also kept by the Mac; null on a Mac without them.
-  const [simlock, setSimlock] = useState<boolean | null>(null);
-  // Computer use, also kept by the Mac; null on a Mac without it.
-  const [computerUse, setComputerUse] = useState<boolean | null>(null);
   // Device notes, also kept by the Mac (its agents get the notes); null on a Mac without them.
   const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
   const [deviceNotesError, setDeviceNotesError] = useState("");
@@ -51,18 +43,6 @@ export function ExperimentalSection() {
       const client = session.client;
       if (!client) return;
       let live = true;
-      client.call<{ enabled: boolean } | null>("babysit:settings:read", []).then(
-        (value) => live && setBabysit(value ? value.enabled === true : null),
-        () => live && setBabysit(null),
-      );
-      client.call<{ enabled: boolean } | null>("simlock:settings:read", []).then(
-        (value) => live && setSimlock(value ? value.enabled === true : null),
-        () => live && setSimlock(null),
-      );
-      client.call<{ enabled: boolean } | null>("computer-use:settings:read", []).then(
-        (value) => live && setComputerUse(value ? value.enabled === true : null),
-        () => live && setComputerUse(null),
-      );
       const scope = deviceNotesScope.current;
       if (scope && scope.client === client && !scope.saving) {
         const revision = ++scope.revision;
@@ -97,12 +77,6 @@ export function ExperimentalSection() {
           Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.
         </Text>
       </View>
-      {session.client && babysit !== null && (
-        <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
-          <Row title="Babysit PRs" value={babysit ? "On" : "Off"} onPress={() => router.push("/babysit-prs")} />
-          <Text style={[styles.caption, { paddingBottom: 12 }]}>Watch every PR a Chat opens and fix review comments, failed checks and conflicts.</Text>
-        </View>
-      )}
       {session.client && deviceNotesClient === session.client && deviceNotes !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle
@@ -136,20 +110,6 @@ export function ExperimentalSection() {
           <Text style={styles.caption}>{DEVICE_NOTES_DESCRIPTION}</Text>
           <Text style={[styles.caption, { color: colors.orangeInk }]}>{DEVICE_NOTES_WARNING}</Text>
           {!!deviceNotesError && <Text style={[styles.caption, { color: colors.redInk }]}>{deviceNotesError}</Text>}
-        </View>
-      )}
-      {session.client && simlock !== null && (
-        <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
-          <Row title="Simlock devices" value={simlock ? "On" : "Off"} onPress={() => router.push("/simlock")} />
-          <Text style={[styles.caption, { paddingBottom: 12 }]}>
-            Agents lease a simulator or emulator of their own from a Simlock pool and return it wiped.
-          </Text>
-        </View>
-      )}
-      {session.client && computerUse !== null && (
-        <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
-          <Row title="Computer use" value={computerUse ? "On" : "Off"} onPress={() => router.push("/computer-use")} />
-          <Text style={[styles.caption, { paddingBottom: 12 }]}>Agents see and operate apps on the Mac, asking before each new app.</Text>
         </View>
       )}
     </View>

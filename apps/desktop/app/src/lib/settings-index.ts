@@ -601,7 +601,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "desktop apps control screen",
   },
 
-  // Labs
+  // Church
   { page: "experimental", title: "Beta" },
   {
     page: "experimental",

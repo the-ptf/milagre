@@ -1,4 +1,4 @@
-/** Experimental computer use: agents operate desktop apps through agent-desktop (Settings › Experimental). */
+/** Experimental computer use: agents operate desktop apps through agent-desktop (Settings › This Mac). */
 export type ComputerUsePermission = "granted" | "denied" | "not_required" | "unknown";
 
 export interface ComputerUseSettings {

@@ -12,7 +12,7 @@ const MINUTES = [15, 30, 60, 120, 240].map((minutes) => ({ value: String(minutes
 const message = (error: unknown) => (error instanceof Error ? error.message : "Could not reach this Mac.");
 
 /**
- * Settings › Experimental › Simlock devices, as on desktop: the connected Mac's pool. The agent token is sent once to the
+ * Settings › Phone & sharing › Simlock devices, as on desktop: the connected Mac's pool. The agent token is sent once to the
  * Mac and never read back; the Mac keeps it for its own gateway.
  */
 export function SimlockSection() {

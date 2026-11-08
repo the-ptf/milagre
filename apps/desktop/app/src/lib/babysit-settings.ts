@@ -8,7 +8,7 @@ export type BabysitChange = Patch | ((current: BabysitSettings) => Patch);
 type State = { settings: BabysitSettings | null; error: string | null };
 
 /**
- * Settings › Experimental › Babysit PRs: the one configuration this Mac's daemon keeps. Changes show at once; each
+ * Settings › Integrations › Babysit PRs: the one configuration this Mac's daemon keeps. Changes show at once; each
  * answer from the host is shown with the changes still on their way laid over it, so an earlier answer never undoes a
  * later change, and a failed change goes back on its own.
  */

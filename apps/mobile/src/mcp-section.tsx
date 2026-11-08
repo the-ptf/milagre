@@ -13,7 +13,7 @@ import { useTheme } from "./theme";
 
 const openServer = (row: McpRow) => router.push({ pathname: "/mcp-server", params: { name: row.name } });
 
-/** Settings › MCP for the connected Mac: every account's servers, checked now. */
+/** Settings › MCP servers for the connected Mac: every account's servers, checked now. */
 export function McpSection() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -40,7 +40,7 @@ export function McpSection() {
     <View style={{ gap: 16 }}>
       <View style={{ gap: 6 }}>
         <Text accessibilityRole="header" style={styles.title}>
-          MCP
+          MCP servers
         </Text>
         <Text style={styles.muted}>
           {client

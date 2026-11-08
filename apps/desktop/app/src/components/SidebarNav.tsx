@@ -174,7 +174,7 @@ type SidebarNavProps = {
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
-  /** Projects or Bots; the switch shows only while Bots is on (Settings › Experimental) and this is given. */
+  /** Projects or Bots; the switch shows only while Bots is on (Settings › Church) and this is given. */
   sidebarMode?: SidebarMode;
   onSidebarMode?: (mode: SidebarMode) => void;
   selectedBotId?: string | null;

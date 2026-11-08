@@ -13,26 +13,28 @@ import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 export const SETTINGS_PAGES = {
   computers: { title: "Computers" },
   routines: { title: "Routines", needs: "computer" },
-  notifications: { title: "Notifications" },
   appearance: { title: "Appearance" },
-  "browser-settings": { title: "Browser" },
   "chat-display": { title: "Chat" },
+  voice: { title: "Voice" },
   "dictation-language": { title: "Dictation language" },
   "dictation-model": { title: "Speech model" },
+  notifications: { title: "Notifications" },
+  "browser-settings": { title: "Browser" },
   archived: { title: "Archived Chats" },
-  experimental: { title: "Experimental" },
-  "babysit-prs": { title: "Babysit PRs", needs: "computer" },
-  simlock: { title: "Simlock devices", needs: "computer" },
-  "computer-use": { title: "Computer use", needs: "computer" },
-  general: { title: "General", needs: "computer" },
+  models: { title: "Models", needs: "computer" },
+  accounts: { title: "Accounts", needs: "computer" },
   usage: { title: "Plan usage", needs: "computer" },
   "token-usage": { title: "Token usage", needs: "computer" },
-  accounts: { title: "Accounts", needs: "computer" },
-  "project-accounts": { title: "Project Accounts", needs: "computer" },
-  connections: { title: "Connections", needs: "computer" },
   skills: { title: "Skills", needs: "computer" },
-  mcp: { title: "MCP", needs: "computer" },
-  "local-mcp": { title: "Milagre", needs: "computer" },
+  mcp: { title: "MCP servers", needs: "computer" },
+  worktrees: { title: "Worktrees", needs: "computer" },
+  connections: { title: "Integrations", needs: "computer" },
+  "babysit-prs": { title: "Babysit PRs", needs: "computer" },
+  "phone-sharing": { title: "Phone & sharing", needs: "computer" },
+  simlock: { title: "Simlock devices", needs: "computer" },
+  "this-mac": { title: "This Mac", needs: "computer" },
+  "computer-use": { title: "Computer use", needs: "computer" },
+  experimental: { title: "Church" },
   keybindings: { title: "Keybindings", needs: "ipad" },
 } as const satisfies Record<string, { title: string; needs?: "computer" | "ipad" }>;
 
@@ -150,20 +152,20 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "steer queue follow-up send now later",
   },
   {
-    page: "chat-display",
+    page: "models",
     title: "Show size beside Send",
     group: "Context size",
     description: "Tap for usage and Compact now.",
     keywords: "context window tokens usage",
   },
   {
-    page: "chat-display",
+    page: "models",
     title: "Show below threshold",
     group: "Context size",
     keywords: "compact button always",
   },
   {
-    page: "chat-display",
+    page: "models",
     title: "Auto compact quietly",
     group: "Context size",
     description: "Compacts at your limit. No context size, button or notifications.",
@@ -195,27 +197,23 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "compact full detail",
   },
   {
-    page: "chat-display",
+    page: "voice",
     title: "Keyboard shortcut",
-    group: "Dictation",
     keywords: "dictate voice keyboard alt space ipad",
   },
   {
-    page: "chat-display",
+    page: "voice",
     title: "Fix-up model",
-    group: "Dictation",
     keywords: "correction automatic haiku codex gemini kiro",
   },
   {
-    page: "chat-display",
+    page: "voice",
     title: "Fix names with AI",
-    group: "Dictation",
     keywords: "post processing correction automatic model haiku codex gemini kiro",
   },
   {
-    page: "chat-display",
+    page: "voice",
     title: "When dictation finishes",
-    group: "Dictation",
     keywords: "voice send insert mic",
   },
 
@@ -225,7 +223,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: "This iPhone",
     keywords: "device phone name",
   },
-  // Experimental
+  // Church
   {
     page: "experimental",
     title: "Floating inbox",
@@ -354,16 +352,18 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "grant permission system settings",
   },
 
-  // General
+  // Worktrees
   {
-    page: "general",
+    page: "worktrees",
     title: MAIN_SYNC_TITLE,
-    group: "Worktrees",
+    group: "Main branch",
     description: MAIN_SYNC_HINT,
     keywords: "git pull fast-forward main branch remote",
   },
+
+  // This Mac
   {
-    page: "general",
+    page: "this-mac",
     title: AUTO_UPDATE_TITLE,
     group: "Updates",
     description: AUTO_UPDATE_HINT,
@@ -390,7 +390,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "rate limit resume",
   },
 
-  // Connections
+  // Integrations
   {
     page: "connections",
     title: LINEAR_TITLE,
@@ -406,16 +406,18 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "linear status started",
   },
 
-  // Milagre
+  // Phone & sharing
   {
-    page: "local-mcp",
+    page: "phone-sharing",
     title: "Published pages",
     group: "Designs and artifacts",
     description: "Public links to designs and artifacts.",
     keywords: "share links",
   },
+
+  // MCP servers
   {
-    page: "local-mcp",
+    page: "mcp",
     title: "Custom MCP",
     group: "Milagre MCP",
     keywords: "connection token access config",

@@ -11,15 +11,19 @@ import {
   ComputerIcon,
   ConnectIcon,
   Download04Icon,
-  FlaskConicalIcon,
-  FolderKeyIcon,
+  ChurchIcon,
+  FolderTreeIcon,
+  AiBrain01Icon,
+  ChartColumnIcon,
+  LaptopIcon,
+  Mic01Icon,
+  SmartphoneIcon,
   HelpCircleIcon,
   Notification01Icon,
   PaintBoardIcon,
   Plug01Icon,
   RepeatIcon,
   SecurityCheckIcon,
-  Settings01Icon,
   UserCircleIcon,
   KeyboardIcon,
 } from "@hugeicons/core-free-icons";
@@ -28,7 +32,6 @@ import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { usePush } from "../../push";
 import { useAppUpdates } from "../../update-sheet";
 import { Icon, type IconData } from "../../icons";
-import { MilagreMark } from "../../milagre-mark";
 import { useSession } from "../../session";
 import { ProjectIcon } from "../../project-icon";
 import { useInternalBrowser } from "../../browser-setting";
@@ -295,34 +298,45 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         />
         <Tile title="Routines" icon={RepeatIcon} value={routinesValue} disabled={!routinesAvailable} onPress={() => onOpen("routines")} />
       </View>
-      <Group title="This device" footer="Saved on this device. Your other devices keep their own.">
+      <Group title={Platform.OS === "ios" && Platform.isPad ? "On this iPad" : Platform.OS === "ios" ? "On this iPhone" : "On this device"}>
+        <Row title="Appearance" icon={PaintBoardIcon} value={MODE_LABEL[theme.mode]} onPress={() => onOpen("appearance")} />
+        <Row title="Chat" icon={BubbleChatIcon} value={chatListLabel(chatList)} onPress={() => onOpen("chat-display")} />
+        <Row title="Voice" icon={Mic01Icon} onPress={() => onOpen("voice")} />
         <Row
           title="Notifications"
           icon={Notification01Icon}
           value={push.state ? (push.state.enabled ? "On" : "Off") : undefined}
           onPress={() => onOpen("notifications")}
         />
-        <Row title="Appearance" icon={PaintBoardIcon} value={MODE_LABEL[theme.mode]} onPress={() => onOpen("appearance")} />
         <Row title="Browser" icon={BrowserIcon} value={internalBrowser ? "Milagre" : "Default browser"} onPress={() => onOpen("browser-settings")} />
-        <Row title="Chat" icon={BubbleChatIcon} value={chatListLabel(chatList)} onPress={() => onOpen("chat-display")} />
         <Row title="Archived Chats" icon={Archive02Icon} value={archived === null ? undefined : String(archived)} onPress={() => onOpen("archived")} />
-        <Row title="Experimental" icon={FlaskConicalIcon} onPress={() => onOpen("experimental")} />
+        {/* The Mac's keybindings.json, which an iPad's hardware keyboard runs too. */}
+        {client && Platform.OS === "ios" && Platform.isPad ? <Row title="Keybindings" icon={KeyboardIcon} onPress={() => onOpen("keybindings")} /> : null}
       </Group>
-      {/* The connected Mac's settings; without one there is nothing here the phone can change, so the group is gone. */}
+      {/* The connected Mac's settings, grouped as desktop groups them; without one there is nothing here the phone can change. */}
       {client ? (
-        <Group title={macName} footer="Changes here apply to the Mac and every device paired with it.">
-          <Row title="General" icon={Settings01Icon} onPress={() => onOpen("general")} />
-          <Row title="Accounts" icon={UserCircleIcon} onPress={() => onOpen("accounts")} />
-          <Row title="Project Accounts" icon={FolderKeyIcon} onPress={() => onOpen("project-accounts")} />
-          {linear?.client === client ? (
-            <Row title="Connections" icon={ConnectIcon} value={linear.enabled ? "Linear" : "Off"} onPress={() => onOpen("connections")} />
-          ) : null}
-          <Row title="Skills" icon={BookOpen01Icon} onPress={() => onOpen("skills")} />
-          <Row title="MCP" icon={Plug01Icon} onPress={() => onOpen("mcp")} />
-          <Row title="Milagre" leading={<MilagreMark />} onPress={() => onOpen("local-mcp")} />
-          {/* The Mac's keybindings.json, which an iPad's hardware keyboard runs too. */}
-          {Platform.OS === "ios" && Platform.isPad ? <Row title="Keybindings" icon={KeyboardIcon} onPress={() => onOpen("keybindings")} /> : null}
-        </Group>
+        <>
+          <Group title={`Agents on ${macName}`}>
+            <Row title="Models" icon={AiBrain01Icon} onPress={() => onOpen("models")} />
+            <Row title="Accounts" icon={UserCircleIcon} onPress={() => onOpen("accounts")} />
+            <Row title="Usage" icon={ChartColumnIcon} onPress={() => onOpen("usage")} />
+            <Row title="Skills" icon={BookOpen01Icon} onPress={() => onOpen("skills")} />
+            <Row title="MCP servers" icon={Plug01Icon} onPress={() => onOpen("mcp")} />
+          </Group>
+          <Group title={`Code on ${macName}`}>
+            <Row title="Worktrees" icon={FolderTreeIcon} onPress={() => onOpen("worktrees")} />
+            <Row
+              title="Integrations"
+              icon={ConnectIcon}
+              value={linear?.client === client ? (linear.enabled ? "Linear" : "Off") : undefined}
+              onPress={() => onOpen("connections")}
+            />
+          </Group>
+          <Group title={macName}>
+            <Row title="Phone & sharing" icon={SmartphoneIcon} onPress={() => onOpen("phone-sharing")} />
+            <Row title="This Mac" icon={LaptopIcon} onPress={() => onOpen("this-mac")} />
+          </Group>
+        </>
       ) : null}
       {/* The connected computer's Projects; each opens its own settings. */}
       {client && projects.length > 0 ? (
@@ -337,7 +351,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           ))}
         </Group>
       ) : null}
-      <Group title="About">
+      <Group>
+        <Row title="Church" icon={ChurchIcon} onPress={() => onOpen("experimental")} />
         <Row title="Privacy policy" icon={SecurityCheckIcon} onPress={() => openSite(PRIVACY_URL)} />
         <Row title="Support" icon={HelpCircleIcon} onPress={() => openSite(SUPPORT_URL)} />
         {/* Checks now and shows the update sheet, which follows the check to Up to date or Update now. */}

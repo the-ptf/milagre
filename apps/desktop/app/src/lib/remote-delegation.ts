@@ -4,7 +4,7 @@ import type { LinkedWork, OpenDelegation } from "../model";
 
 type State = { enabled: boolean; ready: boolean; saving: boolean; error: string };
 
-/** Settings > Experimental's "Delegate to other computers": this Mac's own switch, kept by its daemon. */
+/** Settings › Church's "Delegate to other computers": this Mac's own switch, kept by its daemon. */
 export function useRemoteDelegationEnabled() {
   const [state, setState] = useState<State>({ enabled: false, ready: false, saving: false, error: "" });
   useEffect(() => {

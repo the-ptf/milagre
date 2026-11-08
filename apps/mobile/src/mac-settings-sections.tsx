@@ -3,21 +3,15 @@ import { useCallback, useState } from "react";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
-import { ChartBarLineIcon, ChartColumnIcon } from "@hugeicons/core-free-icons";
-
-import { Icon } from "./icons";
+import { useFocusEffect } from "expo-router";
 import { useSession } from "./session";
 import { InlineError, ListRow, useStyles } from "./ui";
 import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { readDoneSettings, saveDoneSettings } from "./done-retention";
 import { MacUpdateRows, useMacUpdate } from "./mac-update";
 
-/**
- * Settings › General: plan usage, the connected Mac's worktree default, how long its Done Chats wait before it archives
- * them, and its Milagre update and Auto update (desktop's About).
- */
-export function GeneralSection() {
+/** Settings › This Mac: the connected Mac's Milagre update and its Auto update (desktop's About). */
+export function MacUpdatesSection() {
   const styles = useStyles();
   const session = useSession();
   const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;
@@ -53,6 +47,38 @@ export function GeneralSection() {
       setAutoUpdateError(failure instanceof Error ? failure.message : "Could not change this setting.");
     }
   }
+  return (
+    <View style={{ gap: 8 }}>
+      {session.client && (autoUpdate !== null || macUpdate.update !== undefined || macUpdate.restarting) && (
+        <>
+          <Text style={styles.section}>Updates</Text>
+          <View style={[styles.card, { gap: 4 }]}>
+            <MacUpdateRows state={macUpdate} macName={macName} />
+            {autoUpdate !== null && (
+              <>
+                {(macUpdate.update !== undefined || macUpdate.restarting) && <View style={styles.separator} />}
+                <ListRow
+                  title={AUTO_UPDATE_TITLE}
+                  toggle={{
+                    value: autoUpdate,
+                    onChange: () => void changeAutoUpdate(!autoUpdate),
+                  }}
+                />
+                <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
+                {autoUpdateError ? <InlineError message={autoUpdateError} /> : null}
+              </>
+            )}
+          </View>
+        </>
+      )}
+    </View>
+  );
+}
+
+/** Settings › Worktrees: whether new Worktrees sync their source branch first, the connected Mac's default. */
+export function MainSyncSection() {
+  const styles = useStyles();
+  const session = useSession();
   // The computer's global default for source branch sync; null until it answers (an older Mac never does). Re-read on
   // focus: it may have changed on the Mac while the phone was on another screen.
   const [syncMain, setSyncMain] = useState<boolean | null>(null);
@@ -85,27 +111,9 @@ export function GeneralSection() {
   }
   return (
     <View style={{ gap: 8 }}>
-      <Text style={styles.section}>Usage</Text>
-      <View style={[styles.card, { paddingVertical: 4, gap: 0 }]}>
-        <ListRow
-          compact
-          title="Plan usage"
-          subtitle="Claude, Codex and Antigravity plan limits"
-          leading={<Icon icon={ChartBarLineIcon} tone="ink" size={20} />}
-          onPress={() => router.push("/usage")}
-        />
-        <ListRow
-          compact
-          title="Token usage"
-          subtitle="Tokens and estimated cost by Project, Chat and model"
-          subtitleLines={2}
-          leading={<Icon icon={ChartColumnIcon} tone="ink" size={20} />}
-          onPress={() => router.push("/token-usage")}
-        />
-      </View>
       {session.client && syncMain !== null && (
         <>
-          <Text style={[styles.section, { marginTop: 12 }]}>Worktrees</Text>
+          <Text style={styles.section}>Main branch</Text>
           <View style={[styles.card, { gap: 4 }]}>
             <ListRow
               title={MAIN_SYNC_TITLE}
@@ -119,29 +127,6 @@ export function GeneralSection() {
           </View>
         </>
       )}
-      <DoneRetention />
-      {session.client && (autoUpdate !== null || macUpdate.update !== undefined || macUpdate.restarting) && (
-        <>
-          <Text style={[styles.section, { marginTop: 12 }]}>Updates</Text>
-          <View style={[styles.card, { gap: 4 }]}>
-            <MacUpdateRows state={macUpdate} macName={macName} />
-            {autoUpdate !== null && (
-              <>
-                {(macUpdate.update !== undefined || macUpdate.restarting) && <View style={styles.separator} />}
-                <ListRow
-                  title={AUTO_UPDATE_TITLE}
-                  toggle={{
-                    value: autoUpdate,
-                    onChange: () => void changeAutoUpdate(!autoUpdate),
-                  }}
-                />
-                <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
-                {autoUpdateError ? <InlineError message={autoUpdateError} /> : null}
-              </>
-            )}
-          </View>
-        </>
-      )}
     </View>
   );
 }
@@ -150,7 +135,7 @@ export function GeneralSection() {
  * How long a Chat waits in the list's Done section before the connected Mac archives it. Kept by that Mac, so it is
  * read on every visit; a Mac too old to have it shows nothing.
  */
-function DoneRetention() {
+export function DoneRetention() {
   const styles = useStyles();
   const client = useSession().client;
   const [hours, setHours] = useState<number | null>(null);

@@ -693,7 +693,7 @@ export type MilagreBridge = {
   grantDelegations?: (chatId: string, linkId: string) => Promise<void>;
   /** Delegations and Negotiations still open across Links, and the Codex Chats that only receive. */
   getLinkedWork: () => Promise<LinkedWork>;
-  /** Settings › Labs: whether this Mac's Chats may delegate to another paired computer's Projects. */
+  /** Settings › Church: whether this Mac's Chats may delegate to another paired computer's Projects. */
   readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
   saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
