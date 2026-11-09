@@ -46,41 +46,65 @@ export const KEEP_AWAKE_TITLE = "Keep the Mac awake?";
 const KEEP_AWAKE_MESSAGE =
   "When the Mac sleeps, this phone can't reach it. Keep it awake while Milagre runs? The screen can still turn off. Plugged in, it stays awake with the lid closed.";
 
+export const KEEP_AWAKE_FAILED_TITLE = "Couldn't keep the Mac awake";
+
+// The computers a question is being read or shown for, with whether its Chat is still on screen: two panes on one Mac
+// (a split on iPad) ask once, and a Chat left behind doesn't hold up the next one's question.
+const asking = new Map<string, () => boolean>();
+
+const failure = (error: unknown) => (error instanceof Error && error.message ? error.message : "The Mac didn't answer.");
+
 /**
  * Opening a Chat asks to keep its Mac awake while that Mac lets itself sleep, until the answer is Keep awake or
- * Don't ask again. A Mac that can't say (older, or a phone confined to one folder) is never asked about.
+ * Don't ask again. A Mac that can't say (older, or a phone confined to one folder) is never asked about. `isCurrent`
+ * says the Chat is still the one on screen: a read that answers after another Chat opened shows nothing, and an answer
+ * to a Chat that went away changes nothing. A save that fails says why and offers Try again.
  */
 export async function askKeepAwake({
   client,
   hostId,
   neverAsk,
   ask,
+  isCurrent = () => true,
 }: {
   client: Caller;
   hostId: string;
   neverAsk: Pick<ReturnType<typeof createKeepAwakeNeverAsk>, "has" | "add">;
   ask: ShowAlert;
+  isCurrent?: () => boolean;
 }): Promise<void> {
-  if (await neverAsk.has(hostId)) return;
-  let enabled: boolean;
+  if (asking.get(hostId)?.()) return;
+  asking.set(hostId, isCurrent);
   try {
-    enabled = (await client.call<{ enabled?: boolean }>("keep-awake:settings:read", []))?.enabled === true;
-  } catch {
-    return;
+    if (await neverAsk.has(hostId)) return;
+    let enabled: boolean;
+    try {
+      enabled = (await client.call<{ enabled?: boolean }>("keep-awake:settings:read", []))?.enabled === true;
+    } catch {
+      return;
+    }
+    if (enabled || !isCurrent()) return;
+    const save = (): Promise<void> =>
+      client.call("keep-awake:settings:save", [{ enabled: true }]).then(
+        () => undefined,
+        (error: unknown) => {
+          if (!isCurrent()) return undefined;
+          return new Promise<void>((resolve) =>
+            ask(KEEP_AWAKE_FAILED_TITLE, failure(error), [
+              { text: "Try again", onPress: () => void save().then(resolve) },
+              { text: "Not now", style: "cancel", onPress: resolve },
+            ]),
+          );
+        },
+      );
+    await new Promise<void>((resolve) =>
+      ask(KEEP_AWAKE_TITLE, KEEP_AWAKE_MESSAGE, [
+        { text: "Keep awake", onPress: () => void (isCurrent() ? save() : Promise.resolve()).then(resolve) },
+        { text: "Don't ask again", onPress: () => void neverAsk.add(hostId).then(resolve) },
+        { text: "Not now", style: "cancel", onPress: resolve },
+      ]),
+    );
+  } finally {
+    if (asking.get(hostId) === isCurrent) asking.delete(hostId);
   }
-  if (enabled) return;
-  await new Promise<void>((resolve) =>
-    ask(KEEP_AWAKE_TITLE, KEEP_AWAKE_MESSAGE, [
-      {
-        text: "Keep awake",
-        onPress: () =>
-          void client.call("keep-awake:settings:save", [{ enabled: true }]).then(
-            () => resolve(),
-            () => resolve(),
-          ),
-      },
-      { text: "Don't ask again", onPress: () => void neverAsk.add(hostId).then(resolve) },
-      { text: "Not now", style: "cancel", onPress: resolve },
-    ]),
-  );
 }

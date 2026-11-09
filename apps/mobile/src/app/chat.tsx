@@ -307,16 +307,6 @@ export default function ChatScreen() {
     routed.current = routeKey;
     closeBeside();
   }, [routeKey]);
-  // Each Chat opened on a Mac that lets itself sleep asks to keep it awake, so the phone can still reach it later.
-  // A reconnect hands over a new client for the same Mac: it doesn't ask again, only another Chat does.
-  const client = session.client;
-  const askOn = params.id && client && client.url === (params.hostId || client.url) ? routeKey : null;
-  const askedFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (!askOn || !client || askedFor.current === askOn) return;
-    askedFor.current = askOn;
-    void askKeepAwake({ client, hostId: client.url, neverAsk: savedKeepAwakeNeverAsk, ask: confirmSheet }).catch(() => {});
-  }, [askOn, client]);
   const shown = state === "shown" && beside ? beside : null;
   // Closing the routed Chat leaves the one beside it in its place.
   const promote = useCallback(() => {
@@ -416,6 +406,26 @@ function ChatPane({
   const [ownDraft] = useState(() => randomUUID());
   const draftId = params.draft || ownDraft;
   const session = useSession();
+  // Each Chat opened on a Mac that lets itself sleep asks to keep it awake, so the phone can still reach it later. Each
+  // pane asks through its own session, so a Chat beside from another Mac asks about that Mac. A reconnect hands over a
+  // new client for the same Mac: it doesn't ask again, only another Chat does; a Chat left before the answer shows nothing.
+  const askClient = useRef(session.client);
+  useEffect(() => {
+    askClient.current = session.client;
+  });
+  const askOn =
+    params.id && session.client && session.client.url === (params.hostId || session.client.url)
+      ? `${session.client.url}|${params.projectPath ?? ""}|${params.id}`
+      : null;
+  useEffect(() => {
+    const client = askClient.current;
+    if (!askOn || !client) return;
+    let current = true;
+    void askKeepAwake({ client, hostId: client.url, neverAsk: savedKeepAwakeNeverAsk, ask: confirmSheet, isCurrent: () => current }).catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [askOn]);
   // The Chat beside reads its own Project when that isn't the open one.
   const openSession = useMainSession();
   const ownProject = !sameSession(session, openSession);

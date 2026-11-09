@@ -5651,7 +5651,7 @@ test("a Chat of a Link deleted on another device leaves for the Projects list an
   archive.clearArchiveNotice();
 });
 
-test("each Chat opened asks about keeping its Mac awake once; a new Chat's draft doesn't", () => {
+test("each Chat opened asks about keeping its own Mac awake once, the one beside too; a new Chat's draft doesn't", () => {
   globalThis.keepAwakeAsks = [];
   try {
     const draft = chatHost({ effects: true });
@@ -5665,6 +5665,12 @@ test("each Chat opened asks about keeping its Mac awake once; a new Chat's draft
     host.params.id = "4";
     host.render();
     assert.deepEqual(globalThis.keepAwakeAsks, ["mac", "mac"]);
+    // A Chat beside from another Mac reads that Mac's session, and asks about that Mac.
+    const beside = chatHost({ effects: true, pane: "secondary", split: { ...phoneSplit, widthClass: "wide" } });
+    beside.session.client.url = "studio";
+    Object.assign(beside.params, { id: "3", hostId: "studio" });
+    beside.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, ["mac", "mac", "studio"]);
   } finally {
     delete globalThis.keepAwakeAsks;
   }
