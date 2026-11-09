@@ -13,7 +13,7 @@ Lighthouse scores for `apps/site` never go down. The floors live in `apps/site/l
 - After any change under `apps/site`, run `npm test -- --only lighthouse`. It builds the site, serves it compressed like production and fails below the budget.
 - Never lower a number in the budget to make a change pass; find what made the page slower. Raise the numbers when the page gets faster.
 - The one exception is `skipAudits`: an audit the site fails on purpose, with the reason beside it in the budget file. Today that is `robots-txt`, for the Content-Signal line agents read. Add to it only with the user's say-so.
-- Heavy code (three.js, React, React Flow) loads after the first paint: on the first interaction or when its section nears the screen. Don't import it into the page's first load.
+- Heavy code (React, React Flow) loads after the first paint: on the first interaction or when its section nears the screen. Don't import it into the page's first load.
 
 ### Issue tracker
 

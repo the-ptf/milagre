@@ -30,6 +30,9 @@ window.milagre = { readContextSettings: async () => window.contextSettings, onCo
 function Fixture() {
   const [draft, setDraft] = useState('');
   const [root, setRoot] = useState('/fixture');
+  // A named Link's Chat reads skills through its own scope while its folder stays the Project path.
+  const [skillScope, setSkillScope] = useState(undefined);
+  window.setSkillScope = setSkillScope;
   const [expanded, setExpanded] = useState(false);
   const [suggestOptions, setSuggestOptions] = useState({});
   window.setSuggestOptions = setSuggestOptions;
@@ -39,7 +42,7 @@ function Fixture() {
   const model = suggestOptions.provider ? MODEL_CATALOG.find(item => item.provider === suggestOptions.provider) : MODEL_CATALOG[0];
   const chats = root === '/other' ? [] : [{id: 12, title: 'Plan review', branch: 'feature', at: 12, available: true}, {id: 13, title: 'Current review', branch: 'main', at: 13, available: true}, {id: 14, title: 'Chat', branch: 'old', at: 14, available: false}];
   return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
-    <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
+    <PromptComposer projectPath={root} skillScope={skillScope} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
       onSend={(delivery) => { window.deliveries.push(delivery); window.sent.push(draft); setDraft(''); }} onStop={() => { window.stops++; }} sendBlocked={!!suggestOptions.blocked}
       suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline} reconnectingName={suggestOptions.reconnecting}
@@ -204,6 +207,10 @@ async function browserChecks() {
     await escape();
     await evaluate(`window.setProject('/other')`);
     await waitFor(`!${editor}.querySelector('[data-chip="skill"]')`);
+    // A Link's key brings its skills back though the folder is still /other.
+    await evaluate(`window.setSkillScope('milagre-link:40996067-6cc2-4427-bc1e-9007c5f51875')`);
+    await waitFor(`!!${editor}.querySelector('[data-chip="skill"]')`);
+    await evaluate(`window.setSkillScope(undefined)`);
     await evaluate(`window.setProject('/fixture')`);
     await type("@review");
     await waitFor(`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('Plan review')`);
@@ -236,8 +243,11 @@ async function browserChecks() {
     assert.equal(await evaluate("getSelection().anchorOffset"), 9, "acceptance places the caret at the end");
     await type("");
     await waitFor(`!!${suggestion}`);
+    await screenshot("suggestion");
+    assert.match(await evaluate(`${suggestion}.textContent`), /^Add tests\s*Tab$/, "the suggestion shows its Tab key");
+    // Tab alone takes it: the right arrow is left to move the caret.
     await key("ArrowRight");
-    await waitFor(`${editor}.value === 'Add tests'`);
+    assert.equal(await evaluate(`${editor}.value`), "", "the right arrow leaves the suggestion");
     for (const draft of [" ", "typing", "/tl"]) {
       await type(draft);
       await waitFor(`!${suggestion}`);

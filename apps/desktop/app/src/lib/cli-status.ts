@@ -25,6 +25,12 @@ export function cliNotice(status: CliStatus | null | undefined): string | null {
   return cliMessage(status)?.replace(/, then send your message again\.$/, ".") ?? null;
 }
 
+/** The minimum version named by an outdated CLI's status, when the host can upgrade to a specific release. */
+export function requiredCliVersion(status: CliStatus | null | undefined): string | undefined {
+  if (status?.state !== "outdated") return undefined;
+  return status.message?.match(/\bneeds (?:Claude Code|Codex) (\d+\.\d+\.\d+) or later\b/i)?.[1];
+}
+
 /** A message split at its `backtick` spans, so commands can be set as code. */
 export function messageParts(message: string): Array<{ text: string; code: boolean }> {
   return message.split(/`([^`]*)`/).flatMap((text, index) => (text ? [{ text, code: index % 2 === 1 }] : []));

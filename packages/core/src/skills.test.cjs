@@ -378,3 +378,26 @@ test("a Routine's rendered prompt keeps /skills from a webhook body or a Linear 
   const own = linearPrompt("/deploy {{issue.key}}: {{issue.description}}", issue, undefined, "acme");
   assert.match(await expandSkillPrompt(project, own, options), /DEPLOY INSTRUCTIONS/);
 });
+
+test("a list of folders reads each one's skills in order, and a member's .claude skill never leads with a slash", async (t) => {
+  const { root, home, skill } = await fixture(t);
+  const api = path.join(root, "api");
+  const web = path.join(root, "web");
+  await skill(api, ".claude", "deploy", "API deploy");
+  await skill(web, ".claude", "deploy", "Web deploy");
+  await skill(web, ".agents", "lint", "Web lint");
+  const result = await discoverSkills([api, web], { home, bundledDirectory: null });
+  assert.deepEqual(
+    result.skills.map((item) => [item.name, item.path]),
+    [
+      ["deploy", path.join(api, ".claude", "skills", "deploy", "SKILL.md")],
+      ["lint", path.join(web, ".agents", "skills", "lint", "SKILL.md")],
+    ],
+  );
+  assert.equal(result.shadowed[0].path, path.join(web, ".claude", "skills", "deploy", "SKILL.md"));
+  // The shared Chat's agent runs in the Link's own folder, where Claude Code doesn't know the member's skill.
+  const expanded = await expandSkillPrompt([api, web], "/deploy now", { home, bundledDirectory: null });
+  assert.ok(!expanded.startsWith("/"));
+  assert.ok(expanded.includes("API deploy"));
+  await assert.rejects(discoverSkills([api, "relative"], { home, bundledDirectory: null }), /absolute/);
+});

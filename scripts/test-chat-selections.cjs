@@ -152,7 +152,7 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('input[placeholder="Search Worktrees"]')`);
     await newChat();
     await waitFor(`document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`);
-    await click("Local");
+    await click("This checkout");
     await click("New Worktree");
     await click("develop");
     await click("main");

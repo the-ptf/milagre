@@ -436,7 +436,7 @@ export function DesignPageEditor({
         <Tooltip label="Undo" shortcut="⌘Z" side="bottom" asChild>
           <IconButton label="Undo design edit" icon={UndoIcon} shape="pill" disabled={blocked || saving || !active?.canUndo} onClick={() => active?.undo()} />
         </Tooltip>
-        <Tooltip label="Redo" shortcut="⌘⇧Z" side="bottom" asChild>
+        <Tooltip label="Redo" shortcut="⇧⌘Z" side="bottom" asChild>
           <IconButton label="Redo design edit" icon={RedoIcon} shape="pill" disabled={blocked || saving || !active?.canRedo} onClick={() => active?.redo()} />
         </Tooltip>
         <span aria-hidden className="mx-0.5 h-4 w-px bg-line" />

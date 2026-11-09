@@ -2,6 +2,9 @@ import { formatImageMention, promptParts } from "./prompt-parts.mjs";
 import { chatTitle, isListedChat } from "./chats.mjs";
 import { prosePrompt } from "./prompt-skills.mjs";
 
+/** An empty composer's hint, on desktop and phone: what @ and / open. */
+export const PROMPT_PLACEHOLDER = "Type @ for files, Chats and computers, / for skills";
+
 /**
  * The attached file an `@path` mention names: the file at that absolute path, else the file at `<root>/<path>`,
  * else the one attached file whose path ends with `/<path>`. A suffix shared by several files names none.

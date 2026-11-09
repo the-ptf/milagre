@@ -40,6 +40,8 @@ export function chatsNeedingAttention(
 ): string[];
 /** Name the waiting Chat, or count Chats when the button opens a menu. */
 export function attentionLabel(titles: string[]): string;
+/** The attention chip's own short label: "1 waiting", "2 waiting". */
+export function attentionCount(count: number): string;
 /** What a waiting run asks for, in one line: the approval's command or title, or its first question. */
 export function waitingFor(run: AgentRun | undefined): string | undefined;
 

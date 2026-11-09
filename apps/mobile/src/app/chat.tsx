@@ -39,7 +39,7 @@ import {
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { compactButtonState } from "@milagre/shared/chat-display";
-import { useCompactButtonDisplay, useShowContextSize } from "../chat-display-setting";
+import { useCompactButtonDisplay, useNewChatStats, useShowContextSize } from "../chat-display-setting";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
@@ -381,6 +381,7 @@ function ChatPane({
   const { colors } = useTheme();
   const styles = useStyles();
   const [showContextSize] = useShowContextSize();
+  const [newChatStats] = useNewChatStats();
   const { settings: contextSettings } = useContextSettings();
   const [compactButtonDisplay] = useCompactButtonDisplay();
   // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
@@ -1232,6 +1233,26 @@ function ChatPane({
   const newWorktree = !project.link && !params.id && isolation === "worktree";
   const startTray = !params.id && !project.link;
   const targetDisabled = busy || picking;
+  // The new-Chat chip that starts a Chat from a Linear issue; `labelled` drops its text in a narrow tray.
+  const issueButton = (labelled: boolean) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Start from a Linear issue"
+      disabled={targetDisabled}
+      onPress={() => void chooseIssue()}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
+      })}
+    >
+      <LinearLogo size={13} />
+      {labelled && <Text style={styles.label}>Linear issue</Text>}
+    </Pressable>
+  );
   const branchDisabled = targetDisabled || (newWorktree && !branches?.items.length);
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
@@ -1691,7 +1712,8 @@ function ChatPane({
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = own || issueKey !== undefined;
-    const creates = newWorktree || issueKey !== undefined;
+    // A shared Chat's Worktrees are made by its agent in the Projects it changes; an issue names their branches there.
+    const creates = !project.link && (newWorktree || issueKey !== undefined);
     // A new Chat's send is this screen's, not every New Chat's in the Worktree (pending-chats.ts).
     const key = `${client.url}|${originChatId}`;
     const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
@@ -1778,6 +1800,8 @@ function ChatPane({
                 prompt: attachmentPrompt(sent, media.files),
                 ...options,
                 sentFrom: SENT_FROM,
+                // A Mac that predates issue cards in shared Chats ignores linearIssue and sends the body as a plain message.
+                ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
               },
             ])
           : client.call<{ sessionId: number }>("chat:send", [
@@ -2560,6 +2584,10 @@ function ChatPane({
                       startLineStyle,
                     ]}
                   >
+                    {/* A quarter of the free room above the heading with the stats under it (a phone is short; desktop gives a
+                        third), half without them. It doesn't depend on whether the cards have loaded or the keyboard hides them,
+                        so the heading stays put. */}
+                    <View pointerEvents="none" style={{ flex: 1 }} />
                     {chatsHomeOpen ? (
                       // No Project to pick here: the heading picks the computer, and the line under it goes back to the Projects.
                       <>
@@ -2620,13 +2648,15 @@ function ChatPane({
                         </View>
                       </Pressable>
                     )}
-                    {restingKeyboard === 0 && (
-                      <NewChatGlance
-                        client={session.client}
-                        projectPath={chatsHomeOpen ? null : (session.snapshot?.project.path ?? null)}
-                        scopeKey={session.snapshot?.project.path ?? ""}
-                      />
-                    )}
+                    <View pointerEvents="box-none" style={{ flex: newChatStats ? 3 : 1, alignSelf: "stretch" }}>
+                      {restingKeyboard === 0 && newChatStats && (
+                        <NewChatGlance
+                          client={session.client}
+                          projectPath={chatsHomeOpen ? null : (session.snapshot?.project.path ?? null)}
+                          scopeKey={session.snapshot?.project.path ?? ""}
+                        />
+                      )}
+                    </View>
                   </Animated.View>
                 )}
                 {/* The capsule says when the Chat above needs you and the Subchats pill when a Chat below does: they leave this
@@ -2966,27 +2996,13 @@ function ChatPane({
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
                                 </PullDown>
-                                {linearActive && (
-                                  <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Start from a Linear issue"
-                                    disabled={targetDisabled}
-                                    onPress={() => void chooseIssue()}
-                                    style={({ pressed }) => ({
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      gap: 6,
-                                      paddingHorizontal: 10,
-                                      paddingVertical: 6,
-                                      opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
-                                    })}
-                                  >
-                                    <LinearLogo size={13} />
-                                    {trayRowWidth >= COMPACT_TRAY_ROW_WIDTH && <Text style={styles.label}>Linear issue</Text>}
-                                  </Pressable>
-                                )}
+                                {linearActive && issueButton(trayRowWidth >= COMPACT_TRAY_ROW_WIDTH)}
                               </View>
                             )
+                          )}
+                          {/* A shared Chat's agent makes its Worktrees, so a new one has only an issue to start from. */}
+                          {!params.id && project.link && linearActive && (
+                            <View style={{ flexDirection: "row", alignItems: "center" }}>{issueButton(true)}</View>
                           )}
                           <OfflineTray target={trayTarget} chip={!startTray} />
                           <View
@@ -3097,6 +3113,8 @@ function ChatPane({
                               currentId={chat?.id}
                               client={client}
                               projectPath={worktree?.path || (project.link ? "" : project.path)}
+                              // A new shared Chat reads its Projects' skills through the Link's key; an open one, its own folder's.
+                              skillScope={project.link ? worktree?.path || project.path : undefined}
                               draft={draft}
                               suggestion={
                                 !run &&

@@ -134,7 +134,8 @@ function Card({ title, count, aside, children }: { title: string; count?: number
         borderCurve: "continuous",
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.line,
-        backgroundColor: colors.surface,
+        // The composer tray's fill (offline-tray.tsx), as on desktop.
+        backgroundColor: colors.inset,
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>

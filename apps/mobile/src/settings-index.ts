@@ -4,6 +4,7 @@ import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL } from "@milagre/shared/device-notes";
 import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE, LINEAR_TITLE } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
+import { NEW_CHAT_STATS_GROUP, NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
 
 /**
@@ -195,6 +196,13 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     title: "Tool calls",
     group: "Tool calls",
     keywords: "compact full detail",
+  },
+  {
+    page: "chat-display",
+    title: NEW_CHAT_STATS_LABEL,
+    group: NEW_CHAT_STATS_GROUP,
+    description: NEW_CHAT_STATS_HINT,
+    keywords: "glance cards pull requests usage tokens hide",
   },
   {
     page: "voice",

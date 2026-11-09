@@ -67,7 +67,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);
     const current = await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent`);
     if (!current.includes(isolation)) {
-      await clickText(isolation === "Local" ? "New Worktree" : "Local");
+      await clickText(isolation === "This checkout" ? "New Worktree" : "This checkout");
       await clickText(isolation);
     }
   }
@@ -102,10 +102,10 @@ async function browserChecks() {
     // Keep two sends pending in one mounted App. Neither lock, preview nor completion belongs to the other Chat.
     await loadFixture(process.argv[2]);
     await waitFor(`!!document.querySelector(${JSON.stringify(prompt)})`, 1200);
-    await newChat("Local");
+    await newChat("This checkout");
     await send("First computer is still saving");
     await waitFor("window.calls.sent.length === 1");
-    await newChat("Local");
+    await newChat("This checkout");
     await send("Second chat can send immediately");
     await waitFor("window.calls.sent.length === 2");
     await immediate("Second chat can send immediately");
@@ -217,7 +217,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.body.textContent.includes('next.txt')`), true, "acknowledgement keeps attachments added for the next message");
     await screenshot("sent");
 
-    await newChat("Local");
+    await newChat("This checkout");
     await send("Check the local project");
     await waitFor("window.calls.sent.length === 2");
     await immediate("Check the local project");
@@ -411,7 +411,7 @@ async function browserChecks() {
 
     const rows = (body) =>
       evaluate(`[...document.querySelectorAll('aside [data-row]')].filter(row => row.textContent.includes(${JSON.stringify(body)})).length`);
-    await newChat("Local");
+    await newChat("This checkout");
     await send("Reply before state");
     await waitFor("window.calls.sent.length === 13");
     await evaluate("window.holdState = true; window.saveSend(); window.ackSend()");
@@ -425,7 +425,7 @@ async function browserChecks() {
     // A Chat summary can arrive before its first message page, including before the send acknowledgement.
     await loadFixture(process.argv[2] + "?lean=1");
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
-    await newChat("Local");
+    await newChat("This checkout");
     await send("Keep the first message visible");
     await immediate("Keep the first message visible");
     await evaluate(`window.firstSendTranscript = ${transcript}; window.holdPages = true; window.saveSend()`);

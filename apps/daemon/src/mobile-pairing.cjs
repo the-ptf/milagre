@@ -13,6 +13,8 @@ let thisMac = null;
  * @param {Parameters<typeof lookUpName>[0]} [options]
  */
 function computerName(options) {
+  // Recordings (scripts/site-demo) run two hosts on one Mac and name each one, instead of showing the Mac's own name.
+  if (options === undefined && process.env.MILAGRE_COMPUTER_NAME) return process.env.MILAGRE_COMPUTER_NAME;
   if (options === undefined && thisMac !== null) return thisMac;
   const name = lookUpName(options);
   if (options === undefined) thisMac = name;

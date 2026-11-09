@@ -56,7 +56,7 @@ export function DelegationReportLine({
       {shown && (
         <div
           data-slot="delegation-report-body"
-          className="min-w-0 max-w-full rounded-control border border-line px-3 py-2 text-[length:var(--chat-size)] leading-[1.55] text-ink"
+          className="min-w-0 max-w-full rounded-control border border-line px-3 py-2 text-[length:var(--chat-size)] leading-[1.6] text-ink"
         >
           <div data-slot="message-content">
             <Markdown text={body} />

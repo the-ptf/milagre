@@ -14,8 +14,8 @@ const SKIP_DIRS = new Set(["node_modules", "dist", "release", ".expo", "ios", "a
 const MANIFEST = {
   // 62 s with 250 ms before each of its 35 screenshots; it was 85 s at 900 ms.
   "test-artifacts.cjs": { seconds: 62 },
-  // Six Lighthouse runs (three mobile, three desktop) on a site build.
-  "test-site-lighthouse.cjs": { seconds: 60 },
+  // Ten Lighthouse runs on a site build: three mobile and three desktop on /, one each on /docs and /docs/cli.
+  "test-site-lighthouse.cjs": { seconds: 120 },
   "test-theming-gallery.cjs": { seconds: 38 },
   "test-design-editor.cjs": { seconds: 35 },
   "test-design-live.cjs": { seconds: 32 },

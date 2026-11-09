@@ -66,6 +66,8 @@ export function replyActivity(
   heartbeats: HeartbeatStep[];
   desktop: ChatStep[];
   answer: string;
+  /** How many activity entries come before the answer; the rest happened after it (a tool call the text led into). */
+  answerAt: number;
 } {
   const setup = allSteps.filter((step) => step.kind === "setup");
   const images = allSteps.filter((step) => step.kind === "image" && step.imageOrigin !== "viewed");
@@ -89,7 +91,9 @@ export function replyActivity(
     return part.type === "text" ? [part] : part.steps.map((step) => ({ type: "step", step }));
   });
   const answer = answerIndex === -1 ? "" : (parts[answerIndex] as { text: string }).text;
-  return { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer };
+  const answerAt =
+    answerIndex === -1 ? activity.length : parts.slice(0, answerIndex).reduce((total, part) => total + (part.type === "text" ? 1 : part.steps.length), 0);
+  return { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer, answerAt };
 }
 
 /**

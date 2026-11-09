@@ -23,6 +23,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Delete02Icon,
   BubbleChatIcon,
+  BubbleChatQuestionIcon,
   EthernetPortIcon,
   CircleIcon,
   CloudOffIcon,
@@ -61,9 +62,10 @@ import { portComputer, portUrl, unreachablePortReason } from "@/lib/ports";
 import { prLook } from "@/lib/pr-look";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
-import { chatMarkTone } from "@milagre/shared/chats";
+import { chatMarkTone as sharedMarkTone } from "@milagre/shared/chats";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/shared/chat-row";
 import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
@@ -76,6 +78,17 @@ import { useOutboxWaiting } from "../../lib/outbox";
 function useMinute(on: boolean) {
   const now = useDisplayNow(30_000, on);
   return on ? now : 0;
+}
+
+/**
+ * The sidebar's mark palette: orange is "needs you" (a question as well as an approval), work in progress stays quiet in
+ * ink-3, and only unread keeps the accent dot. Desktop only for now; the shared chatMarkTone and the phone move with it
+ * later.
+ */
+function chatMarkTone(mark: ChatMark): "accent" | "orange" | "red" | "ink3" {
+  if (mark === "question") return "orange";
+  if (mark === "running" || mark === "background" || mark === "delegated") return "ink3";
+  return sharedMarkTone(mark);
 }
 
 const markToneClass = {
@@ -216,7 +229,7 @@ const markLabel = (mark: Exclude<ChatMark, "idle">, background = 0) =>
 /** Work going on with no turn: a still ring around how many background tasks run, so it reads apart from running. */
 function BackgroundMark({ count = 0 }: { count?: number }) {
   return (
-    <span className="flex size-4 items-center justify-center rounded-full border-[1.5px] border-accent text-10 font-semibold leading-none tabular-nums text-accent">
+    <span className="flex size-4 items-center justify-center rounded-full border-[1.5px] border-ink-3 text-10 font-semibold leading-none tabular-nums text-ink-3">
       {count > 9 ? "9+" : count || ""}
     </span>
   );
@@ -251,9 +264,9 @@ type MenuEntry = {
  * accent dot, and an idle chat keeps a faint dot so labels stay
  * aligned.
  * ───────────────────────────────────────────────────────── */
-/** Marks that ask for you draw an icon, so a question and an approval read apart. The shield is orange like the approval card. */
+/** Marks that ask for you draw an icon, so a question and an approval read apart; both are orange, "needs you". */
 const MARK_ICON = {
-  question: { icon: BubbleChatIcon },
+  question: { icon: BubbleChatQuestionIcon },
   waiting: { icon: ShieldAlertIcon },
   delegated: { icon: Link04Icon },
 } satisfies Partial<Record<ChatMark, { icon: HugeIconData }>>;
@@ -288,12 +301,18 @@ export function ChatMarkDot({
         {...(label ? { role: "img", "aria-label": label, title: label } : { "aria-hidden": true })}
         className={mark === "running" || mark === "background" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
       >
-        {mark === "running" && <SpinnerRing size={12} color="var(--accent)" />}
+        {mark === "running" && <SpinnerRing size={12} />}
         {mark === "background" && <BackgroundMark count={background} />}
         {mark in MARK_ICON && <MarkIcon mark={mark as keyof typeof MARK_ICON} />}
       </span>
     </span>
   );
+}
+
+/** The collapsed rail's corner dot: orange while the chat needs you, ink-3 at work, accent unread. */
+function railDotTone(mark: ChatMark) {
+  const tone = chatMarkTone(mark);
+  return tone === "orange" ? "bg-orange" : tone === "red" ? "bg-red" : tone === "ink3" ? "bg-ink-3" : "bg-accent";
 }
 
 function recentInitials(label: string) {
@@ -335,10 +354,10 @@ function RowProjectIcon({ image, initial = "", chats = false }: { image?: string
     <span
       aria-hidden
       data-chat-project-icon
-      className="sidebar-copy flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-on-ink"
+      className="sidebar-copy flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-on-ink"
     >
       {/* A Chat without a Project wears the Chats group's bubble, as its header does in the grouped sidebar. */}
-      {chats ? <HugeiconsIcon icon={BubbleChatIcon} size={14} /> : <WorkspaceIcon src={image} fallback={letter} />}
+      {chats ? <HugeiconsIcon icon={BubbleChatIcon} size={12} /> : <WorkspaceIcon src={image} fallback={letter} />}
     </span>
   );
 }
@@ -349,15 +368,16 @@ function RowProjectIcon({ image, initial = "", chats = false }: { image?: string
  */
 function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number; now: number }) {
   const mark = item.mark ?? "idle";
+  const label = mark === "idle" || mark === "unread" ? "" : markLabel(mark, item.background);
   if (mark === "running" || mark === "background")
     return (
-      <span data-slot="chat-mark" data-mark={mark} className="flex">
-        <SpinnerRing size={12} color="var(--accent)" />
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex">
+        <SpinnerRing size={12} />
       </span>
     );
   if (mark in MARK_ICON)
     return (
-      <span data-slot="chat-mark" data-mark={mark} className="flex">
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex">
         <MarkIcon mark={mark as keyof typeof MARK_ICON} />
       </span>
     );
@@ -372,12 +392,17 @@ function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number
           {activityAgo(lastAt, now)}
         </span>
       )}
-      {item.unread && <span data-slot="chat-mark" data-mark="unread" className="size-2 rounded-full bg-accent" />}
+      {item.unread && <span data-slot="chat-mark" data-mark="unread" role="img" aria-label="Unread" title="Unread" className="size-2 rounded-full bg-accent" />}
       {!item.unread && item.details?.failed && (
         <span data-slot="chat-mark" data-mark="failed" role="img" aria-label="Failed" className="size-2 rounded-full bg-red" />
       )}
     </>
   );
+}
+
+/** Whether InboxMark draws anything: a mark, the time, the unread dot or a failed dot. */
+function hasInboxMark(item: SidebarRecent, lastAt?: number) {
+  return (item.mark ?? "idle") !== "idle" || lastAt !== undefined || Boolean(item.unread) || Boolean(item.details?.failed);
 }
 
 /** Line one: pin, title, Link and heartbeat icons, then the chat's one mark (InboxMark). */
@@ -431,12 +456,15 @@ function InboxTitleLine({
             <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
           </span>
         )}
-        <span
-          data-chat-time
-          className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-100 ${hideTime ? "opacity-0" : doneable ? "group-focus-within/row:hidden group-hover/row:hidden" : ""}`}
-        >
-          <InboxMark item={item} lastAt={lastAt} now={now} />
-        </span>
+        {/* The slot is there only when it has something to show, so a quiet row's title runs to the row's end. */}
+        {hasInboxMark(item, lastAt) && (
+          <span
+            data-chat-time
+            className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-100 ${hideTime ? "opacity-0" : doneable ? "group-focus-within/row:hidden group-hover/row:hidden" : ""}`}
+          >
+            <InboxMark item={item} lastAt={lastAt} now={now} />
+          </span>
+        )}
       </span>
       {/* Read with the row's name; the second line beside it is outside the button and shown, not read. */}
       {(status || item.unread) && <span className="sr-only">{[status?.label, item.unread ? "Unread" : ""].filter(Boolean).join(", ")}</span>}
@@ -565,7 +593,7 @@ function InboxLine({
     <div
       data-chat-prs
       data-chat-line
-      className={`sidebar-copy pointer-events-none absolute ${subchat ? (depth > 1 ? "left-[82px]" : "left-[66px]") : "left-[50px]"} right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
+      className={`sidebar-copy pointer-events-none absolute ${subchat ? (depth > 1 ? "left-[76px]" : "left-[60px]") : "left-[44px]"} right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
     >
       {parts.map((part, index) => (
         <Fragment key={part.key}>
@@ -865,7 +893,7 @@ export const ChatRow = memo(function ChatRow({
         }}
       >
         {renaming && inbox ? (
-          <div data-row className="sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-control bg-hover-2 px-2 py-[7px]">
+          <div data-row className="sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2 rounded-control bg-hover-2 px-2 py-[7px]">
             <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />
             <RenameField
               inbox
@@ -904,7 +932,7 @@ export const ChatRow = memo(function ChatRow({
             aria-busy={archiving || undefined}
             aria-label={archiving ? `Deleting ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
-            className={`sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-control px-2 py-[7px] text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
+            className={`sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2 rounded-control px-2 py-[7px] text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
               active ? "bg-hover-2" : "hover:bg-hover-2"
             } ${archiving ? "opacity-30" : ""}`}
           >
@@ -935,13 +963,13 @@ export const ChatRow = memo(function ChatRow({
               {recentInitials(item.label)}
               {mark === "running" ? (
                 <span aria-hidden className="absolute -right-1 -top-1 flex rounded-full bg-surface p-px">
-                  <SpinnerRing size={10} stroke={1.75} color="var(--accent)" />
+                  <SpinnerRing size={10} stroke={1.75} />
                 </span>
               ) : (
                 (mark !== "idle" || item.details?.failed) && (
                   <span
                     aria-hidden
-                    className={`absolute -right-0.5 -top-0.5 size-2 rounded-full ${mark === "idle" && item.details?.failed ? "bg-red" : "bg-accent"} ring-2 ring-surface`}
+                    className={`absolute -right-0.5 -top-0.5 size-2 rounded-full ${mark === "idle" && item.details?.failed ? "bg-red" : railDotTone(mark)} ring-2 ring-surface`}
                   />
                 )
               )}
@@ -1006,7 +1034,7 @@ export const ChatRow = memo(function ChatRow({
             style={{
               backgroundImage: `linear-gradient(${familyBadgeFill}, ${familyBadgeFill})`,
             }}
-            className={`sidebar-copy absolute top-[22px] left-[30px] z-20 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface px-1 text-10 font-semibold tabular-nums ring-2 ring-surface transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
+            className={`sidebar-copy absolute top-[18px] left-[26px] z-20 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface px-1 text-10 font-semibold tabular-nums ring-2 ring-surface transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
               shownFamily.asking ? "text-black" : shownFamily.folded ? "text-ink" : "text-accent-ink"
             } ${archiving ? "opacity-30" : ""}`}
           >
@@ -1468,7 +1496,7 @@ function ChatHoverCard({
 
 /** A mark without its row: the hover card's status line, and the collapsed rail's list of live chats. */
 export function ChatMarkDotInline({ mark, failed, background }: { mark: ChatMark; failed: boolean; background?: number }) {
-  if (mark === "running") return <SpinnerRing size={12} color="var(--accent)" />;
+  if (mark === "running") return <SpinnerRing size={12} />;
   if (mark === "background") return <BackgroundMark count={background} />;
   if (mark in MARK_ICON) return <MarkIcon mark={mark as keyof typeof MARK_ICON} />;
   return <span aria-hidden className={`size-2 rounded-full ${mark === "idle" && failed ? "bg-red" : "bg-accent"}`} />;
@@ -1631,14 +1659,14 @@ function ChatMenu({
         ]),
     {
       key: "rename",
-      label: "Rename chat",
+      label: UI_COPY.renameChat,
       icon: PencilEdit02Icon,
       onSelect: run(onRename),
       disabled: !actions.onRename,
     },
     {
       key: "reload",
-      label: "Reload chat",
+      label: UI_COPY.reloadChat,
       icon: Refresh01Icon,
       hint: RELOAD_HINT,
       onSelect: run(() => actions.onReload?.(item.id)),

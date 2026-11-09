@@ -88,6 +88,7 @@ test("a reply's last text is its answer; everything before it is activity, in or
     heartbeats: [],
     desktop: [],
     answer: "\n\nDone.",
+    answerAt: 5,
   });
 });
 
@@ -101,6 +102,7 @@ test("a reply without steps is all answer; steps alone are all activity", () => 
     heartbeats: [],
     desktop: [],
     answer: "Hello",
+    answerAt: 0,
   });
   assert.deepEqual(replyActivity("", [step("a", 0)]), {
     setup: [],
@@ -111,6 +113,7 @@ test("a reply without steps is all answer; steps alone are all activity", () => 
     heartbeats: [],
     desktop: [],
     answer: "",
+    answerAt: 1,
   });
 });
 
@@ -124,6 +127,8 @@ test("text before steps that end the reply is still its answer", () => {
     heartbeats: [],
     desktop: [],
     answer: "Running it now.",
+    // The step came after the text: it reads after the answer.
+    answerAt: 0,
   });
 });
 
@@ -204,6 +209,7 @@ test("the worktree setup is pulled out of the activity and left out of its summa
     heartbeats: [],
     desktop: [],
     answer: "Done.",
+    answerAt: 2,
   });
   assert.deepEqual(activitySummary(steps), { text: "Thought for 4s · ran 1 command", failed: 0 });
   assert.deepEqual(activitySummary([setupStep("failed")]), { text: "", failed: 0 });
@@ -216,6 +222,7 @@ test("the worktree setup is pulled out of the activity and left out of its summa
     heartbeats: [],
     desktop: [],
     answer: "",
+    answerAt: 0,
   });
 });
 

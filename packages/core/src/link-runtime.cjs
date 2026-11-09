@@ -18,6 +18,8 @@ function registerLinkRuntime({
   titles,
   retire = async () => {},
   released = async () => {},
+  // A Chat started from a Linear issue (see chat:send in runtime.cjs): its message, and the issue itself.
+  issues = null,
 }) {
   const queues = new Map();
   // Links a delete is working on: none of them takes new work until it ends (see usable).
@@ -191,10 +193,21 @@ function registerLinkRuntime({
           : state.messages.find((message) => message.operationId === operationId);
         if (earlier) return { sessionId: earlier.session_id };
         await workspaces.membersAvailable(link);
+        // Only Milagre writes a message's context: a Linear issue's card is read from Linear here, never the renderer's.
+        const { linearIssue, ...rest } = request;
+        const started =
+          linearIssue !== undefined && issues ? await issues.message(rest, linearIssue) : { message: { ...rest, context: undefined }, issue: null };
         let sessionId = request.sessionId;
         if (sessionId == null) {
           sessionId = Object.values(state.preparations).find((prep) => prep.operationId === operationId)?.chatId ?? state.next_id;
-          const prepared = await workspaces.prepareLinkChat({ link, chatId: sessionId, prompt: request.body || "", operationId });
+          const prepared = await workspaces.prepareLinkChat({
+            link,
+            chatId: sessionId,
+            prompt: request.body || "",
+            operationId,
+            ...(started.issue ? { issue: started.issue } : {}),
+          });
+          if (started.issue) issues.started(started.issue);
           await store.update(
             link.id,
             (latest) =>
@@ -207,10 +220,7 @@ function registerLinkRuntime({
         }
         const key = scopeKey({ kind: "link", linkId: link.id });
         const sent = await chats.send(
-          sentFromNotes.message(
-            { ...request, projectPath: key, sessionId, operationId, context: undefined },
-            request.sessionId == null ? null : chatKey(key, sessionId),
-          ),
+          sentFromNotes.message({ ...started.message, projectPath: key, sessionId, operationId }, request.sessionId == null ? null : chatKey(key, sessionId)),
         );
         sentFromNotes.sent(chatKey(key, sent.sessionId), request.sentFrom);
         broadcast(key, await store.get(link.id));
@@ -228,6 +238,23 @@ function registerLinkRuntime({
     definition,
     usable,
     open,
+    /** A shared Chat folder's skill roots: its Worktree in each Project it changed, else that Project's main checkout. */
+    async workspaceSkillRoots(root) {
+      for (const id of store.ids()) {
+        const state = await store.get(id);
+        if (state.deletedAt) continue;
+        for (const session of Object.values(state.sessions)) {
+          if (session.workspacePath !== root) continue;
+          const projects = await workspaces.membersAvailable(await definition(id)).catch(() => []);
+          const made = session.worktrees.map((member) => member.worktreePath);
+          return [
+            ...made,
+            ...projects.filter((project) => !session.worktrees.some((member) => member.projectId === project.id)).map((project) => project.path),
+          ];
+        }
+      }
+      throw new Error("Workspace unavailable");
+    },
     async workspace(root) {
       for (const id of store.ids()) {
         const state = await store.get(id);

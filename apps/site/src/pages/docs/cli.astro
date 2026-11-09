@@ -1,0 +1,462 @@
+---
+import Base from "../../layouts/Base.astro";
+import Nav from "../../components/Nav.astro";
+import { REPO_URL } from "../../links";
+import { BUILTIN_COMMANDS, CLI_VERSION, FAMILIES, OWNER_COMMAND_COUNT } from "../../cli-reference";
+
+const title = "Milagre CLI docs";
+const description =
+  "Run Milagre's coding agents on a computer without the desktop app: install the milagre CLI, pair phones and desktops, script every Chat, Project and Worktree, and connect MCP clients.";
+
+// Commands an agent's Chat can run, the same ones its MCP tools call. Pass --chat to run them from a terminal.
+const SCOPED_GROUPS: [string, string[]][] = [
+  ["Tasks", ["tasks_read", "tasks_set", "task_update", "phase_set"]],
+  ["Chats", ["chat_list", "chat_read", "chat_search", "chat_create", "chat_start", "chat_stop", "chat_update", "chat_respond", "chat_set_mode"]],
+  ["Delegation and Links", ["delegate", "delegation_detach", "conclude_negotiation", "linked_overview", "linked_git", "read_linked_chat", "read_linked_file", "search_linked_files"]],
+  ["Projects and Worktrees", ["project_list", "project_add", "project_accounts", "project_set_account", "worktree_list", "worktree_create", "worktree_remove", "worktree_link", "worktree_unlink"]],
+  ["Designs and artifacts", ["design_list", "design_read", "design_show", "design_apply", "design_validate", "design_inspect", "design_export", "design_delete", "design_kit_read", "design_kit_save", "artifact_show", "artifact_read", "artifact_list", "artifact_comments", "artifact_resolve_comment", "html_preview", "html_render"]],
+  ["Browser", ["browser_list", "browser_open", "browser_navigate", "browser_snapshot", "browser_click", "browser_fill", "browser_type", "browser_press", "browser_select", "browser_hover", "browser_scroll", "browser_wait", "browser_screenshot", "browser_evaluate", "browser_console", "browser_upload", "browser_attach", "browser_detach", "browser_comments", "browser_resolve_comment"]],
+  ["Simulators and desktop apps", ["simulator_list", "simulator_attach", "simulator_detach", "desktop_apps", "desktop_snapshot", "desktop_find", "desktop_act", "desktop_press", "desktop_launch", "desktop_wait", "desktop_screenshot"]],
+  ["Routines and Linear", ["heartbeat_create", "routine_list", "routine_create", "routine_update", "routine_run_now", "routine_delete", "linear_search", "linear_issue", "linear_file", "linear_comment", "linear_create_issue", "linear_update_issue"]],
+  ["Advisors and secrets", ["create_advisor", "advisor_read", "advisor_followup", "advisor_stop", "advisor_providers", "request_secret"]],
+];
+
+const TOC: [string, [string, string][]][] = [
+  ["Get started", [["install", "Install"], ["quick-start", "Quick start"], ["profiles", "Profiles"]]],
+  [
+    "Guides",
+    [
+      ["server", "Run an always-on server"],
+      ["pairing", "Pair phones and desktops"],
+      ["computers", "Connect to other computers"],
+      ["product-commands", "Drive the app from a terminal"],
+      ["scoped-commands", "Run commands as a Chat"],
+      ["scripting", "Watch events and script sessions"],
+      ["mcp", "Connect an MCP client"],
+      ["desktop", "Desktop actions"],
+      ["triage", "Triage a problem"],
+    ],
+  ],
+  ["Reference", [["commands", "Built-in commands"], ["families", "Command families"], ["global-flags", "Global flags"], ["environment", "Environment"], ["errors", "Output and errors"]]],
+];
+
+const id = (name: string) => `cmd-${name}`;
+const schema = [
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    headline: title,
+    description,
+    about: { "@type": "SoftwareApplication", name: "milagre", applicationCategory: "DeveloperApplication", softwareVersion: CLI_VERSION },
+  },
+];
+---
+<Base title={`${title} | Milagre`} description={description} schema={schema}>
+  <Nav />
+  <div class="container docs">
+    <aside class="toc" aria-label="On this page">
+      {
+        TOC.map(([group, links]) => (
+          <div class="toc-group">
+            <p class="toc-title">{group}</p>
+            <ul>
+              {links.map(([href, label]) => (
+                <li><a href={`#${href}`}>{label}</a></li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </aside>
+
+    <main class="content" id="top">
+      <header class="intro">
+        <p class="eyebrow"><a href="/docs">Docs</a> <span aria-hidden="true">/</span> CLI {CLI_VERSION}</p>
+        <h1>The Milagre CLI</h1>
+        <p class="lede">
+          <code>milagre</code> runs the same host as the desktop app, without a window. Use it to keep agents running on a server or a spare Mac,
+          pair your phone from a terminal, and script every Chat, Project and Worktree with the operations the app itself uses.
+        </p>
+      </header>
+
+      <details class="toc-mobile">
+        <summary>On this page</summary>
+        {
+          TOC.map(([group, links]) => (
+            <div class="toc-group">
+              <p class="toc-title">{group}</p>
+              <ul>
+                {links.map(([href, label]) => (
+                  <li><a href={`#${href}`}>{label}</a></li>
+                ))}
+              </ul>
+            </div>
+          ))
+        }
+      </details>
+
+      <section aria-labelledby="install">
+        <h2 id="install">Install</h2>
+        <p>You need Node.js 24 or newer, Git, and at least one coding agent CLI installed and signed in on the same computer: Claude Code (<code>claude auth login</code>) or Codex (<code>codex login</code>). Milagre uses that login; there is no Milagre account.</p>
+        <p>Run it once with npx:</p>
+        <pre><code>npx milagre serve</code></pre>
+        <p>Or install the command globally:</p>
+        <pre><code>npm install --global milagre
+milagre --version</code></pre>
+      </section>
+
+      <section aria-labelledby="quick-start">
+        <h2 id="quick-start">Quick start</h2>
+        <ol class="steps">
+          <li>
+            <p>Start the server. It stays in the foreground and prints a pairing link and, in a terminal, a QR code for your phone.</p>
+            <pre><code>milagre serve --project /absolute/path/to/project</code></pre>
+          </li>
+          <li><p>On your phone, open Milagre's pairing screen and scan the QR. On another desktop, open Settings › Devices › Add computer and paste the link.</p></li>
+          <li>
+            <p>A desktop waits for your approval. From a second terminal on the server:</p>
+            <pre><code>milagre devices pending
+milagre devices allow KEY</code></pre>
+          </li>
+          <li>
+            <p>Check on it, then stop it when you are done. Stopping saves running work.</p>
+            <pre><code>milagre status
+milagre stop</code></pre>
+          </li>
+        </ol>
+        <p class="note">Pairing links grant access to your agents. Keep them private: they expire after 10 minutes, and <code>milagre pair</code> opens a new window.</p>
+      </section>
+
+      <section aria-labelledby="profiles">
+        <h2 id="profiles">Profiles</h2>
+        <p>Everything the server keeps (Projects, Chats, paired devices) lives in its profile, <code>~/.milagre/server</code> by default. Pick another with <code>--data-dir /absolute/path</code> or <code>MILAGRE_DATA_DIR</code>, and use the same one for every command: <code>status</code>, <code>devices</code> and the rest talk to the server that owns that profile.</p>
+        <p>The CLI profile is separate from the desktop app's. Don't open the same Project in two hosts at once. The server runs with your account's permissions and the agent sign-ins on that computer.</p>
+      </section>
+
+      <section aria-labelledby="server">
+        <h2 id="server">Run an always-on server</h2>
+        <p><code>serve</code> never installs a startup service. Run it from your service manager (launchd, systemd, a tmux session) with <code>--no-pair</code>, so restarts keep paired devices without printing links or opening a pairing window:</p>
+        <pre><code>milagre serve --no-pair --project /srv/code/api --project /srv/code/web</code></pre>
+        <p>Ctrl+C or SIGTERM saves and stops the server. Devices you paired before reconnect after a restart. Add <code>--no-qr</code> to print links without terminal QR codes, for logs.</p>
+        <p>Phones and desktops reach the server through Milagre's encrypted relay, so no public port is needed. On the same network they connect directly.</p>
+      </section>
+
+      <section aria-labelledby="pairing">
+        <h2 id="pairing">Pair phones and desktops</h2>
+        <pre><code>milagre pair                 # open a new 10-minute pairing window
+milagre devices list         # paired phones and computers
+milagre devices pending      # computers waiting for approval
+milagre devices allow KEY    # approve one
+milagre devices deny KEY     # reject one
+milagre devices remove KEY   # unpair and close its connections</code></pre>
+        <p>While <code>serve</code> runs, it prints each waiting computer with the exact <code>allow</code> command to approve it.</p>
+      </section>
+
+      <section aria-labelledby="computers">
+        <h2 id="computers">Connect to other computers</h2>
+        <p>A server can pair with other Milagre computers and call them, the way the desktop's Computers list does. Saved credentials are encrypted with a key file you keep outside the profile, so the server reconnects after a restart with no desktop or keychain unlocked.</p>
+        <pre><code>milagre computers setup-key "$HOME/.config/milagre-secrets/computer.key"
+milagre computers enable
+milagre computers add 'milagre://pair?...' --name Studio
+milagre computers list
+milagre computers rename COMPUTER_ID 'Build server'
+milagre computers invoke --input '["COMPUTER_ID","project:registry",[]]'</code></pre>
+        <ul>
+          <li><code>add</code> waits until the other computer's owner approves. <code>computers cancel-add</code> cancels it; <code>computers remove ID</code> forgets a computer and disconnects it.</li>
+          <li><code>setup-key</code> creates a random 32-byte key if the file doesn't exist, or checks an existing one. The file must be private to your account (0600, in a 0700 folder; protected ACLs on Windows). Keep it out of profile backups. <code>MILAGRE_COMPUTER_KEY_FILE</code> selects a provisioned key instead.</li>
+          <li>Credentials are stored with AES-256-GCM in <code>computer-vault.json</code> and never printed. A missing or wrong key fails without touching existing pairings.</li>
+          <li>Desktop pairings migrate when the updated desktop opens. To use a desktop profile unattended, run <code>setup-key</code> while that desktop has it unlocked: it exports the same key to your file.</li>
+          <li>Only a local owner can manage computers. Paired peers and phones can't.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="product-commands">
+        <h2 id="product-commands">Drive the app from a terminal</h2>
+        <p>Besides the built-in commands, the CLI exposes the {OWNER_COMMAND_COUNT} operations the desktop and phone use, generated from the app's own types. An operation's name becomes words: <code>project:registry</code> is <code>milagre project registry</code>. See them all under <a href="#families">command families</a>.</p>
+        <pre><code>milagre command list                     # every operation the running host offers
+milagre help project                     # one family's operations (works offline)
+milagre help chat send                   # one operation's flags and types
+milagre command describe chat:send --json
+
+milagre project registry
+milagre project open --folder /absolute/path/to/project
+milagre chat patch --project-path /absolute/path/to/project --session-id 1 --patch '&#123;"title":"Review"&#125;'</code></pre>
+        <ul>
+          <li>Pass inputs as named flags, or the whole input with <code>--input</code>: inline JSON, <code>@/path/to/input.json</code>, or <code>-</code> for standard input. Older positional arrays still work.</li>
+          <li>Numbers, booleans, arrays and objects take JSON values in flags. Fields that clash with a global flag use <code>--arg-input</code>, <code>--arg-chat</code>, <code>--arg-channel</code> or <code>--arg-version</code>.</li>
+          <li>Unknown flags and invalid inputs fail before anything runs. Results print as JSON.</li>
+          <li>A timeout can leave a change still running. Check the state before you retry.</li>
+        </ul>
+        <p><code>milagre request METHOD '[...]'</code> calls a daemon method with a raw JSON argument array, for methods the named commands don't cover:</p>
+        <pre><code>milagre request project:open '["/absolute/path/to/project"]'
+milagre request chat:runs</code></pre>
+      </section>
+
+      <section aria-labelledby="scoped-commands">
+        <h2 id="scoped-commands">Run commands as a Chat</h2>
+        <p>Agents in Milagre call tools such as <code>tasks_set</code> and <code>delegate</code>. The CLI runs those same commands, through the same dispatcher MCP uses, when you name an existing Chat with <code>--chat</code>. They keep that Chat's identity, its Project grants, approvals and permission mode.</p>
+        <pre><code>milagre command list --chat '/absolute/path/to/project#1'
+milagre command describe tasks_set --chat '/absolute/path/to/project#1'
+milagre command run tasks_read --chat '/absolute/path/to/project#1'
+milagre tasks read --chat '/absolute/path/to/project#1'</code></pre>
+        <p>A Chat's identity is its Project path and number, <code>projectPath#id</code>. What <code>command list --chat</code> returns depends on the Chat and your settings; these are the groups:</p>
+        <div class="scoped">
+          {
+            SCOPED_GROUPS.map(([group, names]) => (
+              <div>
+                <h3>{group}</h3>
+                <p class="names">{names.map((name) => <code>{name}</code>)}</p>
+              </div>
+            ))
+          }
+        </div>
+      </section>
+
+      <section aria-labelledby="scripting">
+        <h2 id="scripting">Watch events and script sessions</h2>
+        <p><code>milagre watch</code> prints a snapshot, then live events, as newline-delimited JSON. It subscribes before it reads the snapshot and drops events the snapshot already covers, so you miss nothing in between.</p>
+        <pre><code>milagre watch
+milagre watch --chat '/absolute/path/to/project#1' --channel agent:event</code></pre>
+        <p>Ctrl+C disconnects the viewer; agents keep running. If the connection drops, run it again for a fresh snapshot.</p>
+        <p><code>milagre session</code> keeps one owner connection open for a script. Write one request per line and read results and events back:</p>
+        <pre><code>$ milagre session
+&#123;"id":1,"method":"project:registry","args":[]&#125;
+&#123;"id":1,"result":[...]&#125;
+&#123;"type":"event","channel":"...","payload":&#123;...&#125;&#125;</code></pre>
+        <p>Failures come back as <code>&#123;id, error&#125;</code>. At end of input it waits for the requests it accepted. Browser and simulator viewer controls last as long as the connection. Session is owner access: agents use <code>mcp serve --stdio</code> and never this transport, and never to reach your Terminals.</p>
+      </section>
+
+      <section aria-labelledby="mcp">
+        <h2 id="mcp">Connect an MCP client</h2>
+        <p>Create a connection in the desktop's MCP settings, then point any MCP client at:</p>
+        <pre><code>milagre mcp serve --stdio</code></pre>
+        <p>It reads <code>MILAGRE_MCP_URL</code> and <code>MILAGRE_MCP_TOKEN</code> from that connection, forwards JSON-RPC over standard input and output to the host already running on this computer, and grants only that connection's scope. It never starts a host or grants owner access.</p>
+      </section>
+
+      <section aria-labelledby="desktop">
+        <h2 id="desktop">Desktop actions</h2>
+        <p>When the desktop app is running on the same profile, the CLI can reach its native actions too: editors, windows, updates and notifications. They are listed under <code>desktop</code> in <code>command list</code>.</p>
+        <pre><code>milagre desktop editor list
+milagre desktop update state</code></pre>
+        <p>Without a connected desktop they return <code>CAPABILITY_UNAVAILABLE</code>. They are never replayed after a disconnect.</p>
+      </section>
+
+      <section aria-labelledby="triage">
+        <h2 id="triage">Triage a problem</h2>
+        <p>When the desktop app won't start, or its own Triage an issue entry doesn't work:</p>
+        <pre><code>npx milagre triage
+milagre triage --agent codex</code></pre>
+        <p>It starts Claude Code or Codex in your terminal with a triage playbook and a file of machine facts: OS, Node, agent CLIs, and each Milagre profile's host status, log and lock. The agent reads the logs and the Milagre source for your version, searches known issues, and can help you write a GitHub issue. It asks before it changes anything or posts.</p>
+        <p>The files go in <code>triage/</code> inside the profile. With no agent CLI installed, it prints their paths so you can paste them into any agent.</p>
+      </section>
+
+      <section aria-labelledby="commands">
+        <h2 id="commands">Built-in commands</h2>
+        <p>The same text as <code>milagre help COMMAND</code>.</p>
+        {
+          BUILTIN_COMMANDS.map((command) => (
+            <article class="command" id={id(command.name)}>
+              <h3><a href={`#${id(command.name)}`}>{command.name}</a></h3>
+              <p>{command.description}</p>
+              <pre><code>{command.usage}</code></pre>
+              {[
+                ["Arguments", command.arguments],
+                ["Commands", command.commands],
+                ["Flags", command.flags],
+              ].map(([label, rows]) =>
+                rows && rows.length ? (
+                  <>
+                  <p class="dl-title">{label as string}</p>
+                  <dl>
+                    {(rows as [string, string][]).map(([name, text]) => (
+                      <div class="row">
+                        <dt><code>{name}</code></dt>
+                        <dd>{text}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  </>
+                ) : null,
+              )}
+              {command.examples && <pre><code>{command.examples.join("\n")}</code></pre>}
+              {command.note && <p class="muted">{command.note}</p>}
+            </article>
+          ))
+        }
+      </section>
+
+      <section aria-labelledby="families">
+        <h2 id="families">Command families</h2>
+        <p>{OWNER_COMMAND_COUNT} operations in {FAMILIES.length} families. Run <code>milagre help FAMILY COMMAND</code> for one operation's flags and types; it works without a running server. Families under <code>desktop</code> need the desktop app connected.</p>
+        <div class="families">
+          {
+            FAMILIES.map((family) => (
+              <details>
+                <summary>
+                  <code>milagre {family.name}</code>
+                  <span class="count">{family.commands.length}</span>
+                </summary>
+                <p class="names">{family.commands.map((command) => <code>{command}</code>)}</p>
+              </details>
+            ))
+          }
+        </div>
+      </section>
+
+      <section aria-labelledby="global-flags">
+        <h2 id="global-flags">Global flags</h2>
+        <dl>
+          {
+            [
+              ["--data-dir <path>", "Absolute profile path. Defaults to MILAGRE_DATA_DIR, then ~/.milagre/server."],
+              ["--input <JSON|@file|->", "The command's whole input: inline JSON, a JSON file, or standard input."],
+              ["--chat <projectPath#id>", "An existing Chat, for scoped commands and watch."],
+              ["--json", "Machine-readable output, including errors."],
+              ["--help, -h", "Help for the command."],
+              ["--version, -v", "The CLI version."],
+            ].map(([name, text]) => (
+              <div class="row">
+                <dt><code>{name}</code></dt>
+                <dd>{text}</dd>
+              </div>
+            ))
+          }
+        </dl>
+      </section>
+
+      <section aria-labelledby="environment">
+        <h2 id="environment">Environment</h2>
+        <dl>
+          {
+            [
+              ["MILAGRE_DATA_DIR", "Profile path when --data-dir is not given. Must be absolute."],
+              ["MILAGRE_COMPUTER_KEY_FILE", "Private key file for saved computer credentials, instead of the one setup-key saved."],
+              ["MILAGRE_MCP_URL, MILAGRE_MCP_TOKEN", "The scoped connection mcp serve --stdio uses. Set by the MCP connection you create."],
+              ["NO_COLOR", "Plain help text. Help is also plain when piped or when TERM=dumb."],
+            ].map(([name, text]) => (
+              <div class="row">
+                <dt><code>{name}</code></dt>
+                <dd>{text}</dd>
+              </div>
+            ))
+          }
+        </dl>
+      </section>
+
+      <section aria-labelledby="errors">
+        <h2 id="errors">Output and errors</h2>
+        <p>Results print as JSON on standard output. A failure prints its message on standard error and exits with status 1. With <code>--json</code>, the failure prints as JSON instead, so scripts can read it:</p>
+        <pre><code>&#123;"error":&#123;"code":"COMMAND_FAILED","message":"..."&#125;&#125;</code></pre>
+        <p>Something not covered here? Run <code>milagre help</code>, read the <a href={`${REPO_URL}/tree/main/apps/daemon`}>CLI source</a>, or <a href={`${REPO_URL}/issues`}>open an issue</a>.</p>
+      </section>
+
+      <footer class="docs-footer"><a href="/">Milagre home</a><a href={REPO_URL}>GitHub</a><a href="/support">Support</a><a href="/privacy">Privacy</a></footer>
+    </main>
+  </div>
+</Base>
+
+<script>
+  // A copy button on every code block. Clipboard needs a secure context; without it the buttons stay hidden.
+  if (navigator.clipboard) {
+    for (const pre of document.querySelectorAll<HTMLPreElement>(".content pre")) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "copy";
+      button.textContent = "Copy";
+      button.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(pre.querySelector("code")?.textContent ?? "");
+        button.textContent = "Copied";
+        setTimeout(() => (button.textContent = "Copy"), 1500);
+      });
+      pre.append(button);
+    }
+  }
+</script>
+
+<style>
+  .docs { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; padding-top: 24px; padding-bottom: 72px; }
+  .toc { position: sticky; top: 24px; align-self: start; max-height: calc(100dvh - 48px); overflow-y: auto; font-size: 14px; }
+  .toc-group + .toc-group { margin-top: 20px; }
+  .toc-title { margin-bottom: 6px; color: var(--ink-3); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .toc ul, .toc-mobile ul { margin: 0; padding: 0; list-style: none; }
+  .toc a, .toc-mobile a { display: block; padding: 4px 0; color: var(--ink-2); text-decoration: none; }
+  .toc a:hover, .toc-mobile a:hover { color: var(--ink); }
+  .toc-mobile { display: none; }
+
+  .content { min-width: 0; max-width: 760px; }
+  .intro { padding-bottom: 8px; }
+  .content .eyebrow a { color: inherit; text-decoration: none; }
+  .content .eyebrow a:hover { text-decoration: underline; }
+  h1 { margin-top: 10px; font-size: clamp(34px, 6vw, 48px); }
+  .lede { margin-top: 16px; font-size: 18px; line-height: 1.6; color: var(--ink-2); }
+  section { padding-top: 32px; }
+  h2 { margin-bottom: 14px; font-size: 26px; scroll-margin-top: 24px; }
+  h3 { font-size: 17px; letter-spacing: -0.01em; }
+  .content p, .content ul, .content ol { line-height: 1.7; color: var(--ink-2); }
+  .content p + p, .content p + pre, .content pre + p, .content ul, .content pre + pre { margin-top: 14px; }
+  .content ul, .content ol { padding-left: 22px; }
+  .content li + li { margin-top: 8px; }
+  .content a { color: var(--accent-ink); text-underline-offset: 4px; }
+  .content strong { color: var(--ink); }
+
+  .content :not(pre) > code { padding: 1px 5px; border-radius: 5px; background: var(--surface); color: var(--ink); font-size: 0.88em; overflow-wrap: anywhere; }
+  pre { position: relative; margin: 0; padding: 14px 16px; border-radius: var(--radius-control); background: var(--canvas); box-shadow: var(--shadow-card); color: var(--ink); font-size: 13.5px; line-height: 1.6; overflow-x: auto; }
+  pre :global(.copy) { position: absolute; top: 8px; right: 8px; padding: 3px 9px; border: 0; border-radius: 6px; background: var(--surface); box-shadow: var(--shadow-btn); color: var(--ink-2); font: 500 12px var(--font-sans); cursor: pointer; opacity: 0; transition: opacity 120ms var(--ease-out-strong); }
+  pre:hover :global(.copy), pre :global(.copy:focus-visible) { opacity: 1; }
+  pre :global(.copy:hover) { color: var(--ink); }
+  @media (hover: none) { pre :global(.copy) { opacity: 1; } }
+
+  .steps { padding-left: 22px; }
+  .steps li::marker { color: var(--ink-3); font-weight: 600; }
+  .steps li + li { margin-top: 18px; }
+  .steps pre { margin-top: 10px; }
+  .note { margin-top: 18px; padding: 12px 14px; border-left: 2px solid var(--accent); background: var(--accent-tint); border-radius: 0 var(--radius-control) var(--radius-control) 0; color: var(--ink); }
+
+  .scoped { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 24px; margin-top: 18px; }
+  .scoped h3 { margin-bottom: 8px; font-size: 14px; }
+  .names { display: flex; flex-wrap: wrap; gap: 6px; }
+  .content .names { margin-top: 0; }
+  .content .names code { font-size: 12.5px; }
+
+  .command { padding-top: 26px; scroll-margin-top: 24px; }
+  .command + .command { margin-top: 26px; border-top: 1px solid var(--line); }
+  .command h3 { font-family: var(--font-mono); font-size: 17px; }
+  .command h3 a { color: var(--ink); text-decoration: none; }
+  .command h3 a:hover { text-decoration: underline; }
+  .command > p { margin-top: 6px; }
+  .command > pre, .command > .dl-title { margin-top: 14px; }
+  .command > .muted { margin-top: 14px; font-size: 14.5px; }
+
+  dl { margin: 0; }
+  .content .dl-title { margin-bottom: 4px; color: var(--ink-3); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .row { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 1fr); gap: 4px 20px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row dt code { background: none; padding: 0; color: var(--accent-ink); }
+  .row dd { margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.6; }
+  @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+
+  .families { margin-top: 18px; border-radius: var(--radius-control); box-shadow: var(--shadow-card); background: var(--canvas); }
+  .families details + details { border-top: 1px solid var(--line); }
+  .families summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; cursor: pointer; list-style: none; }
+  .families summary::-webkit-details-marker { display: none; }
+  .families summary code { padding: 0; background: none; font-size: 14px; }
+  .families summary:hover { background: var(--hover); }
+  .families .count { color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .families .names { padding: 2px 14px 14px; }
+
+  .docs-footer { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line-strong); font-size: 14px; }
+  .docs-footer a { color: var(--ink-2); }
+
+  @media (max-width: 900px) {
+    .docs { grid-template-columns: minmax(0, 1fr); padding-top: 8px; }
+    .toc { display: none; }
+    .toc-mobile { display: block; margin-top: 24px; padding: 0 14px; border-radius: var(--radius-control); background: var(--canvas); box-shadow: var(--shadow-card); font-size: 14px; }
+    .toc-mobile summary { padding: 10px 0; color: var(--ink); font-weight: 600; cursor: pointer; }
+    .toc-mobile[open] { padding-bottom: 12px; }
+    .toc-mobile .toc-group + .toc-group { margin-top: 14px; }
+    .content .toc-mobile ul { padding-left: 0; }
+    .content .toc-mobile li + li, .content .toc-mobile ul { margin-top: 0; }
+    .content .toc-mobile a { color: var(--ink-2); text-decoration: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { pre :global(.copy) { transition: none; } }
+</style>

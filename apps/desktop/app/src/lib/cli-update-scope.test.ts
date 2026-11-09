@@ -17,8 +17,9 @@ test("CLI update completion refreshes the current scope and ignores unscoped sta
   let staled = 0;
   const refreshCliStatus = () => refreshed.push("old-project");
   const refreshCliStatusRef = { current: refreshCliStatus };
+  const calls: unknown[][] = [];
   const update = runInNewContext(ts.transpileModule(`${body}\nupdateCli;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
-    window: { milagre: { updateCli: () => updating } },
+    window: { milagre: { updateCli: (...args: unknown[]) => (calls.push(args), updating) } },
     setUpdatingCli: () => {},
     setNotice: () => {},
     cliName: () => "Codex",
@@ -26,6 +27,10 @@ test("CLI update completion refreshes the current scope and ignores unscoped sta
     refreshCliStatus,
     refreshCliStatusRef,
     staleProviders: () => staled++,
+    cliStatus: {
+      codex: { state: "outdated", message: "Milagre needs Codex 0.160.0 or later, and you have 0.147.0." },
+    },
+    requiredCliVersion: (status: { message?: string } | undefined) => status?.message?.match(/Codex (\d+\.\d+\.\d+)/)?.[1],
   });
   const pending = update("codex");
   refreshCliStatusRef.current = () => refreshed.push("new-project");
@@ -34,4 +39,5 @@ test("CLI update completion refreshes the current scope and ignores unscoped sta
   assert.deepEqual(refreshed, ["new-project"]);
   assert.deepEqual(written, []);
   assert.equal(staled, 1);
+  assert.deepEqual(calls, [["codex", "0.160.0"]]);
 });

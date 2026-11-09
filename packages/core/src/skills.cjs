@@ -48,8 +48,11 @@ function metadata(content, file) {
 }
 
 // `projectPath` null lists the user and bundled skills only (no open Project).
+// `projectPath` null lists the user and bundled skills only. A list of folders (a shared Chat's Worktrees and main
+// checkouts, or a named Link's Projects) reads each one's skills in order; the first of a name wins.
 async function discoverSkills(projectPath, { home = os.homedir(), bundledDirectory = BUNDLED_SKILLS_DIRECTORY } = {}) {
-  if (projectPath !== null && (typeof projectPath !== "string" || !path.isAbsolute(projectPath))) throw new Error("An absolute workspace path is required");
+  const roots = projectPath === null ? [] : Array.isArray(projectPath) ? projectPath : [projectPath];
+  if (roots.some((root) => typeof root !== "string" || !path.isAbsolute(root))) throw new Error("An absolute workspace path is required");
   const skills = new Map();
   // Same-named skills found after the winner: the `/` menu ignores them, Settings shows them.
   const shadowed = [];
@@ -94,7 +97,7 @@ async function discoverSkills(projectPath, { home = os.homedir(), bundledDirecto
     }
   }
 
-  for (const [base, scope] of [...(projectPath === null ? [] : [[projectPath, "workspace"]]), [home, "user"]]) {
+  for (const [base, scope] of [...roots.map((root) => [root, "workspace"]), [home, "user"]]) {
     for (const directory of SKILL_DIRECTORIES) await walk(path.join(base, directory, "skills"), scope, directory.slice(1));
   }
   if (bundledDirectory) await walk(bundledDirectory, "bundled", "milagre");
@@ -149,7 +152,9 @@ async function expandSkillPrompt(projectPath, prompt, options) {
   // so a message led by any other skill gets a first line that doesn't start with a slash.
   const leading = promptSkillTokens(visible)[0];
   const lead = leading && !visible.slice(0, leading.start).trim() ? selected.find((skill) => skill.name.toLowerCase() === leading.name.toLowerCase()) : null;
-  const intro = lead && lead.provider !== "claude" ? `The user invoked the skill /${lead.name} with this message:\n\n` : "";
+  // A shared Chat's agent runs in the Link's own folder, so a member Project's .claude skill isn't Claude's own there either.
+  const native = lead && lead.provider === "claude" && !(Array.isArray(projectPath) && lead.scope === "workspace");
+  const intro = lead && !native ? `The user invoked the skill /${lead.name} with this message:\n\n` : "";
   return `${intro}${prompt}\n\nThe user invoked the following skills. Read and apply their instructions for this request, subject to the user's instructions and the current permission mode.\n\n${sections.join("\n\n")}`;
 }
 

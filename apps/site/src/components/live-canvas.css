@@ -1,54 +1,108 @@
 /* The canvas's look, from the app's Tailwind classes in CanvasView.tsx and its .milagre-canvas-flow rules in styles.css. */
 .canvas-window {
+  position: relative;
   display: flex;
   flex-direction: column;
-  height: clamp(460px, 52vw, 620px);
+  height: clamp(380px, 38vw, 480px);
   overflow: hidden;
   border-radius: var(--radius-window);
-  background: var(--surface);
+  background: var(--page);
   box-shadow:
     var(--shadow-overlay),
     0 30px 80px oklch(0.1 0.02 258 / 0.45);
   text-align: left;
 }
-.canvas-bar {
+/* The Mac window's traffic lights, where macOS puts them beside the bar. */
+.canvas-lights {
+  position: absolute;
+  top: 19px;
+  left: 18px;
+  z-index: 2;
   display: flex;
-  flex: none;
+  gap: 8px;
+}
+.canvas-lights i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+.canvas-lights i:nth-child(2) {
+  background: #febc2e;
+}
+.canvas-lights i:nth-child(3) {
+  background: #28c840;
+}
+.canvas-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--line);
+  gap: 8px;
+  padding: 10px 12px 10px 92px;
+  pointer-events: none;
 }
-.canvas-bar h3 {
+.canvas-bar > * {
+  pointer-events: auto;
+}
+.canvas-spacer {
   flex: 1;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0;
 }
-.canvas-bar-button,
-.canvas-bar-outline {
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: var(--ink-2);
-  font: 14px var(--font-sans);
+.canvas-back,
+.canvas-remove {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 13px var(--font-sans);
   text-decoration: none;
   cursor: pointer;
 }
-.canvas-bar-button.small {
-  font-size: 12px;
-}
-.canvas-bar-outline {
-  padding: 4px 12px;
-  border: 1px solid var(--line);
-  color: var(--ink);
-  font-size: 12px;
-}
-.canvas-bar-button:hover,
-.canvas-bar-outline:hover {
+.canvas-back:hover,
+.canvas-remove:hover {
   background: var(--hover-2);
+}
+.canvas-filters {
+  display: flex;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.canvas-filters span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  color: var(--ink-2);
+}
+.canvas-filters span.on {
+  background: var(--hover-2);
+  color: var(--ink);
+}
+.canvas-filters b {
+  color: var(--ink-3);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.canvas-filters i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.canvas-filters i.needs {
+  background: var(--orange);
+}
+.canvas-filters i.running {
+  background: var(--accent);
 }
 .canvas-flow {
   min-height: 0;
@@ -56,123 +110,75 @@
 }
 
 .milagre-canvas-flow {
-  --xy-background-color: var(--surface);
-  --xy-edge-stroke: var(--ink-3);
+  --xy-background-color: transparent;
   --xy-connectionline-stroke: var(--accent);
   font-family: var(--font-sans);
-}
-.milagre-canvas-flow .react-flow__controls {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: var(--shadow-card);
-}
-.milagre-canvas-flow .react-flow__controls-button {
-  background: var(--surface);
-  color: var(--ink-2);
-  fill: currentColor;
-  border-color: var(--line);
-}
-.milagre-canvas-flow .react-flow__controls-button:hover {
-  background: var(--hover-2);
-}
-.milagre-canvas-flow .react-flow__attribution {
-  background: transparent;
-  color: var(--ink-3);
-}
-.milagre-canvas-flow .react-flow__attribution a {
-  color: inherit;
 }
 .milagre-canvas-flow .react-flow__node {
   background: none;
   border: 0;
   padding: 0;
   box-shadow: none;
-}
-.milagre-canvas-flow .milagre-link-active {
-  stroke: var(--accent) !important;
-  stroke-dasharray: 6 4;
-  animation: milagre-link-flow 900ms linear infinite;
-}
-@keyframes milagre-link-flow {
-  to {
-    stroke-dashoffset: -10;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .milagre-canvas-flow .milagre-link-active {
-    animation: none;
-  }
+  border-radius: 12px;
 }
 
-.canvas-handle.react-flow__handle {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--surface);
-  background: var(--accent);
-}
-.canvas-project {
+/* A Project: its hue at a whisper, so the cards stay the brightest thing in it. */
+.canvas-section {
   height: 100%;
-  width: 330px;
-  border: 1px solid var(--line-strong);
-  border-radius: 16px;
-  background: color-mix(in oklch, var(--surface) 90%, transparent);
-  box-shadow: var(--shadow-card);
+  border: 1px solid color-mix(in srgb, var(--section) 20%, transparent);
+  border-radius: var(--radius-window);
+  background: color-mix(in srgb, var(--section) 5%, transparent);
 }
-.canvas-project-header {
+.canvas-section-header {
   display: flex;
-  height: 56px;
+  height: 52px;
   align-items: center;
   gap: 8px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 16px;
   cursor: grab;
 }
-.canvas-project-header:active,
-.canvas-worktree-header:active {
+.canvas-section-header:active {
   cursor: grabbing;
 }
-.canvas-project-initial {
-  display: flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: var(--hover-2);
+.canvas-section-header img {
+  border-radius: 5px;
+}
+.canvas-section-header strong {
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
-.canvas-project-name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.canvas-section-header span {
+  color: var(--ink-2);
+  font-size: 12px;
 }
-.canvas-kind {
-  color: var(--ink-3);
-  font-size: 11px;
-}
-.canvas-worktree {
+
+.canvas-card {
+  position: relative;
   display: flex;
-  height: 178px;
-  width: 290px;
+  height: 100%;
   flex-direction: column;
+  justify-content: space-between;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
   box-shadow: var(--shadow-card);
 }
-.canvas-worktree-header {
-  padding: 12px 16px 0;
-  cursor: grab;
+.canvas-card.waiting {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 1px var(--orange);
 }
-.canvas-branch {
+.canvas-card-row,
+.canvas-card-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.canvas-card-row strong {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   color: var(--ink);
   font-size: 13px;
@@ -180,62 +186,119 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.canvas-kind-row {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 2px;
-  color: var(--ink-3);
-  font-size: 11px;
+.canvas-card-status {
+  gap: 6px;
+  padding-left: 20px;
+  font-size: 12px;
 }
-.canvas-chats {
-  flex: 1;
-  margin: 8px 0 0;
-  padding: 4px 8px;
-  border-top: 1px solid var(--line);
-  list-style: none;
+.canvas-card-status > span:first-child {
+  flex: none;
+  font-weight: 500;
 }
-.canvas-chat {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--ink-2);
-  font: 12px var(--font-sans);
-  text-align: left;
-  cursor: pointer;
+.canvas-card-status img {
+  margin-left: auto;
+  flex: none;
 }
-.canvas-chat:hover {
-  background: var(--hover-2);
-  color: var(--ink);
-}
-.canvas-chat-title {
+.canvas-branch {
   min-width: 0;
-  flex: 1;
   overflow: hidden;
+  color: var(--ink-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tone-accent {
+  color: var(--accent-ink);
+}
+.tone-orange {
+  color: var(--orange);
+}
+.tone-muted {
+  color: var(--ink-2);
+}
+.canvas-diff {
+  flex: none;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.canvas-diff .add {
+  color: var(--green);
+}
+.canvas-diff .remove {
+  color: oklch(0.7 0.16 25);
+}
+/* The sidebar's marks in a 12px slot: a dot, or a ring while an agent works. */
 .canvas-mark {
+  display: grid;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  place-items: center;
+}
+.canvas-mark::before {
+  content: "";
   width: 6px;
   height: 6px;
-  flex: none;
   border-radius: 50%;
 }
-.mark-waiting {
-  background: oklch(0.769 0.188 70.08);
+.mark-idle::before {
+  background: oklch(0.45 0.03 258);
 }
-.mark-running {
-  background: oklch(0.623 0.214 259.815);
-}
-.mark-unread {
+.mark-unread::before {
   background: var(--accent);
 }
-.mark-idle {
-  background: color-mix(in oklch, var(--ink-3) 40%, transparent);
+.mark-waiting::before {
+  background: var(--orange);
+}
+.mark-running::before,
+.mark-delegated::before {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid color-mix(in oklch, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  background: none;
+  box-sizing: border-box;
+  animation: canvas-spin 800ms linear infinite;
+}
+@keyframes canvas-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Link dots wait for the pointer, as in the app. */
+.milagre-canvas-flow .canvas-handle.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--line-strong);
+  background: var(--surface);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.milagre-canvas-flow .react-flow__node:hover .canvas-handle,
+.milagre-canvas-flow .canvas-handle.connectingfrom,
+.milagre-canvas-flow .canvas-handle.valid {
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.milagre-canvas-flow .canvas-link {
+  stroke: var(--ink-3) !important;
+  stroke-width: 1.5;
+}
+.milagre-canvas-flow .canvas-link.selected {
+  stroke: var(--accent) !important;
+  stroke-width: 2;
+}
+.milagre-canvas-flow .canvas-link.active {
+  stroke: var(--accent) !important;
+  stroke-dasharray: 5 4;
+  animation: milagre-link-flow 900ms linear infinite;
+}
+@keyframes milagre-link-flow {
+  to {
+    stroke-dashoffset: -9;
+  }
 }
 .canvas-activity {
   position: absolute;
@@ -244,12 +307,12 @@
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
-  color: var(--ink);
+  color: var(--accent-ink);
   font-size: 11px;
   font-weight: 500;
+  white-space: nowrap;
   box-shadow: var(--shadow-card);
   pointer-events: all;
 }
@@ -259,17 +322,102 @@
   border-radius: 50%;
   background: var(--accent);
 }
+.canvas-activity-dot.agreed {
+  background: var(--green);
+}
 .canvas-activity button {
-  margin-left: 4px;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
+  margin: -4px -4px -4px 4px;
+  padding: 3px 8px;
+  border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--ink-2);
-  font: 10px var(--font-sans);
+  color: oklch(0.7 0.16 25);
+  font: 500 11px var(--font-sans);
   cursor: pointer;
 }
 .canvas-activity button:hover {
   background: var(--hover-2);
+}
+.canvas-pulse {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+/* What one agent asked the other, under the card that got it. */
+.canvas-note {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 2;
+  width: 100%;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in oklch, var(--accent) 35%, transparent);
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: var(--shadow-card);
+  animation: canvas-note-in 220ms var(--ease-out-strong) both;
+}
+.canvas-note strong {
+  margin-right: 2px;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+@keyframes canvas-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.canvas-zoom {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  box-shadow: var(--shadow-card);
+}
+.canvas-zoom span {
+  width: 44px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.canvas-zoom button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-2);
+  font: 16px var(--font-sans);
+  cursor: pointer;
+}
+.canvas-zoom button:hover {
+  background: var(--hover-2);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .milagre-canvas-flow .canvas-link.active,
+  .mark-running::before,
+  .mark-delegated::before,
+  .canvas-note {
+    animation: none;
+  }
 }

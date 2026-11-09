@@ -182,7 +182,7 @@ async function browserChecks() {
     key("K", [COMMAND]);
     await waitFor('!!document.querySelector("dialog[open][aria-label=\\"Command palette\\"]")');
     window.webContents.insertText("search text");
-    await waitFor('[...document.querySelectorAll("dialog [role=option]")].some(el => el.textContent.includes("Find in chat"))');
+    await waitFor('[...document.querySelectorAll("dialog [role=option]")].some(el => el.textContent.includes("Find in Chat"))');
     key("Return");
     await waitFor(bar);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');

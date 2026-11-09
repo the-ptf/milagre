@@ -20,6 +20,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
     "mac-settings-sections.tsx",
     shared("chat-row.ts"),
     shared("chat-display.ts"),
+    shared("new-chat-glance.ts"),
   ],
   voice: ["app/(settings)/voice.tsx", "voice-section.tsx"],
   "dictation-language": ["app/(settings)/dictation-language.tsx"],

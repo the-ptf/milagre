@@ -3,14 +3,45 @@ import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO, LINEAR_LOGO, prov
 import type { ModelProvider } from "../model";
 import { useSettings } from "../lib/settings";
 
-/** Every provider mark follows the device's Appearance choice. */
-export function ProviderLogo({ provider, size = 16 }: { provider: ModelProvider; size?: number }) {
+/** ViewBox padding (in the mark's 24 units) for the solid marks, which read heavier than line-like ones at one size. */
+const SOLID_MARK: Partial<Record<ModelProvider, number>> = { codex: 3.4, kiro: 2.4 };
+
+/**
+ * Every provider mark follows the device's Appearance choice. `mono` draws the flat one-colour mark in the text colour
+ * whatever that choice is: for controls such as the model picker's provider rail, where a soft gradient mark at 16px
+ * reads as a blur.
+ */
+export function ProviderLogo({
+  provider,
+  size = 16,
+  mono = false,
+  optical = mono,
+  className = "text-ink",
+}: {
+  provider: ModelProvider;
+  size?: number;
+  mono?: boolean;
+  /** Draw a solid mark smaller in its box, so beside line-like marks (Claude's burst, Antigravity's arch) it reads at one
+   * weight. On by default with `mono`, where marks sit side by side. */
+  optical?: boolean;
+  className?: string;
+}) {
   // Gradient, mask and filter ids are per instance: two logos on one page must not share them.
   const id = `logo${useId().replace(/[^\w-]/g, "")}`;
   const { appearance } = useSettings();
-  const simplified = appearance.providerIcons === "simplified";
+  const simplified = mono || appearance.providerIcons === "simplified";
+  // A wider viewBox around the 24-unit mark shrinks it in the same box: Codex's filled cloud to about 14px in 18.
+  const pad = optical ? (SOLID_MARK[provider] ?? 0) : 0;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" data-provider-logo={provider} className="shrink-0 text-ink">
+    <svg
+      width={size}
+      height={size}
+      viewBox={`${-pad} ${-pad} ${24 + pad * 2} ${24 + pad * 2}`}
+      shapeRendering="geometricPrecision"
+      aria-hidden="true"
+      data-provider-logo={provider}
+      className={`shrink-0 ${className}`}
+    >
       {simplified ? (
         <path d={providerLogoPath(provider)} fill="currentColor" fillRule="evenodd" clipRule="evenodd" />
       ) : (

@@ -13,7 +13,7 @@ import {
   CleanIcon,
   Cancel01Icon,
   ArrowDown01Icon,
-  ArrowUp01Icon,
+  ArrowUp02Icon,
   Attachment01Icon,
   ClipboardPasteIcon,
   FlashIcon,
@@ -46,7 +46,7 @@ import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
 import { compactButtonState } from "@milagre/shared/chat-display";
-import { matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
+import { PROMPT_PLACEHOLDER, matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
 import { useChatMentions, useMentionComputers } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
 import {
@@ -118,6 +118,8 @@ interface PromptComposerProps {
   reconnectingName?: string | null;
   imageDraft: ImageDraft;
   projectPath: string;
+  /** Where skills are read, when not `projectPath` (a Link's key, or a shared Chat's own folder). */
+  skillScope?: string;
   /** Account routing uses the canonical Project or Link, rather than a Link Chat's workspace folder. */
   accountScope?: string;
   draft: string;
@@ -183,6 +185,17 @@ const DICTATION_LABELS = {
 } as const;
 
 const POPOVER_GAP = 12;
+// Clear space between a popover and the edge of the area that clips it.
+const POPOVER_EDGE = 8;
+
+/** The box of the nearest ancestor that clips its overflow (the main column), or the window. */
+function clipRect(element: HTMLElement) {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowX } = getComputedStyle(node);
+    if (overflowX !== "visible") return node.getBoundingClientRect();
+  }
+  return { left: 0, right: window.innerWidth };
+}
 // In the tall layout the controls sit on the composer's bottom row, so a popover opens just above its own button.
 const POPOVER_BUTTON_GAP = 8;
 // Popovers stay clear of the window-drag strip across the top of the window.
@@ -214,6 +227,7 @@ export function PromptComposer({
   reconnectingName,
   imageDraft,
   projectPath,
+  skillScope,
   accountScope = projectPath,
   draft,
   onDraftChange,
@@ -328,7 +342,7 @@ export function PromptComposer({
   const menu: "at" | "slash" | null = plusOpen ? "at" : (token?.kind ?? null);
   const tokenQuery = plusOpen ? "" : (token?.query ?? "");
   const fileSearch = useProjectFiles(projectPath, tokenQuery, menu === "at" && !plusOpen);
-  const { skills, warnings: skillWarnings, loading: skillsLoading } = useSkills(projectPath, menu === "slash" || /(^|\s)\//.test(draft));
+  const { skills, warnings: skillWarnings, loading: skillsLoading } = useSkills(skillScope ?? projectPath, menu === "slash" || /(^|\s)\//.test(draft));
   const skillRows = ["bundled", "workspace", "user"].flatMap((scope) =>
     skills
       .filter((skill) => skill.scope === scope)
@@ -515,15 +529,24 @@ export function PromptComposer({
   );
   const lastAnchor = useRef<[HTMLElement, number] | null>(null);
 
-  // Right-align the popover with its trigger, or left-align when that would leave the composer. It opens above the
-  // composer, or, in the tall layout, right above its button; below the button when there's more room there.
+  // Right-align the popover with its trigger, or left-align when that would leave the area that clips it. A popover that
+  // fits the composer stays inside its edges, so it never hangs over the transcript column beside it; only one wider
+  // than the composer may reach past its left edge, up to the main column. It opens above the composer, or, in the tall
+  // layout, right above its button; below the button when there's more room.
   function anchorTo(trigger: HTMLElement, width: number) {
     lastAnchor.current = [trigger, width];
-    const root = popoverRootRef.current?.getBoundingClientRect();
-    if (!root) return;
+    const rootElement = popoverRootRef.current;
+    const root = rootElement?.getBoundingClientRect();
+    if (!rootElement || !root) return;
     const button = trigger.getBoundingClientRect();
-    const alignRight = button.right - width >= root.left;
-    const left = Math.max(0, Math.min((alignRight ? button.right - width : button.left) - root.left, root.width - width));
+    const clip = clipRect(rootElement);
+    const min = clip.left + POPOVER_EDGE - root.left;
+    const max = clip.right - POPOVER_EDGE - root.left - width;
+    const fits = width <= root.width;
+    const alignRight = button.right - width - root.left >= (fits ? 0 : min);
+    const lowest = fits ? 0 : Math.min(min, 0);
+    const highest = fits ? root.width - width : Math.max(max, root.width - width);
+    const left = Math.max(lowest, Math.min((alignRight ? button.right - width : button.left) - root.left, highest));
     const roomBelow = window.innerHeight - button.bottom - POPOVER_BUTTON_GAP - POPOVER_BOTTOM_INSET;
     const below = expanded && roomBelow >= POPOVER_MIN_BELOW;
     const edge = expanded ? button.top - POPOVER_BUTTON_GAP : root.top - POPOVER_GAP;
@@ -873,7 +896,7 @@ export function PromptComposer({
         return;
       }
     }
-    if (visibleSuggestion && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "Tab" || event.key === "ArrowRight")) {
+    if (visibleSuggestion && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && event.key === "Tab") {
       const selection = inputRef.current?.getSelection();
       if (selection?.start === 0 && selection.end === 0) {
         event.preventDefault();
@@ -1173,11 +1196,8 @@ export function PromptComposer({
                 placeholder={
                   offlineName
                     ? offlinePlaceholder(offlineName)
-                    : (running
-                        ? queuesFollowUp
-                          ? "Queue a message for the next turn…"
-                          : "Steer the agent…"
-                        : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                    : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
+                      (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
@@ -1211,7 +1231,7 @@ export function PromptComposer({
                 }}
                 className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${compactButton.visible ? "@max-[520px]:col-start-2 @max-[520px]:row-start-2" : ""}`}
               >
-                <ProviderLogo provider={selectedModel.provider} size={13} />
+                <ProviderLogo provider={selectedModel.provider} size={14} optical />
                 <span data-model-name className={`max-w-28 truncate ${compactButton.visible ? "@max-[520px]:max-w-20" : ""}`}>
                   {selectedModel.name}
                 </span>
@@ -1395,7 +1415,14 @@ export function PromptComposer({
                 onClick={canStop ? onStop : send}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40 ${ultracodeOn ? "bg-purple" : "bg-ink"}`}
               >
-                {canStop ? <span aria-hidden="true" className="size-2.5 rounded-inline bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
+                {canStop ? (
+                  // A stop square (10px, 2px corners), not a dot that reads as record.
+                  <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className="block">
+                    <rect width="10" height="10" rx="2" fill="currentColor" />
+                  </svg>
+                ) : (
+                  <Icon icon={ArrowUp02Icon} size={16} />
+                )}
               </button>
             </div>
           </div>

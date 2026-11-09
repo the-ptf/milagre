@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 const { createRuntime } = require("./runtime.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
 
@@ -42,6 +43,9 @@ async function fixture(t, { reachable = true } = {}) {
   const runtime = createRuntime({
     dataDir,
     chatsHome: path.join(dir, "chats"),
+    // Worktrees and the Project list stay in this test's folder, never this Mac's own.
+    worktreeRoot: path.join(dir, "worktrees"),
+    registryRoots: [],
     cwd: project,
     environmentReady: Promise.resolve(),
     titleModels: {},
@@ -94,7 +98,7 @@ async function fixture(t, { reachable = true } = {}) {
       },
     ]);
   const messages = async () => (await runtime.invoke("project:snapshot", [project])).state.messages.filter((m) => m.role === "user");
-  return { send, turns, sessions, messages };
+  return { send, turns, sessions, messages, runtime, dir };
 }
 
 test("a Chat started from an issue stores Linear's copy as a card and points the agent at Milagre's Linear tools", async (t) => {
@@ -144,4 +148,44 @@ test("a malformed issue request is refused and a renderer can't set the context 
   await f.send({ context: { kind: "linear-issue", key: "ENG-12", title: "x", url: node.url, state: node.state } });
   await waitUntil(() => f.turns.length === 1);
   assert.equal((await f.messages())[0].context, null);
+});
+
+test("a shared Chat started from an issue gets the card, and the Worktree it makes is named after the issue", async (t) => {
+  const f = await fixture(t);
+  const folders = [];
+  for (const name of ["api", "web"]) {
+    const folder = path.join(f.dir, name);
+    await fs.mkdir(folder);
+    execFileSync("git", ["init", "-qb", "main", folder]);
+    execFileSync("git", ["-C", folder, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "Initial"]);
+    await f.runtime.openProject(folder);
+    folders.push(folder);
+  }
+  const projects = (await f.runtime.invoke("project:registry")).filter((project) => folders.includes(project.path));
+  const link = await f.runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await f.runtime.invoke("link:open", [link.id]);
+  const sent = await f.runtime.invoke("link:send", [
+    {
+      linkId: link.id,
+      sessionId: null,
+      operationId: randomUUID(),
+      body: "Work on Linear issue ENG-12: stale title",
+      prompt: "Work on Linear issue ENG-12: stale title",
+      provider: "codex",
+      model: "test",
+      permissionMode: "full",
+      // A renderer can't write a card itself; only linearIssue makes one.
+      context: { kind: "linear-issue", key: "FAKE-1" },
+      linearIssue: { key: "ENG-12", workspace: "acme" },
+    },
+  ]);
+  await waitUntil(() => f.turns.length === 1);
+  const state = (await f.runtime.invoke("link:snapshot", [link.id])).state;
+  const message = state.messages.find((item) => item.role === "user" && item.session_id === sent.sessionId);
+  assert.equal(message.context.key, "ENG-12");
+  assert.equal(message.context.title, node.title);
+  assert.deepEqual(state.sessions[sent.sessionId].worktrees, [], "no Worktree until the agent changes a Project");
+  assert.match(f.turns[0].prompt, /linear_issue tool/);
+  const create = f.sessions.at(-1).linked.tools.find((item) => item.name === "link_worktree_create");
+  assert.equal(JSON.parse(await create.run({ project: "web" })).branch, node.branchName);
 });

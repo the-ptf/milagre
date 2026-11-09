@@ -109,6 +109,11 @@ export function attentionLabel(titles) {
   return `${titles.length} Chats need attention`;
 }
 
+/** The attention chip's own short label: how many Chats wait, never their names (those live in its menu and its label). */
+export function attentionCount(count) {
+  return `${Math.max(1, count)} waiting`;
+}
+
 /** What a waiting run asks for, in one line: the approval's command or title, or its first question. */
 export function waitingFor(run) {
   const approval = run?.approvals?.[0];

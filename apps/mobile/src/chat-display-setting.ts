@@ -14,6 +14,7 @@ import {
   readDictationFixModel,
   readDictationModel,
   readExpandReasoning,
+  readNewChatStats,
   readToolCallDisplay,
   saveChatList,
   saveDictationLanguage,
@@ -22,6 +23,7 @@ import {
   saveDictationFixModel,
   saveDictationModel,
   saveExpandReasoning,
+  saveNewChatStats,
   saveToolCallDisplay,
 } from "./hosts-native";
 
@@ -63,6 +65,8 @@ export const useToolCallDisplay = phoneSetting<ToolCallDisplay>("compact", readT
 
 /** Desktop's Always expand reasoning: thinking rows start open in the Activity sheet. */
 export const useExpandReasoning = phoneSetting(false, readExpandReasoning, saveExpandReasoning);
+/** Desktop's Show stats: a new Chat's open PRs, plan usage and today's tokens. */
+export const useNewChatStats = phoneSetting(true, readNewChatStats, saveNewChatStats);
 export const useShowContextSize = phoneSetting(true, readShowContextSize, saveShowContextSize);
 export const useCompactButtonDisplay = phoneSetting<CompactButtonDisplay>("threshold", readCompactButtonDisplay, saveCompactButtonDisplay);
 

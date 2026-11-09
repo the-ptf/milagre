@@ -10,6 +10,8 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const { pagePinsScript } = require("@milagre/shared/page-picker");
 
 const CHROME = process.env.MILAGRE_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// Throwaway profiles: keep Chrome off the login keychain, or macOS asks for "Chrome Safe Storage" on every run.
+const NO_KEYCHAIN = ["--use-mock-keychain", "--password-store=basic"];
 const PAGE =
   "data:text/html," +
   encodeURIComponent(`<!doctype html><title>Fixture login</title><body style="margin:0;font:18px -apple-system,sans-serif;background:#fff3d6;color:#5a3b00">
@@ -76,12 +78,12 @@ async function browserChecks(url) {
   // browser the user opened themselves, so it has no lineage to any Chat.
   const agentChrome = spawn(
     CHROME,
-    ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profiles[0]}`, "--no-first-run", "--window-size=800,600", origin],
+    ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profiles[0]}`, ...NO_KEYCHAIN, "--no-first-run", "--window-size=800,600", origin],
     { stdio: "ignore", detached: true },
   );
   execFileSync("/bin/sh", [
     "-c",
-    `"${CHROME}" --headless=new --remote-debugging-port=0 --user-data-dir="${profiles[1]}" --no-first-run --window-size=700,500 "${origin}/other" >/dev/null 2>&1 &`,
+    `"${CHROME}" --headless=new --remote-debugging-port=0 --user-data-dir="${profiles[1]}" ${NO_KEYCHAIN.join(" ")} --no-first-run --window-size=700,500 "${origin}/other" >/dev/null 2>&1 &`,
   ]);
   const stopChrome = () => {
     try {

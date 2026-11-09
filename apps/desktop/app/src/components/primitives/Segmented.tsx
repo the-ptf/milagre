@@ -38,8 +38,8 @@ export type SegmentedOption<T extends string> = {
 };
 
 /**
- * A segmented control: one picked option raised on the field fill (surface and shadow-card; hover-2 in dark, where
- * surface is darker than the track), the rest ink-2. 28px tall (`small`, 24px segments) or 32px (`large`, 28px
+ * A segmented control: one picked option raised on the field fill (surface and the button shadow; in dark, where
+ * surface is darker than the track, the track mixed 14% toward ink, about 1.3:1 against it), the rest ink-2. 28px tall (`small`, 24px segments) or 32px (`large`, 28px
  * segments). One Tab stop: the arrow keys, Home and End move the choice. Each segment carries `data-segment` and,
  * with `dataKey`, `data-<dataKey>` set to its value. `value` may be null (nothing picked yet).
  */
@@ -80,7 +80,7 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-chip font-medium whitespace-nowrap transition-colors focus-visible:outline-offset-0 disabled:opacity-40 ${
               size === "large" ? `h-7 text-13 ${option.iconOnly ? "px-2" : "px-3"}` : `h-6 text-12 ${option.iconOnly ? "px-1.5" : "px-2.5"}`
-            } ${on ? "bg-surface text-ink shadow-card dark:bg-hover-2" : "text-ink-2 enabled:hover:text-ink"}`}
+            } ${on ? "bg-surface text-ink shadow-btn dark:bg-[color-mix(in_oklab,var(--field)_86%,var(--ink))]" : "text-ink-2 enabled:hover:text-ink"}`}
           >
             {option.dot && <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${DOTS[option.dot]}`} />}
             {option.icon && <Icon icon={option.icon} size={14} />}

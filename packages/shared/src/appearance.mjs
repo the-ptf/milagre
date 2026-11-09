@@ -26,11 +26,12 @@ export const SIDEBAR_SIZES = [
   { id: "larger", label: "Larger", delta: 2 },
 ];
 
+/** Desktop chat text. Default 14 at a 1.6 line (decided 2026-10-28); each step is one px up to Larger. */
 export const CHAT_SIZES = [
-  { id: "small", label: "Small", px: 12 },
-  { id: "default", label: "Default", px: 13 },
-  { id: "medium", label: "Medium", px: 14 },
-  { id: "large", label: "Large", px: 15 },
+  { id: "small", label: "Small", px: 13 },
+  { id: "default", label: "Default", px: 14 },
+  { id: "medium", label: "Medium", px: 15 },
+  { id: "large", label: "Large", px: 16 },
   { id: "larger", label: "Larger", px: 17 },
 ];
 
@@ -41,9 +42,9 @@ export const CODE_SIZES = [
   { id: "large", label: "Large", px: 14 },
 ];
 
-/** Max width of the chat column in px; null fills the pane. */
+/** Max width of the chat column in px; null fills the pane. Comfortable keeps 14px prose near 85–90 characters a line. */
 export const CHAT_WIDTHS = [
-  { id: "comfortable", label: "Comfortable", px: 768 },
+  { id: "comfortable", label: "Comfortable", px: 704 },
   { id: "wide", label: "Wide", px: 1024 },
   { id: "full", label: "Full", px: null },
   { id: "custom", label: "Custom", px: null },
