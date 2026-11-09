@@ -41,25 +41,6 @@
 
   if (demo && stage && desktop && phone) {
     if (document.documentElement.dataset.platform === "android") demo.classList.add("android");
-    // The phone is a 3D model when WebGL is there; otherwise the flat frame below stays. three.js is big, so it loads on
-    // the visitor's first move (pointer, touch, scroll or key) and the flat frame and posters paint first.
-    const upgrade = () => {
-      for (const type of WAKE) removeEventListener(type, upgrade);
-      void import("../scripts/phone3d").then(({ mountPhone3D, webglAvailable }) => {
-      const host = demo.querySelector<HTMLElement>(".phone");
-      if (!host || !webglAvailable()) return;
-      mountPhone3D({
-        host,
-        video: phone,
-        kind: demo.classList.contains("android") ? "android" : "iphone",
-        // Turned toward the Mac beside it; nearly straight on when it stands alone.
-        tilt: () => (narrow.matches ? -0.14 : -0.34),
-      });
-      demo.classList.add("three");
-      });
-    };
-    const WAKE = ["pointermove", "pointerdown", "touchstart", "scroll", "keydown"] as const;
-    for (const type of WAKE) addEventListener(type, upgrade, { passive: true });
     const narrow = matchMedia("(max-width: 700px)");
     // The demo is a fixed-size canvas, scaled so its top part, down to both approval cards (y 565 of the canvas), ends
     // just above the download button at the bottom of the page; the rest runs under the button and the blurred fade.
@@ -132,17 +113,13 @@
   .mac { position: absolute; top: 0; left: 0; width: 1000px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 14px; background: var(--page); box-shadow: 0 0 0 1px oklch(1 0 0 / 0.14), 0 30px 80px oklch(0 0 0 / 0.55); }
   .mac-video, .phone-video { display: block; width: 100%; height: 100%; object-fit: cover; }
   /* macOS draws the app's traffic lights, so the frame adds them where Milagre puts them: 12px buttons from x 24 of the
-     1280px window, centred on the sidebar toggle at y 30. --k scales app pixels to this 1000px window. */
-  .lights { --k: calc(1000 / 1280); position: absolute; top: calc((30 - 6) * var(--k) * 1px); left: calc(24 * var(--k) * 1px); display: flex; gap: calc(8 * var(--k) * 1px); }
+     1280px window, centred on the bar's icons at y 22. --k scales app pixels to this 1000px window. */
+  .lights { --k: calc(1000 / 1280); position: absolute; top: calc((22 - 6) * var(--k) * 1px); left: calc(24 * var(--k) * 1px); display: flex; gap: calc(8 * var(--k) * 1px); }
   .lights i { width: calc(12 * var(--k) * 1px); height: calc(12 * var(--k) * 1px); border-radius: 50%; background: #ff5f57; }
   .lights i:nth-child(2) { background: #febc2e; }
   .lights i:nth-child(3) { background: #28c840; }
   .phone { position: absolute; right: 0; bottom: 0; width: 290px; aspect-ratio: 1206 / 2622; box-sizing: content-box; padding: 11px; border-radius: 52px; background: #0b0b0c; box-shadow: inset 0 0 0 1.5px oklch(1 0 0 / 0.16), 0 0 0 1px oklch(0 0 0 / 0.6), 0 30px 70px oklch(0 0 0 / 0.6); }
   .phone-video { border-radius: 41px; }
-  /* The 3D phone draws the frame and the screen; the video stays in place, invisible, as its texture. */
-  .phone :global(.phone-canvas) { position: absolute; top: -18%; left: -40%; width: 180%; height: 136%; pointer-events: none; }
-  .demo.three .phone { background: transparent; box-shadow: none; }
-  .demo.three .phone-video { opacity: 0; }
   /* Android draws its status bar close to the corners, so the screen is less rounded than the iPhone's. */
   .demo.android .phone { aspect-ratio: 1080 / 2424; border-radius: 28px; }
   .demo.android .phone-video { border-radius: 17px; }

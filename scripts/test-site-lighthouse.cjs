@@ -1,5 +1,5 @@
-// Lighthouse budget for the landing page: builds the site, serves it compressed the way Cloudflare does, and fails when
-// any category's median of three runs drops below apps/site/lighthouse-budget.json, on mobile or on desktop.
+// Lighthouse budget for the landing page and the docs pages: builds the site, serves it compressed the way Cloudflare does,
+// and fails when any category's score (median of its runs) drops below apps/site/lighthouse-budget.json, on mobile or on desktop.
 // npm test -- --only lighthouse
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -11,7 +11,12 @@ const { spawnSync } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "apps/site/dist");
 const budget = require("../apps/site/lighthouse-budget.json");
-const RUNS = 3;
+// The landing page takes the median of three runs; the docs pages are static text and score the same every run, so one each.
+const PAGES = [
+  ["/", 3],
+  ["/docs/", 1],
+  ["/docs/cli/", 1],
+];
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css",
@@ -56,21 +61,23 @@ async function main() {
   const { default: lighthouse } = await import("lighthouse");
   const chromeLauncher = await import("chrome-launcher");
   const server = await serve();
-  const url = `http://127.0.0.1:${server.address().port}/`;
   const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new", "--no-sandbox"] });
   const failures = [];
   try {
-    for (const [formFactor, floors] of Object.entries(budget).filter(([key]) => key === "mobile" || key === "desktop")) {
-      const config = formFactor === "desktop" ? (await import("lighthouse/core/config/desktop-config.js")).default : undefined;
-      const scores = {};
-      for (let run = 0; run < RUNS; run++) {
-        const result = await lighthouse(url, { port: chrome.port, output: "json", logLevel: "error", skipAudits: budget.skipAudits }, config);
-        for (const [id, category] of Object.entries(result.lhr.categories)) (scores[id] ??= []).push(Math.round(category.score * 100));
-      }
-      for (const [id, floor] of Object.entries(floors)) {
-        const score = median(scores[id]);
-        console.log(`${formFactor} ${id}: ${score} (runs ${scores[id].join(", ")}, budget ${floor})`);
-        if (score < floor) failures.push(`${formFactor} ${id} ${score} < ${floor}`);
+    for (const [page, runs] of PAGES) {
+      const url = `http://127.0.0.1:${server.address().port}${page}`;
+      for (const [formFactor, floors] of Object.entries(budget).filter(([key]) => key === "mobile" || key === "desktop")) {
+        const config = formFactor === "desktop" ? (await import("lighthouse/core/config/desktop-config.js")).default : undefined;
+        const scores = {};
+        for (let run = 0; run < runs; run++) {
+          const result = await lighthouse(url, { port: chrome.port, output: "json", logLevel: "error", skipAudits: budget.skipAudits }, config);
+          for (const [id, category] of Object.entries(result.lhr.categories)) (scores[id] ??= []).push(Math.round(category.score * 100));
+        }
+        for (const [id, floor] of Object.entries(floors)) {
+          const score = median(scores[id]);
+          console.log(`${page} ${formFactor} ${id}: ${score} (runs ${scores[id].join(", ")}, budget ${floor})`);
+          if (score < floor) failures.push(`${page} ${formFactor} ${id} ${score} < ${floor}`);
+        }
       }
     }
   } finally {

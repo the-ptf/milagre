@@ -36,8 +36,8 @@ h1 em { display: block; margin-top: 8px; font-family: Serif, serif; font-weight:
 .line { position: absolute; left: 64px; bottom: 58px; width: 450px; font-size: 20px; line-height: 1.4; color: oklch(0.74 0.03 256); }
 .mac { position: absolute; top: 108px; left: 600px; width: 720px; aspect-ratio: 16 / 10; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px oklch(1 0 0 / 0.14), 0 30px 80px oklch(0 0 0 / 0.55); }
 .mac img { display: block; width: 100%; }
-.lights { position: absolute; top: 14px; left: 16px; display: flex; gap: 6px; }
-.lights i { width: 9px; height: 9px; border-radius: 50%; background: #ff5f57; }
+.lights { position: absolute; top: 8px; left: 14px; display: flex; gap: 4.5px; }
+.lights i { width: 7px; height: 7px; border-radius: 50%; background: #ff5f57; }
 .lights i:nth-child(2) { background: #febc2e; }
 .lights i:nth-child(3) { background: #28c840; }
 .phone { position: absolute; top: 150px; left: 950px; width: 196px; height: 440px; overflow: hidden; padding: 9px; border-radius: 40px; background: #0b0b0c; box-shadow: inset 0 0 0 1.5px oklch(1 0 0 / 0.18), 0 26px 60px oklch(0 0 0 / 0.6); }

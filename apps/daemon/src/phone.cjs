@@ -70,7 +70,8 @@ function createPhone({
   onChange = () => {},
   onPaired = () => {},
   onPending = () => {},
-  localPort = LOCAL_PORT,
+  // A second host on the same Mac (recordings in scripts/site-demo) takes another loopback port.
+  localPort = Number(process.env.MILAGRE_PHONE_PORT) || LOCAL_PORT,
   retryDelaysMs = RETRY_DELAYS_MS,
   retiredMs = RETIRED_MS,
   name = computerName,
