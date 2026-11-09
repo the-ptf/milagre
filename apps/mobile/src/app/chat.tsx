@@ -39,7 +39,7 @@ import {
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { compactButtonState } from "@milagre/shared/chat-display";
-import { useCompactButtonDisplay, useShowContextSize } from "../chat-display-setting";
+import { useCompactButtonDisplay, useNewChatStats, useShowContextSize } from "../chat-display-setting";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
@@ -381,6 +381,7 @@ function ChatPane({
   const { colors } = useTheme();
   const styles = useStyles();
   const [showContextSize] = useShowContextSize();
+  const [newChatStats] = useNewChatStats();
   const { settings: contextSettings } = useContextSettings();
   const [compactButtonDisplay] = useCompactButtonDisplay();
   // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
@@ -2560,6 +2561,8 @@ function ChatPane({
                       startLineStyle,
                     ]}
                   >
+                    {/* Matches the cards' room below, so the heading stays put while they load or the keyboard hides them. */}
+                    <View pointerEvents="none" style={{ flex: 1 }} />
                     {chatsHomeOpen ? (
                       // No Project to pick here: the heading picks the computer, and the line under it goes back to the Projects.
                       <>
@@ -2620,13 +2623,15 @@ function ChatPane({
                         </View>
                       </Pressable>
                     )}
-                    {restingKeyboard === 0 && (
-                      <NewChatGlance
-                        client={session.client}
-                        projectPath={chatsHomeOpen ? null : (session.snapshot?.project.path ?? null)}
-                        scopeKey={session.snapshot?.project.path ?? ""}
-                      />
-                    )}
+                    <View pointerEvents="box-none" style={{ flex: 1, alignSelf: "stretch" }}>
+                      {restingKeyboard === 0 && newChatStats && (
+                        <NewChatGlance
+                          client={session.client}
+                          projectPath={chatsHomeOpen ? null : (session.snapshot?.project.path ?? null)}
+                          scopeKey={session.snapshot?.project.path ?? ""}
+                        />
+                      )}
+                    </View>
                   </Animated.View>
                 )}
                 {/* The capsule says when the Chat above needs you and the Subchats pill when a Chat below does: they leave this

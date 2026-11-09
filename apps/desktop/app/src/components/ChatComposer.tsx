@@ -1461,7 +1461,8 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
   const subchatReports = useMemo(() => (subchats ? latestReports(messages) : NO_REPORTS), [subchats, messages]);
-  const chatWidth = useSettings().appearance.chatWidth;
+  const { appearance, newChatStats } = useSettings();
+  const chatWidth = appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
@@ -1697,6 +1698,8 @@ export function ChatComposer({
           </div>
         )}
         {isNewChat && !offScreen && <WelcomeSky />}
+        {/* Matches the cards' room below, so the heading and composer stay centred whether or not the cards have loaded. */}
+        {projectNewChat && !offScreen && <div aria-hidden className="min-h-0 flex-1 basis-0" />}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
@@ -2021,7 +2024,12 @@ export function ChatComposer({
           )}
         </div>
         {/* The Project's open PRs, plan usage and today's tokens, under a new Chat's composer. */}
-        {projectNewChat && !offScreen && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} />}
+        {/* They take the room under the composer and scroll in it, so loading them never moves the composer. */}
+        {projectNewChat && !offScreen && (
+          <ScrollArea className="w-full flex-1 basis-0">
+            {newChatStats && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} chatWidth={chatWidth} />}
+          </ScrollArea>
+        )}
       </div>
     </ReplyProviders>
   );

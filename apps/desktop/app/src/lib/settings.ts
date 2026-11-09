@@ -79,6 +79,8 @@ export interface AppSettings {
   toolCallDisplay: ToolCallDisplay;
   /** Settings › Chat: thinking rows start open. */
   expandReasoning: boolean;
+  /** Settings › Chat › Show stats: a new Chat's open PRs, plan usage and today's tokens (NewChatGlance). */
+  newChatStats: boolean;
   showContextSize: boolean;
   compactButtonDisplay: CompactButtonDisplay;
   /** Settings › Devices: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
@@ -136,6 +138,7 @@ const DEFAULTS: AppSettings = {
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
   toolCallDisplay: "compact",
   expandReasoning: false,
+  newChatStats: true,
   showContextSize: true,
   compactButtonDisplay: "threshold",
   otherComputers: false,
@@ -187,6 +190,7 @@ function load(): AppSettings {
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
+      newChatStats: typeof saved.newChatStats === "boolean" ? saved.newChatStats : DEFAULTS.newChatStats,
       showContextSize: typeof saved.showContextSize === "boolean" ? saved.showContextSize : DEFAULTS.showContextSize,
       compactButtonDisplay: parseCompactButtonDisplay(saved.compactButtonDisplay),
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,

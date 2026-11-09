@@ -1,6 +1,8 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, KeyboardEvent, Ref } from "react";
 import { createPortal } from "react-dom";
+import { ArrowRightToLineIcon } from "@hugeicons/core-free-icons";
+import { Icon } from "./primitives/Icon";
 import type { PromptPart } from "@milagre/shared/prompt-parts";
 import {
   caretStep,
@@ -515,7 +517,18 @@ export function PromptEditor({
           aria-hidden
           className={`${className} ${placeholderClassName} pointer-events-none absolute inset-0 overflow-hidden text-ink-3`}
         >
-          {suggestion ?? placeholder}
+          {suggestion ? (
+            <>
+              {suggestion}
+              {/* Tab puts the suggestion in the composer (PromptComposer's key handler). */}
+              <span className="ml-2 inline-flex translate-y-[-1px] items-center gap-1 rounded-control border border-line-strong px-1.5 align-middle text-12 leading-5 font-medium text-ink-3">
+                <Icon icon={ArrowRightToLineIcon} size={12} />
+                Tab
+              </span>
+            </>
+          ) : (
+            placeholder
+          )}
         </div>
       )}
       {chips.map((chip) =>

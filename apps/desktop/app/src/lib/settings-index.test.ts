@@ -46,7 +46,7 @@ const pageSources = [
     "NotificationScheduleSetting",
     "token-usage/TokenUsagePage",
   ].map((name) => `${COMPONENTS}${name}.tsx`),
-  ...["auto-update.ts", "browser-sign-ins.ts", "chat-display.ts", "device-notes.mjs", "linear.ts", "main-sync.ts", "storage.ts"].map(
+  ...["auto-update.ts", "browser-sign-ins.ts", "chat-display.ts", "device-notes.mjs", "linear.ts", "main-sync.ts", "new-chat-glance.ts", "storage.ts"].map(
     (name) => `../../../../../packages/shared/src/${name}`,
   ),
 ];
