@@ -1698,7 +1698,8 @@ export function ChatComposer({
           </div>
         )}
         {isNewChat && !offScreen && <WelcomeSky />}
-        {/* Matches the cards' room below, so the heading and composer stay centred whether or not the cards have loaded. */}
+        {/* The room above the heading: a third of what's free with the stats under the composer, half without them. It
+        doesn't depend on whether the cards have loaded, so they never move the composer. */}
         {projectNewChat && !offScreen && <div aria-hidden className="min-h-0 flex-1 basis-0" />}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
@@ -2024,9 +2025,10 @@ export function ChatComposer({
           )}
         </div>
         {/* The Project's open PRs, plan usage and today's tokens, under a new Chat's composer. */}
-        {/* They take the room under the composer and scroll in it, so loading them never moves the composer. */}
+        {/* The cards take the room under the composer (two thirds of what's free) and scroll in it when the window is short.
+        The scrollbar's gutter is kept on both sides, just outside the column, so the cards keep the composer's edges. */}
         {projectNewChat && !offScreen && (
-          <ScrollArea className="w-full flex-1 basis-0">
+          <ScrollArea className={`-mx-2.5 w-[calc(100%+20px)] basis-0 [scrollbar-gutter:stable_both-edges] ${newChatStats ? "flex-[2]" : "flex-1"}`}>
             {newChatStats && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} chatWidth={chatWidth} />}
           </ScrollArea>
         )}
