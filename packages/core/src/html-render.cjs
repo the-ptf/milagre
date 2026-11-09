@@ -102,6 +102,9 @@ async function previewHtml({ html, width = 720, appearance = "light" }) {
         "--remote-debugging-address=127.0.0.1",
         "--remote-debugging-port=0",
         `--user-data-dir=${directory}`,
+        // A fresh profile has no saved key: without these, macOS Chrome asks for "Chrome Safe Storage" on every preview.
+        "--use-mock-keychain",
+        "--password-store=basic",
         "about:blank",
       ],
       { stdio: "ignore", windowsHide: true },
