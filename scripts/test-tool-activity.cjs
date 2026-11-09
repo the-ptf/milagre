@@ -115,9 +115,9 @@ async function check() {
     assert.deepEqual(await run("window.decisions"), ["allow"]);
     assert.ok(
       await run(
-        '(() => { const marks = [...document.querySelectorAll("[data-slot=activity-sources] > span")].map((node) => node.getBoundingClientRect()); return marks.length > 0 && marks.length <= 4 && marks.every((mark, index) => index === 0 || mark.left >= marks[index - 1].right); })()',
+        '(() => { const nodes = [...document.querySelectorAll("[data-slot=activity-sources] > span")]; return nodes.length > 0 && nodes.length <= 4 && nodes.every((node) => parseFloat(getComputedStyle(node).borderRadius) >= node.getBoundingClientRect().width / 2); })()',
       ),
-      "once nothing waits, source marks are at most four glyphs side by side, none overlapping another",
+      "once nothing waits, source marks are at most four fully circular marks",
     );
     assert.ok(await run('!!document.querySelector("[data-slot=activity-sources] [data-linear-logo]")'));
     assert.equal(

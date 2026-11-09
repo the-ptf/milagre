@@ -38,7 +38,7 @@ export function StepIcon({ step, size = 14 }: { step: ChatStep; size?: IconSize 
 // 1 tool"), so each glyph sits over its own words. Setup isn't in the summary; images and designs come last.
 const SUMMARY_ORDER: StepKind[] = ["thinking", "read", "search", "edit", "shell", "other", "image", "artifact"];
 
-/** The kinds of work a folded reply did, one glyph per kind in the summary's order, at most four, none clipped. */
+/** The kinds of work a folded reply did, one overlapping circular mark per kind in the summary's order, at most four. */
 export function ActivitySources({ steps }: { steps: ChatStep[] }) {
   const sources = activitySources(
     steps.filter((step) => step.kind !== "setup"),
@@ -48,10 +48,10 @@ export function ActivitySources({ steps }: { steps: ChatStep[] }) {
     .sort((a, b) => (a.rank === -1 ? 99 : a.rank) - (b.rank === -1 ? 99 : b.rank) || a.index - b.index)
     .slice(0, 4);
   return (
-    <span data-slot="activity-sources" aria-hidden className="flex shrink-0 items-center gap-1 text-ink-3">
+    <span data-slot="activity-sources" aria-hidden className="isolate flex shrink-0 items-center pl-1.5">
       {sources.map(({ source }) => (
-        <Tooltip key={source.id} label={source.label} className="items-center justify-center">
-          <ActivityIcon source={source} size={14} />
+        <Tooltip key={source.id} label={source.label} className="-ml-1.5 size-5 items-center justify-center rounded-full bg-field text-ink-2 ring-2 ring-page">
+          <ActivityIcon source={source} size={12} />
         </Tooltip>
       ))}
     </span>
