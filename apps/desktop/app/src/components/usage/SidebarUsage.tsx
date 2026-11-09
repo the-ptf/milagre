@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { Alert02Icon } from "@hugeicons/core-free-icons";
 import type { ModelProvider } from "../../model";
 import { useSettings } from "../../lib/settings";
 import { PROVIDER_NAMES, formatPercent, shownPercent, usageLabel, visibleProviders } from "./format";
 import { ProviderLogo } from "../ProviderLogo";
+import { Icon } from "../primitives/Icon";
+import Tooltip from "../primitives/Tooltip";
 import { UsageBar } from "./UsageBar";
 import { USAGE_CARD_WIDTH, UsageCard } from "./UsageCard";
 import type { UsageState } from "./useUsage";
@@ -21,13 +24,16 @@ function peakPercent(windows: { usedPercent: number }[]) {
 }
 
 /** Plan usage rows for the sidebar footer; the card opens beside the sidebar, expanded or collapsed. */
-export function SidebarUsage({ usage }: { usage: UsageState }) {
+export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; scope?: string; chatsHome?: boolean }) {
   const [openCard, setOpenCard] = useState<OpenCard | null>(null);
-  const { usageDisplay } = useSettings();
+  const { usageDisplay, appearance } = useSettings();
+  const compact = appearance.sidebarUsage === "compact";
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
   const segments = useRef(new Map<ModelProvider, HTMLButtonElement>());
   const restoringFocus = useRef(false);
+  // The card's account picker opens its panel outside the card; leaving the card for it must not close the card.
+  const pickerOpen = useRef(false);
   const providers = usage.snapshot ? visibleProviders(usage.snapshot) : [];
   const openUsage = openCard ? providers.find((item) => item.provider === openCard.provider) : undefined;
 
@@ -55,6 +61,7 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
   }
 
   function scheduleHide() {
+    if (pickerOpen.current) return;
     clearTimers();
     closeTimer.current = window.setTimeout(() => setOpenCard(null), CLOSE_DELAY_MS);
   }
@@ -65,6 +72,10 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
   }
 
   useEffect(() => clearTimers, []);
+
+  useEffect(() => {
+    if (!openCard) pickerOpen.current = false;
+  }, [openCard]);
 
   useEffect(() => {
     if (!openCard) return;
@@ -79,7 +90,8 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
     // Capture on window runs before App's window-level Escape handler, which cancels
     // the running agent, so Escape closes the card wherever focus is and goes no further.
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      // The open picker takes this Escape and closes itself; the card stays.
+      if (event.key !== "Escape" || pickerOpen.current) return;
       event.preventDefault();
       event.stopPropagation();
       const focusInCard = Boolean((document.activeElement as Element | null)?.closest("[data-usage-card]"));
@@ -98,7 +110,7 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
   if (providers.length === 0) return null;
 
   return (
-    <div className="sidebar-usage flex flex-col gap-0.5">
+    <div data-usage-compact={compact || undefined} className="sidebar-usage flex flex-col gap-0.5">
       {providers.map((item) => {
         const expanded = openCard?.provider === item.provider && Boolean(openUsage);
         return (
@@ -121,31 +133,39 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
               if (!(event.relatedTarget as Element | null)?.closest("[data-usage-card]")) scheduleHide();
             }}
             onClick={() => show(item.provider)}
-            className={`sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[8px] px-2 text-[12px] tabular-nums text-ink-2 transition-[background-color,color,opacity] duration-150 hover:bg-hover-2 hover:text-ink ${expanded ? "bg-hover-2 text-ink" : ""} ${item.status === "error" ? "opacity-60" : ""}`}
+            className={`sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-control px-2 text-12 tabular-nums transition-[background-color,color] ${expanded ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
           >
             <span className="flex shrink-0 items-center justify-center">
-              <ProviderLogo provider={item.provider} size={13} />
+              <ProviderLogo provider={item.provider} size={14} />
             </span>
             <span className="sidebar-copy min-w-0 truncate text-ink-2">{PROVIDER_NAMES[item.provider]}</span>
+            {/* The last read failed: its last-known numbers stay at full strength, and this says so. */}
+            {item.status === "error" && (
+              <Tooltip label="Couldn't read usage" side="top" className="sidebar-copy shrink-0">
+                <span data-usage-error className="flex text-red-ink">
+                  <Icon icon={Alert02Icon} size={12} />
+                </span>
+              </Tooltip>
+            )}
             {item.windows.length === 0 ? (
-              <span className="sidebar-copy ml-auto text-ink-3">—</span>
+              item.status !== "error" && <span className="sidebar-copy ml-auto text-ink-3">—</span>
             ) : (
-              <span className="sidebar-copy ml-auto flex w-[104px] shrink-0 items-center gap-2">
+              <span className="sidebar-copy ml-auto flex w-26 shrink-0 items-center gap-2">
                 {/* Share the meter area equally; a single window spans the full width. */}
                 {item.windows.slice(0, 2).map((entry) => (
-                  <span key={entry.id} className="flex min-w-0 flex-1 flex-col items-end gap-[3px]">
-                    <span className="flex items-baseline gap-[3px] whitespace-nowrap leading-none">
+                  <span key={entry.id} className="flex min-w-0 flex-1 flex-col items-end gap-0.5">
+                    <span className="flex items-baseline gap-1 whitespace-nowrap">
                       <span className="text-ink">{formatPercent(shownPercent(entry.usedPercent, usageDisplay))}</span>
                       <span className="text-ink-3">{entry.shortLabel}</span>
                     </span>
-                    <UsageBar usedPercent={entry.usedPercent} display={usageDisplay} className="h-[2px] w-full" />
+                    <UsageBar usedPercent={entry.usedPercent} display={usageDisplay} className="h-0.5 w-full" />
                   </span>
                 ))}
               </span>
             )}
             {item.windows.length > 0 && (
-              <span aria-hidden className="sidebar-usage-rail absolute bottom-[3px] left-1/2 -translate-x-1/2">
-                <UsageBar usedPercent={peakPercent(item.windows)} display={usageDisplay} className="h-[2px] w-4" />
+              <span aria-hidden className="sidebar-usage-rail absolute bottom-1 left-1/2 -translate-x-1/2">
+                <UsageBar usedPercent={peakPercent(item.windows)} display={usageDisplay} className="h-0.5 w-4" />
               </span>
             )}
           </button>
@@ -156,6 +176,18 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
         <UsageCard
           id={`usage-card-${openUsage.provider}`}
           usage={openUsage}
+          scope={scope}
+          chatsHome={chatsHome}
+          onPickerOpenChange={(open) => {
+            pickerOpen.current = open;
+            if (open) return;
+            // A choice or Escape hands focus back to the picker, in the card, after this runs; a click elsewhere
+            // leaves it nowhere, and the pointer may have left the card while the panel was open.
+            window.setTimeout(() => {
+              const card = document.getElementById(`usage-card-${openUsage.provider}`);
+              if (card && !card.matches(":hover") && !card.contains(document.activeElement)) scheduleHide();
+            }, 0);
+          }}
           loading={usage.loading}
           position={{ left: openCard.left, bottom: openCard.bottom }}
           onRefresh={() => void usage.refresh()}

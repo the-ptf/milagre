@@ -1,8 +1,11 @@
 const { CodexRpc } = require("./codex-rpc.cjs");
+const { hasToken } = require("./antigravity-install.cjs");
+const { queryAntigravityModels } = require("./antigravity-model-list.cjs");
+const { listKiroModels } = require("./kiro-model-list.cjs");
 const { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } = require("@milagre/shared/antigravity-models");
 
-// The models each agent offers, asked from its CLI once per app run: Claude's supportedModels() and
-// Codex's model/list. A model is { id, name, description, recommended, efforts, defaultEffort?, ultracode, fastMode },
+// The models each agent offers, asked from its CLI once per app run: Claude's supportedModels(), Codex's
+// model/list and Kiro's `model` option (kiro-model-list.cjs, which adds each model's `credits`). A model is { id, name, description, recommended, efforts, defaultEffort?, ultracode, fastMode },
 // where `efforts` are the levels it accepts, lightest first (none when it has no effort control) and `fastMode`
 // says whether it has a faster, costlier tier: Claude Code's fast mode, or Codex's "priority" service tier.
 
@@ -93,9 +96,10 @@ async function listCodexModels({ command, cwd, env, clientVersion = "0.0.0", cre
   }
 }
 
-// Antigravity's models come from the agent's own session/new answer (configOptions), which only a running session
-// has. SessionManager records what each Antigravity session reports, by account; until one has, the static catalog.
+// Antigravity's models come from session/new (configOptions). Discovery opens an empty session before the first
+// Chat, and SessionManager records later changes. Both are partitioned by account, including concurrent lookups.
 const reportedAntigravity = new Map();
+const pendingAntigravity = new Map();
 const antigravityKey = (accountId) => accountId ?? "default";
 
 /** Records the models an Antigravity session offered ([{ value, name, description }]) and its current one, for its account. */
@@ -104,8 +108,13 @@ function recordAntigravityModels(accountId, offered, current) {
 }
 
 function forgetAntigravityModels(accountId) {
-  if (accountId === undefined) reportedAntigravity.clear();
-  else reportedAntigravity.delete(antigravityKey(accountId));
+  if (accountId === undefined) {
+    reportedAntigravity.clear();
+    pendingAntigravity.clear();
+  } else {
+    reportedAntigravity.delete(antigravityKey(accountId));
+    pendingAntigravity.delete(antigravityKey(accountId));
+  }
 }
 
 // The agent reports one model per thinking level; they are grouped into families whose levels are the efforts
@@ -129,18 +138,42 @@ function antigravityModels(offered, current) {
   });
 }
 
-/** The Antigravity models the account's last session reported, else the catalog's. Starts no process. */
-function listAntigravityModels({ accountId } = {}) {
-  const reported = reportedAntigravity.get(antigravityKey(accountId));
+/** Discover once per signed-in account; a Chat's latest report wins. Failed lookups retry on the next read. */
+async function listAntigravityModels({ accountId, command, args, harness, env, clientVersion, discover = queryAntigravityModels } = {}) {
+  const key = antigravityKey(accountId);
+  if (!reportedAntigravity.has(key) && command && env?.GEMINI_HOME && hasToken(env.GEMINI_HOME)) {
+    if (!pendingAntigravity.has(key)) {
+      const pending = Promise.resolve()
+        .then(() => discover({ accountId, command, args, harness, env, clientVersion }))
+        .then((result) => {
+          // An invalidation or a Chat's newer report must survive an older probe finishing.
+          if (pendingAntigravity.get(key) === pending && !reportedAntigravity.has(key))
+            return recordAntigravityModels(accountId, result?.offered, result?.current);
+          return undefined;
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (pendingAntigravity.get(key) === pending) pendingAntigravity.delete(key);
+        });
+      pendingAntigravity.set(key, pending);
+    }
+    await pendingAntigravity.get(key);
+  }
+  const reported = reportedAntigravity.get(key);
   return antigravityModels(reported?.offered, reported?.current);
 }
 
 /**
  * Asks each agent's CLI once per run. An agent whose CLI has a problem (missing, too old) or whose lookup
- * fails or comes back empty reports null, and is asked again on the next call. Antigravity is never asked: its
- * list is whatever the account's last session reported, else the catalog, so it is always present.
+ * fails or comes back empty reports null, and is asked again on the next call. Antigravity discovers per account
+ * and uses its last session report or the catalog when unavailable, so it is always present.
  */
-function createModelCache({ cli, cwd, clientVersion, list = { claude: listClaudeModels, codex: listCodexModels, antigravity: listAntigravityModels } }) {
+function createModelCache({
+  cli,
+  cwd,
+  clientVersion,
+  list = { claude: listClaudeModels, codex: listCodexModels, antigravity: listAntigravityModels, kiro: listKiroModels },
+}) {
   const cache = new Map();
   function lookup(provider) {
     if (!cache.has(provider)) {
@@ -160,19 +193,21 @@ function createModelCache({ cli, cwd, clientVersion, list = { claude: listClaude
     }
     return cache.get(provider);
   }
-  // Even a logged-out or missing agent lists its models; only the account (when the CLI knows it) picks the list.
-  const antigravity = async () =>
-    (list.antigravity ?? listAntigravityModels)({
-      accountId: await cli("antigravity").then(
-        (status) => status?.accountId,
-        () => undefined,
-      ),
+  const antigravity = async () => {
+    const status = await cli("antigravity").catch(() => null);
+    return (list.antigravity ?? listAntigravityModels)({
+      accountId: status?.accountId,
+      ...(!status?.problem && status?.command ? { command: status.command, args: status.args, harness: status.harness, env: status.env, clientVersion } : {}),
     });
-  const read = async () => {
-    const [claude, codex, antigravityList] = await Promise.all([lookup("claude"), lookup("codex"), antigravity()]);
-    return { claude, codex, antigravity: antigravityList };
   };
-  read.invalidate = (provider) => cache.delete(provider);
+  const read = async () => {
+    const [claude, codex, antigravityList, kiro] = await Promise.all([lookup("claude"), lookup("codex"), antigravity(), list.kiro ? lookup("kiro") : null]);
+    return { claude, codex, antigravity: antigravityList, kiro };
+  };
+  read.invalidate = (provider) => {
+    cache.delete(provider);
+    if (provider === "antigravity") forgetAntigravityModels();
+  };
   return read;
 }
 

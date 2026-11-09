@@ -1,21 +1,37 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   BubbleChatIcon,
+  Bug01Icon,
   BubbleChatSearchIcon,
+  ChartColumnIcon,
   CodeIcon,
   Copy01Icon,
   FolderOpenIcon,
   GitBranchIcon,
+  PencilEdit02Icon,
+  Refresh01Icon,
+  RepeatIcon,
   Search01Icon,
   Settings01Icon,
+  HardDriveIcon,
 } from "@hugeicons/core-free-icons";
 import { filterCommands, type Command } from "../lib/commands";
+import { recentCommandIds, recentCommands, rememberCommand, rememberedId } from "../lib/recent-commands";
 import { useShortcutHints } from "../lib/shortcut-hints";
+import { shortcutCommand, useShortcutLabel } from "../lib/keybindings";
+import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { ShortcutKeys } from "./primitives/ShortcutKeys";
+import { Icon } from "./primitives/Icon";
+import { EmptyState } from "./primitives/EmptyState";
+import { MenuLabel } from "./primitives/Popover";
+import { DURATION, EASE_OUT } from "../lib/ease";
+
+/** `--duration-fast` and `--ease-enter` from styles.css, for the Web Animations API. */
+const DURATION_FAST = DURATION.fast * 1000;
+const EASE_ENTER = `cubic-bezier(${EASE_OUT.join(", ")})`;
 
 const icons = {
   add: Add01Icon,
@@ -28,7 +44,18 @@ const icons = {
   unread: BubbleChatIcon,
   search: Search01Icon,
   message: BubbleChatSearchIcon,
+  reload: Refresh01Icon,
+  routines: RepeatIcon,
+  usage: ChartColumnIcon,
+  newChat: PencilEdit02Icon,
+  triage: Bug01Icon,
+  storage: HardDriveIcon,
 };
+
+function CommandKeys({ command }: { command: KeybindingCommandId }) {
+  const label = useShortcutLabel(command);
+  return label ? <ShortcutKeys shortcut={label} /> : null;
+}
 
 function Label({ command }: { command: Command }) {
   if (!command.highlight) return command.label;
@@ -45,17 +72,20 @@ function Label({ command }: { command: Command }) {
 /**
  * `searchMessages` runs only when no command, chat or project matches, so a chat's own words are the fallback.
  * `searchMessagesAsync` does the same through the host, for a window that holds no messages.
+ * When nothing matches at all, `onStartChat` offers one row that starts a new Chat with the search as its draft.
  */
 export function CommandPalette({
   commands,
   searchMessages,
   searchMessagesAsync,
+  onStartChat,
   onClose,
   onError,
 }: {
   commands: Command[];
   searchMessages?: (query: string) => Command[];
   searchMessagesAsync?: (query: string) => Promise<Command[]>;
+  onStartChat?: (query: string) => void;
   onClose: () => void;
   onError: (message: string) => void;
 }) {
@@ -67,9 +97,14 @@ export function CommandPalette({
   const executing = useRef(false);
   const animation = useRef<Animation | null>(null);
   const listId = useId();
-  const matches = filterCommands(commands, query);
+  // Read once per opening, so a command run from this palette doesn't reshuffle the list under the pointer.
+  const [recentIds] = useState(recentCommandIds);
+  const typed = query.trim().length > 0;
+  const matches = typed ? filterCommands(commands, query) : [...recentCommands(commands, recentIds), ...filterCommands(commands, query)];
+  // Settings rows found by their words don't stand in for a Chat's: messages are still searched beside them.
+  const commandMatches = matches.filter((command) => !command.searchOnly);
   const [found, setFound] = useState<{ query: string; commands: Command[] }>({ query: "", commands: [] });
-  const searchHost = !matches.length && !searchMessages && searchMessagesAsync && query.trim().length >= 2;
+  const searchHost = !commandMatches.length && !searchMessages && searchMessagesAsync && query.trim().length >= 2;
   useEffect(() => {
     if (!searchHost) return;
     let cancelled = false;
@@ -85,7 +120,22 @@ export function CommandPalette({
       clearTimeout(timer);
     };
   }, [searchHost, query, searchMessagesAsync]);
-  const results = matches.length ? matches : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
+  const messages = commandMatches.length || !typed ? [] : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
+  const searched = [...matches, ...messages];
+  // The host is still looking: nothing is offered until it answers, so the new-chat row doesn't flash in and out.
+  const searching = !commandMatches.length && !searchMessages && searchHost && found.query !== query;
+  const results: Command[] =
+    searched.length || searching || !onStartChat || !query.trim()
+      ? searched
+      : [
+          {
+            id: "start-chat-with-search",
+            label: "Start a new Chat with your search",
+            group: "New Chat",
+            icon: "newChat",
+            run: () => onStartChat(query.trim()),
+          },
+        ];
   const selected = results.find((command) => command.id === selectedId) ?? results[0];
   const selectedIndex = selected ? results.indexOf(selected) : -1;
 
@@ -99,7 +149,7 @@ export function CommandPalette({
         { opacity: 0, transform: `translate(-50%, ${reduced ? 0 : 6}px)` },
         { opacity: 1, transform: "translate(-50%, 0px)" },
       ],
-      { duration: reduced ? 60 : 120, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      { duration: reduced ? 60 : DURATION_FAST, easing: EASE_ENTER },
     );
     input.current?.focus();
     return () => {
@@ -127,11 +177,13 @@ export function CommandPalette({
         { opacity, transform },
         { opacity: 0, transform: `translate(-50%, ${reduced ? 0 : 6}px)` },
       ],
-      { duration: reduced ? 60 : 90, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" },
+      { duration: reduced ? 60 : DURATION_FAST, easing: EASE_ENTER, fill: "forwards" },
     );
     void animation.current.finished.then(
       () => {
         onClose();
+        if (command && command.id !== "start-chat-with-search" && commands.some((item) => item.id === rememberedId(command)))
+          rememberCommand(rememberedId(command));
         // Let focus restore before the action opens a new surface.
         if (command)
           window.setTimeout(() => {
@@ -150,7 +202,7 @@ export function CommandPalette({
     <dialog
       ref={dialog}
       aria-label="Command palette"
-      className="command-palette fixed m-0 flex max-h-[min(560px,80vh)] w-[min(640px,calc(100vw-32px))] flex-col overflow-hidden rounded-[12px] border border-line bg-surface p-0 text-ink shadow-overlay [-webkit-app-region:no-drag]"
+      className="command-palette fixed m-0 flex max-h-[min(560px,80vh)] w-[min(640px,calc(100vw-32px))] flex-col overflow-hidden rounded-window bg-surface p-0 text-ink shadow-overlay no-drag"
       onCancel={(event) => {
         event.preventDefault();
         close();
@@ -168,19 +220,21 @@ export function CommandPalette({
         }
         if (event.nativeEvent.isComposing) return;
         // Consume Escape before the app's stop-agent shortcut sees it.
-        if (event.key === "Escape" || ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k")) {
+        const pressed = shortcutCommand(event);
+        if (event.key === "Escape" || pressed === "commandPalette.toggle") {
           event.preventDefault();
           event.stopPropagation();
           close();
-        } else if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
-          const command = commands.find((item) => item.shortcut?.replace(/^(⌘|Ctrl\+)/, "").toLowerCase() === event.key.toLowerCase());
+        } else if (pressed) {
+          const command = commands.find((item) => item.keybinding === pressed);
           if (command) {
             event.preventDefault();
             close(command);
           }
         } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
-          if (results.length) setSelectedId(results[(selectedIndex + (event.key === "ArrowDown" ? 1 : -1) + results.length) % results.length].id);
+          const next = results[(selectedIndex + (event.key === "ArrowDown" ? 1 : -1) + results.length) % results.length];
+          if (next) setSelectedId(next.id);
         } else if (event.key === "Enter") {
           event.preventDefault();
           if (selected) close(selected);
@@ -190,12 +244,12 @@ export function CommandPalette({
         }
       }}
     >
-      <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5">
-        <HugeiconsIcon icon={Search01Icon} size={18} className="shrink-0 text-ink-3" />
+      <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
+        <Icon icon={Search01Icon} size={18} className="shrink-0 text-ink-3" />
         <input
           ref={input}
           role="combobox"
-          aria-label="Search commands, chats, projects, and messages"
+          aria-label="Search commands, Chats, Projects and messages"
           aria-autocomplete="list"
           aria-expanded="true"
           aria-controls={listId}
@@ -205,16 +259,16 @@ export function CommandPalette({
             setQuery(event.target.value);
             setSelectedId(null);
           }}
-          placeholder="Search commands, chats, and projects…"
-          className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
+          placeholder="Search commands, Chats and Projects…"
+          className="min-w-0 flex-1 bg-transparent text-15 text-ink outline-none placeholder:text-ink-3"
         />
         {showHints && <ShortcutKeys shortcut="esc" />}
       </div>
       <ScrollArea id={listId} role="listbox" aria-label="Commands" className="p-1.5">
         {Array.from(new Set(results.map((command) => command.group))).map((group) => (
           <div key={group} role="group" aria-label={group} className="pb-1.5">
-            <div aria-hidden="true" className="px-2.5 pb-1.5 pt-2.5 text-[11px] font-medium text-ink-3">
-              {group}
+            <div aria-hidden="true">
+              <MenuLabel>{group}</MenuLabel>
             </div>
             {results
               .filter((command) => command.group === group)
@@ -227,25 +281,24 @@ export function CommandPalette({
                   onPointerMove={() => setSelectedId(command.id)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => close(command)}
-                  className={`flex cursor-default items-center gap-3 rounded-[6px] px-2.5 py-2 text-[13px] ${command.id === selected?.id ? "bg-hover-2" : ""}`}
+                  // MenuRow's metrics; the highlight follows the selection (pointer or arrows), so there's no separate hover.
+                  className={`flex h-8 w-full cursor-default items-center gap-2 rounded-inline px-2 text-13 font-medium text-ink active:bg-hover-2 ${command.id === selected?.id ? "bg-hover-2" : ""}`}
                 >
-                  <HugeiconsIcon icon={icons[command.icon]} size={17} strokeWidth={1.8} className="shrink-0 text-ink-3" />
+                  <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
+                    <Icon icon={icons[command.icon]} size={16} />
+                  </span>
                   <span className="min-w-0 flex-1 truncate">
                     <Label command={command} />
                   </span>
-                  {command.detail && <span className="max-w-[45%] truncate text-[11px] text-ink-3">{command.detail}</span>}
-                  {showHints && command.shortcut && <ShortcutKeys shortcut={command.shortcut} />}
+                  {command.detail && <span className="max-w-[45%] truncate text-11 text-ink-3">{command.detail}</span>}
+                  {showHints && command.keybinding && <CommandKeys command={command.keybinding} />}
                 </div>
               ))}
           </div>
         ))}
-        {!results.length && (
-          <div role="status" className="px-4 py-10 text-center text-[13px] text-ink-3">
-            No results for “{query}”
-          </div>
-        )}
+        {!results.length && !searching && <EmptyState size="compact" title={`No results for “${query}”`} />}
       </ScrollArea>
-      <div className={`flex shrink-0 gap-4 border-t border-line px-4 py-2.5 text-[11px] text-ink-3 ${showHints ? "" : "invisible"}`}>
+      <div className={`flex shrink-0 gap-4 border-t border-line px-4 py-2 text-11 text-ink-3 ${showHints ? "" : "invisible"}`}>
         <span className="inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="↑↓" plain /> : "↑ ↓"}Navigate</span>
         <span className="inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="↵" plain /> : "↵"}Run</span>
         <span className="ml-auto inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="esc" plain /> : "esc"}Close</span>

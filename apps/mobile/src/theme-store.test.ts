@@ -7,6 +7,12 @@ const customTheme = {
   dark: { background: "#1d1430", text: "#efe6ff", accent: "#e85d9a" },
 };
 
+test("provider icons default to original and retain a valid simplified choice", () => {
+  assert.equal(parsePhoneThemeSettings(null).providerIcons, "original");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ providerIcons: "simplified" })).providerIcons, "simplified");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ providerIcons: "unknown" })).providerIcons, "original");
+});
+
 test("nothing saved means Milagre Blue following the system", () => {
   assert.deepEqual(parsePhoneThemeSettings(null), DEFAULT_PHONE_THEME);
   assert.equal(DEFAULT_PHONE_THEME.colorTheme, "milagre-blue");
@@ -51,4 +57,64 @@ test("custom with an empty customTheme loads Milagre Blue", () => {
   const settings = parsePhoneThemeSettings(JSON.stringify({ colorTheme: "custom", customThemeEnabled: true, customTheme: {} }));
   assert.equal(settings.colorTheme, "milagre-blue");
   assert.equal(settings.customTheme, null);
+});
+
+test("old saved settings parse to the appearance defaults and bad values fall back", () => {
+  const old = parsePhoneThemeSettings(JSON.stringify({ colorTheme: "nord", mode: "dark" }));
+  assert.equal(old.textSize, "default");
+  assert.equal(old.codeSize, "default");
+  assert.equal(old.diffColors, "red-green");
+  assert.equal(old.motion, "normal");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ textSize: "huge" })).textSize, "default");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ codeSize: "larger" })).codeSize, "default");
+  const set = parsePhoneThemeSettings(JSON.stringify({ textSize: "larger", codeSize: "small", diffColors: "blue-orange", motion: "off" }));
+  assert.deepEqual([set.textSize, set.codeSize, set.diffColors, set.motion], ["larger", "small", "blue-orange", "off"]);
+});
+
+test("startup changes merge with saved appearance instead of overwriting it with defaults", async () => {
+  let finishRead!: (value: string) => void;
+  let stored = JSON.stringify({ colorTheme: "nord", mode: "dark", textSize: "larger" });
+  const ready = initThemeStore({
+    read: () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+    save: async (raw) => void (stored = raw),
+  });
+  setThemeSettings({ mode: "light" });
+  finishRead(stored);
+  await ready;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(getThemeSettings().mode, "light");
+  assert.equal(getThemeSettings().colorTheme, "nord");
+  assert.equal(JSON.parse(stored).textSize, "larger");
+  await initThemeStore({ read: async () => stored, save: async (raw) => void (stored = raw) });
+  assert.equal(getThemeSettings().mode, "light");
+  assert.equal(getThemeSettings().colorTheme, "nord");
+});
+
+test("rapid theme writes finish in order and survive reinitialization", async () => {
+  let stored: string | null = null;
+  let release!: () => void;
+  const firstWrite = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let writes = 0;
+  const io = {
+    read: async () => stored,
+    save: async (raw: string) => {
+      if (++writes === 1) await firstWrite;
+      stored = raw;
+    },
+  };
+  await initThemeStore(io);
+  setThemeSettings({ colorTheme: "nord" });
+  setThemeSettings({ colorTheme: "dracula", mode: "dark" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(writes, 1);
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await initThemeStore(io);
+  assert.equal(getThemeSettings().colorTheme, "dracula");
+  assert.equal(getThemeSettings().mode, "dark");
 });

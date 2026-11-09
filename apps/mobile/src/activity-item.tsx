@@ -3,11 +3,14 @@ import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-nat
 import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { titleSpans } from "@milagre/shared/reply-parts";
 import { Icon, type IconData } from "./icons";
-import { ShimmerText } from "./running-logo";
+import { ShimmerText, useShimmerReducedMotion } from "./running-logo";
+import { useScreenActive } from "./display-clock";
 import { fonts, useTheme } from "./theme";
-import { PageScroll, useStyles } from "./ui";
+import { PageScroll, pressStyle, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 
 type ActivityState = "idle" | "running" | "waiting" | "failed";
+const TITLE_LINE = lineHeight.subheadline;
 
 /** Activity titles share code chips and the running shimmer, including reduced-motion handling. */
 export function ActivityTitle({
@@ -22,26 +25,36 @@ export function ActivityTitle({
   style?: TextStyle;
 }) {
   const { colors } = useTheme();
-  const style = styleProp ?? { color: colors.ink2, fontSize: 14 };
-  const spans = titleSpans(title).map((span, index) =>
-    span.code ? (
-      <Text
-        key={index}
-        style={{ fontFamily: fonts.mono, fontSize: (style.fontSize || 14) * 0.92, backgroundColor: shimmer ? undefined : colors.field, color: colors.ink }}
-      >
-        {span.text}
-      </Text>
-    ) : (
-      span.text
-    ),
-  );
-  return shimmer ? (
-    <ShimmerText style={style} numberOfLines={numberOfLines}>
-      {spans}
+  const active = useScreenActive();
+  const reduced = useShimmerReducedMotion(active && shimmer);
+  const sweeping = shimmer && active && !reduced;
+  const style = styleProp ?? { color: colors.ink2, fontSize: type.subheadline, lineHeight: TITLE_LINE };
+  const spans = (moving: boolean) =>
+    titleSpans(title).map((span, index) =>
+      span.code ? (
+        <Text
+          key={index}
+          style={{
+            fontFamily: fonts.mono,
+            // Inline code a step under the 15 title, as desktop's 0.92em.
+            fontSize: type.footnote,
+            backgroundColor: moving ? undefined : colors.field,
+            color: shimmer ? colors.ink3 : colors.ink,
+          }}
+        >
+          {span.text}
+        </Text>
+      ) : (
+        span.text
+      ),
+    );
+  return sweeping ? (
+    <ShimmerText settledChildren={spans(false)} style={style} numberOfLines={numberOfLines}>
+      {spans(true)}
     </ShimmerText>
   ) : (
-    <Text selectable numberOfLines={numberOfLines} style={style}>
-      {spans}
+    <Text selectable numberOfLines={numberOfLines} style={[style, shimmer && { color: colors.ink3 }]}>
+      {spans(false)}
     </Text>
   );
 }
@@ -50,6 +63,10 @@ export function ActivityTitle({
 export function ActivityItem({
   title,
   icon,
+  leading,
+  summary,
+  duration,
+  error,
   state = "idle",
   status,
   note,
@@ -57,9 +74,14 @@ export function ActivityItem({
   loading = false,
   onPress,
   disclosureOnly = false,
+  expanded: expandedByDefault = false,
 }: {
   title: string;
   icon: IconData;
+  leading?: ReactNode;
+  summary?: string;
+  duration?: string;
+  error?: string;
   state?: ActivityState;
   status?: string;
   note?: string;
@@ -67,34 +89,58 @@ export function ActivityItem({
   loading?: boolean;
   onPress?: () => void;
   disclosureOnly?: boolean;
+  /** Open until the row is tapped; follows changes until then. */
+  expanded?: boolean;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const [expanded, setExpanded] = useState(false);
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const expanded = toggled ?? expandedByDefault;
   const expandable = !onPress && (children != null || loading);
   const failed = state === "failed";
   const stateLabel = status || (failed ? "Failed" : state === "waiting" ? "Waiting for approval" : state === "running" ? "Running" : "");
   const label = [title.replace(/`/g, ""), stateLabel, note].filter(Boolean).join(", ");
-  const action = () => (onPress ? onPress() : setExpanded((value) => !value));
+  const action = () => (onPress ? onPress() : setToggled(!expanded));
   const accessibilityState = expandable ? { expanded } : undefined;
-  const headerStyle: ViewStyle = { minHeight: 36, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 10 };
+  const headerStyle: ViewStyle = { minHeight: 44, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 12 };
+  // The icon sits in a box one title line tall, so it centers on the first line whether the title wraps or not.
   const heading = (
-    <>
-      <Icon icon={failed ? Alert02Icon : icon} tone={failed ? "red" : state === "idle" ? "ink3" : "ink2"} size={16} />
+    <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+      <View style={{ height: TITLE_LINE, justifyContent: "center" }}>
+        {leading ?? <Icon icon={failed ? Alert02Icon : icon} tone={failed ? "red" : "ink2"} size={16} />}
+      </View>
       <View style={{ flex: 1, gap: 2 }}>
         <ActivityTitle
           title={title}
           shimmer={state === "running"}
           numberOfLines={disclosureOnly && expanded ? 0 : 1}
-          style={{ color: failed ? colors.red : colors.ink2, fontSize: 14 }}
+          style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: TITLE_LINE }}
         />
         {!!note && <Text style={styles.label}>{note}</Text>}
       </View>
-    </>
+    </View>
   );
   const trailing = (
     <>
-      {!!status && <Text style={{ color: failed ? colors.red : state === "waiting" ? colors.orange : colors.ink3, fontSize: 12 }}>{status}</Text>}
+      {!!summary && (
+        <Text
+          numberOfLines={1}
+          style={{ maxWidth: 120, flexShrink: 1, color: failed ? colors.redInk : colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}
+        >
+          {summary}
+        </Text>
+      )}
+      {!!status && (
+        <Text
+          style={{
+            color: failed ? colors.redInk : state === "waiting" ? colors.orangeInk : colors.ink3,
+            fontSize: type.caption1,
+            lineHeight: lineHeight.caption1,
+          }}
+        >
+          {status}
+        </Text>
+      )}
       {(onPress || expandable) &&
         (onPress ? (
           <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
@@ -103,6 +149,9 @@ export function ActivityItem({
             <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
           </View>
         ))}
+      {!!duration && (
+        <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontVariant: ["tabular-nums"] }}>{duration}</Text>
+      )}
     </>
   );
   return (
@@ -117,16 +166,18 @@ export function ActivityItem({
             disabled={!expandable}
             onPress={action}
             hitSlop={4}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              gap: 4,
-              paddingLeft: 4,
-              minWidth: 44,
-              minHeight: 36,
-              alignItems: "center",
-              justifyContent: "flex-end",
-              opacity: pressed ? 0.5 : 1,
-            })}
+            style={({ pressed }) => [
+              {
+                flexDirection: "row",
+                gap: 4,
+                paddingLeft: 4,
+                minWidth: 44,
+                minHeight: 36,
+                alignItems: "center",
+                justifyContent: "flex-end",
+              },
+              pressStyle({ pressed }),
+            ]}
           >
             {trailing}
           </Pressable>
@@ -138,16 +189,35 @@ export function ActivityItem({
           accessibilityState={accessibilityState}
           disabled={!onPress && !expandable}
           onPress={action}
-          style={({ pressed }) => [headerStyle, { opacity: pressed ? 0.5 : 1 }]}
+          style={({ pressed }) => [headerStyle, pressStyle({ pressed })]}
         >
           {heading}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>{trailing}</View>
         </Pressable>
       )}
+      {!!error && (
+        <Text
+          selectable
+          style={[
+            styles.code,
+            {
+              marginLeft: 28,
+              paddingLeft: 8,
+              borderLeftWidth: 2,
+              borderLeftColor: colors.red,
+              color: colors.ink2,
+              fontSize: type.caption1,
+              lineHeight: lineHeight.caption1,
+            },
+          ]}
+        >
+          {error}
+        </Text>
+      )}
       {!onPress && expanded && expandable && (
         <PageScroll
           nestedScrollEnabled
-          style={{ maxHeight: 320, backgroundColor: colors.field, borderRadius: 12, marginBottom: 8 }}
+          style={{ maxHeight: 320, backgroundColor: colors.field, borderRadius: radius.control, borderCurve: "continuous", marginBottom: 8 }}
           contentContainerStyle={{ padding: 12, paddingBottom: 12, gap: 8 }}
         >
           {children ?? <Text style={styles.muted}>Loading output…</Text>}

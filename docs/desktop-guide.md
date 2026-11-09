@@ -14,6 +14,30 @@ Type `@` to find tracked and untracked, non-ignored files in the chat's worktree
 
 Restart Electron after updating to register the media protocol and file-search IPC. Run `npm test -- --only chat-attachments` for the Chromium integration checks, including video playback, attachment delivery and file selection without calling an agent.
 
+## Project Git branches
+
+**Settings > Project > Branches** on desktop and phone controls naming, the default base branch and upstream tracking for new Worktrees. A branch deliberately selected for one Chat overrides the Project default; remembered choices do not. Tracking is off by default (`--no-track`), so the first push sets the new branch's own upstream.
+
+Use a template such as `{username}-{ticket?}-{slug}` with your username and **Dashes only** to produce `developer-demo-123-fix-login`. Tickets come from a linked Linear issue or one unambiguous uppercase issue key in the prompt, such as `DEMO-123`. `{ticket}` requires a ticket; `{ticket?}` omits a missing ticket and its preceding dash or slash. `{slug}` is the task's short name and `{suffix}` is Milagre's unique suffix. A collision with a local or origin branch adds the suffix, or fails if that is also taken. Dashes only restricts new names, so a base such as `release/example-app/v2` remains valid.
+
+Personal values live in Milagre's Project settings on the Computer that owns the Project. To share conventions, add a `git` object to the main checkout's `.milagre/worktree.json` (alongside any existing `setup`):
+
+```json
+{
+  "git": {
+    "template": "{username}-{ticket?}-{slug}",
+    "dashesOnly": true,
+    "baseBranch": "release/example-app/v2",
+    "trackBase": false,
+    "instructions": "Use a short verb. Create branches with --no-track."
+  }
+}
+```
+
+Repository fields win over personal settings; the form identifies them and keeps them read-only. Set your own `username` in Project settings. **Reset to defaults** clears personal values without editing the repository. A missing configured base or invalid policy stops Worktree creation instead of silently choosing another branch. **Track the base branch** explicitly makes the selected base the upstream; pull and push then follow Git's upstream rules.
+
+These rules apply to ordinary Chats, issue-started Chats, Named Link members, Delegations, Routines and Bots. Automatic naming uses the policy captured when creation starts, keeps the folder stable and leaves pushed branches alone. Branch instructions also reach the agent each turn, so they can guide branches the agent creates or renames directly. Existing branches are not renamed when settings change. Without an explicit template, valid Linear branch suggestions retain their names.
+
 ## Notifications
 
 Milagre can notify when a turn completes or fails while its chat is not focused, with a preview of the result. Clicking the notification opens that chat, including switching projects through the usual confirmation flow. The focused chat stays quiet; cancelled turns do not send completion alerts. A turn that ends while a subagent the chat runs in the background is still at work is not announced either: the turn that subagent's result wakes is, once nothing runs in the background. The same rule applies to the phone's push notifications.
@@ -42,9 +66,11 @@ The menu refreshes when reopened and when switching worktrees. Skill names and d
 
 - **Ask approval**: the agent stops before a file edit or command it isn't already allowed to run, and shows the exact command or change. Claude asks before edits and before commands outside its allow rules; Codex asks before any command it doesn't already trust.
 - **Auto**: file edits inside the workspace go ahead. Claude still asks before commands outside its allow rules; Codex works inside its workspace sandbox and asks only to go beyond it.
-- **Full**: no approvals, and Codex runs without its sandbox. Use only when you trust the prompt and the workspace.
+- **Full**: no agent tool approvals, and Codex runs without its sandbox. Use only when you trust the prompt and the workspace.
 
 Escape denies an open approval card and dismisses an open question card. "Always allow in this chat" lasts while the chat's agent stays open, which ends after 10 idle minutes or when Milagre quits, and never changes your Claude or Codex settings files.
+
+Setup commands from a Project's `.milagre/worktree.json` require a separate review before the first agent turn in each new Worktree, including Named Link members and Full permission mode. Desktop and phone show the full command, source file, Project, target folder and Computer. **Run once** approves that Worktree; **Trust this version** remembers the exact command for that Project on that Computer; **Skip setup** continues the Chat without running it. Changing the command requires another review. Pending setup survives a host restart, and a setup interrupted by a crash requires review before retrying.
 
 Question cards appear in every mode, Full included. A message you send while a question is open dismisses it and reaches the agent as your reply. Codex asks with a card through a Codex feature that is still under development; without it, Codex asks in its reply.
 

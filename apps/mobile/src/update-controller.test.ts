@@ -3,6 +3,65 @@ import { test } from "node:test";
 import { createUpdateController, watchUpdates, type NativeUpdateState } from "./update-controller.ts";
 
 const idle: NativeUpdateState = { isStartupProcedureRunning: false, isChecking: false, isDownloading: false, isUpdatePending: false };
+
+test("ready updates keep polling, skip the same ID, and replace stale native pending state with the latest download", async () => {
+  let id = "first",
+    downloads = 0;
+  const manifest = () => ({ id, extra: { expoClient: { extra: { releaseNotes: `Notes for ${id}` } } } });
+  const download = deferred<{ isNew: boolean; isRollBackToEmbedded: boolean; manifest: unknown }>();
+  const controller = createUpdateController({
+    enabled: true,
+    check: async () => ({ isAvailable: true, isRollBackToEmbedded: false, manifest: manifest() }),
+    fetch: async () => {
+      downloads++;
+      return download.promise;
+    },
+    reload: async () => {},
+  });
+  const native = { ...idle, isUpdatePending: true, downloadedUpdate: { updateId: id, manifest: manifest() } };
+  controller.syncNative(native);
+  await controller.check(true);
+  assert.equal(downloads, 0);
+  id = "second";
+  const checking = controller.check(true);
+  await Promise.resolve();
+  assert.equal(controller.get().status, "downloading");
+  controller.syncNative(native);
+  assert.equal(controller.get().status, "downloading");
+  download.resolve({ isNew: true, isRollBackToEmbedded: false, manifest: manifest() });
+  await checking;
+  controller.syncNative(native);
+  assert.equal(downloads, 1);
+  assert.equal(controller.get().updateId, "second");
+  assert.equal(controller.get().releaseNotes, "Notes for second");
+  assert.equal(controller.get().status, "ready");
+});
+
+test("an offline check or no newer release keeps a pending update ready", async () => {
+  const { controller, failCheck, available } = setup();
+  await controller.check();
+  failCheck(true);
+  await controller.check(true);
+  assert.equal(controller.get().status, "ready");
+  failCheck(false);
+  available(false);
+  await controller.check(true);
+  assert.equal(controller.get().status, "ready");
+});
+
+test("a failed replacement is retryable and an old native pending flag cannot offer the stale update", async () => {
+  const { controller, failDownload, setNative, counts } = setup();
+  setNative({ isUpdatePending: true, downloadedUpdate: { updateId: "old" } });
+  failDownload(true);
+  await controller.check(true);
+  controller.syncNative();
+  assert.equal(controller.get().status, "error");
+  await controller.install();
+  assert.equal(counts().reloads, 0);
+  failDownload(false);
+  await controller.check(true);
+  assert.equal(controller.get().status, "ready");
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((yes) => {
@@ -65,7 +124,7 @@ test("downloads an update while the app stays open and reloads only on request",
   assert.equal(controller.get().status, "ready");
   assert.deepEqual(counts(), { checks: 1, downloads: 1, reloads: 0 });
   await controller.check(true);
-  assert.equal(counts().checks, 1, "a pending update must not be replaced by polling");
+  assert.equal(counts().checks, 2, "a pending update must still check for newer releases");
   await controller.install();
   assert.equal(counts().reloads, 1);
   assert.equal(controller.get().status, "restarting");
@@ -168,9 +227,9 @@ test("a late check cannot hide or replace an update already being applied", asyn
   });
   const pending = controller.check();
   controller.syncNative({ ...idle, isUpdatePending: true });
-  await controller.install();
+  const installing = controller.install();
   checking.resolve({ isAvailable: false, isRollBackToEmbedded: false });
-  await pending;
+  await Promise.all([pending, installing]);
   assert.equal(controller.get().status, "restarting");
 });
 

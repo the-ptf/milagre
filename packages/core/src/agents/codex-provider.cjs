@@ -1,16 +1,17 @@
 const { isDeepStrictEqual } = require("node:util");
+const { readMcpExtras } = require("../mcp/extras.cjs");
 const { active: activeSubagent, settleSubagents } = require("./subagents.cjs");
 const fs = require("node:fs/promises");
-const { createHash } = require("node:crypto");
-const { decodeImages } = require("../image-input.cjs");
+const { saveToolImage } = require("./tool-image.cjs");
 const { mkdirSync, writeFileSync } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { CodexRpc } = require("./codex-rpc.cjs");
+const { toCodexConfig } = require("../mcp/definitions.cjs");
 const { CODEX_FAST_TIER } = require("./models.cjs");
-const { advisorPolicy, advisorCodexConfig, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
+const { advisorPolicy, advisorCodexConfig } = require("./advisor-policy.cjs");
 const {
-  milagreInstructions,
+  sessionInstructions,
   RESUME_FAILED_MESSAGE,
   crashMessage,
   failedWith,
@@ -26,26 +27,40 @@ const {
   codexFileRequest,
   codexMcpRequest,
   codexMcpResponse,
-  insideRoot,
-  insideWorkspace,
+  isCodexPlanToolApproval,
+  WorkspaceAccess,
 } = require("./permissions.cjs");
 const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = require("./questions.cjs");
+const { babysitDenial } = require("../babysit-guard.cjs");
+const { codexMcpCall, turnGuards } = require("../escalation-guard.cjs");
+const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
 // It is set per thread, where an unknown feature is ignored; `--enable` would refuse to start instead.
-const THREAD_CONFIG = { features: { default_mode_request_user_input: true } };
+// Async questions are emitted as agent messages, with no pending RPC to answer. Keep the supported question
+// tool exposed instead: it waits on item/tool/requestUserInput and both clients can answer its native card.
+const THREAD_CONFIG = { features: { default_mode_request_user_input: true, send_message_to_user_async: false } };
 
 // Milagre permission mode -> Codex policy. Ask asks before any command Codex doesn't already trust,
-// Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks.
-function codexPolicy(permissionMode, cwd, workspaceRoots = []) {
-  if (permissionMode === "full") return { approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
+// Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks. Bot rules asks
+// like Ask, so every untrusted command reaches the bot's policy (under on-request a sandboxed
+// `gh pr merge` would run unasked), with network on because a bot's work needs it.
+// A babysit Run's turn (`guarded`) must show Milagre every command its level might refuse. Full keeps its sandbox but
+// asks about untrusted commands, which Milagre then allows itself (PendingPermissions); Ask already asks, and Auto's
+// sandbox has no network, so a push or a GitHub write can only run once Codex asks to leave it.
+// A wake's turn (`readOnly`) runs on Codex's strictest policy whatever the Chat's mode: its sandbox writes nothing and
+// reaches no network, and everything Codex doesn't trust as a read asks, which the turn then refuses (EscalationTurn).
+function codexPolicy(permissionMode, cwd, workspaceRoots = [], { guarded = false, readOnly = false } = {}) {
+  if (readOnly) return { approvalPolicy: "untrusted", sandbox: "read-only", sandboxPolicy: { type: "readOnly", networkAccess: false } };
+  if (permissionMode === "full")
+    return { approvalPolicy: guarded ? "untrusted" : "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
   return {
     approvalPolicy: permissionMode === "auto" ? "on-request" : "untrusted",
     sandbox: "workspace-write",
     sandboxPolicy: {
       type: "workspaceWrite",
       writableRoots: [...new Set([cwd, ...workspaceRoots])],
-      networkAccess: false,
+      networkAccess: permissionMode === "bot",
       excludeTmpdirEnvVar: false,
       excludeSlashTmp: false,
     },
@@ -76,8 +91,13 @@ function saveGeneratedImage(item, directory = path.join(os.tmpdir(), "milagre-ge
   }
 }
 
-// Tool image blocks are separate visible steps; their base64 never bloats the saved transcript.
+// Tool image blocks are separate visible steps; their base64 never bloats the saved transcript. Milagre's design
+// renders and HTML previews are for the agent to inspect, not separate images to publish in the conversation.
+// Codex preserves this MCP provenance for nested calls from functions.exec too (their IDs start with "exec-").
+const isInternalRender = (item) =>
+  item?.type === "mcpToolCall" && item.server === "milagre" && ["design_show", "design_apply", "html_preview"].includes(item.tool);
 function toolImageEvents(item) {
+  if (isInternalRender(item)) return [];
   if (!["mcpToolCall", "dynamicToolCall"].includes(item?.type) || item.status !== "completed" || item.success === false || item.error) return [];
   const content = item.type === "mcpToolCall" ? item.result?.content : item.contentItems;
   if (!Array.isArray(content)) return [];
@@ -86,12 +106,7 @@ function toolImageEvents(item) {
     if (!["image", "inputImage"].includes(block?.type)) continue;
     try {
       const dataUrl = block.data ? `data:${block.mimeType};base64,${block.data}` : block.imageUrl || block.image_url;
-      const [{ bytes, mime }] = decodeImages([{ dataUrl }]);
-      const hash = createHash("sha256").update(bytes).digest("hex");
-      const directory = path.join(os.tmpdir(), "milagre-generated-images");
-      mkdirSync(directory, { recursive: true });
-      const file = path.join(directory, `${hash}.${mime === "image/jpeg" ? "jpg" : mime.slice(6)}`);
-      writeFileSync(file, bytes, { mode: 0o600 });
+      const file = saveToolImage(dataUrl);
       const id = `${item.id}:image:${index}`;
       events.push({ type: "step-started", step: { id, kind: "image", title: "Image from tool", file } }, { type: "step-completed", id, status: "done", file });
     } catch {
@@ -101,13 +116,17 @@ function toolImageEvents(item) {
   return events;
 }
 
-const turnInput = (prompt, files) => [
-  { type: "text", text: prompt, text_elements: [] },
-  ...(files?.paths ?? []).map((file) => ({ type: "localImage", path: file })),
-];
+const turnInput = (prompt, files) =>
+  promptImageBlocks(prompt, files?.paths ?? []).map((block) =>
+    block.type === "text" ? { type: "text", text: block.text, text_elements: [] } : { type: "localImage", path: block.image },
+  );
 
 // account/read answers in well under a second; a Codex that doesn't is not held up for the default RPC timeout.
 const ACCOUNT_TIMEOUT_MS = 8000;
+// The items that are tool calls, for what a wake's turn may spend.
+const TOOL_ITEMS = new Set(["commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall"]);
+// thread/start and thread/resume wait for Codex however long it takes (see requestThread).
+const THREAD_TIMEOUT_MS = null;
 
 const sessionClosedError = () => Object.assign(new Error("The agent session closed before this message was sent."), { sessionClosed: true });
 
@@ -133,13 +152,20 @@ class CodexSession {
     env,
     emit,
     workspaceRoots,
+    readOnlyRoots,
+    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
+    access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
-    designsEnabled = true,
+    sharedLink = false,
     analysisOnly = false,
+    executionAdvisor = false,
     linked = null,
+    mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
     createRpc = (options) => new CodexRpc(options),
   }) {
     Object.assign(this, {
@@ -148,14 +174,17 @@ class CodexSession {
       command,
       env,
       emit,
-      workspaceRoots,
+      access,
       workspaceInstructions,
       tldrEnabled,
-      designsEnabled,
+      sharedLink,
       analysisOnly,
+      executionAdvisor,
       linked,
+      mcpExtras,
       clientVersion,
       interruptGraceMs,
+      permissionPolicy,
       createRpc,
     });
     // steps: ids of the tool steps started in this turn and not yet completed.
@@ -171,10 +200,15 @@ class CodexSession {
     this.turnEnded = Promise.resolve();
     this.ready = false;
     this.closed = false;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
     // fileChange items by id, from item/started: their approval requests carry no diff of their own.
     this.fileChanges = new Map();
+    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
+    // item id ({ command, reason }), so their steps say why. A wake's EscalationTurn while its turn runs.
+    this.guard = null;
+    this.escalation = null;
+    this.refused = new Map();
   }
 
   get nativeId() {
@@ -195,7 +229,11 @@ class CodexSession {
     }
     this.turnActive = true;
     this.cancelRequested = false;
-    Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false });
+    Object.assign(
+      this,
+      turnGuards(request.guard, () => void this.interrupt()),
+    );
+    Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false, asyncMessages: new Set() });
     let markReady;
     this.turnReady = new Promise((resolve) => {
       markReady = resolve;
@@ -210,8 +248,12 @@ class CodexSession {
     }
   }
 
-  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false }) {
-    const policy = this.analysisOnly ? advisorPolicy("codex", this.linked?.tools ?? []) : codexPolicy(permissionMode, this.cwd, this.workspaceRoots);
+  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false, canStart }) {
+    const policy = this.analysisOnly
+      ? advisorPolicy("codex", this.linked?.tools ?? [])
+      : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard), readOnly: Boolean(this.escalation) });
+    // The turn's sandbox writes to every owned root; one made during the turn reaches it through approvals.
+    this.access.learned();
     this.permissions.setMode(permissionMode);
     try {
       this.starting ??= this.start(model, policy);
@@ -222,6 +264,10 @@ class CodexSession {
       }
       const files = images.length ? await writeImages(images) : null;
       if (files) this.imageSets.push(files);
+      if (canStart && !canStart()) {
+        await this.finishTurn([]);
+        return { turnId: null, steered: false, cancelled: true };
+      }
       const { turn } = await this.rpc.request(
         "turn/start",
         {
@@ -281,6 +327,9 @@ class CodexSession {
       return this.startTurn(request);
     }
     if (request.permissionMode) this.setPermissionMode(request.permissionMode);
+    // A message steered into a babysit Run doesn't lift its guard. A babysit Run itself never steers into a running turn:
+    // its delivery waits while the Chat is busy, so it always starts a turn of its own with the guarded policy.
+    if (request.guard) this.guard = request.guard;
     const turnId = this.state.turnId;
     // An open question waits for its answer; the message is the user's reply, so the question is dismissed.
     this.questions.dismissAll();
@@ -315,22 +364,30 @@ class CodexSession {
     // A constrained session must discover and disable every inherited server. Failure cannot fall back
     // to the ordinary Chat policy because that would expose the user's external tools to an advisor.
     const inherited = this.analysisOnly ? (await rpc.request("config/read", { cwd: this.cwd })).config : null;
-    const config = this.analysisOnly
+    // Settings › MCP: Everywhere servers join the thread, and servers switched off for this account are disabled.
+    const extras = !this.analysisOnly && this.mcpExtras ? await readMcpExtras(this) : null;
+    const extraServers = {
+      ...Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toCodexConfig(def)])),
+      // Merged into the user's own definition by Codex (Task 1, probe step 4).
+      ...Object.fromEntries((extras?.off ?? []).map((name) => [name, { enabled: false }])),
+    };
+    // The names a retry may drop: off servers are not in this list (they are only kept off), so Everywhere servers
+    // never share a name with an off entry.
+    this.everywhereNames = new Set((extras?.servers ?? []).map((def) => def.name));
+    const servers = { ...extraServers, ...(url ? { milagre: { url, tool_timeout_sec: 86400 } } : {}) };
+    let config = this.analysisOnly
       ? advisorCodexConfig(inherited, url)
-      : url
-        ? { ...THREAD_CONFIG, mcp_servers: { milagre: { url, tool_timeout_sec: 86400 } } }
+      : Object.keys(servers).length
+        ? { ...THREAD_CONFIG, mcp_servers: servers }
         : THREAD_CONFIG;
+    if (this.executionAdvisor)
+      config = { ...config, features: { ...config.features, default_mode_request_user_input: false, multi_agent: false, multi_agent_v2: false } };
     const threadParams = {
       cwd: this.cwd,
       model,
       approvalPolicy: policy.approvalPolicy,
       sandbox: policy.sandbox,
-      developerInstructions: [
-        milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled),
-        this.analysisOnly ? ANALYSIS_INSTRUCTIONS : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
+      developerInstructions: sessionInstructions(this),
       ...(this.analysisOnly ? { environments: [] } : {}),
       config,
     };
@@ -353,17 +410,28 @@ class CodexSession {
   }
 
   // Codex ignores a feature it doesn't know, but a Codex that rejects `config` outright would leave the
-  // chat unusable. On an RPC error the call is tried again with less: first without the linked tools' MCP
-  // server (the Chat then only receives Delegations), then without any config (no question tool either).
+  // chat unusable. On an RPC error the call is tried again with less: without the Everywhere servers (the
+  // switched-off entries and the linked tools stay), then with only the linked tools' MCP server, then without
+  // any MCP server (the Chat then only receives Delegations), then without any config (no question tool either).
+  // Neither call has a time limit, as in T3 Code and Paseo: Codex answers only after watching every skill folder,
+  // which a busy fseventsd stretched past a minute. A Codex that exits fails the call, and Stop kills a stuck start.
   async requestThread(method, params) {
-    if (this.analysisOnly) return this.rpc.request(method, params, { timeoutMs: 60_000 });
-    const { mcp_servers: linkedServer, ...rest } = params.config ?? {};
+    if (this.analysisOnly || this.executionAdvisor) return this.rpc.request(method, params, { timeoutMs: THREAD_TIMEOUT_MS });
+    const { mcp_servers: servers, ...rest } = params.config ?? {};
     const { config: _config, ...bare } = params;
-    const attempts = [params, ...(linkedServer ? [{ ...params, config: rest }] : []), ...(params.config ? [bare] : [])];
+    const withServers = (map) => ({ ...params, config: map && Object.keys(map).length ? { ...rest, mcp_servers: map } : rest });
+    const everywhere = this.everywhereNames ?? new Set();
+    const withoutEverywhere = Object.fromEntries(Object.entries(servers ?? {}).filter(([name]) => !everywhere.has(name)));
+    const stages = [
+      params,
+      ...(servers ? [withServers(withoutEverywhere), withServers(servers.milagre ? { milagre: servers.milagre } : null), withServers(null)] : []),
+      ...(params.config ? [bare] : []),
+    ];
+    const attempts = stages.filter((attempt, index) => stages.findIndex((other) => isDeepStrictEqual(other, attempt)) === index);
     for (const [index, attempt] of attempts.entries()) {
       try {
-        const result = await this.rpc.request(method, attempt, { timeoutMs: 60_000 });
-        if (linkedServer) this.linked?.toolsAvailable(index === 0);
+        const result = await this.rpc.request(method, attempt, { timeoutMs: THREAD_TIMEOUT_MS });
+        if (servers?.milagre) this.linked?.toolsAvailable(Boolean(attempt.config?.mcp_servers?.milagre));
         return result;
       } catch (error) {
         if (!error.rpcError || index === attempts.length - 1) throw error;
@@ -390,6 +458,7 @@ class CodexSession {
 
   handleNotification(method, params) {
     if (method === "item/started" && params.item?.type === "fileChange") this.fileChanges.set(params.item.id, params.item.changes ?? []);
+    if (method === "item/started" && TOOL_ITEMS.has(params.item?.type) && params.threadId === this.state.threadId) this.escalation?.called();
     if (method === "serverRequest/resolved") {
       this.permissions.forget(String(params.requestId));
       this.questions.forget(String(params.requestId));
@@ -398,11 +467,13 @@ class CodexSession {
     if (method === "turn/started" && !this.turnActive && !this.state.subagents?.has(params.threadId)) return;
     if (method === "turn/started" && params.threadId === this.state.threadId) this.state.turnId ??= params.turn?.id ?? null;
     if (method === "item/completed" && params.item?.type === "imageGeneration") params = { ...params, item: saveGeneratedImage(params.item) };
-    const events = mapCodexNotification(method, params, this.state);
+    const events = mapCodexNotification(method, params, this.state).map((event) => this.withRefusal(event));
     // The mapper filters other threads and stale turns before any image is surfaced here.
     if (method === "item/completed" && events.some((event) => event.type === "step-completed" && event.id === String(params.item?.id)))
       events.push(...toolImageEvents(params.item));
-    if (events.some((event) => event.type === "subagent-update")) this.scheduleSubagents();
+    // A message to a finished child changes nothing yet, but marks it for a recheck (subagents.cjs): poll it too.
+    const recheck = [...(this.state.subagentRecheckUntil?.values() ?? [])].some((until) => until > Date.now());
+    if (recheck || events.some((event) => event.type === "subagent-update")) this.scheduleSubagents();
     if (!events.some(isTerminal)) {
       events.forEach((event) => this.emit(event));
       return;
@@ -412,6 +483,14 @@ class CodexSession {
     // An app-server that answered 401 holds the old credentials; the next message starts a fresh one.
     if (loggedOut) void finished.then(() => this.close());
     else void finished;
+  }
+
+  // A command a babysit Run's level refused ends as a step that says why, rather than "Declined.".
+  withRefusal(event) {
+    const refused = event.type === "step-completed" ? this.refused.get(event.id) : undefined;
+    if (!refused) return event;
+    this.refused.delete(event.id);
+    return { ...event, detail: `$ ${refused.command}\n${refused.reason}` };
   }
 
   // Native children need not be subscribed on the parent's connection. Read their history
@@ -444,7 +523,7 @@ class CodexSession {
       },
       { timeoutMs: 5000 },
     );
-    if (!previous?.cursor) return { ...thread, turns: [...newest.data].reverse(), cursor: newest.backwardsCursor };
+    if (!previous?.cursor) return { ...thread, turns: newest.data.toReversed(), cursor: newest.backwardsCursor };
     const turns = [];
     let cursor = previous.cursor;
     const seen = new Set();
@@ -478,7 +557,8 @@ class CodexSession {
 
   async pollSubagents() {
     this.childHistory ??= new Map();
-    for (const agent of [...(this.state.subagents?.values() ?? [])]) {
+    // A copy: subagent state can change while each history read awaits.
+    for (const agent of Array.from(this.state.subagents?.values() ?? [])) {
       if (this.closed) return;
       const previous = this.childHistory.get(agent.id);
       if (!this.shouldPollSubagent(agent) && previous?.finished) continue;
@@ -524,6 +604,9 @@ class CodexSession {
       const answer = (decision) => this.reply(id, codexMcpResponse(decision));
       if (!this.turnActive || this.cancelRequested || this.closed) answer("cancelled");
       else if (this.analysisOnly || !request) answer("deny");
+      // Before the plan tools' shortcut, which would allow chat_respond on any request and every other tool on its list.
+      else if (this.escalation) answer(this.escalation.denial(codexMcpCall(params, this.linked?.tools)) ? "deny" : "allow");
+      else if (isCodexPlanToolApproval(params)) answer("allow");
       else this.permissions.add(request, answer);
       return;
     }
@@ -532,17 +615,23 @@ class CodexSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (approval && this.analysisOnly) answer("deny");
     else if (approval && (!this.turnActive || this.cancelRequested || this.closed)) answer("cancelled");
-    else if (method === "item/commandExecution/requestApproval") this.permissions.add(codexCommandRequest(id, params), answer);
-    else if (method === "item/fileChange/requestApproval") {
+    // A wake's turn runs nothing that has to ask, whatever the workspace or the Chat's mode would allow.
+    else if (approval && this.escalation) answer("deny");
+    else if (method === "item/commandExecution/requestApproval") {
+      const request = codexCommandRequest(id, params);
+      // A babysit Run's level refuses it before any card or mode can allow it. Codex takes no reason with a decline.
+      const reason = this.guard ? babysitDenial(request.command, this.guard) : null;
+      if (reason) {
+        if (params.itemId) this.refused.set(String(params.itemId), { command: request.command, reason });
+        answer("deny");
+      } else this.permissions.add(request, answer);
+    } else if (method === "item/fileChange/requestApproval") {
       const request = codexFileRequest(id, params, this.fileChanges.get(params.itemId));
-      this.permissions.add(request, answer, {
-        inWorkspace:
-          !params.grantRoot &&
-          request.files.length > 0 &&
-          (this.workspaceRoots ? insideWorkspace([this.cwd, ...this.workspaceRoots], request.files, this.cwd) : insideRoot(this.cwd, request.files)),
-        addedRoot: Boolean(this.addedRoots?.length && request.files.length && insideWorkspace(this.addedRoots, request.files, this.cwd)),
-      });
-    } else if (method === "item/tool/requestUserInput" && this.analysisOnly) this.reply(id, codexQuestionResponse("dismissed"));
+      const decided = params.grantRoot ? null : this.access.answer(request, this.permissions.mode);
+      if (decided) answer(decided.decision);
+      else this.permissions.add(request, answer, { inWorkspace: !params.grantRoot && this.access.contains(request.files) });
+    } else if (method === "item/tool/requestUserInput" && (this.analysisOnly || this.executionAdvisor || this.escalation))
+      this.reply(id, codexQuestionResponse("dismissed"));
     else if (method === "item/tool/requestUserInput") this.askQuestion(id, params);
     // Granting extra sandbox permissions is out of scope: grant none, for this turn only.
     else if (method === "item/permissions/requestApproval") this.reply(id, { permissions: {}, scope: "turn" });
@@ -597,6 +686,7 @@ class CodexSession {
   async finishTurn(events) {
     if (!this.turnActive) return;
     this.turnActive = false;
+    this.escalation = null;
     // Bind to this turn's own resolver: a new turn may start while image cleanup is awaited.
     const markEnded = this.markTurnEnded;
     this.markTurnEnded = null;
@@ -604,6 +694,7 @@ class CodexSession {
     this.permissions.cancelAll();
     this.questions.cancelAll();
     this.fileChanges.clear();
+    this.refused.clear();
     // A command still running when the turn stopped never completes; the renderer closes its step.
     this.state.steps.clear();
     this.state.thinkingStarts?.clear();
@@ -648,7 +739,7 @@ class CodexSession {
 }
 
 // Reopening an idle chat need not start or resume an agent. Only its saved unknown children
-// are checked, and history items are never replayed as new output or fresh communications.
+// are checked, and history items are never replayed as new output.
 async function recoverCodexSubagents({ cwd, command, env, agents, clientVersion = "0.0.0", createRpc = (options) => new CodexRpc(options) }) {
   const unknown = (agents ?? []).filter((agent) => agent.status === "unknown" && !agent.archived);
   if (!command || !unknown.length) return [];

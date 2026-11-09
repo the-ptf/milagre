@@ -7,7 +7,7 @@ import type { ComputerView } from "../electron.d.ts";
   localStorage: { getItem: () => null, setItem() {} },
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };
-const { computerTone, routeLine, seenAgo, settingsTooltip, offlineBanner, offlinePlaceholder, isDimmed, isReadOnly, withComputer } =
+const { computerTone, routeLine, seenAgo, settingsTooltip, offlineBanner, offlinePlaceholder, reconnectingPlaceholder, isDimmed, isReadOnly, withComputer } =
   await import("./computers.ts");
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
@@ -32,8 +32,8 @@ test("each state reads as the popover's second line", () => {
   assert.equal(routeLine(view({ state: "connecting", route: null }), NOW), "Connecting…");
   assert.equal(routeLine(view({ state: "reconnecting", route: null }), NOW), "Reconnecting…");
   assert.equal(
-    routeLine(view({ state: "reconnecting", message: "studio has too many devices connected. Remove one in its Settings › Devices." }), NOW),
-    "studio has too many devices connected. Remove one in its Settings › Devices.",
+    routeLine(view({ state: "reconnecting", message: "studio has too many devices connected. Remove one in its Settings › Phone & sharing." }), NOW),
+    "studio has too many devices connected. Remove one in its Settings › Phone & sharing.",
   );
   assert.equal(routeLine(view({ state: "offline" }), NOW), "Offline, seen 2h ago");
   assert.equal(routeLine(view({ state: "offline", lastSeen: null }), NOW), "Offline");
@@ -58,22 +58,27 @@ test("the dot, dimming and read-only follow the state", () => {
   );
   assert.equal(isDimmed(view({ state: "offline" })), true);
   assert.equal(isDimmed(view({ state: "reconnecting" })), false);
-  assert.equal(isReadOnly(view({ state: "reconnecting" })), true);
+  assert.equal(isReadOnly(view({ state: "reconnecting" })), false, "a reconnect is a blip: sends wait for it");
+  assert.equal(isReadOnly(view({ state: "connecting" })), false);
+  assert.equal(isReadOnly(view({ state: "offline" })), true);
+  assert.equal(isReadOnly(view({ state: "refused" })), true);
+  assert.equal(isReadOnly(view({ state: "off" })), true);
   assert.equal(isReadOnly(view()), false);
   assert.equal(isReadOnly(undefined), true);
 });
 
 test("the gear's tooltip, the banner and the composer say the spec's words", () => {
-  assert.equal(settingsTooltip("arketa"), "arketa settings: rename, connection, remove");
+  assert.equal(settingsTooltip("atlas"), "atlas settings: rename, connection, remove");
   assert.equal(
     offlineBanner(view({ state: "offline" }), NOW),
-    "studio is offline. This is the last copy it sent, 2h ago. You can read it until studio is back.",
+    "studio is offline. This is the last copy it sent, 2h ago. What you send waits on this Mac until studio is back.",
   );
   assert.equal(
     offlineBanner(view({ state: "offline", lastSeen: null }), NOW),
-    "studio is offline. This is the last copy it sent. You can read it until studio is back.",
+    "studio is offline. This is the last copy it sent. What you send waits on this Mac until studio is back.",
   );
-  assert.equal(offlinePlaceholder("studio"), " (studio is offline)");
+  assert.equal(offlinePlaceholder("studio"), "Queue a message for studio…");
+  assert.equal(reconnectingPlaceholder("studio"), " (reconnecting to studio…)");
 });
 
 test("a remote chat's completion notice names its computer; this Mac's is unchanged", () => {

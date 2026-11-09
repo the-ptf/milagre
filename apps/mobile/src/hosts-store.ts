@@ -10,6 +10,8 @@ export type SavedHost = {
   access?: Access;
   relay?: RelayLink;
   routes?: { lan?: LanRoute };
+  /** Left out of the sidebar's Chat list (Settings › Computers); the pairing stays. */
+  hidden?: boolean;
   lastUsed: number;
 };
 type SecureStorage = {
@@ -27,10 +29,11 @@ function validate(value: unknown): SavedHost {
   const lastUsed = Number(host.lastUsed) || 0;
   const lan = validLanRoute((host as { routes?: { lan?: unknown } }).routes?.lan);
   const routes = lan ? { routes: { lan } } : {};
+  const hidden = host.hidden === true ? { hidden: true } : {};
   if (host.relay) {
     const relay = validRelay(host.relay);
     const address = relayAddress(relay.hostId);
-    return { id: address, name: String(host.name || "Mac").slice(0, 80), address, token: String(host.token), relay, ...routes, lastUsed };
+    return { id: address, name: String(host.name || "Mac").slice(0, 80), address, token: String(host.token), relay, ...routes, ...hidden, lastUsed };
   }
   const address = localEndpoint(String(host?.address ?? ""));
   const access = validAccess(host.access);
@@ -41,6 +44,7 @@ function validate(value: unknown): SavedHost {
     token: String(host.token),
     ...(access ? { access } : {}),
     ...routes,
+    ...hidden,
     lastUsed,
   };
 }
@@ -94,8 +98,9 @@ export function createHostsStore(storage: SecureStorage, now = () => Date.now())
       ordered(async () => {
         const hosts = await read();
         const saved = validate({ ...host, lastUsed: now() });
-        const learned = hosts.find((item) => item.id === saved.id)?.routes;
-        const next = learned ? { ...saved, routes: learned } : saved;
+        const known = hosts.find((item) => item.id === saved.id);
+        // Pairing again keeps what the phone learned about the computer and whether the list hides it.
+        const next = { ...saved, ...(known?.routes ? { routes: known.routes } : {}), ...(known?.hidden ? { hidden: true } : {}) };
         await write([next, ...hosts.filter((item) => item.id !== saved.id)]);
         return next;
       }),
@@ -115,6 +120,17 @@ export function createHostsStore(storage: SecureStorage, now = () => Date.now())
         const trimmed = name.trim();
         if (!trimmed) throw new Error("Give this computer a name.");
         await write((await read()).map((item) => (item.id === id ? { ...item, name: trimmed.slice(0, 80) } : item)));
+      }),
+    /** Hides a computer's Chats from the sidebar, or shows them again. */
+    setHidden: (id: string, hidden: boolean) =>
+      ordered(async () => {
+        await write(
+          (await read()).map((item) => {
+            if (item.id !== id) return item;
+            const { hidden: _old, ...rest } = item;
+            return hidden ? { ...rest, hidden: true } : rest;
+          }),
+        );
       }),
     forget: (id: string) => ordered(async () => write((await read()).filter((item) => item.id !== id))),
   };

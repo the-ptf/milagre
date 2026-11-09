@@ -22,7 +22,7 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   const state = rawState ?? emptyState(projectName);
   const existingWorktrees = Object.values(state.worktrees ?? {});
   const existingSessions = Object.values(state.sessions ?? {});
-  let nextId = Math.max(state.next_id ?? 1, ...[...existingWorktrees.map((item) => item.id), ...existingSessions.map((item) => item.id)]) || 1;
+  let nextId = Math.max(state.next_id ?? 1, ...existingWorktrees.map((item) => item.id), ...existingSessions.map((item) => item.id)) || 1;
   const allocateId = () => nextId++;
   // Resolve older Windows spellings using filesystem identity. Case-sensitive
   // directories stay distinct; a removed worktree still has its lexical path.
@@ -47,7 +47,8 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   for (const discovered of discoveredWorktrees) {
     const folder = nativePath(discovered.path);
     const previous = existingByPath.get(folder);
-    const worktree = previous ?? { id: allocateId(), project_id: 1, path: folder, name: discovered.name };
+    // A Worktree a shared Chat owned last time and no longer does (its Link was deleted) is the Project's again.
+    const { sharedChat: _owner, ...worktree } = previous ?? { id: allocateId(), project_id: 1, path: folder, name: discovered.name };
     worktrees[worktree.id] = { ...worktree, project_id: 1, path: folder, name: discovered.name };
     const sharedChat = ownedWorktrees.get(discovered.path) ?? ownedWorktrees.get(folder);
     if (sharedChat) {
@@ -91,23 +92,43 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   return rawState && isDeepStrictEqual(next, rawState) ? rawState : next;
 }
 
-// A saved running flag is not proof of a live provider after an app restart. A state with nothing to mark is returned as is.
+// A saved running flag is not proof of a live provider after an app restart, and a background task lives only as long as
+// its agent process (chat-activity.mjs). A state with nothing to mark is returned as is.
 function markDisconnectedSubagents(state, liveSessionIds) {
   const running = (agent) => agent.source !== "milagre-advisor" && ["running", "initializing", "waiting"].includes(agent.status);
-  const stale = Object.entries(state.sessions).filter(([id, session]) => !liveSessionIds.has(Number(id)) && session.subagents?.some(running));
+  const stale = Object.entries(state.sessions).filter(
+    ([id, session]) => !liveSessionIds.has(Number(id)) && (session.subagents?.some(running) || session.backgroundTasks?.length),
+  );
   if (!stale.length) return state;
   const sessions = { ...state.sessions };
-  for (const [id, session] of stale) {
+  for (const [id, { backgroundTasks: _gone, ...session }] of stale) {
     sessions[id] = {
       ...session,
-      subagents: session.subagents.map((agent) =>
-        running(agent)
-          ? { ...agent, status: "unknown", endedAt: agent.updatedAt, latestActivity: "Session disconnected. Last received activity is shown below." }
-          : agent,
-      ),
+      ...(session.subagents
+        ? {
+            subagents: session.subagents.map((agent) =>
+              running(agent)
+                ? { ...agent, status: "unknown", endedAt: agent.updatedAt, latestActivity: "Session disconnected. Last received activity is shown below." }
+                : agent,
+            ),
+          }
+        : {}),
     };
   }
   return { ...state, sessions };
 }
 
-module.exports = { emptyState, reconcileState, markDisconnectedSubagents };
+/** The state with `bases` (Worktree path -> base ref) given to the Worktrees that have none; unchanged when none take one. */
+function withWorktreeBases(state, bases) {
+  const worktrees = { ...state.worktrees };
+  let changed = false;
+  for (const worktree of Object.values(state.worktrees ?? {})) {
+    const base = bases.get(worktree.path);
+    if (!base || worktree.base) continue;
+    worktrees[worktree.id] = { ...worktree, base };
+    changed = true;
+  }
+  return changed ? { ...state, worktrees } : state;
+}
+
+module.exports = { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases };

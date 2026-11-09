@@ -22,6 +22,8 @@ For full-app startup, saved state and host ownership, use `npm test -- --only te
 
 ## Keep test state separate
 
+Launch every app copy off screen with `MILAGRE_BACKGROUND=1` (the full-app checks set it; macOS only, ignored elsewhere): it never shows a window, takes the Dock or focus, and CDP screenshots still show the rendered UI. A dev copy: `env -u ELECTRON_RUN_AS_NODE MILAGRE_BACKGROUND=1 MILAGRE_CHATS_HOME=<tmp>/chats-home MILAGRE_DEV_SERVER_URL=<url> "$(node -p 'require("electron")')" apps/desktop --user-data-dir=<tmp>/profile --remote-debugging-port=0`.
+
 Existing Electron checks create temporary profiles and Projects. Reuse that pattern for new fixtures: set Electron `userData` before app readiness and use a disposable Git repository for the Project. The normal `npm run dev` command is not an isolated-state guarantee.
 
 Never open the development repository or a real user's Project in a second test host. Ownership covers the common Git directory, so another Worktree of the same Project does not provide isolation. Do not remove live ownership locks to make a fixture start.
@@ -39,7 +41,7 @@ milagre_shots=$(mktemp -d "${TMPDIR:-/tmp}/milagre-ui.XXXXXX")
 MILAGRE_SCREENSHOT_DIR="$milagre_shots" npm test -- --only prompt-skills
 ```
 
-Inspect the images for loaded content, the intended state and clipped controls. A screenshot alone does not establish that a control worked: verify its observable result. Keep credentials, pairing codes and unrelated Chats out of captures. PR images belong on the separate screenshots branch, as [AGENTS.md](../../../AGENTS.md) specifies.
+Inspect the images for loaded content, the intended state and clipped controls. A screenshot alone does not establish that a control worked: verify its observable result. Keep credentials, pairing codes and unrelated Chats out of captures. These harness screenshots are for checking your work only. PR images come from the dev app or a packaged build with real providers and live on the separate screenshots branch, as [AGENTS.md](../../../AGENTS.md) specifies.
 
 Run the corresponding mobile checks when behavior is shared. Before a PR, run the root typecheck, lint and unit commands required by AGENTS.md. Report the checks actually run, skips, failures and evidence paths; distinguish scripted providers from real-provider verification.
 

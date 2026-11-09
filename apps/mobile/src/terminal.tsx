@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
-import { Alert, AppState, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, AppState, Keyboard, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView, KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
+import { scaledTiming, useMotionScale } from "./motion";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { Add01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ClipboardPasteIcon, ComputerTerminal01Icon, KeyboardOffIcon } from "@hugeicons/core-free-icons";
+import * as Clipboard from "expo-clipboard";
 import type { LinkChatSession } from "@milagre/shared/model";
-import type { TerminalInfo, TerminalList } from "@milagre/shared/terminal";
+import type { TerminalInfo, TerminalList, TerminalProfiles } from "@milagre/shared/terminal";
 import { followTerminal, type TerminalFollower } from "@milagre/shared/terminal-client";
 import type { Client } from "./client";
 import { useSession } from "./session";
-import { Icon } from "./icons";
-import { useTheme } from "./theme";
-import { CircleButton, PillButton, useStyles } from "./ui";
+import { Icon, type IconData } from "./icons";
+import { fonts, useTheme } from "./theme";
+import { StatusPill } from "./status-pill";
+import { CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, PullDown, SheetHeader, showActions, useStyles } from "./ui";
+import { confirmSheet } from "./confirm-store";
+import { duration, easing, hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
 import { createTerminalHtml, scriptValue, xtermTheme, type TerminalTheme, type TerminalViewMessage } from "./terminal-receiver";
 
 /** A Worktree a new Terminal can start in; a shared Chat has one per member Project. */
@@ -25,7 +33,7 @@ export function terminalPlaces(chat: object): TerminalPlace[] | undefined {
   if (!Array.isArray(worktrees)) return undefined;
   return worktrees.map((member) => ({
     path: member.worktreePath,
-    label: member.alias ?? member.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? member.worktreePath,
+    label: member.alias ?? member.projectPath.split(/[\\/]/).findLast(Boolean) ?? member.worktreePath,
   }));
 }
 
@@ -65,39 +73,53 @@ function useTerminals(client: Client | null, chatId: string | undefined) {
   return { terminals, setTerminals, refresh: () => refresh.current() };
 }
 
-/** Same border, height and icon size as the Ports pill. Shown for every sent Chat on a Mac that has Terminals. */
-export function TerminalChip({ chatId, places }: { chatId?: string; places?: TerminalPlace[] }) {
-  const { colors } = useTheme();
+/** A Terminal's tab title: its own, numbered when another of the Chat's Terminals has the same one ("zsh 2"). */
+function tabTitle(terminals: TerminalInfo[], terminal: TerminalInfo) {
+  const same = terminals.filter((item) => item.title === terminal.title);
+  return same.length > 1 ? `${terminal.title} ${same.indexOf(terminal) + 1}` : terminal.title;
+}
+
+/** Shown for every sent Chat on a Mac that has Terminals. `onOpen` shows it below the Chat (an iPad) instead of full screen. */
+export function TerminalChip({
+  chatId,
+  places,
+  onOpen,
+  docked,
+  liveCount,
+}: {
+  chatId?: string;
+  places?: TerminalPlace[];
+  onOpen?: () => void;
+  /** The Terminals are docked below the Chat now: the count is read again as they open and close. */
+  docked?: boolean;
+  /** The docked Terminals' own count, which is current as tabs open and close; the polled one trails it. */
+  liveCount?: number;
+}) {
   const { client } = useSession();
-  const { terminals } = useTerminals(client, chatId);
+  const { terminals, refresh } = useTerminals(client, chatId);
+  useEffect(() => {
+    if (docked !== undefined) void refresh();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- refresh reads the latest loader; only docking changes matter
+  }, [docked]);
   if (!client || !chatId || !terminals) return null;
-  const count = terminals.length;
+  const count = docked && liveCount !== undefined ? liveCount : terminals.length;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusPill
+      label="Terminal"
+      count={count || undefined}
+      icon={ComputerTerminal01Icon}
       accessibilityLabel={count ? `Terminal, ${count} open in this Chat` : "Open a Terminal in this Chat"}
       onPress={() =>
-        router.push({ pathname: "/terminal-sheet", params: { hostId: client.url, chatId, ...(places?.length ? { places: JSON.stringify(places) } : {}) } })
+        onOpen
+          ? onOpen()
+          : router.push({ pathname: "/terminal-sheet", params: { hostId: client.url, chatId, ...(places?.length ? { places: JSON.stringify(places) } : {}) } })
       }
-      hitSlop={8}
-      style={({ pressed }) => ({
-        height: 24,
-        paddingHorizontal: 8,
-        borderRadius: 12,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        borderWidth: 1,
-        borderColor: colors.line,
-        backgroundColor: colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      <Icon icon={ComputerTerminal01Icon} tone="ink2" size={12} />
-      <Text style={{ color: colors.ink2, fontSize: 11 }}>{count ? `Terminal ${count}` : "Terminal"}</Text>
-    </Pressable>
+    />
   );
 }
+
+/** Taps on New Terminal closer together than this are one double tap, which opens one Terminal. */
+const DOUBLE_TAP_MS = 600;
 
 // What the key bar sends: keys a phone keyboard lacks. Ctrl is held for the next key instead.
 // The most output one read brings to the phone: about a tenth of a second for xterm in the WebView to parse.
@@ -105,22 +127,67 @@ const PHONE_READ_LIMIT = 64 * 1024;
 // How long a write waits for the page's word before the next read goes ahead anyway.
 const WRITE_ACK_MS = 3000;
 
-const KEYS: { label: string; send: string }[] = [
-  { label: "esc", send: "\x1b" },
-  { label: "tab", send: "\t" },
-  { label: "←", send: "\x1b[D" },
-  { label: "↑", send: "\x1b[A" },
-  { label: "↓", send: "\x1b[B" },
-  { label: "→", send: "\x1b[C" },
-  { label: "|", send: "|" },
-  { label: "~", send: "~" },
-  { label: "/", send: "/" },
-  { label: "-", send: "-" },
+/** A key of the key bar: what it shows, what it sends, what VoiceOver says, and whether holding it repeats it. */
+type BarKey = { label: string; send: string; name: string; repeat?: boolean };
+
+// The key bar, in groups as Orca's mobile terminal has it: the keys a touch keyboard lacks, then the control shortcuts a
+// shell and its editors use most, then paging and the symbols a phone keyboard hides a layer down.
+const MOVE_KEYS: BarKey[] = [
+  { label: "esc", send: "\x1b", name: "Escape" },
+  { label: "tab", send: "\t", name: "Tab" },
+  { label: "⇧tab", send: "\x1b[Z", name: "Shift Tab" },
+  { label: "←", send: "\x1b[D", name: "Arrow left", repeat: true },
+  { label: "↑", send: "\x1b[A", name: "Arrow up", repeat: true },
+  { label: "↓", send: "\x1b[B", name: "Arrow down", repeat: true },
+  { label: "→", send: "\x1b[C", name: "Arrow right", repeat: true },
 ];
+const CTRL_KEYS: BarKey[] = [
+  { label: "^C", send: "\x03", name: "Control C, interrupt" },
+  { label: "^D", send: "\x04", name: "Control D, end of input" },
+  { label: "^L", send: "\x0c", name: "Control L, clear screen" },
+  { label: "^R", send: "\x12", name: "Control R, search history" },
+  { label: "^Z", send: "\x1a", name: "Control Z, suspend" },
+  { label: "^A", send: "\x01", name: "Control A, start of line" },
+  { label: "^E", send: "\x05", name: "Control E, end of line" },
+  { label: "^W", send: "\x17", name: "Control W, delete word" },
+  { label: "^U", send: "\x15", name: "Control U, delete to start of line" },
+];
+const EDIT_KEYS: BarKey[] = [
+  { label: "home", send: "\x1b[H", name: "Home" },
+  { label: "end", send: "\x1b[F", name: "End" },
+  { label: "pgup", send: "\x1b[5~", name: "Page up", repeat: true },
+  { label: "pgdn", send: "\x1b[6~", name: "Page down", repeat: true },
+  { label: "del", send: "\x1b[3~", name: "Forward delete", repeat: true },
+  { label: "|", send: "|", name: "Pipe" },
+  { label: "~", send: "~", name: "Tilde" },
+  { label: "/", send: "/", name: "Slash" },
+  { label: "-", send: "-", name: "Dash" },
+];
+/** A held key waits this long, then repeats this often, as a hardware key does. */
+const REPEAT_DELAY_MS = 400;
+const REPEAT_EVERY_MS = 60;
 
-type ViewHandle = { send(data: string): void; holdCtrl(held: boolean): void };
+type ViewHandle = { send(data: string): void; holdCtrl(held: boolean): void; blur(): void };
 
-export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; chatId?: string; places?: TerminalPlace[] }) {
+/**
+ * The Chat's Terminals: a page of its own on a phone, docked below the Chat on an iPad (`onClose` set), where it keeps
+ * to one header row and rides the keyboard with the Chat's composer instead of making room for it.
+ */
+export function TerminalSheet({
+  hostId,
+  chatId,
+  places,
+  onClose,
+  onCount,
+}: {
+  hostId?: string;
+  chatId?: string;
+  places?: TerminalPlace[];
+  onClose?: () => void;
+  /** How many Terminals the Chat has, each time that changes. */
+  onCount?: (count: number) => void;
+}) {
+  const docked = !!onClose;
   const { colors } = useTheme();
   const styles = useStyles();
   const { client } = useSession();
@@ -131,28 +198,88 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
   const [error, setError] = useState("");
   const [opening, setOpening] = useState(false);
   const [ctrl, setCtrl] = useState(false);
+  // The on-screen keyboard is up: the key bar offers to put it away (a tap on the Terminal brings it back).
+  const keyboardUp = useKeyboardState((state) => state.isVisible);
   const [paused, setPaused] = useState(AppState.currentState !== "active");
   const [revision, setRevision] = useState(0);
   const view = useRef<ViewHandle>(null);
   const openedFirst = useRef(false);
   const shown = terminals?.find((terminal) => terminal.id === active) ?? terminals?.at(-1) ?? null;
   const multiple = (places?.length ?? 0) > 1;
+  const [profileState, setProfileState] = useState<{ source: Client; profiles: TerminalProfiles } | null>(null);
+  const profiles = profileState?.source === source ? profileState.profiles : null;
+  const [savingSource, setSavingSource] = useState<Client | null>(null);
+  const savingShell = source !== null && savingSource === source;
+  const profileRevision = useRef(0);
+  useEffect(() => {
+    profileRevision.current++;
+  }, [source]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!source) return;
+      let disposed = false;
+      const load = async () => {
+        if (AppState.currentState !== "active") return;
+        const revision = profileRevision.current;
+        try {
+          const next = await source.call<TerminalProfiles>("terminal:profiles", []);
+          if (!disposed && revision === profileRevision.current) setProfileState({ source, profiles: next });
+        } catch {
+          /* Older computers have no shell selector. */
+        }
+      };
+      void load();
+      const timer = setInterval(load, 5000);
+      return () => {
+        disposed = true;
+        clearInterval(timer);
+      };
+    }, [source]),
+  );
+  async function chooseShell(value: string) {
+    if (!source) return;
+    const revision = ++profileRevision.current;
+    setSavingSource(source);
+    try {
+      const next = await source.call<TerminalProfiles>("terminal:setShell", [{ shell: value || null }]);
+      if (revision === profileRevision.current) setProfileState({ source, profiles: next });
+      setError("");
+    } catch (failure) {
+      Alert.alert("Couldn't select a shell", failure instanceof Error ? failure.message : "Try again.");
+    } finally {
+      if (revision === profileRevision.current) setSavingSource(null);
+    }
+  }
 
   useFocusEffect(
     useCallback(() => {
+      // Docked, the Terminal comes back on its own when a sheet over the Chat closes: it was on screen all along.
+      if (docked && AppState.currentState === "active") {
+        setRevision((value) => value + 1);
+        setPaused(false);
+      }
       const subscription = AppState.addEventListener("change", (state) => {
         if (state !== "active") setPaused(true);
+        else if (docked) {
+          setRevision((value) => value + 1);
+          setPaused(false);
+        }
       });
       return () => {
         subscription.remove();
         setPaused(true);
       };
-    }, []),
+    }, [docked]),
   );
 
+  // A second tap before the first Terminal answers, or right after (a double tap), opens nothing more.
+  const openingNow = useRef(false);
+  const openedAt = useRef(0);
   const open = useCallback(
     async (cwd?: string) => {
-      if (!source || !chatId) return;
+      if (!source || !chatId || openingNow.current || Date.now() - openedAt.current < DOUBLE_TAP_MS) return;
+      openingNow.current = true;
+      openedAt.current = Date.now();
       setOpening(true);
       setError("");
       try {
@@ -162,6 +289,7 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "Couldn't open a Terminal.");
       } finally {
+        openingNow.current = false;
         setOpening(false);
       }
     },
@@ -172,11 +300,17 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
       void open(places?.[0]?.path);
       return;
     }
-    Alert.alert("New Terminal in", undefined, [
-      ...places.map((place) => ({ text: place.label, onPress: () => void open(place.path) })),
-      { text: "Cancel", style: "cancel" as const },
-    ]);
+    showActions({
+      title: "New Terminal in",
+      actions: places.map((place, index) => ({ id: String(index), title: place.label })),
+      onSelect: (id) => void open(places[Number(id)]?.path),
+    });
   }, [multiple, places, open]);
+
+  const count = terminals?.length;
+  useEffect(() => {
+    if (count !== undefined) onCount?.(count);
+  }, [count, onCount]);
 
   // Opening the screen for a Chat with no Terminal starts its first one.
   useEffect(() => {
@@ -186,43 +320,85 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
   }, [terminals, add]);
 
   function close(terminal: TerminalInfo) {
+    // Docked, ending the last Terminal puts the panel away too, rather than leaving it empty.
+    const last = docked && terminals?.length === 1;
     const end = async () => {
       try {
         await source?.call("terminal:close", [{ terminalId: terminal.id }]);
       } finally {
         await refresh();
+        if (last) onClose?.();
       }
     };
     if (!terminal.busy) {
       void end();
       return;
     }
-    Alert.alert(`End ${terminal.title}?`, "It is still running in this Terminal.", [
-      { text: "Cancel", style: "cancel" },
+    confirmSheet(`End ${terminal.title}?`, "It is still running in this Terminal.", [
       { text: `End ${terminal.title}`, style: "destructive", onPress: () => void end() },
+      { text: "Cancel", style: "cancel" },
     ]);
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.page, paddingTop: insets.top }}>
-      <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, gap: 8 }}>
-        <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={() => router.back()} />
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-            {shown?.title ?? "Terminal"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 11 }}>
-            {shown?.cwd ?? "This Chat"}
-          </Text>
+    <View style={{ flex: 1, backgroundColor: colors.page, paddingTop: docked ? 0 : insets.top }}>
+      {/* Docked, the button only puts the Terminals away (they keep running, as the pill's count says); each tab's X ends one. */}
+      <SheetHeader
+        title={shown?.title ?? "Terminal"}
+        // The folder, not its whole path: a Worktree's path is long and mostly the same for every Terminal.
+        subtitle={shown?.cwd ? shown.cwd.split(/[\\/]/).findLast(Boolean) || shown.cwd : "This Chat"}
+        subtitleEllipsis="middle"
+        style={docked ? { paddingHorizontal: 12, paddingTop: 0, paddingBottom: 4 } : undefined}
+        leading={
+          docked ? (
+            <CircleButton label="Hide Terminal" icon={ArrowDown01Icon} onPress={onClose} />
+          ) : (
+            <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={() => router.back()} />
+          )
+        }
+        trailing={<CircleButton label="New Terminal" icon={Add01Icon} onPress={opening ? undefined : add} />}
+      />
+      {/* Docked, the Terminal keeps its rows for output; the computer's shell is picked on the phone page or desktop. */}
+      {profiles && !docked && (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 8, gap: 4 }}>
+          <PullDown
+            style={{ alignSelf: "flex-start", marginLeft: -12 }}
+            label="Shell for new Terminals"
+            title="Shell for new Terminals"
+            nativeTrigger={{
+              systemImage: "terminal",
+              title: profiles.shells.find((item) => item.file === profiles.selectedShell)?.label ?? "Automatic",
+              disabled: savingShell,
+            }}
+            sections={[
+              {
+                items: [
+                  { id: "automatic", title: `Automatic (${profiles.defaultShell})`, checked: profiles.selectedShell === null, disabled: savingShell },
+                  ...profiles.shells.map((item) => ({
+                    id: item.file,
+                    title: `${item.label} (${item.file})`,
+                    checked: profiles.selectedShell === item.file,
+                    disabled: savingShell,
+                  })),
+                ],
+              },
+            ]}
+            onSelect={(value) => void chooseShell(value === "automatic" ? "" : value)}
+          >
+            <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+              New Terminals: {profiles.shells.find((item) => item.file === profiles.selectedShell)?.label ?? "Automatic"}
+            </Text>
+          </PullDown>
+          <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>Applies to new Terminals on this computer.</Text>
         </View>
-        <CircleButton label="New Terminal" icon={Add01Icon} onPress={opening ? undefined : add} />
-      </View>
+      )}
       {!!terminals?.length && (
-        <ScrollView
+        <PageScroll
           horizontal
+          contentInsetAdjustmentBehavior="never"
           showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0 }}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 8, gap: 6 }}
+          contentContainerStyle={{ paddingHorizontal: space.gutter, paddingTop: 0, paddingBottom: 8, gap: space.md }}
         >
           {terminals.map((terminal) => {
             const selected = terminal.id === shown?.id;
@@ -232,8 +408,9 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  height: 30,
-                  borderRadius: 15,
+                  minHeight: 32,
+                  borderRadius: radius.full,
+                  borderCurve: "continuous",
                   paddingLeft: 12,
                   paddingRight: selected ? 4 : 12,
                   gap: 4,
@@ -242,10 +419,18 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
                   borderColor: selected ? colors.lineStrong : colors.line,
                 }}
               >
-                <Pressable accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => setActive(terminal.id)} hitSlop={6}>
-                  <Text numberOfLines={1} style={{ color: selected ? colors.ink : colors.ink2, fontSize: 13, fontFamily: "Menlo" }}>
-                    {terminal.title}
-                    {multiple ? <Text style={{ color: colors.ink3, fontSize: 11 }}> {terminal.label}</Text> : null}
+                <Pressable
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  onPress={() => setActive(terminal.id)}
+                  hitSlop={{ top: hitSlopFor(lineHeight.footnote), bottom: hitSlopFor(lineHeight.footnote), left: 12, right: selected ? 2 : 12 }}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={{ color: selected ? colors.ink : colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontFamily: fonts.mono }}
+                  >
+                    {tabTitle(terminals, terminal)}
+                    {multiple ? <Text style={{ color: colors.ink3, fontSize: type.caption2 }}> {terminal.label}</Text> : null}
                   </Text>
                 </Pressable>
                 {selected && (
@@ -253,30 +438,27 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
                     accessibilityRole="button"
                     accessibilityLabel={`Close ${terminal.title}`}
                     onPress={() => close(terminal)}
-                    hitSlop={6}
-                    style={{ padding: 4 }}
+                    hitSlop={hitSlopFor(28)}
+                    style={({ pressed }) => ({ padding: 6, borderRadius: radius.full, backgroundColor: pressed ? colors.hover : "transparent" })}
                   >
-                    <Icon icon={Cancel01Icon} size={12} tone="ink3" />
+                    <Icon icon={Cancel01Icon} size={16} tone="ink2" />
                   </Pressable>
                 )}
               </View>
             );
           })}
-        </ScrollView>
+        </PageScroll>
       )}
-      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0} style={{ flex: 1, minHeight: 0 }}>
+      <KeyboardAvoidingView enabled={!docked} behavior="padding" keyboardVerticalOffset={0} style={{ flex: 1, minHeight: 0 }}>
         <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
           {!source || !chatId ? (
-            <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this computer to open its Terminals.</Text>
+            <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this computer to open its Terminals.</Text>
           ) : error ? (
-            <View style={{ padding: 20, gap: 16 }}>
-              <Text accessibilityRole="alert" style={{ color: colors.red }}>
-                {error}
-              </Text>
-              <PillButton title="Try again" onPress={add} />
+            <View style={{ padding: 16 }}>
+              <ErrorNotice message={error} retryTitle="Try again" retry={add} />
             </View>
           ) : paused ? (
-            <View style={{ padding: 20, gap: 16 }}>
+            <View style={{ padding: 16, gap: 16 }}>
               <Text style={styles.muted}>Paused while the app was hidden. The Terminal kept running on your computer.</Text>
               <PillButton
                 title="Resume"
@@ -304,20 +486,34 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
                 void refresh();
               }}
             />
+          ) : opening || !terminals ? (
+            <Text style={[styles.muted, { padding: 16 }]}>Opening a Terminal…</Text>
           ) : (
-            <Text style={[styles.muted, { padding: 20 }]}>{opening || !terminals ? "Opening a Terminal..." : "No Terminal is open in this Chat."}</Text>
+            <EmptyState icon={ComputerTerminal01Icon} title="No Terminal open" />
           )}
         </View>
         {shown && !paused && (
-          <ScrollView
+          <PageScroll
             horizontal
+            contentInsetAdjustmentBehavior="never"
             keyboardShouldPersistTaps="always"
             showsHorizontalScrollIndicator={false}
             style={{ flexGrow: 0, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface }}
             contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 6), gap: 6 }}
           >
+            {keyboardUp && (
+              <KeyButton
+                label="Hide keyboard"
+                icon={KeyboardOffIcon}
+                onPress={() => {
+                  view.current?.blur();
+                  Keyboard.dismiss();
+                }}
+              />
+            )}
             <KeyButton
               label="ctrl"
+              name="Control, for the next key"
               held={ctrl}
               onPress={() => {
                 const next = !ctrl;
@@ -325,35 +521,104 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
                 view.current?.holdCtrl(next);
               }}
             />
-            {KEYS.map((key) => (
-              <KeyButton key={key.label} label={key.label} onPress={() => view.current?.send(key.send)} />
+            {MOVE_KEYS.map((key) => (
+              <KeyButton key={key.label} label={key.label} name={key.name} repeat={key.repeat} onPress={() => view.current?.send(key.send)} />
             ))}
-          </ScrollView>
+            <KeyGap />
+            {CTRL_KEYS.map((key) => (
+              <KeyButton key={key.label} label={key.label} name={key.name} onPress={() => view.current?.send(key.send)} />
+            ))}
+            <KeyGap />
+            <KeyButton
+              label="Paste"
+              icon={ClipboardPasteIcon}
+              onPress={() => {
+                void Clipboard.getStringAsync().then((text) => {
+                  if (text) view.current?.send(text);
+                });
+              }}
+            />
+            {EDIT_KEYS.map((key) => (
+              <KeyButton key={key.label} label={key.label} name={key.name} repeat={key.repeat} onPress={() => view.current?.send(key.send)} />
+            ))}
+          </PageScroll>
         )}
       </KeyboardAvoidingView>
     </View>
   );
 }
 
-function KeyButton({ label, onPress, held = false }: { label: string; onPress(): void; held?: boolean }) {
+/** A little more room between the key bar's groups. */
+function KeyGap() {
+  return <View style={{ width: 6 }} />;
+}
+
+/** A key of the key bar: a label or an icon; `repeat` keys send again while held, as a hardware key does. */
+function KeyButton({
+  label,
+  name,
+  icon,
+  onPress,
+  held = false,
+  repeat = false,
+}: {
+  label: string;
+  name?: string;
+  icon?: IconData;
+  onPress(): void;
+  held?: boolean;
+  repeat?: boolean;
+}) {
   const { colors } = useTheme();
+  const timer = useRef<ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | null>(null);
+  const press = useRef(onPress);
+  useEffect(() => {
+    press.current = onPress;
+  });
+  const stop = useCallback(() => {
+    if (timer.current) clearInterval(timer.current as ReturnType<typeof setInterval>);
+    timer.current = null;
+  }, []);
+  useEffect(() => stop, [stop]);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={label === "ctrl" ? "Control, for the next key" : label}
+      accessibilityLabel={name ?? label}
       accessibilityState={held ? { selected: true } : undefined}
-      onPress={onPress}
+      // A repeating key sends as the finger lands and again every REPEAT_EVERY_MS once held; the rest send on release.
+      onPressIn={
+        repeat
+          ? () => {
+              press.current();
+              stop();
+              timer.current = setTimeout(() => {
+                timer.current = setInterval(() => press.current(), REPEAT_EVERY_MS);
+              }, REPEAT_DELAY_MS);
+            }
+          : undefined
+      }
+      onPressOut={repeat ? stop : undefined}
+      onPress={repeat ? undefined : onPress}
+      // The bar's keys sit 6 apart, so only the height reaches 44.
+      hitSlop={{ top: hitSlopFor(34), bottom: hitSlopFor(34) }}
       style={({ pressed }) => ({
         minWidth: 40,
-        height: 34,
-        paddingHorizontal: 10,
-        borderRadius: 8,
+        minHeight: 34,
+        paddingHorizontal: 8,
+        borderRadius: radius.control,
+        borderCurve: "continuous",
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: held ? colors.accent : pressed ? colors.hover : colors.inset,
       })}
     >
-      <Text style={{ color: held ? colors.onAccent : colors.ink, fontSize: 14, fontFamily: "Menlo" }}>{label}</Text>
+      {icon ? (
+        <Icon icon={icon} size={18} tone="ink2" />
+      ) : (
+        <Text style={{ color: held ? colors.onAccent : colors.ink, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontFamily: fonts.mono }}>
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -435,6 +700,7 @@ function TerminalView({
   useImperativeHandle(ref, () => ({
     send: (data) => follower.current?.send(data),
     holdCtrl: (held) => run(`window.terminalCtrl(${held})`),
+    blur: () => run("window.terminalBlur()"),
   }));
 
   useEffect(() => {
@@ -448,7 +714,7 @@ function TerminalView({
     let cancelled = false;
     void Promise.resolve().then(() => {
       if (cancelled) return;
-      file.write(createTerminalHtml(latestTheme.current));
+      file.writeSync(createTerminalHtml(latestTheme.current));
       setUri(file.uri);
     });
     // Output waits for the page: what arrives before it is ready is written once it is.
@@ -492,14 +758,11 @@ function TerminalView({
 
   if (failed)
     return (
-      <View style={{ padding: 20, gap: 16 }}>
-        <Text accessibilityRole="alert" style={{ color: colors.red }}>
-          The Terminal view stopped. The Terminal is still running on your computer.
-        </Text>
-        <PillButton title="Reload" onPress={() => setFailed(false)} />
+      <View style={{ padding: 16 }}>
+        <ErrorNotice message="The Terminal view stopped. The Terminal is still running on your computer." retryTitle="Reload" retry={() => setFailed(false)} />
       </View>
     );
-  if (!uri) return <Text style={[styles.muted, { padding: 20 }]}>Preparing Terminal...</Text>;
+  if (!uri) return <Text style={[styles.muted, { padding: 16 }]}>Preparing Terminal…</Text>;
   return (
     <DomWebView
       key={uri}
@@ -535,5 +798,97 @@ function TerminalView({
       onContentProcessDidTerminate={stopped}
       onRenderProcessGone={stopped}
     />
+  );
+}
+
+/** The least and most of the window's height the docked Terminal takes; it opens at about a third. */
+const DOCK_MIN = 200;
+const DOCK_MAX_SHARE = 0.6;
+const DOCK_SHARE = 0.3;
+/** It rises and sinks with iOS's own sheet timing, as the iPad's side panels slide. */
+const DOCK_SLIDE = { duration: duration.slow, easing: Easing.bezier(...easing.slide), reduceMotion: ReduceMotion.System };
+
+/** A drag on the docked Terminal's grabber: up makes it taller, down shorter, within its bounds. */
+function resizeGesture(height: SharedValue<number>, start: SharedValue<number>, max: number) {
+  return Gesture.Pan()
+    .onStart(() => {
+      start.set(height.get());
+    })
+    .onUpdate((event) => {
+      height.set(Math.min(max, Math.max(DOCK_MIN, start.get() - event.translationY)));
+    });
+}
+
+/**
+ * The Chat's Terminals docked below it, as desktop's: the Chat above gives up the room, a drag on the grabber resizes it,
+ * and the keyboard lifts it with the composer when either is typed into.
+ */
+export function TerminalDock({
+  chatId,
+  places,
+  open,
+  keyboard,
+  onHeight,
+  onCount,
+  onClose,
+  onClosed,
+}: {
+  chatId: string;
+  /** Shown: it rises from below the Chat; put away, it sinks and then calls `onClosed` to unmount. */
+  open: boolean;
+  places?: TerminalPlace[];
+  /** The Terminal has the keyboard (see ChatPane): it rises with it, over the composer. */
+  keyboard: boolean;
+  /** Its height, which the composer rises past when it is typed into instead. */
+  onHeight: (height: number) => void;
+  onCount?: (count: number) => void;
+  onClose: () => void;
+  onClosed: () => void;
+}) {
+  const { colors } = useTheme();
+  const { client } = useSession();
+  const scale = useMotionScale();
+  const closed = useRef(onClosed);
+  useEffect(() => {
+    closed.current = onClosed;
+  });
+  // Defined on the JS side: the animation's end can only hand Worklets a function from here, never one made in the worklet.
+  const finishClosing = useCallback(() => closed.current(), []);
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.set(
+      withTiming(open ? 1 : 0, scaledTiming(DOCK_SLIDE, scale), (finished) => {
+        if (finished && !open) scheduleOnRN(finishClosing);
+      }),
+    );
+  }, [open, progress, scale, finishClosing]);
+  const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  const max = Math.round(window.height * DOCK_MAX_SHARE);
+  const height = useSharedValue(Math.max(DOCK_MIN, Math.round(window.height * DOCK_SHARE)));
+  const start = useSharedValue(0);
+  const resize = useMemo(() => resizeGesture(height, start, max), [height, start, max]);
+
+  const sized = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) }));
+  // The room it takes grows with the rise, so the Chat above gives it up as it comes; the Terminal itself keeps its full
+  // height and is uncovered from the top, so nothing inside it squeezes on the way.
+  const room = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) * progress.get() }));
+  return (
+    // Lifted by the keyboard when it is typed into, over the composer; the composer rises past it otherwise.
+    <KeyboardStickyView enabled={keyboard} offset={{ closed: 0, opened: Math.max(0, insets.bottom - 6) }}>
+      <Animated.View style={[{ overflow: "hidden", justifyContent: "flex-start" }, room]}>
+        <Animated.View
+          onLayout={({ nativeEvent }) => onHeight(Math.round(nativeEvent.layout.height))}
+          style={[{ borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.page }, sized]}
+        >
+          <GestureDetector gesture={resize}>
+            <View accessibilityLabel="Resize Terminal" style={{ height: 18, alignItems: "center", justifyContent: "center" }}>
+              <View style={{ width: 36, height: 5, borderRadius: radius.full, backgroundColor: colors.lineStrong }} />
+            </View>
+          </GestureDetector>
+          <TerminalSheet key={`${client?.url}:${chatId}`} hostId={client?.url} chatId={chatId} places={places} onClose={onClose} onCount={onCount} />
+        </Animated.View>
+      </Animated.View>
+    </KeyboardStickyView>
   );
 }

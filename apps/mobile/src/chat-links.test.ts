@@ -56,14 +56,13 @@ test("a Chat's linked ends are named from the registry and the other Project's b
     linkedLabels(links, { project_id: "w", worktree_path: "/wt/other" }, names).map((item) => item.label),
     ["All of docs"],
   );
-  assert.equal(
-    linkedLabels(
-      [link("3", { project_id: "w", worktree_path: "/wt/x" }, { project_id: "d", worktree_path: "/wt/docs/" })],
-      { project_id: "w", worktree_path: "/wt/x" },
-      names,
-    )[0].label,
-    "docs / docs",
+  const folderLabels = linkedLabels(
+    [link("3", { project_id: "w", worktree_path: "/wt/x" }, { project_id: "d", worktree_path: "/wt/docs/" })],
+    { project_id: "w", worktree_path: "/wt/x" },
+    names,
   );
+  assert.ok(folderLabels[0]);
+  assert.equal(folderLabels[0].label, "docs / docs");
   assert.deepEqual(linkedLabels(links, undefined, names), []);
 });
 
@@ -115,6 +114,7 @@ test("Create Link adds the Link, grants Delegations ahead and asks the source Ch
     },
   });
   assert.deepEqual(calls, [["canvas:link-add", { project_id: "w" }, { project_id: "a" }], ["linked:grant", "/web#1", "9"], ["send"]]);
+  assert.ok(sent[0] !== undefined);
   assert.match(sent[0].body, /^Add the login endpoint\n\nDestination: “Auth endpoint” \(api \/ auth\), in a linked Worktree\.$/);
   assert.match(sent[0].prompt, /That Chat is \/api#7 in the linked Worktree \/wt\/auth\./);
   assert.equal(result.notice, "Link created. Asked “Login form”.");
@@ -158,7 +158,8 @@ test("Create Link says what failed, and keeps a Link that was made", async () =>
       throw new Error("Connection lost");
     },
   });
-  assert.equal(asked.links?.[0].id, "5");
+  assert.ok(asked.links?.[0]);
+  assert.equal(asked.links[0].id, "5");
   assert.equal(asked.notice, "Link created. Could not ask “Login form”: Connection lost");
 });
 

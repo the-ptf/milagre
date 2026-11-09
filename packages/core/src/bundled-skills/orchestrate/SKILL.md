@@ -56,5 +56,6 @@ Tell the user what changed, what you verified and how, and the decisions you mad
 
 ## In Milagre
 
+- A brief that should run as its own Chat in this Project goes through `delegate` with chat `"new"`: in this Worktree, or in one you made with `worktree_create` when the edits must not collide. Its Delegation report comes back with your next turn, so end the turn instead of polling. `chat_start` is fire-and-forget. Once its work is merged or pushed, archive its Chats and remove the Worktree with `worktree_remove`.
 - A change that spans Projects (desktop and mobile in two repos, a client and its server) goes through Links. Use `delegate` to hand each brief to the other Worktree's agent, and use a Negotiation when both sides must agree on a contract before either one builds it.
 - Attach any simulator an agent drives to the Chat (`simulator_attach`), so the user can watch it.

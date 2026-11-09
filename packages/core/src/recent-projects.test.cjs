@@ -65,6 +65,30 @@ test("opening a listed project again moves it to the top without a second entry"
   assert.equal(list[0].openedAt, "2026-10-01T10:00:04.000Z");
 });
 
+test("opening the project already at the top leaves the file as it is", async (t) => {
+  const base = await tempDir(t);
+  const [alpha, beta] = await folders(base, "alpha", "beta");
+  const file = path.join(base, "recent-projects.json");
+  const recent = createRecentProjects(file, { now: clock() });
+  await recent.add(alpha);
+  await recent.add(beta);
+  const saved = await fs.readFile(file, "utf8");
+  const { mtimeMs } = await fs.stat(file);
+
+  const list = await recent.add(beta);
+
+  assert.deepEqual(
+    list.map((entry) => entry.name),
+    ["beta", "alpha"],
+  );
+  assert.equal(await fs.readFile(file, "utf8"), saved, "only its openedAt would change");
+  assert.equal((await fs.stat(file)).mtimeMs, mtimeMs);
+  assert.deepEqual(
+    (await recent.add(alpha)).map((entry) => entry.name),
+    ["alpha", "beta"],
+  );
+});
+
 test("the list keeps the 10 most recent projects", async (t) => {
   const base = await tempDir(t);
   const names = Array.from({ length: MAX_RECENT + 2 }, (_, index) => `project-${index}`);
@@ -77,7 +101,7 @@ test("the list keeps the 10 most recent projects", async (t) => {
   assert.equal(MAX_RECENT, 10);
   assert.deepEqual(
     list.map((entry) => entry.name),
-    names.slice(2).reverse(),
+    names.slice(2).toReversed(),
   );
 });
 
@@ -160,7 +184,7 @@ test("writes are atomic: saves run one at a time and leave no temporary files", 
   assert.deepEqual(await fs.readdir(data), ["recent-projects.json"]);
   assert.deepEqual(
     (await recent.list()).map((entry) => entry.name),
-    [...names].reverse(),
+    names.toReversed(),
   );
 });
 
@@ -214,7 +238,7 @@ test("forgetting a project takes it off the list and leaves its folder alone", a
   }
 });
 
-test("a project is remembered under its checkout's top folder, and a folder outside any checkout isn't", async (t) => {
+test("a project is remembered under its checkout's top folder, and a folder outside Git as itself", async (t) => {
   const base = await tempDir(t);
   const [repo, other, plain] = await folders(base, "repo", "other", "plain");
   gitRepo(repo);
@@ -229,13 +253,15 @@ test("a project is remembered under its checkout's top folder, and a folder outs
   assert.equal(await rememberProject(recent, path.join(other, "packages", "app")), other);
   assert.equal(await switchTarget(recent, other), other);
 
-  for (const folder of [plain, "/", path.join(base, "missing"), "relative", undefined]) {
+  for (const folder of ["/", path.join(base, "missing"), "relative", undefined]) {
     assert.equal(await rememberProject(recent, folder), null, String(folder));
   }
+  assert.equal(await rememberProject(recent, plain), plain);
   assert.deepEqual(
     (await recent.list()).map((entry) => entry.path),
-    [other, repo],
+    [plain, other, repo],
   );
+  assert.equal(await switchTarget(recent, plain), plain);
 
   // A top folder reached through a symlink keeps the path it was opened by, so the open project's row is checked.
   const link = path.join(base, "repo-link");
@@ -243,9 +269,9 @@ test("a project is remembered under its checkout's top folder, and a folder outs
   assert.equal(await rememberProject(recent, link), link);
 });
 
-test("project:switch opens only a listed project whose real path is a checkout's top folder", async (t) => {
+test("project:switch opens only a listed project whose real path is a checkout's top folder or a folder outside Git", async (t) => {
   const base = await tempDir(t);
-  const [repo, other, plain] = await folders(base, "repo", "other", "plain");
+  const [repo, other] = await folders(base, "repo", "other", "plain");
   gitRepo(repo);
   gitRepo(other);
   const file = path.join(base, "recent-projects.json");
@@ -259,16 +285,16 @@ test("project:switch opens only a listed project whose real path is a checkout's
     await assert.rejects(switchTarget(recent, requested), /That project isn't in the list/, String(requested));
   }
 
-  // Listed, but not (or no longer) the top folder of a checkout.
+  // Listed, but not (or no longer) the top folder of a checkout, nor a folder outside Git.
   await fs.mkdir(path.join(repo, "sub"));
   await fs.writeFile(
     file,
     JSON.stringify([
-      { path: plain, name: "plain", openedAt: "" },
+      { path: "/", name: "root", openedAt: "" },
       { path: path.join(repo, "sub"), name: "sub", openedAt: "" },
     ]),
   );
-  for (const requested of [plain, path.join(repo, "sub")]) {
+  for (const requested of ["/", path.join(repo, "sub")]) {
     await assert.rejects(switchTarget(recent, requested), /That folder isn't a project/, requested);
   }
 
@@ -279,7 +305,7 @@ test("project:switch opens only a listed project whose real path is a checkout's
   await assert.rejects(switchTarget(recent, link), /That folder isn't a project/);
 });
 
-test("launch opens the folder Milagre started in when it's a repo, else the latest project that still is one", async (t) => {
+test("launch opens the folder Milagre started in when it's a repo, else the latest project that still opens", async (t) => {
   const base = await tempDir(t);
   const [started, latest, older, plain] = await folders(base, "started", "latest", "older", "plain");
   gitRepo(started);
@@ -288,8 +314,16 @@ test("launch opens the folder Milagre started in when it's a repo, else the late
   await store.add(older);
   await store.add(latest);
   assert.equal(await launchProject(store, started), started);
-  // "latest" is no longer a repo, so the one before it opens.
+  // A folder outside Git opens as a Project too.
+  assert.equal(await launchProject(store, "/"), latest);
+  // "latest" is gone, so the one before it opens. A launch from a plain folder never opens that folder.
+  await fs.rm(latest, { recursive: true });
   assert.equal(await launchProject(store, "/"), older);
   assert.equal(await launchProject(store, plain), older);
-  assert.equal(await launchProject(createRecentProjects(path.join(base, "empty.json")), "/"), "/");
+  const empty = createRecentProjects(path.join(base, "empty.json"));
+  assert.equal(await launchProject(empty, "/"), null);
+  assert.equal(await launchProject(empty, plain), null);
+  assert.equal(await launchProject(empty, started), started);
+  await store.forget(older);
+  assert.equal(await launchProject(store, plain), null);
 });

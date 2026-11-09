@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const chatId = "/design-fixture#1";
 const designId = "fieldnotes";
@@ -13,7 +14,6 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ArtifactCards, ArtifactsProvider, DesignFeedbackCard } from "/src/components/agents/ArtifactCard";
 import { PanelToggles } from "/src/components/agents/PanelToggles";
-import { DesignsSettings } from "/src/components/Settings";
 import { useDesignsEnabled } from "/src/lib/designs-enabled";
 import { designFeedbackMessage, parseDesignFeedback } from "@milagre/shared/artifact";
 import "/src/styles.css";
@@ -29,7 +29,6 @@ function Fixture() {
   return <main data-workspace-main style={{ height: "100vh", padding: "72px 32px 32px" }}>
   <div data-chat-pane className="mx-auto max-w-3xl">
     <div className="mb-6"><p className="text-[12px] text-ink-3">Milagre Design Lab</p><h1 className="mt-2 text-2xl font-medium text-ink">An editable screen, in your Chat.</h1><p className="mt-2 max-w-lg text-[13px] leading-6 text-ink-2">Open Fieldnotes, then choose Edit. Select a layer, change its text or appearance, or drag it on the canvas. Save keeps a new version.</p></div>
-    <section aria-label="Experimental settings" className="mb-4 rounded-xl border border-line bg-surface"><DesignsSettings /></section>
     {remote && <div className="flex gap-4 text-xs text-ink-3"><RemoteFlag /><RemoteFlag /></div>}
     <ArtifactsProvider chatId="/design-fixture#1" steps={[step]} userMessages={[feedback]} onSend={async () => true}><ArtifactCards steps={[step]} /><DesignFeedbackCard feedback={parseDesignFeedback(feedback.body)} messageId={feedback.id} /></ArtifactsProvider>
   </div><PanelToggles right={24} />
@@ -61,13 +60,15 @@ async function browserChecks() {
   if (!temp) throw new Error("Start this fixture with node scripts/test-design-editor.cjs.");
   const preview = process.argv.includes("--preview");
   app.setPath("userData", path.join(temp, "profile"));
-  let api = createChatArtifacts({
+  const api = createChatArtifacts({
     directory: path.join(temp, "artifacts"),
     validateChat: async (id) => {
       assert.equal(id, chatId);
     },
   });
-  await api.showDesign({ chatId, id: designId, title: "Fieldnotes", document: createExampleDesign() });
+  const initial = createExampleDesign();
+  initial.kit = { id: "project", version: 1, title: "Fieldnotes identity", colors: { ...initial.tokens }, textStyles: {}, spacing: {}, radii: {} };
+  await api.showDesign({ chatId, id: designId, title: "Fieldnotes", document: initial });
   const methods = ["get", "list", "apply", "comments", "addComments"];
   let nextApplyGate = null;
   ipcMain.handle("design-fixture:call", (_event, method, request) => {
@@ -80,6 +81,8 @@ async function browserChecks() {
     return api[method](request);
   });
   let localReads = 0;
+  // Designs are always on; a paired Mac on an older Milagre can still report them off, which this flag plays.
+  let localEnabled = true;
   let remoteReads = 0;
   let remoteEnabled = true;
   ipcMain.handle("design-fixture:read-enabled", async (_event, host) => {
@@ -90,13 +93,7 @@ async function browserChecks() {
       return value;
     }
     localReads++;
-    return { enabled: api.enabled() };
-  });
-  ipcMain.handle("design-fixture:save-enabled", async (event, host, enabled) => {
-    assert.equal(host, "local", "Settings saves the local host");
-    const result = await api.setEnabled(enabled);
-    event.sender.send("design-fixture:enabled:local", result);
-    return result;
+    return { enabled: localEnabled };
   });
   const preload = path.join(temp, "preload.cjs");
   fs.writeFileSync(
@@ -104,7 +101,6 @@ async function browserChecks() {
     `const { contextBridge, ipcRenderer } = require("electron");
     const bridge = (host) => ({
       readDesignsEnabled: () => ipcRenderer.invoke("design-fixture:read-enabled", host),
-      saveDesignsEnabled: (enabled) => ipcRenderer.invoke("design-fixture:save-enabled", host, enabled),
       onDesignsEnabledChanged: (callback) => {
         const listener = (_event, value) => callback(value);
         ipcRenderer.on("design-fixture:enabled:" + host, listener);
@@ -166,7 +162,7 @@ async function browserChecks() {
   const read = () => api.get({ chatId, id: designId });
   const button = (text) =>
     evaluate(
-      `[...document.querySelectorAll("[data-slot=design-editor] button")].find((button) => button.textContent.trim() === ${JSON.stringify(text)}).click()`,
+      `[...document.querySelectorAll("[data-slot=design-editor] button, [data-slot=design-close-confirmation] button")].find((button) => button.textContent.trim() === ${JSON.stringify(text)}).click()`,
     );
   const select = async (label, value) => {
     await click(`button[aria-label="${label}"]`);
@@ -205,8 +201,12 @@ async function browserChecks() {
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `design-editor-${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
   const editor = 'document.querySelector("[data-slot=design-editor]")';
+  const confirmation = 'document.querySelector("dialog[data-slot=design-close-confirmation]")';
   const status = 'document.querySelector("[data-slot=design-save-status]")';
-  const designSwitch = 'document.querySelector("[role=switch][aria-label=Designs]")';
+  const setLocal = (enabled) => {
+    localEnabled = enabled;
+    window.webContents.send("design-fixture:enabled:local", { enabled });
+  };
   let interactive;
   const previewPoint = async (id) => {
     // A sandboxed srcDoc navigation may replace WebFrameMain, including after undo.
@@ -249,15 +249,14 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await openEditor(false);
-    assert.equal(api.enabled(), true, "Designs defaults to on without a settings file");
-    assert.equal(await evaluate('document.querySelector("[data-slot=designs-experimental]").textContent'), "Experimental");
+    assert.equal(await evaluate('!!document.querySelector("[data-slot=designs-experimental]")'), false, "Designs left Experimental: no badge");
     assert.equal(await evaluate('!!document.querySelector("[data-slot=design-layers-panel]")'), false, "Layers starts closed for a clear canvas");
     assert.equal(
       await evaluate(`!!document.querySelector('[aria-label="Share Designs page"], [aria-label="Share page"]')`),
       false,
       "older hosts without a sharing service expose no Share button in the page or review canvas",
     );
-    assert.equal(await evaluate('document.querySelector("[data-slot=design-tool-rail]").querySelectorAll("button").length'), 6);
+    assert.equal(await evaluate('document.querySelector("[data-slot=design-tool-rail]").querySelectorAll("button").length'), 7);
     await screenshot("floating-tools");
     if (preview) {
       console.log(`READY: Milagre Design Lab at ${process.argv[2]} (Electron window). Disposable versions: ${path.join(temp, "artifacts")}`);
@@ -290,8 +289,20 @@ async function browserChecks() {
     await click('[data-slot="design-layers-toggle"]');
     assert.equal(await evaluate('!!document.querySelector("[data-slot=design-layers-panel]")'), false, "the toolbar toggles Layers closed");
 
+    // Icon layers: add, rename to another Lucide icon, and see the new geometry in the preview.
+    await click('[aria-label="Add icon"]');
+    const iconField = 'document.querySelector("input[aria-label=Icon]")';
+    assert.equal(await evaluate(`${iconField}.value`), "star", "a new icon layer starts as a star");
+    await input("Icon", "chevron-left");
+    await waitFor(
+      `new DOMParser().parseFromString(${editor}.querySelector("iframe").srcdoc, "text/html").querySelector('[data-design-node^="icon-"] svg path')?.getAttribute("d") === "m15 18-6-6 6-6"`,
+    );
+    assert.equal(await evaluate('!!document.querySelector("input[aria-label=Stroke]")'), false, "icons have no border stroke field");
+    assert.equal(await evaluate('!!document.querySelector("input[aria-label=\\"Line weight\\"]")'), true);
+    await screenshot("icon-layer");
+
     // Remote Chats use their own shared subscription; an event wins over an older read response.
-    assert.equal(localReads, 1, "cards, feedback, settings and editor share one local flag subscription");
+    assert.equal(localReads, 1, "cards, feedback and editor share one local flag subscription");
     await evaluate("window.mountRemote()");
     await waitFor('document.querySelectorAll("[data-slot=remote-designs-flag]").length === 2');
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -312,10 +323,10 @@ async function browserChecks() {
     window.webContents.send("design-fixture:enabled:fixture-remote", { enabled: true });
     await waitFor('document.querySelector("[data-slot=remote-designs-flag]").dataset.enabled === "true"');
 
-    // The real Settings control closes an open editor and removes every design surface. Disk data stays untouched.
+    // A host reporting Designs off closes an open editor and removes every design surface. Disk data stays untouched.
     const savedDocument = (await read()).document;
-    await click('[role="switch"][aria-label="Designs"]');
-    await waitFor(`${designSwitch}.getAttribute("aria-checked") === "false" && !${designSwitch}.disabled`);
+    setLocal(false);
+    await waitFor('!document.querySelector("[data-slot=artifact-card]")');
     assert.equal(
       await evaluate(
         '!!document.querySelector("[data-slot=design-editor], [data-slot=artifact-dock], [data-slot=artifact-card], [data-slot=artifact-group], [data-slot=design-feedback], [data-panel-toggle=designs]")',
@@ -329,21 +340,13 @@ async function browserChecks() {
     assert.equal(
       await evaluate('document.querySelector("[data-slot=remote-designs-flag]").dataset.enabled'),
       "true",
-      "the local switch never disables a remote host",
-    );
-    assert.equal(api.enabled(), false);
-    await assert.rejects(
-      api.apply({ chatId, id: designId, expectedVersion: 1, operations: [{ op: "update", id: "heading", patch: { text: "Blocked edit" } }] }),
-      /Designs are off/,
+      "one host reporting off never disables another",
     );
     await screenshot("designs-off");
-    api = createChatArtifacts({ directory: path.join(temp, "artifacts"), validateChat: async () => {} });
-    assert.equal(api.enabled(), false, "the setting persists across host recreation");
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!${designSwitch} && !${designSwitch}.disabled`);
-    assert.equal(await evaluate(`${designSwitch}.getAttribute("aria-checked")`), "false", "reopening stays disabled");
-    assert.equal(await evaluate('!!document.querySelector("[data-slot=artifact-card], [data-panel-toggle=designs]")'), false);
-    await click('[role="switch"][aria-label="Designs"]');
+    await waitFor('!!document.querySelector("[data-slot=design-feedback-text]")');
+    assert.equal(await evaluate('!!document.querySelector("[data-slot=artifact-card], [data-panel-toggle=designs]")'), false, "reopening stays off");
+    setLocal(true);
     await waitFor('!!document.querySelector("[data-slot=artifact-card] iframe") && !!document.querySelector("[data-slot=design-feedback]")');
     assert.equal(
       await evaluate('!!document.querySelector("[data-slot=artifact-dock], [data-slot=design-editor]")'),
@@ -352,7 +355,7 @@ async function browserChecks() {
     );
     assert.deepEqual((await read()).document, savedDocument, "turning Designs off preserves every saved layer");
     await click("[data-slot=artifact-card] button");
-    await waitFor('!!document.querySelector("[data-slot=designs-experimental]")');
+    await waitFor('!!document.querySelector("[data-slot=artifact-dock], [data-slot=design-editor]")');
     await screenshot("designs-enabled");
 
     await waitFor('!!document.querySelector("[data-slot=artifact-edit]")');
@@ -646,6 +649,9 @@ async function browserChecks() {
     };
     await click('[data-node-id="date"]');
     const footerPoint = await previewPoint("footer");
+    // Route the pointer into the sandbox before pressing, as dragLayer does.
+    await pointer("mouseMoved", footerPoint, 8, false);
+    await delay(80);
     await pointer("mousePressed", footerPoint, 8);
     await pointer("mouseReleased", footerPoint, 8);
     await waitFor(
@@ -1026,11 +1032,9 @@ async function browserChecks() {
         await click('[aria-label="Close design editor"]');
         await waitFor(`!${editor}`);
       } else {
-        await api.setEnabled(false);
-        window.webContents.send("design-fixture:enabled:local", { enabled: false });
+        setLocal(false);
         await waitFor(`!${editor}`);
-        await api.setEnabled(true);
-        window.webContents.send("design-fixture:enabled:local", { enabled: true });
+        setLocal(true);
       }
       await openEditor();
       await waitFor(`!!${editor}.querySelector('[data-slot=design-suspended-draft]')`);
@@ -1131,7 +1135,7 @@ async function browserChecks() {
       releaseSave = resolve;
     });
     await click("[data-slot=design-save]");
-    await waitFor(`${status}.textContent.includes("Saving...")`);
+    await waitFor(`${status}.textContent.includes("Saving…")`);
     let pendingPreview;
     for (let attempt = 0; attempt < 100 && !pendingPreview; attempt++) {
       for (const child of window.webContents.mainFrame.framesInSubtree) {
@@ -1165,7 +1169,8 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-slot=design-layers-panel]")');
     assert.ok(await evaluate(`!!${editor}`), "iframe Escape closes Layers first");
     await interactive.executeJavaScript('document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));');
-    await waitFor(`${editor}.textContent.includes("Your changes have not been saved")`);
+    // The confirmation is the shared Dialog, portalled to the body and shown modal over the editor.
+    await waitFor(`${confirmation}?.open && ${confirmation}.textContent.includes("Your changes have not been saved")`);
     assert.equal(await evaluate('document.querySelector("textarea[aria-label=Text]").value'), "Unsaved escape draft");
     await button("Keep editing");
     await click('[aria-label="Undo design edit"]');
@@ -1180,11 +1185,9 @@ async function browserChecks() {
     await click('[data-node-id="footer"]');
     await input("Text color", "#abcdef");
     await draftInput("Text", "Uncommitted text kept while Designs is off");
-    await api.setEnabled(false);
-    window.webContents.send("design-fixture:enabled:local", { enabled: false });
+    setLocal(false);
     await waitFor(`!${editor} && !document.querySelector('[data-slot=artifact-dock]')`);
-    await api.setEnabled(true);
-    window.webContents.send("design-fixture:enabled:local", { enabled: true });
+    setLocal(true);
     advanced = await remoteEdit([{ op: "update", id: "brand", patch: { text: "A newer host revision" } }]);
     await openEditor();
     await waitFor(`!!${editor}.querySelector('[data-slot=design-suspended-draft]')`);
@@ -1273,7 +1276,7 @@ async function browserChecks() {
     await screenshot("whole-page");
     await click('[aria-label="Select design Fieldnotes"]');
     await click('[aria-label="Close design editor"]');
-    await waitFor(`${editor}.textContent.includes("Discard changes")`);
+    await waitFor(`${confirmation}?.open && ${confirmation}.textContent.includes("Discard changes")`);
     await button("Discard changes");
     await waitFor(`!${editor}`);
     await openEditor();
@@ -1323,6 +1326,45 @@ async function browserChecks() {
     await click('[aria-label="Close design editor"]');
     await waitFor(`!${editor}`);
 
+    // Strict consistency is checked through real editor save IPC, preserving failed drafts.
+    const strictDocument = {
+      schemaVersion: 1,
+      width: 390,
+      height: 844,
+      background: "$paper",
+      kit: {
+        id: "project",
+        version: 1,
+        title: "Strict identity",
+        colors: { paper: "#ffffff", ink: "#123456" },
+        textStyles: { body: { fontSize: 17 } },
+        spacing: { md: 16 },
+        radii: { card: 12 },
+      },
+      consistency: { mode: "strict" },
+      nodes: [{ id: "strict-text", type: "text", x: 24, y: 40, width: 300, height: 60, text: "Preserve my draft", textStyle: "body", fill: "$ink" }],
+    };
+    const beforeStrict = await read();
+    await api.apply({ chatId, id: designId, expectedVersion: beforeStrict.version, operations: [{ op: "replace", document: strictDocument }] });
+    await openEditor();
+    await waitFor(`${editor}.textContent.includes("Strict identity") && ${editor}.textContent.includes("Strict")`);
+    await click('[data-node-id="strict-text"]');
+    await input("Text color", "red");
+    const strictVersion = (await read()).version;
+    await click("[data-slot=design-save]");
+    await waitFor(`${editor}.textContent.includes("outside kit")`);
+    assert.equal((await read()).version, strictVersion, "strict rejection does not create a version");
+    assert.equal(await evaluate(`document.querySelector('input[aria-label="Text color"]').value`), "red", "rejected draft stays editable");
+    await screenshot("strict-rejected");
+    await input("Text color", "$ink");
+    await input("Text", "A corrected draft");
+    await click("[data-slot=design-save]");
+    await waitFor(`${status}.textContent.includes("Saved · version ${strictVersion + 1}")`);
+    assert.equal((await read()).document.nodes[0].text, "A corrected draft");
+    await screenshot("strict-saved");
+    await click('[aria-label="Close design editor"]');
+    await waitFor(`!${editor}`);
+
     // A second persistence instance reads the same saved document from disk.
     const reopened = createChatArtifacts({ directory: path.join(temp, "artifacts"), validateChat: async () => {} });
     assert.deepEqual((await reopened.get({ chatId, id: designId })).document, (await read()).document);
@@ -1353,7 +1395,7 @@ async function main() {
           if (id === "/__design_editor_fixture.tsx") return fixture;
         },
         configureServer(vite) {
-          vite.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(vite.middlewares, async (request, response, next) => {
             if (request.url !== "/__design_editor__") return next();
             const html = await vite.transformIndexHtml(
               request.url,

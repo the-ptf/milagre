@@ -1,10 +1,11 @@
 import { pickerProviders, providerName } from "@milagre/shared/providers";
 import { contextWindowFor, effortFor } from "@milagre/shared/model-options";
 import { formatTokens } from "@milagre/shared/usage";
+import { formatCredits } from "@milagre/shared/kiro-models";
 import { effortCopy } from "@milagre/shared/model-copy";
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { Cancel01Icon, FlashIcon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import type { ModelProvider } from "@milagre/shared/model";
@@ -15,7 +16,8 @@ import { EffortSlider } from "../effort-slider";
 import { UltracodeFatality } from "../ultracode-fatality";
 import { ultraRumble } from "../ultra-haptics";
 import { useUltracodeFatality } from "../ultracode-fatality-setting";
-import { CircleButton, useStyles } from "../ui";
+import { CheckRow, Chip, CircleButton, InlineError, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
+import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 /** The model's context window as the picker shows it: "1M", "272k". */
@@ -24,15 +26,22 @@ function contextLabel(model: { provider: ModelProvider; id: string }) {
   return size ? formatTokens(size) : undefined;
 }
 
+/** A Kiro model's credit multiplier ("2×") and how a screen reader says it, else its context window. */
+function metaOf(model: { provider: ModelProvider; id: string; credits?: number }) {
+  if (model.credits) return { label: formatCredits(model.credits), spoken: `${formatCredits(model.credits)} the credits Auto would use` };
+  const label = contextLabel(model);
+  return label ? { label, spoken: `${label} context window` } : null;
+}
+
 /** Model, thinking effort, fast mode and Ultracode for one Chat: provider chips that scroll sideways as providers grow,
  * the provider's models, and the settings pinned below them. Cancel (✕) discards, Done (✓) applies, per Apple's sheet guidance. */
 export default function ModelSheet() {
   const { colors } = useTheme();
   const styles = useStyles();
+  const bottomInset = useSheetBottomInset();
   const params = useLocalSearchParams<{ chatId: string; model?: string; provider?: string; on?: string; busy?: string }>();
   const session = useSession();
   const composer = useComposer();
-  const navigation = useNavigation();
   const saved = composer.preferences[params.chatId] || composer.defaults;
   const initial: TurnPreferences = { ...saved, provider: (params.provider as ModelProvider | undefined) || saved.provider, model: params.model || saved.model };
   const [draft, setDraft] = useState<TurnPreferences>(initial);
@@ -43,17 +52,25 @@ export default function ModelSheet() {
   const effort = effortFor(model, draft.effort);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const [closing, setClosing] = useState(false);
-  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
+  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
   // The settings panel floats over the bottom of the models list (the sheet stretches its ScrollView to the full
   // sheet), so the list pads its end by the panel's height and every model can scroll above it.
   const [panelHeight, setPanelHeight] = useState(0);
   const hasSettings = model.efforts.length > 0 || model.fastMode || model.ultracode;
   const [fatalityOn] = useUltracodeFatality();
-  usePreventRemove(dirty && !closing, ({ data }) =>
+  usePreventRemove(dirty && !closing, ({ repeat }) =>
     Alert.alert("Discard changes?", "Your model and effort picks will not be applied.", [
       { text: "Keep editing", style: "cancel" },
-      { text: "Discard", style: "destructive", onPress: () => navigation.dispatch(data.action) },
+      {
+        text: "Discard",
+        style: "destructive",
+        // repeat() lifts the prevention before dispatching; dispatching the action again would be blocked again.
+        onPress: () => {
+          setClosing(true);
+          repeat();
+        },
+      },
     ]),
   );
   const close = (apply: boolean) => {
@@ -82,103 +99,75 @@ export default function ModelSheet() {
         scrollIndicatorInsets={{ bottom: hasSettings ? panelHeight : 0 }}
       >
         <View style={{ backgroundColor: colors.page }}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 8,
-              backgroundColor: colors.page,
-            }}
-          >
-            <CircleButton label="Cancel" icon={Cancel01Icon} onPress={() => close(false)} />
-            <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-              Model
-            </Text>
-            <CircleButton label="Done" icon={Tick02Icon} filled onPress={() => close(true)} />
-          </View>
+          <SheetHeader
+            title="Model"
+            style={{ backgroundColor: colors.page }}
+            leading={<CircleButton label="Cancel" icon={Cancel01Icon} onPress={() => close(false)} />}
+            trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => close(true)} />}
+          />
           <ScrollView
             horizontal
             accessibilityRole="tablist"
             showsHorizontalScrollIndicator={false}
             style={{ backgroundColor: colors.page }}
-            contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 }}
+            contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}
           >
             {pickerProviders(session.cliStatus, initial.provider, draft.provider).map((provider) => {
               const on = provider === draft.provider;
               const problem = session.cliStatus?.[provider] && session.cliStatus[provider].state !== "ready";
+              // Chips kept as tabs: these switch the list below.
               return (
-                <Pressable
+                <Chip
                   key={provider}
-                  accessibilityRole="tab"
-                  accessibilityLabel={providerName(provider)}
-                  accessibilityState={{ selected: on }}
+                  role="tab"
+                  label={providerName(provider)}
+                  selected={on}
                   onPress={() => setDraft((current) => ({ ...current, provider, model: "", fastMode: false, ultracode: false }))}
-                  style={({ pressed }) => ({
-                    height: 34,
-                    paddingHorizontal: 13,
-                    borderRadius: 17,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    backgroundColor: on ? colors.ink : colors.surface,
-                    opacity: pressed ? 0.7 : 1,
-                  })}
-                >
-                  <ProviderLogo provider={provider} size={14} />
-                  <Text style={{ color: on ? colors.page : colors.ink2, fontSize: 14, fontWeight: "500" }}>{providerName(provider)}</Text>
-                  {problem && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.orange }} />}
-                </Pressable>
+                  leading={<ProviderLogo provider={provider} size={16} inverted={on} />}
+                  trailing={problem ? <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} /> : undefined}
+                />
               );
             })}
           </ScrollView>
         </View>
-        <View style={{ paddingHorizontal: 16 }}>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Model" style={{ paddingHorizontal: 16 }}>
           {busy && <Text style={[styles.caption, { paddingBottom: 8 }]}>Changes apply to your next message. This turn keeps its settings.</Text>}
-          {cli && cli.state !== "ready" && (
-            <Text style={[styles.caption, { color: colors.orange, paddingBottom: 8 }]}>
-              {cli.message || `${providerName(draft.provider)} is ${cli.state}.`}
-            </Text>
-          )}
+          {cli && cli.state !== "ready" ? (
+            <InlineError warning message={cli.message || `${providerName(draft.provider)} is ${cli.state}.`} style={{ paddingBottom: 8 }} />
+          ) : null}
           {models.map((item, index) => (
             <View key={item.id}>
               {index > 0 && <View style={styles.separator} />}
-              <Pressable
-                accessibilityRole="radio"
-                accessibilityState={{ checked: item.id === model.id }}
+              <CheckRow
+                title={item.name}
+                subtitle={item.description || undefined}
+                checked={item.id === model.id}
                 onPress={() => setDraft((current) => ({ ...current, model: item.id }))}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, opacity: pressed ? 0.5 : 1 })}
-              >
-                <ProviderLogo provider={item.provider} size={16} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "500", flexShrink: 1 }}>{item.name}</Text>
-                    {!!contextLabel(item) && (
-                      <Text
-                        accessibilityLabel={`${contextLabel(item)} context window`}
-                        style={{
-                          color: colors.ink3,
-                          fontSize: 11,
-                          fontWeight: "500",
-                          fontVariant: ["tabular-nums"],
-                          borderWidth: StyleSheet.hairlineWidth,
-                          borderColor: colors.lineStrong,
-                          borderRadius: 5,
-                          paddingHorizontal: 4,
-                          paddingVertical: 1,
-                          overflow: "hidden",
-                        }}
-                      >
-                        {contextLabel(item)}
-                      </Text>
-                    )}
-                  </View>
-                  {!!item.description && <Text style={styles.caption}>{item.description}</Text>}
-                </View>
-                {item.id === model.id && <Icon icon={Tick02Icon} tone="ink" size={18} strokeWidth={2.2} />}
-              </Pressable>
+                leading={<ProviderLogo provider={item.provider} size={16} />}
+                accessory={
+                  metaOf(item) ? (
+                    <Text
+                      accessibilityLabel={metaOf(item)?.spoken}
+                      style={{
+                        color: colors.ink3,
+                        fontSize: type.caption2,
+                        lineHeight: lineHeight.caption2,
+                        fontWeight: "500",
+                        fontVariant: ["tabular-nums"],
+                        borderWidth: 1,
+                        borderColor: colors.lineStrong,
+                        borderRadius: radius.chip,
+                        borderCurve: "continuous",
+                        paddingHorizontal: 4,
+                        paddingVertical: 2,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {metaOf(item)?.label}
+                    </Text>
+                  ) : undefined
+                }
+              />
             </View>
           ))}
         </View>
@@ -195,14 +184,14 @@ export default function ModelSheet() {
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: colors.line,
             paddingHorizontal: 16,
-            paddingTop: 14,
-            paddingBottom: 34,
-            gap: 14,
+            paddingTop: 16,
+            paddingBottom: bottomInset,
+            gap: 16,
           }}
         >
           {levels.length > 0 && effort && (
             <View style={{ gap: 8 }}>
-              <Text style={styles.section}>Thinking effort</Text>
+              <SectionLabel flush>Thinking effort</SectionLabel>
               {levels.length > 1 && (
                 <>
                   <EffortSlider
@@ -211,13 +200,15 @@ export default function ModelSheet() {
                     label="Thinking effort"
                     valueText={effortCopy(effort).name}
                     onChange={(next) => {
-                      if (levels[next] === "ultra") ultraRumble();
-                      setDraft((current) => ({ ...current, effort: levels[next] }));
+                      const nextEffort = levels[next];
+                      if (!nextEffort) return;
+                      if (nextEffort === "ultra") ultraRumble();
+                      setDraft((current) => ({ ...current, effort: nextEffort }));
                     }}
                   />
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={styles.caption}>{effortCopy(levels[0]).name}</Text>
-                    <Text style={styles.caption}>{effortCopy(levels[levels.length - 1]).name}</Text>
+                    <Text style={styles.caption}>{effortCopy(levels[0] ?? effort).name}</Text>
+                    <Text style={styles.caption}>{effortCopy(levels[levels.length - 1] ?? effort).name}</Text>
                   </View>
                 </>
               )}
@@ -284,29 +275,35 @@ function SettingTile({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const ink = tone === "purple" ? colors.purpleInk : colors.orange;
+  const ink = tone === "purple" ? colors.purpleInk : colors.orangeInk;
   return (
     <Pressable
-      accessibilityRole="switch"
+      accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityHint={detail}
       accessibilityState={{ checked: value }}
       onPress={() => onChange(!value)}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 11,
-        paddingVertical: 11,
-        paddingHorizontal: 14,
-        borderRadius: 13,
-        borderCurve: "continuous",
-        backgroundColor: value ? (tone === "purple" ? colors.purpleTint : colors.orangeTint) : colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingVertical: 12,
+          paddingHorizontal: 16,
+          minHeight: 56,
+          borderRadius: radius.card,
+          borderCurve: "continuous",
+          backgroundColor: value ? (tone === "purple" ? colors.purpleTint : colors.orangeTint) : colors.surface,
+          borderWidth: 1,
+          borderColor: value ? "transparent" : colors.line,
+        },
+        pressStyle({ pressed }),
+      ]}
     >
-      <Icon icon={icon} tone={value ? (tone === "purple" ? "purpleInk" : "orange") : "ink2"} size={18} />
+      {/* Fills are for icons: the orange or purple fill while on. */}
+      <Icon icon={icon} tone={value ? tone : "ink2"} size={18} />
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: value ? ink : colors.ink, fontSize: 15, fontWeight: "600" }}>{title}</Text>
+        <Text style={{ color: value ? ink : colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>{title}</Text>
         <Text style={styles.caption}>{detail}</Text>
       </View>
     </Pressable>

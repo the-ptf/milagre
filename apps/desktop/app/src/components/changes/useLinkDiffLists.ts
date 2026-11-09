@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useGitRefresh } from "./useGitRefresh";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import type { WorktreeBinding } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -15,10 +16,10 @@ export function useLinkDiffLists({ members, chatId, mode, active }: { members: W
     loading: false,
   });
   const generation = useRef(0);
-  const request = useRef({ identity, members, mode });
-  request.current = { identity, members, mode };
+  const request = useRef({ identity, members, mode, chatId });
+  request.current = { identity, members, mode, chatId };
   const refresh = useCallback(async () => {
-    const { identity, members, mode } = request.current;
+    const { identity, members, mode, chatId } = request.current;
     const current = ++generation.current;
     setSnapshot((previous) => ({ identity, lists: previous.identity === identity ? previous.lists : {}, loading: true }));
     await Promise.all(
@@ -35,11 +36,11 @@ export function useLinkDiffLists({ members, chatId, mode, active }: { members: W
     if (current === generation.current) setSnapshot((previous) => ({ ...previous, loading: false }));
   }, []);
   useEffect(() => {
-    if (active) void refresh();
     return () => {
       generation.current++;
     };
   }, [active, identity, refresh]);
+  useGitRefresh(active, identity, refresh);
   useEffect(() => {
     if (!active || !chatId) return;
     return onAnyAgentEvent((message) => {

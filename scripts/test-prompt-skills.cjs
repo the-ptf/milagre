@@ -1,18 +1,28 @@
-// Real composer and native textarea editing in Electron. No agent calls.
+// Real composer and its chip editor in Electron: skills in the draft are chips. No agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PromptComposer } from '/src/components/PromptComposer';
+import { ChatMentionsContext } from '/src/components/ChatMentions';
+import { PromptText } from '/src/components/PromptText';
 import { MODEL_CATALOG, capabilityFor } from '/src/model';
 import '/src/styles.css';
+import { updateSettings } from '/src/lib/settings';
+window.updateSettings = updateSettings;
 const noop = () => {};
 window.sent = [];
-window.milagre = { listSkills: async root => ({ skills: root === '/other' ? [] : [
+window.deliveries = [];
+window.stops = 0;
+window.contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps: 'now' };
+window.milagre = { readContextSettings: async () => window.contextSettings, onContextSettings: (listener) => { window.emitContextSettings = (value) => { window.contextSettings = value; listener(value); }; return noop; }, searchProjectFiles: async () => ['review.md'], listSkills: async root => ({ skills: root === '/other' ? [] : [
+  { name: 'reorder', description: 'Gently put things in order', scope: 'bundled', provider: 'milagre', path: '/skills/reorder/SKILL.md' },
+  { name: 'settle', description: 'Close out loose ends', scope: 'workspace', provider: 'claude', path: '/skills/settle/SKILL.md' },
   { name: 'tldr', description: 'Rewrite for a skimming reader', scope: 'bundled', provider: 'milagre', path: '/skills/tldr/SKILL.md' },
   ...['milagre','milagre-advisor','milagre-committee','milagre-help'].map(name => ({ name, description: 'Milagre orchestration and help', scope: 'bundled', provider: 'milagre', path: '/skills/' + name + '/SKILL.md' })),
   { name: 'plugin:review-code', description: 'Review code', scope: 'user', provider: 'codex', path: '/skills/review/SKILL.md' },
@@ -24,18 +34,23 @@ function Fixture() {
   const [skillScope, setSkillScope] = useState(undefined);
   window.setSkillScope = setSkillScope;
   const [expanded, setExpanded] = useState(false);
+  const [suggestOptions, setSuggestOptions] = useState({});
+  window.setSuggestOptions = setSuggestOptions;
   window.setDraft = setDraft;
   window.setProject = setRoot;
   window.setExpanded = setExpanded;
-  const model = MODEL_CATALOG[0];
-  return <div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
+  const model = suggestOptions.provider ? MODEL_CATALOG.find(item => item.provider === suggestOptions.provider) : MODEL_CATALOG[0];
+  const chats = root === '/other' ? [] : [{id: 12, title: 'Plan review', branch: 'feature', at: 12, available: true}, {id: 13, title: 'Current review', branch: 'main', at: 13, available: true}, {id: 14, title: 'Chat', branch: 'old', at: 14, available: false}];
+  return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
     <PromptComposer projectPath={root} skillScope={skillScope} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
-      onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={false}
+      onSend={(delivery) => { window.deliveries.push(delivery); window.sent.push(draft); setDraft(''); }} onStop={() => { window.stops++; }} sendBlocked={!!suggestOptions.blocked}
+      suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline} reconnectingName={suggestOptions.reconnecting}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop} alwaysExpanded={expanded} />
-  </div>;
+    <div id='sent-mentions'><PromptText text='See @chat:12 @chat:14 @chat:999' skills={new Map()} files={() => false} /></div>
+  </div></ChatMentionsContext>;
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
 `;
@@ -57,14 +72,14 @@ async function browserChecks() {
     }
     throw Error("Timed out: " + source);
   };
+  const editor = `document.querySelector('[data-prompt-editor]')`;
+  // Sets the whole draft the way restored or pasted text arrives; the caret goes to the end.
   const type = async (text) => {
-    await evaluate(
-      `(() => { const input = document.querySelector('textarea'); input.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(text)}); input.setSelectionRange(input.value.length, input.value.length); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
-    );
+    await evaluate(`(() => { const input = ${editor}; input.focus(); input.value = ${JSON.stringify(text)}; })()`);
     await delay(100);
   };
   const escape = async () => {
-    await evaluate(`document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
+    await evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
     await delay(100);
   };
   const screenshot = async (name) => {
@@ -77,19 +92,15 @@ async function browserChecks() {
     await delay(100);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const highlighted = () => evaluate(`[...document.querySelectorAll('[data-prompt-skill]')].map(el => el.textContent)`);
-  const hoverSkill = async (index = 0) => {
-    // Let the textarea's ResizeObserver finish after compact/expanded layout changes.
-    await delay(100);
-    const point = await evaluate(
-      `(() => { const rect = document.querySelectorAll('[data-prompt-skill]')[${index}].getClientRects()[0]; return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }; })()`,
+  // The skill chips in the field, as the source text each stands for.
+  const highlighted = () => evaluate(`[...${editor}.querySelectorAll('[data-chip="skill"]')].map(el => el.parentElement.dataset.text)`);
+  const chipPoint = (index) =>
+    evaluate(
+      `(() => { const rect = ${editor}.querySelectorAll('[data-chip="skill"]')[${index}].getClientRects()[0]; return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseMove", ...point });
-    return point;
-  };
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('textarea')`);
+    await waitFor(`!!${editor}`);
     await type("/milagre");
     await waitFor(`document.querySelectorAll('[aria-label="Commands and skills"] button').length === 4`);
     assert.deepEqual(
@@ -98,97 +109,314 @@ async function browserChecks() {
     );
     await screenshot("milagre-skills-menu");
     await type("run /tldr");
-    await waitFor(`document.querySelector('[data-prompt-skill]')?.textContent === '/tldr'`);
+    await waitFor(`${editor}.querySelector('[data-chip="skill"]')?.textContent === 'Tldr'`);
     await escape();
-    assert.deepEqual(await highlighted(), ["/tldr"], "Highlight survives dismissal of the skill menu");
-    await hoverSkill();
-    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent.includes('Rewrite for a skimming reader')`);
-    assert.ok(await evaluate(`document.querySelector('[role="tooltip"]').textContent.includes('/tldr')`), "Hover identifies the skill");
-    await screenshot("skill-hover-light");
-    window.webContents.sendInputEvent({ type: "mouseMove", x: 10, y: 10 });
-    await waitFor(`!document.querySelector('[role="tooltip"]')`);
+    assert.deepEqual(await highlighted(), ["/tldr"], "The chip survives dismissal of the skill menu");
+    assert.equal(await evaluate(`${editor}.querySelector('[data-chip="skill"]').getAttribute('aria-description')`), "Rewrite for a skimming reader");
+    window.webContents.sendInputEvent({ type: "mouseMove", ...(await chipPoint(0)) });
+    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent === 'Rewrite for a skimming reader'`, "Hover gives the description");
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    await waitFor(`!document.querySelector('[role="tooltip"]')`, "Leaving the chip hides the description");
+    assert.equal(await evaluate(`${editor}.value`), "run /tldr", "The draft keeps the command text");
+    await screenshot("skill-chip-light");
     for (const dark of [false, true]) {
       await evaluate(`document.documentElement.classList.toggle('dark', ${dark})`);
       const colors = await evaluate(
-        `(() => { const token = document.querySelector('[data-prompt-skill]'); const text = document.querySelector('[data-prompt-highlights] > div'); const input = document.querySelector('textarea'); return { skill: getComputedStyle(token).color, text: getComputedStyle(text).color, caret: getComputedStyle(input).caretColor, input: getComputedStyle(input).color }; })()`,
+        `(() => { const chip = ${editor}.querySelector('[data-chip="skill"]'); const input = ${editor}; return { skill: getComputedStyle(chip).color, text: getComputedStyle(input).color, caret: getComputedStyle(input).caretColor }; })()`,
       );
       assert.notEqual(colors.skill, colors.text, "Skill differs from ordinary text in each theme");
       assert.equal(colors.caret, colors.text, "Caret remains visible");
-      assert.equal(colors.input, "rgba(0, 0, 0, 0)", "Only the mirror paints text");
       await screenshot(dark ? "compact-dark" : "compact-light");
     }
+    // A chip fits its line: the compact composer stays one line tall.
+    assert.equal(await evaluate(`${editor}.getBoundingClientRect().height`), 28, "A chip doesn't grow the line");
     await type("/tl /unknown https://example.com/tldr /tldr/file");
     assert.deepEqual(await highlighted(), []);
     // Restored/pasted drafts must discover skills even when the caret menu stays dismissed.
     await evaluate(`window.setDraft('Use /tldr, then /plugin:review-code please.'); window.setExpanded(true)`);
-    await waitFor(`document.querySelectorAll('[data-prompt-skill]').length === 2`);
-    await hoverSkill(1);
-    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent.includes('Review code')`);
-    await screenshot("skill-hover-dark");
-    // The textarea must remain the hit target over a skill, preserving caret placement and drag selection.
+    await waitFor(`${editor}.querySelectorAll('[data-chip="skill"]').length === 2`);
+    assert.deepEqual(await highlighted(), ["/tldr", "/plugin:review-code"]);
     assert.equal(
-      await evaluate(
-        `(() => { const rect = document.querySelectorAll('[data-prompt-skill]')[1].getClientRects()[0]; return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.tagName; })()`,
-      ),
-      "TEXTAREA",
+      await evaluate(`${editor}.querySelectorAll('[data-chip="skill"]')[1].textContent`),
+      "Review Code",
+      "A plugin prefix is dropped from the label",
     );
-    const point = await hoverSkill(1);
+    assert.equal(await evaluate(`${editor}.querySelectorAll('[data-chip="skill"]')[1].getAttribute('aria-description')`), "Review code");
+    await screenshot("skill-chips-dark");
+    // A press on a chip lands in the field.
+    const point = await chipPoint(1);
+    assert.equal(await evaluate(`!!document.elementFromPoint(${point.x}, ${point.y})?.closest('[data-prompt-editor]')`), true);
     window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
     window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
-    await waitFor(`!document.querySelector('[role="tooltip"]')`);
-    assert.equal(await evaluate(`document.activeElement?.tagName`), "TEXTAREA");
+    await delay(100);
+    assert.equal(await evaluate(`document.activeElement?.hasAttribute('data-prompt-editor')`), true);
     await screenshot("expanded-dark");
     await evaluate(`document.documentElement.classList.remove('dark')`);
     await screenshot("expanded-light");
     await type("/tl");
     await waitFor(`!!document.querySelector('[aria-label="Commands and skills"] button')`);
+    // Ranking: the name that starts with the query first, then names that contain it, then description matches,
+    // whatever group they sit in (reorder is listed before tldr and only matches by description).
+    const ranked = () =>
+      evaluate(
+        `[...document.querySelectorAll('[aria-label="Commands and skills"] button')].map(b => b.querySelector('span')?.textContent).filter(name => ['/tldr', '/settle', '/reorder'].includes(name))`,
+      );
+    assert.deepEqual(await ranked(), ["/tldr", "/settle", "/reorder"], "/tl lists /tldr first, then the name match, then the description match");
+    assert.equal(
+      await evaluate(`document.querySelector('[aria-label="Commands and skills"] button span').textContent`),
+      "/tldr",
+      "the first row is the exact name prefix",
+    );
+    assert.equal(
+      await evaluate(`document.querySelectorAll('[aria-label="Commands and skills"] [data-skill-group]').length`),
+      0,
+      "a search lists matches without group headings",
+    );
     await evaluate(`document.querySelector('[aria-label="Commands and skills"] button').click()`);
-    await waitFor(`document.querySelector('textarea').value === '/tldr '`);
-    assert.deepEqual(await highlighted(), ["/tldr"], "Picker selection is highlighted");
-    // Real typing and selection stay in the native input.
-    await evaluate(`(() => { const input = document.querySelector('textarea'); input.focus(); input.setSelectionRange(1, 5); })()`);
-    await window.webContents.insertText("unknown");
-    await waitFor(`document.querySelector('textarea').value === '/unknown '`);
-    assert.deepEqual(await highlighted(), [], "Editing a name removes stale highlighting");
+    await waitFor(`${editor}.value === '/tldr '`);
+    assert.deepEqual(await highlighted(), ["/tldr"], "Picker selection is a chip");
+    // Real typing: Backspace after the chip takes all of it; a name the catalog doesn't know stays text.
+    await evaluate(`(() => { const field = ${editor}; field.focus(); getSelection().collapse(field, 1); })()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Backspace" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Backspace" });
+    await waitFor(`${editor}.value === ' '`);
+    await window.webContents.insertText("/unknown");
+    await waitFor(`${editor}.value === '/unknown '`);
+    assert.deepEqual(await highlighted(), [], "An unknown name is plain text");
     const longDraft = Array.from({ length: 20 }, (_, i) => "Line " + i + ": run /tldr and " + "wrapped text ".repeat(9)).join("\n");
     await type(longDraft);
     await escape();
     await window.setSize(530, 500);
     await delay(150);
     assert.deepEqual(await highlighted(), Array(20).fill("/tldr"));
-    const geometry = await evaluate(`(() => {
-      const input = document.querySelector('textarea'); const viewport = document.querySelector('[data-prompt-highlights]'); const text = viewport.firstElementChild;
-      input.scrollTop = 120; input.dispatchEvent(new Event('scroll'));
-      return { width: input.clientWidth, mirrorWidth: viewport.clientWidth, height: input.clientHeight, mirrorHeight: viewport.clientHeight, scroll: input.scrollTop, transform: text.style.transform, contentHeight: input.scrollHeight, mirrorContentHeight: text.scrollHeight, x: input.getBoundingClientRect().x, mirrorX: viewport.getBoundingClientRect().x };
-    })()`);
-    assert.equal(geometry.width, geometry.mirrorWidth, "Wrapped input and mirror have the same width");
-    assert.equal(geometry.height, geometry.mirrorHeight);
-    assert.equal(geometry.x, geometry.mirrorX);
-    assert.ok(Math.abs(geometry.contentHeight - geometry.mirrorContentHeight) <= 1, "Mirror line wrapping matches textarea");
-    assert.equal(geometry.transform, "translate(0px, -120px)", "Highlight follows textarea scrolling");
-    await evaluate(`document.querySelector('textarea').scrollTop = 0`);
-    await delay(100);
-    await hoverSkill();
-    await waitFor(`!!document.querySelector('[role="tooltip"]')`);
-    await evaluate(`(() => { const input = document.querySelector('textarea'); input.scrollTop = 120; input.dispatchEvent(new Event('scroll')); })()`);
-    await waitFor(`!document.querySelector('[role="tooltip"]')`);
+    assert.equal(await evaluate(`${editor}.value`), longDraft, "A long draft round-trips exactly");
+    const geometry = await evaluate(
+      `(() => { const input = ${editor}; input.scrollTop = 120; return { height: input.clientHeight, content: input.scrollHeight, scroll: input.scrollTop }; })()`,
+    );
+    assert.equal(geometry.height, 100, "The field stops growing at 100px");
+    assert.ok(geometry.content > 400, "and scrolls the rest");
+    assert.equal(geometry.scroll, 120);
     await screenshot("wrapped-scrolled");
     await type("run /tldr");
     await escape();
-    await evaluate(`document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))`);
-    await waitFor(`document.querySelector('textarea').value === ''`);
+    await evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))`);
+    await waitFor(`${editor}.value === ''`);
     assert.deepEqual(await evaluate("window.sent"), ["run /tldr"], "Sending preserves the exact command text");
-    assert.deepEqual(await highlighted(), [], "Sending clears highlighting");
+    assert.deepEqual(await highlighted(), [], "Sending clears the chips");
     await type("run /tldr");
     await escape();
     await evaluate(`window.setProject('/other')`);
-    await waitFor(`!document.querySelector('[data-prompt-skill]')`);
+    await waitFor(`!${editor}.querySelector('[data-chip="skill"]')`);
     // A Link's key brings its skills back though the folder is still /other.
     await evaluate(`window.setSkillScope('milagre-link:40996067-6cc2-4427-bc1e-9007c5f51875')`);
-    await waitFor(`!!document.querySelector('[data-prompt-skill]')`);
+    await waitFor(`!!${editor}.querySelector('[data-chip="skill"]')`);
+    await evaluate(`window.setSkillScope(undefined)`);
+    await evaluate(`window.setProject('/fixture')`);
+    await type("@review");
+    await waitFor(`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('Plan review')`);
+    assert.ok(!(await evaluate(`document.querySelector('[aria-label="Project files and Chats"]').textContent`)).includes("Current review"));
+    await evaluate(`[...document.querySelectorAll('[aria-label="Project files and Chats"] button')].find(b => b.textContent.includes('Plan review')).click()`);
+    await waitFor(`${editor}.querySelector('[data-chip="chat"]')?.textContent === 'Plan review'`);
+    assert.equal(await evaluate(`${editor}.value`), "@chat:12 ");
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('#sent-mentions [data-chip="chat"]')].map(el => [el.tagName, el.textContent])`), [
+      ["BUTTON", "Plan review"],
+      ["SPAN", "Chat"],
+    ]);
+    await evaluate(`document.querySelector('#sent-mentions button').click()`);
+    assert.equal(await evaluate("window.opened"), "/fixture#12");
+    await screenshot("chat-mentions");
+    await evaluate(`window.setProject('/other')`);
+    await waitFor(`!${editor}.querySelector('[data-chip="chat"]')`);
+    await type("");
+    await evaluate(`window.setProject('/fixture'); window.setSuggestOptions({ provider: 'claude', text: 'Add tests' });`);
+    const suggestion = `document.querySelector('[data-prompt-suggestion]')`;
+    await waitFor(`!!${suggestion}`);
+    const key = (name, extra = "") =>
+      evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown', { key: '${name}', bubbles: true, cancelable: true ${extra} }))`);
+    const sentBefore = await evaluate("window.sent.length");
+    await key("Enter");
+    assert.equal(await evaluate("window.sent.length"), sentBefore, "an unaccepted suggestion is never sent");
+    assert.equal(await key("Tab", ", shiftKey: true"), true, "Shift+Tab keeps its focus behavior");
+    await key("Tab");
+    await waitFor(`${editor}.value === 'Add tests'`);
+    assert.equal(await evaluate("window.sent.length"), sentBefore, "Tab only fills the draft");
+    assert.equal(await evaluate("getSelection().anchorOffset"), 9, "acceptance places the caret at the end");
+    await type("");
+    await waitFor(`!!${suggestion}`);
+    await key("ArrowRight");
+    await waitFor(`${editor}.value === 'Add tests'`);
+    for (const draft of [" ", "typing", "/tl"]) {
+      await type(draft);
+      await waitFor(`!${suggestion}`);
+    }
+    await key("Tab");
+    await waitFor(`${editor}.value === '/tldr '`);
+    for (const options of [{ running: true }, { blocked: true }, { offline: "QA Mac" }, { provider: "codex" }]) {
+      await type("");
+      await evaluate(`window.setSuggestOptions(${JSON.stringify({ provider: "claude", text: "Add tests", ...options })})`);
+      await waitFor(`!${suggestion}`);
+    }
+    // Reconnecting and offline computers both leave the draft writable. Offline submits through Queue message;
+    // a separate pending-send lock blocks submission without preventing edits to the next draft.
+    await type("");
+    await evaluate(`window.setSuggestOptions({ provider: "claude", reconnecting: "QA Mac" })`);
+    await waitFor(`document.body.textContent.includes("reconnecting to QA Mac")`);
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft stays writable while the computer reconnects");
+    await type("still here");
+    assert.equal(await evaluate(`${editor}.value`), "still here", "typing works while it reconnects");
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled ?? null`), false, "Send stays open: the send waits for the computer");
+    await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", blocked: true })`);
+    await waitFor(`!!document.querySelector('[aria-label="Queue message"]')`);
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "offline drafts stay editable even while a send is pending");
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Queue message"]').disabled`), true, "a pending send still blocks another submission");
+    await type("save this while offline");
+    assert.equal(await evaluate(`${editor}.value`), "save this while offline");
+    await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", running: true })`);
+    await waitFor(`document.querySelector('[aria-label="Queue message"]')?.disabled === false`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`),
+      false,
+      "a cached running turn does not replace Queue message with Stop",
+    );
+    const sentBeforeQueue = await evaluate(`window.sent.length`);
+    await evaluate(`document.querySelector('[aria-label="Queue message"]').click()`);
+    await waitFor(`window.sent.length === ${sentBeforeQueue + 1} && ${editor}.value === ""`);
+    assert.equal(await evaluate(`window.sent.at(-1)`), "save this while offline", "Queue message submits the offline draft");
+    assert.equal(await evaluate(`window.stops`), 0, "queuing never tries to stop the offline agent");
+    await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
+    await type("");
+    // No picker in the composer: Settings › Chat › Messages during a turn decides, and providers that can't steer queue.
+    for (const followUps of ["now", "queue"]) {
+      await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: ${JSON.stringify(followUps)} })`);
+      for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+        await evaluate(`window.setSuggestOptions({ provider: ${JSON.stringify(provider)}, running: true })`);
+        await type("follow up");
+        assert.equal(await evaluate(`!!document.querySelector('[aria-label="Follow-up delivery"]')`), false, "no delivery picker beside Send");
+        const label = followUps === "now" && ["claude", "codex"].includes(provider) ? "Send now" : "Queue message";
+        await waitFor(`!!document.querySelector('[aria-label="${label}"]')`);
+        if (followUps === "queue" && provider === "claude") await screenshot("follow-up-queue");
+        if (followUps === "now" && provider === "claude") await screenshot("follow-up-steer");
+        const before = await evaluate("window.deliveries.length");
+        await evaluate(`document.querySelector('[aria-label="${label}"]').click()`);
+        await waitFor(`window.deliveries.length === ${before + 1} && ${editor}.value === ''`);
+        assert.equal(await evaluate("window.deliveries.at(-1) ?? null"), followUps === "queue" ? "queue" : null, `${provider} sends the ${followUps} setting`);
+      }
+    }
+    // A Link Chat waiting on an approval or question shows no running turn, but the host still runs it: Queue must hold.
+    await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: "queue" })`);
+    await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
+    await type("answer later");
+    await waitFor(`!!document.querySelector('[aria-label="Send"]')`);
+    await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
+    await waitFor(`${editor}.value === ''`);
+    assert.equal(await evaluate("window.deliveries.at(-1) ?? null"), "queue", "Queue reaches the host even when the composer shows no running turn");
+    await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: "now" })`);
+    await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
+    const beforeDictation = await evaluate("window.sent.length");
+    await evaluate(`window.deliverTranscript('review this', { selection: { start: 0, end: 0 } })`);
+    await waitFor(`${editor}.value === 'review this'`);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation, "default dictation only pastes");
+    await evaluate(`window.updateSettings({ dictationAction: 'send' })`);
+    await delay(100);
+    await evaluate(`window.deliverTranscript('please', { selection: { start: 11, end: 11 } })`);
+    await waitFor(`window.sent.length === ${beforeDictation + 1}`);
+    assert.equal(await evaluate("window.sent.at(-1)"), "review this please", "automatic send uses the completed draft");
+    await waitFor(`${editor}.value === ''`);
+    await evaluate(`window.deliverTranscript('   ', { selection: { start: 0, end: 0 } })`);
+    await delay(100);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "empty speech never sends");
+    await evaluate(`window.setSuggestOptions({ blocked: true })`);
+    await delay(100);
+    await evaluate(`window.deliverTranscript('keep this draft', { selection: { start: 0, end: 0 } })`);
+    await waitFor(`${editor}.value === 'keep this draft'`);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "blocked send preserves the transcript");
+    await evaluate(`window.setSuggestOptions({})`);
+    await delay(100);
+    assert.equal(await evaluate("window.sent.length"), beforeDictation + 1, "unblocking does not send an old transcript");
+    await evaluate("window.setSuggestOptions({}); window.updateSettings({dictationAction:'paste',dictationShortcutMode:'hold'});");
+    await delay(100);
+    const keyDown = "window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    const keyUp = "window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 1");
+    await evaluate(keyUp);
+    await evaluate("window.startRecording()");
+    await waitFor("window.micStops === 1");
+    assert.equal(await evaluate("window.micStarts"), 1, "hold starts exactly one composer and finishes after a pending microphone opens");
+    await evaluate("window.updateSettings({dictationShortcutMode:'toggle'})");
+    await delay(100);
+    await evaluate(keyDown);
+    await waitFor("window.micStarts === 2");
+    await evaluate("window.startRecording()");
+    await evaluate(keyUp);
+    await delay(50);
+    assert.equal(await evaluate("window.micStops"), 1, "toggle mode keeps recording after release");
+    await evaluate(keyDown);
+    await waitFor("window.micStops === 2");
+    await evaluate(keyUp);
+    await type("open miracle");
+    await evaluate("window.setDictationPhase('recording')");
+    await waitFor("!!document.querySelector('[data-dictation-capsule]')");
+    const recordingHeight = await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height");
+    await evaluate("window.setDictationPhase('transcribing')");
+    await waitFor("document.querySelector('[data-dictation-status]')?.textContent.includes('Finishing the last words')");
+    assert.equal(
+      await evaluate("document.querySelector('[data-promptbar]').getBoundingClientRect().height"),
+      recordingHeight,
+      "Stop never inserts a row or moves the text area",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('[data-dictation-status]').classList.contains('sr-only')"),
+      true,
+      "finishing remains announced without a visible flash",
+    );
+    await evaluate("window.setDictationPhase('idle')");
+    await type("");
+    await evaluate(
+      "window.deliverTranscript('open miracle', {selection:{start:0,end:0}}, {model:'GPT-6 Luna',text:new Promise(resolve=>{window.finishCorrection=resolve})})",
+    );
+    await waitFor("!!document.querySelector('[data-dictation-processing]')");
+    assert.equal(await evaluate("document.querySelector('[data-dictation-processing]').getAttribute('aria-busy')"), "true");
+    assert.equal(await evaluate("!!document.querySelector('[data-dictation-status]')"), false, "AI correction adds no status row");
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft remains editable during correction");
+    assert.equal(await evaluate("document.querySelector('[aria-label=Send]').disabled"), false, "Send stays available during correction");
+    assert.equal(
+      await evaluate("parseFloat(getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).width)"),
+      28,
+      "the loading arc follows the mic button's border",
+    );
+    await evaluate("document.querySelector('[data-dictation-processing]').scrollIntoView({block:'nearest'})");
+    await screenshot("dictation-processing-before-hover");
+    const micPoint = await evaluate(
+      "(() => {const r=document.querySelector('[data-dictation-processing]').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()",
+    );
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    window.webContents.sendInputEvent({ type: "mouseMove", ...micPoint });
+    await evaluate(
+      "document.querySelector('[data-dictation-processing]').dispatchEvent(new PointerEvent('pointerover',{bubbles:true,relatedTarget:document.body}))",
+    );
+    await waitFor("[...document.querySelectorAll('[role=tooltip]')].some(node=>node.textContent.includes('Correcting names · GPT-6 Luna'))");
+    await screenshot("dictation-processing-tooltip");
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    for (const dark of [false, true]) {
+      await evaluate(`document.documentElement.classList.toggle('dark', ${dark})`);
+      await screenshot(dark ? "dictation-processing-dark" : "dictation-processing-light");
+    }
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(
+      await evaluate("getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).animationName"),
+      "reduced-motion-loading",
+      "reduced motion keeps a fading cue without rotation",
+    );
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+    window.webContents.debugger.detach();
+    await evaluate("window.finishCorrection('open Milagre')");
+    await waitFor("!document.querySelector('[data-dictation-processing]')");
+    await waitFor(`${editor}.value === 'open Milagre'`);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: typed and picked skills, hover descriptions and dismissal, both themes, native editing, wrapped/scrolled alignment, exact send and catalog isolation",
+      "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",
     );
     app.exit(0);
   } catch (error) {
@@ -196,8 +424,8 @@ async function browserChecks() {
     console.error(errors);
     console.error(
       await evaluate(
-        `(() => { const input = document.querySelector('textarea'); return { value: input?.value, input: input?.getBoundingClientRect().toJSON(), spans: [...document.querySelectorAll('[data-prompt-skill]')].map(el => ({ text: el.textContent, rect: el.getBoundingClientRect().toJSON() })), tooltip: document.querySelector('[role="tooltip"]')?.textContent }; })()`,
-      ),
+        `({ value: ${editor}?.value, html: ${editor}?.innerHTML.slice(0, 300), menu: document.querySelector('[data-picker-panel]')?.textContent, active: document.activeElement?.outerHTML.slice(0, 80), sel: getSelection().anchorNode?.nodeName + ':' + getSelection().anchorOffset })`,
+      ).catch(() => null),
     );
     app.exit(1);
   }
@@ -211,6 +439,23 @@ async function main() {
     server: { host: "127.0.0.1", port: 0 },
     plugins: [
       {
+        name: "dictation-delivery-fixture",
+        enforce: "pre",
+        resolveId(id) {
+          if (id === "./useDictation") return "\0dictation-fixture";
+        },
+        load(id) {
+          if (id !== "\0dictation-fixture") return;
+          return `import { useEffect, useState } from 'react';
+            export function useDictation(cwd, scope, deliver) {
+              const [phase, setPhase] = useState('idle');
+              window.startRecording = () => setPhase('recording'); window.setDictationPhase = setPhase;
+              useEffect(() => { window.deliverTranscript = (text, anchor, correction = null) => deliver(text, anchor, correction); });
+              return { phase, error: null, download: null, partial: { text: '', settled: 0 }, meter: { current: null }, start() { window.micStarts = (window.micStarts || 0) + 1; setPhase('preparing'); }, stop() { window.micStops = (window.micStops || 0) + 1; setPhase('idle'); }, cancel() { setPhase('idle'); }, dismiss() {}, openSettings() {} };
+            }`;
+        },
+      },
+      {
         name: "prompt-skills-fixture",
         resolveId(id) {
           if (id === "/__prompt-skills.tsx") return id;
@@ -219,7 +464,7 @@ async function main() {
           if (id === "/__prompt-skills.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__prompt-skills") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

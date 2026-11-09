@@ -5,8 +5,12 @@ import { pullRequestRefs } from "./chat-pull-requests.mjs";
 /** A line the commit dialog saved in the chat, as opposed to an agent's reply. */
 export const isGitNote = (message) => typeof message?.context === "object" && message.context?.kind === "git-action";
 
-/** A line Milagre saved in the chat that isn't a reply: a commit dialog note, or a Link reaching the Chat. */
-export const isNote = (message) => isGitNote(message) || message?.context?.kind === "worktree-linked";
+/**
+ * A line Milagre saved in the chat that isn't a reply: a commit dialog note, a Link reaching the Chat, a reload, an undo or
+ * babysitting its PR stopping.
+ */
+export const isNote = (message) =>
+  isGitNote(message) || ["worktree-linked", "reload", "checkpoint-restore", "babysit-stopped"].includes(message?.context?.kind);
 
 /** The summary of a Chat whose messages, in the Project's order, are `messages`. */
 export function summarizeChat(messages) {
@@ -17,7 +21,10 @@ export function summarizeChat(messages) {
   const summary = { count: messages.length };
   if (messages.length) Object.assign(summary, { firstId: messages[0].id, lastId: messages.at(-1).id });
   // The first line of the first thing the user wrote names a Chat that has no title.
-  if (input) summary.titleLine = input.body.trim().split("\n")[0].slice(0, 200);
+  if (input) {
+    summary.titleLine = input.body.trim().split("\n")[0].slice(0, 200);
+    if (input.images?.length) summary.titleImages = input.images.length;
+  }
   if (lastReply?.outcome) summary.lastOutcome = lastReply.outcome;
   const refs = pullRequestRefs(messages);
   if (refs.length) summary.pullRequests = refs;
@@ -29,6 +36,12 @@ export function summarizeChat(messages) {
     .slice(-5)
     .map((message) => message.clientMessageId);
   if (sent.length) summary.clientMessageIds = sent;
+  // A Chat started from a Linear issue (by the user, or by a Linear Routine's Run) works on that issue.
+  const card = messages[0]?.context;
+  if (card?.kind === "linear-issue" && typeof card.key === "string") {
+    summary.linearIssue = card.key;
+    if (typeof card.workspace === "string" && card.workspace) summary.linearWorkspace = card.workspace;
+  }
   return summary;
 }
 

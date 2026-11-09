@@ -50,13 +50,17 @@ export function wordChanges(oldText: string, newText: string): { old: Range[]; n
   if (oldText === newText || oldText.length > MAX_WORD_DIFF_CHARS || newText.length > MAX_WORD_DIFF_CHARS) return none;
   const a = tokenize(oldText);
   const b = tokenize(newText);
-  // lcs[i][j] = longest common token run of a[i..] and b[j..]
-  // oxlint-disable-next-line unicorn/no-new-array -- array is pre-sized and filled by index on purpose
-  const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  // lcs[i][j] = longest common token run of a[i..] and b[j..].
+  // Empty suffixes have score zero; their terminal row and column stay absent.
+  const lcs: number[][] = [];
+  let nextRow: number[] = [];
   for (let i = a.length - 1; i >= 0; i--) {
+    const row: number[] = [];
     for (let j = b.length - 1; j >= 0; j--) {
-      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      row[j] = a[i] === b[j] ? (nextRow[j + 1] ?? 0) + 1 : Math.max(nextRow[j] ?? 0, row[j + 1] ?? 0);
     }
+    lcs[i] = row;
+    nextRow = row;
   }
   const oldRanges: Range[] = [];
   const newRanges: Range[] = [];
@@ -66,19 +70,21 @@ export function wordChanges(oldText: string, newText: string): { old: Range[]; n
   let oj = 0;
   let common = 0;
   while (i < a.length || j < b.length) {
-    if (i < a.length && j < b.length && a[i] === b[j]) {
-      common += a[i].length;
-      oi += a[i].length;
-      oj += b[j].length;
+    const oldToken = a[i];
+    const newToken = b[j];
+    if (oldToken !== undefined && newToken !== undefined && oldToken === newToken) {
+      common += oldToken.length;
+      oi += oldToken.length;
+      oj += newToken.length;
       i++;
       j++;
-    } else if (j < b.length && (i === a.length || lcs[i][j + 1] >= lcs[i + 1][j])) {
-      newRanges.push([oj, oj + b[j].length]);
-      oj += b[j].length;
+    } else if (newToken !== undefined && (oldToken === undefined || (lcs[i]?.[j + 1] ?? 0) >= (lcs[i + 1]?.[j] ?? 0))) {
+      newRanges.push([oj, oj + newToken.length]);
+      oj += newToken.length;
       j++;
-    } else {
-      oldRanges.push([oi, oi + a[i].length]);
-      oi += a[i].length;
+    } else if (oldToken !== undefined) {
+      oldRanges.push([oi, oi + oldToken.length]);
+      oi += oldToken.length;
       i++;
     }
   }

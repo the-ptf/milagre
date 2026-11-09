@@ -1,3 +1,4 @@
+import { MODEL_CATALOG } from "../model.ts";
 import { PROVIDERS } from "@milagre/shared/providers";
 import type { AgentModels, ModelCapabilities, ModelOption, ModelProvider } from "../model";
 
@@ -9,12 +10,13 @@ export function mergeModels(reported: AgentModels | null, fallback: ModelOption[
   return PROVIDERS.flatMap((provider) => {
     const list = reported?.[provider];
     if (!list?.length) return fallback.filter((model) => model.provider === provider);
-    const options: ModelOption[] = list.map(({ id, name, description, recommended }) => ({
+    const options: ModelOption[] = list.map(({ id, name, description, recommended, credits }) => ({
       id,
       name,
       provider,
       description,
       ...(recommended ? { recommended: true } : {}),
+      ...(credits ? { credits } : {}),
     }));
     return [...options.filter((model) => model.recommended), ...options.filter((model) => !model.recommended)];
   });
@@ -30,7 +32,7 @@ export function capabilitiesFrom(reported: AgentModels | null): ModelCapabilitie
         { efforts, ...(defaultEffort ? { defaultEffort } : {}), ultracode, fastMode },
       ]),
     );
-  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity") };
+  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity"), kiro: byId("kiro") };
 }
 
 /** `wanted` when the list has it; otherwise the recommended model of `provider`, any model of it, or the first model. */
@@ -39,13 +41,17 @@ export function resolveModel(models: ModelOption[], wanted: string | undefined, 
     models.find((model) => model.id === wanted) ??
     models.find((model) => model.provider === provider && model.recommended) ??
     models.find((model) => model.provider === provider) ??
-    models[0]
+    models[0] ??
+    MODEL_CATALOG.find((model) => model.provider === provider && model.recommended) ??
+    MODEL_CATALOG.find((model) => model.provider === provider) ??
+    MODEL_CATALOG[0]
   );
 }
 
-/** The provider an id belongs to, for an id no list offers any more (Claude ids start with "claude", Antigravity ids with "gemini"). */
+/** The provider of an id no list offers any more. Antigravity partner families and every Kiro model carry a provider prefix. */
 export function providerForId(id: string | undefined): ModelProvider {
-  if (id?.startsWith("gemini")) return "antigravity";
+  if (id?.startsWith("kiro:")) return "kiro";
+  if (id?.startsWith("gemini") || id?.startsWith("antigravity:")) return "antigravity";
   return id?.startsWith("claude") ? "claude" : "codex";
 }
 
@@ -69,6 +75,7 @@ export function nextSelection(
   current: ModelOption,
   { defaultId, applyDefault, preferredProvider }: { defaultId: string; applyDefault: boolean; preferredProvider?: ModelProvider },
 ): ModelOption {
+  if (models.length === 0) return current;
   const useDefault =
     applyDefault &&
     (preferredProvider === undefined ||

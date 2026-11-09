@@ -1,64 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState, Worktree } from "./model.ts";
-import { archiveChoices, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
+import { archiveChoices, archiveMode, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
 import type { ArchivePlan, WorktreeStatus } from "./archive.mjs";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x", head: "abc", removable: true };
 const dirty: WorktreeStatus = { uncommitted: 3, unpushed: 2, branch: "milagre/x", head: "abc", removable: false };
 const plan = (patch: Partial<ArchivePlan> = {}): ArchivePlan => ({ milagreOwned: true, shared: false, status: clean, ...patch });
-const labels = (result: ReturnType<typeof archiveChoices>) => result.choices.map((choice) => choice.label);
-
-test("a clean Milagre worktree offers one item that removes it", () => {
-  const result = archiveChoices({ plan: plan(), running: false });
-  assert.deepEqual(result.choices, [{ mode: "remove", label: "Archive and remove worktree", tone: "plain" }]);
-  assert.equal(result.reason, null);
-  assert.deepEqual(labels(archiveChoices({ plan: plan(), running: true })), ["Stop, archive and remove worktree"]);
+test("Delete acts immediately without a confirmation or explanatory text for every cleanup mode", () => {
+  const cases: [Partial<ArchivePlan>, string][] = [
+    [{}, "remove"],
+    [{ status: dirty }, "hide"],
+    [{ shared: true }, "hide"],
+    [{ milagreOwned: false }, "hide"],
+    [{ status: null }, "hide"],
+  ];
+  for (const [patch, mode] of cases)
+    for (const running of [false, true])
+      for (const chatsHome of [false, true]) {
+        const result = archiveChoices({ plan: plan({ ...patch, terminals: ["npm"] }), running, chatsHome });
+        assert.deepEqual(result, { choices: [{ mode, label: "Delete", tone: "danger" }], reason: null, immediate: true });
+      }
 });
 
-test("a worktree with unsaved work offers only delete, with what would be lost and how to keep it", () => {
-  const result = archiveChoices({ plan: plan({ status: dirty }), running: false });
-  assert.deepEqual(
-    result.choices.map((choice) => [choice.mode, choice.label, choice.tone]),
-    [["delete", "Archive and delete worktree", "danger"]],
-  );
-  assert.equal(result.reason, "3 uncommitted files and 2 unpushed commits will be lost. Commit and push them first to keep them.");
-  assert.deepEqual(labels(archiveChoices({ plan: plan({ status: dirty }), running: true })), ["Stop, archive and delete worktree"]);
-  assert.equal(
-    archiveChoices({ plan: plan({ status: { ...dirty, unpushed: 0, uncommitted: 2 } }), running: false }).reason,
-    "2 uncommitted files will be lost. Commit them first to keep them.",
-  );
-  assert.equal(
-    archiveChoices({ plan: plan({ status: { ...dirty, uncommitted: 0, unpushed: 1 } }), running: false }).reason,
-    "1 unpushed commit will be lost. Push them first to keep them.",
-  );
-  const detached = archiveChoices({ plan: plan({ status: { ...dirty, uncommitted: 0, unpushed: 0, branch: null } }), running: false });
-  assert.equal(detached.reason, "Its HEAD is detached, so what it holds isn't on a branch. Check out a branch first to keep it.");
-  // Nothing offers to keep the worktree.
-  for (const status of [dirty, clean])
-    assert.equal(
-      labels(archiveChoices({ plan: plan({ status }), running: false })).some((label) => /keep/i.test(label)),
-      false,
-    );
-});
-
-test("a check that failed never offers deletion", () => {
-  for (const running of [false, true]) {
-    const result = archiveChoices({ plan: plan({ status: null }), running });
-    assert.deepEqual(
-      result.choices.map((choice) => choice.mode),
-      ["hide"],
-    );
+test("archive removes only a clean, unshared Milagre worktree", () => {
+  assert.equal(archiveMode(plan()), "remove");
+  for (const patch of [{ status: dirty }, { status: null }, { shared: true }, { milagreOwned: false }, { terminals: ["npm"], status: dirty }]) {
+    assert.equal(archiveMode(plan(patch)), "hide");
   }
-});
-
-test("a worktree that isn't Milagre's, is shared, or can't be checked only hides the chat", () => {
-  for (const patch of [{ milagreOwned: false }, { shared: true }, { status: null }]) {
-    const result = archiveChoices({ plan: plan(patch), running: false });
-    assert.deepEqual(result.choices, [{ mode: "hide", label: "Confirm archive", tone: "danger" }]);
-    assert.equal(result.reason, null);
-  }
-  assert.deepEqual(labels(archiveChoices({ plan: plan({ shared: true }), running: true })), ["Stop and archive"]);
+  assert.equal(archiveMode(null), "hide");
+  assert.equal(archiveMode(plan({ status: { ...dirty, branch: null } })), "hide");
+  assert.equal(archiveMode(plan({ terminals: ["npm"] })), "remove");
 });
 
 test("lossReason names only what is lost, in singular or plural", () => {
@@ -130,17 +102,4 @@ test("removeFailureNotice names git's message, says the chat stays, and has no p
     removeFailureNotice(new Error("Error invoking remote method 'worktree:remove': Error: WORKTREE_CHANGED: /tmp/wt/x changed after it was checked.")),
     "It changed after you checked, so the chat and its worktree stay.",
   );
-});
-
-test("archiving names the commands its Terminals would end", () => {
-  assert.equal(archiveChoices({ plan: plan({ terminals: ["npm"] }), running: false }).reason, "Archiving ends the Terminal running npm.");
-  assert.equal(
-    archiveChoices({ plan: { milagreOwned: false, shared: false, status: null, terminals: ["npm", "vim", "npm"] }, running: false }).reason,
-    "Archiving ends 3 Terminals running npm, vim.",
-  );
-  assert.equal(
-    archiveChoices({ plan: plan({ status: { ...dirty, unpushed: 0, uncommitted: 2 }, terminals: ["node"] }), running: false }).reason,
-    "2 uncommitted files will be lost. Commit them first to keep them. Archiving ends the Terminal running node.",
-  );
-  assert.equal(archiveChoices({ plan: plan({ terminals: [] }), running: false }).reason, null);
 });

@@ -1,31 +1,54 @@
+import { commentActivity } from "./comment-activity";
+import { HtmlReply } from "./html-reply";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, Text, TextInput, View } from "react-native";
+import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import { DomWebView } from "@expo/dom-webview";
-import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
+import {
+  ArrowRight01Icon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  CommentAdd01Icon,
+  File01Icon,
+  MoreHorizontalIcon,
+  PaintBoardIcon,
+  Sent02Icon,
+  UnfoldMoreIcon,
+} from "@hugeicons/core-free-icons";
 import {
   artifactShell,
+  artifactTab,
   designFeedbackMessage,
   designFeedbackText,
   newCommentId,
+  onArtifactTab,
+  readPageMessage,
+  sentNumbers,
   type Artifact,
   type ArtifactComment,
-  type ArtifactSummary,
   type DesignComment,
+  type PagePin,
   resolutionNotes,
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "@milagre/shared/model";
 import type { ArtifactStep } from "@milagre/shared/reply-parts";
-import { postDesignMessage } from "./design-outbox";
+import { postDesignMessage, sendDesignMessageNow } from "./design-outbox";
+import { usePanelTabs, type DesignsTab } from "./panel-tabs";
 import { File, Paths } from "expo-file-system";
 import { useSession } from "./session";
 import { useArtifactCatalog } from "./use-design-catalog";
 import { Icon } from "./icons";
-import { CircleButton, PillButton, useStyles } from "./ui";
+import { over } from "@milagre/shared/themes";
+import { lineHeight, radius, space, type } from "./design-tokens";
+import { CircleButton, ErrorNotice, PullDown, PillButton, tap, useStyles, type MenuSection } from "./ui";
 import { useTheme } from "./theme";
-import { DesignPageShareSheet } from "./design-page-share";
+import { PELE_SCRIPT } from "./pele-script";
+import { onShareAvailability } from "./share-availability";
+import { pageWithFiles, usePageFiles } from "./artifact-files";
+import { CommentBox } from "./viewer-chrome";
+
+let feedbackRequestId = 0;
 
 /** Feedback the user sent on the designs, as what it was: the design they chose, then each comment and its design. */
 export function DesignFeedbackCard({
@@ -40,6 +63,7 @@ export function DesignFeedbackCard({
 }) {
   const { colors } = useTheme();
   const { client, designs: feature } = useSession();
+  const openTab = usePanelTabs();
   const format = useArtifactCatalog(
     client,
     chatId,
@@ -71,17 +95,17 @@ export function DesignFeedbackCard({
   }, [client, chatId, ids, moved]);
   if (!choice && !comments.length)
     return (
-      <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>
+      <Text selectable style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
         {designFeedbackText(feedback)}
       </Text>
     );
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: space.md }}>
       <View
         accessibilityLabel={feedbackLabel}
         style={{
           minWidth: 240,
-          borderRadius: 18,
+          borderRadius: radius.sheet,
           borderCurve: "continuous",
           borderWidth: 1,
           borderColor: colors.line,
@@ -93,67 +117,99 @@ export function DesignFeedbackCard({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: 6,
-            paddingHorizontal: 14,
-            paddingVertical: 8,
+            gap: space.sm,
+            paddingHorizontal: space.xl,
+            paddingVertical: space.md,
             borderBottomWidth: 1,
             borderColor: colors.line,
           }}
         >
-          <Icon icon={PaintBoardIcon} tone="ink2" size={14} />
-          <Text style={{ color: colors.ink2, fontSize: 12 }}>{feedbackLabel}</Text>
+          <Icon icon={PaintBoardIcon} tone="ink2" size={12} />
+          <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>{feedbackLabel}</Text>
         </View>
         {choice && (
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
-              gap: 8,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
+              gap: space.md,
+              paddingHorizontal: space.xl,
+              paddingVertical: space.lg,
             }}
           >
             <Icon icon={CheckmarkCircle02Icon} tone="accent" size={16} />
-            <Text style={{ flex: 1, color: colors.ink, fontSize: 15 }} numberOfLines={1}>
+            <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }} numberOfLines={1}>
               Chose {choice.title}
             </Text>
-            <Text style={{ color: colors.ink3, fontSize: 12 }}>{format(choice) === "design" ? `v${choice.version}` : "Artifact"}</Text>
+            <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
+              {format(choice) === "design" ? `v${choice.version}` : "Artifact"}
+            </Text>
           </View>
         )}
         {comments.map((comment, index) => {
           const resolved = comment.id ? resolutions.get(comment.id) : undefined;
+          const openable = !!format(comment.design) && !!client && !!chatId && !chatId.includes("#new:");
           return (
-            <View
+            <Pressable
               key={index}
+              accessibilityRole={openable ? "button" : undefined}
+              accessibilityLabel={openable ? `Open comment ${index + 1} on ${comment.tab?.title ?? comment.design.title}` : undefined}
+              disabled={!openable}
+              onPress={() => {
+                if (!openable) return;
+                openDesigns(openTab, {
+                  hostId: client.url,
+                  chatId,
+                  id: comment.design.id,
+                  html: format(comment.design) === "html",
+                  version: String(comment.design.version),
+                  tab: comment.tab?.id,
+                  comment: comment.id,
+                  requestId: String(++feedbackRequestId),
+                });
+              }}
               style={{
                 flexDirection: "row",
-                gap: 10,
-                paddingHorizontal: 14,
-                paddingVertical: 10,
+                gap: space.lg,
+                paddingHorizontal: space.xl,
+                paddingVertical: space.lg,
                 borderTopWidth: 1,
                 borderColor: colors.line,
               }}
             >
               <View
                 style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 10,
-                  borderBottomLeftRadius: 0,
+                  alignSelf: "flex-start",
+                  minWidth: 20,
+                  minHeight: 20,
+                  paddingHorizontal: 4,
+                  // The desktop canvas's pin: round, its point the top-left corner; a number on it takes the -ink fill.
+                  borderRadius: radius.full,
+                  borderTopLeftRadius: 0,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: resolved === undefined ? colors.accent : colors.green,
+                  backgroundColor: resolved === undefined ? colors.accentInk : colors.greenInk,
                 }}
               >
-                <Text style={{ color: "#ffffff", fontSize: 11, fontWeight: "600" }}>{index + 1}</Text>
+                <Text
+                  maxFontSizeMultiplier={1.3}
+                  style={{
+                    color: resolved === undefined ? colors.onAccent : colors.onGreen,
+                    fontSize: type.caption2,
+                    lineHeight: lineHeight.caption2,
+                    fontWeight: "600",
+                  }}
+                >
+                  {index + 1}
+                </Text>
               </View>
-              <View style={{ flex: 1, gap: 2 }}>
+              <View style={{ flex: 1, gap: space.xxs }}>
                 <Text
                   selectable
                   style={{
                     color: resolved === undefined ? colors.ink : colors.ink3,
-                    fontSize: 15,
-                    lineHeight: 21,
+                    fontSize: type.subheadline,
+                    lineHeight: lineHeight.subheadline,
                     textDecorationLine: resolved === undefined ? "none" : "line-through",
                   }}
                 >
@@ -168,23 +224,23 @@ export function DesignFeedbackCard({
                       alignItems: "flex-start",
                     }}
                   >
-                    <Icon icon={CheckmarkCircle02Icon} tone="green" size={14} />
-                    <Text selectable style={{ flex: 1, color: colors.green, fontSize: 13 }}>
+                    <Icon icon={CheckmarkCircle02Icon} tone="green" size={12} />
+                    <Text selectable style={{ flex: 1, color: colors.greenInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                       {resolved}
                     </Text>
                   </View>
                 )}
-                <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12 }}>
+                <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
                   {comment.design.title}
                   {format(comment.design) === "design" ? ` · v${comment.design.version}` : " · Artifact"}
                 </Text>
               </View>
-            </View>
+            </Pressable>
           );
         })}
       </View>
       {plain ? (
-        <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>
+        <Text selectable style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
           {plain}
         </Text>
       ) : null}
@@ -202,11 +258,22 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
     steps.map((step) => step.artifact),
     feature.enabled === true,
   );
+  const openTab = usePanelTabs();
+  const inline = steps.filter((step) => step.artifact.inline);
+  if (inline.length)
+    return (
+      <View style={{ gap: 8 }}>
+        {inline.map((step) => (
+          <HtmlReply key={step.id} chatId={chatId} page={step.artifact} />
+        ))}
+        <ArtifactCards steps={steps.filter((step) => !step.artifact.inline)} chatId={chatId} chosen={chosen} />
+      </View>
+    );
   const html = steps.findLast((step) => format(step.artifact) === "html");
   const designs = steps.filter((step) => format(step.artifact) === "design");
   if (html)
     return (
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: space.md }}>
         <ArtifactCard step={html} chatId={chatId} kind="html" />
         {designs.length > 0 && <ArtifactCards steps={designs} chatId={chatId} chosen={chosen} />}
       </View>
@@ -223,27 +290,18 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
       accessibilityLabel={`${steps.length} designs: ${titles}. Open full screen`}
       disabled={!openable}
       onPress={() =>
-        router.push({
-          pathname: "/artifact-sheet",
-          params: {
-            hostId: client!.url,
-            chatId: chatId!,
-            id: first.id,
-            version: String(first.version),
-            ...(chosen ? { chosen } : {}),
-          },
-        })
+        openDesigns(openTab, { hostId: client!.url, chatId: chatId!, id: first.id, version: String(first.version), ...(chosen ? { chosen } : {}) })
       }
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
-        padding: 12,
-        borderRadius: 14,
+        gap: space.lg,
+        padding: space.lg,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.line,
-        backgroundColor: pressed ? colors.hover : colors.surface,
+        backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
         opacity: openable ? 1 : 0.6,
       })}
     >
@@ -251,7 +309,8 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
         style={{
           width: 36,
           height: 36,
-          borderRadius: 10,
+          borderRadius: radius.control,
+          borderCurve: "continuous",
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: colors.canvas,
@@ -259,9 +318,9 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
       >
         <Icon icon={PaintBoardIcon} tone="ink2" size={18} />
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>{steps.length} designs</Text>
-        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12 }}>
+      <View style={{ flex: 1, gap: space.xxs }}>
+        <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>{steps.length} designs</Text>
+        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
           {titles}
         </Text>
       </View>
@@ -270,10 +329,21 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
   );
 }
 
+/** Opens a Chat's designs (or its HTML artifact) in the right panel docked beside it on an iPad, full screen on a phone. */
+function openDesigns(openTab: ReturnType<typeof usePanelTabs>, target: DesignsTab) {
+  if (openTab) {
+    openTab({ kind: "designs", target });
+    return;
+  }
+  const { html, ...params } = target;
+  router.push({ pathname: "/artifact-sheet", params: { ...params, ...(html ? { kind: "html" } : {}) } });
+}
+
 /** A design the agent showed. It opens the Chat's designs full screen; a saved Chat is needed to read them. */
 function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: ArtifactStep; chatId?: string; chosen?: string; kind?: "design" | "html" }) {
   const { colors } = useTheme();
   const { client, designs: feature } = useSession();
+  const openTab = usePanelTabs();
   if (kind === "design" && feature.enabled !== true) return null;
   const { id, version, title } = step.artifact;
   const openable = !!client && !!chatId && !chatId.includes("#new:");
@@ -286,28 +356,24 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
       }
       disabled={!openable}
       onPress={() =>
-        router.push({
-          pathname: "/artifact-sheet",
-          params: {
-            hostId: client!.url,
-            chatId: chatId!,
-            id,
-            ...(kind === "html" ? { kind } : {}),
-            ...(kind === "design" ? { version: String(version) } : {}),
-            ...(chosen ? { chosen } : {}),
-          },
+        openDesigns(openTab, {
+          hostId: client!.url,
+          chatId: chatId!,
+          id,
+          ...(kind === "html" ? { html: true } : { version: String(version) }),
+          ...(chosen ? { chosen } : {}),
         })
       }
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
-        padding: 12,
-        borderRadius: 14,
+        gap: space.lg,
+        padding: space.lg,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: isChosen ? colors.accent : colors.line,
-        backgroundColor: pressed ? colors.hover : colors.surface,
+        backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
         opacity: openable ? 1 : 0.6,
       })}
     >
@@ -315,19 +381,20 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
         style={{
           width: 36,
           height: 36,
-          borderRadius: 10,
+          borderRadius: radius.control,
+          borderCurve: "continuous",
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: colors.canvas,
         }}
       >
-        <Icon icon={PaintBoardIcon} tone="ink2" size={18} />
+        <Icon icon={kind === "html" ? File01Icon : PaintBoardIcon} tone="ink2" size={18} />
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>
+      <View style={{ flex: 1, gap: space.xxs }}>
+        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>
           {title}
         </Text>
-        <Text style={{ color: colors.ink3, fontSize: 12 }}>
+        <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
           {kind === "html" ? "Artifact" : `Design · version ${version}`}
           {isChosen ? " · chosen" : ""}
         </Text>
@@ -337,48 +404,58 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
   );
 }
 
+/** A comment waiting for Send, pinned where the user held the page. */
+type Note = DesignComment & { key: string };
+/** The comment box open on a pin: a new one being written, a waiting one to change, or a sent one to read. */
+type Composer = { key: string; kind: "new" | "edit" | "read"; at: { x: number; y: number } | null };
+
 /**
- * The Chat's designs full screen, the one a card opened first. The header steps between designs and the bar under the
- * design steps through its versions, comments on it, or chooses it. Comments and the choice wait for Send, which hands
- * them to the Chat as one message for the agent.
+ * Feedback not sent yet, by Chat: leaving the page keeps the comments until they are sent or deleted, as on desktop.
+ * In memory, for the app's life.
  */
+const unsent = new Map<string, Note[]>();
+
+const refOf = (page: Artifact): ArtifactRef => ({ id: page.id, version: page.version, title: page.title, format: page.format });
+
+/**
+ * The Chat's HTML artifact full screen, as the Designs open (their canvas is DesignsSheet): a header like the in-app
+ * browser's, close on the left, Send and ⋯ on the right, and the page under it filling the screen at the phone's
+ * width, pinching and scrolling as a web page does. Holding a spot on the page pins a comment there, written in a box
+ * that opens from the pin; comments wait for Send, which hands them to the Chat as one message for the agent.
+ *
+ * A page the agent split into tabs shows one tab's page at a time, chosen from the menu on the header's title; a
+ * comment is pinned on its tab.
+ */
+/** `onClose` is set where the page is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
 export function ArtifactSheet({
   hostId,
   chatId,
   id,
-  version,
-  chosen,
-  kind,
+  tab: targetTab,
+  comment: commentId,
+  requestId,
+  onClose,
 }: {
   hostId?: string;
   chatId?: string;
   id?: string;
-  version?: string;
-  chosen?: string;
   kind?: string;
+  tab?: string;
+  comment?: string;
+  requestId?: string;
+  onClose?: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const { client, designs: feature, snapshot } = useSession();
+  const { client, snapshot } = useSession();
   const insets = useSafeAreaInsets();
-  const matching = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
-  const [state, setState] = useState<{
-    artifact: Artifact | null;
-    error: string;
-  }>({ artifact: null, error: "" });
-  const isHtml = state.artifact?.format === "html" || (!state.artifact && kind === "html");
-  const shareKind = isHtml ? "artifacts" : "designs";
-  const source = !isHtml && state.artifact?.format === "design" && feature.enabled !== true ? null : matching;
-  const sharingScope = useMemo(() => ({ source, chatId, shareKind }), [source, chatId, shareKind]);
+  const close = useCallback(() => (onClose ? onClose() : router.back()), [onClose]);
+  const source = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
+  const [state, setState] = useState<{ artifact: Artifact | null; error: string }>({ artifact: null, error: "" });
+  // Share shows only once this host says sharing works for this Chat's page; a reply a newer check overtook is ignored.
+  const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
   const [sharingAvailable, setSharingAvailable] = useState<typeof sharingScope | null>(null);
   const sharingRequest = useRef(0);
-  const sharingStatusChanged = useCallback(
-    (available: boolean | null) => {
-      sharingRequest.current++;
-      setSharingAvailable(available === true ? sharingScope : null);
-    },
-    [sharingScope],
-  );
   useEffect(() => {
     if (!source) return;
     let live = true;
@@ -386,7 +463,7 @@ export function ArtifactSheet({
       const current = ++sharingRequest.current;
       setSharingAvailable(null);
       source
-        .call<{ available: boolean }>("artifact:sharing-status", shareKind === "artifacts" ? [{ kind: shareKind }] : [])
+        .call<{ available: boolean }>("artifact:sharing-status", [{ kind: "artifacts" }])
         .then((status) => {
           if (live && current === sharingRequest.current && status?.available === true) setSharingAvailable(sharingScope);
         })
@@ -404,365 +481,430 @@ export function ArtifactSheet({
       live = false;
       watch.remove();
     };
-  }, [source, sharingScope, shareKind]);
-  const [designs, setDesigns] = useState<ArtifactSummary[] | null>(null);
-  const [shown, setShown] = useState<{ id: string; version: number | null }>({
-    id: id ?? "",
-    version: version ? Number(version) : null,
-  });
-  const [revision, setRevision] = useState(0);
-  const pageRevision =
-    isHtml && chatId
-      ? snapshot?.runs.runs[chatId]?.steps
-          .filter((step) => step.kind === "artifact" && step.status === "done")
-          .map((step) => step.id)
-          .join("|")
-      : undefined;
+  }, [source, sharingScope]);
   useEffect(() => {
-    if (!isHtml) return;
+    if (!hostId || !chatId) return;
+    return onShareAvailability(hostId, chatId, "artifacts", (available) => {
+      sharingRequest.current++;
+      setSharingAvailable(available === true ? sharingScope : null);
+    });
+  }, [hostId, chatId, sharingScope]);
+  const sharing = !!source && sharingAvailable === sharingScope;
+
+  const [revision, setRevision] = useState(0);
+  // A new artifact or a resolution refreshes the page and its comments while the panel stays open.
+  const pageRevision = commentActivity(snapshot, chatId, "artifact");
+  useEffect(() => {
     const watch = AppState.addEventListener("change", (status) => {
       if (status === "active") setRevision((value) => value + 1);
     });
     return () => watch.remove();
-  }, [isHtml]);
-  const [sharePage, setSharePage] = useState(false);
-  // Feedback waits here until Send: a comment per design version, and the design the user chose.
-  const [editing, setEditing] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, DesignComment>>({});
-  const [choice, setChoice] = useState<ArtifactRef | null>(null);
+  }, []);
+  const [sent, setSent] = useState<ArtifactComment[]>([]);
   useEffect(() => {
-    if (feature.enabled === false && state.artifact?.format === "design") router.back();
-  }, [feature.enabled, state.artifact?.format]);
-  useEffect(() => {
-    if (!source) return;
+    if (!source || !id) return;
     let live = true;
     source
-      .call<ArtifactSummary[]>("artifact:list", [{ chatId }])
-      .then((list) => live && setDesigns(list.filter((design) => design.format === "design")))
-      .catch(() => live && setDesigns(null));
-    return () => {
-      live = false;
-    };
-  }, [source, chatId]);
-  useEffect(() => {
-    if (!source || !shown.id) return;
-    let live = true;
-    source
-      .call<Artifact>("artifact:get", [
-        {
-          chatId,
-          id: shown.id,
-          ...(shown.version === null ? {} : { version: shown.version }),
-        },
-      ])
+      .call<Artifact>("artifact:get", [{ chatId, id }])
       .then((artifact) => {
-        if (artifact.format !== "html" && (artifact.format !== "design" || !artifact.document)) throw new Error("This page is no longer available.");
+        if (artifact.format !== "html") throw new Error("This page is no longer available.");
         if (live) setState({ artifact, error: "" });
       })
-      .catch(
-        (error: unknown) =>
-          live &&
-          setState({
-            artifact: null,
-            error: error instanceof Error ? error.message : "Could not load this page.",
-          }),
-      );
+      .catch((error: unknown) => live && setState({ artifact: null, error: error instanceof Error ? error.message : "Could not load this page." }));
+    source
+      .call<ArtifactComment[]>("artifact:comments", [{ chatId }])
+      .then((comments) => live && setSent(Array.isArray(comments) ? comments : []))
+      .catch(() => {});
     return () => {
       live = false;
     };
-  }, [source, chatId, shown, revision, pageRevision]);
-  const artifact = source && (state.artifact?.format === "html" || state.artifact?.id === shown.id) ? state.artifact : null;
-  const index = designs?.findIndex((design) => design.id === shown.id) ?? -1;
-  const step = (offset: number) => {
-    const next = designs?.[index + offset];
-    if (!next) return;
-    setEditing(null);
-    setShown({ id: next.id, version: null });
+  }, [source, chatId, id, revision, pageRevision, requestId]);
+  const artifact = source && state.artifact?.format === "html" ? state.artifact : null;
+  const [tabId, setTabId] = useState<string | null>(targetTab ?? null);
+  const tab = artifact ? artifactTab(artifact, tabId) : null;
+  // The page's photos and videos, downloaded once into the cache; the page shows once they are there.
+  const files = usePageFiles(source, chatId, artifact?.assets);
+  const tabs = artifact?.tabs && artifact.tabs.length > 1 ? artifact.tabs : null;
+
+  const feedbackKey = hostId && chatId ? `${hostId}|${chatId}|artifacts` : null;
+  const [notes, setNotes] = useState<Note[]>(() => (feedbackKey && unsent.get(feedbackKey)) || []);
+  useEffect(() => {
+    if (!feedbackKey) return;
+    const written = notes.filter((note) => note.text.trim());
+    if (written.length) unsent.set(feedbackKey, written);
+    else unsent.delete(feedbackKey);
+  }, [feedbackKey, notes]);
+  const [composer, setComposer] = useState<Composer | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
+  const request = JSON.stringify([targetTab, commentId, requestId]);
+  const [previousRequest, setPreviousRequest] = useState(request);
+  if (previousRequest !== request) {
+    setPreviousRequest(request);
+    setTabId(targetTab ?? null);
+    setComposer(null);
+  }
+  const pendingComment = useRef<string | null>(null);
+  useEffect(() => {
+    pendingComment.current = commentId ?? null;
+  }, [targetTab, commentId, requestId]);
+
+  // The page: until its helper says it is ready, commands are dropped, and each time it does (the page loaded again)
+  // it is told everything again.
+  const page = useRef<DomWebViewRef>(null);
+  const ready = useRef(false);
+  const [epoch, setEpoch] = useState(0);
+  const [commenting, setCommenting] = useState(false);
+  // A different tab mounts a new WebView. Wait for its helper before sending pins or a reveal.
+  useEffect(() => {
+    ready.current = false;
+  }, [artifact?.id, artifact?.version, tab?.id]);
+  const command = useCallback((message: Record<string, unknown> & { t: string }) => {
+    if (!ready.current || !page.current) return;
+    page.current.injectJavaScript(`window.milagreArtifact&&window.milagreArtifact.run(${JSON.stringify(message)});true;`);
+  }, []);
+  useEffect(() => {
+    command({ t: "mode", input: "touch", comment: commenting });
+  }, [command, epoch, commenting]);
+
+  // The pins on the page as it is now: waiting comments numbered in Send order, sent ones within their message.
+  const numbers = useMemo(() => sentNumbers(sent), [sent]);
+  const pins = useMemo<PagePin[]>(() => {
+    if (!artifact || !tab) return [];
+    const done = sent.flatMap((comment) =>
+      comment.design.id !== artifact.id ||
+      comment.design.version !== artifact.version ||
+      comment.x === undefined ||
+      comment.y === undefined ||
+      (!showResolved && comment.resolved !== undefined && composer?.key !== `sent:${comment.id}`) ||
+      !onArtifactTab(comment, artifact, tab)
+        ? []
+        : [
+            {
+              k: `sent:${comment.id}`,
+              x: comment.x,
+              y: comment.y,
+              ...(comment.anchor ? { a: comment.anchor } : {}),
+              n: numbers.get(comment.id) ?? 1,
+              fill: comment.resolved ? colors.greenInk : colors.ink2,
+              ink: comment.resolved ? colors.onGreen : colors.page,
+              label: `Sent comment${comment.resolved ? ", resolved" : ""}: ${comment.text}`,
+            },
+          ],
+    );
+    const waiting = notes.flatMap((note, index) =>
+      note.x === undefined || note.y === undefined || !onArtifactTab(note, artifact, tab)
+        ? []
+        : [
+            {
+              k: note.key,
+              x: note.x,
+              y: note.y,
+              ...(note.anchor ? { a: note.anchor } : {}),
+              n: index + 1,
+              fill: colors.accentInk,
+              ink: colors.onAccent,
+              label: `Comment ${index + 1}`,
+            },
+          ],
+    );
+    return [...done, ...waiting].map((pin) => (pin.k === composer?.key ? { ...pin, hide: true } : pin));
+  }, [
+    artifact,
+    tab,
+    sent,
+    notes,
+    numbers,
+    composer?.key,
+    showResolved,
+    colors.greenInk,
+    colors.onGreen,
+    colors.ink2,
+    colors.page,
+    colors.accentInk,
+    colors.onAccent,
+  ]);
+  // A pin just opened scrolls near the top once the page has it, out of the keyboard's way; the page then says where it
+  // landed, and the box opens there.
+  const revealing = useRef<string | null>(null);
+  const pinsKey = JSON.stringify(pins);
+  const watch = composer?.key ?? null;
+  useEffect(() => {
+    if (!ready.current) return;
+    command({ t: "pins", pins: JSON.parse(pinsKey), watch });
+    if (revealing.current) {
+      command({ t: "reveal", k: revealing.current });
+      revealing.current = null;
+    }
+  }, [pinsKey, watch, command, epoch]);
+  // Comments may arrive after the page. A new request also works in an already-mounted iPad dock.
+  useEffect(() => {
+    if (!ready.current || !artifact || !tab || !pendingComment.current) return;
+    const comment = sent.find((item) => item.id === pendingComment.current);
+    if (!comment || comment.design.id !== artifact.id || comment.design.version !== artifact.version || !onArtifactTab(comment, artifact, tab)) return;
+    pendingComment.current = null;
+    if (comment.x === undefined || comment.y === undefined) return;
+    const key = `sent:${comment.id}`;
+    revealing.current = key;
+    setComposer({ key, kind: "read", at: null });
+  }, [artifact, tab, sent, epoch, commentId, requestId]);
+
+  const onMessage = useCallback(
+    (data: string) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        return;
+      }
+      const message = readPageMessage(parsed);
+      if (!message) return;
+      switch (message.t) {
+        case "ready":
+          ready.current = true;
+          setEpoch((value) => value + 1);
+          return;
+        case "press": {
+          if (!artifact || !tab || composer) return;
+          tap();
+          const key = newCommentId();
+          setNotes((current) => [
+            ...current,
+            {
+              key,
+              design: refOf(artifact),
+              x: message.x,
+              y: message.y,
+              text: "",
+              ...(message.a ? { anchor: message.a } : {}),
+              ...(message.near ? { near: message.near } : {}),
+              ...(artifact.tabs ? { tab: { id: tab.id, title: tab.title } } : {}),
+            },
+          ]);
+          revealing.current = key;
+          setComposer({ key, kind: "new", at: null });
+          return;
+        }
+        case "pin": {
+          if (composer) return;
+          const note = notes.find((item) => item.key === message.k);
+          const comment = message.k.startsWith("sent:") ? sent.find((item) => `sent:${item.id}` === message.k) : undefined;
+          if (!note && !comment) return;
+          revealing.current = message.k;
+          setComposer({ key: message.k, kind: note ? "edit" : "read", at: null });
+          return;
+        }
+        case "anchor":
+          setComposer((current) => (current && current.key === message.k ? { ...current, at: { x: message.sx, y: message.sy } } : current));
+          return;
+      }
+    },
+    [artifact, tab, composer, notes, sent],
+  );
+
+  const closeComposer = (remove = false) => {
+    if (!composer) return;
+    const { key } = composer;
+    setNotes((current) => current.filter((note) => note.key !== key || (!remove && note.text.trim())));
+    setComposer(null);
   };
-  const current = artifact?.version ?? shown.version ?? 1;
-  const key = artifact ? `${artifact.id}:${artifact.version}` : "";
-  const pendingHere = !!artifact && choice?.id === artifact.id && choice.version === artifact.version;
-  const sentHere = !choice && chosen === key;
-  const written = Object.values(notes).filter((note) => note.text.trim());
-  const feedback = written.length + (choice ? 1 : 0);
-  const send = async () => {
-    if (!hostId || !chatId || !feedback || !source) return;
+  const written = notes.filter((note) => note.text.trim());
+  const send = () => {
+    if (!hostId || !chatId || !written.length || !source) return;
     // Each comment gets the id the agent resolves it by; the host records the comments once the message went.
-    const comments = written.map((note) => ({ ...note, id: newCommentId() }));
+    const comments: DesignComment[] = written.map(({ key: _key, ...note }) => ({ ...note, text: note.text.trim(), id: newCommentId() }));
+    if (feedbackKey) unsent.delete(feedbackKey);
     postDesignMessage(`${hostId}|${chatId}`, {
-      kind: isHtml ? "artifacts" : "designs",
-      text: designFeedbackMessage({ choice, comments }),
+      kind: "artifacts",
+      text: designFeedbackMessage({ comments }),
       onSent: () => {
-        if (comments.length) source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
+        source
+          .call("artifact:add-comments", [{ chatId, comments }])
+          .then(() => source.call<ArtifactComment[]>("artifact:comments", [{ chatId }]))
+          .then((all) => Array.isArray(all) && setSent(all))
+          .catch(() => {});
       },
     });
-    router.back();
+    if (!onClose) {
+      close();
+      return;
+    }
+    // Docked beside the Chat, the Chat is on screen already and sends it now; the page stays open, its pins turn sent.
+    sendDesignMessageNow(`${hostId}|${chatId}`);
+    setComposer(null);
+    setCommenting(false);
+    setNotes([]);
   };
-  const ref = (design: Artifact): ArtifactRef => ({
-    id: design.id,
-    version: design.version,
-    title: design.title,
-    format: design.format,
-  });
+  const openShare = () => {
+    if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId, kind: "artifacts" } });
+  };
+  const menu: MenuSection[] = [
+    { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
+    ...(sharing ? [{ items: [{ id: "share", title: "Share page", systemImage: "square.and.arrow.up" }] }] : []),
+  ];
+
+  const openNote = composer && composer.kind !== "read" ? notes.find((note) => note.key === composer.key) : undefined;
+  const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
+  const [room, setRoom] = useState({ width: 0, height: 0 });
+  const heading = (
+    <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, fontWeight: "600" }}>
+      {artifact?.title ?? "Artifact"}
+    </Text>
+  );
   return (
-    // The bar under the design rises with the keyboard, so a comment being written stays in view.
-    // The keyboard covers the home indicator, so the bar's bottom inset gives way to its 12pt gap while it is up.
-    <KeyboardAvoidingView
-      behavior="padding"
-      keyboardVerticalOffset={-Math.max(insets.bottom - 12, 0)}
-      style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.page }}
-    >
-      {sharePage && source && chatId ? (
-        <DesignPageShareSheet
-          key={`${source.url}:${chatId}:${shareKind}`}
-          client={source}
-          chatId={chatId}
-          kind={shareKind}
-          onClose={() => setSharePage(false)}
-          onAvailabilityChange={sharingStatusChanged}
-        />
-      ) : (
-        <>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 8,
-              gap: 8,
+    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
+          {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
+          {!onClose && <CircleButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
+        </View>
+        {tabs && tab ? (
+          // A page split into tabs: its title opens the menu of its tabs, and the line under it names the one shown.
+          <PullDown
+            label={`${artifact?.title ?? "Artifact"}, ${tab.title} tab. Choose a tab`}
+            style={{ flex: 1, alignItems: "center" }}
+            sections={[{ items: tabs.map((item) => ({ id: item.id, title: item.title, checked: item.id === tab.id })) }]}
+            onSelect={(id) => {
+              if (id === tab.id) return;
+              closeComposer();
+              setTabId(id);
             }}
           >
-            {source && !isHtml && <CircleButton label="Previous design" icon={ArrowLeft01Icon} onPress={index > 0 ? () => step(-1) : undefined} />}
-            <View style={{ flex: 1, alignItems: "center" }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-                  {isHtml ? "Artifact" : "Designs"}
+            {/* PullDown lays its children in a wrapper of its own; this centres the tab line under the title. */}
+            <View style={{ alignItems: "center" }}>
+              {heading}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+                  {tab.title}
                 </Text>
-                {source && !isHtml && (
-                  <Text
-                    style={{
-                      color: colors.ink2,
-                      backgroundColor: colors.canvas,
-                      borderRadius: 5,
-                      paddingHorizontal: 5,
-                      paddingVertical: 2,
-                      fontSize: 10,
-                    }}
-                  >
-                    Experimental
-                  </Text>
-                )}
+                <Icon icon={UnfoldMoreIcon} size={12} tone="ink3" />
               </View>
-              {artifact && (
-                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13 }}>
-                  {artifact.title}
-                </Text>
-              )}
-              {source && !isHtml && designs && designs.length > 1 && index >= 0 && (
-                <Text style={{ color: colors.ink3, fontSize: 11 }}>
-                  Design {index + 1} of {designs.length}
-                </Text>
-              )}
-              {source && sharingAvailable === sharingScope && (isHtml ? !!artifact : designs && designs.length > 0 && feature.enabled === true) && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={isHtml ? "Share artifact" : "Share Designs page"}
-                  onPress={() => setSharePage(true)}
-                  style={{ paddingHorizontal: 12, paddingVertical: 8 }}
-                >
-                  <Text
-                    style={{
-                      color: colors.accent,
-                      fontSize: 13,
-                      fontWeight: "500",
-                    }}
-                  >
-                    Share page
-                  </Text>
-                </Pressable>
-              )}
             </View>
-            {source && !isHtml && (
-              <CircleButton
-                label="Next design"
-                icon={ArrowRight01Icon}
-                onPress={designs && index >= 0 && index < designs.length - 1 ? () => step(1) : undefined}
-              />
-            )}
-            <CircleButton label={isHtml ? "Close artifact" : "Close designs"} icon={Cancel01Icon} onPress={() => router.back()} />
+          </PullDown>
+        ) : (
+          <View style={{ flex: 1, alignItems: "center" }}>
+            {heading}
+            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+              Artifact
+            </Text>
           </View>
-          <View style={{ flex: 1 }}>
-            {!matching ? (
-              <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open this page.</Text>
-            ) : !isHtml && state.artifact?.format === "design" && feature.enabled !== true ? (
-              <View style={{ padding: 20, gap: 16 }}>
-                <Text style={styles.muted}>
-                  {feature.enabled === false
-                    ? "Designs is off for this Mac. Turn it on in Settings > Experimental."
-                    : feature.error || "Checking whether Designs is available..."}
-                </Text>
-                {feature.error && <PillButton title="Retry" onPress={() => void feature.refresh()} />}
-              </View>
-            ) : state.error ? (
-              <View style={{ padding: 20, gap: 16 }}>
-                <Text accessibilityRole="alert" style={{ color: colors.red }}>
-                  {state.error}
-                </Text>
-                <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
-              </View>
-            ) : artifact ? (
-              <ArtifactWebView key={`${artifact.id}:${artifact.version}`} html={artifact.html} />
-            ) : (
-              <Text style={[styles.muted, { padding: 20 }]}>Loading page...</Text>
-            )}
-          </View>
-          {artifact && (
-            <View
-              style={{
-                paddingHorizontal: 16,
-                paddingTop: 10,
-                paddingBottom: Math.max(insets.bottom, 12),
-                gap: 10,
-                borderTopWidth: 1,
-                borderColor: colors.line,
+        )}
+        <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+          {source && (
+            <CircleButton
+              label={commenting ? "Stop commenting" : "Comment on the page"}
+              icon={CommentAdd01Icon}
+              selected={commenting}
+              onPress={() => {
+                closeComposer();
+                setCommenting((value) => !value);
+              }}
+            />
+          )}
+          {source && written.length > 0 && (
+            <CircleButton label={`Send ${written.length} to the agent`} icon={Sent02Icon} filled badge={written.length} onPress={send} />
+          )}
+          {menu.length > 0 && (
+            <PullDown
+              label="Page actions"
+              sections={menu}
+              onSelect={(action) => {
+                if (action === "resolved") setShowResolved(!showResolved);
+                else if (action === "share") openShare();
               }}
             >
-              {/* Its own row, the width of the bar: beside the version and choice controls it would not fit a phone. */}
-              {editing !== key && feedback > 0 && <PillButton title={`Send ${feedback}`} onPress={send} />}
-              {editing !== key ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  {!isHtml && (
-                    <>
-                      <CircleButton
-                        label={`Previous version of ${artifact.title}`}
-                        icon={ArrowLeft01Icon}
-                        onPress={
-                          current > 1
-                            ? () =>
-                                setShown({
-                                  id: artifact.id,
-                                  version: current - 1,
-                                })
-                            : undefined
-                        }
-                      />
-                      <Text
-                        style={{
-                          color: colors.ink3,
-                          fontSize: 13,
-                          fontVariant: ["tabular-nums"],
-                        }}
-                      >
-                        v{current} of {artifact.latest}
-                      </Text>
-                      <CircleButton
-                        label={`Next version of ${artifact.title}`}
-                        icon={ArrowRight01Icon}
-                        onPress={
-                          current < artifact.latest
-                            ? () =>
-                                setShown({
-                                  id: artifact.id,
-                                  version: current + 1 === artifact.latest ? null : current + 1,
-                                })
-                            : undefined
-                        }
-                      />
-                    </>
-                  )}
-                  <View style={{ flex: 1 }} />
-                  <PillButton title={notes[key]?.text.trim() ? "Comment ✓" : "Comment"} secondary onPress={() => setEditing(key)} />
-                  {!isHtml &&
-                    (sentHere ? (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <Icon icon={CheckmarkCircle02Icon} tone="accent" size={16} />
-                        <Text style={{ color: colors.accent, fontSize: 14 }}>Chosen</Text>
-                      </View>
-                    ) : (
-                      <PillButton title={pendingHere ? "Chosen ✓" : "Choose"} secondary onPress={() => setChoice(pendingHere ? null : ref(artifact))} />
-                    ))}
-                </View>
-              ) : (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "flex-end",
-                    gap: 8,
-                  }}
-                >
-                  <TextInput
-                    // Uncontrolled: the bar moves with the keyboard as it types, and a controlled value written back
-                    // during those renders drops keystrokes.
-                    key={key}
-                    accessibilityLabel={`Comment on ${artifact.title}`}
-                    autoFocus
-                    multiline
-                    defaultValue={notes[key]?.text ?? ""}
-                    onChangeText={(text) =>
-                      setNotes((currentNotes) => ({
-                        ...currentNotes,
-                        [key]: {
-                          ...currentNotes[key],
-                          design: ref(artifact),
-                          text,
-                        },
-                      }))
-                    }
-                    placeholder="What should change?"
-                    placeholderTextColor={colors.ink3}
-                    selectionColor={colors.accent}
-                    style={[styles.input, { flex: 1, maxHeight: 120 }]}
-                  />
-                  <CircleButton
-                    label="Delete comment"
-                    icon={Cancel01Icon}
-                    onPress={() => {
-                      setNotes(({ [key]: _removed, ...rest }) => rest);
-                      setEditing(null);
-                    }}
-                  />
-                  <PillButton title="Done" onPress={() => setEditing(null)} />
-                </View>
-              )}
-            </View>
+              <CircleButton asTrigger label="Page actions" icon={MoreHorizontalIcon} />
+            </PullDown>
           )}
-        </>
-      )}
-    </KeyboardAvoidingView>
+        </View>
+      </View>
+      <View style={{ flex: 1, backgroundColor: "#ffffff" }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
+        {!source ? (
+          <Text style={[styles.muted, { padding: space.xl }]}>Reconnect to this Mac to open this page.</Text>
+        ) : state.error ? (
+          <View style={{ padding: space.xl }}>
+            <ErrorNotice message={state.error} retry={() => setRevision((value) => value + 1)} retryTitle="Retry" />
+          </View>
+        ) : artifact && tab && files.error ? (
+          <View style={{ padding: 20, gap: 16 }}>
+            <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
+              {files.error}
+            </Text>
+            <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
+          </View>
+        ) : artifact && tab && files.uris ? (
+          <ArtifactWebView
+            key={`${artifact.id}:${artifact.version}:${tab.id}`}
+            ref={page}
+            html={artifact.assets ? pageWithFiles(tab.html, artifact.assets, files.uris) : tab.html}
+            files={!!artifact.assets}
+            onMessage={onMessage}
+          />
+        ) : artifact && tab ? (
+          <Text accessibilityRole="progressbar" style={[styles.muted, { padding: 20 }]}>
+            {`Loading the page's files… ${files.total ? Math.floor((files.received / files.total) * 100) : 0}%`}
+          </Text>
+        ) : (
+          <Text style={[styles.muted, { padding: space.xl }]}>Loading page…</Text>
+        )}
+        {composer && (
+          <>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close the comment" style={StyleSheet.absoluteFill} onPress={() => closeComposer()} />
+            {composer.at && (openNote || openSent) && (
+              <CommentBox
+                at={composer.at}
+                kind={composer.kind}
+                note={openNote}
+                sentComment={openSent}
+                number={openNote ? notes.indexOf(openNote) + 1 : openSent ? (numbers.get(openSent.id) ?? 1) : 1}
+                onChange={(text) => setNotes((current) => current.map((note) => (note.key === composer.key ? { ...note, text } : note)))}
+                onCancel={() => closeComposer(true)}
+                onDone={() => closeComposer()}
+                onSend={send}
+                room={room}
+              />
+            )}
+          </>
+        )}
+      </View>
+    </View>
   );
 }
 
 /**
- * The design inside artifactShell, from a cache file of its own. The page has no script; the design runs in its
- * sandboxed frame with an opaque origin, so it can't read the phone's files (this web view grants a file: page read
- * access to all of them), make requests, or navigate the page or its own frame away. The Expo modules bridge stays
- * off, and nothing the page posts is read.
+ * The page inside artifactShell, from a cache file of its own. The page's own scripts run in its sandboxed frame with
+ * an opaque origin, so they can't read the phone's files (this web view grants a file: page read access to all of
+ * them), make requests, or navigate the page or its own frame away. The shell's one script passes the page helper's
+ * messages through, which `onMessage` reads by their shape; the Expo modules bridge stays off. Mermaid blocks draw
+ * with Pele, which the shell's page carries.
  */
-function ArtifactWebView({ html }: { html: string }) {
-  const { colors } = useTheme();
+/** `files`: the page shows files from the phone's cache (artifact-files.ts), which its policy lets it load. */
+function ArtifactWebView({
+  ref,
+  html,
+  files = false,
+  onMessage,
+}: {
+  ref?: React.Ref<DomWebViewRef>;
+  html: string;
+  files?: boolean;
+  onMessage?: (data: string) => void;
+}) {
   const [crashed, setCrashed] = useState(false);
-  // Written while rendering, so the page is there on the first frame; each design gets a file of its own, removed
-  // when the design changes or goes.
-  // Named for this view and the design's content: two views never share a file, and a changed design gets a new one.
+  // Written while rendering, so the page is there on the first frame; each page gets a file of its own, removed when
+  // the page changes or goes. Named for this view and the page's content: two views never share a file.
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const prepared = useMemo(() => {
+    const page = artifactShell(html, { diagrams: PELE_SCRIPT, ...(files ? { assets: "file:" } : {}) });
     let hash = 5381;
     for (let index = 0; index < html.length; index++) hash = (hash * 33) ^ html.charCodeAt(index);
     const file = new File(Paths.cache, `artifact-${id}-${(hash >>> 0).toString(36)}.html`);
     try {
-      file.write(artifactShell(html));
+      file.writeSync(page);
       return { file, uri: file.uri };
     } catch {
       return null;
     }
-  }, [html, id]);
+  }, [html, id, files]);
   useEffect(
     () => () => {
       try {
@@ -773,24 +915,26 @@ function ArtifactWebView({ html }: { html: string }) {
     },
     [prepared],
   );
-  const failed = crashed || !prepared;
   const uri = prepared?.uri;
-  if (failed)
+  if (crashed || !prepared)
     return (
-      <Text accessibilityRole="alert" style={{ color: colors.red, padding: 20 }}>
-        Could not prepare this page.
-      </Text>
+      <View style={{ padding: space.xl }}>
+        <ErrorNotice message="Could not prepare this page." />
+      </View>
     );
   if (!uri) return null;
   return (
     <DomWebView
+      ref={ref}
       source={{ uri }}
+      // ponytail: an HTML page's own default paper is white in every theme; a page that wants dark sets its own.
       style={{ flex: 1, backgroundColor: "#ffffff" }}
       containerStyle={{ flex: 1 }}
       useExpoModulesBridge={false}
       allowsInlineMediaPlayback
       automaticallyAdjustContentInsets={false}
       contentInsetAdjustmentBehavior="never"
+      onMessage={onMessage ? (event) => onMessage(event.nativeEvent.data) : undefined}
       onContentProcessDidTerminate={() => setCrashed(true)}
       onRenderProcessGone={() => setCrashed(true)}
     />

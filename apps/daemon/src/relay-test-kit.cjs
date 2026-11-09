@@ -94,12 +94,13 @@ async function startFakeBridge(t) {
 }
 
 /** A phone speaking the encrypted protocol over a raw relay socket. */
-function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name, kind }) {
+function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name, kind, caps }) {
   const ws = new WebSocket(`${relayUrl}/v1/phone?id=${identity.hostId}`);
   const inbox = [];
   const waiters = [];
   const closed = new Promise((resolve) => ws.on("close", (code, reason) => resolve({ code, reason: reason.toString() })));
   ws.on("message", (data) => {
+    phone.rawFrames += 1;
     const bytes = new Uint8Array(data);
     const waiter = waiters.shift();
     if (waiter) waiter(bytes);
@@ -119,6 +120,10 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     key,
     closed,
     nextRaw,
+    /** Frames the socket received, batches counted once. */
+    rawFrames: 0,
+    /** Messages of a batch still to hand out. */
+    items: [],
     channel: null,
     opened: new Promise((resolve, reject) => {
       ws.on("open", resolve);
@@ -127,7 +132,7 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     /** Resolves with the channel, or with { error } when the Mac refused the hello. */
     async hello() {
       await phone.opened;
-      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind });
+      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind, caps });
       ws.send(message);
       const reply = await nextRaw();
       if (reply[0] === 0x04) return { error: JSON.parse(new TextDecoder().decode(reply.subarray(1))) };
@@ -137,8 +142,13 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     send(message) {
       ws.send(phone.channel.seal(message));
     },
+    /** The next message; a batch (a Mac sends them to a phone whose hello asked) is handed out one message at a time. */
     async next(ms) {
-      return phone.channel.open(await nextRaw(ms));
+      if (phone.items.length) return phone.items.shift();
+      const message = phone.channel.open(await nextRaw(ms));
+      if (message.t !== "batch") return message;
+      phone.items.push(...message.items);
+      return phone.items.shift();
     },
     /** Sends a request as `req` parts: the body goes out as base64 chunks, `''` and no more when there is none. */
     request(id, { method = "GET", path, headers = {}, body }, size) {
@@ -162,15 +172,61 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
   return phone;
 }
 
-/** Plays the Cloudflare Worker: real sockets, the real room logic. */
+/**
+ * Plays the Cloudflare Worker: real sockets, the real room logic, and `POST /hook/<secret>` through the real hook logic
+ * (apps/relay/src/hooks.mjs) on in-memory storage. `hooks.directory` is the hook directory every room shares.
+ */
 async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
   const { createRoom } = await import("../../relay/src/room.mjs");
+  const { createHookRoom, memoryHookStorage, memoryHookDirectory, handleHookRequest, hookResponse, unpackHookRequest } =
+    await import("../../relay/src/hooks.mjs");
   const rooms = new Map();
+  const hookRooms = new Map();
+  const directory = memoryHookDirectory();
+  const hookRoomFor = (id) => {
+    if (!hookRooms.has(id)) {
+      const storage = memoryHookStorage();
+      hookRooms.set(id, { storage, hooks: createHookRoom({ storage, directory, roomId: id, send: (bytes) => roomFor(id).sendHost(bytes) }) });
+    }
+    return hookRooms.get(id);
+  };
   const roomFor = (id) => {
-    if (!rooms.has(id)) rooms.set(id, createRoom({ id }));
+    if (!rooms.has(id))
+      rooms.set(
+        id,
+        createRoom({
+          id,
+          onHostReady: () => hookRoomFor(id).hooks.onHostReady(),
+          onHostFrame: (type, payload) => hookRoomFor(id).hooks.onFrame(type, payload),
+        }),
+      );
     return rooms.get(id);
   };
-  const server = http.createServer();
+  const server = http.createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", async () => {
+      try {
+        const url = new URL(request.url, "http://relay");
+        if (!url.pathname.startsWith("/hook/")) {
+          response.writeHead(404).end();
+          return;
+        }
+        const headers = Object.entries(request.headers).flatMap(([name, value]) =>
+          Array.isArray(value) ? value.map((item) => [name, item]) : [[name, value]],
+        );
+        const body = request.method === "GET" || request.method === "HEAD" ? undefined : Buffer.concat(chunks);
+        const answer = await handleHookRequest(new Request(`http://relay${request.url}`, { method: request.method, headers, body }), {
+          lookupRoom: (hookId) => directory.owner(hookId),
+          forwardToRoom: (roomId, hookId, packed) => hookResponse(hookRoomFor(roomId).hooks.receive(hookId, unpackHookRequest(packed))),
+        });
+        response.writeHead(answer.status, Object.fromEntries(answer.headers.entries()));
+        response.end(Buffer.from(await answer.arrayBuffer()));
+      } catch {
+        response.writeHead(500).end();
+      }
+    });
+  });
   const wss = new WebSocketServer({ noServer: true, autoPong });
   const hostSockets = [];
   server.on("upgrade", (request, socket, head) => {
@@ -182,7 +238,7 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
       if (url.pathname === "/v1/host") {
         const index = hostSockets.length;
         hostSockets.push(ws);
-        if (hostBehavior?.(ws, index)) return;
+        if (hostBehavior?.(ws, index, id)) return;
         ws.on("message", (data, isBinary) => room.hostMessage(ws, payload(data, isBinary)));
         ws.on("close", () => room.hostClosed(ws));
         room.hostOpened(ws);
@@ -198,7 +254,12 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
     for (const client of wss.clients) client.terminate();
     server.close();
   });
-  return { url: `ws://127.0.0.1:${port}`, hostSockets };
+  /** POSTs to a hook URL the Mac handed out (its origin is the relay's) and answers { status, json }. */
+  const postHook = async (hookUrl, body, headers = {}) => {
+    const response = await fetch(hookUrl, { method: "POST", headers: { "content-type": "application/json", ...headers }, body });
+    return { status: response.status, json: await response.json().catch(() => null) };
+  };
+  return { url: `ws://127.0.0.1:${port}`, hostSockets, hooks: { directory, rooms: hookRooms }, postHook };
 }
 
 /**
@@ -206,7 +267,7 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
  * evt and part messages (@milagre/shared/peer-frames). `messages` keeps every message the Mac sent, parts included;
  * `frames` every daemon frame they carried; `error` the first message it could not read.
  */
-function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name = "studio" }) {
+function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name = "studio", caps }) {
   const ws = new WebSocket(`${relayUrl}/v1/phone?id=${identity.hostId}`);
   const reader = createFrameReader("evt");
   const writer = createFrameWriter("rpc");
@@ -225,12 +286,16 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
   function take(bytes) {
     try {
       const message = channel.open(bytes);
-      messages.push(message);
-      if (message.t === "pong") return;
-      const read = reader.read(message);
-      if (!read) return;
-      frames.push(read.frame);
-      for (const watcher of [...watchers]) watcher(read.frame);
+      desktop.rawFrames += 1;
+      // A batch (a Mac sends them to a desktop whose hello asked) holds a window's messages, in order.
+      for (const item of message.t === "batch" ? message.items : [message]) {
+        messages.push(item);
+        if (item.t === "pong") continue;
+        const read = reader.read(item);
+        if (!read) continue;
+        frames.push(read.frame);
+        for (const watcher of Array.from(watchers)) watcher(read.frame);
+      }
     } catch (error) {
       desktop.error ??= error;
       ws.terminate();
@@ -266,12 +331,14 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
     closed,
     messages,
     frames,
+    /** Sealed frames the channel opened, batches counted once. */
+    rawFrames: 0,
     error: null,
     notices: [],
     /** Resolves with the channel, or with { error } when the Mac refused the hello. Waits through pending notices (Allow). */
     async hello({ ms = 5000 } = {}) {
       await opened;
-      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind: "desktop" });
+      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind: "desktop", caps });
       const reply = await new Promise((resolve, reject) => {
         let timer;
         const arm = () => {
@@ -350,7 +417,7 @@ function fakePeerDaemon() {
  * on 127.0.0.1 (none with `lan: false`), and a clock the test moves (pairing windows). Never Victor's data folder, 8797
  * or 8798. `autoAllow`: this Mac's window allows every computer that asks, as its owner would.
  */
-async function startTestMac(t, { autoAllow = true, lan = true } = {}) {
+async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeExtra = {}, relay: relayOptions = {} } = {}) {
   const fs = require("node:fs/promises");
   const os = require("node:os");
   const path = require("node:path");
@@ -377,12 +444,13 @@ async function startTestMac(t, { autoAllow = true, lan = true } = {}) {
     }
   });
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
-  const relay = await startLocalRelay(t);
+  const relay = await startLocalRelay(t, relayOptions);
   daemon = await startDaemon({
     dataDir,
+    // The temporary folder is the host's home folder too, so its Chats home is made there, never in the user's.
     homeDir: directory,
     version: "9.8.7",
-    runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, readPullRequests: async (_worktree, refs) => refs },
+    runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, readPullRequests: async (_worktree, refs) => refs, ...runtimeExtra },
     phoneOptions: {
       relayUrl: relay.url,
       localPort: 0,

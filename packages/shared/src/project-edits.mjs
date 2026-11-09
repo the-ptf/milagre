@@ -9,7 +9,7 @@ export function patchSession(state, sessionId, patch) {
   for (const [field, value] of Object.entries(patch)) {
     if (!SESSION_FIELDS.has(field)) continue;
     // The chat lists sort by it, so only a real number gets in.
-    if (field === "pin_order" && value !== undefined && !Number.isFinite(value)) continue;
+    if ((field === "pin_order" || field === "done_at") && value !== undefined && value !== false && !Number.isFinite(value)) continue;
     if (value === undefined || value === false || value === "") delete next[field];
     else next[field] = value;
   }
@@ -18,7 +18,15 @@ export function patchSession(state, sessionId, patch) {
 }
 
 /** The session fields a patch may change; the renderer is untrusted input. */
-const SESSION_FIELDS = new Set(["title", "unread", "archived", "pinned", "pin_order"]);
+const SESSION_FIELDS = new Set(["title", "unread", "archived", "pinned", "pin_order", "done_at"]);
+
+/** Permanently removes one conversation, while keeping its Worktree and every other Chat. */
+export function deleteSession(state, sessionId) {
+  if (!state.sessions[sessionId]) return state;
+  const sessions = { ...state.sessions };
+  delete sessions[sessionId];
+  return { ...state, sessions, messages: state.messages.filter((message) => message.session_id !== sessionId) };
+}
 
 /** The state with fresh diff stats for some worktrees (by id); unchanged state is returned as is. */
 export function withDiffStats(state, stats) {
@@ -27,7 +35,8 @@ export function withDiffStats(state, stats) {
     const worktree = worktrees[id];
     if (!worktree || !stat) continue;
     if (worktree.diff?.added === stat.added && worktree.diff?.removed === stat.removed) continue;
-    worktrees = { ...worktrees, [id]: { ...worktree, diff: { added: stat.added, removed: stat.removed } } };
+    if (worktrees === state.worktrees) worktrees = { ...state.worktrees };
+    worktrees[id] = { ...worktree, diff: { added: stat.added, removed: stat.removed } };
   }
   return worktrees === state.worktrees ? state : { ...state, worktrees };
 }
@@ -42,7 +51,11 @@ export function renameWorktree(state, { path, from, name }) {
       session.worktree_id === worktree.id && session.agent_name === from ? { ...session, agent_name: name } : session,
     ]),
   );
-  return { ...state, worktrees: { ...state.worktrees, [worktree.id]: { ...worktree, name } }, sessions };
+  return {
+    ...state,
+    worktrees: { ...state.worktrees, [worktree.id]: { ...worktree, name, ...(worktree.generatedBranch === from ? { generatedBranch: name } : {}) } },
+    sessions,
+  };
 }
 
 /** Whether a subagent has ended, so "Archive finished" may hide it. */

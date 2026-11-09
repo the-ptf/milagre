@@ -1,4 +1,5 @@
 import { GIT_CODES, gitMessage, type GitCode } from "@milagre/shared/git-codes";
+import { isRoutineRun } from "@milagre/shared/routines";
 import type { ChatMessage, ModelProvider } from "../model";
 
 // What the "Commit and open PR" dialog shows and which steps its buttons run, from what git and gh
@@ -214,9 +215,9 @@ export function testCommandsFrom(messages: ChatMessage[]): GitTestCommand[] {
   return [...byCommand.values()].slice(-10);
 }
 
-/** The chat's title, its first user message, its last few other user messages and the tests it ran. */
+/** The chat's title, its first user message, its last few other user messages and the tests it ran. Heartbeat prompts aren't the user's. */
 export function gitChatContext(chatTitle: string, messages: ChatMessage[]): GitChatContext {
-  const userMessages = messages.filter((message) => message.role !== "assistant" && message.body.trim());
+  const userMessages = messages.filter((message) => message.role !== "assistant" && !isRoutineRun(message) && message.body.trim());
   return {
     chatTitle,
     firstMessage: userMessages[0]?.body ?? "",
@@ -239,7 +240,7 @@ export interface GitRunResult {
   pr?: { url: string; number: number | null; created: boolean };
 }
 
-const capitalize = (text: string) => `${text[0].toUpperCase()}${text.slice(1)}`;
+const capitalize = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 /** The line saved in the chat after the dialog's steps, e.g. "Committed abc1234 and opened PR #12: <link>". Null when nothing happened. */
 export function gitRunNote({ shortSha, pushedBranch, pr }: GitRunResult): string | null {
@@ -248,8 +249,9 @@ export function gitRunNote({ shortSha, pushedBranch, pr }: GitRunResult): string
   if (shortSha) done.push(`committed ${shortSha}`);
   if (pushedBranch) done.push(`pushed ${pushedBranch}`);
   if (pr?.created) done.push(`opened ${prName}`);
-  if (!done.length) return null;
-  const list = done.length > 1 ? `${done.slice(0, -1).join(", ")} and ${done.at(-1)}` : done[0];
+  const first = done[0];
+  if (first === undefined) return null;
+  const list = done.length > 1 ? `${done.slice(0, -1).join(", ")} and ${done.at(-1)}` : first;
   if (pr?.created) return `${capitalize(list)}: ${pr.url}`;
   // A push to a branch with an open PR updates it.
   if (pr && pushedBranch) return `${capitalize(list)}. ${capitalize(prName)} is updated: ${pr.url}`;

@@ -3,11 +3,44 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("@milagre/core/private-files");
 const { createDevices, MAX_DEVICES, CLAIM_MS } = require("./devices.cjs");
 
-const tmp = (name) => fs.mkdtemp(path.join(os.tmpdir(), `${name}-`));
+// The daemon keeps these in its data folder, which it makes private first: mkdtemp is 0700 on macOS and Linux, and
+// Windows needs its ACL set.
+const tmp = async (name) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), `${name}-`));
+  if (process.platform === "win32") preparePrivateDirectory(dir);
+  return dir;
+};
 const saved = async (dir) => JSON.parse(await fs.readFile(path.join(dir, "devices.json"), "utf8"));
-const mode = async (dir, name) => (await fs.stat(path.join(dir, name))).mode & 0o777;
+// Written as the daemon writes its files: 0600, and on Windows a protected ACL (an elevated process's new files are
+// owned by Administrators, which the check refuses).
+const writeOwn = async (file, text) => {
+  await fs.writeFile(file, text, { mode: 0o600 });
+  if (process.platform === "win32") windowsAcl(file, { mode: "protect" });
+};
+// 0600 on macOS and Linux; on Windows, an ACL only this user and SYSTEM hold.
+const assertPrivateFile = async (dir, name) => {
+  if (process.platform === "win32") assertPrivate(path.join(dir, name));
+  else assert.equal((await fs.stat(path.join(dir, name))).mode & 0o777, 0o600);
+};
+// Makes the next write of devices.json fail until the returned function undoes it: a read-only folder on macOS and
+// Linux; on Windows, where a folder's read-only bit doesn't stop writes, a folder in the file's place.
+async function failWrites(dir) {
+  if (process.platform !== "win32") {
+    await fs.chmod(dir, 0o500);
+    return () => fs.chmod(dir, 0o700);
+  }
+  const file = path.join(dir, "devices.json");
+  await fs.rename(file, `${file}.saved`);
+  await fs.mkdir(file);
+  return async () => {
+    await fs.rmdir(file);
+    await fs.rename(`${file}.saved`, file);
+  };
+}
 const isNew = (list) => Object.fromEntries(list.map((device) => [device.key, device.isNew]));
 
 test("a device is remembered with its kind, name and times, privately, across loads", async () => {
@@ -26,7 +59,7 @@ test("a device is remembered with its kind, name and times, privately, across lo
   ]);
   assert.equal(again.isKnown("phoneA"), true);
   assert.equal(again.count(), 2);
-  assert.equal(await mode(dir, "devices.json"), 0o600);
+  await assertPrivateFile(dir, "devices.json");
 });
 
 test("add with no kind or name is a nameless phone, and an unknown kind is refused", async () => {
@@ -66,7 +99,7 @@ test("only the 32 newest devices are remembered", async () => {
 
 test("phones from relay-phones.json move to devices.json as nameless phones, and the old file goes", async () => {
   const dir = await tmp("devices-migrate");
-  await fs.writeFile(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA", "phoneB"] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA", "phoneB"] }));
   const devices = createDevices(dir);
   await devices.load();
   assert.deepEqual(devices.list(), [
@@ -77,13 +110,13 @@ test("phones from relay-phones.json move to devices.json as nameless phones, and
     (await saved(dir)).devices.map((device) => device.key),
     ["phoneA", "phoneB"],
   );
-  assert.equal(await mode(dir, "devices.json"), 0o600);
+  await assertPrivateFile(dir, "devices.json");
   await assert.rejects(fs.stat(path.join(dir, "relay-phones.json")), { code: "ENOENT" }, "a downgrade must not bring back a removed phone");
 });
 
 test("a migrated phone takes its name from its next hello", async () => {
   const dir = await tmp("devices-migrate-name");
-  await fs.writeFile(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }));
   const devices = createDevices(dir, { now: () => 50 });
   await devices.load();
   await devices.seen("phoneA", { name: "Victor's iPhone" });
@@ -100,7 +133,7 @@ test("a migrated phone takes its name from its next hello", async () => {
 
 test("a store used before load still keeps the migrated phones", async () => {
   const dir = await tmp("devices-early");
-  await fs.writeFile(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "relay-phones.json"), JSON.stringify({ phones: ["phoneA"] }));
   await createDevices(dir).add("phoneC");
   const again = createDevices(dir);
   await again.load();
@@ -115,6 +148,8 @@ test("a relay-phones.json that is not private is not trusted, and is left for th
   const legacy = path.join(dir, "relay-phones.json");
   await fs.writeFile(legacy, JSON.stringify({ phones: ["phoneA"] }));
   await fs.chmod(legacy, 0o644);
+  // Windows has no mode bits: Builtin Users may read it there.
+  if (process.platform === "win32") execFileSync("icacls", [legacy, "/grant", "*S-1-5-32-545:(R)"], { stdio: "ignore" });
   const devices = createDevices(dir);
   await devices.load();
   assert.deepEqual(devices.list(), []);
@@ -186,7 +221,7 @@ test("list during an in-flight load still returns the previous devices", async (
   const devices = createDevices(dir, { now: () => 5 });
   await devices.load();
   await devices.add("phoneA", { name: "A" });
-  await fs.writeFile(path.join(dir, "devices.json"), JSON.stringify({ devices: [{ key: "phoneB", kind: "phone" }], removed: [] }), { mode: 0o600 });
+  await writeOwn(path.join(dir, "devices.json"), JSON.stringify({ devices: [{ key: "phoneB", kind: "phone" }], removed: [] }));
   const load = { settled: false };
   const loading = devices.load().then(() => (load.settled = true));
   const seen = [];
@@ -303,11 +338,11 @@ test("a confirm whose write fails keeps the notice pending on disk and doesn't h
   const devices = createDevices(dir, { now: () => now });
   await devices.add("phoneA");
   const taken = await devices.takeNotices();
-  await fs.chmod(dir, 0o500);
+  const restore = await failWrites(dir);
   try {
     await assert.rejects(devices.confirmNotices(taken.claim));
   } finally {
-    await fs.chmod(dir, 0o700);
+    await restore();
   }
   assert.deepEqual((await devices.takeNotices()).devices, [], "no second window shows it right away");
   now = CLAIM_MS;
@@ -340,11 +375,11 @@ test("an acknowledge whose write fails leaves the phone New, so the next one wri
   const dir = await tmp("devices-new-fail");
   const devices = createDevices(dir, { now: () => 1 });
   await devices.add("phoneA");
-  await fs.chmod(dir, 0o500);
+  const restore = await failWrites(dir);
   try {
     await assert.rejects(devices.acknowledge(["phoneA"]));
   } finally {
-    await fs.chmod(dir, 0o700);
+    await restore();
   }
   assert.equal(devices.list()[0].isNew, true, "memory agrees with the file");
   assert.equal(await devices.acknowledge(["phoneA"]), 1);
@@ -353,10 +388,9 @@ test("an acknowledge whose write fails leaves the phone New, so the next one wri
 
 test("a removed phone is no longer announced, and devices saved before these fields are neither announced nor New", async () => {
   const dir = await tmp("devices-new-old");
-  await fs.writeFile(
+  await writeOwn(
     path.join(dir, "devices.json"),
     JSON.stringify({ devices: [{ key: "phoneA", kind: "phone", name: null, pairedAt: 1, lastSeen: 1 }], removed: [] }),
-    { mode: 0o600 },
   );
   const devices = createDevices(dir, { now: () => 2 });
   await devices.load();

@@ -18,6 +18,8 @@ const { capText, claudeEditDiff, codexChangesDiff, unwrapShell } = require("./pe
 
 // Command output keeps its end, where results and errors are (capOutput); diffs and other details keep their start.
 const { MAX_OUTPUT, capOutput } = require("@milagre/shared/agent-runs");
+const { toolMetadata } = require("@milagre/shared/tool-activity");
+const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 
 const CLAUDE_EDIT_TOOLS = new Set(["Edit", "MultiEdit", "NotebookEdit"]);
 const CLAUDE_AGENT_TOOLS = new Set(["Agent", "Task"]);
@@ -54,22 +56,53 @@ function blocksText(content) {
 // --- Artifacts ---
 
 // Milagre's design tools show their result as a card in the Chat.
-const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show"].includes(tool);
+const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show", "html_render"].includes(tool);
 const artifactTitle = (title, tool) =>
   `${tool === "design_apply" ? "Edited" : "Showed"} ${code(title || (tool === "artifact_show" ? "an artifact" : "a design"))}`;
-const artifactStep = (step, title, tool) => step("artifact", artifactTitle(title, tool));
+// The step names its tool: the Designs canvas opens when a design tool starts, not for an artifact page.
+const artifactStep = (step, title, tool) => ({ ...step("artifact", artifactTitle(title, tool)), tool });
 // Resolving a comment the user left on a design reads as that, not as a tool call.
-const isResolveTool = (server, tool) => server === "milagre" && tool === "artifact_resolve_comment";
+const isResolveTool = (server, tool) => server === "milagre" && (tool === "artifact_resolve_comment" || tool === "browser_resolve_comment");
+const resolvedTitle = (tool) => (tool === "browser_resolve_comment" ? "Resolved a page comment" : "Resolved a design comment");
 
-// The artifact a finished design tool made, from its result text.
+// Milagre's routine tools read as what they did to the Project's Heartbeats and Routines, not as tool calls.
+const ROUTINE_STEP_TOOLS = new Set(ROUTINE_TOOL_NAMES);
+function routineTitle(server, tool, input = {}) {
+  if (server !== "milagre" || !ROUTINE_STEP_TOOLS.has(tool)) return null;
+  if (tool === "heartbeat_create") return typeof input.name === "string" && input.name ? `Set Heartbeat "${input.name}"` : "Set a Heartbeat";
+  if (tool === "routine_create") return typeof input.name === "string" && input.name ? `Set Routine "${input.name}"` : "Set a Routine";
+  return tool === "routine_delete" ? "Stopped a Routine" : "Checked Routines";
+}
+
+// The artifact a finished design tool made, from the first line of its result: the JSON summary. Attached images follow it.
 function artifactRef(text) {
   try {
-    const { id, version, title, format } = JSON.parse(text);
+    const { id, version, title, format, group, inline, height } = JSON.parse(String(text).split("\n", 1)[0]);
     return typeof id === "string" && Number.isInteger(version) && typeof title === "string"
-      ? { id, version, title, ...(["design", "html"].includes(format) ? { format } : {}) }
+      ? {
+          id,
+          version,
+          title,
+          ...(inline === true ? { inline: true, ...(Number.isInteger(height) && height >= 24 && height <= 2000 ? { height } : {}) } : {}),
+          ...(["design", "html"].includes(format) ? { format } : {}),
+          ...(typeof group === "string" && group ? { group } : {}),
+        }
       : undefined;
   } catch {
     return undefined;
+  }
+}
+
+// The Heartbeat a finished heartbeat_create set, from the first line of its result: the JSON { routine: { id, name } }.
+// `detail` is the rest of the result, without that line.
+function routineRef(text) {
+  const [first, ...rest] = String(text).split("\n");
+  try {
+    const { id, name } = JSON.parse(first)?.routine ?? {};
+    if (typeof id !== "string" || !id || typeof name !== "string") return {};
+    return { routine: { id, name }, detail: rest.join("\n").trim() || undefined };
+  } catch {
+    return {};
   }
 }
 
@@ -91,7 +124,9 @@ function formatDuration(ms) {
 // --- Claude ---
 
 function claudeStep(id, name, input = {}) {
-  const step = (kind, title, detail, file) => compact({ id: String(id), kind, title, detail, file: filePath(file) });
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(String(name));
+  const metadata = mcp ? toolMetadata(mcp[1], mcp[2], input) : {};
+  const step = (kind, title, detail, file) => compact({ id: String(id), kind, title, detail, file: filePath(file), ...metadata });
   if (name === "Bash") return step("shell", `Ran ${code(input.command)}`, capOutput(`$ ${input.command ?? ""}\n`));
   if (name === "Read") return step("read", `Read ${fileName(input.file_path)}`, undefined, input.file_path);
   if (CLAUDE_EDIT_TOOLS.has(name))
@@ -103,9 +138,10 @@ function claudeStep(id, name, input = {}) {
   if (name === "WebFetch") return step("other", `Fetched ${code(input.url)}`);
   if (CLAUDE_AGENT_TOOLS.has(name)) return step("other", `Ran an agent: ${input.description || "a subtask"}`);
   if (name === "TodoWrite") return step("other", "Updated the to-do list");
-  const mcp = /^mcp__(.+?)__(.+)$/.exec(String(name));
   if (mcp && isArtifactTool(mcp[1], mcp[2])) return artifactStep(step, input.title, mcp[2]);
-  if (mcp && isResolveTool(mcp[1], mcp[2])) return step("other", "Resolved a design comment", input.note);
+  if (mcp && isResolveTool(mcp[1], mcp[2])) return step("other", resolvedTitle(mcp[2]), input.note);
+  const routine = mcp && routineTitle(mcp[1], mcp[2], input);
+  if (routine) return step("other", routine);
   if (mcp) return step("other", `Used ${code(mcp[2])} from ${mcp[1]}`);
   return step("other", `Used ${name}`);
 }
@@ -130,13 +166,20 @@ function claudeStepResult(call, block, structured) {
   const end = (extra = {}) => compact({ id: String(call.id), status: failed ? "failed" : "done", ...extra });
   if (name === "Bash") return end({ detail: capOutput(`$ ${input.command ?? ""}\n${text}`) });
   if (failed) return end({ detail: text ? capText(text) : undefined });
-  if (name === "Read") return end();
-  const designTool = /^mcp__milagre__(design_show|design_apply|artifact_show)$/.exec(name)?.[1];
+  if (name === "Read")
+    return end(Number.isSafeInteger(structured?.file?.numLines) && structured.file.numLines >= 0 ? { summary: `${structured.file.numLines} lines` } : {});
+  if (name === "Grep" && Number.isSafeInteger(structured?.numMatches) && structured.numMatches >= 0)
+    return end({ detail: text ? capText(text) : undefined, summary: `${structured.numMatches} matches` });
+  const designTool = /^mcp__milagre__(design_show|design_apply|artifact_show|html_render)$/.exec(name)?.[1];
   if (designTool) {
     const artifact = artifactRef(text);
     return end({ artifact, title: artifact ? artifactTitle(artifact.title, designTool) : undefined });
   }
-  if (name === "mcp__milagre__artifact_resolve_comment") return end({ detail: input.note });
+  if (name === "mcp__milagre__artifact_resolve_comment" || name === "mcp__milagre__browser_resolve_comment") return end({ detail: input.note });
+  if (name === "mcp__milagre__heartbeat_create") {
+    const { routine, detail } = routineRef(text);
+    if (routine) return end({ routine, detail: detail ? capText(detail) : undefined });
+  }
   if (CLAUDE_EDIT_TOOLS.has(name) || name === "Write") return end({ detail: patchDiff(structured) ?? claudeEditDiff(name, input) });
   if (CLAUDE_AGENT_TOOLS.has(name) && structured?.status === "async_launched") return end({ title: `Started an agent: ${input.description || "a subtask"}` });
   if (CLAUDE_AGENT_TOOLS.has(name) && Array.isArray(structured?.content)) return end({ detail: capText(blocksText(structured.content)) || undefined });
@@ -175,7 +218,8 @@ function webResults(results) {
 
 // item/started item -> step, or null for items that aren't tool calls (messages, reasoning, plans…).
 function codexStep(item) {
-  const step = (kind, title, detail, file) => compact({ id: String(item.id), kind, title, detail, file: filePath(file) });
+  const metadata = item.type === "mcpToolCall" || item.type === "dynamicToolCall" ? toolMetadata(item.server, item.tool, item.arguments) : {};
+  const step = (kind, title, detail, file) => compact({ id: String(item.id), kind, title, detail, file: filePath(file), ...metadata });
   switch (item.type) {
     case "commandExecution": {
       const command = unwrapShell(String(item.command ?? ""));
@@ -195,8 +239,8 @@ function codexStep(item) {
       return step("edit", changeTitle(item.changes ?? []), undefined, item.changes?.length === 1 ? item.changes[0].path : undefined);
     case "mcpToolCall":
       if (isArtifactTool(item.server, item.tool)) return artifactStep(step, item.arguments?.title, item.tool);
-      if (isResolveTool(item.server, item.tool)) return step("other", "Resolved a design comment", item.arguments?.note);
-      return step("other", `Used ${code(item.tool)} from ${item.server}`);
+      if (isResolveTool(item.server, item.tool)) return step("other", resolvedTitle(item.tool), item.arguments?.note);
+      return step("other", routineTitle(item.server, item.tool, item.arguments) ?? `Used ${code(item.tool)} from ${item.server}`);
     case "dynamicToolCall":
       return step("other", `Used ${code(item.tool)}`);
     case "webSearch":
@@ -241,9 +285,13 @@ function codexStepResult(item) {
         return compact({ id, status: "done", artifact, title: artifact ? artifactTitle(artifact.title, item.tool) : undefined });
       }
       if (done && isResolveTool(item.server, item.tool)) return compact({ id, status: "done", detail: item.arguments?.note });
+      if (done && item.server === "milagre" && item.tool === "heartbeat_create") {
+        const { routine, detail } = routineRef(text);
+        if (routine) return compact({ id, status: "done", routine, detail: detail ? capText(detail) : undefined });
+      }
       return compact({
         id,
-        status: item.status === "completed" ? "done" : "failed",
+        status: done ? "done" : "failed",
         detail: capText(item.error?.message ?? text) || undefined,
       });
     }
@@ -278,4 +326,16 @@ function codexStepResult(item) {
   }
 }
 
-module.exports = { MAX_OUTPUT, capOutput, code, formatDuration, claudeStep, claudeStepResult, codexStep, codexStepResult, thinkingEnd, thinkingStep };
+module.exports = {
+  MAX_OUTPUT,
+  capOutput,
+  code,
+  formatDuration,
+  claudeStep,
+  claudeStepResult,
+  codexStep,
+  codexStepResult,
+  thinkingEnd,
+  thinkingStep,
+  routineRef,
+};

@@ -12,7 +12,14 @@ async function fixture(t, overrides = {}) {
   const launched = [];
   const published = [];
   const completions = [];
-  const context = { scopeIdentity: "scope-v1", parentProvider: "claude", cwd: dataDir };
+  const context = {
+    scopeIdentity: "scope-v1",
+    parentProvider: "claude",
+    cwd: dataDir,
+    get permissionMode() {
+      return this.settings?.permissionMode;
+    },
+  };
   const catalog = {
     claude: { available: true, accountId: "ca", models: [{ id: "cm", efforts: ["high"], recommended: true }] },
     codex: { available: true, accountId: "co", models: [{ id: "xm", efforts: ["low", "high"], defaultEffort: "low", recommended: true }] },
@@ -79,6 +86,141 @@ test("invalid provider/model/effort and caller overrides never launch", async (t
   await assert.rejects(f.manager.create("chat", input), /unavailable/i);
   assert.equal(f.launched.length, 0);
 });
+test("execution is opt-in and requires Full permissions for every turn", async (t) => {
+  const f = await fixture(t);
+  for (const mode of [undefined, "ask", "auto", "bot"]) {
+    f.context.settings = { permissionMode: mode };
+    await assert.rejects(f.manager.create("chat", { ...input, mode: "execution" }), /Full permissions/);
+  }
+  assert.equal(f.launched.length, 0);
+  f.context.settings.permissionMode = "full";
+  const row = await f.manager.create("chat", { ...input, mode: "execution" });
+  await running(f);
+  assert.equal(row.mode, "execution");
+  assert.equal(f.launched[0].turns[0].permissionMode, "full");
+  await finish(f);
+  assert.equal(f.completions[0].result.mode, "execution");
+  f.context.settings.permissionMode = "auto";
+  await assert.rejects(f.manager.followup("chat", row.id, "Run more"), /Full permissions/);
+  await f.manager.stop("chat", row.id);
+  await assert.rejects(f.manager.retry("chat", row.id), /Full permissions/);
+});
+
+test("revoking execution access stops execution sessions while analysis continues", async (t) => {
+  const f = await fixture(t);
+  f.context.settings = { permissionMode: "full" };
+  const execution = await f.manager.create("chat", { ...input, mode: "execution" });
+  await running(f);
+  const analysis = await f.manager.create("chat", input);
+  await running(f, 2);
+  await f.manager.stopExecution("chat");
+  await waitUntil(() => f.published.some(({ row }) => row.id === execution.id && row.status === "cancelled"));
+  assert.equal((await f.manager.read("chat", execution.id)).status, "cancelled");
+  assert.equal((await f.manager.read("chat", analysis.id)).status, "running");
+  assert.equal(f.launched[0].closed, 1);
+  assert.equal(f.launched[1].closed, 0);
+  await assert.rejects(f.manager.create("chat", { ...input, mode: "execution" }), /Full permissions/);
+  f.manager.resumeExecution("chat");
+  const resumed = await f.manager.create("chat", { ...input, mode: "execution" });
+  assert.equal(resumed.mode, "execution");
+});
+for (const method of ["stopExecution", "stopChat"]) {
+  test(`${method} stops native execution even while analysis admission holds the queue`, async (t) => {
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const f = await fixture(t, {
+      providersFor: async () => {
+        if (++calls === 2) await gate;
+        return { codex: { available: true, models: [{ id: "xm" }] }, claude: { available: true, models: [{ id: "cm" }] } };
+      },
+    });
+    f.context.settings = { permissionMode: "full" };
+    await f.manager.create("chat", { ...input, mode: "execution" });
+    await running(f);
+    const analysis = f.manager.create("chat", input).catch((error) => error);
+    await waitUntil(() => calls === 2);
+    const stopping = f.manager[method]("chat");
+    await waitUntil(() => f.launched[0].closed === 1);
+    release();
+    await analysis;
+    await stopping;
+  });
+}
+test("Stop and terminal cleanup share one native close", async (t) => {
+  const f = await fixture(t);
+  f.context.settings = { permissionMode: "full" };
+  const row = await f.manager.create("chat", { ...input, mode: "execution" });
+  await running(f);
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  f.launched[0].close = async () => {
+    f.launched[0].closed++;
+    await gate;
+  };
+  f.launched[0].options.emit({ type: "turn-completed" });
+  await waitUntil(() => f.launched[0].closed === 1);
+  const stopping = f.manager.stop("chat", row.id);
+  await waitUntil(() => f.published.some(({ row: saved }) => saved.id === row.id && saved.status === "cancelled"));
+  release();
+  await stopping;
+  assert.equal(f.launched[0].closed, 1);
+  assert.equal(f.completions.length, 0);
+});
+test("execution releases its process before publishing completion and resumes followups afresh", async (t) => {
+  const f = await fixture(t);
+  f.context.settings = { permissionMode: "full" };
+  const row = await f.manager.create("chat", { ...input, mode: "execution" });
+  await running(f);
+  await finish(f);
+  assert.equal(f.launched[0].closed, 1);
+  await f.manager.followup("chat", row.id, "Check again");
+  await running(f, 2);
+  assert.equal(f.launched[1].turns[0].prompt, "Check again");
+});
+test("failed image capture preserves the terminal execution report", async (t) => {
+  const f = await fixture(t, {
+    captureOutput: async () => {
+      throw new Error("Storage unavailable");
+    },
+  });
+  f.context.settings = { permissionMode: "full" };
+  const row = await f.manager.create("chat", { ...input, mode: "execution" });
+  await running(f);
+  await finish(f, 0, "Checks passed; screenshot unavailable");
+  assert.equal((await f.manager.read("chat", row.id)).status, "completed");
+  assert.equal(f.completions[0].result.output, "Checks passed; screenshot unavailable");
+});
+test("reconciliation releases the advisor queue before a delivered result starts its parent", async (t) => {
+  let manager;
+  const f = await fixture(t, { completed: async () => manager.stopExecution("chat") });
+  manager = f.manager;
+  await f.store.update("chat", () => [
+    { id: "advisor:recovered", chatId: "chat", status: "completed", queuedPrompts: [], transcript: [], completions: [{ id: "result", delivery: "pending" }] },
+  ]);
+  await Promise.race([f.manager.reconcile("chat"), new Promise((_, reject) => setTimeout(() => reject(new Error("Reconciliation deadlocked")), 1000))]);
+});
+test("only one execution advisor runs at once and unexpected human requests are settled", async (t) => {
+  const f = await fixture(t);
+  f.context.settings = { permissionMode: "full" };
+  await f.manager.create("chat", { ...input, mode: "execution" });
+  await running(f);
+  await assert.rejects(f.manager.create("chat", { ...input, mode: "execution" }), /already active/);
+  const answers = [];
+  f.launched[0].respondToPermission = (...args) => answers.push(args);
+  f.launched[0].answerQuestion = (...args) => answers.push(args);
+  f.launched[0].options.emit({ type: "permission-request", requestId: "permission" });
+  f.launched[0].options.emit({ type: "question-request", requestId: "question" });
+  await waitUntil(() => answers.length === 2);
+  assert.deepEqual(answers, [
+    ["permission", "deny"],
+    ["question", null],
+  ]);
+});
 test("concurrent admission allows two active advisors, ownership blocks other Chats", async (t) => {
   const f = await fixture(t);
   const results = await Promise.allSettled([1, 2, 3].map(() => f.manager.create("chat", input)));
@@ -108,6 +250,21 @@ test("changed scope rejects further work", async (t) => {
   await finish(f);
   f.context.scopeIdentity = "scope-v2";
   await assert.rejects(f.manager.followup("chat", row.id, "more"), /scope|worktree/i);
+});
+test("a scope change cancels queued advisor follow-ups and releases their slot", async (t) => {
+  const f = await fixture(t);
+  const row = await f.manager.create("chat", input);
+  await running(f);
+  await f.manager.followup("chat", row.id, "Review again");
+  f.context.scopeIdentity = "scope-v2";
+  await finish(f);
+  await waitUntil(() => f.launched[0].closed === 1);
+  const stopped = await f.manager.read("chat", row.id);
+  assert.deepEqual(stopped.queuedPrompts, []);
+  assert.equal(stopped.status, "failed");
+  assert.match(stopped.transcript.at(-1).text, /scope changed/i);
+  await f.manager.create("chat", input);
+  await f.manager.create("chat", input);
 });
 test("Stop during startup closes the late process and ignores its events", async (t) => {
   let release;
@@ -208,6 +365,27 @@ test("Retry keeps the advisor ID, uses the pinned Account and starts a new turn"
   await running(f, 2);
   assert.equal(retried.id, row.id);
   assert.equal((await f.manager.read("chat", row.id)).turnNumber, 2);
+});
+test("the advisor's prompt is the question alone, and Retry after a follow-up asks the original question again", async (t) => {
+  const f = await fixture(t);
+  const row = await f.manager.create("chat", input);
+  await running(f);
+  // The analysis-only rules live in the advisor's system prompt (events.cjs advisorInstructions).
+  assert.equal(f.launched[0].turns[0].prompt, "Assess the code");
+  await finish(f);
+  await f.manager.followup("chat", row.id, "Check the tests too");
+  await waitUntil(() => f.launched[0].turns.length === 2);
+  await f.manager.stop("chat", row.id);
+  await f.manager.retry("chat", row.id);
+  await running(f, 2);
+  assert.equal(
+    f.launched[1].turns[0].prompt,
+    "Assess the code\n\nPrevious saved output:\nRecommendation\n\nFollow-up that was interrupted:\nCheck the tests too",
+  );
+  await f.manager.stop("chat", row.id);
+  await f.manager.retry("chat", row.id);
+  await running(f, 3);
+  assert.equal(f.launched[2].turns[0].prompt, f.launched[1].turns[0].prompt, "a second Retry doesn't nest the first");
 });
 test("Stop fences an admission still resolving the provider", async (t) => {
   let release;

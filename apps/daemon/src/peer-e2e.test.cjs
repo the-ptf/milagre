@@ -5,6 +5,20 @@ const { startTestMac, connectDesktop, connectPhone, until } = require("./relay-t
 
 const PIECE = 512 * 1024;
 
+test("a first desktop pairs over the private route with owner approval", async (t) => {
+  const mac = await startTestMac(t);
+  const status = await mac.client.call("phone:status");
+  const option = status.pairingOptions.find((entry) => entry.id === "private");
+  assert.ok(option, "Settings offers a private pairing link");
+  const { parsePairing } = require("@milagre/shared/pairing-link");
+  const pairing = parsePairing(option.link, { allowLocalRelay: true });
+  assert.ok(pairing.relay.url.startsWith("ws://127.0.0.1:"));
+  const desktop = mac.dial(connectDesktop, { relayUrl: pairing.relay.url, name: "Direct Mac" });
+  assert.ok((await desktop.hello()).channel);
+  assert.equal((await desktop.call("daemon:status")).result.version, "9.8.7");
+  assert.equal((await mac.client.call("devices:list"))[0].route, "lan");
+});
+
 /** Waits for `promise`, failing the test instead of hanging the suite when it never settles. */
 function within(promise, label, ms = 10_000) {
   let timer;
@@ -230,4 +244,201 @@ test("a new computer waits for Allow, which only this Mac's window hears; Deny s
   await until(() => heard.at(-1)?.length === 0, "the request to go");
   await assert.rejects(mac.client.call("devices:allow", [lateKey]), /no longer waiting/);
   assert.equal((await mac.client.call("devices:list")).length, 1);
+});
+
+test("a paired desktop reads and manages this Mac's Routines, and hears them change", async (t) => {
+  const mac = await startTestMac(t);
+  const desktop = mac.dial(connectDesktop);
+  assert.ok((await desktop.hello()).channel);
+  const status = (await desktop.call("daemon:status")).result;
+  for (const method of ["routines:list", "routines:create", "routines:update", "routines:delete", "routines:hook"])
+    assert.ok(status.methods.includes(method), method);
+  assert.equal((await desktop.call("routines:list")).error, undefined);
+  // A Routine made in this Mac's window reaches the desktop as routines:changed. An older desktop saving the old switch
+  // changes nothing: this Mac runs Routines.
+  await mac.client.call("project:open", [mac.project]);
+  await mac.client.call("routines:create", [
+    {
+      name: "Daily",
+      prompt: "Look",
+      trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+      target: { kind: "new-chat", projectPath: mac.project, workspace: "project" },
+    },
+  ]);
+  await within(
+    desktop.event("routines:changed", () => true),
+    "routines:changed",
+  );
+  assert.deepEqual((await desktop.call("routines:enabled:save", [false])).result, { enabled: true });
+  assert.deepEqual(await mac.client.call("routines:enabled:read"), { enabled: true });
+  assert.equal(desktop.error, null);
+});
+
+test("a paired desktop receives live usage and assigns Project accounts while sign-in management stays local", async (t) => {
+  const unavailable = (provider) => async () => ({ provider, status: "unavailable", windows: [] });
+  const mac = await startTestMac(t, {
+    runtime: {
+      // A command makes Claude visible without reading any real provider credentials. Its auth check fails safely.
+      agentCli: async (provider) => (provider === "claude" ? { command: process.execPath } : { problem: "Provider CLI unavailable in this fixture" }),
+      usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") },
+    },
+  });
+  const desktop = mac.dial(connectDesktop, { name: "Usage viewer" });
+  await desktop.hello();
+  await mac.client.call("project:open", [mac.project]);
+  // A first usage read is slow under a full suite's load: 15 s here, the kit's 5 s everywhere else.
+  const changed = desktop.event("usage:changed", (payload) => payload.scopeKey === mac.project, 15_000);
+  const fresh = await desktop.call("usage:read", [mac.project], 15_000);
+  assert.equal(fresh.error, undefined);
+  assert.ok(fresh.result.accountKey);
+  await within(changed, "remote usage signal", 15_000);
+  const cached = await desktop.call("usage:cached", [mac.project]);
+  assert.equal(cached.result.accountKey, fresh.result.accountKey);
+  const accountChanged = desktop.event("accounts:changed", () => true);
+  const assigned = await desktop.call("accounts:assign", [mac.project, "claude", null]);
+  assert.equal(assigned.error, undefined);
+  assert.equal(assigned.result.scopeKey, mac.project);
+  assert.equal(assigned.result.providers.find((group) => group.provider === "claude").accountId, null);
+  await within(accountChanged, "remote account assignment signal");
+  const missing = await desktop.call("accounts:assign", [mac.project, "claude", "missing-account"]);
+  assert.ok(missing.error, "The owner rejects an unknown Account");
+  assert.notEqual(missing.error.code, "NOT_AVAILABLE_REMOTELY", "Account validation runs on the owner");
+  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "chat:limit-switch"])
+    assert.equal((await desktop.call(method, [mac.project, "claude", "default"])).error?.code, "NOT_AVAILABLE_REMOTELY", method);
+});
+
+test("a paired desktop opens TCP streams from the computer, over the relay and the LAN, and reaches its localhost", async (t) => {
+  const http = require("node:http");
+  const { boxKeyPair } = require("@milagre/shared/relay-crypto");
+  const { connectPeer } = require("./peer-client.cjs");
+  const { random, listen } = require("./relay-test-kit.cjs");
+  // A dev server on the computer's loopback only, as `npm run dev` binds it.
+  const page = "<!doctype html><title>Checkout</title>".padEnd(300_000, "x");
+  const server = http.createServer((_request, response) => response.end(page));
+  const port = await listen(server);
+  t.after(() => server.close());
+  const mac = await startTestMac(t);
+  const key = boxKeyPair(random);
+  const peer = (url) =>
+    connectPeer({ url, hostId: mac.identity.hostId, hostKey: b64url(mac.identity.box.publicKey), token: mac.token, identity: key, name: "studio" });
+  const fetchThrough = async (client) => {
+    const stream = await client.openStream("127.0.0.1", port);
+    const chunks = [];
+    const done = new Promise((resolve, reject) => {
+      stream.on("data", (chunk) => chunks.push(chunk));
+      stream.on("end", resolve);
+      stream.on("error", reject);
+    });
+    stream.end("GET / HTTP/1.0\r\nHost: localhost\r\n\r\n");
+    await within(done, "the page through the stream");
+    return Buffer.concat(chunks).toString();
+  };
+  const relayed = await within(peer(mac.relay.url), "the desktop over the relay");
+  t.after(() => relayed.close());
+  assert.ok(relayed.status.capabilities.includes("peer-tcp-v1"));
+  const overRelay = await fetchThrough(relayed);
+  assert.match(overRelay, /^HTTP\/1\.1 200/);
+  assert.ok(overRelay.endsWith(page), "the whole page, in order");
+  await assert.rejects(relayed.openStream("127.0.0.1", 1), { code: "refused" });
+  // Daemon calls keep working beside the streams.
+  assert.equal((await relayed.call("daemon:status")).version, "9.8.7");
+
+  const routes = await relayed.call("peer:routes");
+  const lan = await within(peer(routes.lan[0]), "the desktop on the LAN");
+  t.after(() => lan.close());
+  assert.ok((await fetchThrough(lan)).endsWith(page));
+});
+
+test("a desktop's Browser page for this Mac's Chat is reached back over its channel, by the agent and the phone alike", async (t) => {
+  const net = require("node:net");
+  const { boxKeyPair } = require("@milagre/shared/relay-crypto");
+  const { connectPeer } = require("./peer-client.cjs");
+  const { random } = require("./relay-test-kit.cjs");
+  const { createCdpProxy } = require("@milagre/core/cdp-proxy");
+  // The desktop's real DevTools proxy for its panel pages (cdp-proxy.cjs), on its own loopback, over a stand-in page.
+  const pageId = "B".repeat(32);
+  const asked = [];
+  const proxy = createCdpProxy({
+    product: "test",
+    pages: () => [{ id: pageId, title: "Checkout", url: "http://localhost:5173/" }],
+    session: () => ({
+      send: async (method) => {
+        asked.push(method);
+        return method === "Page.getNavigationHistory" ? { currentIndex: 0, entries: [{ id: 1, url: "http://localhost:5173/", title: "Checkout" }] } : {};
+      },
+      onEvent: () => () => {},
+      release() {},
+    }),
+  });
+  const { port: endpoint, token } = await proxy.start();
+  t.after(() => proxy.close());
+  const prefix = `/${token}`;
+  const mac = await startTestMac(t);
+  const elsewhere = net.createServer();
+  await new Promise((resolve) => elsewhere.listen(0, "127.0.0.1", resolve));
+  t.after(() => elsewhere.close());
+  const desktop = await within(
+    connectPeer({
+      url: mac.relay.url,
+      hostId: mac.identity.hostId,
+      hostKey: b64url(mac.identity.box.publicKey),
+      token: mac.token,
+      identity: boxKeyPair(random),
+      name: "studio",
+      // As computer-service.cjs: only the panel pages' proxy.
+      acceptStream: (target, port) => {
+        if (target !== "127.0.0.1" || port !== endpoint) throw Object.assign(new Error("no"), { code: "ECONNREFUSED" });
+        return net.connect({ host: target, port });
+      },
+    }),
+    "the desktop",
+  );
+  t.after(() => desktop.close());
+  assert.ok(desktop.status.capabilities.includes("peer-panel-pages-v1"));
+  const chatId = `${mac.project}#7`;
+  await desktop.call("browser:panel-pages", [
+    { via: "peer", port: endpoint, prefix, pages: [{ id: pageId, chatId, title: "Checkout", url: "http://localhost:5173/" }] },
+  ]);
+  const listed = await mac.client.call("browser:list", [{ chatId }]);
+  const target = listed.targets.find((item) => item.source === "panel");
+  assert.equal(target?.url, "http://localhost:5173/");
+  // The Mac's own viewer (as the phone's) opens it: the DevTools session goes back over the desktop's channel.
+  const viewer = await within(mac.client.call("browser:open", [{ chatId, targetId: target.id }]), "the viewer");
+  assert.ok(viewer.viewerId);
+  await until(async () => asked.includes("Page.startScreencast"), "the screencast starts on the desktop's page");
+  await mac.client.call("browser:close", [{ viewerId: viewer.viewerId }]);
+  // The desktop going takes its pages away.
+  desktop.close();
+  await until(async () => !(await mac.client.call("browser:list", [{ chatId }])).targets.some((item) => item.source === "panel"), "the page is gone");
+});
+
+test("a paired computer's focus stays on this Mac: only this Mac's own window focus reaches the computers it drives", async (t) => {
+  // Two computers paired with each other used to pass each focus back and forth for ever (hundreds a second), until the
+  // 32-call cap closed their channels and every call in flight failed with "Daemon connection closed".
+  const service = require("./computer-service.cjs");
+  const real = service.createComputerService;
+  const told = [];
+  service.createComputerService = (options) => {
+    const computers = real(options);
+    const setFocused = computers.setFocused;
+    computers.setFocused = (value) => {
+      told.push(value);
+      return setFocused(value);
+    };
+    return computers;
+  };
+  t.after(() => {
+    service.createComputerService = real;
+  });
+  const mac = await startTestMac(t);
+  const desktop = mac.dial(connectDesktop, { name: "studio" });
+  assert.ok((await desktop.hello()).channel);
+  await desktop.call("daemon:focus", [{ focused: true }]);
+  assert.equal(told.at(-1) ?? false, false, "a paired computer looking at this Mac is not this Mac's window");
+  await mac.client.call("daemon:focus", [{ focused: true }]);
+  assert.equal(told.at(-1), true, "this Mac's own window is");
+  await desktop.call("daemon:focus", [{ focused: false }]);
+  assert.equal(told.at(-1), true, "nor does the paired computer's blur blur this Mac's window");
+  await mac.client.call("daemon:focus", [{ focused: false }]);
+  assert.equal(told.at(-1), false);
 });

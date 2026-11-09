@@ -1,0 +1,31 @@
+{
+  "font": {
+    "chat-display-choices.tsx": 1,
+    "diagram.tsx": 1,
+    "ultracode-fatality.tsx": 1
+  },
+  "radius": {
+    "viewer-chrome.tsx": 1
+  },
+  "computedFont": {
+    "prompt-chip.tsx": 1
+  },
+  "swiftFont": {},
+  "icon": {
+    "app/add-computer.tsx": 1
+  },
+  "duration": {
+    "inbox-motion.tsx": 2,
+    "loading-logo.tsx": 2,
+    "running-logo.tsx": 5,
+    "startup-splash.tsx": 2,
+    "ultracode-fatality.tsx": 5,
+    "ultracode-glow.tsx": 1,
+    "voice-mic-button.tsx": 1
+  },
+  "uppercase": {},
+  "tracking": {
+    "ultracode-fatality.tsx": 1
+  },
+  "bold": {}
+}

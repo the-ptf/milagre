@@ -11,8 +11,27 @@ export type TurnPreferences = {
   /** The Chat's provider when `provider` was picked as a switch; the pick only holds while the Chat is still on it. */
   pickedOn?: ModelProvider;
   permissionMode: PermissionMode;
+  /** A mode picked here, and the Chat's saved mode when it was picked: it shows until the Mac's copy moves on. */
+  permissionPick?: { mode: PermissionMode; over?: PermissionMode };
 };
 export const defaultPreferences: TurnPreferences = { provider: "codex", model: "", effort: "high", fastMode: false, permissionMode: "ask" };
+
+/**
+ * A Chat's preferences. Its permission mode is the one the Mac saved on the Chat (the last pick or message, from this
+ * phone, desktop or another Chat), so every device shows the same; a pick made here shows until that copy catches up.
+ * A Chat from before the Mac saved one shows the mode its turn runs in, then this phone's choice.
+ */
+export function chatPreferences(
+  saved: TurnPreferences | undefined,
+  defaults: TurnPreferences,
+  chatMode?: PermissionMode,
+  runMode?: PermissionMode,
+): TurnPreferences {
+  const base = saved || defaults;
+  const pick = saved?.permissionPick;
+  const permissionMode = pick && pick.over === chatMode ? pick.mode : (chatMode ?? runMode ?? base.permissionMode);
+  return permissionMode === base.permissionMode ? base : { ...base, permissionMode };
+}
 
 export function modelsFor(provider: ModelProvider, reported?: AgentModels | null): MobileModel[] {
   const offered = reported?.[provider];
@@ -22,9 +41,16 @@ export function modelsFor(provider: ModelProvider, reported?: AgentModels | null
 }
 export function selectedModel(provider: ModelProvider, wanted: string, reported?: AgentModels | null): MobileModel {
   const models = modelsFor(provider, reported);
-  if (!wanted) return models.find((model) => model.recommended) || models[0];
+  if (!wanted) {
+    const preferred = models.find((model) => model.recommended) ?? models[0];
+    if (preferred) return preferred;
+  }
   const known = models.find((model) => model.id === wanted);
   if (known) return known;
+  // Antigravity's and Kiro's availability belongs to the signed-in Account. A stale choice follows that Account's
+  // list, as desktop does, instead of becoming an unsupported extra row in the picker.
+  const available = models.find((model) => model.recommended) ?? models[0];
+  if ((provider === "antigravity" || provider === "kiro") && available) return available;
   const saved = { provider, id: wanted, name: wanted, description: "Previously used in this Chat" };
   return { ...saved, ...capabilityFor(saved, null) };
 }

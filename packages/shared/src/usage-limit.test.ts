@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { limitChoices, limitHeadline, resetTime, switchedText, usageLimitOf } from "./usage-limit.mjs";
+import { accountSwitchText, isAccountSwitch, limitChoices, limitHeadline, resetTime, switchedText, usageLimitOf } from "./usage-limit.mjs";
 import type { ProjectAccountsSnapshot, UsageLimitContext } from "./model.ts";
 
 const NOW = new Date(2026, 9, 13, 12, 0);
@@ -60,4 +60,11 @@ test("the card offers the provider's other accounts, and says why one can't be p
 test("after a switch the card says whether the Chat continues by itself", () => {
   assert.equal(switchedText({ continued: true, label: "me@work.com" }), "Switched to me@work.com. Continuing…");
   assert.equal(switchedText({ continued: false, label: "me@work.com" }), "Switched to me@work.com. Send your message again to continue.");
+});
+
+test("the message that continues a Chat on another account is a line", () => {
+  const context = { kind: "account-switch", provider: "claude", label: "me@work.com" } as const;
+  assert.equal(isAccountSwitch({ id: 3, session_id: 1, role: "user", body: "", context }), true);
+  assert.equal(isAccountSwitch({ id: 3, session_id: 1, role: "user", body: "", context: null }), false);
+  assert.equal(accountSwitchText(context), "Switched to me@work.com after the usage limit");
 });

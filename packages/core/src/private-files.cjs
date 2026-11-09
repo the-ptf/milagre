@@ -45,7 +45,10 @@ foreach ($sid in @($me, $system)) {
  $r = [Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inherit, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
  [void]$a.AddAccessRule($r)
 }
-Set-Acl -LiteralPath $p -AclObject $a
+# Persist only the security sections changed above. Set-Acl also attempts to
+# write audit information on an already-protected path, requiring
+# SeSecurityPrivilege that a normal desktop process does not have.
+$i.SetAccessControl($a)
 $a = Get-Acl -LiteralPath $p
 `
     : ""
@@ -60,25 +63,74 @@ foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdent
 }
 if (-not $ownAccess) { throw 'Private path must allow the current Windows user to read it' }
 `;
-  execFileSyncImpl(powershell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
-    env: powershellEnvironment(),
-    encoding: "utf8",
-    timeout: 10000,
-    windowsHide: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  try {
+    execFileSyncImpl(powershell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
+      env: powershellEnvironment(),
+      encoding: "utf8",
+      // Windows PowerShell 5.1 can take over 10 s to start on a busy machine (CI runners hit it); a slow start isn't a
+      // permissions failure.
+      timeout: 30000,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    throw aclError(error, file);
+  }
 }
+const XML_ENTITIES = { "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&amp;": "&" };
+// PowerShell writes a failed check to stderr as CLIXML, and Node's message holds the whole encoded command: the error
+// says the script's own reason and the path instead. Its code (ENOENT, ETIMEDOUT) stays for callers that read it.
+function aclError(error, file) {
+  const stderr = String(error?.stderr ?? "");
+  const clixml = /<S S="Error">([\s\S]*?)<\/S>/.exec(stderr)?.[1];
+  const text =
+    clixml === undefined
+      ? stderr
+      : clixml
+          .replace(/_x([0-9a-f]{4})_/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+          .replace(/&(?:lt|gt|quot|apos|amp);/g, (entity) => XML_ENTITIES[entity]);
+  const firstLine = (value) =>
+    String(value)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+  const message = String(error?.message ?? error);
+  const reason =
+    firstLine(text) ??
+    (message.startsWith("Command failed:")
+      ? `Windows PowerShell could not check its permissions${error?.code ? ` (${error.code})` : ""}`
+      : firstLine(message)) ??
+    "Windows PowerShell could not check its permissions";
+  return Object.assign(new Error(`${reason}: ${file}`, { cause: error }), error?.code ? { code: error.code } : {});
+}
+// Windows folders this process has protected, by path, with the file ID each had then. Each check starts PowerShell
+// (250 ms or more, blocking), and a daemon start asked for the same folders up to five times. A folder deleted and made
+// again gets a new ID, so it is protected again; a junction in its place fails the lstat check first.
+const protectedFolders = new Map();
+function folderId(directory) {
+  const stat = fs.lstatSync(directory, { bigint: true });
+  return stat.isDirectory() && stat.ino ? `${stat.dev}:${stat.ino}` : null;
+}
+const protectedHere = (directory) => {
+  const id = folderId(directory);
+  return id !== null && protectedFolders.get(path.resolve(directory)) === id;
+};
 function assertPrivate(file, { platform = process.platform } = {}) {
   const stat = fs.lstatSync(file);
   if (stat.isSymbolicLink()) throw new Error(`Private path must not be a symlink: ${file}`);
-  if (platform === "win32") windowsAcl(file);
-  else if (stat.uid !== /** @type {() => number} */ (process.getuid)() || (stat.mode & 0o777) !== (stat.isDirectory() ? 0o700 : 0o600))
+  if (platform === "win32") {
+    if (!protectedHere(file)) windowsAcl(file);
+  } else if (stat.uid !== /** @type {() => number} */ (process.getuid)() || (stat.mode & 0o777) !== (stat.isDirectory() ? 0o700 : 0o600))
     throw new Error(`Private path must be owned by you with permissions ${stat.isDirectory() ? "0700" : "0600"}: ${file}`);
 }
 function preparePrivateDirectory(directory) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (!fs.lstatSync(directory).isDirectory()) throw new Error(`Not a private directory: ${directory}`);
-  if (process.platform === "win32") windowsAcl(directory, { mode: "protect" });
-  else assertPrivate(directory);
+  if (process.platform !== "win32") return assertPrivate(directory);
+  if (protectedHere(directory)) return;
+  // Read before protecting: a folder swapped in meanwhile has another ID, so the next call protects it again.
+  const id = folderId(directory);
+  windowsAcl(directory, { mode: "protect" });
+  if (id !== null) protectedFolders.set(path.resolve(directory), id);
 }
 module.exports = { powershell, powershellEnvironment, windowsAcl, assertPrivate, preparePrivateDirectory };

@@ -1,5 +1,6 @@
 import type { CoordinatorState, OpenLink } from "@milagre/shared/model";
-import { isLinkScopeKey, scopeKey, worktreeCountLabel } from "@milagre/shared/chat-scopes";
+import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
+import { linkChatWorktreesLabel } from "@milagre/shared/worktree-link";
 import type { OpenProject, Runs, Snapshot } from "./client.ts";
 
 /** A view adapter for the existing Chat renderer. Its Worktree IDs never go to host Git or Worktree commands. */
@@ -8,6 +9,7 @@ export function phoneSnapshot(value: Snapshot | { link: OpenLink; runs: Runs }):
   const { link, runs } = value;
   const state: CoordinatorState = {
     next_id: link.state.next_id,
+    ...(link.state.persistence ? { persistence: link.state.persistence } : {}),
     projects: {},
     tasks: {},
     messages: link.state.messages,
@@ -20,14 +22,13 @@ export function phoneSnapshot(value: Snapshot | { link: OpenLink; runs: Runs }):
           id: chat.id,
           project_id: 0,
           path: chat.workspacePath,
-          name: worktreeCountLabel(chat.worktrees.length),
+          name: linkChatWorktreesLabel(chat.worktrees.length),
           sharedChat: { linkId: link.link.id, sessionId: chat.id },
         },
       ]),
     ),
   };
-  // The agent makes a Worktree only in a Project it changes.
-  state.worktrees[0] = { id: 0, project_id: 0, path: "", name: "Worktrees as needed" };
+  state.worktrees[0] = { id: 0, project_id: 0, path: "", name: `${link.projects.length} Projects` };
   return { project: { path: scopeKey({ kind: "link", linkId: link.link.id }), name: link.link.name, state, link }, runs };
 }
 

@@ -1,6 +1,11 @@
-const { isTurnEnd: isTerminal, subagentActive } = require("@milagre/shared/agent-runs");
+const { isTurnEnd: isTerminal } = require("@milagre/shared/agent-runs");
 const { computerOfKey } = require("@milagre/shared/chat-scopes");
-const { completionNotice, notificationPreview, notificationText } = require("@milagre/shared/attention");
+const { completionNotice, notificationText } = require("@milagre/shared/attention");
+const { createActivityTracker } = require("@milagre/shared/chat-activity");
+const { parseNotificationChime } = require("@milagre/shared/notification-chimes");
+
+const { notificationAllowed, parseNotificationSchedule } = require("@milagre/shared/notification-schedule");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const MAX_TITLE = 120;
 
@@ -14,13 +19,32 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // System notifications for chats that wait on the user: an approval or a question. Every agent event
 // is observed, so the notifier knows which requests are still open, and notify names the chat. One shows only while no Milagre window has focus, once per
 // request, and closes when its request is answered or its turn ends. Clicking it opens the chat.
-// A turn's end is announced too (notifyCompletion), unless a subagent the chat runs in the background is still at work:
-// its result wakes the chat with a turn of its own, whose end is the one announced. A completion held that way shows
-// once the last of them ends with no turn to take its result.
+// The end of a chat's work is announced too (notifyCompletion): the chat leaving working or background for idle or
+// failed, as the shared activity tracker (chat-activity.mjs) tells it. A turn that ends while the chat's background
+// subagents work is not that end: the window's call is kept, and announced once the work ends.
+// A chat's notification plays the chime picked in Settings > Notifications: the system notice goes silent and playChime
+// plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
-  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void }} options */
-  constructor({ createNotification, isAppFocused, openChat, openPhoneSettings = () => {}, setBadge = () => {} }) {
+  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void; isHidden?: (chatId: string) => boolean; now?: () => number }} options */
+  constructor({
+    createNotification,
+    isAppFocused,
+    isHidden = () => false,
+    openChat,
+    openPhoneSettings = () => {},
+    setBadge = () => {},
+    canPlayChime = () => false,
+    playChime = () => {},
+    now = Date.now,
+  }) {
     this.createNotification = createNotification;
+    // A Chat this Mac's sidebar leaves out (its Project or its computer unchecked in Filters) stays quiet here.
+    this.isHidden = isHidden;
+    this.now = now;
+    this.schedule = null;
+    this.canPlayChime = canPlayChime;
+    this.playChime = playChime;
+    this.chime = "system";
     this.isAppFocused = isAppFocused;
     this.openChat = openChat;
     this.openPhoneSettings = openPhoneSettings;
@@ -31,7 +55,8 @@ class AttentionNotifier {
     this.computerWaiting = null;
     // Keys of the computers waiting for Allow that were already announced.
     this.computersAnnounced = new Set();
-    this.previews = new Map();
+    // What each chat is doing, from its events, and the ends of work no window has asked to announce yet.
+    this.activity = createActivityTracker();
     this.completed = new Map();
     this.completionNotifications = new Map();
     this.unread = new Set();
@@ -41,11 +66,8 @@ class AttentionNotifier {
     this.showDockBadge = true;
     // Requests the agents wait on, by key, with the notification shown for each (or null).
     this.open = new Map();
-    // Chats whose turn runs; per chat, the ids of its background subagents still at work; and the completions held
-    // while they do ({ title, result }).
-    this.running = new Set();
-    this.background = new Map();
-    this.held = new Map();
+    // Chats a window asked to announce whose work goes on in the background, with the title to announce it by.
+    this.asked = new Map();
   }
 
   /** @param {{ projectPath?: string; activeChatId?: string | null; unread?: string[]; notifyOnCompletion?: boolean; showDockBadge?: boolean }} [state] */
@@ -67,43 +89,49 @@ class AttentionNotifier {
     this.updateBadge();
   }
 
+  /** @param {unknown} chime */
+  setChime(chime) {
+    this.chime = parseNotificationChime(chime);
+  }
+
+  setSchedule(value) {
+    this.schedule = parseNotificationSchedule(value);
+  }
+
+  /** A chat's notification, silent when the window plays the chime instead; show() it, then call the returned `played`. */
+  chatNotification(notice) {
+    const chime = this.chime !== "system" && this.canPlayChime() ? this.chime : null;
+    const notification = this.createNotification(chime ? { ...notice, silent: true } : notice);
+    return { notification, played: () => chime && this.playChime(chime) };
+  }
+
   updateBadge() {
-    const chats = new Set(this.unread);
-    for (const key of this.open.keys()) chats.add(key.slice(0, key.lastIndexOf("\n")));
+    const chats = new Set([...this.unread].filter((chatId) => !this.isHidden(chatId)));
+    for (const key of this.open.keys()) {
+      const chatId = key.slice(0, key.lastIndexOf("\n"));
+      if (!this.isHidden(chatId)) chats.add(chatId);
+    }
     this.setBadge(this.showDockBadge && chats.size ? String(chats.size) : "");
   }
 
   observe(chatId, event) {
-    if (event.type === "turn-started") {
-      this.previews.delete(chatId);
+    const { completion } = this.activity.observe(chatId, event);
+    // A new turn announces its own end; so does the turn a background subagent's result wakes.
+    if (event.type === "turn-started" || event.type === "turn-cancelled") {
       this.completed.delete(chatId);
-      // The turn that takes a background subagent's result announces its own end.
-      this.held.delete(chatId);
-      this.running.add(chatId);
-    } else if (event.type === "text-delta") {
-      this.previews.set(chatId, notificationPreview(this.previews.get(chatId), event.text, event.startsMessage));
-    } else if (event.type === "message-sent" || event.type === "answers-sent") {
-      this.previews.delete(chatId);
-    } else if (event.type === "subagent-update" && event.agent?.background) {
-      const ids = this.background.get(chatId) ?? new Set();
-      if (subagentActive(event.agent)) ids.add(event.agent.id);
-      else ids.delete(event.agent.id);
-      if (ids.size) this.background.set(chatId, ids);
-      else {
-        this.background.delete(chatId);
-        if (!this.running.has(chatId)) this.release(chatId);
-      }
+      this.asked.delete(chatId);
     }
-    if (isTerminal(event)) {
-      this.running.delete(chatId);
-      if (event.type !== "turn-cancelled")
-        this.completed.set(chatId, {
-          failed: event.type === "turn-failed",
-          body: event.type === "turn-failed" ? event.message : this.previews.get(chatId) || "Turn completed.",
-        });
-      else this.completed.delete(chatId);
-      this.previews.delete(chatId);
-      if (this.completed.size > 100) this.completed.delete(this.completed.keys().next().value);
+    if (completion) {
+      const result = { failed: completion.failed, body: completion.body };
+      const asked = this.asked.has(chatId);
+      const title = this.asked.get(chatId);
+      this.asked.delete(chatId);
+      if (asked) {
+        if (this.notifyOnCompletion) this.showCompletion(chatId, title, result);
+      } else {
+        this.completed.set(chatId, result);
+        if (this.completed.size > 100) this.completed.delete(this.completed.keys().next().value);
+      }
     }
     if (event.type === "permission-request" || event.type === "question-request") {
       const key = keyOf(chatId, event.requestId);
@@ -111,7 +139,7 @@ class AttentionNotifier {
     } else if (event.type === "permission-resolved" || event.type === "question-resolved") {
       this.close(keyOf(chatId, event.requestId));
     } else if (isTerminal(event)) {
-      for (const key of [...this.open.keys()]) if (key.startsWith(`${chatId}\n`)) this.close(key);
+      for (const key of Array.from(this.open.keys())) if (key.startsWith(`${chatId}\n`)) this.close(key);
     }
     this.updateBadge();
   }
@@ -120,8 +148,9 @@ class AttentionNotifier {
   /** @param {{ chatId?: string; requestId?: string; title?: string; body?: string }} [notice] */
   notify({ chatId, requestId, title, body } = {}) {
     const key = keyOf(String(chatId), String(requestId));
-    if (!this.open.has(key) || this.open.get(key) || this.isAppFocused()) return false;
-    const notification = this.createNotification({
+    if (!this.open.has(key) || this.open.get(key) || this.isHidden(String(chatId)) || this.isAppFocused() || !notificationAllowed(this.schedule, this.now()))
+      return false;
+    const { notification, played } = this.chatNotification({
       title: capped(title, MAX_TITLE) || "Milagre",
       subtitle: "",
       body: notificationText(body, { markdown: false }),
@@ -129,6 +158,7 @@ class AttentionNotifier {
     notification.on("click", () => this.openChat(String(chatId)));
     this.open.set(key, notification);
     notification.show();
+    played();
     return true;
   }
 
@@ -137,27 +167,17 @@ class AttentionNotifier {
     if (typeof chatId !== "string") return false;
     const result = this.completed.get(chatId);
     this.completed.delete(chatId);
+    // The turn ended, but the chat's background subagents still work: its work ends when they do (see observe).
+    if (!result && this.activity.activity(chatId) === "background") this.asked.set(chatId, title);
     if (!result || !this.notifyOnCompletion) return false;
-    // A turn that ends while the chat's background subagents still work isn't the end of the work.
-    if (!result.failed && this.background.get(chatId)?.size) {
-      this.held.set(chatId, { title, result });
-      return false;
-    }
     return this.showCompletion(chatId, title, result);
   }
 
-  /** Shows the completion held for a chat, now that its last background subagent ended with no turn to take the result. */
-  release(chatId) {
-    const held = this.held.get(chatId);
-    if (!held) return false;
-    this.held.delete(chatId);
-    return this.notifyOnCompletion && this.showCompletion(chatId, held.title, held.result);
-  }
-
   showCompletion(chatId, title, result) {
+    if (this.isHidden(chatId) || !notificationAllowed(this.schedule, this.now())) return false;
     if (this.isAppFocused() && this.activeChatId === chatId) return false;
     const notice = completionNotice(title, result);
-    const notification = this.createNotification({
+    const { notification, played } = this.chatNotification({
       title: capped(notice.title, MAX_TITLE),
       subtitle: "",
       body: notice.body,
@@ -166,6 +186,7 @@ class AttentionNotifier {
     this.completionNotifications.set(chatId, notification);
     notification.on("click", () => this.openChat(chatId));
     notification.show();
+    played();
     return true;
   }
 
@@ -177,7 +198,7 @@ class AttentionNotifier {
     return this.showPaired({
       title: "New computer paired",
       subtitle: "",
-      body: "Another Mac can now drive your agents on this Mac. If it wasn't you, remove it in Settings → Devices.",
+      body: `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`,
     });
   }
 
@@ -196,7 +217,9 @@ class AttentionNotifier {
     return this.showPaired({
       title: list.length === 1 ? "New phone paired" : `${list.length} new phones paired`,
       subtitle: "",
-      body: away ? `${who} paired with this Mac while Milagre was closed. ${removeIt}` : `${who} can now reach your agents on this Mac. ${removeIt}`,
+      body: away
+        ? `${who} paired with ${thisComputer} while Milagre was closed. ${removeIt}`
+        : `${who} can now reach your agents on ${thisComputer}. ${removeIt}`,
     });
   }
 
@@ -228,7 +251,11 @@ class AttentionNotifier {
     for (const key of keys) this.computersAnnounced.add(key);
     if (!fresh || this.isAppFocused()) return false;
     const name = capped(fresh.name, MAX_TITLE) || "A computer";
-    const notification = this.createNotification({ title: `${name} wants to drive this Mac's chats`, subtitle: "", body: "Open Milagre to allow or deny it." });
+    const notification = this.createNotification({
+      title: `${name} wants to drive ${thisComputer}'s chats`,
+      subtitle: "",
+      body: "Open Milagre to allow or deny it.",
+    });
     this.computerWaiting?.close();
     this.computerWaiting = notification;
     notification.on("click", () => this.openPhoneSettings());
@@ -242,32 +269,46 @@ class AttentionNotifier {
     notification?.close();
   }
 
+  /** Projects or computers were hidden or shown in Filters: notices of what is now hidden close, and the badge follows. */
+  hiddenChanged() {
+    for (const [key, notification] of this.open) {
+      if (notification && this.isHidden(key.slice(0, key.lastIndexOf("\n")))) {
+        notification.close();
+        this.open.set(key, null);
+      }
+    }
+    for (const [chatId, notification] of Array.from(this.completionNotifications)) {
+      if (!this.isHidden(chatId)) continue;
+      notification.close();
+      this.completionNotifications.delete(chatId);
+    }
+    this.updateBadge();
+  }
+
   /** A computer was removed or switched off: what it waited on, and its unread chats, leave the badge. */
   forgetComputer(computerId) {
     const mine = (chatId) => computerOfKey(chatId) === computerId;
-    for (const key of [...this.open.keys()]) if (mine(key.slice(0, key.lastIndexOf("\n")))) this.close(key);
-    for (const chatId of [...this.unread]) if (mine(chatId)) this.unread.delete(chatId);
-    for (const [chatId, notification] of [...this.completionNotifications]) {
+    for (const key of Array.from(this.open.keys())) if (mine(key.slice(0, key.lastIndexOf("\n")))) this.close(key);
+    for (const chatId of this.unread) if (mine(chatId)) this.unread.delete(chatId);
+    for (const [chatId, notification] of Array.from(this.completionNotifications)) {
       if (!mine(chatId)) continue;
       notification.close();
       this.completionNotifications.delete(chatId);
     }
-    for (const map of [this.completed, this.previews, this.background, this.held]) for (const chatId of [...map.keys()]) if (mine(chatId)) map.delete(chatId);
-    for (const chatId of [...this.running]) if (mine(chatId)) this.running.delete(chatId);
+    for (const map of [this.completed, this.asked]) for (const chatId of map.keys()) if (mine(chatId)) map.delete(chatId);
+    this.activity.forget(mine);
     this.updateBadge();
   }
 
   closeAll() {
-    for (const key of [...this.open.keys()]) this.close(key);
+    for (const key of Array.from(this.open.keys())) this.close(key);
     for (const notification of this.completionNotifications.values()) notification.close();
     this.completionNotifications.clear();
     this.computerWaiting?.close();
     this.computerWaiting = null;
     this.completed.clear();
-    this.previews.clear();
-    this.background.clear();
-    this.held.clear();
-    this.running.clear();
+    this.asked.clear();
+    this.activity.forget();
     this.setBadge("");
   }
 }

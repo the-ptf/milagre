@@ -49,8 +49,9 @@ test("given tokens override derived ones", () => {
 test("ink levels step toward the page and stay readable", () => {
   const p = buildPalette(source, "dark");
   assert.ok(contrastRatio(p.ink, p.page) > contrastRatio(p.ink2, p.page));
-  assert.ok(contrastRatio(p.ink2, p.page) > contrastRatio(p.ink3, p.page));
-  assert.ok(contrastRatio(p.ink2, p.page) >= 4.5);
+  assert.ok(contrastRatio(p.ink2, p.page) >= contrastRatio(p.ink3, p.page));
+  assert.ok(contrastRatio(p.ink3, p.page) >= 4.5);
+  assert.ok(contrastRatio(p.ink4, p.page) < contrastRatio(p.ink3, p.page));
 });
 
 test("dark tints are translucent, light tints are solid", () => {

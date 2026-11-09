@@ -46,7 +46,7 @@ h1 em { display: block; margin-top: 8px; font-family: Serif, serif; font-weight:
 </style></head><body>
 <div class="brand"><img src="${icon}" alt="">Milagre</div>
 <h1>Your agents keep working. <em>Answer them<br>from anywhere.</em></h1>
-<p class="line">Claude Code, Codex and Antigravity run on your Mac. Approve and reply from your phone.</p>
+<p class="line">Claude Code, Codex, Antigravity and Kiro run on your Mac. Approve and reply from your phone.</p>
 <div class="mac"><img src="${desktop}" alt=""><div class="lights"><i></i><i></i><i></i></div></div>
 <div class="phone"><img src="${phone}" alt=""><div class="island"></div></div>
 </body></html>`;

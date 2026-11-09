@@ -9,16 +9,19 @@ export function MessageNavigation({
   top,
   bottom,
   keyboardOffset,
+  followKeyboard = true,
 }: {
   items: { index: number; label: string }[];
   onSelect: (index: number) => void;
   top: number;
   bottom: number;
   keyboardOffset: number;
+  /** False in an iPad split pane that doesn't hold the keyboard: it stays put while the other pane's composer rises. */
+  followKeyboard?: boolean;
 }) {
   const { colors } = useTheme();
   const { height, progress } = useReanimatedKeyboardAnimation();
-  const keyboardStyle = useAnimatedStyle(() => ({ bottom: bottom - height.value - keyboardOffset * progress.value }), [bottom, keyboardOffset]);
+  const keyboardStyle = useAnimatedStyle(() => ({ bottom: followKeyboard ? bottom - height.value - keyboardOffset * progress.value : bottom }));
   if (items.length < 2) return null;
   return (
     <Reanimated.View pointerEvents="box-none" style={[{ position: "absolute", left: 0, top, bottom, width: 24, justifyContent: "center" }, keyboardStyle]}>
@@ -27,6 +30,8 @@ export function MessageNavigation({
           key={item.index}
           accessibilityRole="button"
           accessibilityLabel={item.label}
+          // Horizontal only: a vertical slop would overlap the stacked ticks.
+          hitSlop={{ left: 10, right: 10 }}
           onPress={() => onSelect(item.index)}
           style={{ height: 24, flexShrink: 1, width: 24, alignItems: "center", justifyContent: "center" }}
         >

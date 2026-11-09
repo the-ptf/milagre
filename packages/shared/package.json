@@ -3,26 +3,54 @@
   "version": "0.1.0",
   "private": true,
   "files": [
+    "src/after-paint.ts",
+    "src/chat-window-cache.ts",
+    "src/display-clock.ts",
+    "src/chat-history.ts",
     "src/*.mjs",
+    "src/design-catalog-fonts/*",
     "src/*.d.mts",
+    "src/checkpoints.ts",
+    "src/use-checkpoints.ts",
     "src/model.ts",
     "src/git-diff.ts",
+    "src/pull-request-review.ts",
     "src/model-options.ts",
     "src/model-copy.ts",
+    "src/project-list.ts",
     "src/provider-logos.ts",
     "src/reply-parts.ts",
+    "src/desktop-steps.ts",
     "src/streaming-markdown.ts",
+    "src/streaming-blocks.ts",
+    "src/markdown-fence.ts",
+    "src/github-markdown.ts",
     "src/pr-blockers.ts",
     "src/diff-parse.ts",
     "src/diff-tree.ts",
     "src/diff-layout.ts",
     "src/usage.ts",
+    "src/use-account-usage.ts",
+    "src/token-usage.ts",
+    "src/new-chat-glance.ts",
+    "src/settings-search.ts",
     "src/main-sync.ts",
+    "src/auto-update.ts",
+    "src/browser-sign-ins.ts",
+    "src/app-update.ts",
+    "src/computer-resources.ts",
+    "src/storage.ts",
     "src/mcp.ts",
     "src/local-mcp.ts",
     "src/use-local-mcp.ts",
+    "src/use-provider-updates.ts",
     "src/linear.ts",
     "src/chat-row.ts",
+    "src/subchats.ts",
+    "src/chat-pins.ts",
+    "src/subchat-states.ts",
+    "src/chat-display.ts",
+    "src/canvas.ts",
     "src/simulator.ts",
     "src/browser.ts",
     "src/terminal.ts",
@@ -30,18 +58,35 @@
     "src/artifact.ts",
     "src/artifact-document.mjs",
     "src/artifact-document.d.mts",
+    "src/diagram.ts",
     "src/genui.ts",
-    "src/file-link.ts",
     "src/message-search.mjs",
     "src/message-search.d.mts",
     "src/agent-activity.ts",
+    "src/qa-personas.ts",
     "src/advisor-result.ts",
     "src/themes/*.ts",
     "src/themes/palettes/*.ts",
-    "src/genui-renderer.tsx"
+    "src/genui-renderer.tsx",
+    "src/use-compaction-feedback.ts",
+    "src/outbox-delivery.ts"
   ],
   "type": "module",
   "exports": {
+    "./html-render": {
+      "types": "./src/html-render.d.mts",
+      "default": "./src/html-render.mjs"
+    },
+    "./after-paint": "./src/after-paint.ts",
+    "./undo-history": "./src/undo-history.ts",
+    "./computer-use": "./src/computer-use.ts",
+    "./tool-activity": {
+      "types": "./src/tool-activity.d.mts",
+      "default": "./src/tool-activity.mjs"
+    },
+    "./chat-window-cache": "./src/chat-window-cache.ts",
+    "./display-clock": "./src/display-clock.ts",
+    "./chat-history": "./src/chat-history.ts",
     "./live-activity": {
       "types": "./src/live-activity.d.mts",
       "default": "./src/live-activity.mjs"
@@ -66,11 +111,40 @@
       "types": "./src/tokens.d.mts",
       "default": "./src/tokens.mjs"
     },
+    "./untrusted-text": {
+      "types": "./src/untrusted-text.d.mts",
+      "default": "./src/untrusted-text.mjs"
+    },
     "./prompt-skills": {
       "types": "./src/prompt-skills.d.mts",
       "default": "./src/prompt-skills.mjs"
     },
+    "./prompt-parts": {
+      "types": "./src/prompt-parts.d.mts",
+      "default": "./src/prompt-parts.mjs"
+    },
+    "./prompt-mentions": {
+      "types": "./src/prompt-mentions.d.mts",
+      "default": "./src/prompt-mentions.mjs"
+    },
+    "./file-kinds": {
+      "types": "./src/file-kinds.d.mts",
+      "default": "./src/file-kinds.mjs"
+    },
+    "./appearance": {
+      "types": "./src/appearance.d.mts",
+      "default": "./src/appearance.mjs"
+    },
+    "./checkpoints": "./src/checkpoints.ts",
+    "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
+    "./token-usage": "./src/token-usage.ts",
+    "./new-chat-glance": "./src/new-chat-glance.ts",
+    "./settings-search": "./src/settings-search.ts",
+    "./subagent-glance": {
+      "types": "./src/subagent-glance.d.mts",
+      "default": "./src/subagent-glance.mjs"
+    },
     "./subagent-transcript": {
       "types": "./src/subagent-transcript.d.mts",
       "default": "./src/subagent-transcript.mjs"
@@ -78,6 +152,14 @@
     "./chat-summary": {
       "types": "./src/chat-summary.d.mts",
       "default": "./src/chat-summary.mjs"
+    },
+    "./chat-plan": {
+      "types": "./src/chat-plan.d.mts",
+      "default": "./src/chat-plan.mjs"
+    },
+    "./phase-graph": {
+      "types": "./src/phase-graph.d.mts",
+      "default": "./src/phase-graph.mjs"
     },
     "./state-patch": {
       "types": "./src/state-patch.d.mts",
@@ -88,6 +170,11 @@
       "default": "./src/chat-scopes.mjs"
     },
     "./git-diff": "./src/git-diff.ts",
+    "./pull-request-review": "./src/pull-request-review.ts",
+    "./refresh-loop": {
+      "types": "./src/refresh-loop.d.mts",
+      "default": "./src/refresh-loop.mjs"
+    },
     "./agent-runs": {
       "types": "./src/agent-runs.d.mts",
       "default": "./src/agent-runs.mjs"
@@ -104,9 +191,49 @@
       "types": "./src/chats.d.mts",
       "default": "./src/chats.mjs"
     },
+    "./chat-reload": {
+      "types": "./src/chat-reload.d.mts",
+      "default": "./src/chat-reload.mjs"
+    },
+    "./routines": {
+      "types": "./src/routines.d.mts",
+      "default": "./src/routines.mjs"
+    },
+    "./routine-flows": {
+      "types": "./src/routine-flows.d.mts",
+      "default": "./src/routine-flows.mjs"
+    },
+    "./babysit": {
+      "types": "./src/babysit.d.mts",
+      "default": "./src/babysit.mjs"
+    },
+    "./done": {
+      "types": "./src/done.d.mts",
+      "default": "./src/done.mjs"
+    },
+    "./device-notes": {
+      "types": "./src/device-notes.d.mts",
+      "default": "./src/device-notes.mjs"
+    },
+    "./routine-prompt": {
+      "types": "./src/routine-prompt.d.mts",
+      "default": "./src/routine-prompt.mjs"
+    },
+    "./routine-form": {
+      "types": "./src/routine-form.d.mts",
+      "default": "./src/routine-form.mjs"
+    },
+    "./checkpoint-restore": {
+      "types": "./src/checkpoint-restore.d.mts",
+      "default": "./src/checkpoint-restore.mjs"
+    },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",
       "default": "./src/worktree-link.mjs"
+    },
+    "./linked-message": {
+      "types": "./src/linked-message.d.mts",
+      "default": "./src/linked-message.mjs"
     },
     "./handoff": {
       "types": "./src/handoff.d.mts",
@@ -116,6 +243,14 @@
       "types": "./src/archive.d.mts",
       "default": "./src/archive.mjs"
     },
+    "./keybindings": {
+      "types": "./src/keybindings.d.mts",
+      "default": "./src/keybindings.mjs"
+    },
+    "./bots": {
+      "types": "./src/bots.d.mts",
+      "default": "./src/bots.mjs"
+    },
     "./attention": {
       "types": "./src/attention.d.mts",
       "default": "./src/attention.mjs"
@@ -124,9 +259,29 @@
       "types": "./src/antigravity-models.d.mts",
       "default": "./src/antigravity-models.mjs"
     },
+    "./kiro-models": {
+      "types": "./src/kiro-models.d.mts",
+      "default": "./src/kiro-models.mjs"
+    },
+    "./host-computer": {
+      "types": "./src/host-computer.d.mts",
+      "default": "./src/host-computer.mjs"
+    },
     "./providers": {
       "types": "./src/providers.d.mts",
       "default": "./src/providers.mjs"
+    },
+    "./chat-activity": {
+      "types": "./src/chat-activity.d.mts",
+      "default": "./src/chat-activity.mjs"
+    },
+    "./queued-messages": {
+      "types": "./src/queued-messages.d.mts",
+      "default": "./src/queued-messages.mjs"
+    },
+    "./provider-capabilities": {
+      "types": "./src/provider-capabilities.d.mts",
+      "default": "./src/provider-capabilities.mjs"
     },
     "./stable-order": {
       "types": "./src/stable-order.d.mts",
@@ -139,6 +294,10 @@
     "./result": {
       "types": "./src/result.d.mts",
       "default": "./src/result.mjs"
+    },
+    "./send-retry": {
+      "types": "./src/send-retry.d.mts",
+      "default": "./src/send-retry.mjs"
     },
     "./git-codes": {
       "types": "./src/git-codes.d.mts",
@@ -166,30 +325,55 @@
     },
     "./model-options": "./src/model-options.ts",
     "./model-copy": "./src/model-copy.ts",
+    "./project-list": "./src/project-list.ts",
     "./provider-logos": "./src/provider-logos.ts",
     "./reconcile": {
       "types": "./src/reconcile.d.mts",
       "default": "./src/reconcile.mjs"
     },
     "./reply-parts": "./src/reply-parts.ts",
+    "./desktop-steps": "./src/desktop-steps.ts",
     "./streaming-markdown": "./src/streaming-markdown.ts",
+    "./streaming-blocks": "./src/streaming-blocks.ts",
+    "./markdown-fence": "./src/markdown-fence.ts",
+    "./github-markdown": "./src/github-markdown.ts",
+    "./github-image": {
+      "types": "./src/github-image.d.mts",
+      "default": "./src/github-image.mjs"
+    },
     "./pr-blockers": "./src/pr-blockers.ts",
     "./diff-parse": "./src/diff-parse.ts",
     "./diff-tree": "./src/diff-tree.ts",
     "./diff-layout": "./src/diff-layout.ts",
     "./usage": "./src/usage.ts",
+    "./use-account-usage": "./src/use-account-usage.ts",
     "./main-sync": "./src/main-sync.ts",
+    "./auto-update": "./src/auto-update.ts",
+    "./browser-sign-ins": "./src/browser-sign-ins.ts",
+    "./app-update": "./src/app-update.ts",
+    "./computer-resources": "./src/computer-resources.ts",
+    "./storage": "./src/storage.ts",
     "./mcp": "./src/mcp.ts",
     "./local-mcp": "./src/local-mcp.ts",
+    "./use-provider-updates": "./src/use-provider-updates.ts",
     "./use-local-mcp": "./src/use-local-mcp.ts",
     "./linear": "./src/linear.ts",
     "./skill-catalog": "./src/skill-catalog.ts",
     "./simulator": "./src/simulator.ts",
     "./artifact": "./src/artifact.ts",
+    "./artifact-assets": {
+      "types": "./src/artifact-assets.d.mts",
+      "default": "./src/artifact-assets.mjs"
+    },
     "./artifact-document": {
       "types": "./src/artifact-document.d.mts",
       "default": "./src/artifact-document.mjs"
     },
+    "./diagram-script": {
+      "types": "./src/diagram-script.d.mts",
+      "default": "./src/diagram-script.mjs"
+    },
+    "./diagram": "./src/diagram.ts",
     "./design-page": {
       "types": "./src/design-page.d.mts",
       "default": "./src/design-page.mjs"
@@ -198,8 +382,16 @@
       "types": "./src/design.d.mts",
       "default": "./src/design.mjs"
     },
+    "./design-draft": {
+      "types": "./src/design-draft.d.mts",
+      "default": "./src/design-draft.mjs"
+    },
     "./genui": "./src/genui.ts",
-    "./file-link": "./src/file-link.ts",
+    "./file-link": {
+      "types": "./src/file-link.d.mts",
+      "default": "./src/file-link.mjs"
+    },
+    "./loopback-url": "./src/loopback-url.ts",
     "./simulator-receiver": {
       "types": "./src/simulator-receiver.d.mts",
       "default": "./src/simulator-receiver.mjs"
@@ -224,13 +416,83 @@
       "default": "./src/file-syntax.mjs"
     },
     "./agent-activity": "./src/agent-activity.ts",
+    "./qa-personas": "./src/qa-personas.ts",
     "./advisor-result": "./src/advisor-result.ts",
+    "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
+    "./subchats": "./src/subchats.ts",
+    "./chat-pins": "./src/chat-pins.ts",
+    "./subchat-escalation": {
+      "types": "./src/subchat-escalation.d.mts",
+      "default": "./src/subchat-escalation.mjs"
+    },
+    "./subchat-states": "./src/subchat-states.ts",
+    "./chats-home": {
+      "types": "./src/chats-home.d.mts",
+      "default": "./src/chats-home.mjs"
+    },
+    "./chat-display": "./src/chat-display.ts",
+    "./canvas": "./src/canvas.ts",
     "./genui-renderer": "./src/genui-renderer.tsx",
-    "./ai-consent": {
-      "types": "./src/ai-consent.d.mts",
-      "default": "./src/ai-consent.mjs"
+    "./site-links": {
+      "types": "./src/site-links.d.mts",
+      "default": "./src/site-links.mjs"
+    },
+    "./notification-chimes": {
+      "types": "./src/notification-chimes.d.mts",
+      "default": "./src/notification-chimes.mjs"
+    },
+    "./notification-schedule": {
+      "types": "./src/notification-schedule.d.mts",
+      "default": "./src/notification-schedule.mjs"
+    },
+    "./attachment-download": {
+      "types": "./src/attachment-download.d.mts",
+      "default": "./src/attachment-download.mjs"
+    },
+    "./attachment-upload": {
+      "types": "./src/attachment-upload.d.mts",
+      "default": "./src/attachment-upload.mjs"
+    },
+    "./read-timeout": {
+      "types": "./src/read-timeout.d.mts",
+      "default": "./src/read-timeout.mjs"
+    },
+    "./dictation": {
+      "types": "./src/dictation.d.mts",
+      "default": "./src/dictation.mjs"
+    },
+    "./voice-dictation": "./src/voice-dictation.ts",
+    "./project-origin": {
+      "types": "./src/project-origin.d.mts",
+      "default": "./src/project-origin.mjs"
+    },
+    "./page-comments": {
+      "types": "./src/page-comments.d.mts",
+      "default": "./src/page-comments.mjs"
+    },
+    "./page-picker": {
+      "types": "./src/page-picker.d.mts",
+      "default": "./src/page-picker.mjs"
+    },
+    "./context-settings": {
+      "types": "./src/context-settings.d.mts",
+      "default": "./src/context-settings.mjs"
+    },
+    "./use-compaction-feedback": "./src/use-compaction-feedback.ts",
+    "./outbox": {
+      "types": "./src/outbox.d.mts",
+      "default": "./src/outbox.mjs"
+    },
+    "./outbox-delivery": "./src/outbox-delivery.ts",
+    "./design-preview": {
+      "types": "./src/design-preview.d.mts",
+      "default": "./src/design-preview.mjs"
+    },
+    "./branch-policy": {
+      "types": "./src/branch-policy.d.mts",
+      "default": "./src/branch-policy.mjs"
     }
   },
   "scripts": {
@@ -239,6 +501,7 @@
   },
   "dependencies": {
     "@openuidev/lang-core": "^0.3.2",
+    "pele": "1.6.0",
     "refractor": "^5.0.0",
     "tweetnacl": "1.0.3",
     "zod": "^4.6.5"

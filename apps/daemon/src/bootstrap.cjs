@@ -6,9 +6,10 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { connect } = require("./client.cjs");
 const { staleOwner } = require("@milagre/core/ownership");
 
-// A connection that failed this way has no host behind it. ECONNRESET is a host still exiting: its socket accepted the
-// connection, then closed with it.
-const HOST_GONE = ["ENOENT", "ECONNREFUSED", "ECONNRESET"];
+// A connection that failed this way has no host behind it. ECONNRESET, EPIPE and DAEMON_CLOSED are a host still exiting
+// (after a force quit or a crash): its socket accepted the connection, then closed it before the status reply, and which
+// of the three the desktop sees depends on whether its request was already written.
+const HOST_GONE = ["ENOENT", "ECONNREFUSED", "ECONNRESET", "EPIPE", "DAEMON_CLOSED"];
 
 async function compatibleClient(dataDir, timeoutMs = 30000) {
   const client = await connect({ dataDir, timeoutMs });
@@ -77,6 +78,7 @@ async function ensureDaemon({
   version,
   cwd = process.cwd(),
   worktreeRoot,
+  chatsHome,
   executable = process.execPath,
   entry = path.join(__dirname, "cli.cjs"),
   env = process.env,
@@ -107,6 +109,7 @@ async function ensureDaemon({
     try {
       const args = [entry, "serve", "--data-dir", dataDir, "--app-version", version, "--cwd", cwd];
       if (worktreeRoot) args.push("--worktree-root", worktreeRoot);
+      if (chatsHome) args.push("--chats-home", chatsHome);
       child = spawn(executable, args, {
         cwd,
         env: {

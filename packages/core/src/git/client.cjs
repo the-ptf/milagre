@@ -1,6 +1,7 @@
 const { execFile: execute } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { lanes: sharedLanes } = require("../process-lanes.cjs");
 
 const limit = (timeout) => Object.freeze({ timeout, maxBuffer: 16 * 1024 * 1024 });
 const LIMITS = Object.freeze({
@@ -64,10 +65,21 @@ function callbackExec(exec) {
   };
 }
 
-function createGit({ execFile = execute, env = process.env, platform = process.platform, realpath = fs.realpath, analysisOnly = false } = {}) {
-  function executeGit(cwd, args, { profile = "READ", input, config = [] } = {}) {
+function createGit({
+  execFile = execute,
+  env = process.env,
+  platform = process.platform,
+  realpath = fs.realpath,
+  analysisOnly = false,
+  lanes = sharedLanes,
+} = {}) {
+  // Each run waits for a git slot (process-lanes.cjs) and holds it until the process exits.
+  function executeGit(cwd, args, options = {}) {
+    if (!LIMITS[options.profile ?? "READ"]) throw new Error(`Unknown Git limit profile: ${options.profile}`);
+    return lanes.run("git", () => spawnGit(cwd, args, options));
+  }
+  function spawnGit(cwd, args, { profile = "READ", input, config = [] } = {}) {
     const limits = LIMITS[profile];
-    if (!limits) throw new Error(`Unknown Git limit profile: ${profile}`);
     return new Promise((resolve) => {
       try {
         // Analysis runs in the host, so provider sandboxes cannot protect it from Git's configured helpers.
@@ -134,6 +146,17 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
     if (typeof recorded === "string" && recorded && !recorded.startsWith("-") && (await refExists(cwd, recorded))) {
       const full = await out(cwd, ["rev-parse", "--symbolic-full-name", recorded]);
       const named = /^refs\/(?:remotes\/[^/]+|heads)\/(.+)$/.exec(full ?? "");
+      if (named && full.startsWith("refs/heads/")) {
+        // A local base that is behind its remote, or has diverged from it (a force-pushed main), would count
+        // everyone else's merged work as the chat's; compare against the remote unless the local branch is ahead.
+        const upstream = (await out(cwd, ["for-each-ref", "--format=%(upstream)", full])) || `refs/remotes/origin/${named[1]}`;
+        if (
+          upstream.startsWith("refs/remotes/") &&
+          (await refExists(cwd, upstream)) &&
+          !(await run(cwd, ["merge-base", "--is-ancestor", "--end-of-options", upstream, full])).ok
+        )
+          return { name: named[1], ref: upstream };
+      }
       if (named) return { name: named[1], ref: recorded };
     }
     const remoteHead = await out(cwd, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
@@ -146,6 +169,26 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
           : "main");
     for (const ref of [`refs/remotes/origin/${name}`, `refs/heads/${name}`]) if (await refExists(cwd, ref)) return { name, ref };
     return { name, ref: null };
+  }
+
+  // The branch the checked-out branch was made from, by its reflog's first entry ("branch: Created from feature"), or
+  // null when it was made from HEAD or a bare commit, or the reflog is gone. Worktrees Milagre didn't make (an agent's,
+  // one made by hand) record no base, and a branch cut from a feature branch shouldn't be measured against main.
+  async function createdFrom(cwd) {
+    const branch = await out(cwd, ["symbolic-ref", "--quiet", "HEAD"]);
+    if (!branch?.startsWith("refs/heads/")) return null;
+    const entries = await out(cwd, ["log", "--walk-reflogs", "--format=%gs", "--end-of-options", branch]);
+    const from = /^branch: Created from (.+)$/.exec(entries?.split("\n").at(-1) ?? "")?.[1];
+    if (!from || from === "HEAD" || /^[0-9a-f]{7,64}$/i.test(from)) return null;
+    // Checked out from its own remote copy ("origin/<branch>" or "refs/remotes/origin/<branch>", e.g. someone's PR
+    // branch): that copy is not a base.
+    const name = branch.slice("refs/heads/".length);
+    return /^(?:refs\/remotes\/)?[^/]+\/(.+)$/.exec(from)?.[1] === name || from === name ? null : from;
+  }
+
+  /** The base a chat's changes are measured against: the one Milagre recorded, else the branch it was made from, else the default. */
+  async function chatBase(cwd, recorded) {
+    return resolveBase(cwd, typeof recorded === "string" && recorded ? recorded : await createdFrom(cwd));
   }
 
   // `worktree list -z` needs Git 2.36. Older Git rejects the switch, so fall back to newline records and remember which form works.
@@ -196,7 +239,7 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
     return listed.filter(Boolean);
   }
   const commonDir = async (cwd) => fs.realpath(path.resolve(cwd, (await text(cwd, ["rev-parse", "--git-common-dir"])).trim()));
-  const read = Object.freeze({ run, checked, text, out, commitOf, refExists, resolveBase, worktreeList, commonDir });
+  const read = Object.freeze({ run, checked, text, out, commitOf, refExists, resolveBase, createdFrom, chatBase, worktreeList, commonDir });
   const writeRun = (cwd, args, options) => {
     if (analysisOnly) throw new Error("Analysis Git is read-only.");
     return executeGit(cwd, args, { profile: "WRITE", ...options });

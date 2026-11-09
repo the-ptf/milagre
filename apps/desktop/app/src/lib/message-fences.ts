@@ -12,7 +12,7 @@ export function splitFences(body: string): MessagePart[] {
     // The newlines around a fence belong to the block, not to the text beside it.
     const before = body.slice(last, start).replace(/\n$/, "");
     if (before) parts.push({ kind: "text", text: before });
-    parts.push({ kind: "code", fence: match[1].trim(), code: match[2] });
+    parts.push({ kind: "code", fence: (match[1] ?? "").trim(), code: match[2] ?? "" });
     last = start + match[0].length;
     if (body[last] === "\n") last += 1;
   }

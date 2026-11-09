@@ -1,27 +1,36 @@
-const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
+const { isLinkScopeKey, scopeFromKey, computerOfKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
 const path = require("node:path");
 const { chatKey, lastUserModel, projectOfKey, runStatus, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { activeWorktrees } = require("./project-identity.cjs");
 const { linkedWorktrees } = require("./project-links.cjs");
 const { Delegations, jsonFileStore } = require("./delegations.cjs");
+const { callerMode, modeRank } = require("./agents/permissions.cjs");
 const { chatLabel, createLinkedReads, delegationReply, linkedToolDefinitions } = require("./linked-tools.cjs");
+const { chatTitle } = require("@milagre/shared/chats");
 const { createLinkedMcpServer } = require("./linked-mcp-server.cjs");
 const { worktreeLinkText } = require("@milagre/shared/worktree-link");
 
+const NO_COMPUTERS = "none. Pair one and turn on Drive other computers in Settings > Devices.";
 // Every turn and tool call of a linked Chat asks which Worktrees are active; git is asked again after this long.
 const ACTIVE_TTL_MS = 3000;
 
 /**
  * What a Chat gets from its Links (spec 003): the summary at the start of each turn, the linked tools for
  * either provider, and the Delegations they make. The runtime supplies its parts:
- *   registry() -> the Project registry; project(path) -> the Project's state, loading the Project if needed (it can
+ *   registry() -> the Project registry; linkProjects(linkId) -> a named Link's member Projects, { id, name, path }
+ *   project(path) -> the Project's state, loading the Project if needed (it can
  *   leave out unloaded Chats' messages: see message-store.cjs); messages(path, chatIds) -> those Chats' messages, whole,
  *   or every message without chatIds; bodies(path, chatIds) -> their ids, roles and bodies
  *   chats -> the ChatHost; agents -> the SessionManager; emit(channel, payload) -> the windows
+ *   chatTools(chatId, tools) -> the tools a Chat keeps of all it would get (Bot rules withhold most of Milagre's)
+ *   botOf(chatId) -> the name of the bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over)
+ *   remote -> the paired computers a Chat can delegate to (see Delegations' `remote` port), or null
  */
 function createLinkedWorktrees({
   dataDir,
   registry,
+  linkProjects = async () => [],
+  grantedProjects = () => [],
   project,
   messages = async (projectPath, chatIds) => {
     const all = (await project(projectPath)).messages;
@@ -31,7 +40,15 @@ function createLinkedWorktrees({
   chats,
   agents,
   emit,
+  pendingAdvisorResults = async () => false,
   extraTools = () => [],
+  chatTools = (_chatId, tools) => tools,
+  botOf = () => null,
+  remote = null,
+  // (projectPath, prompt) -> { path, branch }: a new Worktree of a Project, from its main branch.
+  createWorktree = async () => {
+    throw new Error("This computer can't make Worktrees for a Delegation.");
+  },
   createMcpServer = createLinkedMcpServer,
   store = jsonFileStore(path.join(dataDir, "delegations.json")),
 }) {
@@ -86,6 +103,108 @@ function createLinkedWorktrees({
     return [...found.values()];
   }
 
+  /**
+   * An active Worktree of the Chat's own Project (or a Project granted to this Chat) as a Delegation target, with no
+   * Link, or null. A shared Link Chat's own Projects are its Link's members; its own Worktrees there belong to it alone
+   * (ADR-0005), so they are refused.
+   */
+  async function ownWorktree(chatId, worktreePath) {
+    const scope = projectOfKey(chatId);
+    const { projects } = await registry().snapshot();
+    const base = isLinkScopeKey(scope)
+      ? await linkProjects(scopeFromKey(scope).linkId)
+      : [projects.find((item) => item.path === scope) ?? { path: scope, name: path.basename(scope) }];
+    const extra = botOf(chatId)
+      ? []
+      : (await grantedProjects(chatId))
+          .filter((projectPath) => !base.some((item) => item.path === projectPath))
+          .map((projectPath) => projects.find((item) => item.path === projectPath))
+          .filter(Boolean);
+    for (const candidate of [...base, ...extra]) {
+      const state = await project(candidate.path);
+      const worktree = Object.values(state.worktrees).find((item) => item.path === worktreePath);
+      if (!worktree || !(await active(candidate.path)).includes(worktreePath)) continue;
+      if (worktree.sharedChat) throw new Error("Delegation into a shared Link Chat is not supported. Read its canonical transcript instead.");
+      return {
+        link_id: null,
+        link_ids: [],
+        projectPath: candidate.path,
+        projectName: candidate.name ?? path.basename(candidate.path),
+        branch: worktree.name ?? path.basename(worktreePath),
+      };
+    }
+    return null;
+  }
+
+  /**
+   * An active Worktree of any Project on this computer, as a Delegation from another computer's target, or null. Only
+   * Projects in the registry are looked at (never a bot's home, ADR-0010), and only the one whose Worktree it is loads.
+   */
+  async function hostTarget(worktreePath) {
+    if (typeof worktreePath !== "string" || !path.isAbsolute(worktreePath)) return null;
+    const { projects } = await registry().snapshot();
+    for (const candidate of projects) {
+      if (candidate.hidden || !(await active(candidate.path)).includes(worktreePath)) continue;
+      const state = await project(candidate.path);
+      const worktree = Object.values(state.worktrees).find((item) => item.path === worktreePath);
+      if (!worktree) continue;
+      if (worktree.sharedChat) throw new Error("Delegation into a shared Link Chat is not supported.");
+      return {
+        projectPath: candidate.path,
+        projectName: candidate.name ?? path.basename(candidate.path),
+        branch: worktree.name ?? path.basename(worktreePath),
+      };
+    }
+    return null;
+  }
+
+  /** A Project in the registry, by its path, as a Delegation's new Worktree's Project; null for any other folder. */
+  async function hostProject(projectPath) {
+    if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) return null;
+    const { projects } = await registry().snapshot();
+    const found = projects.find((candidate) => !candidate.hidden && candidate.path === projectPath);
+    return found ? { projectPath: found.path, projectName: found.name ?? path.basename(found.path) } : null;
+  }
+
+  /** What another computer's Chats can delegate to here: each Project in the registry with its active Worktrees. */
+  async function hostTargets() {
+    const { projects } = await registry().snapshot();
+    return Promise.all(
+      projects
+        .filter((candidate) => !candidate.hidden)
+        .map(async (candidate) => ({
+          name: candidate.name ?? path.basename(candidate.path),
+          path: candidate.path,
+          worktrees: (await activeWorktrees(candidate.path).catch(() => [])).map((worktree) => ({
+            path: worktree.path,
+            branch: worktree.branch ?? worktree.name ?? path.basename(worktree.path),
+          })),
+        })),
+    );
+  }
+
+  /** The paired computers' Projects for linked_overview, while delegating to them is on; "" when it is off. */
+  async function remoteOverview() {
+    if (!remote?.enabled()) return "";
+    const computers = remote.list();
+    if (!computers.length) return `Other computers: ${NO_COMPUTERS}`;
+    const sections = await Promise.all(
+      computers.map(async (computer) => {
+        if (!computer.online) return `- ${computer.name}: offline, can't take Delegations now`;
+        try {
+          const projects = await remote.invoke(computer.id, "delegation:targets", []);
+          const lines = (Array.isArray(projects) ? projects : []).flatMap((item) =>
+            (item.worktrees ?? []).map((worktree) => `  - ${item.name} / ${worktree.branch}: worktree ${worktree.path}`),
+          );
+          return [`- ${computer.name}:`, ...(lines.length ? lines : ["  (no Projects)"])].join("\n");
+        } catch (error) {
+          return `- ${computer.name}: couldn't list its Projects (${error.message})`;
+        }
+      }),
+    );
+    return ['Other computers (delegate with `computer` set to the name, and a Chat ref or "new"):', ...sections].join("\n");
+  }
+
   const reads = createLinkedReads({
     sides,
     state: project,
@@ -101,6 +220,13 @@ function createLinkedWorktrees({
     const state = await project(projectPath).catch(() => null);
     const session = state?.sessions[sessionIdFromKey(key)];
     if (!session) return null;
+    // A shared Link Chat is named by its Link and works from its workspace folder, not from one Project's Worktree.
+    if (isLinkScopeKey(projectPath)) {
+      const linkId = scopeFromKey(projectPath).linkId;
+      const link = (await registry().listProjectGroups()).find((item) => item.id === linkId);
+      const messages = state.messages.filter((message) => message.session_id === session.id);
+      return { label: `${link?.name ?? "Link"} / ${chatTitle(session, messages)}`, worktreePath: session.workspacePath, archived: Boolean(session.archived) };
+    }
     return {
       label: chatLabel(path.basename(projectPath), state, session.id),
       worktreePath: state.worktrees[session.worktree_id]?.path,
@@ -110,8 +236,8 @@ function createLinkedWorktrees({
 
   // A delivered message runs on the receiving Chat's latest turn settings. A Chat with none this run takes
   // its own provider and model, else the Project's last used, else the requesting Chat's; its permission
-  // mode is Ask until the user picks one there.
-  function turnOptions(key, state, requester) {
+  // mode is the requesting Chat's, until the user picks one there.
+  function turnOptions(key, state, requester, mode) {
     const latest = chats.turnSettings(key);
     if (latest) return latest;
     const session = state.sessions[sessionIdFromKey(key)];
@@ -120,32 +246,43 @@ function createLinkedWorktrees({
     return {
       provider: session?.provider ?? (lastUsed ? state.sessions[lastUsed.session_id].provider : (fallback.provider ?? "claude")),
       model: lastUserModel(state, session.id) || lastUsed?.model || fallback.model,
-      permissionMode: "ask",
+      // A Delegation from another computer has no requester here; it brings its caller's mode (`mode`).
+      permissionMode: callerMode(mode ?? agents.permissionMode(requester)),
       tldrEnabled: fallback.tldrEnabled,
       replies: fallback.replies,
     };
   }
 
-  // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port).
-  async function deliver(key, { body, prompt, context }) {
+  // The mode a delivered message runs in: the latest turn's (turnOptions), or the live agent's when a steer reaches it
+  // after a switch, whichever allows more (Bot rules most: see modeRank); a Chat with neither takes the requesting Chat's.
+  function deliveryMode(key, requester) {
+    const modes = [agents.permissionMode(key, null), chats.turnSettings(key)?.permissionMode].filter(Boolean);
+    return modes.length ? modes.reduce((most, mode) => (modeRank(mode) > modeRank(most) ? mode : most)) : callerMode(agents.permissionMode(requester));
+  }
+
+  // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port), and `queued` when
+  // it waits in the Chat's queue for a turn its provider can't steer.
+  async function deliver(key, { body, prompt, context, mode }) {
     const projectPath = projectOfKey(key);
     let state = await project(projectPath);
     const session = state.sessions[sessionIdFromKey(key)];
     if (!session) throw new Error("that Chat is no longer in its Project");
+    const bot = botOf(key);
+    if (bot) throw new Error(`${bot} runs that Chat, and only ${bot} steers it`);
     // The Project's last used model is read across every Chat, unloaded ones too, when the Chat has no turn this run.
     if (!chats.turnSettings(key)) state = { ...state, messages: await messages(projectPath) };
-    const { started } = await chats.send({
+    const { started, queued } = await chats.send({
       body,
       prompt,
       context,
       images: [],
       files: [],
-      ...turnOptions(key, state, context.from),
+      ...turnOptions(key, state, context.from, mode),
       projectPath,
       sessionId: session.id,
       worktreeId: session.worktree_id,
     });
-    return { started };
+    return { started, queued: Boolean(queued) };
   }
 
   function setToolsAvailable(chatId, available) {
@@ -161,6 +298,9 @@ function createLinkedWorktrees({
     store,
     ports: {
       async target(fromChat, worktreePath) {
+        // A Worktree of the Chat's own Project needs no Link: its agent can already start Chats there.
+        const own = await ownWorktree(fromChat, worktreePath);
+        if (own) return own;
         const side = (await sides(fromChat)).find((item) => item.worktree_path === worktreePath);
         if (!side) return null;
         const state = await project(side.projectPath);
@@ -181,13 +321,37 @@ function createLinkedWorktrees({
         if (!worktree) throw new Error("That Worktree is no longer in its Project.");
         return chatKey(projectPath, await chats.emptyChat(projectPath, worktree.id));
       },
+      adoptSubchat: (toChat, fromChat) => chats.adoptSubchat(toChat, fromChat),
+      // Another computer's Chat nests on that computer, never here.
+      detachSubchat: async (chat, parent) => computerOfKey(chat) === LOCAL_COMPUTER && chats.detachSubchat(chat, parent),
       status: (key) => runStatus(chats.runs[key]),
+      pendingResults: async (key) => {
+        const session = (await project(projectOfKey(key))).sessions[sessionIdFromKey(key)];
+        return Boolean(
+          chats.runs[key] ||
+          chats.startingTurns?.has(key) ||
+          session?.queued?.some((entry) => entry.context?.kind === "advisor-result") ||
+          (await pendingAdvisorResults(key)),
+        );
+      },
       deliver,
       note: (key, note) => chats.addNote(key, note),
       reply: async (key, delegationId) => delegationReply(await messages(projectOfKey(key), [sessionIdFromKey(key)]), sessionIdFromKey(key), delegationId),
       permissionMode: (key) => agents.permissionMode(key),
+      botOf: (key) => botOf(key),
+      deliveryMode: (key, requester) => deliveryMode(key, requester),
       approve: (key, request) => agents.askApproval(key, request),
       changed: () => emit("linked:changed", snapshot()),
+      remote,
+      hostTarget,
+      hostProject,
+      newWorktree: async (projectPath, prompt) => {
+        const made = await createWorktree(projectPath, prompt);
+        activeCache.delete(projectPath);
+        return made;
+      },
+      // Every client hears it; the computer that asked (a paired desktop's daemon) takes its own (remoteFinished).
+      remoteReport: (report) => emit("delegation:report", report),
     },
   });
 
@@ -241,20 +405,28 @@ function createLinkedWorktrees({
       tools.set(
         chatId,
         linkedToolDefinitions(chatId, {
-          reads,
+          // The paired computers a Chat can delegate to follow its own Links.
+          reads: {
+            ...reads,
+            overview: async (key) => [await reads.overview(key), await remoteOverview()].filter(Boolean).join("\n\n"),
+          },
+          // A shared Link Chat delegates like any Chat (to its Link's Projects, or along a canvas Link), but hosts no
+          // Negotiation: its other side would be a shared transcript several Projects write to.
           delegations: isLinkScopeKey(projectOfKey(chatId))
             ? {
-                delegate: async () => {
-                  throw new Error("Delegation from a shared Link Chat is not supported. Use its canvas read tools.");
+                delegate: async (fromChat, args) => {
+                  if (args.negotiation) throw new Error("Shared Link Chats do not host Negotiations. Send a Delegation instead.");
+                  return delegations.delegate(fromChat, args);
                 },
                 conclude: async () => {
                   throw new Error("Shared Link Chats do not host Negotiations.");
                 },
+                detach: (chat, by) => delegations.detach(chat, by),
               }
             : delegations,
         }),
       );
-    return [...tools.get(chatId), ...extraTools(chatId)];
+    return chatTools(chatId, [...tools.get(chatId), ...extraTools(chatId)]);
   }
 
   return {
@@ -264,9 +436,17 @@ function createLinkedWorktrees({
       url: () => mcp.url(chatId),
       toolsAvailable: (available) => setToolsAvailable(chatId, available),
     }),
-    /** The summary for the start of a turn, or "" when nothing is linked. A failed read leaves it out. */
+    /** The linked summary can be read while CLI and setup checks run; it consumes nothing. */
     context: (chatId) => reads.summary(chatId).catch(() => ""),
+    reportsForTurn: (chatId) =>
+      delegations.reportsForTurn(chatId).catch((error) => {
+        console.warn("Milagre couldn't read the Delegation reports:", error.message);
+        return null;
+      }),
     observe: (chatId, event) => delegations.observe(chatId, event),
+    /** A Delegation (or Negotiation report) that waited in the Chat's queue across a restart started, or was removed. */
+    queuedStarted: (chatId, context, started) => delegations.adopt(chatId, context, started),
+    queuedRemoved: (chatId, context) => delegations.unqueued(chatId, context),
     linkAdded,
     linkRemoved: (id) => delegations.linkRemoved(id),
     /** "Always allow Delegations" from the sidebar's Link popover: the grant the approval card saves, set ahead. */
@@ -277,8 +457,29 @@ function createLinkedWorktrees({
       await delegations.grant(chatId, linkId);
     },
     stop: (target) => delegations.stop(target),
+    /** The sidebar's "Detach from parent": the user detaches the Chat from its parent and every open Delegation to it. */
+    detach: (chatId) => delegations.detach(chatId),
     snapshot,
-    close: () => mcp.close(),
+    // Delegations between computers (spec 2026-10-23): this Mac running another computer's (hosted), and this Mac's
+    // Chats hearing back from the computers they delegated to.
+    hosted: {
+      targets: hostTargets,
+      prepare: async (request) => {
+        const { label, raisedMode } = await delegations.prepareHosted(request);
+        return { label, raisedMode };
+      },
+      receive: (request) => delegations.receiveHosted(request),
+      reports: (request) => delegations.hostedReports(request),
+      collected: (request) => delegations.collectedHosted(request),
+    },
+    remoteFinished: (computerId, report) => delegations.remoteFinished(computerId, report),
+    catchUp: (computerId) => delegations.catchUp(computerId),
+    computerRemoved: (computerId) => delegations.computerRemoved(computerId),
+    suspend: () => delegations.suspend(),
+    close: async () => {
+      await mcp.close();
+      await delegations.idle();
+    },
   };
 }
 

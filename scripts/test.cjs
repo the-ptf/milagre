@@ -2,7 +2,7 @@
 // `npm test`: every node:test file in one process, then each Electron check serially (each owns a Vite port and an Electron profile).
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
-const { shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST } = require("./test-runner.cjs");
+const { needsShell, shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST } = require("./test-runner.cjs");
 
 const root = path.resolve(__dirname, "..");
 const commandExists = (name) => spawnSync(process.platform === "win32" ? "where" : "which", [name], { stdio: "ignore" }).status === 0;
@@ -36,7 +36,7 @@ const failures = [];
 const flaky = [];
 function run(label, command, args, options = {}, { retryable = false } = {}) {
   const started = Date.now();
-  const attempt = () => spawnSync(command, args, { cwd: root, stdio: "inherit", shell: process.platform === "win32", ...options });
+  const attempt = () => spawnSync(command, args, { cwd: root, stdio: "inherit", shell: needsShell(command, process.platform), ...options });
   let result = attempt();
   let retried = false;
   if (result.status !== 0 && retryable && shouldRetry({ platform: process.platform, ci: process.env.CI, attempt: 1 })) {

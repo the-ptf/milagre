@@ -3,7 +3,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { readIdentity, rotateIdentity, readRetired } = require("./relay-identity.cjs");
+const { assertPrivate } = require("@milagre/core/private-files");
+const { readIdentity, rotateIdentity, readRetired, readDraining, dropDraining } = require("./relay-identity.cjs");
+
+// 0600 on macOS and Linux; on Windows, an ACL only this user and SYSTEM hold.
+const assertPrivateFile = async (file) => {
+  if (process.platform === "win32") assertPrivate(file);
+  else assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
+};
 
 test("identity is created once, private, and stable", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-id-"));
@@ -11,8 +18,7 @@ test("identity is created once, private, and stable", async () => {
   const second = await readIdentity(dir);
   assert.equal(first.hostId, second.hostId);
   assert.match(first.hostId, /^[A-Za-z0-9_-]{22}$/);
-  const mode = (await fs.stat(path.join(dir, "relay-identity.json"))).mode & 0o777;
-  assert.equal(mode, 0o600);
+  await assertPrivateFile(path.join(dir, "relay-identity.json"));
 });
 
 test("rotating the identity replaces both key pairs, privately, and is what later reads return", async () => {
@@ -26,7 +32,7 @@ test("rotating the identity replaces both key pairs, privately, and is what late
   const again = await readIdentity(dir);
   assert.equal(again.hostId, rotated.hostId);
   assert.deepEqual(again.box.publicKey, rotated.box.publicKey);
-  assert.equal((await fs.stat(path.join(dir, "relay-identity.json"))).mode & 0o777, 0o600);
+  await assertPrivateFile(path.join(dir, "relay-identity.json"));
   assert.deepEqual(
     (await fs.readdir(dir)).filter((name) => name.endsWith(".tmp")),
     [],
@@ -46,7 +52,7 @@ test("a rotation that retires keeps the old signing key, privately, until its ti
   assert.equal(retired[0].until, 100);
   assert.notEqual(retired[0].hostId, second.hostId);
   assert.deepEqual(await readRetired(dir, 100), [], "gone once its time is up");
-  assert.equal((await fs.stat(path.join(dir, "relay-retired.json"))).mode & 0o777, 0o600);
+  await assertPrivateFile(path.join(dir, "relay-retired.json"));
 });
 
 test("a plain rotation retires nothing, and only the last three retired identities are kept", async () => {
@@ -62,5 +68,56 @@ test("a plain rotation retires nothing, and only the last three retired identiti
   assert.deepEqual(
     (await readRetired(dir, 0)).map((entry) => entry.hostId),
     ids.slice(1),
+  );
+});
+
+test("a Reset can keep the old identity to drain its room's webhooks, privately, until it is dropped or expires", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-drain-"));
+  const first = await readIdentity(dir);
+  await rotateIdentity(dir, { drainUntil: 5000, now: 1000 });
+  assert.deepEqual(await readRetired(dir, 1000), [], "draining is not retiring");
+  const draining = await readDraining(dir, 1000);
+  assert.equal(draining.length, 1);
+  assert.equal(draining[0].hostId, first.hostId);
+  assert.deepEqual(draining[0].sign.publicKey, first.sign.publicKey);
+  assert.equal(draining[0].until, 5000);
+  await assertPrivateFile(path.join(dir, "relay-draining.json"));
+  assert.deepEqual(await readDraining(dir, 5000), [], "past its limit");
+  const second = await readIdentity(dir);
+  await rotateIdentity(dir, { drainUntil: 9000, retireUntil: 9000, now: 2000 });
+  assert.deepEqual(
+    (await readDraining(dir, 2000)).map((entry) => entry.hostId),
+    [first.hostId, second.hostId],
+  );
+  assert.deepEqual(
+    (await readRetired(dir, 2000)).map((entry) => entry.hostId),
+    [second.hostId],
+  );
+  await dropDraining(dir, first.hostId);
+  assert.deepEqual(
+    (await readDraining(dir, 2000)).map((entry) => entry.hostId),
+    [second.hostId],
+  );
+});
+
+test("no number of Resets evicts an identity still draining; one past its limit goes at the next Reset", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-drain-cap-"));
+  const ids = [];
+  for (let i = 0; i < 6; i++) {
+    ids.push((await readIdentity(dir)).hostId);
+    await rotateIdentity(dir, { drainUntil: 5000 + i, now: 1000 + i });
+  }
+  assert.deepEqual(
+    (await readDraining(dir, 2000)).map((entry) => entry.hostId),
+    ids,
+    "the first still drains: its room may hold deliveries the relay accepted",
+  );
+  const last = (await readIdentity(dir)).hostId;
+  await rotateIdentity(dir, { drainUntil: 9000, now: 5002 });
+  const kept = JSON.parse(await fs.readFile(path.join(dir, "relay-draining.json"), "utf8")).draining;
+  assert.equal(kept.length, 4, "the three past their limit are gone from disk");
+  assert.deepEqual(
+    (await readDraining(dir, 5002)).map((entry) => entry.hostId),
+    [...ids.slice(3), last],
   );
 });

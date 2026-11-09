@@ -8,6 +8,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { boxKeyPair, b64url, hostAccept } = require("@milagre/shared/relay-crypto");
 const { createFrameReader, createFrameWriter } = require("@milagre/shared/peer-frames");
 const { createComputers } = require("./computers.cjs");
+const { thisComputer, ThisComputer } = require("@milagre/shared/host-computer");
 
 const OWN = "o".repeat(22);
 const HOST = "h".repeat(22);
@@ -48,12 +49,12 @@ test("a relay link previews as the computer it names and how it is reached, with
 
 test("a pasted link that isn't a relay link, this Mac's own, or a computer already added, is refused before any socket opens", async (t) => {
   const { computers } = await setup(t, { saved: [studio] });
-  await assert.rejects(computers.preview("hello"), { message: "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac." });
+  await assert.rejects(computers.preview("hello"), { message: "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other computer." });
   await assert.rejects(computers.preview(link({ relay: "ws://127.0.0.1:9000" })), /isn't a Milagre pairing link/);
   await assert.rejects(computers.preview(`milagre://pair?address=${encodeURIComponent("https://mac.example.com")}&token=${"a".repeat(64)}&name=x`), {
-    message: "This link reaches its Mac through a Cloudflare tunnel, which computers can't use yet.",
+    message: "This link reaches its computer through a Cloudflare tunnel, which computers can't use yet.",
   });
-  await assert.rejects(computers.preview(link({ host: OWN })), { message: "That's this Mac's own link. Copy the one on the other Mac." });
+  await assert.rejects(computers.preview(link({ host: OWN })), { message: `That's ${thisComputer}'s own link. Copy the one on the other computer.` });
   await assert.rejects(computers.preview(link({ name: "anything" })), { message: "studio is already in your computers." });
   await assert.rejects(computers.add(link()), { message: "studio is already in your computers." });
 });
@@ -68,7 +69,7 @@ test("saved computers are off until Other computers is on, and one whose keys ar
   await computers.setEnabled(true);
   for (let i = 0; i < 200 && computers.list()[0].state !== "refused"; i++) await delay(5);
   assert.deepEqual(computers.list()[0].state, "refused");
-  assert.equal(computers.list()[0].message, "This Mac lost its keys for studio. Remove it and pair again.");
+  assert.equal(computers.list()[0].message, `${ThisComputer} lost its keys for studio. Remove it and pair again.`);
   await assert.rejects(computers.invoke("c1", "daemon:status"), /studio is offline/);
   await computers.setEnabled(false);
   assert.equal(computers.list()[0].state, "off");
@@ -142,22 +143,23 @@ function fakeMac({ lan = [], hello = "accept" } = {}) {
     const reader = createFrameReader("rpc");
     const writer = createFrameWriter("evt");
     let channel = null;
+    const target = new EventTarget();
     const socket = {
       url,
       binaryType: "",
-      onopen: null,
-      onmessage: null,
-      onclose: null,
-      onerror: null,
+      addEventListener: target.addEventListener.bind(target),
+      emit(type, event = {}) {
+        target.dispatchEvent(Object.assign(new Event(type), event));
+      },
       closed: null,
       deliver(bytes) {
         const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        queueMicrotask(() => socket.onmessage?.({ data }));
+        queueMicrotask(() => socket.emit("message", { data }));
       },
       closeWith(code) {
         if (socket.closed) return;
         socket.closed = code;
-        queueMicrotask(() => socket.onclose?.({ code }));
+        queueMicrotask(() => socket.emit("close", { code }));
       },
       close() {
         socket.closeWith(1000);
@@ -194,12 +196,14 @@ function fakeMac({ lan = [], hello = "accept" } = {}) {
       },
     };
     mac.sockets.push(socket);
-    queueMicrotask(() => socket.onopen?.());
+    queueMicrotask(() => socket.emit("open"));
     return socket;
   };
   return mac;
 }
 
+// What a LAN address that answers says to its probe (lan-host.cjs /v1/hello).
+const helloAnswer = () => ({ ok: true, json: async () => ({ v: 1, hostId: HOST }) });
 const macLink = (mac) => link().replace(`key=${"k".repeat(43)}`, `key=${mac.hostKey}`);
 
 async function until(check, label, ms = 3000) {
@@ -292,9 +296,9 @@ test("a Mac holding the first pairing for Allow is waited for, and cancelling sa
 test("a refusal while pairing is worded for pairing, with its code", async (t) => {
   for (const [hello, message, code] of [
     [{ code: "unknown-phone" }, "This link expired. Copy a new one on studio.", "unknown-phone"],
-    [{ code: "unknown-phone", reason: "denied" }, "studio didn't allow this Mac.", "denied"],
+    [{ code: "unknown-phone", reason: "denied" }, `studio didn't allow ${thisComputer}.`, "denied"],
     [{ code: "bad-hello", reason: "kind" }, "Update Milagre on studio to connect.", "kind"],
-    ["full", "studio has too many devices connected. Remove one in its Settings › Devices.", "full"],
+    ["full", "studio has too many devices connected. Remove one in its Settings › Phone & sharing.", "full"],
   ]) {
     const mac = fakeMac({ hello });
     const { computers } = await paired(t, mac);
@@ -326,7 +330,7 @@ test("a refusal retrying can't fix stops the computer for good instead of retryi
 
 test("every refusal that retrying can't fix refuses, with its words", async (t) => {
   for (const [hello, message] of [
-    [{ code: "unknown-phone", reason: "denied" }, "studio didn't allow this Mac."],
+    [{ code: "unknown-phone", reason: "denied" }, `studio didn't allow ${thisComputer}.`],
     [{ code: "bad-token", reason: "reset" }, "studio was reset. Pair again with a new link."],
     [{ code: "bad-token" }, "studio has a new pairing link. Pair again with it."],
     [{ code: "bad-hello", reason: "kind" }, "Update Milagre on studio to connect."],
@@ -370,7 +374,7 @@ test("a computer that stops answering reads Reconnecting…, then Offline, and c
   mac.drop();
   await until(() => state() === "reconnecting", "reconnecting");
   await until(() => computers.list()[0].message !== null, "the reason");
-  assert.equal(computers.list()[0].message, "studio has too many devices connected. Remove one in its Settings › Devices.");
+  assert.equal(computers.list()[0].message, "studio has too many devices connected. Remove one in its Settings › Phone & sharing.");
   await until(() => state() === "offline", "offline");
   mac.hello = "accept";
   await until(() => state() === "online", "online again");
@@ -400,6 +404,36 @@ test("the LAN is used when the computer gave an address that answers, the relay 
   await until(() => computers.list()[0].route === "relay" && state() === "online", "back on the relay");
 });
 
+test("a LAN address that doesn't answer doesn't hold a reconnect off the relay, and the runtime moves there once it does", async (t) => {
+  const mac = fakeMac({ lan: [LAN] });
+  // The saved LAN address is on another network: its probe waits (up to PROBE_TIMEOUT in the app) until the test says.
+  let lanAnswers = false;
+  const probes = [];
+  const { computers, changes, state } = await paired(t, mac, {
+    lanWaitMs: 50,
+    fetch: () => new Promise((resolve) => (lanAnswers ? resolve(helloAnswer()) : probes.push(() => resolve(helloAnswer())))),
+  });
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online");
+  await until(() => probes.length > 0, "the LAN address learned and probed");
+  const dropped = Date.now();
+  mac.drop();
+  await until(() => state() === "reconnecting", "the drop");
+  await until(() => state() === "online", "online again over the relay");
+  assert.ok(Date.now() - dropped < 1500, `the reconnect didn't wait for the LAN probe: ${Date.now() - dropped}ms`);
+  assert.equal(computers.list()[0].route, "relay");
+  const seen = changes.length;
+  lanAnswers = true;
+  for (const reply of probes.splice(0)) reply();
+  await until(() => computers.list()[0].route === "lan" && state() === "online", "on the LAN once it answers");
+  assert.equal(
+    changes.slice(seen).some((list) => list[0]?.state === "reconnecting"),
+    false,
+    "moving to the LAN is a switch, not an outage",
+  );
+});
+
 test("the runtime's events are passed on with the computer's id, except its connection state", async (t) => {
   const mac = fakeMac();
   const { computers, events, state } = await paired(t, mac);
@@ -421,7 +455,7 @@ test("a keychain that can't be opened refuses the computer without retrying", as
   const { computers, state } = await paired(t, mac, { safeStorage: { ...keychain, isEncryptionAvailable: () => false } });
   await assert.rejects(computers.add(macLink(mac), { name: "studio" }), {
     code: "keys",
-    message: "This Mac can't keep keys in its keychain, so it can't pair with computers.",
+    message: `${ThisComputer} can't keep keys in its keychain, so it can't pair with computers.`,
   });
   assert.equal(mac.urls.length, 0);
   assert.equal(state(), undefined);
@@ -465,9 +499,11 @@ test("a call made while the runtime moves to the LAN waits for it and goes throu
   mac.release();
   assert.deepEqual(await called, { echo: ["x"] });
   assert.equal(computers.list()[0].route, "lan");
+  // Its dev servers answer on the IP the LAN route dialed: the desktop links them there.
+  assert.equal(computers.list()[0].address, new URL(LAN).hostname);
 });
 
-test("a switch whose recovery fails reads Reconnecting… and the call waiting on it fails", async (t) => {
+test("a switch whose recovery fails reads Reconnecting… and the call waiting on it goes through once it is back", async (t) => {
   const mac = fakeMac({ lan: [LAN] });
   holdLanSnapshot(mac);
   const { computers, changes, state } = await paired(t, mac);
@@ -476,16 +512,43 @@ test("a switch whose recovery fails reads Reconnecting… and the call waiting o
   await until(() => mac.held.length === 1, "the runtime to be recovering on the LAN");
   const id = computers.list()[0].id;
   const seen = changes.length;
-  const called = assert.rejects(computers.invoke(id, "project:recent"), /disconnected/);
+  const called = computers.invoke(id, "project:recent", ["x"]);
   mac.hold = null;
   mac.held.length = 0;
   for (const socket of mac.sockets.filter((item) => item.url.startsWith(LAN))) socket.closeWith(1006);
-  await called;
-  assert.ok(
-    changes.slice(seen).some((list) => list[0]?.state === "reconnecting"),
-    "the failed switch is not swallowed as part of the switch",
-  );
+  await until(() => changes.slice(seen).some((list) => list[0]?.state === "reconnecting"), "the failed switch is not swallowed as part of the switch");
   await until(() => state() === "online", "back online");
+  assert.deepEqual(await called, { echo: ["x"] });
+});
+
+test("a call made while a computer reconnects waits for it instead of failing as offline, and fails once it is offline", async (t) => {
+  const mac = fakeMac();
+  const lines = [];
+  const { computers, state } = await paired(t, mac, { offlineAfterMs: 300, log: (line) => lines.push(line) });
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online");
+  const id = computers.list()[0].id;
+  mac.hello = "full";
+  mac.drop();
+  await until(() => state() === "reconnecting", "reconnecting");
+  let settled = false;
+  const called = computers.invoke(id, "project:recent", ["x"]).finally(() => (settled = true));
+  await delay(40);
+  assert.equal(settled, false, "the call waits for the reconnect");
+  mac.hello = "accept";
+  assert.deepEqual(await called, { echo: ["x"] });
+  assert.ok(
+    lines.some((line) => / studio reconnecting from relay: \S/.test(line)) && lines.some((line) => / studio online relay/.test(line)),
+    lines.join("\n"),
+  );
+
+  mac.hello = "full";
+  mac.drop();
+  await until(() => state() === "reconnecting", "reconnecting again");
+  const waiting = assert.rejects(computers.invoke(id, "project:recent"), /studio is offline/);
+  await until(() => state() === "offline", "offline");
+  await waiting;
 });
 
 test("a computer whose first calls fail keeps no channel open between its retries", async (t) => {
@@ -560,7 +623,7 @@ test("a keychain that can't be opened for a computer already here is shown and r
   await computers.setEnabled(true);
   const state = () => computers.list()[0].state;
   await until(() => state() === "reconnecting" && computers.list()[0].message !== null, "the keychain's words");
-  assert.equal(computers.list()[0].message, "This Mac can't keep keys in its keychain, so it can't pair with computers.");
+  assert.equal(computers.list()[0].message, `${ThisComputer} can't keep keys in its keychain, so it can't pair with computers.`);
   const opened = mac.urls.length;
   // The keychain comes back (a prompt allowed, the login unlocked): the next retry connects.
   available = true;
@@ -635,4 +698,33 @@ test("the window's focus reaches the computer's daemon, now and after every reco
   await until(() => mac.calls.length > before && mac.calls.includes("daemon:snapshot-page") && mac.focus.length > 3, "replayed");
   await delay(50);
   assert.equal(mac.focus.at(-1), true, "the reconnect replays the window's state");
+});
+
+test("the same focus twice reaches the computer once", async (t) => {
+  const mac = fakeMac();
+  const { computers, state } = await paired(t, mac);
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online");
+  computers.setFocused(true);
+  await until(() => mac.focus.at(-1) === true, "focus told");
+  const sent = mac.focus.length;
+  for (let index = 0; index < 50; index++) computers.setFocused(true);
+  computers.setFocused(false);
+  await until(() => mac.focus.at(-1) === false, "blur told");
+  assert.equal(mac.focus.length, sent + 1, "repeats of the value the computer has never go out");
+});
+
+test("the first pairing prefers advertised private routes and saves them for reconnects", async (t) => {
+  const mac = fakeMac({ lan: [LAN] });
+  const { computers, dataDir, state } = await paired(t, mac);
+  await computers.setEnabled(true);
+  const invitation = macLink(mac) + `&direct=${encodeURIComponent(JSON.stringify([LAN]))}`;
+  await computers.add(invitation);
+  await until(() => state() === "online", "private computer online");
+  assert.ok(mac.urls[0].startsWith(LAN), "the first pairing does not need the relay");
+  assert.equal(computers.list()[0].route, "lan");
+  assert.equal(computers.list()[0].address, "192.168.1.5");
+  const saved = JSON.parse(await fs.readFile(path.join(dataDir, "computers.json"), "utf8"));
+  assert.deepEqual(saved[0].lanRoutes, [LAN]);
 });

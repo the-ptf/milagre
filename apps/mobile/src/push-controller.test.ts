@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPushController, notificationTarget, shouldPresentNotification } from "./push-controller.ts";
+import { readFileSync } from "node:fs";
+import { createPushController, notificationTarget, shouldPresentNotification, SHEETS_OVER_CHAT, SHEETS_OVER_PAGES, viewedChat } from "./push-controller.ts";
 import { createPushStore } from "./push-store.ts";
 import type { SavedHost } from "./hosts-store.ts";
 const deviceId = "b6e2df4b-972b-4e7b-bc65-6cda0a173798";
@@ -38,10 +39,12 @@ test("opt-in obtains permission/token and registers the remembered computers wit
   assert.deepEqual(calls[0], {
     host,
     method: "push:register",
-    args: [{ deviceId, token: "ExpoPushToken[one]", hostId: host.id, notifyWhenWaiting: true, notifyOnCompletion: true }],
+    args: [{ deviceId, token: "ExpoPushToken[one]", hostId: host.id, notifyWhenWaiting: true, notifyOnCompletion: true, chime: "system", schedule: null }],
   });
   await controller.preferences({ notifyOnCompletion: false });
   assert.equal((calls.at(-1)!.args[0] as { notifyOnCompletion: boolean }).notifyOnCompletion, false);
+  await controller.preferences({ chime: "miracle" });
+  assert.equal((calls.at(-1)!.args[0] as { chime: string }).chime, "miracle");
 });
 
 test("denied permission never registers or enables notifications", async () => {
@@ -140,6 +143,28 @@ test("foreground alerts are suppressed for the current Chat only", () => {
   assert.equal(shouldPresentNotification(data, { hostId: "https://other.example", chatId: "/project#1" }), true);
 });
 
+test("a sheet over the Chat keeps it viewed; other pages and another computer do not", () => {
+  const chat = { hostId: host.id, chatId: "/project#1" };
+  assert.deepEqual(viewedChat("/chat", chat, null, host.id), chat);
+  assert.deepEqual(viewedChat("/permission-sheet", null, chat, host.id), chat);
+  assert.deepEqual(viewedChat("/viewer", null, chat, host.id), chat);
+  assert.deepEqual(viewedChat("/settings", null, chat, host.id), chat);
+  assert.deepEqual(viewedChat("/worktrees", null, chat, host.id), chat);
+  assert.equal(viewedChat("/permission-sheet", null, chat, "https://other.example"), null);
+  assert.equal(viewedChat("/terminal-sheet", null, chat, host.id), null);
+  assert.equal(viewedChat("/changes", null, chat, host.id), null);
+  assert.equal(viewedChat("/", null, chat, host.id), null);
+});
+
+test("the sheets that keep a Chat viewed are the layout's sheets and transparent modals", () => {
+  const layout = readFileSync(new URL("./app/_layout.tsx", import.meta.url), "utf8");
+  const overlays = [...layout.matchAll(/name="([\w-]+)"\s*options=\{\{\s*(?:\.\.\.sheet|presentation: "transparentModal")/g)].map((match) => match[1]);
+  assert.ok(overlays.includes("permission-sheet"));
+  // Every sheet either opens over the Chat, keeping it viewed, or over a full-screen page that already hides it.
+  assert.deepEqual([...SHEETS_OVER_CHAT, ...SHEETS_OVER_PAGES].sort(), overlays.sort());
+  assert.equal(viewedChat("/design-share-sheet", null, { hostId: host.id, chatId: "/p#1" }, host.id), null);
+});
+
 test("Forget persists removal without waiting for a suspended unregister", async () => {
   let release!: () => void;
   const network = new Promise<void>((resolve) => {
@@ -153,7 +178,9 @@ test("Forget persists removal without waiting for a suspended unregister", async
   await controller.enable();
   try {
     await Promise.race([controller.forget(host), new Promise((_, reject) => setTimeout(() => reject(new Error("Forget waited for network")), 100))]);
-    assert.equal((await store.read()).pending[0].id, host.id);
+    const [pending] = (await store.read()).pending;
+    assert.ok(pending);
+    assert.equal(pending.id, host.id);
   } finally {
     release();
   }
@@ -207,4 +234,35 @@ test("restart finishes local Forget before a suspended network cleanup and rejec
   release();
   await refresh;
   assert.deepEqual(methods, ["push:unregister"]);
+});
+
+test("phone schedules reach capable computers and are removed when anytime is selected", async () => {
+  const calls: { method: string; args: unknown[] }[] = [];
+  const { controller, store } = fixture({
+    call: async (_host: SavedHost, method: string, args: unknown[]) => {
+      calls.push({ method, args });
+      return { capabilities: ["mobile-push-schedule-v1"] };
+    },
+  });
+  await controller.enable();
+  const schedule = { days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone: "America/Toronto" };
+  await controller.preferences({ schedule });
+  assert.deepEqual((await store.read()).schedule, schedule);
+  assert.equal(calls.at(-2)?.method, "daemon:status");
+  assert.deepEqual((calls.at(-1)!.args[0] as { schedule: unknown }).schedule, schedule);
+  await controller.preferences({ schedule: null });
+  assert.equal((calls.at(-1)!.args[0] as { schedule: unknown }).schedule, null);
+});
+
+test("an older computer is unregistered before it can ignore quiet hours", async () => {
+  const errors: string[] = [];
+  const { controller, calls } = fixture({ onError: (message: string) => errors.push(message) });
+  await controller.enable();
+  calls.length = 0;
+  await controller.preferences({ schedule: { days: [1], start: "09:00", end: "17:00", timeZone: "UTC" } });
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ["daemon:status", "push:unregister"],
+  );
+  assert.match(errors[0]!, /Update Milagre on Mac/);
 });

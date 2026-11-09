@@ -43,8 +43,8 @@ function harness({ queued = () => 0 } = {}) {
         close: () => state.closed++,
       };
     },
-    channel: mac,
-    deliver: (sealed) => out.push(desktop.open(sealed)),
+    // The carrier seals what the channel hands it (phone-channels.cjs does, batched or not).
+    deliver: (encoded) => out.push(desktop.open(mac.sealEncoded(encoded))),
     queued,
     isOpen: () => state.open,
     drop: () => {

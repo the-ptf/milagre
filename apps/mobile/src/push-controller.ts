@@ -1,6 +1,7 @@
 import type { SavedHost } from "./hosts-store.ts";
 import type { PushPreferences, PushStore } from "./push-store.ts";
 import { isChatScope } from "./chat-scope.ts";
+import { parseNotificationChime } from "@milagre/shared/notification-chimes";
 
 export type PushView = { hostId: string; chatId: string } | null;
 export type NotificationTarget = { host: SavedHost; projectPath: string; sessionId: number; eventId: string };
@@ -21,6 +22,64 @@ export function notificationTarget(value: unknown, hosts: SavedHost[]): Notifica
     return null;
   const host = hosts.find((host) => host.id === data.hostId);
   return host ? { host, projectPath: data.projectPath, sessionId: Number(data.sessionId), eventId: data.eventId } : null;
+}
+// The routes app/_layout.tsx presents as a sheet or a transparent modal: the Chat they open over stays on screen behind
+// them. A full-screen modal or a pushed page hides it.
+export const SHEETS_OVER_CHAT = new Set([
+  "update-sheet",
+  "update-notes",
+  "confirm-sheet",
+  "choice-sheet",
+  "chime-sheet",
+  "add-computer",
+  "mcp-add",
+  "link-projects",
+  "link-chat",
+  "choose-projects",
+  "context-sheet",
+  "permission-sheet",
+  "model-sheet",
+  "agents",
+  "inbox",
+  "ports-sheet",
+  "browser-sheet",
+  "activity",
+  "background",
+  "handoff-brief",
+  "routine-form",
+  "viewer",
+]);
+// Every page inside the Settings sheet (app/(settings)): the group is one sheet in the layout, so its pages share the
+// sheet's rule. A sheet that opens over the Chat leaves it viewed.
+const SETTINGS_SHEET_PAGES = new Set([
+  "settings",
+  "computers",
+  "computer",
+  "accounts",
+  "connections",
+  "appearance",
+  "chat-display",
+  "voice",
+  "models",
+  "worktrees",
+  "phone-sharing",
+  "this-mac",
+  "notifications",
+  "usage",
+  "skills",
+  "skill",
+  "mcp",
+  "mcp-server",
+  "experimental",
+  "project-settings",
+  "published-pages",
+]);
+// Sheets the layout presents over a full-screen page (the designs), which already hides the Chat: they don't keep it viewed.
+export const SHEETS_OVER_PAGES = new Set(["design-share-sheet", "flow-step", "flow-add-step", "flow-publish"]);
+/** The Chat on screen: the one at /chat (`chat`), or the one a sheet opened over (`previous`), while its computer is connected. */
+export function viewedChat(path: string, chat: PushView, previous: PushView, connected: string | undefined): PushView {
+  if (path === "/chat") return chat;
+  return previous && previous.hostId === connected && (SHEETS_OVER_CHAT.has(path.slice(1)) || SETTINGS_SHEET_PAGES.has(path.slice(1))) ? previous : null;
 }
 export function shouldPresentNotification(value: unknown, view: PushView) {
   const data = value as Record<string, unknown> | null;
@@ -74,6 +133,14 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
       await store.registered(host);
       if (current !== version) return;
       try {
+        if (state.schedule) {
+          const status = (await call(host, "daemon:status", [])) as { capabilities?: string[] } | null;
+          if (!status?.capabilities?.includes("mobile-push-schedule-v1")) {
+            await call(host, "push:unregister", [{ deviceId: state.deviceId }]);
+            onError(`Update Milagre on ${host.name} to use notification schedules. Notifications from it are paused until it supports your schedule.`);
+            continue;
+          }
+        }
         await call(host, "push:register", [
           {
             deviceId: state.deviceId,
@@ -81,6 +148,8 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
             hostId: host.id,
             notifyWhenWaiting: state.notifyWhenWaiting,
             notifyOnCompletion: state.notifyOnCompletion,
+            chime: parseNotificationChime(state.chime),
+            schedule: state.schedule ?? null,
           },
         ]);
       } catch {

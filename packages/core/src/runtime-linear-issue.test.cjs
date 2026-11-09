@@ -42,6 +42,10 @@ async function fixture(t, { reachable = true } = {}) {
   const json = (body) => ({ ok: true, status: 200, json: async () => body });
   const runtime = createRuntime({
     dataDir,
+    chatsHome: path.join(dir, "chats"),
+    // Worktrees and the Project list stay in this test's folder, never this Mac's own.
+    worktreeRoot: path.join(dir, "worktrees"),
+    registryRoots: [],
     cwd: project,
     environmentReady: Promise.resolve(),
     titleModels: {},
@@ -112,7 +116,9 @@ test("a Chat started from an issue stores Linear's copy as a card and points the
     workspace: "acme",
     note: "check Safari too",
   });
-  assert.ok(f.turns[0].prompt.startsWith(message.body));
+  // The Chat shows the issue as its first message; the agent gets the user's note first and the issue as data.
+  assert.ok(f.turns[0].prompt.startsWith('The user asks: check Safari too\n\n<linear_issue key="ENG-12">'), f.turns[0].prompt);
+  assert.match(f.turns[0].prompt, /Title: Fix the login redirect\nURL: .*\n\nUsers bounce to \/home\.\n<\/linear_issue>/);
   assert.match(f.turns[0].prompt, /linear_issue tool/);
   assert.match(f.turns[0].prompt, /not a Linear MCP or connector/);
 });
@@ -144,7 +150,7 @@ test("a malformed issue request is refused and a renderer can't set the context 
   assert.equal((await f.messages())[0].context, null);
 });
 
-test("a shared Chat started from an issue gets the card, and the Worktrees it makes are named after the issue", async (t) => {
+test("a shared Chat started from an issue gets the card, and the Worktree it makes is named after the issue", async (t) => {
   const f = await fixture(t);
   const folders = [];
   for (const name of ["api", "web"]) {
@@ -180,12 +186,6 @@ test("a shared Chat started from an issue gets the card, and the Worktrees it ma
   assert.equal(message.context.title, node.title);
   assert.deepEqual(state.sessions[sent.sessionId].worktrees, [], "no Worktree until the agent changes a Project");
   assert.match(f.turns[0].prompt, /linear_issue tool/);
-  // The Worktree the agent makes later is still named after the issue.
-  const tool = f.sessions.at(-1).linked.tools.find((item) => item.name === "link_worktree");
-  assert.match(await tool.run({ project: "web" }), new RegExp(`Branch: ${node.branchName}\\.`));
-  const made = (await f.runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId].worktrees;
-  assert.deepEqual(
-    made.map((member) => [member.projectName, member.branch]),
-    [["web", node.branchName]],
-  );
+  const create = f.sessions.at(-1).linked.tools.find((item) => item.name === "link_worktree_create");
+  assert.equal(JSON.parse(await create.run({ project: "web" })).branch, node.branchName);
 });

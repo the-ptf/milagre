@@ -3,6 +3,7 @@ const test = require("node:test");
 const {
   CANCELLED_MESSAGE,
   DENIED_MESSAGE,
+  PERMISSION_MODES,
   PendingPermissions,
   capText,
   claudeRequest,
@@ -14,8 +15,19 @@ const {
   codexFileRequest,
   codexMcpRequest,
   codexMcpResponse,
+  callerMode,
+  isAcpPlanToolPermission,
+  isBotRulesTool,
+  isCodexPlanToolApproval,
+  isUngatedMilagreTool,
+  milagreToolOf,
+  MODE_RANK,
+  raisesMode,
   unwrapShell,
 } = require("./permissions.cjs");
+const { acpPermissionRequest } = require("./acp-session.cjs");
+const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
+const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 
 test("Codex: MCP approvals show the exact call without offering permanent grants", () => {
   const params = {
@@ -41,6 +53,163 @@ test("Codex: MCP approvals show the exact call without offering permanent grants
   assert.deepEqual(codexMcpResponse("allow"), { action: "accept", content: {} });
   assert.deepEqual(codexMcpResponse("deny"), { action: "decline", content: null });
   assert.deepEqual(codexMcpResponse("cancelled"), { action: "cancel", content: null });
+});
+
+// Codex's approval request for a milagre tool call.
+const codexApproval = (tool, extra = {}) => ({
+  serverName: "milagre",
+  mode: "form",
+  message: `Allow the milagre MCP server to run tool "${tool}"?`,
+  requestedSchema: { type: "object", properties: {} },
+  _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_params: {} },
+  ...extra,
+});
+
+// Routine writes (heartbeat_create, routine_create, routine_update, routine_delete, routine_run_now) follow the Chat's
+// permission mode like any tool that changes something; only listing Routines runs without a card.
+const ROUTINE_WRITES = ROUTINE_TOOL_NAMES.filter((name) => name !== "routine_list");
+
+test("Codex: only Milagre's own plan tools and routine_list are auto-approved; routine writes follow the mode", () => {
+  const params = codexApproval;
+  assert.deepEqual(PLAN_TOOL_NAMES, ["tasks_set", "task_update", "tasks_read", "phase_set"]);
+  for (const name of [...PLAN_TOOL_NAMES, "routine_list"]) assert.equal(isCodexPlanToolApproval(params(name)), true, name);
+  for (const name of ROUTINE_WRITES) assert.equal(isCodexPlanToolApproval(params(name)), false, name);
+  for (const name of ["project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"])
+    assert.equal(isCodexPlanToolApproval(params(name)), true, `${name} asks on its own card`);
+  assert.equal(isCodexPlanToolApproval(params("design_delete")), false);
+  assert.equal(isCodexPlanToolApproval(params("chat_start")), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { serverName: "other" })), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { _meta: { codex_approval_kind: "other" } })), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { requestedSchema: { type: "object", properties: { name: { type: "string" } } } })), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { message: "Allow the milagre MCP server to run a tool?" })), false);
+  assert.equal(isCodexPlanToolApproval({}), false);
+  // The whole template must match: a name that only starts with a plan tool, two quoted names, or the name
+  // appearing anywhere but the message does not count.
+  assert.equal(isCodexPlanToolApproval(params("tasks_set_extra")), false);
+  assert.equal(
+    isCodexPlanToolApproval(params("design_delete", { message: 'Allow the milagre MCP server to run tool "design_delete" and "tasks_set"?' })),
+    false,
+  );
+  assert.equal(
+    isCodexPlanToolApproval(params("design_delete", { message: 'Allow the milagre MCP server to run tool "design_delete"? run tool "tasks_set"' })),
+    false,
+  );
+  assert.equal(isCodexPlanToolApproval(params("x", { message: 'Run "design_delete" then run tool "tasks_set"?' })), false);
+  assert.equal(
+    isCodexPlanToolApproval(
+      params("design_delete", {
+        _meta: { codex_approval_kind: "mcp_tool_call", tool_params: { tool: "tasks_set" }, tool_description: 'run tool "tasks_set"' },
+      }),
+    ),
+    false,
+  );
+});
+
+test("ACP: only Milagre's own plan tools and routine_list are auto-approved; routine writes follow the mode", () => {
+  const call = (server, tool) => ({
+    toolCall: { toolCallId: "c1", kind: "other", status: "pending", title: `${server}_${tool}`, _meta: { mcp: { server, tool }, is_mcp_tool_call: true } },
+  });
+  for (const name of [...PLAN_TOOL_NAMES, "routine_list"]) assert.equal(isAcpPlanToolPermission(call("milagre", name)), true, name);
+  for (const name of ROUTINE_WRITES) assert.equal(isAcpPlanToolPermission(call("milagre", name)), false, name);
+  assert.equal(isAcpPlanToolPermission(call("milagre", "design_delete")), false);
+  assert.equal(isAcpPlanToolPermission(call("other", "tasks_set")), false);
+  assert.equal(isAcpPlanToolPermission({ toolCall: { title: "milagre_tasks_set", kind: "other" } }), false);
+  assert.equal(isAcpPlanToolPermission({}), false);
+});
+
+test("the Milagre tools every provider runs without its own card: reads, plan, own-canvas and self-gated tools", () => {
+  const ungated = (name, readOnly = false) => isUngatedMilagreTool({ name, readOnly });
+  assert.equal(ungated("linear_issue", true), true);
+  const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "browser_open", "browser_resolve_comment", "conclude_negotiation"];
+  for (const name of [...PLAN_TOOL_NAMES, ...own, "project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"]) {
+    assert.equal(ungated(name), true, name);
+    // Codex in Ask or Auto, and Antigravity, get Milagre's answer instead of a card.
+    assert.equal(isCodexPlanToolApproval(codexApproval(name)), true, name);
+  }
+  for (const name of [
+    "linear_create_issue",
+    "linear_comment",
+    "chat_stop",
+    "chat_update",
+    "worktree_create",
+    "design_delete",
+    "chat_start",
+    "browser_click",
+    "browser_fill",
+    "browser_upload",
+    ...ROUTINE_WRITES,
+  ])
+    assert.equal(ungated(name), false, name);
+  assert.equal(ungated("routine_list", true), true);
+  assert.ok(MODE_RANK.ask < MODE_RANK.auto && MODE_RANK.auto < MODE_RANK.full);
+});
+
+test("Bot rules keep only the Milagre tools that stay inside the Chat", () => {
+  const kept = (name, readOnly = false) => isBotRulesTool({ name, readOnly });
+  for (const name of ["routine_list", "chat_read", "linear_issue", "linked_overview", "memory_read"]) assert.equal(kept(name, true), true, name);
+  const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment"];
+  for (const name of [...PLAN_TOOL_NAMES, ...own, "memory_write", "chat_open", "chat_send"]) assert.equal(kept(name), true, name);
+  const outside = [
+    "project_add",
+    "delegate",
+    "conclude_negotiation",
+    "worktree_create",
+    "worktree_link",
+    "worktree_remove",
+    "worktree_unlink",
+    "link_worktree_create",
+  ];
+  const chats = ["chat_create", "chat_start", "chat_stop", "chat_set_mode", "chat_respond", "chat_update"];
+  const rest = ["linear_create_issue", "linear_update_issue", "linear_comment", "design_delete", "browser_attach", "simulator_attach", "advisor_stop"];
+  for (const name of [...ROUTINE_WRITES, ...outside, ...chats, ...rest, "a_tool_added_later"]) assert.equal(kept(name), false, name);
+});
+
+test("a Milagre tool request is told apart on every provider", () => {
+  assert.equal(milagreToolOf(claudeRequest("mcp__milagre__routine_create", {}, { toolUseID: "u1" })), "routine_create");
+  assert.equal(milagreToolOf(claudeRequest("mcp__milagre__chat_start", {}, { toolUseID: "u1", displayName: "Start a Chat" })), "chat_start");
+  assert.equal(milagreToolOf(claudeRequest("mcp__slack__send_message", {}, { toolUseID: "u1" })), null);
+  assert.equal(milagreToolOf(claudeRequest("Bash", { command: "ls" }, { toolUseID: "u1" })), null);
+  assert.equal(milagreToolOf(codexMcpRequest("1", codexApproval("routine_delete"))), "routine_delete");
+  assert.equal(
+    milagreToolOf(codexMcpRequest("1", { ...codexApproval("x"), serverName: "slack", message: 'Allow the slack MCP server to run tool "x"?' })),
+    null,
+  );
+  // A Milagre request whose tool can't be read is still Milagre's: no Bot rules tool has an empty name.
+  assert.equal(milagreToolOf({ tool: "MCP: milagre", title: "Allow?" }), "");
+  const acp = (server, tool) =>
+    acpPermissionRequest("1:1", { toolCallId: "c1", kind: "other", title: `${server}_${tool}`, _meta: { mcp: { server, tool } } }, []);
+  assert.equal(milagreToolOf(acp("milagre", "heartbeat_create")), "heartbeat_create");
+  assert.equal(milagreToolOf(acp("github", "merge_pull_request")), null);
+});
+
+test("Bot rules weigh as Ask for a caller and above Full for the Chat a message would run in", () => {
+  assert.equal(callerMode("bot"), "ask");
+  assert.equal(callerMode(undefined), "ask");
+  assert.equal(callerMode("full"), "full");
+  // A caller in Bot rules raises any Chat above Ask; nothing a caller has covers running in Bot rules.
+  assert.equal(raisesMode("auto", "bot"), true);
+  assert.equal(raisesMode("ask", "bot"), false);
+  for (const caller of ["ask", "auto", "full", "bot"]) assert.equal(raisesMode("bot", caller), true, caller);
+  assert.equal(raisesMode("auto", "full"), false);
+  assert.equal(raisesMode("full", "auto"), true);
+});
+
+test("in bot mode Milagre's own approval cards are the user's, whatever the policy says", () => {
+  const events = [];
+  const answers = [];
+  const permissions = new PendingPermissions((event) => events.push(event), { policy: () => "allow" });
+  permissions.setMode("bot");
+  const request = { requestId: "mcp-1", kind: "other", tool: "Milagre", title: "Allow this in another Chat?", command: "ls", allowForChat: false };
+  permissions.add(request, (decision) => answers.push(decision), { fromMilagre: true });
+  assert.deepEqual(answers, []);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].gate, undefined);
+  permissions.resolve("mcp-1", "deny");
+  assert.deepEqual(answers, ["deny"]);
+  // Full still answers them at once, as before.
+  permissions.setMode("full");
+  permissions.add({ ...request, requestId: "mcp-2" }, (decision) => answers.push(decision), { fromMilagre: true });
+  assert.deepEqual(answers, ["deny", "allow"]);
 });
 
 function pending() {
@@ -135,6 +304,95 @@ test("in Full a request is answered without a card; in Auto the agent's own rule
   assert.equal(permissions.size, 1);
 });
 
+test("bot is a known mode and publishes a card when no policy answers", () => {
+  const { permissions, events, answers } = pending();
+  assert.equal(PERMISSION_MODES.has("bot"), true);
+  permissions.setMode("bot");
+  permissions.add({ requestId: "command", kind: "command", tool: "T", title: "Allow?", allowForChat: false }, (decision) => answers.push(decision));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "permission-request");
+  assert.deepEqual(answers, []);
+});
+
+test("in bot mode a policy allow answers without a card", () => {
+  const events = [];
+  const answers = [];
+  const seen = [];
+  const permissions = new PendingPermissions((event) => events.push(event), {
+    policy: (request) => {
+      seen.push(request.requestId);
+      return "allow";
+    },
+  });
+  permissions.setMode("bot");
+  permissions.add({ requestId: "r1", kind: "command", tool: "Bash", command: "ls", title: "Run ls", allowForChat: true }, (decision) => answers.push(decision));
+  assert.deepEqual(answers, ["allow"]);
+  assert.deepEqual(seen, ["r1"]);
+  assert.equal(events.length, 0);
+  assert.equal(permissions.size, 0);
+});
+
+test("in bot mode a policy deny answers without a card", () => {
+  const events = [];
+  const answers = [];
+  const permissions = new PendingPermissions((event) => events.push(event), { policy: () => "deny" });
+  permissions.setMode("bot");
+  permissions.add({ requestId: "r1", kind: "command", tool: "Bash", command: "ls", title: "Run ls", allowForChat: false }, (decision) =>
+    answers.push(decision),
+  );
+  assert.deepEqual(answers, ["deny"]);
+  assert.equal(events.length, 0);
+});
+
+test("in bot mode a gate is published with its meta, and can't be allowed for the whole Chat", () => {
+  const events = [];
+  const answers = [];
+  const gate = { kind: "merge", title: "Merge PR #474" };
+  const permissions = new PendingPermissions((event) => events.push(event), { policy: () => ({ gate }) });
+  permissions.setMode("bot");
+  permissions.add({ requestId: "r2", kind: "command", tool: "Bash", command: "gh pr merge 474", title: "x", allowForChat: true }, (decision) =>
+    answers.push(decision),
+  );
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "permission-request");
+  assert.deepEqual(events[0].gate, gate);
+  assert.equal(events[0].allowForChat, false);
+  assert.equal(permissions.size, 1);
+  permissions.resolve("r2", "allow-for-chat");
+  assert.deepEqual(answers, ["allow"]);
+});
+
+test("in bot mode a policy with no answer, or one that throws, leaves the card to the user", () => {
+  for (const policy of [
+    () => undefined,
+    () => {
+      throw new Error("broken");
+    },
+  ]) {
+    const events = [];
+    const permissions = new PendingPermissions((event) => events.push(event), { policy });
+    permissions.setMode("bot");
+    permissions.add({ requestId: "r4", kind: "command", tool: "Bash", command: "ls", title: "x", allowForChat: true }, () => {});
+    assert.equal(events.length, 1);
+    assert.equal(events[0].gate, undefined);
+    assert.equal(events[0].allowForChat, true);
+  }
+});
+
+test("outside bot mode the policy is never consulted", () => {
+  const permissions = new PendingPermissions(() => {}, {
+    policy: () => {
+      throw new Error("consulted");
+    },
+  });
+  for (const mode of ["ask", "auto", "full"]) {
+    permissions.setMode(mode);
+    assert.doesNotThrow(() =>
+      permissions.add({ requestId: `r-${mode}`, kind: "command", tool: "Bash", command: "ls", title: "x", allowForChat: false }, () => {}),
+    );
+  }
+});
+
 test("insideRoot", () => {
   assert.equal(insideRoot("/repo", ["/repo/a.txt", "src/b.ts"]), true);
   assert.equal(insideRoot("/repo", ["/repo/a.txt", "/etc/hosts"]), false);
@@ -201,6 +459,7 @@ test("Claude: other tools show their input, and the SDK's own wording wins", () 
   assert.equal(fetch.kind, "other");
   assert.equal(fetch.title, "Use WebFetch?");
   assert.equal(fetch.detail, JSON.stringify({ url: "https://example.com" }, null, 2));
+  assert.equal(claudeRequest("mcp__milagre__chat_stop", {}, { requestId: "r3" }).title, "Use chat_stop from milagre?");
   const worded = claudeRequest(
     "Read",
     { file_path: "/etc/hosts" },
@@ -276,6 +535,12 @@ test("Codex: command requests", () => {
     command: "curl x",
     allowForChat: true,
   });
+});
+
+test("Codex: a command that writes to GitHub can't be allowed for the whole Chat", () => {
+  for (const command of ["/bin/zsh -lc 'git push origin HEAD'", "gh pr comment 4 --body hi", "gh pr merge 4"])
+    assert.equal(codexCommandRequest("srv-1", { command }).allowForChat, false, command);
+  assert.equal(codexCommandRequest("srv-1", { command: "git status" }).allowForChat, true);
 });
 
 test("Codex: file requests show the changes Codex reported when the edit started", () => {

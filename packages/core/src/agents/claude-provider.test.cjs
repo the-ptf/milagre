@@ -1,7 +1,19 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { ClaudeSession } = require("./claude-provider.cjs");
-const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, isTerminal, loginMessage, missingCliMessage, failedWith } = require("./events.cjs");
+const {
+  MILAGRE_INSTRUCTIONS,
+  advisorInstructions,
+  RESUME_FAILED_MESSAGE,
+  crashMessage,
+  isTerminal,
+  loginMessage,
+  missingCliMessage,
+  failedWith,
+} = require("./events.cjs");
 const { DISMISSED_MESSAGE, UNSHOWN_MESSAGE } = require("./questions.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -150,6 +162,26 @@ const scripts = {
     };
     yield success;
   },
+  // Claude Code runs the PreToolUse hook, then asks canUseTool with the tool's display name.
+  async *sendsMessage({ options, signal }) {
+    yield init;
+    const input = { channel: "#ops", text: "Merged." };
+    await options.hooks.PreToolUse[0].hooks[0](
+      { hook_event_name: "PreToolUse", tool_name: "mcp__slack__send_message", tool_input: input, tool_use_id: "tool-m" },
+      "tool-m",
+      {
+        signal,
+      },
+    );
+    const result = await options.canUseTool("mcp__slack__send_message", input, {
+      signal,
+      requestId: "req-m",
+      toolUseID: "tool-m",
+      displayName: "Send Message",
+    });
+    yield delta(JSON.stringify(result));
+    yield success;
+  },
   async *sdkAbortsAlready({ options }) {
     yield init;
     const controller = new AbortController();
@@ -172,7 +204,7 @@ const scripts = {
 // Scripts get the query options (for canUseTool), an abort signal that interrupt() trips, a gate
 // the test opens with calls.release(), and next() to read a message sent while they run.
 function fakeSdk(script) {
-  const calls = { options: null, queries: 0, prompts: [], models: [], modes: [], thinking: [], flags: [], interrupts: 0, release: () => {} };
+  const calls = { order: [], options: null, queries: 0, prompts: [], models: [], modes: [], thinking: [], flags: [], interrupts: 0, release: () => {} };
   const query = ({ prompt, options }) => {
     calls.queries += 1;
     calls.options = options;
@@ -187,7 +219,10 @@ function fakeSdk(script) {
     const messages = prompt[Symbol.asyncIterator]();
     const next = async () => {
       const { value } = await messages.next();
-      if (value) calls.prompts.push(value);
+      if (value) {
+        calls.prompts.push(value);
+        calls.order.push("message");
+      }
       return value;
     };
     async function* run() {
@@ -211,24 +246,49 @@ function fakeSdk(script) {
       setMaxThinkingTokens: async (...args) => {
         calls.thinking.push(args);
       },
+      toggleMcpServer: async (name, enabled) => {
+        (calls.toggles ??= []).push([name, enabled]);
+        calls.order.push(`toggle:${name}`);
+      },
+      getTaskOutput: async (taskId) => {
+        if (taskId !== "b1") throw new Error("get_task_output: no shell or Monitor task with that task_id in this session");
+        return { output: "building…\n", total_bytes: 9000, truncated: true };
+      },
     });
   };
   return { calls, loadSdk: async () => ({ query }) };
 }
 
-function claude(t, { script = scripts.reply, resumeId, tldrEnabled, designsEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs } = {}) {
+function claude(
+  t,
+  {
+    script = scripts.reply,
+    resumeId,
+    tldrEnabled,
+    analysisOnly,
+    executionAdvisor,
+    env = process.env,
+    defaultConfigDir = "/missing-claude-settings",
+    command = "/usr/local/bin/claude",
+    interruptGraceMs,
+    permissionPolicy,
+  } = {},
+) {
   const sdk = fakeSdk(script);
   const events = [];
   const session = new ClaudeSession({
     cwd: "/repo",
     resumeId,
     tldrEnabled,
-    designsEnabled,
     analysisOnly,
+    executionAdvisor,
+    env,
+    defaultConfigDir,
     command,
     emit: (event) => events.push(event),
     loadSdk: sdk.loadSdk,
     interruptGraceMs,
+    permissionPolicy,
   });
   t.after(() => session.close());
   return { session, events, calls: sdk.calls };
@@ -240,6 +300,8 @@ test("analysis-only Claude denies shell tools and cannot switch to Full", async 
   await session.startTurn({ ...TURN, permissionMode: "full" });
   await ended(events);
   assert.equal(calls.options.permissionMode, "dontAsk");
+  // An advisor's own short prompt, not the Chat's (events.cjs advisorInstructions).
+  assert.equal(calls.options.systemPrompt.append, advisorInstructions());
   assert.deepEqual(calls.options.tools, []);
   assert.deepEqual(calls.options.settingSources, []);
   assert.equal(calls.options.strictMcpConfig, true);
@@ -254,6 +316,43 @@ test("analysis-only Claude denies shell tools and cannot switch to Full", async 
   await session.startTurn({ ...TURN, permissionMode: "full" });
   await ended(events, 2);
   assert.equal(calls.modes.includes("bypassPermissions"), false);
+});
+test("execution Claude has native tools and reports questions to its parent", async (t) => {
+  const { session, events, calls } = claude(t, { executionAdvisor: true, script: scripts.questions });
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events);
+  assert.equal(calls.options.permissionMode, "bypassPermissions");
+  assert.notDeepEqual(calls.options.tools, []);
+  assert.ok(calls.options.disallowedTools.includes("AskUserQuestion"));
+  assert.ok(calls.options.disallowedTools.includes("Agent"));
+  assert.match(calls.options.systemPrompt.append, /execution agent/);
+  assert.ok(!events.some((event) => event.type === "question-request"));
+  assert.match(
+    events
+      .filter((event) => event.type === "text-delta")
+      .map((event) => event.text)
+      .join(""),
+    /parent Chat/,
+  );
+});
+
+test("reads the end of a background command's output from Claude Code, until the session closes", async (t) => {
+  const { session, events } = claude(t);
+  await assert.rejects(session.taskOutput("b1"), /That background task has ended/);
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(await session.taskOutput("b1"), { output: "building…\n", totalBytes: 9000, truncated: true });
+  await assert.rejects(session.taskOutput("other"), /no shell or Monitor task/);
+  await session.close();
+  await assert.rejects(session.taskOutput("b1"), /That background task has ended/);
+});
+
+test("turns on Claude Code's task tools, which headless runs hide", async (t) => {
+  const { session, events, calls } = claude(t);
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.equal(calls.options.env.CLAUDE_CODE_ENABLE_TODO_TOOLS, "1");
+  assert.equal(calls.options.env.PATH, process.env.PATH);
 });
 
 test("starts with Milagre's options and streams a reply", async (t) => {
@@ -395,11 +494,24 @@ test("a CLI that rejects the style still runs the turn, and the style is not ret
   assert.deepEqual(calls.flags, [{ outputStyle: "Concise" }]);
 });
 
-test("sends images as base64 content blocks", async (t) => {
+test("sends images as base64 content blocks and interleaves [Image #N] tokens in reading order", async (t) => {
   const { session, events, calls } = claude(t);
-  await session.startTurn({ ...TURN, images: [{ mime: "image/png", base64: "iVBORw0KGgo=" }] });
+  await session.startTurn({
+    ...TURN,
+    prompt: "Compare [Image #2] with [Image #1] here",
+    images: [
+      { mime: "image/png", base64: "img1" },
+      { mime: "image/jpeg", base64: "img2" },
+    ],
+  });
   await ended(events);
-  assert.deepEqual(calls.prompts[0].message.content[1], { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } });
+  assert.deepEqual(calls.prompts[0].message.content, [
+    { type: "text", text: "Compare " },
+    { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "img2" } },
+    { type: "text", text: " with " },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "img1" } },
+    { type: "text", text: " here" },
+  ]);
 });
 
 test("resumes a saved session without announcing it again", async (t) => {
@@ -515,6 +627,35 @@ test("cancels a turn interrupted while the SDK is still loading", async (t) => {
   assert.deepEqual(sdk.calls.prompts, []);
 });
 
+test("a continuation cancelled during Claude SDK initialization submits no prompt", async (t) => {
+  const sdk = fakeSdk(scripts.reply);
+  let release;
+  let allowed = true;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    emit: (event) => events.push(event),
+    loadSdk: async () => {
+      await gate;
+      return sdk.loadSdk();
+    },
+  });
+  t.after(() => session.close());
+  const turn = session.startTurn({ ...TURN, canStart: () => allowed });
+  allowed = false;
+  release();
+  assert.equal((await turn).cancelled, true);
+  assert.equal(
+    events.some((event) => event.type === "turn-cancelled"),
+    false,
+  );
+  assert.deepEqual(sdk.calls.prompts, []);
+});
+
 test("close() ends a running turn even when Claude never answers", async (t) => {
   const { session, events } = claude(t, { script: scripts.unresponsive });
   await session.startTurn(TURN);
@@ -539,6 +680,13 @@ const replyText = (events) =>
 test("Ask mode lets Claude Code check with the user", async (t) => {
   const { session, events, calls } = claude(t);
   await session.startTurn({ ...TURN, permissionMode: "ask" });
+  await ended(events);
+  assert.equal(calls.options.permissionMode, "default");
+});
+
+test("bot mode runs Claude in default mode", async (t) => {
+  const { session, events, calls } = claude(t);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
   await ended(events);
   assert.equal(calls.options.permissionMode, "default");
 });
@@ -570,6 +718,37 @@ test("asks before a tool runs and passes the answer back", async (t) => {
     events.find((event) => event.type === "permission-resolved"),
     { type: "permission-resolved", requestId: "req-1", decision: "allow" },
   );
+});
+
+test("canUseTool in bot mode resolves allow when the policy allows", async (t) => {
+  const seen = [];
+  const { session, events } = claude(t, {
+    script: scripts.asks,
+    permissionPolicy: (request) => {
+      seen.push(request);
+      return "allow";
+    },
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const answer = JSON.parse(replyText(events));
+  assert.equal(answer.behavior, "allow");
+  assert.equal(seen[0].tool, "Write");
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+});
+
+test("canUseTool in bot mode shows a gate card when the policy gates", async (t) => {
+  const gate = { kind: "delete", title: "Delete: hello.txt" };
+  const { session, events } = claude(t, { script: scripts.asks, permissionPolicy: () => ({ gate }) });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  assert.deepEqual(events.find((event) => event.type === "permission-request").gate, gate);
+  session.respondToPermission("req-1", "deny");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "deny");
 });
 
 test("switching to Full mid-turn reaches Claude Code and approves the waiting card", async (t) => {
@@ -1074,15 +1253,62 @@ test("TLDR can be disabled when starting or resuming Claude", async (t) => {
   }
 });
 
-test("Designs can be disabled when starting or resuming Claude", async (t) => {
-  for (const resumeId of [undefined, "session-existing"]) {
-    const { session, events, calls } = claude(t, { designsEnabled: false, resumeId });
-    await session.startTurn(TURN);
-    await ended(events);
-    assert.match(calls.options.systemPrompt.append, /Designs are off/);
-    assert.doesNotMatch(calls.options.systemPrompt.append, /design_show|design_read|design_apply/);
-    assert.equal(calls.options.resume, resumeId);
-  }
+test("only the read, plan, own-canvas and self-gated Milagre tools skip Claude's approval; the rest follow the Chat's mode", async (t) => {
+  const tool = (name, readOnly) => ({ name, description: name, input: {}, readOnly, run: async () => `${name} ran` });
+  const tools = [
+    tool("linked_overview", true),
+    tool("linear_issue", true),
+    tool("tasks_set", false),
+    tool("phase_set", false),
+    tool("delegate", false),
+    tool("worktree_link", false),
+    tool("chat_set_mode", false),
+    tool("design_show", false),
+    tool("design_apply", false),
+    tool("artifact_show", false),
+    tool("worktree_create", false),
+    tool("chat_stop", false),
+    tool("linear_create_issue", false),
+    tool("design_delete", false),
+  ];
+  const sdk = fakeSdk(async function* ({ options, signal }) {
+    yield init;
+    const result = await options.canUseTool("mcp__milagre__worktree_create", { projectPath: "/repo" }, { signal, requestId: "req-mcp", toolUseID: "tool-mcp" });
+    yield delta(JSON.stringify(result));
+    yield success;
+  });
+  const loadSdk = async () => ({
+    ...(await sdk.loadSdk()),
+    tool: (name, description, input, handler, extras) => ({ name, description, input, handler, extras }),
+    createSdkMcpServer: (options) => ({ type: "sdk", name: options.name, instance: {} }),
+  });
+  const events = [];
+  const session = new ClaudeSession({ cwd: "/repo", command: "/usr/local/bin/claude", linked: { tools }, emit: (event) => events.push(event), loadSdk });
+  t.after(() => session.close());
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  assert.deepEqual(
+    sdk.calls.options.allowedTools,
+    [
+      "linked_overview",
+      "linear_issue",
+      "tasks_set",
+      "phase_set",
+      "delegate",
+      "worktree_link",
+      "chat_set_mode",
+      "design_show",
+      "design_apply",
+      "artifact_show",
+    ].map((name) => `mcp__milagre__${name}`),
+  );
+  // A write tool reaches canUseTool and waits on the Chat's card in Ask mode.
+  await waitUntil(() => events.some((event) => event.type === "permission-request"));
+  const card = events.find((event) => event.type === "permission-request");
+  assert.equal(card.requestId, "req-mcp");
+  assert.equal(card.kind, "other");
+  session.respondToPermission("req-mcp", "deny");
+  await ended(events);
+  assert.match(events.findLast((event) => event.type === "text-delta").text, /"behavior":"deny"/);
 });
 
 test("a Chat's linked tools are served in-process and allowed without Claude's own approval", async (t) => {
@@ -1106,4 +1332,475 @@ test("a Chat's linked tools are served in-process and allowed without Claude's o
   assert.deepEqual(sdk.calls.options.allowedTools, ["mcp__milagre__linked_overview"]);
   assert.equal(made[0].tools[0].extras.annotations.readOnlyHint, true);
   assert.deepEqual(await made[0].tools[0].handler({}), { content: [{ type: "text", text: "summary of web" }], isError: false });
+});
+
+test("Everywhere servers join mcpServers and off servers are toggled after init", async (t) => {
+  const sdk = fakeSdk(scripts.reply);
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    emit: (event) => events.push(event),
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+    loadSdk: sdk.loadSdk,
+  });
+  t.after(() => session.close());
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(sdk.calls.options.mcpServers.linear, { type: "http", url: "https://x" });
+  // Switched off before the first message reaches Claude Code, and once more on init as a second try.
+  assert.deepEqual(sdk.calls.toggles, [
+    ["figma", false],
+    ["figma", false],
+  ]);
+  assert.ok(sdk.calls.order.indexOf("toggle:figma") < sdk.calls.order.indexOf("message"));
+});
+
+test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras still starts the Chat", async (t) => {
+  const sdk = fakeSdk(scripts.reply);
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    analysisOnly: true,
+    emit: (event) => events.push(event),
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+    loadSdk: sdk.loadSdk,
+  });
+  t.after(() => session.close());
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.equal(sdk.calls.options.mcpServers?.linear, undefined);
+  assert.equal(sdk.calls.toggles, undefined);
+
+  const warn = t.mock.method(console, "warn", () => {});
+  const failing = fakeSdk(scripts.reply);
+  const failEvents = [];
+  const second = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    emit: (event) => failEvents.push(event),
+    mcpExtras: async () => {
+      throw new Error("boom");
+    },
+    loadSdk: failing.loadSdk,
+  });
+  t.after(() => second.close());
+  await second.startTurn(TURN);
+  await ended(failEvents);
+  assert.equal(failing.calls.queries, 1);
+  // The failure is logged once, with its message, instead of being swallowed.
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
+});
+
+test("Claude's subagents are told to keep a to-do list as they start, and to design on the Chat's canvas when design tools are linked", async (t) => {
+  const { SUBAGENT_DESIGN_INSTRUCTIONS, SUBAGENT_PLAN_INSTRUCTIONS } = require("./events.cjs");
+  const design = { name: "design_show", description: "Show", input: {}, readOnly: false, run: async () => "" };
+  for (const [tools, designs] of [
+    [[design], true],
+    [[], false],
+  ]) {
+    const sdk = fakeSdk(scripts.reply);
+    const loadSdk = async () => ({
+      ...(await sdk.loadSdk()),
+      tool: (name, description, input, handler, extras) => ({ name, description, input, handler, extras }),
+      createSdkMcpServer: (options) => ({ type: "sdk", name: options.name, instance: {} }),
+    });
+    const events = [];
+    const session = new ClaudeSession({
+      cwd: "/repo",
+      command: "/usr/local/bin/claude",
+      linked: { tools },
+      emit: (event) => events.push(event),
+      loadSdk,
+    });
+    t.after(() => session.close());
+    await session.startTurn(TURN);
+    await ended(events);
+    const hook = sdk.calls.options.hooks?.SubagentStart?.[0]?.hooks?.[0];
+    assert.deepEqual(await hook({ hook_event_name: "SubagentStart", agent_id: "a", agent_type: "general-purpose" }), {
+      hookSpecificOutput: {
+        hookEventName: "SubagentStart",
+        additionalContext: designs ? `${SUBAGENT_PLAN_INSTRUCTIONS}\n\n${SUBAGENT_DESIGN_INSTRUCTIONS}` : SUBAGENT_PLAN_INSTRUCTIONS,
+      },
+    });
+  }
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /show a mockup or visual design \(not to implement UI in code\), use the milagre design_show tool/);
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /Don't write HTML or image files.*names another design tool, use that one/s);
+  assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite, or TaskCreate and TaskUpdate.*Never use the milagre tasks_set/s);
+});
+
+const mergePolicy = (request) => (request.command?.startsWith("gh pr merge") ? { gate: { kind: "merge", title: "Merge PR #1" } } : "allow");
+
+test("bot mode adds a PreToolUse hook that asks for gated tools", async (t) => {
+  const { session, events, calls } = claude(t, { permissionPolicy: mergePolicy });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const signal = new AbortController().signal;
+  assert.deepEqual(
+    await hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr merge 1" }, tool_use_id: "t1" }, "t1", { signal }),
+    {
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: "Merge PR #1" },
+    },
+  );
+  assert.deepEqual(await hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "t2" }, "t2", { signal }), {});
+});
+
+test("the gate hook denies what the policy denies, asks when the policy fails, and stands down outside Bot rules", async (t) => {
+  let verdict = () => "deny";
+  const { session, events, calls } = claude(t, { permissionPolicy: (request) => verdict(request) });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const input = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "t3" };
+  assert.equal((await hook(input, "t3")).hookSpecificOutput.permissionDecision, "deny");
+  verdict = () => {
+    throw new Error("broken");
+  };
+  assert.equal((await hook(input, "t3")).hookSpecificOutput.permissionDecision, "ask");
+  // The user took the Chat over: Bot rules no longer applies, and neither does the bot's policy.
+  await session.setPermissionMode("ask");
+  assert.deepEqual(await hook(input, "t3"), {});
+});
+
+test("the gate hook hands the policy the same request canUseTool would", async (t) => {
+  const seen = [];
+  const { session, events, calls } = claude(t, {
+    permissionPolicy: (request) => {
+      seen.push(request);
+      return "allow";
+    },
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  await calls.options.hooks.PreToolUse[0].hooks[0](
+    { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "t4" },
+    "t4",
+  );
+  assert.deepEqual(seen, [
+    { requestId: "t4", kind: "command", tool: "Bash", title: "Run this command?", command: "npm test", allowForChat: false, stepId: "t4" },
+  ]);
+});
+
+test("an MCP tool shown by its display name still gates on its own name", async (t) => {
+  const { matchGate } = require("../bots/gates.cjs");
+  const seen = [];
+  const policy = (request) => {
+    seen.push(request);
+    const gate = matchGate(request);
+    return gate ? { gate } : "allow";
+  };
+  const { session, events } = claude(t, { script: scripts.sendsMessage, permissionPolicy: policy });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  const request = events.find((event) => event.type === "permission-request");
+  assert.equal(request.tool, "Send Message");
+  assert.equal(request.toolName, "mcp__slack__send_message");
+  assert.equal(request.gate.kind, "post");
+  session.respondToPermission("req-m", "deny");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "deny");
+});
+
+test("canUseTool never lets through what the PreToolUse hook asked about", async (t) => {
+  const gate = { kind: "post", title: "Post as you: mcp__slack__send_message" };
+  // A policy that sees the gate in the hook and misses it in canUseTool.
+  const { session, events } = claude(t, {
+    script: scripts.sendsMessage,
+    permissionPolicy: (request) => (request.tool === "Send Message" ? "allow" : { gate }),
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  assert.deepEqual(events.find((event) => event.type === "permission-request").gate, gate);
+  session.respondToPermission("req-m", "allow");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "allow");
+});
+
+test("outside Bot rules the PreToolUse hook lets every tool through", async (t) => {
+  const merge = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr merge 1" }, tool_use_id: "t1" };
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const { session, events, calls } = claude(t, { permissionPolicy: mergePolicy });
+    await session.startTurn({ ...TURN, permissionMode });
+    await ended(events);
+    assert.deepEqual(await calls.options.hooks.PreToolUse[0].hooks[0](merge, "t1"), {}, permissionMode);
+  }
+  // Bot rules without a policy has nothing to gate with.
+  const { session, events, calls } = claude(t);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.deepEqual(await calls.options.hooks.PreToolUse[0].hooks[0](merge, "t1"), {});
+});
+
+test("guarded turn denies push in full mode, and only that turn", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await waitUntil(() => calls.options);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const bash = (command, id) => hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id: id }, id);
+  assert.deepEqual(await bash("npm test && git push origin HEAD", "t1"), {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.",
+    },
+  });
+  assert.equal((await bash("gh pr merge 4", "t2")).hookSpecificOutput.permissionDecisionReason, "Babysitting never merges.");
+  assert.deepEqual(await bash("npm test", "t3"), {});
+  // A message steered into the Run keeps its guard.
+  await session.startTurn({ ...TURN, prompt: "also run lint", permissionMode: "full" });
+  assert.equal((await bash("git push", "t4")).hookSpecificOutput.permissionDecision, "deny");
+  calls.release();
+  await ended(events);
+  // The Chat's next turn is the user's own: nothing is guarded.
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  assert.deepEqual(await bash("git push", "t5"), {});
+});
+
+test("a guarded command that reaches canUseTool is denied there too", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "ask", guard: { level: 1, resolveThreads: false } });
+  await waitUntil(() => calls.options);
+  const result = await calls.options.canUseTool("Bash", { command: "git push" }, { requestId: "r1", toolUseID: "u1" });
+  assert.deepEqual(result, {
+    behavior: "deny",
+    message: "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.",
+  });
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+  calls.release();
+  await ended(events);
+});
+
+const WAKE = { level: "escalation", requests: [{ chatId: "/p#2", requestId: "q1" }] };
+const MILAGRE_TOOLS = [
+  { name: "chat_read", readOnly: true },
+  { name: "chat_respond", readOnly: false },
+  { name: "tasks_set", readOnly: false },
+];
+
+test("a wake's turn denies every tool but reads and chat_respond on its requests, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const { session, events, calls } = claude(t, { script: scripts.held });
+    await session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await waitUntil(() => calls.options);
+    session.linked = { tools: MILAGRE_TOOLS };
+    const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+    const call = (tool_name, tool_input = {}) => hook({ hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: "t" }, "t");
+    // Claude Code runs on its strictest mode, and Milagre's permission mode stays the Chat's own: chat_respond reads it.
+    assert.equal(calls.options.permissionMode, "default", permissionMode);
+    assert.equal(session.permissions.mode, permissionMode);
+    assert.deepEqual(await call("Read", { file_path: "/repo/a.ts" }), {}, permissionMode);
+    assert.deepEqual(await call("mcp__milagre__chat_read"), {}, permissionMode);
+    assert.deepEqual(await call("mcp__milagre__chat_respond", { chatId: "/p#2", requestId: "q1" }), {}, permissionMode);
+    for (const [tool, input] of [
+      ["Bash", { command: "ls" }],
+      ["mcp__milagre__tasks_set", {}],
+      ["mcp__notion__search", {}],
+    ]) {
+      const result = await call(tool, input);
+      assert.equal(result.hookSpecificOutput.permissionDecision, "deny", `${permissionMode} ${tool}`);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /only tells the human/);
+    }
+    calls.release();
+    await ended(events);
+  }
+});
+
+test("past its tool calls the hook says to reply, past the grace the turn stops, and neither touches the next turn", async (t) => {
+  const { ESCALATION_TOOL_CALLS, ESCALATION_TOOL_GRACE } = require("@milagre/shared/subchat-escalation");
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await waitUntil(() => calls.options);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const read = () => hook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: {}, tool_use_id: "t" }, "t");
+  for (let call = 0; call < ESCALATION_TOOL_CALLS; call++) assert.deepEqual(await read(), {});
+  for (let call = 0; call < ESCALATION_TOOL_GRACE; call++) assert.match((await read()).hookSpecificOutput.permissionDecisionReason, /reply to the human now/);
+  assert.equal(session.cancelRequested, false);
+  await read();
+  assert.equal(session.cancelRequested, true, "the host stops a turn that keeps trying");
+  calls.release();
+  await ended(events);
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  assert.deepEqual(await hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "t" }, "t"), {});
+  assert.equal(session.escalation, null);
+});
+
+test("a wake's turn opens no card: what still asks is refused, and a question has nobody to ask", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "ask", guard: WAKE });
+  await waitUntil(() => calls.options);
+  assert.equal((await calls.options.canUseTool("Read", { file_path: "/etc/hosts" }, { requestId: "r1", toolUseID: "u1" })).behavior, "deny");
+  assert.equal(
+    (await calls.options.canUseTool("AskUserQuestion", { questions: [{ question: "Why?" }] }, { requestId: "r2", toolUseID: "u2" })).behavior,
+    "deny",
+  );
+  assert.equal(
+    events.some((event) => ["permission-request", "question-request"].includes(event.type)),
+    false,
+  );
+  calls.release();
+  await ended(events);
+});
+
+test("a babysit guard is untouched by the wake's path", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await waitUntil(() => calls.options);
+  assert.equal(calls.options.permissionMode, "bypassPermissions");
+  assert.equal(session.escalation, null);
+  calls.release();
+  await ended(events);
+});
+
+test("analysis-only Claude gets no hooks at all, even in Bot rules", async (t) => {
+  const { session, events, calls } = claude(t, { analysisOnly: true, permissionPolicy: mergePolicy });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.equal("hooks" in calls.options, false);
+});
+
+test("the design SubagentStart hook and the gate hook coexist", async (t) => {
+  const { SUBAGENT_DESIGN_INSTRUCTIONS, SUBAGENT_PLAN_INSTRUCTIONS } = require("./events.cjs");
+  const design = { name: "design_show", description: "Show", input: {}, readOnly: false, run: async () => "" };
+  const sdk = fakeSdk(scripts.reply);
+  const loadSdk = async () => ({
+    ...(await sdk.loadSdk()),
+    tool: (name, description, input, handler, extras) => ({ name, description, input, handler, extras }),
+    createSdkMcpServer: (options) => ({ type: "sdk", name: options.name, instance: {} }),
+  });
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    linked: { tools: [design] },
+    permissionPolicy: mergePolicy,
+    emit: (event) => events.push(event),
+    loadSdk,
+  });
+  t.after(() => session.close());
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const { hooks } = sdk.calls.options;
+  assert.equal(
+    (await hooks.SubagentStart[0].hooks[0]()).hookSpecificOutput.additionalContext,
+    `${SUBAGENT_PLAN_INSTRUCTIONS}\n\n${SUBAGENT_DESIGN_INSTRUCTIONS}`,
+  );
+  assert.equal(
+    (await hooks.PreToolUse[0].hooks[0]({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr merge 1" } }, "t5"))
+      .hookSpecificOutput.permissionDecision,
+    "ask",
+  );
+});
+
+const suggested = { type: "prompt_suggestion", session_id: "session-1", suggestion: "Add tests" };
+async function* suggests() {
+  yield init;
+  yield delta("Hello");
+  yield success;
+  yield suggested;
+}
+
+async function* overlap({ next }) {
+  yield init;
+  yield success;
+  await next();
+  yield suggested;
+  yield init;
+  yield delta("Second reply");
+  yield success;
+  yield init;
+  yield suggested;
+}
+
+async function* steered({ next }) {
+  yield init;
+  await next();
+  yield success;
+  yield suggested;
+}
+
+async function* cancelled({ interrupted }) {
+  yield init;
+  await interrupted;
+  yield success;
+  yield suggested;
+}
+
+test("Claude receives a suggestion after completion without starting another turn", async (t) => {
+  const { session, events, calls } = claude(t, { script: suggests });
+  const { turnId } = await session.startTurn(TURN);
+  await waitUntil(() => events.some((event) => event.type === "prompt-suggestion"));
+  assert.equal(calls.options.promptSuggestions, true);
+  assert.deepEqual(events.at(-1), { type: "prompt-suggestion", text: "Add tests", turnId });
+  assert.equal(session.turnActive, false);
+  assert.equal(events.filter((event) => event.type === "turn-started").length, 1);
+});
+
+test("Claude ignores old suggestions during the next turn and after an implicit init", async (t) => {
+  const { session, events } = claude(t, { script: overlap });
+  await session.startTurn(TURN);
+  await ended(events);
+  await session.startTurn({ ...TURN, prompt: "Second" });
+  await ended(events, 2);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events.filter((event) => event.type === "prompt-suggestion").length, 0);
+  assert.equal(events.filter((event) => event.type === "turn-started").length, 2);
+  assert.equal(session.turnActive, false);
+});
+
+test("Claude disables suggestion requests for either advisor mode, env off and the computer default settings", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-suggestions-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, "settings.json");
+  for (const configuration of [
+    { analysisOnly: true },
+    { executionAdvisor: true },
+    { env: { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: "false" } },
+    { defaultConfigDir: directory, env: { CLAUDE_CONFIG_DIR: "/extra-account" } },
+  ]) {
+    fs.writeFileSync(file, JSON.stringify({ promptSuggestionEnabled: false }));
+    const { session, events, calls } = claude(t, { ...configuration, script: suggests });
+    await session.startTurn(TURN);
+    await ended(events);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls.options.promptSuggestions, false);
+    assert.equal(
+      events.some((event) => event.type === "prompt-suggestion"),
+      false,
+    );
+  }
+  for (const settings of ["{", "{}", '{"promptSuggestionEnabled":true}']) {
+    fs.writeFileSync(file, settings);
+    const { session, events, calls } = claude(t, { defaultConfigDir: directory, script: suggests });
+    await session.startTurn(TURN);
+    await ended(events);
+    assert.equal(calls.options.promptSuggestions, true);
+  }
+});
+
+test("Claude suppresses suggestions after a steer or cancellation", async (t) => {
+  const first = claude(t, { script: steered });
+  await first.session.startTurn(TURN);
+  await first.session.steer(TURN);
+  await ended(first.events);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    first.events.some((event) => event.type === "prompt-suggestion"),
+    false,
+  );
+
+  const second = claude(t, { script: cancelled });
+  await second.session.startTurn(TURN);
+  await second.session.interrupt();
+  await ended(second.events);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    second.events.some((event) => event.type === "prompt-suggestion"),
+    false,
+  );
 });

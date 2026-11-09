@@ -55,7 +55,7 @@ test("named Links reject invalid and repeated membership", async (t) => {
   ])
     await assert.rejects(registry.createProjectGroup(request));
   await registry.createProjectGroup({ name: "RDFood", projectIds: projects.map((p) => p.id) });
-  await assert.rejects(registry.createProjectGroup({ name: "Again", projectIds: projects.map((p) => p.id).reverse() }), /already/i);
+  await assert.rejects(registry.createProjectGroup({ name: "Again", projectIds: projects.map((p) => p.id).toReversed() }), /already/i);
   assert.equal((await registry.listProjectGroups()).length, 1);
 });
 
@@ -120,6 +120,28 @@ test("editing a named Link renames it and changes members, keeping an unavailabl
     registry.updateProjectGroup({ id: "00000000-0000-4000-8000-000000000000", name: "X", projectIds: other.projectIds }),
     /no longer exists/,
   );
-  const renamed = await registry.updateProjectGroup({ id: group.id, name: "Food", projectIds: [projects[0].id, admin.id].reverse().concat(projects[1].id) });
+  const renamed = await registry.updateProjectGroup({ id: group.id, name: "Food", projectIds: [projects[0].id, admin.id].toReversed().concat(projects[1].id) });
   assert.deepEqual(await createProjectRegistry(file, { roots: [] }).listProjectGroups(), [{ ...group, name: "Food", projectIds: renamed.projectIds }, other]);
+});
+
+test("deleting a named Link removes only that Link, for good, and leaves canvas edges alone", async (t) => {
+  const { root, file, registry, projects } = await fixture(t);
+  const folder = path.join(root, "admin");
+  await fs.mkdir(folder);
+  execFileSync("git", ["-C", folder, "init", "-q", "-b", "main"], { stdio: "ignore" });
+  execFileSync("git", ["-C", folder, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "Initial"], {
+    stdio: "ignore",
+  });
+  const admin = await resolveProject(folder);
+  await registry.add(admin);
+  await registry.addLink({ project_id: projects[0].id }, { project_id: projects[1].id }, {});
+  const edges = (await registry.snapshot()).links;
+  const group = await registry.createProjectGroup({ name: "RDFood", projectIds: projects.map((p) => p.id) });
+  const other = await registry.createProjectGroup({ name: "Admin", projectIds: [projects[0].id, admin.id] });
+  await registry.deleteProjectGroup(group.id);
+  assert.deepEqual(await createProjectRegistry(file, { roots: [] }).listProjectGroups(), [other]);
+  assert.deepEqual((await registry.snapshot()).links, edges);
+  await assert.rejects(registry.deleteProjectGroup(group.id), /no longer exists/);
+  // The same Projects can make a new Link once the old one is gone.
+  assert.notEqual((await registry.createProjectGroup({ name: "RDFood", projectIds: group.projectIds })).id, group.id);
 });

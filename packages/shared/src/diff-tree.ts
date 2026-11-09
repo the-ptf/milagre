@@ -9,19 +9,20 @@ export function buildDiffTree<T extends Counted>(files: T[]): DiffTreeNode<T>[] 
   const root: DiffTreeFolder<T> = { type: "folder", name: "", path: "", added: 0, removed: 0, children: [] };
   for (const file of files) {
     const parts = file.path.split("/");
+    const name = parts.pop() ?? "";
     let folder = root;
-    for (let i = 0; i < parts.length - 1; i++) {
+    for (const [i, folderName] of parts.entries()) {
       const path = parts.slice(0, i + 1).join("/");
       let next = folder.children.find((child): child is DiffTreeFolder<T> => child.type === "folder" && child.path === path);
       if (!next) {
-        next = { type: "folder", name: parts[i], path, added: 0, removed: 0, children: [] };
+        next = { type: "folder", name: folderName, path, added: 0, removed: 0, children: [] };
         folder.children.push(next);
       }
       next.added += file.added;
       next.removed += file.removed;
       folder = next;
     }
-    folder.children.push({ type: "file", name: parts[parts.length - 1], path: file.path, file });
+    folder.children.push({ type: "file", name, path: file.path, file });
   }
   return finish(root.children);
 }
@@ -31,8 +32,9 @@ function finish<T>(nodes: DiffTreeNode<T>[]): DiffTreeNode<T>[] {
     .map((node): DiffTreeNode<T> => {
       if (node.type === "file") return node;
       let folder = node;
-      while (folder.children.length === 1 && folder.children[0].type === "folder") {
-        const only = folder.children[0];
+      while (folder.children.length === 1) {
+        const [only] = folder.children;
+        if (only?.type !== "folder") break;
         folder = { ...only, name: `${folder.name}/${only.name}` };
       }
       return { ...folder, children: finish(folder.children) };

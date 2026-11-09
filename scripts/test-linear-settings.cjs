@@ -1,10 +1,11 @@
-// Settings > Experimental > Linear in Electron: the switch reveals the connections, one row per workspace; Connect adds
+// Settings > Integrations > Linear in Electron: the switch reveals the connections, one row per workspace; Connect adds
 // the first, Add another, and each workspace disconnects on its own. Moving issues to In Progress is on by default, and a
 // workspace signed in before write access says it can't move them yet.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React, { useState } from 'react';
@@ -22,6 +23,9 @@ const statusOf = (workspaces) =>
 // A Mac that predates workspaces sends its one connection without a list.
 const connected = { connected: true, viewer: acme.viewer, organization: acme.organization };
 window.milagre = {
+  // Integrations also shows the Babysit PRs row, which reads the host's babysitting settings.
+  readBabysitSettings: async () => ({ enabled: false }),
+  onBabysitSettings: () => () => {},
   listEditors: async () => [], listRecentProjects: async () => [], listProjects: async () => [],
   readLinearEnabled: async () => ({ enabled, moveToStarted: window.__moveToStarted }),
   saveLinearMoveToStarted: async (value) => ({ moveToStarted: (window.__moveToStarted = value) }),
@@ -83,13 +87,13 @@ async function browserChecks() {
     await delay(250);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const toggle = `document.querySelector('[role="switch"][aria-label="Linear"]')`;
+  const toggle = `document.querySelector('[role="checkbox"][aria-label="Linear"]')`;
   const button = (label) => `[...document.querySelectorAll('[data-linear-settings] button')].find(b => b.textContent.trim() === '${label}')`;
   const text = `document.querySelector('[data-linear-settings]').textContent`;
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Experimental')`);
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Experimental').click()`);
+    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Integrations')`);
+    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Integrations').click()`);
     await waitFor(`!!${toggle}`);
     assert.equal(await evaluate(`!!${button("Connect")}`), false, "Connection hidden while the switch is off");
     await screenshot("off");
@@ -138,7 +142,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-linear-connect]').scrollIntoView({ block: 'center' })`);
     await screenshot("two-workspaces");
     // Moving issues is on by default; only the read-only sign-in says it can't, and only while the switch is on.
-    const moveSwitch = `document.querySelector('[role="switch"][aria-label="Move issues to In Progress"]')`;
+    const moveSwitch = `document.querySelector('[role="checkbox"][aria-label="Move issues to In Progress"]')`;
     assert.equal(await evaluate(`${moveSwitch}.getAttribute('aria-checked')`), "true");
     const readOnly = /Beta LabsSigned in as Vic\. Can't move issues yet\. Sign in to this workspace again with Add workspace to allow it\./;
     assert.match(await evaluate(text), readOnly);
@@ -179,7 +183,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-linear-settings] .text-red')`), false, "no error shown");
     await screenshot("connected-elsewhere");
     assert.deepEqual(errors, []);
-    console.log("PASS: Experimental > Linear shows the connections only when on, adds workspaces through the browser and disconnects each");
+    console.log("PASS: Settings > Integrations > Linear shows the connections only when on, adds workspaces through the browser and disconnects each");
     app.exit(0);
   } catch (error) {
     console.error(error);
@@ -204,7 +208,7 @@ async function main() {
           if (id === "/__linear-settings.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__linear-settings") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

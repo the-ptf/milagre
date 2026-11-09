@@ -1,54 +1,75 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
+import { useCallback, useSyncExternalStore } from "react";
+import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { BlurView } from "@sbaiahmed1/react-native-blur";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel } from "@milagre/shared/attention";
 import { readAttentionButton, saveAttentionButton } from "./hosts-native";
 import { useSession } from "./session";
+import { closeBeside } from "./split-chats";
+import { chrome, lineHeight, radius, space, type } from "./design-tokens";
+
 import { Icon } from "./icons";
-import { PullDown } from "./ui";
+import { pressStyle, PullDown } from "./ui";
 import { useTheme } from "./theme";
 import { useFloatingInbox } from "./floating-inbox-setting";
 import { FloatingInboxChip } from "./inbox";
 
 const NONE: string[] = [];
+type AttentionClient = { attention: () => Promise<string[]> };
+/**
+ * One poller per computer, however many lists and pills read it: the first reader starts it, the last one to go stops
+ * it. Each answer is kept with its computer, so switching computers never shows the last one's Chats.
+ */
+type Poller = { keys: string[]; readers: Set<() => void>; timer: ReturnType<typeof setInterval> | null; busy: boolean };
+const pollers = new Map<AttentionClient, Poller>();
+const POLL_MS = 5000;
+function pollerOf(client: AttentionClient) {
+  let poller = pollers.get(client);
+  if (!poller) pollers.set(client, (poller = { keys: NONE, readers: new Set(), timer: null, busy: false }));
+  return poller;
+}
+function load(client: AttentionClient, poller: Poller) {
+  // One call at a time: on a busy Mac a slow answer would otherwise stack a new call every 5 s.
+  if (poller.busy || AppState.currentState !== "active") return;
+  poller.busy = true;
+  client
+    .attention()
+    .then(
+      (keys) => {
+        if (pollers.get(client) !== poller || poller.keys.join("\n") === keys.join("\n")) return;
+        poller.keys = keys;
+        for (const reader of Array.from(poller.readers)) reader();
+      },
+      () => {},
+    )
+    .finally(() => {
+      poller.busy = false;
+    });
+}
+function subscribeAttention(client: AttentionClient, reader: () => void) {
+  const poller = pollerOf(client);
+  poller.readers.add(reader);
+  if (!poller.timer) {
+    load(client, poller);
+    poller.timer = setInterval(() => load(client, poller), POLL_MS);
+  }
+  return () => {
+    poller.readers.delete(reader);
+    if (poller.readers.size) return;
+    if (poller.timer) clearInterval(poller.timer);
+    pollers.delete(client);
+  };
+}
 /** Chat keys, in every Project, whose turn waits on an approval or question. A Mac from before /attention gives none. */
 // ponytail: polls every 5 s while the app is open; a live "attention" signal from the bridge if this ever costs too much.
 export function useAttention(): string[] {
   const { client } = useSession();
-  // Kept with the computer it came from, so switching computers never shows the last one's Chats.
-  const [found, setFound] = useState<{ client: typeof client; keys: string[] }>({ client: null, keys: [] });
-  useEffect(() => {
-    if (!client) return;
-    let live = true;
-    // One call at a time: on a busy Mac a slow answer would otherwise stack a new call every 5 s.
-    let busy = false;
-    const load = () => {
-      if (busy || AppState.currentState !== "active") return;
-      busy = true;
-      client
-        .attention()
-        .then(
-          (keys) => {
-            if (live) setFound((previous) => (previous.client === client && previous.keys.join("\n") === keys.join("\n") ? previous : { client, keys }));
-          },
-          () => {},
-        )
-        .finally(() => {
-          busy = false;
-        });
-    };
-    load();
-    const timer = setInterval(load, 5000);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [client]);
-  return found.client === client ? found.keys : NONE;
+  const subscribe = useCallback((reader: () => void) => (client ? subscribeAttention(client, reader) : () => {}), [client]);
+  return useSyncExternalStore(subscribe, () => (client ? (pollers.get(client)?.keys ?? NONE) : NONE));
 }
 
 // The phone's "Attention button" setting, read once and shared by Settings and every Chat.
@@ -80,57 +101,43 @@ export function useAttentionButton(): [boolean, (on: boolean) => void] {
 
 export function AttentionDot() {
   const { colors } = useTheme();
-  return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.orange }} />;
+  return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />;
 }
 
-/** Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first. */
-export function AttentionPill({ projectPath, bottom }: { projectPath: string; bottom?: number }) {
-  const { colors } = useTheme();
-  const { client, recent, cachedProject } = useSession();
+/**
+ * Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first.
+ * `hideChats` are Chats another surface already announces (the capsule names a waiting parent, the pill a waiting Subchat), so
+ * they aren't counted twice. `compact` shrinks the pill to its icon, so it never meets that capsule on the left.
+ */
+export function AttentionPill({
+  currentChat,
+  visibleChat,
+  hideChats,
+  compact = false,
+  bottom,
+}: {
+  currentChat?: string;
+  visibleChat?: string;
+  hideChats?: readonly string[];
+  compact?: boolean;
+  bottom?: number;
+}) {
+  const { colors, scheme } = useTheme();
+  const { client, recent, cachedProject, snapshot } = useSession();
   const insets = useSafeAreaInsets();
   const [enabled] = useAttentionButton();
   const [floatingInbox] = useFloatingInbox();
-  const waiting = useAttention().filter((key) => projectOfKey(key) !== projectPath);
+  // Skip the open Chat and Projects hidden from the list.
+  const waiting = useAttention().filter(
+    (key) => key !== currentChat && key !== visibleChat && !hideChats?.includes(key) && !recent.find((item) => item.path === projectOfKey(key))?.hidden,
+  );
   if (floatingInbox && client) return <FloatingInboxChip bottom={bottom} />;
   if (!enabled || !waiting.length || !client) return null;
   const name = (path: string) => recent.find((item) => item.path === path)?.name || path.split("/").at(-1) || "Project";
-  const label = attentionLabel([...new Set(waiting.map(projectOfKey))].map(name));
-  const open = (key: string) =>
-    router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
-  const pill = (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        minHeight: 32,
-        paddingHorizontal: 12,
-        borderRadius: 16,
-        borderCurve: "continuous",
-        backgroundColor: colors.orangeTint,
-      }}
-    >
-      <Text numberOfLines={1} style={{ color: colors.orange, fontSize: 13, fontWeight: "600", maxWidth: 220 }}>
-        {label}
-      </Text>
-      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={14} strokeWidth={2} />
-    </View>
-  );
-  const place = { position: "absolute" as const, top: insets.top + 52, right: 12 };
-  if (waiting.length === 1)
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${label}. Open the Chat.`}
-        onPress={() => open(waiting[0])}
-        style={({ pressed }) => [place, { opacity: pressed ? 0.6 : 1 }]}
-      >
-        {pill}
-      </Pressable>
-    );
   // A Project the phone hasn't loaded yet has no titles here, so its rows read "Chat".
   const items = waiting.map((key) => {
-    const state = cachedProject(projectOfKey(key))?.project.state;
+    const path = projectOfKey(key);
+    const state = (snapshot?.project.path === path ? snapshot : cachedProject(path))?.project.state;
     const chat = state?.sessions[sessionIdFromKey(key)];
     return {
       id: key,
@@ -143,8 +150,66 @@ export function AttentionPill({ projectPath, bottom }: { projectPath: string; bo
       subtitle: name(projectOfKey(key)),
     };
   });
+  const label = attentionLabel(items.map((item) => item.title));
+  // Like every route to a Chat, it opens alone: a split ends before the route changes.
+  const open = (key: string) => {
+    closeBeside();
+    router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
+  };
+  const pill = (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        minHeight: 32,
+        paddingHorizontal: compact ? 8 : 12,
+        borderRadius: radius.full,
+        borderCurve: "continuous",
+        overflow: "hidden",
+      }}
+    >
+      <BlurView
+        pointerEvents="none"
+        blurType={scheme === "dark" ? "systemThickMaterialDark" : "systemThickMaterialLight"}
+        blurAmount={32}
+        reducedTransparencyFallbackColor={colors.surface}
+        style={StyleSheet.absoluteFill}
+      />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.orangeTint }]} />
+      {compact ? (
+        <Icon icon={Alert02Icon} tone="orange" size={16} />
+      ) : (
+        <>
+          <Text
+            numberOfLines={1}
+            style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", maxWidth: 220 }}
+          >
+            {label}
+          </Text>
+          <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} />
+        </>
+      )}
+    </View>
+  );
+  // Floating overlays sit 8 under the header, clear of it, level with the top Toast.
+  const place = { position: "absolute" as const, top: insets.top + chrome.header + space.md, right: space.gutter };
+  const first = waiting[0];
+  if (waiting.length === 1 && first)
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label}. Open the Chat.`}
+        // The 32pt pill still takes a 44pt touch.
+        hitSlop={6}
+        onPress={() => open(first)}
+        style={({ pressed }) => [place, pressStyle({ pressed })]}
+      >
+        {pill}
+      </Pressable>
+    );
   return (
-    <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} style={place}>
+    <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} hitSlop={6} style={place}>
       {pill}
     </PullDown>
   );

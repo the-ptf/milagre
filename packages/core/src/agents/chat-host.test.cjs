@@ -6,6 +6,8 @@ const { ProjectStates } = require("../project-states.cjs");
 const { applyRunEvent } = require("@milagre/shared/agent-runs");
 const { lastTurnProvider } = require("@milagre/shared/handoff");
 const { waitUntil } = require("./test-helpers.cjs");
+const { createChatPlanTools } = require("../chat-plan-tools.cjs");
+const { runTool } = require("../linked-tools.cjs");
 
 class FakeSession {
   constructor(provider, options) {
@@ -32,6 +34,369 @@ class FakeSession {
 
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
+
+async function limitedChat(h, extra = {}) {
+  const sent = await h.host.send(message(ALPHA, "finish the export", { effort: "high", guard: { level: "review" }, ...extra }));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  await h.host.receive(chatId, {
+    type: "turn-failed",
+    message: "usage limited",
+    limit: { provider: extra.provider ?? "claude", accountId: "default", resetsAt: new Date(NOW + 120_000).toISOString() },
+  });
+  return { chatId, sessionId: sent.sessionId };
+}
+
+test("limit continuation survives restart with options and fires only once", async (t) => {
+  let clock = NOW;
+  const h = harness({ now: () => clock });
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), true);
+  const state = structuredClone(await h.states.load(ALPHA, [sessionId]));
+  const pending = state.sessions[sessionId].limitResume;
+  const restored = harness({ now: () => clock, read: async () => state });
+  t.after(() => Promise.all([restored.states.close(), restored.manager.closeAll()]));
+  clock += 180_000;
+  const results = await Promise.all([1, 2].map(() => restored.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId: pending.sendId })));
+  assert.equal(results.filter(Boolean).length, 1);
+  await waitUntil(() => restored.created[0]?.turns.length === 1);
+  assert.equal(restored.created.length, 1);
+  assert.equal(restored.created[0].turns[0].effort, "high");
+  assert.deepEqual(restored.created[0].turns[0].guard, { level: "review" });
+  const latest = await restored.states.get(ALPHA);
+  assert.equal(latest.sessions[sessionId].limitResume, undefined);
+  const lines = latest.messages.filter((item) => item.context?.kind === "limit-reset");
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].clientMessageId, pending.sendId);
+  assert.equal(lines[0].body, "Continued after the usage limit reset");
+});
+
+test("manual scheduling after restart retains the stopped turn even when automatic scheduling was off", async (t) => {
+  const h = harness();
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  const snapshot = structuredClone(await h.states.get(ALPHA));
+  assert.ok(snapshot.sessions[sessionId].limitTurn.turn);
+  assert.equal(snapshot.sessions[sessionId].limitResume, undefined);
+  const restored = harness({ read: async () => snapshot });
+  t.after(() => Promise.all([restored.states.close(), restored.manager.closeAll()]));
+  assert.equal(await restored.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), true);
+});
+
+for (const provider of ["claude", "codex", "antigravity"]) {
+  for (const native of [false, true]) {
+    test(`${provider} reset retry restores first-turn attachments after restart (native session: ${native})`, async (t) => {
+      const fs = require("node:fs/promises");
+      const path = require("node:path");
+      const os = require("node:os");
+      const { saveProjectState, readProjectState } = require("../project-store.cjs");
+      const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-limit-images-")));
+      t.after(() => fs.rm(root, { recursive: true, force: true }));
+      let clock = NOW;
+      const h = harness({ now: () => clock, save: saveProjectState });
+      const image = {
+        id: "screen",
+        name: "screen.png",
+        dataUrl: "data:image/png;base64," + (await fs.readFile(path.join(__dirname, "../../../../scripts/fixtures/photo.png"))).toString("base64"),
+      };
+      const file = path.join(root, "requirements.txt");
+      await fs.writeFile(file, "Keep the attached layout.");
+      const prompt = `Implement [Image #1] using ${file}`;
+      const sent = await h.host.send(
+        message(root, "Implement the attached screen", {
+          provider,
+          prompt,
+          images: [image],
+          files: [file],
+          effort: "high",
+          guard: { level: "review" },
+        }),
+      );
+      await sent.started;
+      assert.deepEqual(h.created[0].turns[0].images, [image]);
+      const chatId = `${root}#${sent.sessionId}`;
+      if (native) await h.host.receive(chatId, { type: "session-started", nativeId: "native-1" });
+      await h.host.receive(chatId, {
+        type: "turn-failed",
+        message: "usage limited",
+        limit: { provider, accountId: "default", resetsAt: new Date(clock + 120_000).toISOString() },
+      });
+      await h.host.scheduleLimitResume(root, sent.sessionId, { mode: "automatic", accountId: "default" });
+      await h.states.close();
+      await h.manager.closeAll();
+      const saved = await readProjectState(root);
+      assert.equal(saved.messages.find((m) => m.role === "user").images[0].dataUrl, undefined);
+      const restored = harness({ now: () => clock, read: readProjectState, save: saveProjectState });
+      t.after(() => Promise.all([restored.states.close(), restored.manager.closeAll()]));
+      clock += 180_000;
+      const sendId = saved.sessions[sent.sessionId].limitResume.sendId;
+      const results = await Promise.all([1, 2].map(() => restored.host.runLimitResume(root, sent.sessionId, { accountId: "default", sendId })));
+      assert.equal(results.filter(Boolean).length, 1);
+      await waitUntil(() => restored.created[0]?.turns.length === 1);
+      const retry = restored.created[0].turns[0];
+      assert.deepEqual(retry.images, native ? [] : [image]);
+      assert.equal(retry.prompt, native ? require("../limit-resume.cjs").RESET_PROMPT : prompt);
+      assert.equal(retry.effort, "high");
+      assert.deepEqual(retry.guard, { level: "review" });
+      const resumed = await restored.states.get(root);
+      const divider = resumed.messages.find((m) => m.context?.kind === "limit-reset");
+      assert.deepEqual(divider.files ?? [], native ? [] : [file]);
+      assert.equal(resumed.sessions[sent.sessionId].limitResume, undefined);
+      if (!native) {
+        await t.test("a repeated legacy retry waits for a missing image without consuming its schedule", async () => {
+          await restored.host.receive(chatId, {
+            type: "turn-failed",
+            message: "usage limited again",
+            limit: { provider, accountId: "default", resetsAt: new Date(clock + 120_000).toISOString() },
+          });
+          await restored.host.scheduleLimitResume(root, sent.sessionId, { mode: "manual", accountId: "default" });
+          const pending = (await restored.states.get(root)).sessions[sent.sessionId].limitResume;
+          assert.equal(pending.inputMessageId, divider.id);
+          // The preceding version neither named its input nor copied attachments to reset dividers.
+          await restored.states.update(root, (state) => {
+            const { inputMessageId: _input, ...legacy } = state.sessions[sent.sessionId].limitResume;
+            return {
+              ...state,
+              messages: state.messages.map((m) => (m.id === divider.id ? { ...m, images: [], files: [] } : m)),
+              sessions: { ...state.sessions, [sent.sessionId]: { ...state.sessions[sent.sessionId], limitResume: legacy } },
+            };
+          });
+          const stored = divider.images[0].path;
+          const bytes = await fs.readFile(stored);
+          await fs.unlink(stored);
+          clock += 180_000;
+          const resume = () => restored.host.runLimitResume(root, sent.sessionId, { accountId: "default", sendId: pending.sendId });
+          await assert.rejects(resume, /original image is unavailable/);
+          assert.equal(restored.created[0].turns.length, 1);
+          assert.equal((await restored.states.get(root)).sessions[sent.sessionId].limitResume.sendId, pending.sendId);
+          assert.equal(restored.host.limitResumeFlights.size, 0);
+          await fs.writeFile(stored, bytes);
+          assert.equal(await resume(), true);
+          await waitUntil(() => restored.created[0].turns.length === 2);
+          assert.deepEqual(restored.created[0].turns[1].images, [image]);
+          assert.equal(restored.created[0].turns[1].prompt, prompt);
+        });
+      }
+    });
+  }
+}
+
+test("Cancel fences delayed automatic scheduling but allows a new manual schedule", async (t) => {
+  const h = harness();
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  const token = h.host.limitResumeToken(ALPHA, sessionId);
+  await h.host.cancelLimitResume(ALPHA, sessionId);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default", token }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), true);
+});
+
+test("limit schedules reject unknown times, other accounts, queues and archived Chats; manual weekly schedules survive", async (t) => {
+  const h = harness();
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  const original = (await h.states.get(ALPHA)).sessions[sessionId];
+  for (const patch of [{ archived: true }, { queued: [{ id: "next" }] }, { limitTurn: { ...original.limitTurn, at: undefined } }]) {
+    await h.states.update(ALPHA, (s) => ({ ...s, sessions: { ...s.sessions, [sessionId]: { ...original, ...patch } } }));
+    assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), false);
+  }
+  await h.states.update(ALPHA, (s) => ({
+    ...s,
+    sessions: { ...s.sessions, [sessionId]: { ...original, limitTurn: { ...original.limitTurn, at: new Date(NOW + 5 * DAY).toISOString() } } },
+  }));
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "other" }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), true);
+  assert.equal((await h.states.get(ALPHA)).sessions[sessionId].limitResume.expiresAt, NOW + 6 * DAY + 60_000);
+});
+
+test("a send or Cancel while a reset continuation prepares never steers or starts it", async (t) => {
+  for (const action of ["cancel", "send"]) {
+    let clock = NOW;
+    let release;
+    let preparing;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const entered = new Promise((resolve) => {
+      preparing = resolve;
+    });
+    const h = harness({
+      now: () => clock,
+      hooks: {
+        beforeSend: async (request) => {
+          if (request.limitResumeId) {
+            preparing();
+            await gate;
+          }
+        },
+      },
+    });
+    t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+    const { sessionId } = await limitedChat(h);
+    await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+    const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+    clock += 180_000;
+    const continuing = h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId });
+    await entered;
+    if (action === "cancel") await h.host.cancelLimitResume(ALPHA, sessionId);
+    else await (await h.host.send(message(ALPHA, "do new work", { sessionId }))).started;
+    release();
+    assert.equal(await continuing, false);
+    assert.equal(
+      (await h.states.get(ALPHA)).messages.some((m) => m.context?.kind === "limit-reset"),
+      false,
+    );
+    assert.equal(h.created[0].turns.length, action === "send" ? 2 : 1);
+  }
+});
+
+test("a cancelled save cannot resurrect recovery fields, for reset and ordinary sends", async (t) => {
+  for (const reset of [true, false]) {
+    let clock = NOW;
+    let release, entered;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const preparing = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const h = harness({
+      now: () => clock,
+      hooks: {
+        beforeTask: async (request) => {
+          if (request.limitResumeId || request.body === "new request") {
+            entered();
+            await gate;
+            throw new Error("checkpoint failed");
+          }
+        },
+      },
+    });
+    t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+    const { sessionId } = await limitedChat(h);
+    await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+    const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+    clock += 180_000;
+    const sending = reset
+      ? h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId })
+      : h.host.send(message(ALPHA, "new request", { sessionId }));
+    const settled = sending.catch((error) => error);
+    await preparing;
+    await h.host.cancelLimitResume(ALPHA, sessionId);
+    release();
+    await settled;
+    const session = (await h.states.get(ALPHA)).sessions[sessionId];
+    assert.equal(session.limitResume, undefined);
+    assert.equal(session.limitTurn, undefined);
+  }
+});
+
+test("cancelled reset startup releases new queued work, but Stop and archive keep it stopped", async (t) => {
+  for (const action of ["new-send", "stop", "archive"]) {
+    let clock = NOW;
+    let release, entered;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const preparing = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const h = harness({
+      now: () => clock,
+      hooks: {
+        beforeTask: async (request) => {
+          if (request.limitResumeId) {
+            entered();
+            await gate;
+          }
+        },
+      },
+    });
+    t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+    const { sessionId, chatId } = await limitedChat(h, { provider: "antigravity" });
+    await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+    const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+    clock += 180_000;
+    const sending = h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId });
+    await preparing;
+    const queued = await h.host.send(message(ALPHA, "new work", { sessionId, provider: "antigravity" }));
+    assert.equal(queued.queued, true);
+    if (action !== "new-send") await h.host.cancelLimitResume(ALPHA, sessionId);
+    if (action === "archive")
+      await h.states.update(ALPHA, (state) => ({ ...state, sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], archived: true } } }));
+    release();
+    await sending;
+    await waitUntil(() => !h.host.runs[chatId] || h.created[0].turns.length === 2);
+    if (action === "new-send") {
+      await queued.started;
+      assert.equal(h.created[0].turns.length, 2);
+    } else {
+      assert.equal(h.created[0].turns.length, 1);
+      assert.equal((await h.states.get(ALPHA)).sessions[sessionId].queued.length, 1);
+    }
+    assert.equal(
+      (await h.states.get(ALPHA)).messages.some((message) => message.context?.kind === "limit-reset"),
+      false,
+    );
+  }
+});
+
+test("Stop while automatic queue release awaits beforeSend leaves the queued message unsent", async (t) => {
+  let clock = NOW;
+  let releaseReset, resetEntered, releaseQueue, queueEntered;
+  const resetGate = new Promise((resolve) => {
+    releaseReset = resolve;
+  });
+  const resetReady = new Promise((resolve) => {
+    resetEntered = resolve;
+  });
+  const queueGate = new Promise((resolve) => {
+    releaseQueue = resolve;
+  });
+  const queueReady = new Promise((resolve) => {
+    queueEntered = resolve;
+  });
+  const h = harness({
+    now: () => clock,
+    hooks: {
+      beforeTask: async (request) => {
+        if (request.limitResumeId) {
+          resetEntered();
+          await resetGate;
+        }
+      },
+      beforeSend: async (request) => {
+        if (request.queueReleaseToken) {
+          queueEntered();
+          await queueGate;
+        }
+      },
+    },
+  });
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId, chatId } = await limitedChat(h, { provider: "antigravity" });
+  await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+  const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+  clock += 180_000;
+  const reset = h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId });
+  await resetReady;
+  await h.host.send(message(ALPHA, "new work", { sessionId, provider: "antigravity" }));
+  releaseReset();
+  await reset;
+  await queueReady;
+  await h.host.cancelLimitResume(ALPHA, sessionId);
+  releaseQueue();
+  await waitUntil(() => !h.host.runs[chatId]);
+  assert.equal(h.created[0].turns.length, 1);
+  await waitUntil(() => h.host.limitResumeFlights.size === 0);
+  const state = await h.states.get(ALPHA);
+  assert.equal(state.sessions[sessionId].queued.length, 1);
+  assert.equal(state.sessions[sessionId].queueHeld, true);
+  assert.equal(h.host.startsQueue(state.sessions[sessionId]), false);
+});
 const ALPHA = "/projects/alpha";
 const BETA = "/projects/beta";
 
@@ -57,11 +422,13 @@ function harness({
   failStart = null,
   focused = true,
   read = async (projectPath) => projectState(projectPath),
+  save,
   now = () => NOW,
   handoverTools = {
     writeTranscript: async ({ sessionId }) => `/tmp/handovers/${sessionId}.md`,
     brief: async ({ transcriptPath }) => `BRIEF ${transcriptPath}`,
   },
+  hooks = {},
 } = {}) {
   const saved = new Map();
   const published = [];
@@ -69,7 +436,7 @@ function harness({
   const created = [];
   const states = new ProjectStates({
     read,
-    save: async (projectPath, state) => void saved.set(projectPath, state),
+    save: save ?? (async (projectPath, state) => void saved.set(projectPath, state)),
   });
   const manager = new SessionManager({
     createSession: (provider, options) => {
@@ -88,6 +455,7 @@ function harness({
     isFocused: () => focused,
     handoverTools,
     now,
+    ...hooks,
   });
   const session = (cwd) => created.find((item) => item.options.cwd === cwd);
   return { host, manager, states, saved, published, broadcasts, created, session };
@@ -106,6 +474,42 @@ const message = (projectPath, body, extra = {}) => ({
 });
 const chatMessages = (state, sessionId) =>
   state.messages.filter((item) => item.session_id === sessionId).map(({ role, body, outcome }) => ({ role, body, ...(outcome ? { outcome } : {}) }));
+
+// What the next agent's prompt carries ahead of the user's message: the brief, marked as Milagre's.
+const framed = (brief) =>
+  `<handoff_brief>\nMilagre wrote this summary of the earlier chat; it is context, not a message from the user.\n\n${brief}\n</handoff_brief>`;
+
+test("send receipts wait for persistence and never acknowledge a rolled-back message", async (t) => {
+  const { host, manager } = harness();
+  t.after(() => manager.closeAll());
+  const flush = host.states.flush.bind(host.states);
+  let release;
+  let flushing = false;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  host.states.flush = async () => {
+    flushing = true;
+    await gate;
+    throw new Error("disk full");
+  };
+  const sending = host.send(message(ALPHA, "keep my draft", { clientMessageId: "receipt-test" }));
+  const failed = assert.rejects(sending, /disk full/);
+  await waitUntil(() => flushing);
+  let settled = false;
+  const receipt = host.sendStatus(ALPHA, "receipt-test").then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(settled, false, "staged state is not a delivery receipt");
+  release();
+  await failed;
+  assert.equal(await receipt, null);
+  host.states.flush = flush;
+  const sent = await host.send(message(ALPHA, "saved", { clientMessageId: "saved-receipt" }));
+  assert.deepEqual(await host.sendStatus(ALPHA, "saved-receipt"), { sessionId: sent.sessionId });
+});
 
 test("turns in two projects run side by side and each is saved in its own project", async (t) => {
   const { host, manager, saved, session } = harness();
@@ -258,6 +662,67 @@ test("a window that loads mid-turn takes the runs and skips the events they hold
   assert.ok(published.every((item) => typeof item.seq === "number"));
 });
 
+test("step deadlines agree in live events and reload snapshots, including duplicate starts and approval", async (t) => {
+  let now = NOW;
+  const { host, manager, published, session } = harness({ now: () => now });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "go"));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  const step = { id: "tool-1", kind: "shell", title: "Ran `check`" };
+  session(ALPHA).emit({ type: "step-started", step });
+  await waitUntil(() => published.some((item) => item.event.type === "step-started"));
+  const event = published.find((item) => item.event.type === "step-started").event;
+  assert.equal(event.step.startedAt, NOW);
+  assert.equal(step.startedAt, undefined, "the provider's event is not mutated");
+  const snapshot = host.snapshot();
+  assert.equal(snapshot.runs[chatId].steps[0].startedAt, NOW);
+  const client = applyRunEvent({}, chatId, { type: "turn-started" });
+  assert.equal(applyRunEvent(client, chatId, event)[chatId].steps[0].startedAt, NOW);
+
+  now += 5000;
+  session(ALPHA).emit({ type: "step-started", step: { ...step, title: "Updated title" } });
+  session(ALPHA).emit({ type: "permission-request", requestId: "permission-1", stepId: step.id, kind: "command", tool: "Shell", title: "Approve?" });
+  await waitUntil(() => host.runs[chatId].approvals.length === 1);
+  session(ALPHA).emit({ type: "permission-resolved", requestId: "permission-1" });
+  session(ALPHA).emit({ type: "step-output", id: step.id, text: "still running" });
+  await waitUntil(() => host.runs[chatId].steps[0].detail === "still running");
+  assert.equal(host.runs[chatId].steps[0].startedAt, NOW);
+  const reloaded = published.filter((item) => item.seq > snapshot.seq).reduce((runs, item) => applyRunEvent(runs, chatId, item.event), snapshot.runs);
+  assert.equal(reloaded[chatId].steps[0].startedAt, NOW);
+  assert.equal(reloaded[chatId].steps[0].title, "Updated title");
+  assert.equal(reloaded[chatId].approvals.length, 0);
+});
+
+test("tool facts and completion time agree in live events, snapshots and saved messages", async (t) => {
+  let now = NOW;
+  const { host, manager, published, session, states } = harness({ now: () => now });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "check"));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  const input = "printf one\nprintf two";
+  session(ALPHA).emit({ type: "step-started", step: { id: "tool", kind: "shell", title: "Ran check", detail: `$ ${input}\n` } });
+  await waitUntil(() => host.runs[chatId]?.steps.length);
+  now += 4200;
+  session(ALPHA).emit({ type: "step-completed", id: "tool", status: "failed", detail: `$ ${input}\nError: missing header` });
+  await waitUntil(() => host.runs[chatId].steps[0].status === "failed");
+  const step = host.runs[chatId].steps[0];
+  assert.equal(step.input, input);
+  assert.equal(step.durationMs, 4200);
+  assert.equal(step.endedAt, now);
+  assert.equal(step.error, "Error: missing header");
+  const completion = published.find((item) => item.event.type === "step-completed").event;
+  assert.equal(completion.durationMs, step.durationMs);
+  assert.equal(completion.error, step.error);
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  const saved = (await states.get(ALPHA)).messages.at(-1).steps[0];
+  assert.equal(saved.durationMs, 4200);
+  assert.equal(saved.input, input);
+  assert.equal(saved.error, step.error);
+});
+
 test("a turn that ends in the open chat while no window has focus leaves it unread", async (t) => {
   const { host, manager, saved, session } = harness({ focused: false });
   t.after(() => manager.closeAll());
@@ -306,6 +771,42 @@ test("a note for an idle chat is published immediately and saved by flush", asyn
 
   assert.equal(saved.get(BETA).messages.at(-1).body, "Pushed to origin");
   assert.equal(broadcasts.at(-1).state.messages.at(-1).body, "Pushed to origin");
+});
+
+test("a Delegation's Chat in the same Project becomes a subchat once, never across Projects or in a loop", async () => {
+  const { host, saved } = harness({ failStart: "no agent" });
+  const parent = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const child = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const other = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const elsewhere = await host.emptyChat(BETA, 1, { fresh: true });
+
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${parent}`), true);
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${other}`), false, "a subchat keeps its first parent");
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${parent}`, `${ALPHA}#${child}`), false, "no loops");
+  assert.equal(await host.adoptSubchat(`${BETA}#${elsewhere}`, `${ALPHA}#${parent}`), false, "no other Projects");
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${parent}`, `${ALPHA}#${parent}`), false);
+  await host.states.flush();
+
+  assert.equal(saved.get(ALPHA).sessions[child].parent, parent);
+  assert.equal(saved.get(ALPHA).sessions[parent].parent, undefined);
+  assert.equal(saved.get(BETA)?.sessions[elsewhere]?.parent, undefined);
+});
+
+test("a subchat detaches from its parent, only from that parent when one is named", async () => {
+  const { host, saved } = harness({ failStart: "no agent" });
+  const parent = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const child = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const other = await host.emptyChat(ALPHA, 1, { fresh: true });
+  await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${parent}`);
+
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`, `${ALPHA}#${other}`), false, "another Chat can't detach it");
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`, `${ALPHA}#${parent}`), true);
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`), false, "already on its own");
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[child].parent, undefined);
+
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${other}`), true, "a later Delegation nests it again");
+  assert.equal(await host.detachSubchat(`${ALPHA}#${child}`), true, "the user detaches it from whichever parent");
 });
 
 test("answers to a question are saved as the user's message after the reply so far, and can be taken back", async (t) => {
@@ -376,7 +877,6 @@ test("Compact now: the /compact runs on the chat's own provider, its divider rec
   session(ALPHA).emit({ type: "turn-started", turnId: "t2" });
   session(ALPHA).emit({ type: "context-compacting" });
   session(ALPHA).emit({ type: "context-compacted", trigger: "manual", before: 897_000, after: 42_000 });
-  session(ALPHA).emit({ type: "context-usage", used: 42_000, size: 1_000_000 });
   session(ALPHA).emit({ type: "turn-completed" });
   await waitUntil(() => request().context.status === "done" && !host.runs[`${ALPHA}#${sessionId}`]);
   assert.deepEqual(request().context, { kind: "compaction", status: "done", before: 897_000, after: 42_000, size: 1_000_000 });
@@ -386,6 +886,17 @@ test("Compact now: the /compact runs on the chat's own provider, its divider rec
     { role: "user", body: "/compact" },
   ]);
   assert.deepEqual(saved.get(ALPHA).sessions[sessionId].contextUsage, { used: 42_000, size: 1_000_000 });
+});
+
+test("a /compact changes no files, so it captures no checkpoint", async (t) => {
+  const tasks = [];
+  const { host, manager, saved, session } = harness({ hooks: { beforeTask: async (request) => void tasks.push(request.body) } });
+  t.after(() => manager.closeAll());
+  const sessionId = await chatWithReply(host, session, saved);
+  const { compactionMessage } = require("@milagre/shared/compaction");
+  await host.send(message(ALPHA, "", { sessionId, ...compactionMessage() }));
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.deepEqual(tasks, ["fix the login redirect"]);
 });
 
 test("automatic compaction saves a divider between the reply before and after it", async (t) => {
@@ -410,25 +921,108 @@ test("automatic compaction saves a divider between the reply before and after it
   assert.deepEqual(divider().context, { kind: "compaction", status: "done", before: 190_000, after: 20_000, size: 200_000 });
 });
 
-test("Compact now is refused while a turn runs and on a Codex chat", async (t) => {
-  const { host, manager, saved, states, session } = harness();
+test("Compact after turn queues once, can be cancelled and never steers /compact into Claude", async (t) => {
+  const { host, manager, states, session } = harness();
   t.after(() => manager.closeAll());
   const { compactionMessage } = require("@milagre/shared/compaction");
   const chat = await host.send(message(ALPHA, "start"));
-  await waitUntil(() => session(ALPHA));
+  await chat.started;
+  const chatId = `${ALPHA}#${chat.sessionId}`;
   session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
-  await assert.rejects(host.send(message(ALPHA, "", { sessionId: chat.sessionId, ...compactionMessage() })), /Wait for the agent to finish/);
+  session(ALPHA).emit({ type: "session-started", nativeId: "claude-1" });
+  const compact = () => host.send(message(ALPHA, "", { sessionId: chat.sessionId, ...compactionMessage() }));
+  await Promise.all([compact(), compact()]);
+  let current = (await states.get(ALPHA)).sessions[chat.sessionId];
+  assert.equal(current.queued.length, 1);
+  assert.equal(session(ALPHA).turns.length, 1);
+  await host.removeQueued(chatId, current.queued[0].id);
+  assert.equal((await states.get(ALPHA)).sessions[chat.sessionId].queued?.length ?? 0, 0);
+  await compact();
+  session(ALPHA).emit({ type: "context-usage", used: 156000, size: 200000 });
   session(ALPHA).emit({ type: "turn-completed" });
-  await waitUntil(() => !host.runs[`${ALPHA}#${chat.sessionId}`]);
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].prompt, "/compact");
+  await compact(); // A second tap after the compact started is still the same request.
+  const state = await states.get(ALPHA);
+  assert.equal(state.messages.findLast((m) => m.context?.kind === "compaction").context.before, 156000);
+  assert.equal(state.sessions[chat.sessionId].queued?.length ?? 0, 0);
+});
+
+test("Compact now is refused on unsupported and archived chats", async (t) => {
+  const { host, manager, states, session, saved } = harness();
+  t.after(() => manager.closeAll());
+  const sessionId = await chatWithReply(host, session, saved);
+  const { compactionMessage } = require("@milagre/shared/compaction");
+  for (const [patch, error] of [
+    [{ provider: "codex" }, /Only Claude chats/],
+    [{ provider: "antigravity" }, /Only Claude chats/],
+    [{ provider: "claude", archived: true }, /Unarchive/],
+  ]) {
+    await states.update(ALPHA, (state) => ({ ...state, sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], ...patch } } }));
+    await assert.rejects(host.send(message(ALPHA, "", { sessionId, ...compactionMessage() })), error);
+  }
+});
+
+test("quiet auto compact waits for the completed turn, preserves the draft, updates usage and does not loop or notify", async (t) => {
+  const { host, manager, states, session, published } = harness({
+    focused: false,
+    hooks: { contextSettings: () => ({ buttonThreshold: 70, autoThreshold: 80, autoCompact: true }) },
+  });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "start"));
+  await chat.started;
+  const id = `${ALPHA}#${chat.sessionId}`;
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "session-started", nativeId: "claude-1" });
+  session(ALPHA).emit({ type: "context-usage", used: 160000, size: 200000 });
+  await waitUntil(() => host.runs[id]?.contextUsage?.used === 160000);
+  assert.equal(session(ALPHA).turns.length, 1);
   await states.update(ALPHA, (state) => ({
     ...state,
-    sessions: { ...state.sessions, [chat.sessionId]: { ...state.sessions[chat.sessionId], provider: "codex" } },
+    sessions: { ...state.sessions, [chat.sessionId]: { ...state.sessions[chat.sessionId], draft: "Keep my next question" } },
   }));
-  await assert.rejects(host.send(message(ALPHA, "", { sessionId: chat.sessionId, ...compactionMessage(), provider: "codex" })), /Only Claude chats/);
-  assert.equal(
-    saved.get(ALPHA).messages.some((item) => item.context?.kind === "compaction"),
-    false,
-  );
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  let state = await states.get(ALPHA);
+  assert.equal(state.sessions[chat.sessionId].draft, "Keep my next question");
+  assert.equal(state.messages.at(-1).context.quiet, true);
+  assert.equal(state.messages.at(-1).context.threshold, 80);
+  assert.equal(session(ALPHA).turns[1].prompt, "/compact");
+  await states.update(ALPHA, (s) => ({ ...s, sessions: { ...s.sessions, [chat.sessionId]: { ...s.sessions[chat.sessionId], unread: false } } }));
+  session(ALPHA).emit({ type: "turn-started", turnId: "t2" });
+  // Even a successful boundary which frees no space cannot start an endless compact loop.
+  session(ALPHA).emit({ type: "context-compacted", trigger: "manual", before: 160000, after: 160000 });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[id]);
+  await host.afterTurn(id, { type: "turn-completed" });
+  state = await states.get(ALPHA);
+  assert.equal(session(ALPHA).turns.length, 2);
+  assert.equal(state.sessions[chat.sessionId].unread, false);
+  assert.equal(published.at(-1).event.quiet, true);
+});
+
+test("auto compaction ignores disabled, below-threshold, cancelled, failed and unsupported turns", async (t) => {
+  for (const [provider, enabled, used, end] of [
+    ["claude", false, 190000, "turn-completed"],
+    ["claude", true, 169999, "turn-completed"],
+    ["claude", true, 190000, "turn-cancelled"],
+    ["claude", true, 190000, "turn-failed"],
+    ["codex", true, 190000, "turn-completed"],
+  ]) {
+    await t.test(`${provider} ${enabled} ${used} ${end}`, async (t) => {
+      const { host, manager, session } = harness({ hooks: { contextSettings: () => ({ buttonThreshold: 70, autoThreshold: 85, autoCompact: enabled }) } });
+      t.after(() => manager.closeAll());
+      const chat = await host.send(message(ALPHA, "start", { provider }));
+      await chat.started;
+      const id = `${ALPHA}#${chat.sessionId}`;
+      session(ALPHA).emit({ type: "session-started", nativeId: "native-1" });
+      session(ALPHA).emit({ type: "context-usage", used, size: 200000 });
+      session(ALPHA).emit({ type: end, message: "failed" });
+      await waitUntil(() => !host.runs[id]);
+      await host.afterTurn(id, { type: end });
+      assert.equal(session(ALPHA).turns.length, 1);
+    });
+  }
 });
 
 const dividers = (state, sessionId) =>
@@ -470,7 +1064,7 @@ test("a send on the other provider adds a divider before the message, briefs the
       transcriptPath: `/tmp/handovers/${sessionId}.md`,
     },
   ]);
-  assert.equal(codex.turns[0].prompt, "BRIEF\n\nadd tests");
+  assert.equal(codex.turns[0].prompt, `${framed("BRIEF")}\n\nadd tests`);
   assert.equal(codex.options.resumeId, undefined);
   assert.deepEqual(
     { provider: state.sessions[sessionId].provider, parked: state.sessions[sessionId].native_sessions, current: state.sessions[sessionId].native_session_id },
@@ -480,6 +1074,43 @@ test("a send on the other provider adds a divider before the message, briefs the
     briefs.map(({ provider, catchUp }) => ({ provider, catchUp })),
     [{ provider: "claude", catchUp: false }],
   );
+});
+
+test("a send on another provider waits for the Chat's background subagents: nothing is saved and the Claude process stays (T3 #16000)", async (t) => {
+  const { host, manager, saved, created } = harness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "review in the background"));
+  await waitUntil(() => created[0]);
+  created[0].emit({ type: "session-started", nativeId: "claude-1" });
+  created[0].emit({ type: "turn-started", turnId: "t1" });
+  created[0].emit({
+    type: "subagent-update",
+    agent: { id: "bg", title: "Review", status: "running", background: true, startedAt: 1, updatedAt: 1, transcript: [] },
+  });
+  created[0].emit({ type: "turn-completed" });
+  await waitUntil(() => saved.get(ALPHA)?.messages.length === 2 && saved.get(ALPHA).sessions[sessionId].subagents?.length === 1);
+
+  await assert.rejects(
+    host.send(message(ALPHA, "now on codex", { sessionId, provider: "codex", model: "gpt-6" })),
+    /A background task is still running in this Chat\. Switching to Codex would stop it\. Ask the agent to stop it, or send again once it finishes\./,
+  );
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).messages.length, 2);
+  assert.equal(saved.get(ALPHA).sessions[sessionId].provider, "claude");
+  assert.deepEqual([created.length, created[0].closed], [1, false]);
+  // The same provider is no switch: the message goes to the Claude process the subagent runs in.
+  await host.send(message(ALPHA, "and on claude", { sessionId }));
+  await waitUntil(() => created[0].turns.length === 2);
+
+  created[0].emit({ type: "turn-started", turnId: "t2" });
+  created[0].emit({
+    type: "subagent-update",
+    agent: { id: "bg", title: "Review", status: "completed", background: true, startedAt: 1, updatedAt: 2, transcript: [] },
+  });
+  created[0].emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[`${ALPHA}#${sessionId}`] && saved.get(ALPHA).sessions[sessionId].subagents[0].status === "completed");
+  await host.send(message(ALPHA, "now on codex", { sessionId, provider: "codex", model: "gpt-6" }));
+  await waitUntil(() => created.find((item) => item.provider === "codex" && item.turns.length));
 });
 
 test("switching back resumes the parked session with a catch-up of what happened since", async (t) => {
@@ -503,12 +1134,12 @@ test("switching back resumes the parked session with a catch-up of what happened
   await waitUntil(() => saved.get(ALPHA)?.messages.length === 5);
 
   await host.send(message(ALPHA, "three", { sessionId }));
-  const backOf = () => created.filter((item) => item.provider === "claude").at(-1);
+  const backOf = () => created.findLast((item) => item.provider === "claude");
   await waitUntil(() => backOf()?.options.resumeId === "claude-1" && backOf().turns.length);
   const back = backOf();
   await host.states.flush();
   const state = saved.get(ALPHA);
-  assert.equal(back.turns[0].prompt, "CATCH-UP\n\nthree");
+  assert.equal(back.turns[0].prompt, `${framed("CATCH-UP")}\n\nthree`);
   assert.deepEqual(state.sessions[sessionId].native_sessions, { codex: "codex-1" });
   assert.equal(state.sessions[sessionId].native_session_id, "claude-1");
   assert.equal(briefs.at(-1).catchUp, true);
@@ -553,7 +1184,7 @@ test("a send after a failed resume restores context with a whole-chat brief", as
   session(ALPHA).emit({ type: "session-reset" });
   await host.states.flush();
   await host.send(message(ALPHA, "again", { sessionId }));
-  await waitUntil(() => created.at(-1).turns.at(-1)?.prompt === "WHOLE\n\nagain");
+  await waitUntil(() => created.at(-1).turns.at(-1)?.prompt === `${framed("WHOLE")}\n\nagain`);
   await host.states.flush();
   assert.deepEqual(
     dividers(saved.get(ALPHA), sessionId).map(({ from, to, status }) => [from.provider, to.provider, status]),
@@ -619,7 +1250,7 @@ test("a send during preparing waits, then steers after the briefed message; the 
   await waitUntil(() => created.find((item) => item.provider === "codex")?.turns.length === 2);
   assert.deepEqual(
     created.find((item) => item.provider === "codex").turns.map((turn) => turn.prompt),
-    ["BRIEF\n\nswitch", "also this"],
+    [`${framed("BRIEF")}\n\nswitch`, "also this"],
   );
   assert.equal(session(ALPHA).turns.length, 1);
   assert.notEqual(await second.started, null);
@@ -769,7 +1400,7 @@ test("a cancelled handoff did not happen: the chat is back on its provider and a
     dividers(saved.get(ALPHA), sessionId).map(({ status }) => status),
     ["failed", "done"],
   );
-  assert.equal(created.find((item) => item.provider === "codex").turns[0].prompt, "AGAIN\n\nswitch again");
+  assert.equal(created.find((item) => item.provider === "codex").turns[0].prompt, `${framed("AGAIN")}\n\nswitch again`);
   assert.deepEqual(saved.get(ALPHA).sessions[sessionId].native_sessions, { claude: "claude-1" });
 });
 
@@ -864,11 +1495,11 @@ test("a legacy handover draft is still sent with the chat's first message", asyn
   await host.send(message(ALPHA, "go", { sessionId: 7 }));
   await waitUntil(() => session(ALPHA)?.turns.length);
   await host.states.flush();
-  assert.equal(session(ALPHA).turns[0].prompt, "BRIEF\n\ngo");
+  assert.equal(session(ALPHA).turns[0].prompt, `${framed("BRIEF")}\n\ngo`);
   assert.equal(saved.get(ALPHA).sessions[7].handoverDraft, undefined);
 });
 
-test("a quit saves each running chat to resume, and its cancelled turn says so", async (t) => {
+test("a quit saves each running chat to resume and preserves its partial reply", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());
   const running = await host.send(message(ALPHA, "fix the api", { effort: "high" }));
@@ -901,10 +1532,237 @@ test("a quit saves each running chat to resume, and its cancelled turn says so",
   });
   assert.deepEqual(chatMessages(alpha, running.sessionId).at(-1), {
     role: "assistant",
-    body: "Halfway.\n\nStopped when Milagre closed.",
+    body: "Halfway.",
     outcome: "cancelled",
   });
   assert.equal(saved.get(BETA).sessions[idle.sessionId].resumeTurn, undefined);
+});
+
+test("suspending two Chats in one Project preserves the earlier session snapshot", async (t) => {
+  const { host, manager, states, created } = harness();
+  t.after(() => manager.closeAll());
+  const first = await host.send(message(ALPHA, "first turn"));
+  const second = await host.send(message(ALPHA, "second turn"));
+  await waitUntil(() => created.length === 2 && created.every((item) => item.turns.length));
+  await states.flush();
+  const before = await states.get(ALPHA);
+  await host.suspendRunning();
+  const after = await states.get(ALPHA);
+  assert.equal(before.sessions[first.sessionId].resumeTurn, undefined);
+  assert.equal(before.sessions[second.sessionId].resumeTurn, undefined);
+  assert.notEqual(after.sessions, before.sessions);
+  assert.equal(after.sessions[first.sessionId].resumeTurn.prompt, "first turn");
+  assert.equal(after.sessions[second.sessionId].resumeTurn.prompt, "second turn");
+});
+
+test("recovering multiple legacy handoffs preserves old and untouched sessions", async (t) => {
+  const { host, manager, states } = harness();
+  t.after(() => manager.closeAll());
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    sessions: {
+      7: { id: 7, worktree_id: 1, provider: "claude", handoverPending: true },
+      8: { id: 8, worktree_id: 1, provider: "codex", handoverPending: true },
+      9: { id: 9, worktree_id: 1, provider: "claude" },
+    },
+  }));
+  const before = await states.get(ALPHA);
+  await host.recoverHandoffs(ALPHA, before);
+  const after = await states.get(ALPHA);
+  assert.equal(before.sessions[7].handoverPending, true);
+  assert.equal(before.sessions[8].handoverPending, true);
+  assert.equal("handoverPending" in after.sessions[7], false);
+  assert.equal("handoverPending" in after.sessions[8], false);
+  assert.equal(after.sessions[9], before.sessions[9]);
+  await host.recoverHandoffs(ALPHA, after);
+  assert.equal(await states.get(ALPHA), after, "recovery without changes keeps the snapshot");
+});
+
+test("a quit saves no resume for a Routine's turn, which the scheduler owns; a user's turn still resumes", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit", at: NOW };
+  const beat = await host.send(message(ALPHA, "Check CI", { context }));
+  const user = await host.send(message(BETA, "fix the api"));
+  await waitUntil(() => session(ALPHA) && session(BETA));
+  for (const cwd of [ALPHA, BETA]) session(cwd).emit({ type: "turn-started", turnId: "t1" });
+  await host.suspendRunning();
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[beat.sessionId].resumeTurn, undefined);
+  assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
+});
+
+test("a babysit Run's turn carries its level as a guard to the agent; other turns and the turn settings don't", async (t) => {
+  const { host, manager, session } = harness();
+  t.after(() => manager.closeAll());
+  const babysit = { level: 2, resolveThreads: false, offBranch: true };
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit PR #4", at: NOW, label: "PR #4", babysit };
+  const run = await host.send(message(ALPHA, "PR #4 changed", { permissionMode: "full", context }));
+  await waitUntil(() => session(ALPHA)?.turns.length === 1);
+  assert.deepEqual(session(ALPHA).turns[0].guard, { level: 2, resolveThreads: false });
+  const chatId = `${ALPHA}#${run.sessionId}`;
+  // Settings read for the Chat's next message (a Delegation, a beat) never pass the guard on.
+  assert.equal("guard" in host.turnSettings(chatId), false);
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  // A heartbeat's beat and a user's message are not guarded.
+  await host.send(
+    message(ALPHA, "Check CI", { sessionId: run.sessionId, context: { kind: "routine-run", routineId: "r2", runId: "run-2", name: "CI", at: NOW } }),
+  );
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].guard, undefined);
+});
+
+test("a Run's new Chat starts hidden, with the Routine's name as a generated title that a user's name beats", async (t) => {
+  const { host, manager, states, saved, broadcasts } = harness();
+  t.after(() => manager.closeAll());
+  const origin = { routineId: "r1", runId: "run-1" };
+  const sessionId = await host.emptyChat(ALPHA, 1, { origin, generatedTitle: "Morning triage", fresh: true });
+  await host.states.flush();
+  const session = saved.get(ALPHA).sessions[sessionId];
+  assert.deepEqual(session.routine, { routineId: "r1", runId: "run-1", hidden: true });
+  assert.equal(session.generatedTitle, "Morning triage");
+  assert.equal(session.title, undefined);
+  assert.equal(broadcasts.at(-1).state.sessions[sessionId].routine.hidden, true);
+  // A Linear Run names the Chat itself, and it is hidden all the same.
+  const linear = await host.emptyChat(ALPHA, 1, { origin: { routineId: "r1", runId: "run-2" }, title: "MIL-1 Paste images", fresh: true });
+  assert.deepEqual((await states.get(ALPHA)).sessions[linear].routine, { routineId: "r1", runId: "run-2", hidden: true });
+  assert.equal((await states.get(ALPHA)).sessions[linear].title, "MIL-1 Paste images");
+  // A Chat made for no Run carries no routine at all.
+  const plain = await host.emptyChat(ALPHA, 1, { fresh: true });
+  assert.equal((await states.get(ALPHA)).sessions[plain].routine, undefined);
+});
+
+test("nameRunChat saves a Run's title on its own Chat only, and never over a name the user gave it", async (t) => {
+  const { host, manager, states, broadcasts } = harness();
+  t.after(() => manager.closeAll());
+  const sessionId = await host.emptyChat(ALPHA, 1, { origin: { routineId: "r1", runId: "run-1" }, generatedTitle: "Morning triage", fresh: true });
+  const before = broadcasts.length;
+  // Another Run's title, or a Chat that isn't there, changes nothing.
+  assert.equal(await host.nameRunChat(ALPHA, sessionId, "run-9", "Wrong Run"), false);
+  assert.equal(await host.nameRunChat(ALPHA, 999, "run-1", "No such Chat"), false);
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].generatedTitle, "Morning triage");
+  assert.equal(broadcasts.length, before);
+
+  const update = t.mock.method(states, "update");
+  assert.equal(await host.nameRunChat(ALPHA, sessionId, "run-1", "Fixed flaky sidebar test"), true);
+  // The name is on the session: none of the Chat's messages are loaded for it.
+  assert.deepEqual(
+    update.mock.calls.map((call) => call.arguments[2]),
+    [{ chats: [] }],
+  );
+  update.mock.restore();
+  const named = (await states.get(ALPHA)).sessions[sessionId];
+  assert.equal(named.generatedTitle, "Fixed flaky sidebar test");
+  assert.deepEqual(named.routine, { routineId: "r1", runId: "run-1", hidden: true });
+  assert.equal(broadcasts.at(-1).state.sessions[sessionId].generatedTitle, "Fixed flaky sidebar test");
+
+  await states.update(ALPHA, (state) => ({ ...state, sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], title: "My name" } } }));
+  assert.equal(await host.nameRunChat(ALPHA, sessionId, "run-1", "Too late"), false);
+  const kept = (await states.get(ALPHA)).sessions[sessionId];
+  assert.equal(kept.title, "My name");
+  assert.equal(kept.generatedTitle, "Fixed flaky sidebar test");
+});
+
+test("a Linear Run's first message, the issue card carrying its Routine, is a Routine's turn too: no resume, no saved mode", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const context = {
+    kind: "linear-issue",
+    key: "MIL-1",
+    title: "Paste",
+    url: "u",
+    state: { name: "Todo", type: "unstarted", color: "#aaa" },
+    routine: { routineId: "r1", runId: "run-1", name: "Triage", at: NOW },
+  };
+  const run = await host.send(message(ALPHA, "Look at MIL-1", { context, permissionMode: "full" }));
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  await host.suspendRunning();
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[run.sessionId].resumeTurn, undefined);
+  assert.equal(saved.get(ALPHA).sessions[run.sessionId].permissionMode, undefined);
+});
+
+test("the Chat keeps the mode its composer last set, saved with it: a pick, or the mode a person's message carried", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "fix the api", { permissionMode: "full" }));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "full");
+
+  await host.notePermissionMode(chatId, "ask");
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "ask");
+  // The turn a quit stops starts again in the mode the Chat has now.
+  assert.equal(host.turnSettings(chatId).permissionMode, "ask");
+  await assert.rejects(host.notePermissionMode(chatId, "yolo"), /Unknown permission mode/);
+  // A Chat that isn't there changes nothing.
+  await host.notePermissionMode(`${ALPHA}#999`, "ask");
+  assert.equal(saved.get(ALPHA).sessions[999], undefined);
+
+  // A Routine's message isn't the composer's: it leaves the saved mode alone.
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit", at: NOW };
+  await host.send(message(ALPHA, "Check CI", { sessionId: chat.sessionId, permissionMode: "full", context }));
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "ask");
+  // A deleted Chat leaves nothing of its Routine turn behind.
+  assert.equal(host.routineTurns.has(chatId), true);
+  host.forget(chatId);
+  assert.equal(host.routineTurns.has(chatId), false);
+});
+
+test("leaving Bot rules saves Ask for everything the Chat starts again: its mode, its stopped turn, its queue", async (t) => {
+  const { host, manager, states, saved } = harness();
+  t.after(() => manager.closeAll());
+  const resumeTurn = { provider: "claude", model: "m", permissionMode: "bot", stoppedAt: NOW };
+  const queued = [
+    { id: "q1", body: "steer", provider: "claude", model: "m", queuedAt: NOW, turn: { permissionMode: "bot" } },
+    { id: "q2", body: "older", provider: "claude", model: "m", queuedAt: NOW },
+  ];
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    next_id: 9,
+    sessions: {
+      7: { id: 7, worktree_id: 1, provider: "claude", permissionMode: "bot", resumeTurn, queued, queueHeld: true },
+      8: { id: 8, worktree_id: 1, provider: "claude", permissionMode: "auto", resumeTurn: { ...resumeTurn, permissionMode: "auto" } },
+    },
+  }));
+  await host.leaveBotRules(`${ALPHA}#7`);
+  await host.leaveBotRules(`${ALPHA}#8`);
+  await host.states.flush();
+  const left = saved.get(ALPHA).sessions;
+  assert.equal(left[7].permissionMode, "ask");
+  assert.deepEqual(left[7].resumeTurn, { ...resumeTurn, permissionMode: "ask" });
+  assert.deepEqual(left[7].queued, [{ ...queued[0], turn: { permissionMode: "ask" } }, queued[1]]);
+  // A Chat in another mode keeps it.
+  assert.equal(left[8].permissionMode, "auto");
+  assert.equal(left[8].resumeTurn.permissionMode, "auto");
+});
+
+test("a mode change saves the mode whatever the live agent says, and reports the agent's error first", async (t) => {
+  const { host, manager } = harness();
+  t.after(() => manager.closeAll());
+  const failing = async () => {
+    throw new Error("agent refused");
+  };
+  const noted = [];
+  host.notePermissionMode = async (chatId, mode) => {
+    noted.push([chatId, mode]);
+    throw new Error("save failed");
+  };
+  await assert.rejects(host.setPermissionMode(`${ALPHA}#1`, "ask", failing), /agent refused/);
+  assert.deepEqual(noted, [[`${ALPHA}#1`, "ask"]]);
+  await assert.rejects(
+    host.setPermissionMode(`${ALPHA}#1`, "ask", async () => {}),
+    /save failed/,
+  );
 });
 
 test("a chat a quit stopped continues once on its saved session when its project opens", async (t) => {
@@ -949,24 +1807,40 @@ test("a chat the usage limit stopped continues on the turn's options after its a
   const chat = await host.send(message(ALPHA, "fix the api", { effort: "high" }));
   await waitUntil(() => session(ALPHA));
   // Nothing to continue while the turn runs.
-  assert.equal(await host.continueAfterLimit(ALPHA, chat.sessionId, "me@work.com"), false);
+  assert.equal(await host.continueAfterLimit(ALPHA, chat.sessionId, "claude", "me@work.com"), false);
   session(ALPHA).emit({ type: "session-started", nativeId: "native-7" });
   session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
   session(ALPHA).emit({ type: "turn-failed", message: "You've hit your session limit", notice: true, limit: { provider: "claude" } });
   await waitUntil(() => saved.get(ALPHA)?.messages.length === 2);
 
-  assert.equal(await host.continueAfterLimit(ALPHA, chat.sessionId, "me@work.com"), true);
+  assert.equal(await host.continueAfterLimit(ALPHA, chat.sessionId, "claude", "me@work.com"), true);
   await host.states.flush();
   await waitUntil(() => session(ALPHA)?.turns.length === 2);
-  assert.deepEqual(chatMessages(saved.get(ALPHA), chat.sessionId).at(-1), {
-    role: "user",
-    body: "Switched to me@work.com after the usage limit. Continue where you left off.",
-  });
+  const switched = saved.get(ALPHA).messages.at(-1);
+  assert.deepEqual([switched.role, switched.body], ["user", "Switched to me@work.com after the usage limit"]);
+  assert.deepEqual(switched.context, { kind: "account-switch", provider: "claude", label: "me@work.com" });
   const turn = session(ALPHA).turns[1];
   assert.match(turn.prompt, /usage limit/);
   assert.equal(turn.effort, "high");
   // A chat Milagre knows no turn of (it restarted since) waits for the user.
-  assert.equal(await host.continueAfterLimit(BETA, 1, "me@work.com"), false);
+  assert.equal(await host.continueAfterLimit(BETA, 1, "claude", "me@work.com"), false);
+});
+
+test("a babysit Run continued after a usage limit keeps its guard", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const babysit = { level: 1, resolveThreads: false };
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit PR #4", at: NOW, label: "PR #4", babysit };
+  const run = await host.send(message(ALPHA, "PR #4 changed", { context }));
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "session-started", nativeId: "native-7" });
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-failed", message: "You've hit your session limit", notice: true, limit: { provider: "claude" } });
+  await waitUntil(() => saved.get(ALPHA)?.messages.length === 2);
+  assert.equal(await host.continueAfterLimit(ALPHA, run.sessionId, "claude", "me@work.com"), true);
+  await waitUntil(() => session(ALPHA)?.turns.length === 2);
+  // The continued turn is still the Run: its level stays enforced.
+  assert.deepEqual(session(ALPHA).turns[1].guard, { level: 1, resolveThreads: false });
 });
 
 test("a chat whose agent hadn't started when Milagre quit is sent its prompt again", async (t) => {
@@ -1137,7 +2011,7 @@ test("a slow send does not publish old state after a concurrent turn finishes", 
     seq,
     [...seq].sort((a, b) => a - b),
   );
-  const latest = h.published.filter((x) => x.state).at(-1).state;
+  const latest = h.published.findLast((x) => x.state).state;
   assert.ok(latest.messages.some((m) => m.body === "First reply complete."));
   assert.equal(h.started.length, 2);
   await h.states.close();
@@ -1246,4 +2120,823 @@ test("saved input carries its client correlation id so previews reconcile before
   assert.equal(saved.get(ALPHA).messages[0].clientMessageId, "phone-first-message");
   assert.equal(published.find((item) => item.event.type === "message-sent").state.messages[0].clientMessageId, "phone-first-message");
   assert.equal(saved.get(ALPHA).messages[0].session_id, sent.sessionId);
+});
+
+test("a send repeating a saved clientMessageId answers with that message's chat and runs nothing", async (t) => {
+  const { host, manager, states, saved, created, published } = harness();
+  t.after(() => manager.closeAll());
+  const first = await host.send(message(ALPHA, "Hello", { clientMessageId: "lost-ack" }));
+  await first.started;
+  const turns = created.flatMap((item) => item.turns).length;
+  const events = published.length;
+  const saves = saved.get(ALPHA).messages.length;
+  // The phone never saw the answer, restored its draft and sent again, aimed at no Chat as before.
+  const again = await host.send(message(ALPHA, "Hello", { clientMessageId: "lost-ack" }));
+  assert.equal(again.sessionId, first.sessionId);
+  assert.equal(again.duplicate, true);
+  assert.equal(await again.started, null);
+  const resent = await host.send(message(ALPHA, "Hello", { clientMessageId: "lost-ack", sessionId: first.sessionId }));
+  assert.equal(resent.sessionId, first.sessionId);
+  const state = await states.get(ALPHA);
+  assert.equal(state.messages.filter((item) => item.clientMessageId === "lost-ack").length, 1);
+  assert.equal(saved.get(ALPHA).messages.length, saves);
+  assert.equal(created.flatMap((item) => item.turns).length, turns);
+  assert.equal(published.length, events);
+  assert.equal(Object.keys(state.sessions).length, 1);
+});
+
+test("two concurrent sends with one clientMessageId save and run it once", async (t) => {
+  const { host, manager, states, created } = harness();
+  t.after(() => manager.closeAll());
+  const [a, b] = await Promise.all([
+    host.send(message(ALPHA, "Hello", { clientMessageId: "double" })),
+    host.send(message(ALPHA, "Hello", { clientMessageId: "double" })),
+  ]);
+  await Promise.all([a.started, b.started]);
+  assert.equal(a.sessionId, b.sessionId);
+  assert.equal((await states.get(ALPHA)).messages.filter((item) => item.clientMessageId === "double").length, 1);
+  assert.equal(created.flatMap((item) => item.turns).length, 1);
+  assert.equal([a, b].filter((item) => item.duplicate).length, 1);
+});
+
+test("a different clientMessageId, or none, is a new message", async (t) => {
+  const { host, manager, states } = harness();
+  t.after(() => manager.closeAll());
+  const first = await host.send(message(ALPHA, "Hello", { clientMessageId: "one" }));
+  await host.send(message(ALPHA, "Hello", { clientMessageId: "two", sessionId: first.sessionId }));
+  await host.send(message(ALPHA, "Hello", { sessionId: first.sessionId }));
+  assert.equal((await states.get(ALPHA)).messages.filter((item) => item.role === "user").length, 3);
+});
+
+// Milagre's task tools against the real host and project state, as runtime.cjs wires them.
+function planHarness() {
+  const h = harness();
+  const tools = createChatPlanTools({ read: (chatId) => h.host.plan(chatId), update: (chatId, change) => h.host.updatePlan(chatId, change) });
+  const call = (chatId, name, args) =>
+    runTool(
+      tools.definitions(chatId).find((tool) => tool.name === name),
+      args,
+    );
+  return { ...h, call };
+}
+const nativeList = (...contents) => ({ type: "tasks-updated", tasks: contents.map((content, index) => ({ id: String(index), content, status: "pending" })) });
+
+test("tasks_set saves the plan on the session and publishes it with the state", async (t) => {
+  const { host, manager, states, saved, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  const result = await call(chatId, "tasks_set", { tasks: [{ title: "Persist", children: [{ title: "Save" }] }, { title: "Verify" }] });
+  assert.equal(result.isError, false);
+  assert.equal(result.text, "[ ] 1 Persist\n  [ ] 1.1 Save\n[ ] 2 Verify");
+  const plan = (await states.get(ALPHA)).sessions[sessionId].plan;
+  assert.equal(plan.source, "milagre");
+  const event = published.findLast((item) => item.event.type === "plan-updated");
+  assert.equal(event.chatId, chatId);
+  assert.deepEqual(event.event.plan, plan);
+  assert.deepEqual(event.state.sessions[sessionId].plan, plan);
+  await states.flush();
+  assert.deepEqual(saved.get(ALPHA).sessions[sessionId].plan, plan);
+});
+
+test("once Milagre owns the plan a native list is ignored, and the plan survives the turn and a reload", async (t) => {
+  const { host, manager, states, saved, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  await host.receive(chatId, nativeList("native one"));
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan.source, "native");
+  await call(chatId, "tasks_set", { tasks: [{ title: "Mine" }] });
+  const owned = (await states.get(ALPHA)).sessions[sessionId].plan;
+  const before = published.length;
+  await host.receive(chatId, nativeList("native two"));
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan, owned);
+  assert.equal(
+    published.slice(before).some((item) => item.state),
+    false,
+    "an ignored native list publishes no state",
+  );
+  await host.receive(chatId, { type: "turn-completed" });
+  await states.flush();
+  assert.deepEqual(saved.get(ALPHA).sessions[sessionId].plan, owned);
+  const reloaded = new ProjectStates({ read: async () => saved.get(ALPHA), save: async () => {} });
+  t.after(() => reloaded.close());
+  assert.deepEqual((await reloaded.get(ALPHA)).sessions[sessionId].plan, owned);
+});
+
+test("concurrent plan changes and a native list each see the one before", async (t) => {
+  const { host, manager, states, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  await call(chatId, "tasks_set", { tasks: [{ title: "A" }, { title: "B" }] });
+  await Promise.all([call(chatId, "task_update", { id: "1", status: "completed" }), call(chatId, "task_update", { id: "2", status: "completed" })]);
+  assert.deepEqual(
+    (await states.get(ALPHA)).sessions[sessionId].plan.tasks.map((task) => task.status),
+    ["completed", "completed"],
+  );
+});
+
+test("a native list that lands just before phase_set is kept, not overwritten", async (t) => {
+  const { host, manager, states, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  await host.receive(chatId, nativeList("old"));
+  const [, phase] = await Promise.all([host.receive(chatId, nativeList("new one", "new two")), call(chatId, "phase_set", { phase: "build" })]);
+  assert.equal(phase.isError, false);
+  const plan = (await states.get(ALPHA)).sessions[sessionId].plan;
+  assert.deepEqual(
+    plan.tasks.map((task) => task.title),
+    ["new one", "new two"],
+  );
+  assert.equal(plan.phases.at(-1).phase, "build");
+});
+
+test("a task tool for a Chat that is gone returns an error and saves nothing", async (t) => {
+  const { host, manager, states, saved, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  await host.send(message(ALPHA, "plan it"));
+  await states.flush();
+  const before = { saved: saved.get(ALPHA), published: published.length };
+  const result = await call(`${ALPHA}#999`, "tasks_set", { tasks: [{ title: "Lost" }] });
+  assert.deepEqual({ text: result.text, isError: result.isError }, { text: "This Chat no longer exists.", isError: true });
+  await states.flush();
+  assert.equal(saved.get(ALPHA), before.saved);
+  assert.equal(published.length, before.published);
+});
+
+test("a change that throws, or a state update that fails, writes and publishes nothing", async (t) => {
+  const { host, manager, states, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  const unknown = await call(chatId, "task_update", { id: "9", status: "completed" });
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.text, /tasks_set/);
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan, undefined);
+  assert.equal(
+    published.some((item) => item.event.type === "plan-updated"),
+    false,
+  );
+  const update = host.states.update;
+  host.states.update = () => Promise.reject(new Error("disk is full"));
+  const failed = await call(chatId, "tasks_set", { tasks: [{ title: "A" }] });
+  host.states.update = update;
+  assert.deepEqual({ text: failed.text, isError: failed.isError }, { text: "disk is full", isError: true });
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan, undefined);
+});
+
+// Antigravity (ACP) can't steer a running turn: what the user sends meanwhile waits in the chat's queue.
+const agy = (projectPath, body, extra = {}) => message(projectPath, body, { provider: "antigravity", model: "gemini-3-pro", ...extra });
+
+for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+  test(`${provider}: explicit queue waits, survives a duplicate send and runs in order`, async (t) => {
+    const h = harness();
+    t.after(() => h.manager.closeAll());
+    const chat = await h.host.send(message(ALPHA, "original", { provider }));
+    await chat.started;
+    await h.host.receive(`${ALPHA}#${chat.sessionId}`, { type: "session-started", nativeId: `${provider}-native` });
+    const chatId = `${ALPHA}#${chat.sessionId}`;
+    await h.host.receive(chatId, { type: "turn-started", turnId: "t1" });
+    const request = message(ALPHA, "second", { provider, sessionId: chat.sessionId, delivery: "queue", clientMessageId: "second" });
+    const queued = await h.host.send(request);
+    await h.host.send(request);
+    await h.host.send({ ...request, body: "third", clientMessageId: "third" });
+    assert.equal(queued.queued, true);
+    assert.equal(h.session(ALPHA).turns.length, 1);
+    assert.deepEqual(
+      h.saved.get(ALPHA).sessions[chat.sessionId].queued.map((item) => item.body),
+      ["second", "third"],
+    );
+    await h.host.receive(chatId, { type: "turn-completed" });
+    await queued.started;
+    assert.equal(h.session(ALPHA).turns[1].prompt, "second");
+    await h.host.receive(chatId, { type: "turn-completed" });
+    await waitUntil(() => h.session(ALPHA).turns.length === 3);
+    assert.equal(h.session(ALPHA).turns[2].prompt, "third");
+  });
+
+  test(`${provider}: send now uses steering or a saved stop-and-send`, async (t) => {
+    const h = harness();
+    t.after(() => h.manager.closeAll());
+    const chat = await h.host.send(message(ALPHA, "original", { provider }));
+    await chat.started;
+    await h.host.receive(`${ALPHA}#${chat.sessionId}`, { type: "session-started", nativeId: `${provider}-native` });
+    const chatId = `${ALPHA}#${chat.sessionId}`;
+    await h.host.receive(chatId, { type: "turn-started", turnId: "t1" });
+    let interrupts = 0;
+    h.host.interrupt = async (id) => {
+      interrupts++;
+      assert.equal(h.saved.get(ALPHA).sessions[chat.sessionId].queued[0].body, "urgent");
+      await h.host.receive(id, { type: "turn-cancelled" });
+    };
+    const result = await h.host.send(message(ALPHA, "urgent", { provider, sessionId: chat.sessionId, delivery: "now" }));
+    await result.started;
+    assert.equal(interrupts, ["claude", "codex"].includes(provider) ? 0 : 1);
+    assert.equal(h.session(ALPHA).turns[1].prompt, "urgent");
+    assert.equal(h.saved.get(ALPHA).sessions[chat.sessionId].queued, undefined);
+  });
+}
+
+test("Send now promotes a queued Codex message into its running turn without stopping it", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const chat = await h.host.send(message(ALPHA, "original", { provider: "codex" }));
+  await chat.started;
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await h.host.receive(chatId, { type: "turn-started", turnId: "t1" });
+  const queued = await h.host.send(message(ALPHA, "second", { provider: "codex", sessionId: chat.sessionId, delivery: "queue" }));
+  const id = h.saved.get(ALPHA).sessions[chat.sessionId].queued[0].id;
+  assert.deepEqual(await h.host.sendQueuedNow(chatId, id), { interrupt: false });
+  await queued.started;
+  assert.equal(h.session(ALPHA).turns[1].prompt, "second");
+  assert.equal(h.saved.get(ALPHA).sessions[chat.sessionId].queued, undefined);
+});
+
+test("queue requested after a turn ended starts immediately", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "work", { provider: "codex", delivery: "queue" }));
+  await sent.started;
+  assert.equal(sent.queued, undefined);
+  assert.equal(h.session(ALPHA).turns[0].prompt, "work");
+});
+
+test("a failed durable send never interrupts the current turn", async (t) => {
+  const h = await runningAgyChat(t);
+  let interrupts = 0;
+  h.host.interrupt = async () => {
+    interrupts++;
+  };
+  const flush = h.states.flush.bind(h.states);
+  h.states.flush = async () => {
+    throw new Error("Disk full");
+  };
+  await assert.rejects(h.host.send(agy(ALPHA, "urgent", { sessionId: h.chat.sessionId, delivery: "now" })), /Disk full/);
+  h.states.flush = flush;
+  assert.equal(interrupts, 0);
+  assert.equal(h.session(ALPHA).turns.length, 1);
+  assert.equal((await h.states.get(ALPHA)).sessions[h.chat.sessionId].queued, undefined);
+});
+
+test("Send now accepts a message that drained while its queue save finished", async (t) => {
+  const h = await runningAgyChat(t);
+  const save = h.host.queueSaved.bind(h.host);
+  h.host.queueSaved = async (...args) => {
+    const result = await save(...args);
+    await h.host.receive(h.chatId, { type: "turn-completed" });
+    await result.started;
+    return result;
+  };
+  const sent = await h.host.send(agy(ALPHA, "urgent", { sessionId: h.chat.sessionId, delivery: "now" }));
+  await sent.started;
+  assert.equal(h.session(ALPHA).turns.length, 2);
+  assert.equal(h.session(ALPHA).turns[1].prompt, "urgent");
+});
+
+async function runningAgyChat(t, options) {
+  const h = harness(options);
+  t.after(() => h.manager.closeAll());
+  const chat = await h.host.send(agy(ALPHA, "build it"));
+  await waitUntil(() => h.session(ALPHA)?.turns.length === 1);
+  h.session(ALPHA).emit({ type: "session-started", nativeId: "agy-1" });
+  h.session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  h.session(ALPHA).emit({ type: "text-delta", messageId: "m1", text: "Building." });
+  await waitUntil(() => h.host.runs[`${ALPHA}#${chat.sessionId}`]?.text === "Building.");
+  return { ...h, chat, chatId: `${ALPHA}#${chat.sessionId}` };
+}
+
+test("a message for a running turn that can't be steered is queued, then starts its own turn when that one completes", async (t) => {
+  const { host, saved, session, chat, chatId, broadcasts } = await runningAgyChat(t);
+  const first = await host.send(agy(ALPHA, "then add tests", { sessionId: chat.sessionId, clientMessageId: "c-1", effort: "high" }));
+  await host.send(agy(ALPHA, "and docs", { sessionId: chat.sessionId }));
+  assert.equal(first.queued, true);
+
+  const queued = saved.get(ALPHA).sessions[chat.sessionId].queued;
+  assert.deepEqual(
+    queued.map((item) => item.body),
+    ["then add tests", "and docs"],
+  );
+  assert.equal(queued[0].clientMessageId, "c-1");
+  assert.equal(broadcasts.at(-1).state.sessions[chat.sessionId].queued.length, 2);
+  // Not in the transcript, the reply isn't split and the agent got nothing yet.
+  assert.deepEqual(chatMessages(saved.get(ALPHA), chat.sessionId), [{ role: "user", body: "build it" }]);
+  assert.equal(host.runs[chatId].text, "Building.");
+  assert.equal(session(ALPHA).turns.length, 1);
+
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].prompt, "then add tests");
+  assert.equal(session(ALPHA).turns[1].effort, "high");
+  assert.deepEqual(
+    saved.get(ALPHA).sessions[chat.sessionId].queued.map((item) => item.body),
+    ["and docs"],
+  );
+  assert.equal((await first.started).turnId, "t2");
+  assert.equal(saved.get(ALPHA).messages.find((item) => item.body === "then add tests").clientMessageId, "c-1");
+
+  // One turn per message, in order.
+  session(ALPHA).emit({ type: "turn-started", turnId: "t2" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 3);
+  assert.equal(session(ALPHA).turns[2].prompt, "and docs");
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].queued === undefined);
+  session(ALPHA).emit({ type: "turn-started", turnId: "t3" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => chatMessages(saved.get(ALPHA), chat.sessionId).length === 6);
+  assert.deepEqual(
+    chatMessages(saved.get(ALPHA), chat.sessionId).map((item) => item.body),
+    ["build it", "Building.", "then add tests", "The agent finished without a reply.", "and docs", "The agent finished without a reply."],
+  );
+});
+
+test("a resend of a message still in the queue is not queued twice, and it runs once", async (t) => {
+  const { host, saved, session, chat } = await runningAgyChat(t);
+  const first = await host.send(agy(ALPHA, "then add tests", { sessionId: chat.sessionId, clientMessageId: "c-1" }));
+  assert.equal(first.queued, true);
+  // The phone never saw the answer and sent the same message again.
+  const again = await host.send(agy(ALPHA, "then add tests", { sessionId: chat.sessionId, clientMessageId: "c-1" }));
+  assert.equal(again.duplicate, true);
+  assert.equal(again.sessionId, chat.sessionId);
+  assert.equal(await again.started, null);
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].queued.length, 1);
+
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].queued === undefined);
+  assert.equal(saved.get(ALPHA).messages.filter((item) => item.clientMessageId === "c-1").length, 1);
+});
+
+test("a message for a running Claude turn still steers it", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "start"));
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  await waitUntil(() => host.runs[`${ALPHA}#${chat.sessionId}`]);
+  const sent = await host.send(message(ALPHA, "also this", { sessionId: chat.sessionId }));
+  assert.equal(sent.queued, undefined);
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].queued, undefined);
+});
+
+test("Stop holds the queue; Send now starts a message and the rest follow it, Remove drops one", async (t) => {
+  const { host, saved, session, chat, chatId } = await runningAgyChat(t);
+  const removed = await host.send(agy(ALPHA, "first", { sessionId: chat.sessionId }));
+  await host.send(agy(ALPHA, "second", { sessionId: chat.sessionId }));
+  await host.send(agy(ALPHA, "third", { sessionId: chat.sessionId }));
+
+  session(ALPHA).emit({ type: "turn-cancelled" });
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].queueHeld === true);
+  assert.equal(session(ALPHA).turns.length, 1);
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].queued.length, 3);
+
+  const [first, second, third] = saved.get(ALPHA).sessions[chat.sessionId].queued;
+  assert.equal(await host.removeQueued(chatId, first.id), true);
+  assert.equal(await host.removeQueued(chatId, first.id), false);
+  assert.deepEqual(await removed.started, { turnId: null, steered: false, cancelled: true, removed: true });
+
+  // Send now on the last one: it starts at once, and the held queue is released.
+  assert.deepEqual(await host.sendQueuedNow(chatId, third.id), { interrupt: false });
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].prompt, "third");
+  const after = saved.get(ALPHA).sessions[chat.sessionId];
+  assert.deepEqual(
+    after.queued.map((item) => item.id),
+    [second.id],
+  );
+  assert.equal(after.queueHeld, undefined);
+  await assert.rejects(host.sendQueuedNow(chatId, third.id), /already sent or removed/);
+
+  session(ALPHA).emit({ type: "turn-started", turnId: "t2" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 3);
+  assert.equal(session(ALPHA).turns[2].prompt, "second");
+});
+
+test("Send now while the turn runs stops it, then starts that message even though the turn was cancelled", async (t) => {
+  const { host, saved, session, chat, chatId } = await runningAgyChat(t);
+  await host.send(agy(ALPHA, "later", { sessionId: chat.sessionId }));
+  await host.send(agy(ALPHA, "urgent", { sessionId: chat.sessionId }));
+  const urgent = saved.get(ALPHA).sessions[chat.sessionId].queued[1];
+  assert.deepEqual(await host.sendQueuedNow(chatId, urgent.id), { interrupt: true });
+  // The runtime stops the turn; the agent ends it as cancelled.
+  session(ALPHA).emit({ type: "turn-cancelled" });
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].prompt, "urgent");
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].queueHeld, undefined);
+  session(ALPHA).emit({ type: "turn-started", turnId: "t2" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 3);
+  assert.equal(session(ALPHA).turns[2].prompt, "later");
+});
+
+test("a queued message whose save fails stays queued, and the queue waits for Send now", async (t) => {
+  const { host, saved, session, chat, states } = await runningAgyChat(t);
+  await host.send(agy(ALPHA, "next", { sessionId: chat.sessionId }));
+  const flush = states.flush.bind(states);
+  states.flush = async () => {
+    states.flush = flush;
+    throw new Error("disk full");
+  };
+  const warn = t.mock.method(console, "warn", () => {});
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].queueHeld === true);
+  assert.deepEqual(
+    saved.get(ALPHA).sessions[chat.sessionId].queued.map((item) => item.body),
+    ["next"],
+  );
+  assert.equal(
+    saved.get(ALPHA).messages.some((item) => item.body === "next"),
+    false,
+  );
+  assert.equal(session(ALPHA).turns.length, 1);
+  assert.match(warn.mock.calls[0].arguments.join(" "), /disk full/);
+});
+
+test("a failed turn holds the queue too", async (t) => {
+  const { host, saved, session, chat } = await runningAgyChat(t);
+  await host.send(agy(ALPHA, "next", { sessionId: chat.sessionId }));
+  session(ALPHA).emit({ type: "turn-failed", message: "boom" });
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].queueHeld === true);
+  assert.equal(session(ALPHA).turns.length, 1);
+});
+
+test("a quit keeps the queue, and it moves on once the resumed turn completes; nothing runs twice", async (t) => {
+  const { host, saved, session, chat, states } = await runningAgyChat(t);
+  await host.send(agy(ALPHA, "queued before quit", { sessionId: chat.sessionId }));
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].native_session_id === "agy-1");
+  await host.suspendRunning();
+  await states.flush();
+  session(ALPHA).emit({ type: "turn-cancelled" });
+  await waitUntil(() => chatMessages(saved.get(ALPHA), chat.sessionId).length === 2);
+  const stored = saved.get(ALPHA);
+  assert.equal(stored.sessions[chat.sessionId].queued.length, 1);
+  assert.equal(stored.sessions[chat.sessionId].queueHeld, undefined);
+  assert.ok(stored.sessions[chat.sessionId].resumeTurn);
+  assert.equal(session(ALPHA).turns.length, 1);
+
+  // Milagre opens again: the stopped turn resumes first, then the queue.
+  const next = harness({ read: async () => structuredClone(stored) });
+  t.after(() => next.manager.closeAll());
+  await next.host.resumeInterrupted(ALPHA, await next.states.get(ALPHA));
+  await next.states.flush();
+  await waitUntil(() => next.session(ALPHA)?.turns.length === 1);
+  assert.match(next.session(ALPHA).turns[0].prompt, /closed while you were working/);
+  next.session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  next.session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => next.session(ALPHA).turns.length === 2);
+  assert.equal(next.session(ALPHA).turns[1].prompt, "queued before quit");
+  await waitUntil(() => next.saved.get(ALPHA)?.sessions[chat.sessionId].queued === undefined);
+  // Opening again finds nothing left to run.
+  await next.host.resumeInterrupted(ALPHA, await next.states.get(ALPHA));
+  assert.equal(next.session(ALPHA).turns.length, 2);
+  assert.equal(next.saved.get(ALPHA).messages.filter((item) => item.body === "queued before quit").length, 1);
+});
+
+test("a queue left waiting by a restart with no turn to resume moves on when the project opens; a held one waits", async (t) => {
+  const { host, manager, states, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const entry = { id: "q1", body: "pick this up", model: "gemini-3-pro", provider: "antigravity", queuedAt: NOW, turn: { permissionMode: "auto" } };
+  const held = { ...entry, id: "q2", body: "held one" };
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    next_id: 9,
+    sessions: {
+      7: { id: 7, worktree_id: 1, agent_name: "main", status: "Created", provider: "antigravity", native_session_id: "a", queued: [entry] },
+      8: { id: 8, worktree_id: 1, agent_name: "main", status: "Created", provider: "antigravity", native_session_id: "b", queued: [held], queueHeld: true },
+    },
+  }));
+  await states.flush();
+  await host.resumeInterrupted(ALPHA, saved.get(ALPHA));
+  await waitUntil(() => session(ALPHA)?.turns.length === 1);
+  assert.equal(session(ALPHA).turns[0].prompt, "pick this up");
+  assert.equal(saved.get(ALPHA).sessions[7].queued, undefined);
+  assert.equal(saved.get(ALPHA).sessions[8].queued.length, 1);
+});
+
+test("a queued message's images are stored when it is sent and reach the agent when its turn starts", async (t) => {
+  const fs = require("node:fs/promises");
+  const path = require("node:path");
+  const os = require("node:os");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-queue-image-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const dataUrl = "data:image/png;base64," + (await fs.readFile(path.join(__dirname, "../../../../scripts/fixtures/photo.png"))).toString("base64");
+  const { host, saved, session, manager } = harness({ read: async () => projectState(root) });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(agy(root, "build it"));
+  await waitUntil(() => session(root)?.turns.length === 1);
+  session(root).emit({ type: "session-started", nativeId: "agy-1" });
+  session(root).emit({ type: "turn-started", turnId: "t1" });
+  await waitUntil(() => host.runs[`${root}#${chat.sessionId}`]);
+  await host.send(agy(root, "look", { sessionId: chat.sessionId, images: [{ id: "i", name: "photo.png", dataUrl }] }));
+  const [queued] = saved.get(root).sessions[chat.sessionId].queued;
+  assert.equal(queued.images[0].dataUrl, undefined);
+  assert.ok(queued.images[0].path.startsWith(path.join(root, ".milagre", "images")));
+  session(root).emit({ type: "turn-completed" });
+  await waitUntil(() => session(root).turns.length === 2);
+  assert.deepEqual(session(root).turns[1].images, [{ id: "i", name: "photo.png", dataUrl }]);
+});
+
+test("a message sent while a handoff to Antigravity prepares is queued behind that turn", async (t) => {
+  let release;
+  const { host, manager, saved, session, created } = harness({
+    handoverTools: { writeTranscript: async () => "/tmp/t.md", brief: () => new Promise((resolve) => (release = resolve)) },
+  });
+  t.after(() => manager.closeAll());
+  const sessionId = await chatWithReply(host, session, saved);
+  await host.send(agy(ALPHA, "move over", { sessionId }));
+  await waitUntil(() => release);
+  const queued = await host.send(agy(ALPHA, "after the move", { sessionId }));
+  assert.equal(queued.queued, true);
+  release("BRIEF");
+  const agent = () => created.find((item) => item.provider === "antigravity");
+  await waitUntil(() => agent()?.turns.length === 1);
+  agent().emit({ type: "session-started", nativeId: "agy-9" });
+  agent().emit({ type: "turn-started", turnId: "t1" });
+  agent().emit({ type: "turn-completed" });
+  await waitUntil(() => agent().turns.length === 2);
+  assert.deepEqual(
+    agent().turns.map((turn) => turn.prompt),
+    [`${framed("BRIEF")}\n\nmove over`, "after the move"],
+  );
+});
+
+test("a queued message nobody waits on since a restart tells the runtime when it starts or is removed", async (t) => {
+  const started = [];
+  const removed = [];
+  const { host, manager, states, saved } = harness({
+    hooks: {
+      onQueuedStart: (chatId, entry, run) => started.push({ chatId, entry, run }),
+      onQueuedRemoved: (chatId, entry) => removed.push({ chatId, entry }),
+    },
+  });
+  t.after(() => manager.closeAll());
+  const context = { kind: "delegation", delegationId: "d1", from: "/api#1", fromLabel: "api" };
+  const entry = { id: "q1", body: "Add it", context, model: "gemini-3-pro", provider: "antigravity", queuedAt: NOW, turn: { permissionMode: "auto" } };
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    next_id: 9,
+    sessions: {
+      7: { id: 7, worktree_id: 1, agent_name: "main", status: "Created", provider: "antigravity", native_session_id: "a", queued: [entry] },
+      8: {
+        id: 8,
+        worktree_id: 1,
+        agent_name: "main",
+        status: "Created",
+        provider: "antigravity",
+        native_session_id: "b",
+        queued: [{ ...entry, id: "q2" }],
+        queueHeld: true,
+      },
+    },
+  }));
+  await states.flush();
+  await host.resumeInterrupted(ALPHA, saved.get(ALPHA));
+  await waitUntil(() => started.length === 1);
+  assert.equal(started[0].chatId, `${ALPHA}#7`);
+  assert.deepEqual(started[0].entry.context, context);
+  assert.equal((await started[0].run).turnId, "t1");
+  // The message keeps the Delegation's context, which its report is found by.
+  await waitUntil(() => saved.get(ALPHA).messages.some((item) => item.body === "Add it"));
+  assert.deepEqual(saved.get(ALPHA).messages.find((item) => item.body === "Add it").context, context);
+
+  assert.equal(await host.removeQueued(`${ALPHA}#8`, "q2"), true);
+  assert.deepEqual(
+    removed.map((item) => [item.chatId, item.entry.id, item.entry.context.kind]),
+    [[`${ALPHA}#8`, "q2", "delegation"]],
+  );
+  assert.equal(started.length, 1);
+});
+
+test("saving a new message clears suggestions before checkpoint preparation and publication", async (t) => {
+  let release;
+  const checkpoint = new Promise((resolve) => {
+    release = resolve;
+  });
+  let preparing = false;
+  const h = harness({
+    hooks: {
+      beforeTask: async () => {
+        if (preparing) await checkpoint;
+      },
+    },
+  });
+  t.after(() => h.manager.closeAll());
+  const sessionId = await chatWithReply(h.host, h.session, h.saved);
+  await h.states.update(ALPHA, (state) => ({
+    ...state,
+    sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], suggestion: { text: "Continue", turnId: "t1" }, suggestionTurnId: "t1" } },
+  }));
+  preparing = true;
+  const send = h.host.send(message(ALPHA, "Next", { sessionId }));
+  try {
+    await waitUntil(() => h.saved.get(ALPHA)?.messages.at(-1)?.body === "Next");
+    const staged = h.saved.get(ALPHA).sessions[sessionId];
+    assert.equal(staged.suggestion, undefined);
+    assert.equal(staged.suggestionTurnId, undefined);
+  } finally {
+    release();
+    await send;
+  }
+  const sent = h.published.findLast(({ event }) => event.type === "message-sent").state.sessions[sessionId];
+  assert.equal(sent.suggestion, undefined);
+  assert.equal(sent.suggestionTurnId, undefined);
+});
+
+const WAKE = { level: "escalation", requests: [{ chatId: `${ALPHA}#9`, requestId: "q1" }] };
+async function idleChat(h) {
+  const sent = await h.host.send(message(ALPHA, "first"));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  const session = h.session(ALPHA);
+  session.emit({ type: "session-started", nativeId: "native-1" });
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => !h.host.runs[chatId]);
+  return { chatId, sessionId: sent.sessionId, session };
+}
+
+test("a wake never steers: a busy Chat refuses it in the save, and nothing is written", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  const before = await h.states.get(ALPHA);
+  await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId: sent.sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  assert.equal(h.session(ALPHA).turns.length, 1, "no steer reached the agent");
+  const after = await h.states.get(ALPHA);
+  assert.equal(after.messages.length, before.messages.length);
+  assert.equal(after.sessions[sent.sessionId].queued, undefined);
+  assert.equal(h.host.wakeTurns.size, 0);
+});
+
+test("a wake also waits for messages queued in the Chat", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { sessionId } = await idleChat(h);
+  await h.states.update(ALPHA, (latest) => ({
+    ...latest,
+    sessions: { ...latest.sessions, [sessionId]: { ...latest.sessions[sessionId], queued: [{ id: "q", body: "next" }], queueHeld: true } },
+  }));
+  await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+});
+
+test("a wake leaves a scheduled usage-limit retry alone, and the retry still runs", async (t) => {
+  let clock = NOW;
+  const h = harness({ now: () => clock });
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), true);
+  const pending = (await h.states.load(ALPHA, [sessionId])).sessions[sessionId].limitResume;
+  await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  assert.deepEqual((await h.states.load(ALPHA, [sessionId])).sessions[sessionId].limitResume, pending);
+  clock += 180_000;
+  assert.equal(await h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId: pending.sendId }), true);
+});
+
+test("a wake also waits for a turn a quit stopped, or one a usage limit ended", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { sessionId } = await idleChat(h);
+  for (const owed of [{ resumeTurn: { stoppedAt: NOW } }, { limitTurn: { automatic: false } }]) {
+    await h.states.update(ALPHA, (latest) => ({ ...latest, sessions: { ...latest.sessions, [sessionId]: { ...latest.sessions[sessionId], ...owed } } }));
+    await assert.rejects(h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true })), (error) => error.chatBusy === true);
+  }
+});
+
+test("an idle Chat starts a wake's turn with its guard, and the guard ends with that turn", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId, session } = await idleChat(h);
+  const context = { kind: "subchat-wake", requests: [] };
+  const sent = await h.host.send(message(ALPHA, "Milagre asked", { sessionId, guard: WAKE, idleOnly: true, prompt: "tell the human", context }));
+  await sent.started;
+  assert.deepEqual(session.turns.at(-1).guard, WAKE);
+  assert.equal(session.turns.at(-1).prompt, "tell the human");
+  assert.equal(h.host.wakeTurns.has(chatId), true);
+  assert.equal(h.host.turnSettings(chatId).guard, undefined, "a message on these settings is not the wake");
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => !h.host.runs[chatId]);
+  assert.equal(h.host.wakeTurns.has(chatId), false);
+});
+
+test("a message sent during a wake's turn queues behind it and runs unguarded, even on a provider that steers", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId, session } = await idleChat(h);
+  await (
+    await h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true }))
+  ).started;
+  const turns = session.turns.length;
+  const sent = await h.host.send(message(ALPHA, "the user's own", { sessionId }));
+  assert.equal(sent.queued, true);
+  assert.equal(session.turns.length, turns, "nothing was steered into the guarded turn");
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => session.turns.length === turns + 1);
+  assert.equal(session.turns.at(-1).prompt, "the user's own");
+  assert.equal(session.turns.at(-1).guard, undefined);
+  assert.equal(h.host.wakeTurns.has(chatId), false);
+});
+
+test("Send now on a message behind a wake's turn stops it instead of steering", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId, session } = await idleChat(h);
+  await (
+    await h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true }))
+  ).started;
+  await h.host.send(message(ALPHA, "queued", { sessionId }));
+  const { queued } = (await h.states.get(ALPHA)).sessions[sessionId];
+  const turns = session.turns.length;
+  assert.deepEqual(await h.host.sendQueuedNow(chatId, queued[0].id), { interrupt: true });
+  assert.equal(session.turns.length, turns);
+});
+
+test("a quit doesn't resume a wake's turn: the requests it was woken for end with the run", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { sessionId } = await idleChat(h);
+  await (
+    await h.host.send(message(ALPHA, "woken", { sessionId, guard: WAKE, idleOnly: true }))
+  ).started;
+  await h.host.suspendRunning();
+  await h.states.flush();
+  assert.equal((await h.states.get(ALPHA)).sessions[sessionId].resumeTurn, undefined);
+});
+
+test("a question open at a quit is asked again by the turn that resumes", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  const session = h.session(ALPHA);
+  session.emit({ type: "session-started", nativeId: "native-1" });
+  session.emit({
+    type: "question-request",
+    requestId: "q1",
+    questions: [{ id: "0", header: "", question: "Which badge?", options: [], multiSelect: false, allowOther: true, secret: false }],
+  });
+  await waitUntil(() => h.host.runs[chatId]?.questions.length === 1);
+  await h.host.suspendRunning();
+  await h.states.flush();
+  const saved = structuredClone(await h.states.get(ALPHA));
+  assert.deepEqual(saved.sessions[sent.sessionId].resumeTurn.openQuestions, ["Which badge?"]);
+  const restored = harness({ read: async () => saved });
+  t.after(() => restored.manager.closeAll());
+  await restored.host.resumeChat(ALPHA, sent.sessionId);
+  await waitUntil(() => restored.created[0]?.turns.length === 1);
+  const { prompt, openQuestions } = restored.created[0].turns[0];
+  assert.match(prompt, /You were waiting for the user's answer to "Which badge\?"/);
+  assert.match(prompt, /ask it again with your question tool/);
+  assert.equal(openQuestions, undefined);
+});
+
+test("a turn resumed with no open question hears nothing about one", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  h.session(ALPHA).emit({ type: "session-started", nativeId: "native-1" });
+  await waitUntil(async () => (await h.states.get(ALPHA)).sessions[sent.sessionId].native_session_id);
+  await h.host.suspendRunning();
+  await h.states.flush();
+  assert.equal((await h.states.get(ALPHA)).sessions[sent.sessionId].resumeTurn.openQuestions, undefined);
+});
+
+test("a note posted now lands where the turn stands, not when it ends", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const sent = await h.host.send(message(ALPHA, "working"));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  const session = h.session(ALPHA);
+  session.emit({ type: "turn-started", turnId: "t1" });
+  session.emit({ type: "text-delta", messageId: "m1", text: "Let me ask." });
+  await waitUntil(() => h.host.runs[chatId]?.text === "Let me ask.");
+  const context = { kind: "subchat-waiting", ask: "question", parentTitle: "Parent", waitedMs: 180_000 };
+  assert.equal(await h.host.postNow(chatId, { body: "Waiting 3 min.", context }), true);
+  const state = await h.states.get(ALPHA);
+  assert.deepEqual(chatMessages(state, sent.sessionId), [
+    { role: "user", body: "working" },
+    { role: "assistant", body: "Let me ask." },
+    { role: "assistant", body: "Waiting 3 min." },
+  ]);
+  assert.deepEqual(state.messages.at(-1).context, context);
+  assert.ok(h.host.runs[chatId], "the turn goes on");
+  assert.equal(h.published.at(-1).event.type, "answers-sent", "the windows split their run on the same event");
+  session.emit({ type: "text-delta", messageId: "m2", text: "Thanks." });
+  session.emit({ type: "turn-completed" });
+  await waitUntil(() => !h.host.runs[chatId]);
+  assert.deepEqual(chatMessages(await h.states.get(ALPHA), sent.sessionId).at(-1).body, "Thanks.");
+});
+
+test("a note posted in an idle Chat tells the windows, and can edit the Chat in the same save", async (t) => {
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const { chatId, sessionId } = await idleChat(h);
+  await h.host.postNow(chatId, { body: "line", context: { kind: "reload" } }, (session) => ({ ...session, openSuggestions: [{ id: "s1", fromTitle: "T" }] }));
+  assert.deepEqual(h.broadcasts.at(-1).state.sessions[sessionId].openSuggestions, [{ id: "s1", fromTitle: "T" }]);
+  assert.equal(await h.host.postNow(`${ALPHA}#404`, { body: "line", context: null }), false);
 });

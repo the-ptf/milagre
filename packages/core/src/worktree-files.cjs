@@ -12,6 +12,7 @@ const DEFAULT_PATTERNS = [".env*"];
 const EXCLUDED_FOLDERS = [
   "node_modules",
   ".git",
+  ".milagre",
   "vendor/bundle",
   ".venv",
   "venv",
@@ -165,13 +166,28 @@ async function copyFilesToWorktree({ projectPath, worktreePath, setting, limits 
   return { copied, notes };
 }
 
+/**
+ * The files the patterns pick in a worktree that differ from the project's own copy, or that the project lacks: a
+ * copied .env edited there, or a new one. git status leaves them out (git ignores them), so a clean worktree can
+ * still hold them. Relative paths, sorted.
+ */
+async function changedCopiedFiles({ projectPath, worktreePath, setting }) {
+  const { patterns } = await resolvePatterns(projectPath, setting);
+  const changed = [];
+  for (const file of await findFilesToCopy(worktreePath, patterns)) {
+    const [here, there] = await Promise.all([
+      fs.readFile(path.join(worktreePath, file.path)),
+      fs.readFile(path.join(projectPath, file.path)).catch(() => null),
+    ]);
+    if (!there || !here.equals(there)) changed.push(file.path);
+  }
+  return changed;
+}
+
 module.exports = {
   COPY_LIMITS,
-  DEFAULT_PATTERNS,
   EXCLUDED_FOLDERS,
-  excludedFolders,
+  changedCopiedFiles,
   copyFilesToWorktree,
-  findFilesToCopy,
   previewFilesToCopy,
-  resolvePatterns,
 };

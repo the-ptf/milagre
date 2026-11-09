@@ -1,27 +1,72 @@
+import { permissionPresentation } from "@milagre/shared/model-copy";
+import { useShortcutLabel } from "../lib/keybindings";
+import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
+import { followUpDelivery, type MessageDelivery } from "@milagre/shared/queued-messages";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Attachment01Icon, ClipboardPasteIcon, FlashIcon, SecurityCheckIcon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  CleanIcon,
+  Cancel01Icon,
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Attachment01Icon,
+  ClipboardPasteIcon,
+  FlashIcon,
+  Mic01Icon,
+  SecurityCheckIcon,
+  Shield01Icon,
+  ShieldAlertIcon,
+} from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
-import { effortCopy, PERMISSION_MODES } from "../model";
+import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
 import type { ImageDraft } from "./usePastedImages";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { ModelPicker } from "./ModelPicker";
 import { UltracodeFatality } from "./UltracodeFatality";
 import { useDismiss } from "../lib/use-dismiss";
+import { composerLayout, type CompactOverflow } from "../lib/composer-layout";
 import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
+import { QuoteChips } from "./QuoteChips";
 import { useProjectFiles } from "./useProjectFiles";
-import { promptToken, fileMentionPath, removePromptToken, insertPromptToken } from "../lib/file-mentions";
+import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
+import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
+import { formatChatMention, formatComputerMention, formatFileMention, promptParts, type ComposerQuote } from "@milagre/shared/prompt-parts";
+import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
-import { promptSkillParts } from "../lib/prompt-skills";
-import { PromptHighlights } from "./PromptHighlights";
+import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
+import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
-import { offlinePlaceholder } from "../lib/computers";
+import { compactButtonState } from "@milagre/shared/chat-display";
+import { matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
+import { useChatMentions, useMentionComputers } from "./ChatMentions";
+import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
+import {
+  NOTICE_SECONDS,
+  provisionalRange,
+  correctTake,
+  takeRange,
+  revertTake,
+  startTake,
+  writeTake,
+  type DictationTake,
+  type Selection as TextRange,
+} from "@milagre/shared/voice-dictation";
+import { useDictationShortcut } from "../lib/dictation-shortcut";
+import { useDictation } from "./useDictation";
+import { DictationNotice } from "./DictationNotice";
+import { DownloadRing, DroppingArrow } from "./DownloadRing";
+import Tooltip from "./primitives/Tooltip";
+import { SpinnerRing } from "./primitives/SpinnerRing";
+import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -29,18 +74,39 @@ function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string };
+type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number; computer?: string };
 
 type Source = { key: string; name: string; desc: string; icon: IconData };
 
 const SOURCES: Source[] = [
-  { key: "attach", name: "Add files", desc: "Choose files from your computer", icon: Attachment01Icon },
-  { key: "paste", name: "Paste image", desc: "Attach an image from the clipboard", icon: ClipboardPasteIcon },
+  {
+    key: "attach",
+    name: "Add files",
+    desc: "Choose files from your computer",
+    icon: Attachment01Icon,
+  },
+  {
+    key: "paste",
+    name: "Paste image",
+    desc: "Attach an image from the clipboard",
+    icon: ClipboardPasteIcon,
+  },
 ];
 
+const UNDO_COMMAND = {
+  key: "undo",
+  name: "/undo",
+  desc: "Undo a task's file changes",
+};
+
 const COMMANDS = [
+  { key: STORAGE_COMMAND, name: `/${STORAGE_COMMAND}`, desc: STORAGE_COMMAND_HINT },
   { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
-  { key: "blockers", name: "/blockers", desc: "Find blockers across worktrees" },
+  {
+    key: "blockers",
+    name: "/blockers",
+    desc: "Find blockers across worktrees",
+  },
   { key: "plan", name: "/plan", desc: "Draft the next steps" },
   { key: "review", name: "/review", desc: "Review the current agent output" },
 ];
@@ -48,19 +114,35 @@ const COMMANDS = [
 interface PromptComposerProps {
   /** The chat's computer is away: the field is disabled and its placeholder says so. */
   offlineName?: string | null;
+  /** The connection to the chat's computer is coming back: the field stays open, its placeholder says so. */
+  reconnectingName?: string | null;
   imageDraft: ImageDraft;
   projectPath: string;
   /** Where skills are read, when not `projectPath` (a Link's key, or a shared Chat's own folder). */
   skillScope?: string;
+  /** Account routing uses the canonical Project or Link, rather than a Link Chat's workspace folder. */
+  accountScope?: string;
   draft: string;
   onDraftChange: (draft: string) => void;
-  onSend: () => void;
+  /** Passages quoted into the next message, shown as chips over the prompt; they alone can be sent. */
+  quotes?: readonly ComposerQuote[];
+  onRemoveQuote?: (id: string) => void;
+  /** Prompts sent in this chat, oldest first; Up and Down at the field's first or last line step through them. */
+  history?: string[];
+  onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   sendBlocked: boolean;
-  /** A turn is running in this chat; a message sent now steers it. */
+  /** A turn is running in this chat; a follow-up steers it or queues, per Settings › Chat › Messages during a turn. */
   running?: boolean;
+  runningProvider?: ModelProvider;
+  /** A predicted follow-up, offered only in an empty, idle composer. */
+  suggestion?: string;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
+  compactionFeedback?: { percent: number; freed: string } | null;
+  compacting?: boolean;
+  compactQueued?: boolean;
+  onCancelCompact?: () => void;
   /** The models each agent offers, or the maintained list until it reports them. */
   models: ModelOption[];
   /** How each agent's CLI stands; a problem is flagged on its tab and in a notice above the models. */
@@ -80,11 +162,27 @@ interface PromptComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
+  /** The mode is fixed: the chip shows it, disabled. */
+  permissionLocked?: boolean;
   /** Keep the tall layout (input above the controls) even while the draft is empty. */
   alwaysExpanded?: boolean;
   /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
+  /** The Chat is saved: `/undo` is offered, and sending it opens Undo changes instead of reaching the agent. */
+  canUndo?: boolean;
+  /** The idle field's prompt in place of the default, e.g. a Chat without a Project's. */
+  placeholder?: string;
 }
+
+const NO_HISTORY: string[] = [];
+const NO_QUOTES: readonly ComposerQuote[] = [];
+
+const DICTATION_LABELS = {
+  idle: "Dictate",
+  preparing: "Cancel dictation",
+  recording: "Stop dictation",
+  transcribing: "Transcribing",
+} as const;
 
 const POPOVER_GAP = 12;
 // In the tall layout the controls sit on the composer's bottom row, so a popover opens just above its own button.
@@ -98,12 +196,15 @@ const POPOVER_MIN_BELOW = 220;
 /** Rising bars, one per level the model offers; the filled ones show how hard the agent will think. */
 function EffortMeter({ level, total }: { level: number; total: number }) {
   return (
-    <span aria-hidden className="flex h-3 items-end gap-[2px]">
+    <span aria-hidden className="flex h-3 items-end gap-0.5">
       {Array.from({ length: total }, (_, index) => (
         <span
           key={index}
-          className="w-[2.5px] rounded-full transition-[background-color,height] duration-200 ease-out motion-reduce:transition-none"
-          style={{ height: `${4 + (index * 8) / Math.max(1, total - 1)}px`, background: index <= level ? "currentColor" : "var(--line-strong)" }}
+          className="w-[2.5px] rounded-full transition-[background-color,height] duration-base ease-enter motion-reduce:transition-none"
+          style={{
+            height: `${4 + (index * 8) / Math.max(1, total - 1)}px`,
+            background: index <= level ? "currentColor" : "var(--line-strong)",
+          }}
         />
       ))}
     </span>
@@ -112,16 +213,27 @@ function EffortMeter({ level, total }: { level: number; total: number }) {
 
 export function PromptComposer({
   offlineName,
+  reconnectingName,
   imageDraft,
   projectPath,
   skillScope,
+  accountScope = projectPath,
   draft,
   onDraftChange,
+  quotes = NO_QUOTES,
+  onRemoveQuote,
+  history = NO_HISTORY,
   onSend,
   onStop,
   sendBlocked,
   running = false,
+  runningProvider,
+  suggestion,
   onCompact,
+  compactionFeedback,
+  compacting = false,
+  compactQueued = false,
+  onCancelCompact,
   models,
   cliStatus,
   onModelPickerOpen,
@@ -138,24 +250,38 @@ export function PromptComposer({
   onFastModeChange,
   permissionMode,
   onPermissionModeChange,
+  permissionLocked = false,
   alwaysExpanded = false,
   contextUsage,
+  canUndo = false,
+  placeholder,
 }: PromptComposerProps) {
+  const mentions = useChatMentions();
+  const mentionComputers = useMentionComputers();
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
-  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
+  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality } = useSettings();
+  const { ultracodeFatality, appearance, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
+  const { settings: contextSettings } = useContextSettings();
+  // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
+  const delivery = followUpDelivery(contextSettings.followUps);
+  const queuesFollowUp = delivery === "queue" || compacting || !providerCapabilities(runningProvider ?? selectedModel.provider).steer;
+  const quiet = contextSettings.autoCompact && Boolean(onCompact);
+  const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
+  const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
+  const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
+  const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
   // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
-  const orchestrating = ultracode || effort === "ultra";
-  // With Ultracode on, the composer itself turns purple.
+  // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
   const ultracodeOn = capability.ultracode && ultracode;
-  const effortLabel = ultracode ? "Ultra" : effortName;
+  const orchestrating = ultracodeOn || effort === "ultra";
+  const effortLabel = ultracodeOn ? "Ultra" : effortName;
   const canUseFastMode = capability.fastMode;
   const [provider, setProvider] = useState<ModelProvider>(selectedModel.provider);
   // The provider tab follows the selected model, which follows the open chat.
@@ -173,11 +299,19 @@ export function PromptComposer({
   const [active, setActive] = useState(0);
   const [engaged, setEngaged] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<PromptEditorHandle>(null);
   const compactWidthRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overflowRef = useRef<CompactOverflow>(null);
   const popoverRootRef = useRef<HTMLDivElement>(null);
-  const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number; below: boolean; alignRight: boolean }>({
+  const [anchor, setAnchor] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    maxHeight: number;
+    below: boolean;
+    alignRight: boolean;
+  }>({
     left: 0,
     maxHeight: 480,
     below: false,
@@ -185,6 +319,12 @@ export function PromptComposer({
   });
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [rowBox, setRowBox] = useState<{ top: number; height: number } | null>(null);
+
+  // Where Up/Down stands in `history`, and the draft to restore past its newest entry.
+  const browsing = useRef<{ index: number; stash: string } | null>(null);
+  useEffect(() => {
+    browsing.current = null;
+  }, [history]);
 
   const [caret, setCaret] = useState(draft.length);
   const token = dismissed ? null : promptToken(draft, Math.min(caret, draft.length));
@@ -205,31 +345,128 @@ export function PromptComposer({
       })),
   );
   const commands: MenuRow[] = [
-    ...COMMANDS.filter((command) => !skills.some((skill) => skill.name.toLowerCase() === command.key)).map((command) => ({
-      ...command,
-      group: "Milagre skills",
-    })),
+    ...[...(canUndo ? [UNDO_COMMAND] : []), ...COMMANDS]
+      .filter((command) => !skills.some((skill) => skill.name.toLowerCase() === command.key))
+      .map((command) => ({
+        ...command,
+        group: "Milagre skills",
+      })),
     ...skillRows,
   ];
-  const skillParts = promptSkillParts(
-    draft,
-    commands.map((command) => command.name.slice(1)),
+  const skillNames = commands.map((command) => command.name.slice(1));
+  const skillKey = skillNames.join("\n");
+  const skillDescriptions = useMemo(
+    () => new Map(commands.map((command) => [command.name.slice(1).toLowerCase(), command.desc])),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `commands` is rebuilt each render; its names and descriptions are what count.
+    [commands.map((command) => `${command.name}\t${command.desc}`).join("\n")],
   );
-  const hasSkill = skillParts.some((part) => part.skill);
-  const inputTextClass = expanded ? "min-h-[68px] px-2 py-2 text-[14px] leading-5" : "min-h-7 px-1 py-[5px] text-[13px] leading-[18px]";
+  // The mention being typed is the @ menu's search; the rest are looked up so they show as chips.
+  const typing = token?.kind === "at" ? draft.slice(token.start + 1, token.end) : null;
+  const { known, version: knownVersion, markKnown } = useKnownFiles(projectPath, draft, typing);
+  const imageCount = imageDraft.images.length;
+  const parts = useMemo(
+    () =>
+      promptParts(draft, {
+        skills: skillKey ? skillKey.split("\n") : [],
+        files: (path) => known.has(path),
+        images: imageCount,
+        chats: (id) => mentions.chats.some((chat) => chat.id === id && chat.available),
+        computers: (name) => mentionComputers.some((computer) => computer.name.toLowerCase() === name.toLowerCase()),
+      }),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `known` is a Set that grows in place; `knownVersion` counts its growth.
+    [draft, skillKey, known, knownVersion, imageCount, mentions.chats, mentionComputers],
+  );
+  // The @ menu searched the mention being typed: an exact match is a file too.
+  const typedFound = typing !== null && fileSearch.files.includes(typing) ? typing : null;
+  useEffect(() => {
+    if (typedFound) markKnown(typedFound);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `markKnown` is rebuilt each render.
+  }, [typedFound, projectPath]);
+  // A chip is its file's only representation: the file is attached while the chip is in the draft (no tile), deleting
+  // the chip detaches it, and undoing that attaches it again. Files attached by paste or + are never detached here.
+  const mentionAttached = useRef(new Set<string>());
+  const mentionScope = useRef(imageDraft.scope);
+  const chipKey = [...new Set(parts.flatMap((part) => (part.kind === "file" ? [fileMentionPath(projectPath, part.path) ?? ""] : [])).filter(Boolean))].join(
+    "\n",
+  );
+  const chipPaths = useMemo(() => (chipKey ? chipKey.split("\n") : []), [chipKey]);
+  useEffect(() => {
+    // Another Chat's attachments: what this composer attached for the last one is gone with them.
+    if (mentionScope.current !== imageDraft.scope) {
+      mentionScope.current = imageDraft.scope;
+      mentionAttached.current.clear();
+    }
+    // A copy: removing a file can update the attachment draft.
+    for (const path of Array.from(mentionAttached.current)) {
+      if (chipPaths.includes(path)) continue;
+      mentionAttached.current.delete(path);
+      if (imageDraft.files.includes(path)) imageDraft.removeFile(path);
+    }
+    for (const path of chipPaths) {
+      if (imageDraft.files.includes(path)) continue;
+      mentionAttached.current.add(path);
+      imageDraft.attachPath(path);
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `imageDraft` is a new object each render; its files and scope are what count.
+  }, [chipPaths, imageDraft.files, imageDraft.scope, imageDraft.remote]);
+  const onSendLatest = useRef(onSend);
+  onSendLatest.current = onSend;
+  const inputTextClass = expanded
+    ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
+    : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
+  const chatMatches = menu === "at" && !plusOpen ? matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId) : [];
+  // Only with another computer to name: This Mac alone is no choice.
+  const computerMatches = menu === "at" && !plusOpen && mentionComputers.length > 1 ? matchingMentionComputers(mentionComputers, tokenQuery) : [];
   const rows: MenuRow[] =
     menu === "at"
       ? plusOpen
         ? SOURCES
-        : fileSearch.files.map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path }))
+        : [
+            ...fileSearch.files
+              .slice(0, chatMatches.length || computerMatches.length ? 3 : undefined)
+              .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
+            ...chatMatches.map((chat) => ({
+              key: `chat:${chat.id}`,
+              name: chat.title,
+              desc: chat.branch,
+              chatId: chat.id,
+              group: "Chats",
+            })),
+            ...computerMatches.map((computer) => ({
+              key: `computer:${computer.id}`,
+              name: computer.name,
+              desc: computer.self ? "This Mac" : computer.online ? "Online" : "Offline",
+              computer: computer.name,
+              group: "Computers",
+            })),
+          ]
       : menu === "slash"
-        ? commands.filter((command) => `${command.name.slice(1)} ${command.desc}`.toLowerCase().includes(tokenQuery))
+        ? rankSkillMatches(commands, tokenQuery, (command) => ({
+            name: command.name,
+            description: command.desc,
+          }))
         : [];
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
-  const canStop = running && Boolean(onStop);
-  const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const canSend = draft.trim().length > 0 || quotes.length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const canStop = !offlineName && running && Boolean(onStop) && !canSend;
+  const visibleSuggestion =
+    suggestion &&
+    !draft &&
+    !quotes.length &&
+    !running &&
+    !sendBlocked &&
+    !offlineName &&
+    selectedModel.provider === "claude" &&
+    !imageDraft.images.length &&
+    !imageDraft.files.length &&
+    !imageDraft.loading &&
+    !menu &&
+    !modelOpen &&
+    !permissionOpen
+      ? suggestion
+      : undefined;
 
   useEffect(() => {
     setActive(0);
@@ -243,33 +480,28 @@ export function PromptComposer({
   }, [active, engaged, menu, tokenQuery, rows.length]);
 
   useLayoutEffect(() => {
-    const input = inputRef.current;
+    const input = inputRef.current?.root;
     if (!input) return;
-    input.style.height = "0px";
     const contentHeight = input.scrollHeight;
-    input.style.height = `${Math.min(Math.max(contentHeight, 28), 100)}px`;
-    input.style.overflowY = contentHeight > 100 ? "auto" : "hidden";
     if (!expanded) compactWidthRef.current = input.clientWidth;
-    let needsFullWidth = alwaysExpanded || draft.includes("\n");
-    if (!needsFullWidth && expanded && draft.length > 0) {
-      // Measure only short drafts when deciding whether the compact layout fits again.
-      // The compact textarea's own scrollHeight detects wrapping as the user types.
-      if (draft.length > 200 || !compactWidthRef.current) needsFullWidth = true;
-      else {
-        const canvas = (canvasRef.current ??= document.createElement("canvas"));
-        const context = canvas.getContext("2d");
-        if (context) {
-          context.font = `13px ${getComputedStyle(input).fontFamily}`;
-          needsFullWidth = context.measureText(draft).width + 8 > compactWidthRef.current;
-        }
-      }
-    } else if (!needsFullWidth && !expanded) {
-      // An empty draft never expands: the expanded branch collapses it again, so a placeholder that wraps
-      // in a narrow composer would flip the layout forever.
-      needsFullWidth = draft.length > 0 && contentHeight > 28;
-    }
-    if (needsFullWidth !== expanded) setExpanded(needsFullWidth);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded]);
+    const next = composerLayout({
+      draft,
+      expanded,
+      // Quote rows read as a message being written: the prompt goes under them, the controls below.
+      alwaysExpanded: alwaysExpanded || quotes.length > 0,
+      contentHeight,
+      compactWidth: compactWidthRef.current,
+      overflow: overflowRef.current,
+      measure: (text) => {
+        const context = (canvasRef.current ??= document.createElement("canvas")).getContext("2d");
+        if (!context) return null;
+        context.font = `${getComputedStyle(document.documentElement).getPropertyValue("--chat-size").trim() || "13px"} ${getComputedStyle(input).fontFamily}`;
+        return context.measureText(text).width;
+      },
+    });
+    overflowRef.current = next.overflow;
+    if (next.expanded !== expanded) setExpanded(next.expanded);
+  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, quotes.length, chatSize, showContextSize, compactButton.visible]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
@@ -300,8 +532,20 @@ export function PromptComposer({
     const edge = expanded ? button.top - POPOVER_BUTTON_GAP : root.top - POPOVER_GAP;
     setAnchor(
       below
-        ? { left, alignRight, below, top: button.bottom + POPOVER_BUTTON_GAP - root.top, maxHeight: roomBelow }
-        : { left, alignRight, below, bottom: root.bottom - edge, maxHeight: edge - POPOVER_TOP_INSET },
+        ? {
+            left,
+            alignRight,
+            below,
+            top: button.bottom + POPOVER_BUTTON_GAP - root.top,
+            maxHeight: roomBelow,
+          }
+        : {
+            left,
+            alignRight,
+            below,
+            bottom: root.bottom - edge,
+            maxHeight: edge - POPOVER_TOP_INSET,
+          },
     );
   }
 
@@ -315,10 +559,26 @@ export function PromptComposer({
 
   // Sending moves on from whatever was being picked, and the composer's layout may change under an open popover.
   function send() {
+    browsing.current = null;
     setModelOpen(false);
     setPermissionOpen(false);
     setPlusOpen(false);
-    onSend();
+    // Every chip's file goes with the message, even one whose attachment the effect hasn't caught up with yet; the
+    // parent's send reads its attachments from its render, so commit them first and send from the new render.
+    const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
+    if (missing.length) {
+      flushSync(() => {
+        for (const path of missing) {
+          mentionAttached.current.add(path);
+          imageDraft.attachPath(path);
+        }
+      });
+      onSendLatest.current(delivery);
+      return;
+    }
+    // Sent whether or not \`running\` is set: a turn waiting on an approval or question still runs on the host, which
+    // applies the delivery only while a turn runs.
+    onSend(delivery);
   }
 
   // The picker stays open after a pick: effort, fast mode and Ultracode sit beside the models.
@@ -327,23 +587,238 @@ export function PromptComposer({
     setProvider(model.provider);
   }
 
+  const draftLatest = useRef(draft);
+  draftLatest.current = draft;
+  const dictatedSend = useRef<{ value: string; scope: string } | null>(null);
+  // Wait for the parent's updated draft and attachments before using its ordinary send action.
+  useEffect(() => {
+    const pending = dictatedSend.current;
+    if (!pending) return;
+    dictatedSend.current = null;
+    if (pending.scope !== imageDraft.scope || pending.value !== draft || dictationAction !== "send") return;
+    if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
+  });
+
+  // The take's words live in the field itself, rewritten in place as the recognizer revises them.
+  const take = useRef<DictationTake | null>(null);
+  const [provisional, setProvisional] = useState<TextRange | null>(null);
+  const write = (text: string, settled: number) => {
+    const current = take.current;
+    if (!current) return null;
+    const written = writeTake(current, draftLatest.current, text, settled);
+    if (!written) return null;
+    take.current = written.take;
+    setProvisional(provisionalRange(written.take));
+    setCaret(written.caret);
+    onDraftChange(written.value);
+    inputRef.current?.setSelection(written.caret);
+    return written;
+  };
+  const writeLatest = useRef(write);
+  writeLatest.current = write;
+  // A finished take whose fix-up hasn't answered: its words stay tinted and the status names the model until it does,
+  // and it rewrites them only if the draft is still exactly what the take left.
+  const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
+  const corrections = useRef(0);
+  useEffect(
+    () => () => {
+      correcting.current = null;
+    },
+    [],
+  );
+  const [fixing, setFixing] = useState<string | null>(null);
+  const endCorrection = useCallback(() => {
+    correcting.current = null;
+    setFixing(null);
+    if (!take.current) setProvisional(null);
+  }, []);
+  useEffect(() => {
+    endCorrection();
+  }, [imageDraft.scope, endCorrection]);
+  useEffect(() => {
+    const pending = correcting.current;
+    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
+    if (pending && draft !== pending.take.produced) endCorrection();
+  }, [draft, endCorrection]);
+
+  const dictation = useDictation(
+    projectPath,
+    imageDraft.scope,
+    (text, anchor, correction) => {
+      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
+      take.current ??= startTake(draftLatest.current, anchor.selection);
+      const written = writeLatest.current(text, text.length);
+      take.current = null;
+      const scope = imageDraft.scope;
+      const sendAfter = dictationAction === "send";
+      if (!written || !correction) {
+        setProvisional(null);
+        if (written && sendAfter) dictatedSend.current = { value: written.value, scope };
+        return;
+      }
+      const id = (corrections.current += 1);
+      correcting.current = { id, take: written.take };
+      setProvisional(takeRange(written.take));
+      setFixing(correction.model);
+      void correction.text.then((fixed) => {
+        const pending = correcting.current;
+        if (pending?.id !== id) return;
+        endCorrection();
+        const corrected = correctTake(pending.take, draftLatest.current, fixed);
+        if (corrected) {
+          setCaret(corrected.caret);
+          onDraftChange(corrected.value);
+          inputRef.current?.setSelection(corrected.caret);
+        }
+        // Send now waits for the fix-up, so what goes out is the corrected message.
+        if (sendAfter)
+          dictatedSend.current = {
+            value: corrected?.value ?? pending.take.produced,
+            scope,
+          };
+      });
+    },
+    {
+      scope: mentions.project,
+      chatId: mentions.currentId,
+      provider: selectedModel.provider,
+    },
+  );
+  const partialText = dictation.partial.text;
+  const partialSettled = dictation.partial.settled;
+  useEffect(() => {
+    if (take.current && partialText) writeLatest.current(partialText, partialSettled);
+  }, [partialText, partialSettled]);
+  const discardDictation = () => {
+    const current = take.current;
+    dictation.cancel();
+    take.current = null;
+    setProvisional(null);
+    if (!current) return;
+    const back = revertTake(current, draftLatest.current);
+    setCaret(back.selection.start);
+    onDraftChange(back.value);
+    inputRef.current?.setSelection(back.selection.start, back.selection.end);
+  };
+  const dictateShortcutLabel = useShortcutLabel("dictation.toggle");
+  const dictating = dictation.phase !== "idle";
+  const startDictation = () => {
+    endCorrection();
+    const selection = inputRef.current?.getSelection() ?? {
+      start: caret,
+      end: caret,
+    };
+    take.current = startTake(draftLatest.current, selection);
+    setProvisional(null);
+    void dictation.start({ selection });
+  };
+  // The shortcut was let go before the microphone opened: the take finishes as soon as it records.
+  const finishWhenRecording = useRef(false);
+  const { phase: dictationPhase, stop: stopDictation } = dictation;
+  useEffect(() => {
+    if (dictationPhase === "idle") finishWhenRecording.current = false;
+    if (dictationPhase !== "recording" || !finishWhenRecording.current) return;
+    finishWhenRecording.current = false;
+    void stopDictation();
+  }, [dictationPhase, stopDictation]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useDictationShortcut({
+    root: () => rootRef.current,
+    dictating: () => dictationPhase !== "idle",
+    mode: () => dictationShortcutMode,
+    start: startDictation,
+    finish: () => {
+      if (dictationPhase === "recording") void stopDictation();
+      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
+      // Let go while the model was still downloading: there is nothing to finish yet.
+      else if (dictationPhase === "downloading") discardDictation();
+    },
+  });
+  // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
+  const discardLatest = useRef(discardDictation);
+  discardLatest.current = discardDictation;
+  useEffect(() => {
+    if (!dictating && take.current) discardLatest.current();
+  }, [dictating]);
+  const { error: dictationError, dismiss: dismissDictationError } = dictation;
+  useEffect(() => {
+    // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
+    if (!dictationError || dictationError.kind === "permission") return;
+    const timer = setTimeout(dismissDictationError, NOTICE_SECONDS * 1000);
+    return () => clearTimeout(timer);
+  }, [dictationError, dismissDictationError]);
+
+  function insertImages(promise: Promise<number[]>, range = inputRef.current?.getSelection() ?? { start: caret, end: caret }) {
+    const original = draftLatest.current;
+    void promise.then((indices) => {
+      if (!indices.length) return;
+      const currentCaret = inputRef.current?.getSelection().end ?? draftLatest.current.length;
+      const target = draftLatest.current === original ? range : { start: currentCaret, end: currentCaret };
+      const next = insertImageMentions(draftLatest.current, indices, target);
+      setCaret(next.caret);
+      onDraftChange(next.value);
+      inputRef.current?.setSelection(next.caret);
+    });
+  }
+
+  // Deleting an image's chip from the text removes the image too, and renumbers the chips after it.
+  function dropUnmentionedImages(previous: string, next: string) {
+    const before = mentionedImages(previous, imageCount);
+    const after = mentionedImages(next, imageCount);
+    const removed = [...before].filter((index) => !after.has(index)).sort((a, b) => b - a);
+    for (const index of removed) {
+      const image = imageDraft.images[index - 1];
+      if (image?.path) imageDraft.removeFile(image.path);
+      else if (image) imageDraft.remove(image.id);
+      next = shiftImageMentions(next, index);
+    }
+    return next;
+  }
+
+  const [previewId, setPreviewId] = useState<string | null>(null);
+
+  function handleRemoveImage(id: string) {
+    const index = imageDraft.images.findIndex((image) => image.id === id);
+    imageDraft.remove(id);
+    if (index >= 0) {
+      const next = shiftImageMentions(draftLatest.current, index + 1);
+      if (next !== draftLatest.current) onDraftChange(next);
+    }
+  }
+
+  function handleRemoveFile(path: string) {
+    const index = imageDraft.images.findIndex((image) => image.path === path);
+    imageDraft.removeFile(path);
+    if (index >= 0) {
+      const next = shiftImageMentions(draftLatest.current, index + 1);
+      if (next !== draftLatest.current) onDraftChange(next);
+    }
+  }
+
   function pick(row: MenuRow) {
     const source = SOURCES.find((item) => item.key === row.key);
     if (source?.key === "attach") {
       fileInputRef.current?.click();
     } else if (source?.key === "paste") {
-      void imageDraft.pasteImage();
+      insertImages(imageDraft.pasteImage());
     } else if (menu === "at") {
-      if (token && row.path) {
+      if (token && (row.chatId !== undefined || row.computer)) {
+        const mention = row.computer ? formatComputerMention(row.computer) : formatChatMention(row.chatId!);
+        onDraftChange(insertPromptToken(draft, token, mention));
+        inputRef.current?.setSelection(token.start + mention.length + 1);
+      } else if (token && row.path) {
         const path = fileMentionPath(projectPath, row.path);
         if (!path) return;
+        markKnown(row.path);
+        if (!imageDraft.files.includes(path)) mentionAttached.current.add(path);
         imageDraft.attachPath(path);
-        onDraftChange(removePromptToken(draft, token));
-        const position = token.start;
-        requestAnimationFrame(() => inputRef.current?.setSelectionRange(position, position));
+        const mention = formatFileMention(row.path);
+        onDraftChange(insertPromptToken(draft, token, mention));
+        inputRef.current?.setSelection(token.start + mention.length + 1);
       }
     } else {
       onDraftChange(token ? insertPromptToken(draft, token, row.name) : `${draft}${row.name} `);
+      inputRef.current?.setSelection(token ? token.start + row.name.length + 1 : draft.length + row.name.length + 1);
     }
     setPlusOpen(false);
     setDismissed(true);
@@ -363,7 +838,30 @@ export function PromptComposer({
     inputRef.current?.focus();
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  // Up on the first line steps back through sent prompts, Down on the last line steps forward and finally restores
+  // the draft that was there before, like a shell or VS Code's chat.
+  function recall(event: KeyboardEvent<HTMLDivElement>) {
+    const up = event.key === "ArrowUp";
+    if ((!up && event.key !== "ArrowDown") || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.nativeEvent.isComposing) return false;
+    const editor = inputRef.current;
+    if (!editor || !(up ? editor.isCaretOnFirstLine() : editor.isCaretOnLastLine())) return false;
+    const current = browsing.current;
+    if (!current && !up) return false;
+    const index = (current?.index ?? history.length) + (up ? -1 : 1);
+    if (index < 0) return false;
+    event.preventDefault();
+    const stash = current?.stash ?? draft;
+    const next = index < history.length ? (history[index] ?? stash) : stash;
+    browsing.current = index < history.length ? { index, stash } : null;
+    setDismissed(true);
+    onDraftChange(next);
+    inputRef.current?.setSelection(next.length);
+    return true;
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Keys during an IME composition belong to the IME: Enter commits the text, it doesn't pick or send.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (menu && rows.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -373,30 +871,46 @@ export function PromptComposer({
       }
       if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
         event.preventDefault();
-        pick(rows[active] ?? rows[0]);
+        const row = rows[active] ?? rows[0];
+        if (row) pick(row);
         return;
       }
     }
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (visibleSuggestion && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "Tab" || event.key === "ArrowRight")) {
+      const selection = inputRef.current?.getSelection();
+      if (selection?.start === 0 && selection.end === 0) {
+        event.preventDefault();
+        onDraftChange(visibleSuggestion);
+        inputRef.current?.setSelection(visibleSuggestion.length);
+        return;
+      }
+    }
+    if (recall(event)) return;
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      send();
+      // An unaccepted suggestion is never sent. Otherwise the parent checks its live draft, which a render-time
+      // `canSend` can trail when Enter follows the edit in the same task.
+      if (canSend || !visibleSuggestion) send();
     }
   }
 
   return (
-    <div data-promptbar className="w-full" onKeyDown={handleEscape}>
+    <div ref={rootRef} data-promptbar className="@container w-full" onKeyDown={handleEscape}>
       <div ref={popoverRootRef} className="relative">
         {menu && (
           <div
             data-picker-panel
             onMouseLeave={() => setEngaged(false)}
-            className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-[10px] border border-line bg-surface p-1 shadow-raised"
-            style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "bottom center" }}
+            className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-card bg-surface p-1.5 shadow-raised"
+            style={{
+              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
+              transformOrigin: "bottom center",
+            }}
           >
-            <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files"}>
+            <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files and Chats"}>
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-x-1 rounded-[6px] bg-hover"
+                className="pointer-events-none absolute inset-x-0 rounded-inline bg-hover-2"
                 style={{
                   top: rowBox?.top ?? 0,
                   height: rowBox?.height ?? 0,
@@ -406,11 +920,12 @@ export function PromptComposer({
               />
               {rows.map((row, index) => {
                 const source = menu === "at" ? SOURCES.find((item) => item.key === row.key) : undefined;
-                const showGroup = row.group && row.group !== rows[index - 1]?.group;
+                // A search lists its matches best first across the groups, so it carries no group headings.
+                const showGroup = (menu === "at" || !tokenQuery) && row.group && row.group !== rows[index - 1]?.group;
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
-                      <div data-skill-group={row.group} className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-3">
+                      <div data-skill-group={row.group} className="px-2 pt-2 pb-1 text-10 font-semibold uppercase tracking-wide text-ink-3">
                         {row.group}
                       </div>
                     )}
@@ -426,44 +941,51 @@ export function PromptComposer({
                       }}
                       onClick={() => pick(row)}
                       title={row.path ?? row.desc}
-                      className="relative z-10 flex h-9 w-full items-center gap-2.5 rounded-[6px] px-2 text-left"
+                      className="relative z-10 flex h-8 w-full items-center gap-2 rounded-inline px-2 text-left focus-visible:-outline-offset-2"
                     >
                       {source && (
-                        <span className="flex size-5.5 shrink-0 items-center justify-center text-ink-2">
+                        <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
                           <Icon icon={source.icon} size={15} />
                         </span>
                       )}
-                      <span className="max-w-[45%] shrink-0 truncate text-[12.5px] font-medium text-ink">{row.name}</span>
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-ink-3">{row.desc}</span>
-                      {row.source && <span className="shrink-0 text-[10px] text-ink-3">{row.source}</span>}
+                      <span className="max-w-[45%] shrink-0 truncate text-13 font-medium text-ink">{row.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-12 text-ink-3">{row.desc}</span>
+                      {row.source && <span className="shrink-0 text-11 text-ink-3">{row.source}</span>}
                     </button>
                   </Fragment>
                 );
               })}
               {menu === "at" && !plusOpen && fileSearch.error && (
-                <div role="status" className="px-2 text-xs text-red">
+                <div role="status" className="px-2 text-12 text-red-ink">
                   {fileSearch.error}
                 </div>
               )}
               {rows.length === 0 && (
-                <div className="flex h-9 items-center px-2 text-[12px] text-ink-3">
+                <div className="flex h-8 items-center px-2 text-12 text-ink-3">
                   {fileSearch.loading && menu === "at" ? "Searching files..." : `No matches for "${tokenQuery}"`}
                 </div>
               )}
             </ScrollArea>
             {menu === "slash" && skillWarnings.length > 0 && (
-              <div role="status" title={skillWarnings.join("\n")} className="px-2 py-1 text-[11px] text-ink-3">
+              <div role="status" title={skillWarnings.join("\n")} className="px-2 py-1 text-11 text-ink-3">
                 {skillWarnings.length === 1 ? skillWarnings[0] : `${skillWarnings.length} skills could not be loaded. Hover for details.`}
               </div>
             )}
-            <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-[11px] text-ink-3">
-              {menu === "at" ? "Type to search files" : skillsLoading ? "Loading skills…" : "Type to search commands & skills"}
+            <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-11 text-ink-3">
+              {menu === "at"
+                ? mentionComputers.length > 1
+                  ? "Type to search files, Chats and computers"
+                  : "Type to search files and Chats"
+                : skillsLoading
+                  ? "Loading skills…"
+                  : "Type to search commands & skills"}
             </div>
           </div>
         )}
 
         {modelOpen && (
           <ModelPicker
+            scope={accountScope}
             style={anchorStyle}
             providers={providerTabs}
             provider={provider}
@@ -475,11 +997,11 @@ export function PromptComposer({
             cliStatus={cliStatus}
             notice={
               providerNotice ? (
-                <div role="status" className="mx-1 mb-1 flex flex-col gap-2 rounded-control bg-inset px-2.5 py-2 text-[12px] text-ink-2">
+                <div role="status" className="mx-1 mb-1 flex flex-col gap-2 rounded-control bg-inset px-2.5 py-2 text-12 text-ink-2">
                   <p className="leading-snug">
                     {messageParts(providerNotice).map((part, index) =>
                       part.code ? (
-                        <code key={index} className="rounded-chip bg-surface px-1 py-px font-mono text-[11px] text-ink">
+                        <code key={index} className="rounded-chip bg-surface px-1 py-px font-mono text-11 text-ink">
                           {part.text}
                         </code>
                       ) : (
@@ -489,13 +1011,13 @@ export function PromptComposer({
                   </p>
                   {onUpdateCli &&
                     (cliStatus?.[provider]?.state === "outdated" ||
-                      (provider === "antigravity" && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
+                      (providerCapabilities(provider).managedInstall && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
                       <div className="flex items-center justify-end pt-0.5">
                         <button
                           type="button"
                           disabled={updatingCli === provider}
                           onClick={() => onUpdateCli(provider)}
-                          className="flex items-center gap-1.5 rounded-chip border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-ink shadow-xs transition-colors hover:bg-hover active:scale-[0.98] disabled:opacity-50"
+                          className="flex items-center gap-1.5 rounded-chip border border-line bg-surface px-2.5 py-1 text-12 font-semibold text-ink shadow-xs transition-colors hover:bg-hover active:scale-[0.98] disabled:opacity-50"
                         >
                           {updatingCli === provider ? (
                             <>
@@ -530,18 +1052,26 @@ export function PromptComposer({
         )}
         {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
 
-        {permissionOpen && (
-          <PickerPanel title="Agent permissions" className="absolute w-[340px]" style={anchorStyle}>
+        {permissionOpen && !permissionLocked && (
+          <PickerPanel title="Agent permissions" className="absolute w-[240px]" style={anchorStyle}>
             {PERMISSION_MODES.map((mode) => (
               <PickerRow
                 key={mode.id}
                 icon={
-                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green" : "text-accent-ink"}`}>
-                    <Icon icon={SecurityCheckIcon} size={14} />
+                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-orange-ink" : "text-ink-2"}`}>
+                    <Icon
+                      icon={
+                        {
+                          shield: Shield01Icon,
+                          "security-check": SecurityCheckIcon,
+                          "shield-alert": ShieldAlertIcon,
+                        }[permissionPresentation(mode.id).icon]
+                      }
+                      size={16}
+                    />
                   </span>
                 }
                 label={mode.name}
-                description={mode.description}
                 selected={permissionMode === mode.id}
                 onClick={() => {
                   onPermissionModeChange(mode.id);
@@ -555,7 +1085,7 @@ export function PromptComposer({
 
         <div
           data-ultracode={ultracodeOn || undefined}
-          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-150 focus-within:border-line-strong ${expanded ? "gap-2.5 rounded-[22px] p-3.5" : "gap-1.5 rounded-[14px] p-1.5"}`}
+          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
         >
           <input
             ref={fileInputRef}
@@ -564,31 +1094,98 @@ export function PromptComposer({
             hidden
             aria-label="Choose attachments"
             onChange={(event) => {
-              void imageDraft.attachFiles(Array.from(event.target.files ?? []));
+              insertImages(imageDraft.attachFiles(Array.from(event.target.files ?? [])));
               event.target.value = "";
             }}
           />
+          {onRemoveQuote && (
+            <QuoteChips
+              quotes={quotes}
+              onRemove={(id) => {
+                onRemoveQuote(id);
+                inputRef.current?.focus();
+              }}
+            />
+          )}
           <Attachments
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}
-            files={imageDraft.files}
-            removeImage={imageDraft.remove}
-            removeFile={imageDraft.removeFile}
+            files={imageDraft.files.filter((file) => !chipPaths.includes(file))}
+            order={imageDraft.order}
+            previewId={previewId}
+            onPreview={setPreviewId}
+            removeImage={handleRemoveImage}
+            removeFile={handleRemoveFile}
+            uploads={imageDraft.uploads}
+            cancelUpload={imageDraft.cancelUpload}
           />
-          {imageDraft.loading && (
-            <div role="status" className="px-2 text-xs text-ink-3">
+          {imageDraft.loading && !imageDraft.uploads.length && (
+            <div role="status" className="px-2 text-12 text-ink-3">
               Loading images…
             </div>
           )}
           {imageDraft.error && (
-            <div role="alert" className="px-2 text-xs text-red">
+            <div role="alert" className="px-2 text-12 text-red-ink">
               {imageDraft.error}
             </div>
           )}
+          {/* Status remains available to screen readers without inserting a row during the recording handoff. */}
+          {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
+            <p role="status" data-dictation-status className="sr-only">
+              {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
+            </p>
+          ) : fixing !== null ? (
+            <span role="status" className="sr-only">
+              {fixing ? `Correcting names · ${fixing}` : "Correcting names…"}
+            </span>
+          ) : null}
 
           <div
-            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
+            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} ${compactButton.visible ? "@max-[520px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : ""}`}
           >
+            <div
+              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-span-full @max-[520px]:col-start-1 @max-[520px]:row-start-1" : ""}`}
+            >
+              <PromptEditor
+                ref={inputRef}
+                resetKey={imageDraft.scope}
+                value={draft}
+                parts={parts}
+                skillDescriptions={skillDescriptions}
+                onOpenImage={(index) => setPreviewId(imageDraft.images[index - 1]?.id ?? null)}
+                onPaste={(event) => {
+                  const selection = inputRef.current?.getSelection() ?? {
+                    start: caret,
+                    end: caret,
+                  };
+                  const promise = imageDraft.onPaste(event);
+                  if (event.defaultPrevented) insertImages(promise, selection);
+                }}
+                provisional={provisional}
+                onSelect={setCaret}
+                onChange={(value, position) => {
+                  setCaret(position);
+                  onDraftChange(dropUnmentionedImages(draftLatest.current, value));
+                  setDismissed(false);
+                  setPlusOpen(false);
+                }}
+                onKeyDown={handleKeyDown}
+                disabled={false}
+                maxHeight={100}
+                suggestion={visibleSuggestion}
+                placeholder={
+                  offlineName
+                    ? offlinePlaceholder(offlineName)
+                    : (running
+                        ? queuesFollowUp
+                          ? "Queue a message for the next turn…"
+                          : "Steer the agent…"
+                        : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                }
+                className={inputTextClass}
+                placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
+              />
+            </div>
             <button
               type="button"
               aria-label="Add attachments and sources"
@@ -598,46 +1195,13 @@ export function PromptComposer({
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`flex size-7 shrink-0 items-center justify-center text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
             >
               <Icon icon={Add01Icon} size={16} />
             </button>
-            <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
-              {hasSkill && (
-                <PromptHighlights
-                  inputRef={inputRef}
-                  parts={skillParts}
-                  descriptions={new Map(commands.map((command) => [command.name.toLowerCase(), command.desc]))}
-                  className={inputTextClass}
-                />
-              )}
-              <textarea
-                onPaste={(event) => void imageDraft.onPaste(event)}
-                ref={inputRef}
-                rows={1}
-                value={draft}
-                onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-                onChange={(event) => {
-                  setCaret(event.target.selectionStart);
-                  onDraftChange(event.target.value);
-                  setDismissed(false);
-                  setPlusOpen(false);
-                }}
-                onKeyDown={handleKeyDown}
-                disabled={Boolean(offlineName)}
-                placeholder={
-                  (running
-                    ? // Antigravity can't be steered mid-turn (ACP has no steering); a message waits for the next turn.
-                      provider === "antigravity"
-                      ? "Queue a message for the next turn…"
-                      : "Steer the agent…"
-                    : "Prompt or mention a file with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
-                }
-                aria-label="Prompt"
-                className={`${inputTextClass} ${expanded ? "" : "placeholder-shown:whitespace-nowrap placeholder:truncate"} ${hasSkill ? "prompt-input-highlighted" : "text-ink"} relative block min-w-0 w-full resize-none overflow-hidden bg-transparent caret-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3`}
-              />
-            </div>
-            <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
+            <div
+              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} ${compactButton.visible ? "@max-[520px]:contents" : ""}`}
+            >
               <button
                 type="button"
                 aria-expanded={modelOpen}
@@ -648,14 +1212,17 @@ export function PromptComposer({
                   setPermissionOpen(false);
                   setModelOpen((current) => !current);
                 }}
-                className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+                className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${compactButton.visible ? "@max-[520px]:col-start-2 @max-[520px]:row-start-2" : ""}`}
               >
                 <ProviderLogo provider={selectedModel.provider} size={13} />
-                <span data-model-name className="max-w-28 truncate">
+                <span data-model-name className={`max-w-28 truncate ${compactButton.visible ? "@max-[520px]:max-w-20" : ""}`}>
                   {selectedModel.name}
                 </span>
                 {effortLabel && (
-                  <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
+                  <span
+                    data-effort-label
+                    className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""} ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}
+                  >
                     <span className="text-ink-3">·</span>
                     <span className="hidden min-[900px]:inline">{effortLabel}</span>
                     <span className="min-[900px]:hidden">
@@ -664,7 +1231,7 @@ export function PromptComposer({
                   </span>
                 )}
                 {canUseFastMode && fastMode && (
-                  <span data-fast-mode className="text-orange">
+                  <span data-fast-mode className="text-orange-ink">
                     <Icon icon={FlashIcon} size={13} />
                   </span>
                 )}
@@ -675,34 +1242,163 @@ export function PromptComposer({
               type="button"
               aria-label="Agent permissions"
               aria-expanded={permissionOpen}
+              disabled={permissionLocked}
+              title={permissionLocked ? PERMISSION_MODE_LABEL[permissionMode] : undefined}
               onClick={(event) => {
                 anchorTo(event.currentTarget, 340);
                 setPlusOpen(false);
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-orange-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
             >
-              <Icon icon={SecurityCheckIcon} size={14} />
-              <span className="hidden min-[900px]:inline">{permissionMode === "ask" ? "Ask" : permissionMode === "auto" ? "Auto" : "Full"}</span>
+              <Icon
+                icon={
+                  {
+                    shield: Shield01Icon,
+                    "security-check": SecurityCheckIcon,
+                    "shield-alert": ShieldAlertIcon,
+                  }[permissionPresentation(permissionMode).icon]
+                }
+                size={16}
+              />
+              <span className={`hidden min-[900px]:inline ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}>{PERMISSION_MODE_LABEL[permissionMode]}</span>
             </button>
-            <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
-              {contextUsage && contextUsage.size > 0 && (
-                <ContextRing
-                  {...contextUsage}
-                  onCompact={onCompact}
-                  compactBlocked={running ? "Wait for the agent to finish." : sendBlocked ? "Not available right now." : null}
-                />
+            <div
+              className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""}`}
+            >
+              {!quiet && compactionFeedback ? (
+                <span role="status" className="flex h-7 items-center gap-1 rounded-control bg-green/10 px-2 text-12 text-green-ink">
+                  ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
+                </span>
+              ) : (
+                !quiet &&
+                (compactButton.visible || compactQueued || compacting || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                  <div
+                    data-context-capsule
+                    className={`flex shrink-0 items-center overflow-hidden rounded-control ${compactButton.warning ? "bg-orange/15 text-orange-ink" : "text-ink-2"}`}
+                  >
+                    {(compactButton.visible || compactQueued || compacting) && (
+                      <button
+                        type="button"
+                        data-compact-context
+                        aria-label={compactQueued ? "Cancel queued compaction" : "Compact context"}
+                        disabled={Boolean(compactBlocked)}
+                        title={compactLabel}
+                        onClick={compactQueued ? onCancelCompact : onCompact}
+                        className="flex h-7 items-center gap-1 px-2 text-12 font-medium disabled:opacity-40"
+                      >
+                        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} size={14} />
+                        <span className="@max-[700px]:hidden">{compactLabel}</span>
+                      </button>
+                    )}
+                    {contextUsage && contextUsage.size > 0 && (
+                      <ContextRing
+                        {...contextUsage}
+                        onCompact={onCompact}
+                        compactBlocked={compactBlocked}
+                        compactLabel={running ? "Compact after turn" : "Compact now"}
+                        settings={contextSettings}
+                        showSize={showContextSize}
+                      />
+                    )}
+                  </div>
+                )
               )}
+              <span className="relative flex shrink-0">
+                {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
+                {dictation.download ? (
+                  // The model downloads before the take records: an arrow dropping through a ring that fills with it.
+                  <Tooltip
+                    label={`Downloading speech model · ${Math.round((dictation.download.received / dictation.download.total) * 100)}% of ${Math.round(dictation.download.total / 1e6)} MB`}
+                    align="end"
+                  >
+                    <button
+                      type="button"
+                      data-dictation-download
+                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
+                      onClick={discardDictation}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink"
+                    >
+                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
+                        <DroppingArrow size={14} well={20} />
+                      </DownloadRing>
+                    </button>
+                  </Tooltip>
+                ) : dictating ? (
+                  // The mic grew into the capsule, in its own place: discard the take, or stop it. Nothing else moved.
+                  <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
+                    <button
+                      type="button"
+                      aria-label="Discard dictation"
+                      title="Discard dictation"
+                      onClick={discardDictation}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+                    >
+                      <Icon icon={Cancel01Icon} size={14} />
+                    </button>
+                    {dictation.phase === "recording" ? (
+                      <button
+                        ref={(node) => {
+                          dictation.meter.current = node;
+                        }}
+                        type="button"
+                        aria-label="Stop dictation"
+                        title="Stop dictation"
+                        onClick={() => void dictation.stop()}
+                        className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
+                      >
+                        {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
+                        <span
+                          aria-hidden
+                          // 20px at rest and 27.6px at full voice, so it never bleeds past the 28px capsule.
+                          className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
+                          style={{
+                            transform: "scale(calc(1 + var(--level, 0) * 0.38))",
+                          }}
+                        />
+                        <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
+                      </button>
+                    ) : (
+                      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
+                        <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <Tooltip
+                    label={fixing !== null ? (fixing ? `Correcting names · ${fixing}` : "Correcting names…") : DICTATION_LABELS.idle}
+                    shortcut={dictateShortcutLabel}
+                    align="end"
+                  >
+                    <button
+                      type="button"
+                      data-dictation-processing={fixing !== null || undefined}
+                      aria-label={DICTATION_LABELS.idle}
+                      aria-busy={fixing !== null}
+                      aria-description={fixing !== null ? "Correcting names. Start a new dictation to replace the pending correction." : undefined}
+                      onClick={startDictation}
+                      className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors ${fixing !== null ? "bg-hover text-ink-4" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                    >
+                      {fixing !== null && (
+                        <span className="pointer-events-none absolute inset-0">
+                          <SpinnerRing size={28} stroke={1.5} color="var(--accent)" />
+                        </span>
+                      )}
+                      <Icon icon={Mic01Icon} size={16} />
+                    </button>
+                  </Tooltip>
+                )}
+              </span>
               <button
                 type="button"
-                aria-label={canStop ? "Stop agent" : "Send"}
-                disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
+                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? (queuesFollowUp ? "Queue message" : "Send now") : "Send"}
+                data-composer-submit
+                disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
-                className={`flex size-7 shrink-0 items-center justify-center rounded-[8px] text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
-                style={{ background: canStop || (canSend && !sendBlocked) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)" }}
+                className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40 ${ultracodeOn ? "bg-purple" : "bg-ink"}`}
               >
-                {canStop ? <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
+                {canStop ? <span aria-hidden="true" className="size-2.5 rounded-inline bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
               </button>
             </div>
           </div>

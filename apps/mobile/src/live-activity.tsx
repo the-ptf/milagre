@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
 import type { ActivityContent, ActivityMode } from "@milagre/shared/live-activity";
 import { useSession } from "./session";
@@ -97,20 +97,23 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       subscription.remove();
     };
   }, [ready, enabled, hostIds, mode]);
-  const changeMode = async (next: ActivityMode) => {
-    if (busy || next === mode) return;
-    setBusy(true);
-    setError("");
-    try {
-      await saveActivityMode(next);
-      setMode(next);
-    } catch {
-      setError("Could not save the Live Activity display setting.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const toggle = async () => {
+  const changeMode = useCallback(
+    async (next: ActivityMode) => {
+      if (busy || next === mode) return;
+      setBusy(true);
+      setError("");
+      try {
+        await saveActivityMode(next);
+        setMode(next);
+      } catch {
+        setError("Could not save the Live Activity display setting.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, mode],
+  );
+  const toggle = useCallback(async () => {
     if (busy) return;
     setBusy(true);
     setError("");
@@ -133,6 +136,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     } finally {
       setBusy(false);
     }
-  };
-  return <Context.Provider value={{ enabled, available, busy, error, mode, toggle, changeMode }}>{children}</Context.Provider>;
+  }, [busy, enabled]);
+  const value = useMemo(() => ({ enabled, available, busy, error, mode, toggle, changeMode }), [enabled, available, busy, error, mode, toggle, changeMode]);
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }

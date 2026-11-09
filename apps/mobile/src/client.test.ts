@@ -2,8 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient, localEndpoint, type RelayRuntime, type RouteView } from "./client.ts";
 import { RelayTransportError, type RelayResponse, type RelayTransport } from "./relay-transport.ts";
+import { retryKind } from "@milagre/shared/send-retry";
 
-test("recent scopes carry Link visibility so a desktop-hidden Link stays out of the phone sidebar", async () => {
+test("recent scopes strip the computer's own hidden flags so the phone keeps its own visibility", async () => {
   const link = { id: "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7", name: "Checkout", projectIds: ["shop", "api"], hidden: true };
   const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async (_url, init) => {
     const { method } = JSON.parse(init?.body as string);
@@ -15,12 +16,167 @@ test("recent scopes carry Link visibility so a desktop-hidden Link stays out of 
               { id: "shop", path: "/shop" },
               { id: "api", path: "/api" },
             ]
-          : [];
+          : [{ path: "/shop", name: "shop", hidden: true }];
     return new Response(JSON.stringify({ v: 1, result }));
   });
   const recent = await client.recentScopes();
-  assert.equal(recent[0].hidden, true);
-  assert.equal(recent.filter((item) => !item.hidden).length, 0);
+  assert.equal(recent.length, 2);
+  assert.equal(recent[0]?.hidden, undefined);
+  assert.equal(recent[1]?.hidden, undefined);
+});
+
+/** A fetcher whose answers the test releases one at a time, so requests can be held open. */
+function heldFetcher(answers: Record<string, () => Response>) {
+  const waiting: { method: string; release: () => void }[] = [];
+  const fetcher = (async (_url: unknown, init?: RequestInit) => {
+    const { method } = JSON.parse(init?.body as string);
+    return new Promise<Response>((resolve) => waiting.push({ method, release: () => resolve(answers[method]!()) }));
+  }) as typeof fetch;
+  const release = (method: string) => waiting.filter((item) => item.method === method).forEach((item) => item.release());
+  return { fetcher, release, methods: () => waiting.map((item) => item.method) };
+}
+const answer = (result: unknown, status = 200) => new Response(JSON.stringify({ v: 1, result }), { status });
+const refusal = (message: string, status = 500) => new Response(JSON.stringify({ v: 1, error: { message } }), { status });
+
+test("recent scopes settle all three requests before failing, so a limiter counts them as one job", async () => {
+  const held = heldFetcher({
+    "project:recent": () => refusal("Disk error"),
+    "link:list": () => answer([]),
+    "project:registry": () => answer([]),
+  });
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, held.fetcher);
+  let outcome = "pending";
+  const read = client.recentScopes().then(
+    () => (outcome = "resolved"),
+    (error: Error) => (outcome = error.message),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(held.methods().sort(), ["link:list", "project:recent", "project:registry"]);
+  held.release("project:recent");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(outcome, "pending", "one failed request does not end the read while its siblings are out");
+  held.release("link:list");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(outcome, "pending");
+  held.release("project:registry");
+  await read;
+  assert.equal(outcome, "Disk error");
+});
+
+test("a Mac that doesn't list Links from mobile still answers its Projects, once every request settled", async () => {
+  const held = heldFetcher({
+    "project:recent": () => answer([{ path: "/shop", name: "shop" }]),
+    "link:list": () => refusal("link:list is not available from mobile", 403),
+    "project:registry": () => answer([]),
+  });
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, held.fetcher);
+  let result: unknown = "pending";
+  const read = client.recentScopes().then((value) => (result = value));
+  await new Promise((resolve) => setImmediate(resolve));
+  held.release("link:list");
+  held.release("project:recent");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(result, "pending", "the registry is still out");
+  held.release("project:registry");
+  await read;
+  assert.deepEqual(result, [{ path: "/shop", name: "shop" }]);
+  // Any other failure of the Links is the read's failure.
+  const broken = heldFetcher({
+    "project:recent": () => answer([]),
+    "link:list": () => refusal("Disk error"),
+    "project:registry": () => answer([]),
+  });
+  const failing = createClient({ address: "http://127.0.0.1:8787", token: "token" }, broken.fetcher);
+  const failed = assert.rejects(failing.recentScopes(), /Disk error/);
+  await new Promise((resolve) => setImmediate(resolve));
+  ["project:recent", "link:list", "project:registry"].forEach(broken.release);
+  await failed;
+});
+
+test("client asks chats:home alongside project:recent and tolerates a computer without it", async () => {
+  const held = heldFetcher({
+    "project:recent": () => answer([{ path: "/shop", name: "shop" }]),
+    "link:list": () => answer([]),
+    "project:registry": () => answer([]),
+    "chats:home": () => answer({ path: "/Users/v/.milagre/chats", exists: false }),
+  });
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, held.fetcher);
+  const both = Promise.all([client.recentScopes(), client.chatsHome()]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(held.methods().toSorted(), ["chats:home", "link:list", "project:recent", "project:registry"]);
+  ["project:recent", "link:list", "project:registry", "chats:home"].forEach(held.release);
+  const [projects, home] = await both;
+  assert.deepEqual(projects, [{ path: "/shop", name: "shop" }], "the home is never one of the Projects");
+  assert.deepEqual(home, { path: "/Users/v/.milagre/chats", exists: false });
+  // A daemon older than Chats without a Project, or a demo computer, has no home; that is not a failure.
+  for (const refused of [refusal("Command is not available from mobile", 403), refusal("This demo computer only opens its demo project.", 403)]) {
+    const older = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async () => refused.clone());
+    assert.equal(await older.chatsHome(), null);
+  }
+  // Anything else is the read's failure, so the computer's state follows it.
+  const broken = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async () => refusal("Disk error"));
+  await assert.rejects(broken.chatsHome(), /Disk error/);
+});
+
+test("a retired client starts no request, even one that was waiting on a transport", async () => {
+  let fetched = 0;
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async () => {
+    fetched++;
+    return answer({ ok: true });
+  });
+  assert.deepEqual(await client.call("daemon:status"), { ok: true });
+  client.retire();
+  await assert.rejects(client.call("daemon:status"), /replaced/);
+  await assert.rejects(client.preview("/a"), /replaced/);
+  await assert.rejects(client.recentScopes(), /replaced/);
+  assert.equal(fetched, 1);
+  client.live("/a", { onSignal() {}, onStatus() {} }).close();
+
+  let opened = 0;
+  const runtime = {
+    transport: async () => {
+      opened++;
+      return {
+        request: async () => ({ status: 200, headers: {}, body: new TextEncoder().encode(JSON.stringify({ v: 1, result: 1 })) }),
+        live: () => ({ close() {} }),
+      };
+    },
+    files: { find: async () => null, write: async () => "" },
+  } as unknown as RelayRuntime;
+  const relay = { url: "wss://relay.example", hostId: "h".repeat(22), key: "k".repeat(43) };
+  const relayed = createClient({ address: "relay://x", token: "token", relay }, fetch, 1000, runtime);
+  relayed.retire();
+  await assert.rejects(relayed.call("daemon:status"), /replaced/);
+  await assert.rejects(relayed.chatLists(["/a"]), /replaced/);
+  assert.equal(opened, 0, "the relay's transport is never created for a retired client");
+});
+
+test("only the latest chat-lists answer stays cached, and the cache is bounded", async () => {
+  const sent: (string | null)[] = [];
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async (url, init) => {
+    const headers = init?.headers as Record<string, string>;
+    sent.push(headers["If-None-Match"] ?? null);
+    const lists = String(url).includes("chat-lists");
+    const etag = lists ? `"${String(url).length}-${String(url)}"` : '"preview"';
+    if (headers["If-None-Match"] === etag) return new Response(null, { status: 304, headers: { etag } });
+    return new Response(JSON.stringify({ v: 1, result: {} }), { headers: { etag } });
+  });
+  await client.chatLists(["/a"]);
+  await client.chatLists(["/a"]);
+  assert.deepEqual(sent, [null, sent[1]], "the same batch revalidates");
+  assert.notEqual(sent[1], null);
+  await client.chatLists(["/a", "/b"]);
+  await client.chatLists(["/a", "/b", "/c"]);
+  // The first batch's entry was dropped when a different one was cached: asking it again sends no validator.
+  await client.chatLists(["/a"]);
+  assert.equal(sent.at(-1), null);
+  // Other routes keep theirs, and many distinct routes do not grow the cache forever.
+  await client.preview("/p");
+  await client.preview("/p");
+  assert.equal(sent.at(-1), '"preview"');
+  for (let i = 0; i < 300; i++) await client.preview(`/p${i}`);
+  await client.preview("/p");
+  assert.equal(sent.at(-1), null, "the oldest routes were evicted");
 });
 
 test("endpoint accepts HTTPS and emulator loopback, rejecting plaintext remote and credential/path tricks", () => {
@@ -49,7 +205,12 @@ test("one send carries token/version and is never retried after a network failur
     assert.deepEqual(JSON.parse(init?.body as string), { v: 1, method: "chat:send", args: [{ body: "hello" }] });
     throw new Error("offline");
   });
-  await assert.rejects(client.call("chat:send", [{ body: "hello" }]), /Connection lost.*Check the Chat before sending again/);
+  await assert.rejects(client.call("chat:send", [{ body: "hello" }]), (error) => {
+    assert.match((error as Error).message, /Connection lost.*Check the Chat before sending again/);
+    // The send may have reached the Mac: only a caller that dedupes may try it again.
+    assert.equal(retryKind(error), "unknown");
+    return true;
+  });
   assert.equal(calls, 1);
 });
 
@@ -66,7 +227,7 @@ test("errors and incompatible responses are explicit, and timeouts abort the fet
       }),
     10,
   );
-  await assert.rejects(client.call("daemon:status"), /Connection lost/);
+  await assert.rejects(client.call("daemon:status"), (error) => retryKind(error) === "unknown" && /Connection lost/.test((error as Error).message));
 });
 
 test("slow Worktree and page-sharing calls get the desktop deadline instead of the normal request timeout", async (t) => {
@@ -74,7 +235,7 @@ test("slow Worktree and page-sharing calls get the desktop deadline instead of t
   for (const [method, args, deadline] of [
     ["worktree:create", [{ projectPath: "/p", baseBranch: "main", prompt: "Preview" }], 330000],
     ["worktree:remove", ["/wt/x", { force: false }], 330000],
-    ["artifact:share-page", [{ chatId: "/p#1", title: "Designs", acknowledgePublic: true }], 360000],
+    ["artifact:share-page", [{ chatId: "/p#1", title: "Designs", acknowledgePublic: true }], 420000],
     ["artifact:revoke-page-share", [{ chatId: "/p#1", id: "page" }], 120000],
     ["artifact:revoke-saved-page-share", [{ id: "page" }], 120000],
   ] as const) {
@@ -213,6 +374,7 @@ test("a relay host sends its calls through the relay transport and reads the JSO
   );
   assert.equal(client.url, `relay://${hostId}`);
   assert.deepEqual(await client.call("daemon:status"), { running: true });
+  assert.ok(relay.sent[0] !== undefined);
   assert.equal(relay.sent[0].method, "POST");
   assert.equal(relay.sent[0].path, "/rpc");
   assert.deepEqual(JSON.parse(String(relay.sent[0].body)), { v: 1, method: "daemon:status", args: [] });
@@ -220,8 +382,30 @@ test("a relay host sends its calls through the relay transport and reads the JSO
   assert.deepEqual(relay.opened[0], { relay: relayHost.relay, token: relayHost.token });
 });
 
-test("a Mac refusing a relayed call because its queue is full reads as busy", async () => {
+test("a Mac refusing a relayed call because its queue is full reads as busy once the deadline runs out", async () => {
   const relay = fakeRelay(() => reply({ v: 1, error: { message: "Too many requests" } }, 429));
+  const client = createClient(
+    relayHost,
+    async () => {
+      throw new Error("a relay host never fetches");
+    },
+    600,
+    relay.runtime,
+  );
+  await assert.rejects(client.call("daemon:status"), (error) => {
+    assert.equal((error as Error).message, "Your computer is busy right now. Try again in a moment.");
+    // The Mac turned it away unread, so it is safe to send again.
+    assert.equal(retryKind(error), "unsent");
+    return true;
+  });
+  assert.equal(relay.sent.length, 2, "tried again while the deadline lasted");
+});
+
+test("a call a busy Mac turned away goes again and gets the answer once the Mac has room", async () => {
+  let tries = 0;
+  const relay = fakeRelay(() =>
+    ++tries < 3 ? reply({ v: 1, error: { message: "Too many pending requests" } }, 429) : reply({ v: 1, result: ["main", "release"] }),
+  );
   const client = createClient(
     relayHost,
     async () => {
@@ -230,7 +414,8 @@ test("a Mac refusing a relayed call because its queue is full reads as busy", as
     30000,
     relay.runtime,
   );
-  await assert.rejects(client.call("daemon:status"), { message: "Your computer is busy right now. Try again in a moment." });
+  assert.deepEqual(await client.call("project:branches", ["/p"]), ["main", "release"]);
+  assert.equal(tries, 3);
 });
 
 test("a relay snapshot answered with 304 reuses the cached one", async () => {
@@ -248,6 +433,7 @@ test("a relay snapshot answered with 304 reuses the cached one", async () => {
       ["GET", '"abc"'],
     ],
   );
+  assert.ok(relay.sent[0] !== undefined);
   assert.equal(relay.sent[0].path, "/snapshot?projectPath=%2Fp");
 });
 
@@ -306,6 +492,7 @@ test("the live socket of a relay host rides the transport and keeps the same sig
     statuses: boolean[] = [];
   const live = client.live("/p q", { onSignal: (signal) => signals.push(signal), onStatus: (open) => statuses.push(open) });
   await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(relay.lives[0] !== undefined);
   assert.equal(relay.lives[0].path, "/live?projectPath=%2Fp%20q");
   relay.lives[0].onStatus(true);
   relay.lives[0].onData('{"type":"runs"}');
@@ -343,6 +530,7 @@ test("relay images are fetched once into the cache folder and come back as file 
   assert.equal(first, second);
   assert.match(first, /^file:\/\/\/cache\/relay-media\/[a-f0-9]{16}\.png$/);
   assert.equal(relay.sent.length, 1);
+  assert.ok(relay.sent[0] !== undefined);
   assert.equal(relay.sent[0].method, "GET");
   assert.equal(relay.sent[0].path, "/media?projectPath=%2Fp&path=%2Fp%2Fshot.png");
   assert.deepEqual([...relay.written.values()], [png]);
@@ -388,6 +576,7 @@ test("relay images load at most 4 at a time, in order, and calls never wait behi
   const media = () => relay.sent.filter((sent) => sent.path.startsWith("/media")).map((sent) => new URLSearchParams(sent.path.split("?")[1]).get("path"));
   assert.deepEqual(media(), ["/p/0.png", "/p/1.png", "/p/2.png", "/p/3.png"]);
   assert.equal(await client.call("daemon:status"), "ok");
+  assert.ok(held[0] !== undefined);
   held[0].release();
   await settle();
   assert.deepEqual(media().slice(4), ["/p/4.png"]);
@@ -414,8 +603,31 @@ test("drawer previews use a separate ETag route and accept full snapshots from a
   });
   assert.deepEqual(await client.preview("/p"), full);
   await client.snapshot("/p");
+  assert.ok(routes[0] !== undefined);
   assert.ok(routes[0].endsWith("/snapshot?projectPath=%2Fp&view=chats"));
+  assert.ok(routes[1] !== undefined);
   assert.ok(routes[1].endsWith("/snapshot?projectPath=%2Fp"));
+});
+
+test("chat lists name their Projects in one encoded route, and a Mac without the route reports it as unsupported", async () => {
+  const routes: string[] = [];
+  const lists = { "/a b": { project: { path: "/a b" }, runs: { runs: {} }, previewOnly: true }, "/gone": { error: "Not found" } };
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async (url) => {
+    routes.push(String(url));
+    return new Response(JSON.stringify({ v: 1, result: lists }));
+  });
+  assert.deepEqual(await client.chatLists(["/a b", "/gone"]), lists);
+  assert.ok(routes[0]?.endsWith("/chat-lists?paths=" + encodeURIComponent(JSON.stringify(["/a b", "/gone"]))));
+  const older = createClient(
+    { address: "http://127.0.0.1:8787", token: "token" },
+    async () => new Response(JSON.stringify({ v: 1, error: { message: "Unknown endpoint" } }), { status: 404 }),
+  );
+  await assert.rejects(older.chatLists(["/a"]), (error) => (error as { code?: string }).code === "unsupported");
+  const busy = createClient(
+    { address: "http://127.0.0.1:8787", token: "token" },
+    async () => new Response(JSON.stringify({ v: 1, error: { message: "Too many pending requests" } }), { status: 429 }),
+  );
+  await assert.rejects(busy.chatLists(["/a"]), (error) => (error as { code?: string }).code === undefined);
 });
 
 const cloudflareHost = {
@@ -458,6 +670,7 @@ test("a Cloudflare computer's requests go through the LAN transport while it is 
   view.switch(lan.transport);
   assert.equal(await client.call("daemon:status"), "over-lan");
   assert.equal(lan.sent.length, 1);
+  assert.ok(lan.sent[0] !== undefined);
   assert.equal(lan.sent[0].path, "/rpc");
   assert.equal(lan.sent[0].headers.Authorization, undefined, "the LAN handshake carries the token, not each request");
   assert.equal(lan.opened.length, 0, "a Cloudflare computer has no relay to open");
@@ -506,7 +719,7 @@ test("a Cloudflare computer's live stream follows the LAN: the old stream closes
   const { view, listeners } = lanView(null);
   const sockets: { url: string; closed: boolean }[] = [];
   const create = (url: string) => {
-    const socket = { url, closed: false, onopen: null, onmessage: null, onerror: null, onclose: null, close: () => void (socket.closed = true) };
+    const socket = { url, closed: false, addEventListener() {}, close: () => void (socket.closed = true) };
     sockets.push(socket);
     return socket;
   };
@@ -514,11 +727,13 @@ test("a Cloudflare computer's live stream follows the LAN: the old stream closes
   const client = createClient(cloudflareHost, fetch, 30000, { ...lan.runtime, lan: () => view });
   const live = client.live("/p", { onSignal() {}, onStatus: (up) => statuses.push(up), create });
   assert.equal(sockets.length, 1, "opened over the tunnel");
+  assert.ok(sockets[0] !== undefined);
   assert.equal(sockets[0].url, "wss://mac.example.com/live?projectPath=%2Fp");
   view.switch(lan.transport);
   await settle();
   assert.equal(sockets[0].closed, true, "the tunnel stream closed");
   assert.equal(lan.lives.length, 1, "reopened on the LAN");
+  assert.ok(lan.lives[0] !== undefined);
   assert.equal(lan.lives[0].path, "/live?projectPath=%2Fp");
   assert.equal(sockets.length, 1);
   assert.deepEqual(statuses, [false]);
@@ -527,6 +742,7 @@ test("a Cloudflare computer's live stream follows the LAN: the old stream closes
   assert.equal(lan.lives[0].closed, true, "the LAN stream closed when the LAN went away");
   assert.equal(sockets.length, 2, "back on the tunnel");
   live.close();
+  assert.ok(sockets[1] !== undefined);
   assert.equal(sockets[1].closed, true);
   assert.equal(listeners.size, 0, "closing the stream stops watching the route");
 });
@@ -542,14 +758,17 @@ test("a relay computer's live stream reopens on the LAN, and back on the relay, 
   assert.equal(relay.lives.length, 1);
   view.switch(lan.transport);
   await settle();
+  assert.ok(relay.lives[0] !== undefined);
   assert.equal(relay.lives[0].closed, true);
   assert.equal(lan.lives.length, 1);
+  assert.ok(lan.lives[0] !== undefined);
   lan.lives[0].onData('{"type":"runs"}');
   assert.deepEqual(signals, ["runs"]);
   view.switch(null);
   await settle();
   assert.equal(lan.lives[0].closed, true);
   assert.equal(relay.lives.length, 2);
+  assert.ok(relay.lives[1] !== undefined);
   assert.equal(relay.lives[1].closed, false);
   live.close();
   assert.equal(relay.lives[1].closed, true);
@@ -565,6 +784,7 @@ test("a route change that leaves the same transport in place does not reopen the
   view.switch(lan.transport);
   await settle();
   assert.equal(lan.lives.length, 1);
+  assert.ok(lan.lives[0] !== undefined);
   assert.equal(lan.lives[0].closed, false);
   live.close();
 });
@@ -583,6 +803,7 @@ test("images of a Cloudflare computer load through the LAN transport while it is
   const source = client.image("/p", "/p/a.png");
   assert.ok(source instanceof Promise, "an image over the LAN is fetched to a file");
   assert.match((await source).uri, /^file:\/\/\/cache\/relay-media\/[a-f0-9]{16}\.png$/);
+  assert.ok(lan.sent[0] !== undefined);
   assert.equal(lan.sent[0].path, "/media?projectPath=%2Fp&path=%2Fp%2Fa.png");
   assert.throws(() => client.media("/p", "/p/a.png"), /mediaFile/);
 });
@@ -604,10 +825,12 @@ test("an image queued behind four others rides the route that is current when it
   await settle();
   assert.equal(lan.sent.length, 4);
   view.switch(null);
+  assert.ok(held[0] !== undefined);
   held[0]();
   await settle();
   assert.equal(lan.sent.length, 4, "the fifth image must not start on the LAN transport that was replaced");
   assert.equal(relay.sent.length, 1);
+  assert.ok(relay.sent[0] !== undefined);
   assert.match(relay.sent[0].path, /%2Fp%2F4\.png/);
   held.slice(1).forEach((release) => release());
   await Promise.all(loads);
@@ -651,44 +874,8 @@ test("the app asks for snapshots without messages and reads a Chat's as pages", 
   });
   await client.snapshot("/p");
   await client.chatMessages("/p", 7, { before: 40, turns: 5 });
+  assert.ok(sent[0] !== undefined);
   assert.equal(sent[0].pages, "1");
+  assert.ok(sent[1] !== undefined);
   assert.ok(sent[1].url.endsWith("/chat-messages?projectPath=%2Fp&chatId=7&before=40&turns=5"));
-});
-
-test("device consent runs before RPC traffic and refusal never sends", async () => {
-  let calls = 0;
-  let decide!: () => void;
-  let reject = false;
-  const runtime: RelayRuntime = {
-    transport: async () => {
-      throw Error("not used");
-    },
-    files: { find: async () => null, write: async () => "unused" },
-    beforeCall: async (method, args) => {
-      assert.equal(method, "chat:send");
-      assert.deepEqual(args, [{ body: "private draft" }]);
-      if (reject) throw Error("permission required");
-      await new Promise<void>((resolve) => {
-        decide = resolve;
-      });
-    },
-  };
-  const client = createClient(
-    { address: "http://127.0.0.1:8787", token: "fixture" },
-    async () => {
-      calls++;
-      return new Response(JSON.stringify({ v: 1, result: "sent" }));
-    },
-    10,
-    runtime,
-  );
-  const sending = client.call("chat:send", [{ body: "private draft" }]);
-  await new Promise((resolve) => setTimeout(resolve, 25));
-  assert.equal(calls, 0);
-  decide();
-  assert.equal(await sending, "sent");
-  assert.equal(calls, 1);
-  reject = true;
-  await assert.rejects(client.call("chat:send", [{ body: "private draft" }]), /permission/);
-  assert.equal(calls, 1);
 });

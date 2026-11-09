@@ -5,12 +5,12 @@ import { fonts, useTheme } from "./theme";
 import { useStyles } from "./ui";
 
 export function FileCode({ text, name }: { text: string; name: string }) {
-  const { colors } = useTheme();
+  const { colors, codeSize } = useTheme();
   const styles = useStyles();
   const tokens = useMemo(() => highlightFile(text, name), [text, name]);
   return (
     <>
-      <Text selectable style={{ color: colors.ink, fontSize: 13, lineHeight: 20, fontFamily: fonts.mono }}>
+      <Text selectable style={{ color: colors.ink, fontSize: codeSize + 1, lineHeight: Math.round((codeSize + 1) * 1.5), fontFamily: fonts.mono }}>
         {tokens.map((token, index) => (
           <Text key={index} style={{ color: colors.syntax[token.kind] }}>
             {token.text}

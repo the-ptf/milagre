@@ -1,4 +1,15 @@
-import type { ChatStep } from "./model.ts";
+import { isDesktopStep } from "./desktop-steps.ts";
+import type { ChatStep, ImageAttachment } from "./model.ts";
+
+/** Snapshot provenance is only a label. Only step.file can select a durable attachment. */
+export function replyImageFile(step: ChatStep, attachments: ImageAttachment[] = []): string | undefined {
+  if (!step.file) return undefined;
+  return attachments.find((image) => image.sourcePath === step.file)?.path || step.file;
+}
+
+export function viewedImageName(step: ChatStep): string {
+  return (step.sourceFile || step.file || "").split(/[\\/]/).pop() || "Viewed image";
+}
 
 export type ReplyPart = { type: "text"; text: string } | { type: "steps"; steps: ChatStep[] };
 
@@ -28,6 +39,10 @@ export function replyParts(body: string, steps: ChatStep[] = []): ReplyPart[] {
 export type ArtifactStep = ChatStep & { artifact: NonNullable<ChatStep["artifact"]> };
 export const isArtifactCard = (step: ChatStep): step is ArtifactStep => step.kind === "artifact" && step.status === "done" && !!step.artifact;
 
+/** A finished heartbeat_create step that set a Heartbeat (its result named it), which the reply shows as a card. */
+export type HeartbeatStep = ChatStep & { routine: NonNullable<ChatStep["routine"]> };
+export const isHeartbeatCard = (step: ChatStep): step is HeartbeatStep => step.status === "done" && !!step.routine;
+
 export type ActivityEntry = { type: "text"; text: string } | { type: "step"; step: ChatStep };
 
 /**
@@ -36,14 +51,25 @@ export type ActivityEntry = { type: "text"; text: string } | { type: "step"; ste
  * The worktree's setup is neither: it comes back apart, to show as a row of its own before both.
  * Generated images come back apart too, to show between the activity and the answer, and so do the designs the agent
  * showed, once each at the newest version this reply made (an artifact step still running, or one that failed, stays in
- * the activity as a row).
+ * the activity as a row). So do the Heartbeats it set, each as a card, and its computer use steps (`desktop`), which
+ * show as one card with the app's live screen.
  */
 export function replyActivity(
   body: string,
   allSteps: ChatStep[] = [],
-): { setup: ChatStep[]; activity: ActivityEntry[]; images: ChatStep[]; artifacts: ArtifactStep[]; answer: string } {
+): {
+  setup: ChatStep[];
+  activity: ActivityEntry[];
+  images: ChatStep[];
+  viewedImages: ChatStep[];
+  artifacts: ArtifactStep[];
+  heartbeats: HeartbeatStep[];
+  desktop: ChatStep[];
+  answer: string;
+} {
   const setup = allSteps.filter((step) => step.kind === "setup");
-  const images = allSteps.filter((step) => step.kind === "image");
+  const images = allSteps.filter((step) => step.kind === "image" && step.imageOrigin !== "viewed");
+  const viewedImages = allSteps.filter((step) => step.kind === "image" && step.imageOrigin === "viewed");
   // One entry per design, at its newest version in this reply, where it was first shown.
   const artifacts: ArtifactStep[] = [];
   for (const step of allSteps.filter(isArtifactCard)) {
@@ -51,9 +77,11 @@ export function replyActivity(
     if (at === -1) artifacts.push(step);
     else if (artifacts[at]!.artifact.version < step.artifact.version) artifacts[at] = step;
   }
+  const heartbeats = allSteps.filter(isHeartbeatCard);
+  const desktop = allSteps.filter(isDesktopStep);
   const parts = replyParts(
     body,
-    allSteps.filter((step) => step.kind !== "setup" && step.kind !== "image" && !isArtifactCard(step)),
+    allSteps.filter((step) => step.kind !== "setup" && step.kind !== "image" && !isArtifactCard(step) && !isHeartbeatCard(step) && !isDesktopStep(step)),
   );
   const answerIndex = parts.map((part) => part.type).lastIndexOf("text");
   const activity = parts.flatMap((part, index): ActivityEntry[] => {
@@ -61,7 +89,7 @@ export function replyActivity(
     return part.type === "text" ? [part] : part.steps.map((step) => ({ type: "step", step }));
   });
   const answer = answerIndex === -1 ? "" : (parts[answerIndex] as { text: string }).text;
-  return { setup, activity, images, artifacts, answer };
+  return { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer };
 }
 
 /**
@@ -74,9 +102,9 @@ export function unspokenThought(body: string, steps: ChatStep[] = []): string {
     body,
     steps.filter((step) => step.kind !== "setup" && step.kind !== "image"),
   );
-  for (const part of [...parts].reverse()) {
+  for (const part of parts.toReversed()) {
     if (part.type === "text") return "";
-    const thought = [...part.steps].reverse().find((step) => step.kind === "thinking" && step.status !== "running" && step.detail?.trim());
+    const thought = part.steps.findLast((step) => step.kind === "thinking" && step.status !== "running" && step.detail?.trim());
     if (thought) return thought.detail?.trim() ?? "";
   }
   return "";
@@ -90,11 +118,18 @@ export function formatDuration(ms: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+/** What a turn cost, as the summary says it: "0.04 credits", "1 credit", "<0.01 credits". */
+export function creditsText(credits: number): string {
+  if (credits > 0 && credits < 0.01) return "<0.01 credits";
+  const value = Number(credits.toFixed(2));
+  return `${value} ${value === 1 ? "credit" : "credits"}`;
+}
+
 /**
- * What a reply's activity did, in one line: "Thought for 12s · read 2 files · ran 3 commands".
- * Files count once however often they were read or edited; failed is how many steps failed.
+ * What a reply's activity did, in one line: "Thought for 12s · read 2 files · ran 3 commands", and what it cost when the
+ * agent said (Kiro: "· 0.04 credits"). Files count once however often they were read or edited; failed is how many steps failed.
  */
-export function activitySummary(all: ChatStep[]): { text: string; failed: number } {
+export function activitySummary(all: ChatStep[], { credits }: { credits?: number } = {}): { text: string; failed: number } {
   const steps = all.filter((step) => step.kind !== "setup");
   const of = (kind: ChatStep["kind"]) => steps.filter((step) => step.kind === kind);
   const files = (kind: ChatStep["kind"]) => new Set(of(kind).map((step) => step.title)).size;
@@ -107,6 +142,7 @@ export function activitySummary(all: ChatStep[]): { text: string; failed: number
     files("edit") ? count(files("edit"), "edited 1 file", "edited # files") : "",
     of("shell").length ? count(of("shell").length, "ran 1 command", "ran # commands") : "",
     of("other").length ? count(of("other").length, "used 1 tool", "used # tools") : "",
+    credits !== undefined && Number.isFinite(credits) ? creditsText(credits) : "",
   ].filter(Boolean);
   const text = parts.join(" · ");
   return { text: text.charAt(0).toUpperCase() + text.slice(1), failed: steps.filter((step) => step.status === "failed").length };

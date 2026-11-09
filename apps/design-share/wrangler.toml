@@ -6,10 +6,12 @@ routes = [{ pattern = "share.milagre.cloud", custom_domain = true }]
 
 [vars]
 PUBLIC_ORIGIN = "https://share.milagre.cloud"
-MAX_TOTAL_BYTES = "1073741824"
-MAX_TOTAL_PAGES = "10000"
-MAX_DAILY_PAGES = "100"
-MAX_DAILY_IP_PAGES = "10"
+MAX_TOTAL_BYTES = "21474836480"
+
+# Artifact pages' files. Create it once with `npx wrangler@4.147.0 r2 bucket create milagre-design-share-files`.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "milagre-design-share-files"
 
 [[durable_objects.bindings]]
 name = "PAGES"

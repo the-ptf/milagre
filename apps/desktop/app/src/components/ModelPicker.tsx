@@ -1,15 +1,24 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { FlashIcon, Search01Icon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { FlashIcon, Search01Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { providerName } from "@milagre/shared/providers";
+import { formatCredits } from "@milagre/shared/kiro-models";
 import type { AgentCliStatus, EffortLevel, ModelCapability, ModelOption, ModelProvider } from "../model";
 import { effortCopy } from "../model";
 import { cliMessage, cliTabLabel } from "../lib/cli-status";
 import { contextWindowFor } from "../lib/model-options";
 import { formatTokens } from "./usage/format";
 import { ProviderLogo } from "./ProviderLogo";
+import { EmptyState } from "./primitives/EmptyState";
+import { PickerRow } from "./primitives/Picker";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
+import { FieldGroup } from "./primitives/Field";
+import { Icon } from "./primitives/Icon";
+import { SectionLabel } from "./primitives/SectionLabel";
+import Tooltip from "./primitives/Tooltip";
+import { projectAccountOptions, useProjectAccounts } from "./ProjectAccountsSettings";
+import { Select } from "./primitives/Select";
+import { bridgeForKey } from "../lib/computer-bridge";
 
 /** The model's context window as the picker shows it: "1M", "272k". */
 function contextLabel(model: ModelOption) {
@@ -17,9 +26,15 @@ function contextLabel(model: ModelOption) {
   return size ? formatTokens(size) : undefined;
 }
 
+/** A Kiro model's credit multiplier ("2×"), else its context window. */
+function metaLabel(model: ModelOption) {
+  return model.credits ? formatCredits(model.credits) : contextLabel(model);
+}
+
 /** Model, thinking effort, fast mode and Ultracode in one popover: a provider rail that scrolls as providers grow,
  * the provider's models, and the selected model's settings beside them. Picking a model keeps it open. */
 export function ModelPicker({
+  scope,
   style,
   providers,
   provider,
@@ -40,6 +55,7 @@ export function ModelPicker({
   ultracode,
   onUltracodeChange,
 }: {
+  scope?: string;
   style: CSSProperties;
   providers: ModelProvider[];
   provider: ModelProvider;
@@ -62,12 +78,18 @@ export function ModelPicker({
   onUltracodeChange: (on: boolean) => void;
 }) {
   const levels = capability.efforts;
+  const lowest = levels[0];
+  const highest = levels.at(-1);
   const hasSettings = levels.length > 0 || capability.fastMode || capability.ultracode;
   const index = Math.max(0, levels.indexOf(effort ?? ""));
   const current = levels[index];
 
   // Arrow keys move through the model rows, Enter picks; the search field keeps typing.
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest('[role="listbox"]')) {
+      event.stopPropagation();
+      return;
+    }
     const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-picker-row]")];
     const at = rows.indexOf(document.activeElement as HTMLButtonElement);
     const searching = event.target instanceof HTMLInputElement;
@@ -89,84 +111,72 @@ export function ModelPicker({
     <div
       data-picker-panel
       data-model-picker
-      className={`absolute z-20 flex h-[340px] overflow-hidden rounded-[12px] border border-line bg-surface shadow-raised ${hasSettings ? "w-[580px]" : "w-[300px]"}`}
-      style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", ...style }}
+      className={`absolute z-20 flex h-[340px] overflow-hidden rounded-card bg-surface shadow-raised ${hasSettings ? "w-[580px]" : "w-[300px]"}`}
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards", ...style }}
     >
       <ScrollArea data-provider-tabs aria-label="Providers" className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-line bg-inset py-2">
         {providers.map((item) => {
           const warning = cliTabLabel(cliStatus?.[item]);
           const on = item === provider;
+          // asChild: the tabs stay the rail's direct children. A CLI message, when there is one, is also the tab's description.
           return (
-            <button
-              key={item}
-              type="button"
-              aria-label={providerName(item)}
-              aria-pressed={on}
-              title={cliMessage(cliStatus?.[item]) ?? providerName(item)}
-              onClick={() => onProviderChange(item)}
-              className={`relative flex size-8 shrink-0 items-center justify-center rounded-[8px] transition-colors ${on ? "bg-surface shadow-xs" : "hover:bg-hover"}`}
-            >
-              {on && <span aria-hidden className="absolute top-2 bottom-2 -left-1.5 w-[3px] rounded-r-full bg-accent-ink" />}
-              <span className={on ? "" : "opacity-60 grayscale-[0.4]"}>
-                <ProviderLogo provider={item} size={16} />
-              </span>
-              {warning && <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-orange" />}
-            </button>
+            <Tooltip key={item} label={cliMessage(cliStatus?.[item]) ?? providerName(item)} wrap asChild>
+              <button
+                type="button"
+                aria-label={providerName(item)}
+                aria-pressed={on}
+                onClick={() => onProviderChange(item)}
+                className={`relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${on ? "bg-surface shadow-card" : "hover:bg-hover"}`}
+              >
+                {/* Selection is ink, like every other picked state. */}
+                {on && <span aria-hidden className="absolute top-2 bottom-2 -left-1.5 w-[3px] rounded-r-full bg-ink" />}
+                <span className={on ? "" : "opacity-60 grayscale-[0.4]"}>
+                  <ProviderLogo provider={item} size={16} />
+                </span>
+                {warning && <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-orange" />}
+              </button>
+            </Tooltip>
           );
         })}
       </ScrollArea>
 
       <div onKeyDown={handleKeyDown} className={`flex min-w-0 flex-col pt-2 pl-2 ${hasSettings ? "w-[240px] shrink-0 border-r border-line" : "flex-1"}`}>
-        <div className="flex items-baseline justify-between px-1.5 pr-3.5 pb-1.5">
-          <strong className="text-sm text-ink">{providerName(provider)}</strong>
-          <span className="text-[10.5px] text-ink-3">
+        <div className="flex items-baseline justify-between px-1.5 pr-3 pb-1.5">
+          <strong className="text-13 font-semibold text-ink">{providerName(provider)}</strong>
+          <span className="text-11 text-ink-3">
             {totalModels} {totalModels === 1 ? "model" : "models"}
           </span>
         </div>
-        <label className="mr-2 mb-1 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-1.5 text-ink-3">
-          <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.8} color="currentColor" />
-          <input
-            className="w-full border-0 bg-transparent text-xs text-ink outline-none placeholder:text-ink-3"
+        {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
+        {/* PickerPanel's search field. */}
+        <div className="mr-2 mb-1 shrink-0">
+          <FieldGroup
+            leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search models…"
             autoFocus
           />
-        </label>
+        </div>
         {notice}
         <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2">
-          {models.map((model) => {
-            const selected = model.id === selectedModel.id && model.provider === selectedModel.provider;
-            const meta = contextLabel(model);
-            return (
-              <button
-                key={model.id}
-                type="button"
-                data-picker-row
-                title={model.description || undefined}
-                aria-current={selected || undefined}
+          {models.map((model) => (
+            <ModelTip
+              key={model.id}
+              description={[model.description, model.credits ? `Uses ${formatCredits(model.credits)} the credits Auto would` : undefined]
+                .filter(Boolean)
+                .join(". ")}
+            >
+              <PickerRow
+                icon={<ProviderLogo provider={model.provider} size={16} />}
+                label={model.name}
+                meta={metaLabel(model)}
+                selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
                 onClick={() => onModelChange(model)}
-                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition-colors focus-visible:bg-hover focus-visible:outline-2 focus-visible:outline-ink-3 focus-visible:-outline-offset-2 ${selected ? "bg-hover" : "hover:bg-inset"}`}
-              >
-                <ProviderLogo provider={model.provider} size={14} />
-                <strong className="truncate text-xs font-medium text-ink">{model.name}</strong>
-                {meta && (
-                  <span
-                    data-picker-meta
-                    className="shrink-0 rounded-chip border border-line px-1 text-[10px] leading-[14px] font-medium tabular-nums text-ink-3"
-                  >
-                    {meta}
-                  </span>
-                )}
-                {selected && (
-                  <span className="ml-auto shrink-0 text-ink">
-                    <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={1.8} color="currentColor" />
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {models.length === 0 && <div className="px-2 py-5 text-center text-xs text-ink-3">No models found.</div>}
+              />
+            </ModelTip>
+          ))}
+          {models.length === 0 && <EmptyState size="compact" title="No models found" />}
         </ScrollArea>
       </div>
 
@@ -174,8 +184,10 @@ export function ModelPicker({
         <div data-model-settings className="flex min-w-0 flex-1 flex-col gap-3 p-3">
           {levels.length > 0 && current && (
             <div className="flex flex-col">
-              <span className="pb-2.5 text-[10.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">Thinking effort</span>
-              {levels.length > 1 ? (
+              <SectionLabel as="span" variant="menu" className="pb-2">
+                Thinking effort
+              </SectionLabel>
+              {levels.length > 1 && lowest !== undefined && highest !== undefined ? (
                 <>
                   <RangeSlider
                     label="Thinking effort"
@@ -183,16 +195,19 @@ export function ModelPicker({
                     min={0}
                     max={levels.length - 1}
                     step={1}
-                    onValueChange={(value) => onEffortChange(levels[value])}
-                    formatValueText={(value) => effortCopy(levels[value]).name}
+                    onValueChange={(value) => {
+                      const level = levels[value];
+                      if (level !== undefined) onEffortChange(level);
+                    }}
+                    formatValueText={(value) => (levels[value] === undefined ? "" : effortCopy(levels[value]).name)}
                   />
-                  <div className="flex justify-between pt-1.5 text-[10px] text-ink-3">
-                    <span>{effortCopy(levels[0]).name}</span>
-                    <span>{effortCopy(levels[levels.length - 1]).name}</span>
+                  <div className="flex justify-between pt-1.5 text-11 text-ink-3">
+                    <span>{effortCopy(lowest).name}</span>
+                    <span>{effortCopy(highest).name}</span>
                   </div>
                 </>
               ) : null}
-              <p data-effort-caption className="pt-1.5 text-[11px] leading-snug text-ink-3">
+              <p data-effort-caption className="pt-1.5 text-11 text-ink-3">
                 <strong className={`font-semibold ${current === "ultra" ? "text-purple-ink" : "text-ink"}`}>{effortCopy(current).name}</strong>
                 {effortCopy(current).description ? ` · ${effortCopy(current).description}` : ""}
               </p>
@@ -222,6 +237,40 @@ export function ModelPicker({
   );
 }
 
+function ModelAccountPicker({ scope, provider }: { scope: string; provider: ModelProvider }) {
+  const { shown, busy, error, load, act } = useProjectAccounts(scope);
+  const group = shown?.providers.find((item) => item.provider === provider);
+  if (error)
+    return (
+      <p role="alert" className="mr-2 mb-2 text-11 text-red-ink">
+        {error}{" "}
+        <button className="underline" onClick={() => void load(true)}>
+          Retry
+        </button>
+      </p>
+    );
+  if (!shown)
+    return (
+      <p role="status" className="mb-2 text-11 text-ink-3">
+        Checking accounts...
+      </p>
+    );
+  if (!group) return null;
+  return (
+    <div data-model-account className="mr-2 mb-2 flex min-w-0 flex-col gap-1">
+      <Select
+        label={`${providerName(provider)} account`}
+        value={group.accountId ?? ""}
+        width={340}
+        disabled={busy}
+        triggerClassName="w-full"
+        options={projectAccountOptions(group)}
+        onChange={(id) => void act(() => bridgeForKey(scope).assignProjectAccount(scope, provider, id || null))}
+      />
+    </div>
+  );
+}
+
 function SettingRow({
   icon,
   label,
@@ -231,7 +280,8 @@ function SettingRow({
   onChange,
   tone = "orange",
 }: {
-  /** The color the row takes while on: Fast is orange, Ultracode purple like its Fatality overlay. */
+  /** The colour the row takes while on: Fast is orange, Ultracode purple like its Fatality overlay. The icon takes the
+   * plain fill (fills are for icons), the title the -ink shade. */
   tone?: "orange" | "purple";
   icon: typeof FlashIcon;
   label: string;
@@ -240,23 +290,35 @@ function SettingRow({
   on: boolean;
   onChange: (on: boolean) => void;
 }) {
-  const ink = tone === "purple" ? "text-purple-ink" : "text-orange";
+  const ink = tone === "purple" ? "text-purple-ink" : "text-orange-ink";
+  const fill = tone === "purple" ? "text-purple" : "text-orange";
   return (
     <button
       type="button"
-      role="switch"
+      role="checkbox"
       aria-label={label}
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className={`flex w-full items-center gap-2.5 rounded-control border px-2.5 py-2 text-left transition-colors ${on ? `border-transparent ${tone === "purple" ? "bg-purple-tint" : "bg-orange-tint"}` : "border-line hover:bg-inset"}`}
+      className={`flex w-full items-center gap-2 rounded-control border px-2.5 py-2 text-left transition-colors ${on ? `border-transparent ${tone === "purple" ? "bg-purple-tint" : "bg-orange-tint"}` : "border-line hover:bg-hover"}`}
     >
-      <span className={on ? ink : "text-ink-2"}>
-        <HugeiconsIcon icon={icon} size={15} strokeWidth={1.8} color="currentColor" />
+      <span className={on ? fill : "text-ink-2"}>
+        <Icon icon={icon} size={16} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
-        <strong className={`text-xs font-semibold ${on ? ink : "text-ink"}`}>{title}</strong>
-        <span className="truncate text-[10.5px] text-ink-3">{detail}</span>
+        <strong className={`text-12 font-semibold ${on ? ink : "text-ink"}`}>{title}</strong>
+        <span className="truncate text-11 text-ink-3">{detail}</span>
       </span>
     </button>
+  );
+}
+
+/** A model row's description in a tooltip; a row without one is left bare. */
+function ModelTip({ description, children }: { description?: string; children: ReactNode }) {
+  return description ? (
+    <Tooltip label={description} wrap className="w-full">
+      {children}
+    </Tooltip>
+  ) : (
+    children
   );
 }

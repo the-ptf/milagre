@@ -13,6 +13,8 @@ test("CLI update completion refreshes the current scope and ignores unscoped sta
   });
   const refreshed: string[] = [];
   const written: unknown[] = [];
+  // Every scope's cached CLI status is read again when next shown, not only the current one's.
+  let staled = 0;
   const refreshCliStatus = () => refreshed.push("old-project");
   const refreshCliStatusRef = { current: refreshCliStatus };
   const update = runInNewContext(ts.transpileModule(`${body}\nupdateCli;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
@@ -23,6 +25,7 @@ test("CLI update completion refreshes the current scope and ignores unscoped sta
     setCliStatus: (value: unknown) => written.push(value),
     refreshCliStatus,
     refreshCliStatusRef,
+    staleProviders: () => staled++,
   });
   const pending = update("codex");
   refreshCliStatusRef.current = () => refreshed.push("new-project");
@@ -30,4 +33,5 @@ test("CLI update completion refreshes the current scope and ignores unscoped sta
   await pending;
   assert.deepEqual(refreshed, ["new-project"]);
   assert.deepEqual(written, []);
+  assert.equal(staled, 1);
 });

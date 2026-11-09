@@ -166,6 +166,18 @@ test("gitChatContext takes the first and the last few user messages", () => {
   });
 });
 
+test("gitChatContext leaves heartbeat prompts out", () => {
+  const beat = { ...message(7, "user", "Check CI on PR 77"), context: { kind: "routine-run" as const, routineId: "r", runId: "x", name: "Babysit", at: 0 } };
+  const messages = [
+    message(1, "user", "Fix the cart"),
+    message(2, "user", "Also the totals"),
+    beat,
+    { ...beat, id: 8 },
+    message(9, "assistant", "(pass) green"),
+  ];
+  assert.deepEqual(gitChatContext("Fix the cart", messages).recentMessages, ["Also the totals"]);
+});
+
 test("hookFailureMessage asks the agent to fix the hook's problem, and to leave committing to Milagre", () => {
   assert.equal(
     hookFailureMessage("lint: missing semicolon"),

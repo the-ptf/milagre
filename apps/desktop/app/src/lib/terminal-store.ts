@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { useSyncExternalStore } from "react";
 import type { TerminalInfo } from "@milagre/shared/terminal";
 
@@ -14,7 +15,7 @@ type State = { chats: Record<string, ChatTerminals>; height: number };
 const EMPTY: ChatTerminals = { terminals: [], active: null, open: false, picking: false };
 
 function savedHeight(): number {
-  const value = Number(globalThis.localStorage?.getItem(TERMINAL_HEIGHT_KEY));
+  const value = Number(localStorage?.getItem(TERMINAL_HEIGHT_KEY));
   return Number.isFinite(value) && value >= TERMINAL_HEIGHT.min ? value : TERMINAL_HEIGHT.initial;
 }
 
@@ -53,7 +54,7 @@ export function setTerminalHeight(height: number) {
 }
 
 export function saveTerminalHeight() {
-  globalThis.localStorage?.setItem(TERMINAL_HEIGHT_KEY, String(state.height));
+  localStorage?.setItem(TERMINAL_HEIGHT_KEY, String(state.height));
 }
 
 /** Takes the host's list. The shown Terminal stays if it still runs, else the newest one is shown; with none left the panel closes. */

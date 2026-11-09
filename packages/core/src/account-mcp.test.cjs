@@ -98,3 +98,88 @@ test("Codex: server tables are replaced or added, everything else in the Account
   inheritCodexMcp(source, target);
   assert.equal(fs.readFileSync(target, "utf8"), merged, "a second session start changes nothing");
 });
+
+function account(t) {
+  const root = folder(t);
+  const targetDir = path.join(root, "account");
+  fs.mkdirSync(targetDir);
+  return { root, targetDir, record: path.join(targetDir, "milagre-inherited-mcp.json") };
+}
+
+test("a Claude server removed from the source leaves the added account", (t) => {
+  const { root, targetDir } = account(t);
+  const source = path.join(root, "source.json");
+  const target = path.join(targetDir, ".claude.json");
+  fs.writeFileSync(source, JSON.stringify({ mcpServers: { a: { command: "a" }, b: { command: "b" } } }));
+  fs.writeFileSync(target, JSON.stringify({ mcpServers: { own: { command: "own" } } }));
+  inheritClaudeMcp(source, target);
+  fs.writeFileSync(source, JSON.stringify({ mcpServers: { a: { command: "a" } } }));
+  inheritClaudeMcp(source, target);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(target, "utf8")).mcpServers).toSorted(), ["a", "own"]);
+});
+
+test("a Codex server removed from the source leaves the added account", (t) => {
+  const { root, targetDir } = account(t);
+  const source = path.join(root, "source.toml");
+  const target = path.join(targetDir, "config.toml");
+  fs.writeFileSync(source, '[mcp_servers.a]\ncommand = "a"\n\n[mcp_servers.b]\ncommand = "b"\n');
+  fs.writeFileSync(target, '[mcp_servers.own]\ncommand = "own"\n');
+  inheritCodexMcp(source, target);
+  fs.writeFileSync(source, '[mcp_servers.a]\ncommand = "a"\n');
+  inheritCodexMcp(source, target);
+  const text = fs.readFileSync(target, "utf8");
+  assert.match(text, /\[mcp_servers\.a\]/);
+  assert.match(text, /\[mcp_servers\.own\]/);
+  assert.doesNotMatch(text, /\[mcp_servers\.b\]/);
+});
+
+test("a Codex server's sub-tables go with it, and an emptied source removes every recorded server", (t) => {
+  const { root, targetDir } = account(t);
+  const source = path.join(root, "source.toml");
+  const target = path.join(targetDir, "config.toml");
+  fs.writeFileSync(source, '[mcp_servers.a]\ncommand = "a"\n\n[mcp_servers.b]\ncommand = "b"\n\n[mcp_servers.b.env]\nK = "1"\n');
+  fs.writeFileSync(target, 'model = "m"\n\n[mcp_servers.own]\ncommand = "own"\n');
+  inheritCodexMcp(source, target);
+  assert.match(fs.readFileSync(target, "utf8"), /\[mcp_servers\.b\.env\]/);
+  fs.writeFileSync(source, '[mcp_servers.a]\ncommand = "a"\n');
+  inheritCodexMcp(source, target);
+  const text = fs.readFileSync(target, "utf8");
+  assert.doesNotMatch(text, /mcp_servers\.b|K = "1"/);
+  assert.match(text, /^model = "m"\n/);
+  fs.writeFileSync(source, 'model = "m"\n');
+  inheritCodexMcp(source, target);
+  const emptied = fs.readFileSync(target, "utf8");
+  assert.doesNotMatch(emptied, /mcp_servers\.a/);
+  assert.match(emptied, /\[mcp_servers\.own\]/);
+});
+
+test("the first run has no record, so a server the Account already has is not removed", (t) => {
+  const { root, targetDir, record } = account(t);
+  const claudeSource = path.join(root, "source.json");
+  const claudeTarget = path.join(targetDir, ".claude.json");
+  fs.writeFileSync(claudeSource, JSON.stringify({ mcpServers: { a: { command: "a" } } }));
+  fs.writeFileSync(claudeTarget, JSON.stringify({ mcpServers: { b: { command: "b" } } }));
+  inheritClaudeMcp(claudeSource, claudeTarget);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(claudeTarget, "utf8")).mcpServers).toSorted(), ["a", "b"]);
+  fs.rmSync(record);
+
+  const codexSource = path.join(root, "source.toml");
+  const codexTarget = path.join(targetDir, "config.toml");
+  fs.writeFileSync(codexSource, '[mcp_servers.a]\ncommand = "a"\n');
+  fs.writeFileSync(codexTarget, '[mcp_servers.b]\ncommand = "b"\n');
+  inheritCodexMcp(codexSource, codexTarget);
+  const text = fs.readFileSync(codexTarget, "utf8");
+  assert.match(text, /\[mcp_servers\.a\]/);
+  assert.match(text, /\[mcp_servers\.b\]/);
+});
+
+test("the record of copied names is written with mode 0600", (t) => {
+  const { root, targetDir, record } = account(t);
+  const source = path.join(root, "source.json");
+  const target = path.join(targetDir, ".claude.json");
+  fs.writeFileSync(source, JSON.stringify({ mcpServers: { b: { command: "b" }, a: { command: "a" } } }));
+  fs.writeFileSync(target, "{}");
+  inheritClaudeMcp(source, target);
+  assert.deepEqual(JSON.parse(fs.readFileSync(record, "utf8")), { names: ["a", "b"] });
+  assert.equal(fs.statSync(record).mode & 0o777, 0o600);
+});

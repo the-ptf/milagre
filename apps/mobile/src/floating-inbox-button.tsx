@@ -2,17 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureDetector, usePanGesture, useTapGesture, useCompetingGestures } from "react-native-gesture-handler";
-import Animated, { cancelAnimation, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from "react-native-reanimated";
+import Animated, { cancelAnimation, ReduceMotion, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { BubbleChatIcon } from "@hugeicons/core-free-icons";
 import type { InboxStatus } from "@milagre/shared/attention";
 import { Icon, SpinnerRing } from "./icons";
+import { springTo, useMotionScale } from "./motion";
+import { chrome, duration, radius, space } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const SIZE = 56;
 const GAP = 12;
 const PEEK = 16;
-const SPRING = { duration: 300, dampingRatio: 0.85, overshootClamping: true, reduceMotion: ReduceMotion.System };
+const SPRING = { duration: duration.slow, dampingRatio: 0.85, overshootClamping: true, reduceMotion: ReduceMotion.System };
 type Edge = 0 | 1 | 2;
 type Position = { x: number; y: number; edge: Edge };
 // Keep the placement while moving between Chats. Coordinates are fractions, so rotation stays reachable.
@@ -47,18 +49,19 @@ function landInboxButton(x: number, y: number, vx: number, vy: number, width: nu
 
 function StatusBadge({ status, small = false }: { status?: InboxStatus; small?: boolean }) {
   const { colors } = useTheme();
-  const reduced = useReducedMotion();
   if (!status) return null;
-  if (status === "working" && !reduced) return <SpinnerRing size={small ? 10 : 12} stroke={1.5} tone="accentInk" />;
+  // The ring pulses instead of spinning under Reduce Motion, so it stays the one working mark.
+  if (status === "working") return <SpinnerRing size={12} stroke={1.5} tone="accentInk" />;
   const color = status === "approval" ? colors.orange : status === "failed" ? colors.red : status === "completed" ? colors.green : colors.accentInk;
-  return <View style={{ width: small ? 6 : 8, height: small ? 6 : 8, borderRadius: 5, backgroundColor: color }} />;
+  return <View style={{ width: small ? 6 : 8, height: small ? 6 : 8, borderRadius: radius.full, backgroundColor: color }} />;
 }
 
 export function FloatingInboxButton({ status, label, open, bottom }: { status?: InboxStatus; label: string; open: () => void; bottom?: number }) {
-  const { scheme } = useTheme();
+  const { colors } = useTheme();
   const frame = useSafeAreaFrame(),
     insets = useSafeAreaInsets();
-  const top = insets.top + 52;
+  // 8 under the header, as the attention pill and the top Toast.
+  const top = insets.top + chrome.header + space.md;
   const width = Math.max(SIZE + GAP * 2, frame.width - insets.left - insets.right);
   const height = Math.max(SIZE + GAP * 2, frame.height - top - (bottom ?? Math.max(insets.bottom, 16) + 120));
   const [hidden, setHidden] = useState<Edge>(placement.edge);
@@ -69,6 +72,7 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
     fromY = useSharedValue(0),
     fromEdge = useSharedValue<Edge>(0);
   const dragging = useSharedValue(false);
+  const scale = useMotionScale();
   const tuckX = useSharedValue(placement.edge === 1 ? PEEK - SIZE : placement.edge === 2 ? SIZE - PEEK : 0);
   const remember = useCallback(
     (position: Position) => {
@@ -83,12 +87,12 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
   );
   const animateTo = useCallback(
     (position: Position) => {
-      x.set(withSpring(position.x, SPRING));
-      y.set(withSpring(position.y, SPRING));
+      x.set(springTo(position.x, SPRING, scale));
+      y.set(springTo(position.y, SPRING, scale));
       edge.set(position.edge);
-      tuckX.set(withSpring(position.edge === 1 ? PEEK - SIZE : position.edge === 2 ? SIZE - PEEK : 0, SPRING));
+      tuckX.set(springTo(position.edge === 1 ? PEEK - SIZE : position.edge === 2 ? SIZE - PEEK : 0, SPRING, scale));
     },
-    [x, y, edge, tuckX],
+    [x, y, edge, tuckX, scale],
   );
   const move = useCallback(
     (position: Position) => {
@@ -122,7 +126,7 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
       fromY.set(y.get());
       fromEdge.set(edge.get());
       edge.set(0);
-      tuckX.set(withSpring(0, SPRING));
+      tuckX.set(springTo(0, SPRING, scale));
     },
     onUpdate: (event) => {
       "worklet";
@@ -134,18 +138,18 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
       if (event.canceled) return;
       const position = landInboxButton(x.get(), y.get(), event.velocityX, event.velocityY, width, height);
       edge.set(position.edge);
-      x.set(withSpring(position.x, { ...SPRING, velocity: event.velocityX }));
-      y.set(withSpring(position.y, { ...SPRING, velocity: event.velocityY }));
-      tuckX.set(withSpring(position.edge === 1 ? PEEK - SIZE : position.edge === 2 ? SIZE - PEEK : 0, SPRING));
+      x.set(springTo(position.x, { ...SPRING, velocity: event.velocityX }, scale));
+      y.set(springTo(position.y, { ...SPRING, velocity: event.velocityY }, scale));
+      tuckX.set(springTo(position.edge === 1 ? PEEK - SIZE : position.edge === 2 ? SIZE - PEEK : 0, SPRING, scale));
       scheduleOnRN(remember, position);
     },
     onFinalize: (event) => {
       "worklet";
       if (event.canceled && dragging.get()) {
-        x.set(withSpring(fromX.get(), SPRING));
-        y.set(withSpring(fromY.get(), SPRING));
+        x.set(springTo(fromX.get(), SPRING, scale));
+        y.set(springTo(fromY.get(), SPRING, scale));
         edge.set(fromEdge.get());
-        tuckX.set(withSpring(fromEdge.get() === 1 ? PEEK - SIZE : fromEdge.get() === 2 ? SIZE - PEEK : 0, SPRING));
+        tuckX.set(springTo(fromEdge.get() === 1 ? PEEK - SIZE : fromEdge.get() === 2 ? SIZE - PEEK : 0, SPRING, scale));
       }
       dragging.set(false);
     },
@@ -165,7 +169,6 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
     opacity: edge.get() ? 1 : 0,
     transform: [{ translateX: edge.get() === 1 ? -20 : edge.get() === 2 ? 20 : 0 }],
   }));
-  const background = scheme === "dark" ? "#000" : "#fff";
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", left: insets.left, right: insets.right, top, height, overflow: "hidden", zIndex: 2 }}>
       <GestureDetector gesture={gesture}>
@@ -186,21 +189,29 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
           <Animated.View
             pointerEvents="none"
             style={[
-              { width: SIZE, height: SIZE, borderRadius: SIZE / 2, backgroundColor: background, alignItems: "center", justifyContent: "center" },
+              {
+                width: SIZE,
+                height: SIZE,
+                borderRadius: radius.full,
+                backgroundColor: colors.surface,
+                boxShadow: colors.shadowRaised,
+                alignItems: "center",
+                justifyContent: "center",
+              },
               bodyStyle,
             ]}
           >
-            <Icon icon={BubbleChatIcon} size={23} color={scheme === "dark" ? "#fff" : "#000"} />
+            <Icon icon={BubbleChatIcon} size={24} tone="ink" />
             <Animated.View
               style={[
                 {
                   position: "absolute",
-                  top: 0,
-                  right: 0,
-                  width: 18,
-                  height: 18,
-                  borderRadius: 9,
-                  backgroundColor: background,
+                  top: -4,
+                  right: -4,
+                  width: 20,
+                  height: 20,
+                  borderRadius: radius.full,
+                  backgroundColor: colors.surface,
                   alignItems: "center",
                   justifyContent: "center",
                 },

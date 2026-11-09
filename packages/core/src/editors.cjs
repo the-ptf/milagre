@@ -1,7 +1,6 @@
 const { execCommand } = require("./agents/command.cjs");
 const { editorInvocation } = require("./editor-command.cjs");
 const { createGit } = require("./git/client.cjs");
-const { execFile } = require("node:child_process");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");

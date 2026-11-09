@@ -34,3 +34,11 @@ test("the genui skill marks optional props with a question mark, as the contract
     assert.deepEqual(optional, expected, `${name} optional props`);
   }
 });
+
+test("the design skill lists exactly the bundled catalog fonts", () => {
+  const { DESIGN_CATALOG_FAMILIES } = require("@milagre/shared/design");
+  const design = fs.readFileSync(path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md"), "utf8");
+  const list = /^## Fonts\n\n.*\n\n(.+)\.\n/m.exec(design)?.[1];
+  assert.ok(list, "the Fonts section has its list of families");
+  assert.deepEqual(list.split(", "), DESIGN_CATALOG_FAMILIES);
+});

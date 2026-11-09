@@ -32,8 +32,7 @@ test("public HTML isolates generated SVG images, escapes labels and carries no s
   assert.doesNotMatch(html, /onerror=alert\(1\)>|"schemaVersion"|"nodes"/);
 });
 test("snapshot limits reject incomplete pages and external or disguised image data", () => {
-  assert.throws(() => validateDesignPageSnapshot({ ...page(), designs: [] }), /between 1 and 20/);
-  assert.throws(() => validateDesignPageSnapshot({ ...page(), designs: Array(21).fill(page().designs[0]) }), /between 1 and 20/);
+  assert.throws(() => validateDesignPageSnapshot({ ...page(), designs: [] }), /at least one design/);
   const input = page();
   input.designs[0].document.nodes = [{ id: "image", type: "image", width: 100, height: 100, src: "https://example.com/photo.png" }];
   assert.throws(() => validateDesignPageSnapshot(input), /embedded/);
@@ -43,12 +42,12 @@ test("snapshot limits reject incomplete pages and external or disguised image da
   assert.equal(isSnapshotRaster("data:image/gif;base64,R0lGODlh"), true);
 });
 
-test("the page text budget includes all designs before any SVG is generated", () => {
+test("shared pages accept more than 50,000 text characters", () => {
   const input = page();
   for (const design of input.designs)
     design.document.nodes = Array.from({ length: 3 }, (_, i) => ({ id: `text${i}`, type: "text", width: 1, height: 1, fontSize: 2, text: "a".repeat(10000) }));
-  assert.throws(() => validateDesignPageSnapshot(input), { status: 413 });
-  assert.throws(() => renderDesignPage(input), { status: 413 });
+  assert.equal(validateDesignPageSnapshot(input).designs.length, 2);
+  assert.match(renderDesignPage(input), /<figure /);
 });
 
 test("validated snapshots can be reused safely but cannot be mutated to bypass validation", () => {
@@ -65,14 +64,15 @@ test("validated snapshots can be reused safely but cannot be mutated to bypass v
   assert.throws(() => renderDesignPage(clone), /embedded/);
 });
 
-test("rendering rejects image amplification at the 8 MiB HTML budget", () => {
+test("shared pages render beyond the former 8 MiB HTML budget", () => {
   const input = page();
   const src = `data:image/png;base64,${Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(300000)]).toString("base64")}`;
-  input.designs = Array.from({ length: 12 }, (_, i) => ({
+  input.designs = Array.from({ length: 24 }, (_, i) => ({
     title: `Image ${i}`,
     document: { schemaVersion: 1, width: 390, height: 844, nodes: [{ id: "image", type: "image", width: 100, height: 100, src }] },
   }));
-  assert.throws(() => renderDesignPage(input), { status: 413 });
+  assert.ok(Buffer.byteLength(JSON.stringify(input)) > 8 * 1024 * 1024);
+  assert.ok(Buffer.byteLength(renderDesignPage(input)) > 8 * 1024 * 1024);
 });
 
 test("an Artifact snapshot freezes one HTML page in an opaque sandbox without private envelope data", () => {
@@ -94,5 +94,146 @@ test("an Artifact snapshot freezes one HTML page in an opaque sandbox without pr
   assert.doesNotMatch(html, /allow-same-origin|allow-top-navigation|allow-popups|allow-forms|private#1|"comments"/);
   assert.match(html, /&lt;script&gt;/);
   assert.throws(() => validateDesignPageSnapshot({ ...input, artifacts: [...input.artifacts, ...input.artifacts] }), /exactly one/);
-  assert.throws(() => validateDesignPageSnapshot({ ...input, artifacts: [{ ...input.artifacts[0], html: "x".repeat(1000001) }] }), { status: 413 });
+  assert.equal(validateDesignPageSnapshot({ ...input, artifacts: [{ ...input.artifacts[0], html: "x".repeat(1000001) }] }).artifacts[0].html.length, 1000001);
+});
+
+const allWeights = (index) => ({
+  schemaVersion: 1,
+  width: 390,
+  height: 844,
+  nodes: [400, 500, 600, 700].map((fontWeight) => ({
+    id: `w${fontWeight}`,
+    type: "text",
+    y: fontWeight / 10,
+    width: 300,
+    height: 40,
+    text: `Design ${index}`,
+    fontWeight,
+  })),
+});
+const fontFaceCount = (html) => decodeURIComponent(html.match(/src="data:image\/svg\+xml,([^"]+)"/)?.[1] ?? "").match(/@font-face/g)?.length ?? 0;
+
+test("twenty designs that each use all four Inter weights render with embedded fonts", () => {
+  const html = renderDesignPage({
+    schemaVersion: 1,
+    title: "Many",
+    designs: Array.from({ length: 20 }, (_, index) => ({ title: `D${index}`, document: allWeights(index) })),
+  });
+  assert.equal(fontFaceCount(html), 4);
+});
+
+test("a large page preserves embedded fonts beyond the former HTML budget", () => {
+  const png = `data:image/png;base64,${Buffer.concat([Buffer.from("\x89PNG\r\n\x1a\n", "latin1"), Buffer.alloc(100000, 1)]).toString("base64")}`;
+  const designs = Array.from({ length: 20 }, (_, index) => {
+    const document = allWeights(index);
+    document.nodes.push({ id: "photo", type: "image", y: 300, width: 100, height: 100, src: png });
+    return { title: `D${index}`, document };
+  });
+  const html = renderDesignPage({ schemaVersion: 1, title: "Heavy", designs });
+  assert.equal(fontFaceCount(html), 4);
+  assert.ok(Buffer.byteLength(html) > 8 * 1024 * 1024);
+  assert.match(html, /<figure /);
+});
+
+const describedAs = (html) => /<title>[^<]*<\/title><meta name="description" content="([^"]*)">/.exec(html)?.[1];
+const artifactPage = (html, title = "Pricing research") => ({
+  schemaVersion: 1,
+  kind: "artifacts",
+  title,
+  artifacts: [{ title, width: 390, height: 844, html }],
+});
+
+test("an Artifact's link preview description prefers its own meta description", () => {
+  const html = renderDesignPage(artifactPage(`<head><meta content='Three plans &amp; "one" winner' name="description"></head><body><p>Body text</p></body>`));
+  assert.equal(describedAs(html), "Three plans &amp; &quot;one&quot; winner");
+});
+
+test("an Artifact's link preview describes its visible text, not scripts, styles or a repeated title", () => {
+  const body = `<title>Ignored</title><style>p{color:red}</style><script>const secret = 1;</script><h1>Pricing research</h1><!-- note --><p>Compares &nbsp;Pro&#x2F;Team tiers</p>`;
+  assert.equal(describedAs(renderDesignPage(artifactPage(body))), "Compares Pro/Team tiers");
+  const long = renderDesignPage(artifactPage(`<p>${"word ".repeat(80)}</p>`));
+  const description = describedAs(long);
+  assert.ok(description.length <= 200 && description.endsWith("word…"), description);
+  assert.equal(describedAs(renderDesignPage(artifactPage("<script>only()</script>"))), undefined);
+});
+
+test("a Designs link preview names several designs and reads one design's visible text layers", () => {
+  assert.equal(describedAs(renderDesignPage(page())), "2 designs: First and Second.");
+  const nodes = [
+    { id: "card", type: "frame", width: 300, height: 200, hidden: true },
+    { id: "secret", type: "text", parentId: "card", width: 100, height: 20, text: "Draft copy" },
+    { id: "heading", type: "text", width: 300, height: 40, text: "Welcome back" },
+    { id: "cta", type: "text", width: 300, height: 40, text: "Start workout" },
+  ];
+  const single = { schemaVersion: 1, title: "Home", designs: [{ title: "Home", document: { schemaVersion: 1, width: 390, height: 844, nodes } }] };
+  assert.equal(describedAs(renderDesignPage(single)), "Welcome back · Start workout");
+  assert.equal(
+    describedAs(renderDesignPage({ ...single, designs: [{ title: "Home", document: { schemaVersion: 1, width: 390, height: 844, nodes: [] } }] })),
+    undefined,
+  );
+});
+
+test("every public page asks crawlers not to index, follow or archive it", () => {
+  const robots = '<meta name="robots" content="noindex,nofollow,noarchive">';
+  assert.ok(renderDesignPage(page()).includes(robots));
+  assert.ok(renderDesignPage(artifactPage("<p>Text</p>")).includes(robots));
+});
+
+test("pages with more than 20 designs validate and render every design", () => {
+  const input = { ...page(), designs: Array.from({ length: 100 }, (_, i) => ({ title: `Design ${i + 1}`, document: document() })) };
+  const snapshot = validateDesignPageSnapshot(input);
+  assert.equal(snapshot.designs.length, 100);
+  const html = renderDesignPage(snapshot);
+  assert.equal((html.match(/<figure /g) ?? []).length, 100);
+  assert.match(html, /Design 100/);
+});
+
+test("shared pages accept more than 5,000 layers across individually valid designs", () => {
+  const designs = Array.from({ length: 6 }, (_, i) => ({
+    title: `Design ${i}`,
+    document: {
+      schemaVersion: 1,
+      width: 390,
+      height: 844,
+      nodes: Array.from({ length: 900 }, (_, j) => ({ id: `layer${j}`, type: "rectangle", width: 1, height: 1 })),
+    },
+  }));
+  const snapshot = validateDesignPageSnapshot({ schemaVersion: 1, title: "Many layers", designs });
+  assert.equal(
+    snapshot.designs.reduce((total, item) => total + item.document.nodes.length, 0),
+    5400,
+  );
+  assert.match(renderDesignPage(snapshot), /<figure /);
+});
+
+test("designs with groups render one named block per group, as the desktop Canvas lays them out", () => {
+  const input = page();
+  input.designs = [
+    { title: "Sign in", group: " Onboarding ", document: document() },
+    { title: "Loose", document: document() },
+    { title: "Theme", group: "Settings", document: document() },
+    { title: "Create account", group: "Onboarding", document: document() },
+    { title: "Evil", group: '<b onmouseover="alert(1)">x</b>', document: document() },
+  ];
+  const snapshot = validateDesignPageSnapshot(input);
+  assert.deepEqual(Object.keys(snapshot.designs[0]), ["title", "group", "document"]);
+  assert.equal(snapshot.designs[0].group, "Onboarding");
+  assert.deepEqual(Object.keys(snapshot.designs[1]), ["title", "document"]);
+  const html = renderDesignPage(snapshot);
+  const sections = [...html.matchAll(/<section aria-label="([^"]*)">/g)].map((match) => match[1]);
+  assert.deepEqual(sections, ["Onboarding", "Ungrouped", "Settings", "&lt;b onmouseover=&quot;alert(1)&quot;&gt;x&lt;/b&gt;"]);
+  assert.doesNotMatch(html, /<b onmouseover/);
+  const onboarding = html.slice(html.indexOf('aria-label="Onboarding"'), html.indexOf('aria-label="Ungrouped"'));
+  assert.deepEqual(
+    [...onboarding.matchAll(/<figcaption>([^<]*)</g)].map((match) => match[1]),
+    ["Sign in", "Create account"],
+  );
+  assert.match(onboarding, /<span>Onboarding<\/span><b>2<\/b>/);
+  assert.match(html, /<span class="none">Ungrouped<\/span><b>1<\/b>/);
+  assert.match(html, /flex-direction:column/);
+});
+test("pages without groups keep one row and no block chrome", () => {
+  const html = renderDesignPage(page());
+  assert.doesNotMatch(html, /<section |#canvas\{[^}]*flex-direction:column|border-radius:40px/);
+  assert.equal((html.match(/<figure /g) ?? []).length, 2);
 });

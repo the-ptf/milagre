@@ -3,7 +3,8 @@ const path = require("node:path");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { createGitActions } = require("./git-actions.cjs");
 const { createGitDiff } = require("./git-diff.cjs");
-const { GENERATION_FAILED, claudeModel, codexModel, generateGitText, antigravityModel } = require("./git-text.cjs");
+const { GENERATION_FAILED, claudeModel, codexModel, generateGitText, antigravityModel, kiroModel } = require("./git-text.cjs");
+const { createPullRequestReview } = require("./pull-request-review.cjs");
 
 const NOT_A_CHAT_FOLDER = "This folder isn't one of the open project's chats.";
 
@@ -40,6 +41,8 @@ function registerGitHandlers(
     diff = createGitDiff({ env }),
     models,
     knownFolders,
+    review = createPullRequestReview({ env }),
+    pullRequestChanged = () => {},
   } = {},
 ) {
   const command = (name, cwd) => async () => {
@@ -51,6 +54,7 @@ function registerGitHandlers(
       claude: claudeModel({ getCommand: command("claude", cwd) }),
       codex: codexModel({ getCommand: command("codex", cwd), clientVersion }),
       antigravity: antigravityModel({ getCommand: command("antigravity", cwd), clientVersion }),
+      kiro: kiroModel({ getCommand: command("kiro", cwd), clientVersion }),
     };
 
   async function folder(cwd) {
@@ -64,10 +68,56 @@ function registerGitHandlers(
     return cwd;
   }
 
+  // A write that changes what a PR's summary shows (state, review decision, checks): its folder's PRs are read again.
+  const changing =
+    (run) =>
+    async (_event, request = {}) => {
+      const cwd = await folder(request?.cwd);
+      try {
+        return await run(cwd, request);
+      } finally {
+        pullRequestChanged(cwd);
+      }
+    };
+
   ipcMain.handle("git:changes", async (_event, { cwd, base } = {}) => actions.readChanges({ cwd: await folder(cwd), base }));
-  ipcMain.handle("git:diff-files", async (_event, { cwd, base, mode } = {}) => diff.listDiffFiles({ cwd: await folder(cwd), base, mode }));
-  ipcMain.handle("git:diff-file", async (_event, { cwd, base, mode, path: file, oldPath, untracked } = {}) =>
-    diff.readDiffFile({ cwd: await folder(cwd), base, mode, path: file, oldPath, untracked }),
+  ipcMain.handle("git:history", async (_event, { cwd, base, recordedBase, branchesVersion, limit } = {}) =>
+    diff.history({ cwd: await folder(cwd), base, recordedBase, branchesVersion, limit }),
+  );
+  ipcMain.handle("git:diff-files", async (_event, { cwd, base, mode, commit } = {}) => diff.listDiffFiles({ cwd: await folder(cwd), base, mode, commit }));
+  ipcMain.handle("git:diff-file", async (_event, { cwd, base, mode, commit, path: file, oldPath, untracked } = {}) =>
+    diff.readDiffFile({ cwd: await folder(cwd), base, mode, commit, path: file, oldPath, untracked }),
+  );
+  // The PR a Chat's branch opened: its detail, its diff, and every review write, all through gh in the Chat's folder.
+  ipcMain.handle("pr:detail", async (_event, { cwd, number } = {}) => review.detail({ cwd: await folder(cwd), number }));
+  ipcMain.handle("pr:diff-files", async (_event, { cwd, base, head } = {}) => review.diffFiles({ cwd: await folder(cwd), base, head }));
+  ipcMain.handle("pr:diff-file", async (_event, { cwd, base, head, path: file, oldPath } = {}) =>
+    review.diffFile({ cwd: await folder(cwd), base, head, path: file, oldPath }),
+  );
+  ipcMain.handle("pr:comment", async (_event, { cwd, number, path: file, line, startLine, side, body } = {}) =>
+    review.comment({ cwd: await folder(cwd), number, path: file, line, startLine, side, body }),
+  );
+  ipcMain.handle("pr:reply", async (_event, { cwd, number, threadId, body } = {}) => review.reply({ cwd: await folder(cwd), number, threadId, body }));
+  ipcMain.handle("pr:delete-comment", async (_event, { cwd, commentId } = {}) => review.deleteComment({ cwd: await folder(cwd), commentId }));
+  ipcMain.handle(
+    "pr:submit-review",
+    changing((cwd, { number, event, body }) => review.submit({ cwd, number, event, body })),
+  );
+  ipcMain.handle("pr:resolve-thread", async (_event, { cwd, threadId, resolved } = {}) => review.resolve({ cwd: await folder(cwd), threadId, resolved }));
+  ipcMain.handle(
+    "pr:merge",
+    changing((cwd, { number, method, auto, admin, disableAuto }) => review.merge({ cwd, number, method, auto, admin, disableAuto })),
+  );
+  ipcMain.handle(
+    "pr:ready",
+    changing((cwd, { number, draft }) => review.ready({ cwd, number, draft })),
+  );
+  ipcMain.handle("pr:image", async (_event, { cwd, url } = {}) => review.image({ cwd: await folder(cwd), url }));
+  ipcMain.handle("pr:labels", async (_event, { cwd } = {}) => review.labels({ cwd: await folder(cwd) }));
+  ipcMain.handle("pr:set-labels", async (_event, { cwd, number, add, remove } = {}) => review.setLabels({ cwd: await folder(cwd), number, add, remove }));
+  ipcMain.handle("pr:reviewer-candidates", async (_event, { cwd } = {}) => review.reviewerCandidates({ cwd: await folder(cwd) }));
+  ipcMain.handle("pr:request-reviewers", async (_event, { cwd, number, add, remove } = {}) =>
+    review.requestReviewers({ cwd: await folder(cwd), number, add, remove }),
   );
   ipcMain.handle("git:generate", async (_event, { cwd, base, provider, chat } = {}) => {
     const checked = await folder(cwd);
@@ -82,8 +132,14 @@ function registerGitHandlers(
     }
   });
   ipcMain.handle("git:commit", async (_event, { cwd, message } = {}) => actions.commit({ cwd: await folder(cwd), message }));
-  ipcMain.handle("git:push", async (_event, { cwd } = {}) => actions.push({ cwd: await folder(cwd) }));
-  ipcMain.handle("git:open-pr", async (_event, { cwd, base, title, body } = {}) => actions.openPr({ cwd: await folder(cwd), base, title, body }));
+  ipcMain.handle(
+    "git:push",
+    changing((cwd) => actions.push({ cwd })),
+  );
+  ipcMain.handle(
+    "git:open-pr",
+    changing((cwd, { base, title, body }) => actions.openPr({ cwd, base, title, body })),
+  );
 }
 
 module.exports = { NOT_A_CHAT_FOLDER, registerGitHandlers };

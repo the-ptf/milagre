@@ -6,6 +6,11 @@ const path = require("node:path");
 const { AcpSession } = require("./acp-session.cjs");
 const { antigravityAcp } = require("./antigravity-acp.cjs");
 const { AntigravitySubagents, decode, recoverAntigravitySubagents, systemMessage } = require("./antigravity-subagents.cjs");
+const { pathToFileURL } = require("node:url");
+
+// The recorded transcripts name the home folder as {{HOME}}, inside JSON text. A file URL takes the URL form
+// (file:///C:/... on Windows), and a plain path is escaped for JSON (its backslashes, on Windows).
+const withHome = (text, home) => text.replaceAll("file://{{HOME}}", pathToFileURL(home).href).replaceAll("{{HOME}}", JSON.stringify(home).slice(1, -1));
 
 // Recorded from agy 1.3.0 (trimmed, paths replaced): the ACP updates of one turn, interleaved with how many
 // lines each transcript had at that moment, and the transcripts themselves.
@@ -37,7 +42,7 @@ function harness(t, data, { transcripts = true, garble = false } = {}) {
     fs.mkdirSync(path.dirname(file(id)), { recursive: true });
     const lines = garble
       ? ["{not json", JSON.stringify({ step_index: "x" }), JSON.stringify({ step_index: 1, type: "INVOKE_SUBAGENT", content: 7 })]
-      : data.transcripts[id].slice(0, count).map((step) => JSON.stringify(step).replaceAll("{{HOME}}", home));
+      : data.transcripts[id].slice(0, count).map((step) => withHome(JSON.stringify(step), home));
     fs.writeFileSync(file(id), lines.map((line) => `${line}\n`).join(""));
   };
   const begin = () => {
@@ -111,13 +116,6 @@ test("two parallel children: titles, prompts, their own commands, results and th
   assert.equal(b.transcript.find((row) => row.id === "result").text, "File b: hello from b.");
   // The child's commands are its rows, not the parent's steps.
   assert.match(a.transcript.find((row) => row.id === `${A}:2`).text, /^Ran `sleep 6; cat a.txt`\n\$ sleep 6; cat a.txt\nFile a: hello from a\./);
-  assert.deepEqual(
-    a.communications.map((entry) => [entry.id, entry.fromId, entry.toId]),
-    [
-      [`task:${A}`, null, A],
-      [`result:${A}`, A, null],
-    ],
-  );
   const stepIds = run.steps().map((step) => step.id);
   assert.deepEqual(stepIds, [`${run.session.state.sessionId}:1`]);
   const retitle = run.events.find((event) => event.type === "step-completed" && event.title);
@@ -273,7 +271,7 @@ function savedHome(t, counts) {
       file,
       data.transcripts[id]
         .slice(0, count)
-        .map((step) => `${JSON.stringify(step).replaceAll("{{HOME}}", home)}\n`)
+        .map((step) => `${withHome(JSON.stringify(step), home)}\n`)
         .join(""),
     );
   }
@@ -301,10 +299,6 @@ test("recovery finishes the child whose report the parent holds and leaves the o
   assert.equal(agent.latestActivity, "Finished");
   assert.equal(agent.transcript.find((row) => row.id === "result").text, "File a: hello from a.");
   assert.ok(agent.updatedAt >= 100 && agent.endedAt >= agent.updatedAt - 1);
-  assert.deepEqual(
-    agent.communications.map((entry) => [entry.id, entry.fromId, entry.toId, entry.text]),
-    [[`result:${A}`, A, null, "File a: hello from a."]],
-  );
 });
 
 test("recovery falls back to the child's own send_message, and skips archived, known and the parent's own entries", (t) => {

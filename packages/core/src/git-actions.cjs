@@ -4,13 +4,14 @@ const { createGit } = require("./git/client.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { PATHSPEC, fileLineCount } = require("./diffstat.cjs");
+const { kindOf, lanes } = require("./process-lanes.cjs");
 
 // Commit, push and open a PR for a chat's folder, from the "Commit and open PR" dialog. Milagre runs
 // git and gh itself, never through a shell: every program gets its arguments as an array, and text
 // (the commit message, the PR body) goes in on stdin.
 
 const NO_ORIGIN = gitMessage(GIT_CODES.NO_ORIGIN);
-const GH_MISSING = gitMessage(GIT_CODES.GH_MISSING);
+const GH_MISSING = gitMessage(GIT_CODES.GH_MISSING, process.platform);
 const GH_LOGIN = "Run `gh auth login` in a terminal.";
 const PUSH_REJECTED_HINT = "The remote branch has commits you don't have. Pull or rebase, then push again.";
 const DETACHED = gitMessage(GIT_CODES.DETACHED);
@@ -83,8 +84,12 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     GH_NO_UPDATE_NOTIFIER: "1",
   });
 
-  /** Runs a program and settles with its outcome; it never throws. */
-  function run(command, args, { cwd, input, timeout = GH_TIMEOUT } = {}) {
+  /** Runs a program and settles with its outcome; it never throws. A git or gh run waits for its slot (process-lanes.cjs). */
+  function run(command, args, options) {
+    const kind = kindOf(command);
+    return kind ? lanes.run(kind, () => spawn(command, args, options)) : spawn(command, args, options);
+  }
+  function spawn(command, args, { cwd, input, timeout = GH_TIMEOUT } = {}) {
     return new Promise((resolve) => {
       let child;
       try {
@@ -108,7 +113,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
   }
 
   const client = createGit({ execFile, env });
-  const { run: git, out: gitOut, refExists, resolveBase } = client.read;
+  const { run: git, out: gitOut, refExists, chatBase } = client.read;
   const write = client.write.run;
   const gitList = async (cwd, args) => {
     const result = await git(cwd, args);
@@ -238,7 +243,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
       changedFiles(cwd),
       remotes(cwd),
       unpushedCount(cwd),
-      resolveBase(cwd, base),
+      chatBase(cwd, base),
       operationInProgress(cwd),
     ]);
     const origin = remoteNames.includes("origin");
@@ -344,17 +349,17 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
   }
 
   /** `gh pr create` into the base, with the body on stdin. gh works out the head, forks included. */
-  async function openPr({ cwd, base, title, body }) {
+  async function openPr({ cwd, base, title, body, draft = false }) {
     const top = await checkTop(cwd);
     if (!top.ok) return { ok: false, kind: "error", message: top.message };
     if (!(await hasOrigin(cwd))) return { ok: false, kind: "no-origin", message: NO_ORIGIN, code: GIT_CODES.NO_ORIGIN };
     const branch = await currentBranch(cwd);
     if (!branch) return { ok: false, kind: "error", message: DETACHED, code: GIT_CODES.DETACHED };
-    const resolved = await resolveBase(cwd, base);
+    const resolved = await chatBase(cwd, base);
     if (branch === resolved.name) return { ok: false, kind: "on-base", message: `You're on ${resolved.name}. Open a PR from a worktree branch.` };
     const prTitle = String(title ?? "").trim();
     if (!prTitle) return { ok: false, kind: "error", message: "Add a PR title first." };
-    const result = await run(gh, ["pr", "create", `--base=${resolved.name}`, `--title=${prTitle}`, "--body-file", "-"], {
+    const result = await run(gh, ["pr", "create", `--base=${resolved.name}`, `--title=${prTitle}`, "--body-file", "-", ...(draft ? ["--draft"] : [])], {
       cwd,
       input: String(body ?? ""),
       timeout: GH_TIMEOUT,
@@ -399,7 +404,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
   async function readTextContext({ cwd, base }) {
     const top = await checkTop(cwd);
     if (!top.ok) throw new Error(top.message);
-    const [branch, resolved, files] = await Promise.all([currentBranch(cwd), resolveBase(cwd, base), changedFiles(cwd)]);
+    const [branch, resolved, files] = await Promise.all([currentBranch(cwd), chatBase(cwd, base), changedFiles(cwd)]);
     const hasChanges = files.length > 0;
     const hasHead = await refExists(cwd, "HEAD");
     const range = hasChanges ? [hasHead ? "HEAD" : EMPTY_TREE] : resolved.ref ? [`${resolved.ref}...HEAD`] : null;
@@ -449,8 +454,6 @@ module.exports = {
   NOT_REPO,
   NOT_TOP,
   NO_ORIGIN,
-  PUSH_REJECTED_HINT,
   createGitActions,
-  isLockfile,
   looksSecret,
 };

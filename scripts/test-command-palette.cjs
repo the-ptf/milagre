@@ -2,6 +2,14 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
+// Match the real desktop shortcuts: Command on macOS, Control on Linux and Windows.
+const mac = process.platform === "darwin";
+const modifierKey = mac ? "Meta" : "Control";
+const modifier = mac ? { metaKey: true } : { ctrlKey: true };
+const changesHint = mac ? "Command + Shift + D" : "Shift + D";
+const changesShortcut = mac ? "Command + Shift + D" : "Control + Shift + D";
+
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -31,9 +39,11 @@ window.milagre = new Proxy({
   patchChat: async () => { throw new Error("Chat could not be saved: disk full"); },
   // The check raises a question in the open chat by sending the events the main process would.
   getRuns: async () => ({ seq: 0, runs: {} }),
+  // Held until the check settles it, as a busy host would.
+  answerQuestion: (chatId, requestId) => new Promise(resolve => { window.calls.push(['answer', requestId]); window.settleAnswer = resolve; }),
   onAgentEvent: handler => { (window.agentHandlers ??= []).push(handler); return () => {}; },
   getCurrentProject: async () => ({ path: '/fixture', name: 'Milagre', state }),
-  listRecentProjects: async () => [{ path: '/fixture', name: 'Milagre' }, { path: '/other', name: 'Website' }],
+  listRecentProjects: async () => [{ path: '/fixture', name: 'Milagre' }, { path: '/other', name: 'Website', hidden: window.hideWebsite ?? false }],
   listBranches: async () => ['main'],
   listEditors: async () => [],
   getCachedUsage: async () => ({ providers: [] }),
@@ -41,6 +51,10 @@ window.milagre = new Proxy({
   getUpdateState: async () => ({ status: 'idle' }),
   revealInFolder: async folder => window.calls.push(folder),
   switchProject: async folder => { window.calls.push(folder); return null; },
+  getAppVersion: async () => '1.2.3',
+  // A draft with a path in it (the triage one) makes the composer read the skill catalog.
+  listSkills: async () => ({ skills: [] }),
+  prepareTriage: async client => { window.calls.push(['triage', client]); return { prompt: 'Read /tmp/t/PLAYBOOK.md and follow it. What went wrong: ' }; },
 }, { get(target, key) { return target[key] ?? (String(key).startsWith('on') ? () => () => {} : async () => null); } });
 localStorage.setItem('milagre-settings', JSON.stringify({ theme: 'dark' }));
 const { default: App } = await import('/src/App');
@@ -48,11 +62,13 @@ createRoot(document.getElementById('root')).render(<App />);
 `;
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
+  app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-command-palette-")));
   await app.whenReady();
   const window = new BrowserWindow({
     width: 1280,
     height: 760,
-    show: false,
+    // Keep animation frames advancing under Xvfb, including reduced-motion dialog exits.
+    show: true,
     webPreferences: { partition: "command-palette-test", backgroundThrottling: false },
   });
   const evaluate = (source) =>
@@ -78,7 +94,7 @@ async function browserChecks() {
     await delay(200);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name), (await window.webContents.capturePage()).toPNG());
   }
-  const open = async (extra = { metaKey: true }) => {
+  const open = async (extra = modifier) => {
     await key("k", extra);
     await waitFor('!!document.querySelector("dialog[open] input")');
   };
@@ -90,14 +106,17 @@ async function browserChecks() {
   };
   try {
     await window.loadURL(process.argv[2]);
+    assert.equal(await evaluate("/Mac/.test(navigator.userAgent)"), mac, "The check uses the renderer platform without a user-agent override");
     await waitFor('!!document.querySelector("[aria-label=\\"Command palette\\"]")');
-    await evaluate('document.querySelector("[aria-label=\\"Command palette\\"]").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     assert.ok(
-      await evaluate('document.querySelector("[aria-label=\\\"Command palette\\\"]").textContent.includes("Search")'),
-      "Search is a visible command-palette entry",
+      await evaluate('document.querySelector("[data-sidebar-tools] [aria-label=\\"Command palette\\"]").getAttribute("aria-keyshortcuts").endsWith("+K")'),
+      "Search sits in the top bar and names its shortcut",
     );
-    assert.equal(await evaluate('document.querySelectorAll("[data-shortcut-hint]").length'), 0);
-    await key("Meta", { metaKey: true });
+    // A shown Xvfb window can open under the pointer; keep hover tooltips out of hint counts.
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1000, y: 400 });
+    await waitFor('document.querySelectorAll("[data-shortcut-hint]").length === 0');
+    await key(modifierKey, modifier);
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length > 0');
     await screenshot("hints-dark.png");
     await evaluate('document.documentElement.classList.remove("dark")');
@@ -110,9 +129,9 @@ async function browserChecks() {
       "Shortcut hints use the app font instead of the browser monospace default",
     );
     assert.equal(
-      await evaluate('document.querySelector("kbd[aria-label=\\"Command + Shift + D\\"]").querySelectorAll("svg").length'),
-      2,
-      "Changes hint draws Command and Shift consistently",
+      await evaluate(`document.querySelector(${JSON.stringify(`kbd[aria-label="${changesHint}"]`)}).querySelectorAll("svg").length`),
+      mac ? 2 : 1,
+      "The Changes badge draws the native modifier and Shift icons",
     );
     assert.ok(
       await evaluate(
@@ -124,7 +143,7 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[role=tooltip] kbd")');
     assert.equal(
       await evaluate('document.querySelector("[role=tooltip] kbd").getAttribute("aria-label")'),
-      "Command + Shift + D",
+      changesShortcut,
       "Hover tooltips name the modifier icons for assistive technology",
     );
     await screenshot("tooltip-dark.png");
@@ -133,36 +152,42 @@ async function browserChecks() {
     );
     assert.ok(
       await evaluate('[...document.querySelectorAll("[data-shortcut-hint]")].some(el => el.textContent.includes("1"))'),
-      "Holding Command reveals chat numbers",
+      "Holding the native modifier reveals chat numbers",
     );
-    await evaluate("window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Meta', bubbles: true }))");
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifierKey)}, bubbles: true }))`);
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length === 0');
-    await key("Meta", { metaKey: true });
+    await key("d", { ...modifier, shiftKey: true });
+    await waitFor('!!document.querySelector("[data-changes-panel]")');
+    await evaluate('document.querySelector("[data-panel-toggle=changes]").click()');
+    await waitFor('!document.querySelector("[data-changes-panel]")');
+    await key(modifierKey, modifier);
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length > 0');
     await evaluate("window.dispatchEvent(new Event('blur'))");
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length === 0');
-    await key("Meta", { metaKey: true, repeat: true });
+    await key(modifierKey, { ...modifier, repeat: true });
     assert.equal(await evaluate('document.querySelectorAll("[data-shortcut-hint]").length'), 0, "Key repeat after blur cannot resurrect hints");
-    await key("Meta", { metaKey: true });
-    await key("n", { metaKey: true });
+    await key(modifierKey, modifier);
+    await waitFor('document.querySelectorAll("[data-shortcut-hint]").length > 0');
+    await key("n", modifier);
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
     // Let the new-chat animation frame finish focusing the composer before the next shortcut.
     await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
     assert.equal(await evaluate('document.querySelectorAll("[data-shortcut-hint]").length'), 0, "Executing a shortcut hides hints");
-    await key("1", { metaKey: true });
+    await key("1", modifier);
     await waitFor('!!document.querySelector("[aria-current=page]")');
     assert.ok(
       await evaluate('document.querySelector("[aria-current=page]").textContent.includes("Add a command palette")'),
-      "Cmd+1 opens the first listed chat",
+      "The native modifier + 1 opens the first listed chat",
     );
-    await key("Meta", { metaKey: true });
+    await key(modifierKey, modifier);
+    await waitFor('document.querySelectorAll("[data-shortcut-hint]").length > 0');
     await evaluate("document.dispatchEvent(new Event('visibilitychange'))");
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length === 0');
     await evaluate('document.querySelector("[aria-label=\\\"Command palette\\\"]").focus()');
     await open();
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
-    assert.equal(await evaluate('document.querySelectorAll("dialog kbd").length'), 0, "Palette keycaps are hidden until Command is held");
-    await key("Meta", { metaKey: true });
+    assert.equal(await evaluate('document.querySelectorAll("dialog kbd").length'), 0, "Palette keycaps are hidden until the native modifier is held");
+    await key(modifierKey, modifier);
     await waitFor('document.querySelectorAll("dialog kbd").length > 0');
     await screenshot("palette-hints-dark.png");
     await evaluate('document.documentElement.classList.remove("dark")');
@@ -173,7 +198,7 @@ async function browserChecks() {
       0,
       "Hints stay scoped to the open palette",
     );
-    await evaluate("window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Meta', bubbles: true }))");
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifierKey)}, bubbles: true }))`);
     await waitFor('document.querySelectorAll("dialog kbd").length === 0');
     await waitFor('document.querySelector("dialog").textContent.includes("Website")');
     await key("ArrowUp");
@@ -182,31 +207,35 @@ async function browserChecks() {
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Commit and open PR")'));
     await key("Tab");
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
+    // Nothing matches at all: one row offers a new Chat with the search as its draft.
     await search("missing-command-xyz");
-    assert.equal(await evaluate('document.querySelectorAll("dialog [role=option]").length'), 0);
-    await key("Enter");
-    assert.ok(await evaluate('!!document.querySelector("dialog[open]")'));
+    assert.deepEqual(
+      await evaluate('[...document.querySelectorAll("dialog [role=option]")].map((option) => option.textContent.trim())'),
+      ["Start a new Chat with your search"],
+      "An unmatched search offers only the new-chat row",
+    );
+    await screenshot("palette-start-chat-dark.png");
     await search("FINDER");
     await key("Enter");
     await key("Enter");
     await waitFor('window.calls.includes("/fixture/palette")');
     assert.equal(await evaluate('window.calls.filter(path => path === "/fixture/palette").length'), 1, "Repeated Enter during exit runs the command once");
     assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")'), "Command palette");
-    await open({ ctrlKey: true });
+    await open(mac ? { ctrlKey: true } : { metaKey: true });
     await key("Escape");
     await waitFor('!document.querySelector("dialog")');
     assert.equal(await evaluate("window.escapes"), 0, "Escape never reaches app shortcuts");
     await open();
-    await key("k", { metaKey: true });
+    await key("k", modifier);
     await waitFor('!document.querySelector("dialog")');
     await open();
     await key("Escape");
     await waitFor('!document.querySelector("dialog")');
     for (const [query, setting, value] of [
-      ["theme light", "theme", "light"],
-      ["theme light", "theme", "light"],
-      ["THEME DARK", "theme", "dark"],
-      ["theme system", "theme", "system"],
+      ["mode light", "theme", "light"],
+      ["mode light", "theme", "light"],
+      ["MODE DARK", "theme", "dark"],
+      ["mode system", "theme", "system"],
       ["usage remaining", "usageDisplay", "remaining"],
       ["sidebar usage hide", "showUsageInSidebar", false],
       ["tldr off", "tldrEnabled", false],
@@ -215,7 +244,6 @@ async function browserChecks() {
       ["notify finished off", "notifyOnCompletion", false],
       ["notify waiting off", "notifyWhenWaiting", false],
       ["dock badge off", "showDockBadge", false],
-      ["keep awake off", "keepAwake", false],
     ]) {
       await open();
       await search(query);
@@ -231,12 +259,12 @@ async function browserChecks() {
       assert.equal(await evaluate('!!document.querySelector("[aria-label=\\"Settings navigation\\"]")'), false, "Quick changes stay in the chat");
     }
     await open();
-    await search("theme dark");
+    await search("mode dark");
     await key("Enter");
     await waitFor('!document.querySelector("dialog")');
     await waitFor("JSON.parse(localStorage.getItem('milagre-settings')).theme === 'dark' && document.documentElement.classList.contains('dark')");
     await open();
-    await search("theme dark");
+    await search("mode dark");
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Current")'), "Reopening shows the saved theme as current");
     await search("add palette");
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Add a command palette")'), "Search matches multiple words");
@@ -275,12 +303,14 @@ async function browserChecks() {
       );
     }
     await screenshot("palette-light.png");
+    // Restore the full sidebar before later assertions on its selected Chat row.
+    window.setContentSize(1280, 760);
     await search("appearance");
     await key("Enter");
     await waitFor('!!document.querySelector("[aria-label=\\"Settings navigation\\"]")');
     await open();
     assert.ok(await evaluate('!document.querySelector("dialog").textContent.includes("Commit and open PR")'), "Chat actions hidden in settings");
-    await key("n", { metaKey: true });
+    await key("n", modifier);
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
     await open();
     assert.ok(await evaluate('!document.querySelector("dialog").textContent.includes("Commit and open PR")'), "Chat actions hidden on a new draft");
@@ -296,7 +326,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("dialog")');
     window.webContents.debugger.detach();
     // A chat waiting on a question is not a modal: the shortcuts keep working over the card.
-    await key("1", { metaKey: true });
+    await key("1", modifier);
     await waitFor('!!document.querySelector("[aria-current=page]")');
     await evaluate("window.agentEvent({ chatId: '/fixture#3', event: { type: 'turn-started' }, seq: 1 })");
     await evaluate(
@@ -308,21 +338,86 @@ async function browserChecks() {
     await screenshot("palette-over-question.png");
     await key("Escape");
     await waitFor('!document.querySelector("dialog")');
-    await key("n", { metaKey: true });
+    // A pick is the answer: the card goes at once, while the host still has it, and comes back if the agent refuses it.
+    const questionShown = 'document.querySelector("[aria-label=\\"Agent question\\"]")?.getClientRects().length > 0';
+    await evaluate(
+      `[...document.querySelectorAll('[aria-label="Agent question"] button')].find((button) => button.textContent.includes("Review card")).click()`,
+    );
+    await waitFor(`!(${questionShown})`);
+    assert.ok(await evaluate('window.calls.some((call) => call[0] === "answer" && call[1] === "q-1")'));
+    await evaluate("window.settleAnswer(false)");
+    await waitFor(questionShown);
+    await key("n", modifier);
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
     // A failed row action reports the cause in the actual App, with the Chat still present.
-    await key("1", { metaKey: true });
-    await evaluate("window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Meta', bubbles: true }))");
+    await key("1", modifier);
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifierKey)}, bubbles: true }))`);
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]')?.click()`);
-    await waitFor(`!!document.querySelector('[aria-label="Chat actions"]')`);
-    await evaluate(`document.querySelector('[aria-label="Chat actions"]').click()`);
+    // One list rows have no ⋯ button: their menu opens on a right-click.
+    await waitFor(`!!document.querySelector("[data-chat-id] [data-row]")`);
+    await evaluate(`(() => {
+      const row = document.querySelector("[data-chat-id]");
+      const rect = row.querySelector("[data-row]").getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: rect.left + 20, clientY: rect.top + 10 }));
+    })()`);
     await waitFor('!!document.querySelector("[data-chat-menu]")');
     await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.includes('Mark as unread')).click()`);
     await waitFor(`document.body.textContent.includes('Could not update Chat: Chat could not be saved: disk full')`);
     assert.ok(await evaluate('document.body.textContent.includes("Add a command palette")'));
     await screenshot("chat-action-failure.png");
+    // Triage an issue asks this Mac's host for a session and starts a new Chat with its draft, not sent.
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await open();
+    await search("triage");
+    assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Triage an issue")'));
+    await key("Enter");
+    await waitFor('!document.querySelector("dialog")');
+    await waitFor(
+      '!!document.querySelector("[data-new-chat-heading]") && document.querySelector("[data-prompt-editor]").textContent.includes("PLAYBOOK.md and follow it")',
+    );
+    assert.ok(await evaluate("window.calls.some((call) => Array.isArray(call) && call[0] === 'triage' && call[1].startsWith('Milagre desktop 1.2.3'))"));
+    assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The triage draft waits in the composer, unsent");
+    await screenshot("palette-triage.png");
+    // The new-chat row starts a Chat in the open Project with the search in the composer, not sent.
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await open();
+    await search("zebra crossing notes");
+    assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Start a new Chat with your search")'));
+    await key("Enter");
+    await waitFor('!document.querySelector("dialog")');
+    await waitFor(
+      '!!document.querySelector("[data-new-chat-heading]") && document.querySelector("[data-prompt-editor]").textContent.includes("zebra crossing notes")',
+    );
+    assert.ok(await evaluate('document.querySelector("[data-new-chat-heading]").textContent.includes("Start building in")'), "The new Chat names its Project");
+    assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The search waits in the composer, unsent");
+    await screenshot("palette-started-chat.png");
+    // The heading's Project dropdown lists the Projects with the open one checked; a pick switches to that Project and a
+    // switch that fails puts the draft back where it was typed.
+    await evaluate("window.hideWebsite = true");
+    await evaluate('document.querySelector("[data-new-chat-project]").click()');
+    await waitFor('document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 2');
+    assert.deepEqual(
+      await evaluate(
+        '[...document.querySelectorAll("[data-new-chat-heading] [data-picker-row]")].map((row) => [row.querySelector("strong").textContent, !!row.querySelector("svg")])',
+      ),
+      [
+        ["Milagre", true],
+        ["Website", false],
+      ],
+      "The open Project is first and checked, and sidebar-hidden Projects remain selectable",
+    );
+    await screenshot("new-chat-project-menu.png");
+    await key("Escape");
+    await waitFor('!document.querySelector("[data-new-chat-heading] [data-picker-panel]")');
+    assert.equal(await evaluate("document.activeElement.hasAttribute('data-new-chat-project')"), true, "Escape returns focus to the dropdown");
+    const switches = await evaluate('window.calls.filter((call) => call === "/other").length');
+    await evaluate('document.querySelector("[data-new-chat-project]").click()');
+    await waitFor('document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 2');
+    await evaluate('[...document.querySelectorAll("[data-new-chat-heading] [data-picker-row]")].find((row) => row.textContent.includes("Website")).click()');
+    await waitFor(`window.calls.filter((call) => call === "/other").length === ${switches + 1}`);
+    await waitFor('document.querySelector("[data-prompt-editor]").textContent.includes("zebra crossing notes")');
     console.log(
-      "PASS: Cmd/Ctrl+K, fuzzy message fallback opening the chat with find seeded, animated exit, reduced-motion dismissal, repeated Enter guard, direct settings changes and persistence, current setting, filtering, navigation, empty state, action dispatch, focus restore, Escape isolation, modifier-only hints, release/blur cleanup, numbered chat navigation, themes, viewport fit, settings and project navigation, shortcuts over a waiting question card",
+      "PASS: Cmd/Ctrl+K, fuzzy message fallback opening the chat with find seeded, animated exit, reduced-motion dismissal, repeated Enter guard, direct settings changes and persistence, current setting, filtering, navigation, empty state, action dispatch, focus restore, Escape isolation, modifier-only hints, release/blur cleanup, numbered chat navigation, the new-chat row for an unmatched search and the heading's Project dropdown, themes, viewport fit, settings and project navigation, shortcuts over a waiting question card",
     );
     app.exit(0);
   } catch (error) {
@@ -345,7 +440,7 @@ async function main() {
           if (id === "/__commands.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__commands") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { ChatMessage, ChatStep } from "../../model";
 import { bridgeForKey } from "../../lib/computer-bridge";
@@ -27,7 +27,7 @@ function loadMessage(scope: string, id: number) {
   let message = loaded.get(key);
   if (!message) {
     message = bridgeForKey(scope).getMessage(scope, id);
-    // A failed read is tried again the next time the step opens.
+    // A failed read isn't cached, so Retry can ask the host again.
     message.catch(() => loaded.delete(key));
     loaded.set(key, message);
     if (loaded.size > LIMIT) loaded.delete(loaded.keys().next().value!);
@@ -35,7 +35,7 @@ function loadMessage(scope: string, id: number) {
   return message;
 }
 
-export type StepDetail = { detail?: string; loading: boolean; failed: boolean };
+export type StepDetail = { detail?: string; loading: boolean; failed: boolean; retry: () => void };
 
 /** The step's detail: inline, or read from the host once `open` and the step has one there. */
 export function useStepDetail(step: ChatStep, open: boolean): StepDetail {
@@ -43,6 +43,7 @@ export function useStepDetail(step: ChatStep, open: boolean): StepDetail {
   const messageId = useContext(MessageContext);
   const remote = !step.detail && Boolean(step.hasDetail) && scope !== null && messageId !== null;
   const [read, setRead] = useState<{ id: string; detail?: string; failed: boolean } | null>(null);
+  const retry = useCallback(() => setRead(null), []);
   useEffect(() => {
     if (!open || !remote || read?.id === step.id) return;
     let cancelled = false;
@@ -59,14 +60,14 @@ export function useStepDetail(step: ChatStep, open: boolean): StepDetail {
       cancelled = true;
     };
   }, [open, remote, scope, messageId, step.id, read?.id]);
-  if (!remote) return { detail: step.detail, loading: false, failed: false };
-  if (read?.id !== step.id) return { loading: open, failed: false };
-  return { detail: read.detail, loading: false, failed: read.failed };
+  if (!remote) return { detail: step.detail, loading: false, failed: false, retry };
+  if (read?.id !== step.id) return { loading: open, failed: false, retry };
+  return { detail: read.detail, loading: false, failed: read.failed, retry };
 }
 
 /** Whether a step has detail to open, inline or on the host. */
 export function useHasStepDetail(step: ChatStep) {
   const scope = useContext(ScopeContext);
   const messageId = useContext(MessageContext);
-  return Boolean(step.detail) || (Boolean(step.hasDetail) && scope !== null && messageId !== null);
+  return Boolean(step.input) || Boolean(step.detail) || (Boolean(step.hasDetail) && scope !== null && messageId !== null);
 }

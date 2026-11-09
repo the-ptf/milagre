@@ -24,14 +24,16 @@
     "og:site": "node scripts/site-og.cjs",
     "benchmark:chat-flow": "node scripts/benchmark-chat-flow.cjs",
     "benchmark:mobile-preview": "node scripts/benchmark-mobile-preview.cjs",
-    "release": "semantic-release",
-    "release:dry": "semantic-release --dry-run --no-ci",
+    "perf": "node scripts/perf/run.cjs",
+    "release:preview": "node scripts/plan-release.cjs preview",
     "package:mac": "npm run build && electron-builder --mac dmg zip --publish never",
-    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never --config.npmRebuild=false",
     "package:linux": "npm run build && electron-builder --linux AppImage deb rpm --x64 --publish never",
     "package:managers": "node scripts/generate-package-managers.cjs",
     "package:mac:local": "npm run package:mac -- --config.mac.identity=- --config.mac.notarize=false",
     "daemon": "node apps/daemon/src/cli.cjs",
+    "cli": "node apps/daemon/src/command.cjs",
+    "package:cli": "node scripts/package-cli.cjs",
     "mobile": "npm run start --workspace @milagre/mobile",
     "mobile:demo": "node scripts/mobile-demo.cjs",
     "review:demo": "node scripts/review-demo.cjs",
@@ -47,19 +49,25 @@
     "knip": "knip"
   },
   "devDependencies": {
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/github": "^12.0.10",
-    "@semantic-release/release-notes-generator": "^14.1.1",
+    "@anthropic-ai/claude-agent-sdk": "0.3.288",
+    "@babel/core": "7.29.7",
+    "@hugeicons/core-free-icons": "4.3.5",
+    "@resvg/resvg-wasm": "2.6.2",
+    "babel-plugin-react-compiler": "1.0.0",
+    "chrome-launcher": "^1.2.2",
     "electron": "^44.5.1",
     "electron-builder": "26.17.0",
     "esbuild": "0.28.2",
+    "inter-font": "3.19.0",
     "knip": "6.39.0",
     "lefthook": "2.1.17",
+    "lighthouse": "^12.8.2",
     "lockfile-lint": "5.0.1",
+    "lucide-static": "1.56.0",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "qrcode-terminal": "^0.12.0",
-    "semantic-release": "^25.0.9",
+    "subset-font": "2.9.0",
     "yaml": "^2.9.1"
   },
   "engines": {
@@ -70,14 +78,27 @@
     "productName": "Milagre",
     "asar": true,
     "afterPack": "scripts/package-cloudflared.cjs",
+    "extraResources": [
+      {
+        "from": "licenses",
+        "to": "licenses",
+        "filter": [
+          "*-OFL.txt"
+        ]
+      }
+    ],
     "asarUnpack": [
       "node_modules/@milagre/core/src/bundled-skills/**/*",
+      "node_modules/agent-device/**/*",
+      "node_modules/agent-desktop/**/*",
       "node_modules/expo-device-hub/**/*",
       "node_modules/node-datachannel/**/*",
       "node_modules/node-pty/**/*",
       "node_modules/ws/**/*",
       "node_modules/mediabunny/**/*",
-      "node_modules/@fastify/busboy/**/*"
+      "node_modules/@fastify/busboy/**/*",
+      "node_modules/@resvg/resvg-wasm/**/*",
+      "node_modules/@fugood/**/*"
     ],
     "files": [
       "dist/**/*",
@@ -88,7 +109,10 @@
       "!**/node_modules/shiki/**",
       "!**/node_modules/@shikijs/**",
       "!**/node_modules/node-pty/{deps,src,third_party,scripts}/**",
-      "!**/node_modules/node-pty/**/*.pdb"
+      "!**/node_modules/node-pty/**/*.pdb",
+      "!**/node_modules/@fugood/node-whisper-wasm/**",
+      "!**/node_modules/@fugood/node-whisper-*-cuda/**",
+      "!**/node_modules/@fugood/node-whisper-*-vulkan/**"
     ],
     "directories": {
       "output": "release",
@@ -103,8 +127,14 @@
         "zip"
       ],
       "hardenedRuntime": true,
+      "entitlements": "apps/desktop/build/entitlements.mac.plist",
+      "entitlementsInherit": "apps/desktop/build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this computer."
+      },
       "files": [
-        "!**/node_modules/node-pty/prebuilds/win32-*/**"
+        "!**/node_modules/node-pty/prebuilds/win32-*/**",
+        "!**/node_modules/agent-desktop/bin/agent-desktop-{linux,win32}-*"
       ],
       "notarize": true
     },
@@ -113,7 +143,8 @@
     },
     "win": {
       "files": [
-        "!**/node_modules/node-pty/prebuilds/darwin-*/**"
+        "!**/node_modules/node-pty/prebuilds/darwin-*/**",
+        "!**/node_modules/agent-desktop/bin/agent-desktop-{darwin,linux,macos}-*"
       ],
       "target": [
         "nsis"

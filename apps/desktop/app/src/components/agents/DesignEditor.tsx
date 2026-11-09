@@ -5,10 +5,14 @@ import {
   applyDesignOperations,
   createDesignInstance,
   detachDesignInstance,
+  designDefaultFill,
+  designFontsLoaded,
   designHtml,
+  designIcons,
   designInstanceRoot,
   designLayout,
   diffDesignDocuments,
+  loadDesignFonts,
   type DesignDocument,
   type DesignNode,
   type DesignOperation,
@@ -19,17 +23,27 @@ import type { DesignEditorSession, DesignEditorWorkspace } from "./design-editor
 import { designDraftCache, type DesignFieldDraft, type DesignHistory } from "./design-draft-cache";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
+import { buttonClass as buttonClassOf } from "../primitives/Button";
+import { FIELD_AREA, fieldClass as fieldClassOf } from "../primitives/Field";
+import { InlineError } from "../primitives/InlineError";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
 
 export const DESIGN_SAVED = "milagre:design-saved";
 export type DesignSaved = { chatId: string; artifact: Artifact };
+export const DESIGN_DELETED = "milagre:design-deleted";
+export type DesignDeleted = { chatId: string; id: string };
 
-const fieldClass =
-  "min-w-0 w-full rounded-control border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent disabled:opacity-50";
-const buttonClass = "rounded-control border border-line px-2.5 py-1.5 text-[12px] text-ink hover:bg-hover disabled:opacity-40";
+// The inspector is a compact panel: 28px fields, 28px buttons.
+const fieldClass = `min-w-0 ${fieldClassOf({ size: 28 })}`;
+const buttonClass = buttonClassOf({ variant: "secondary", size: 28 });
+const dangerClass = buttonClassOf({ variant: "danger-ghost", size: 28 });
+// A notice floating over the canvas, like the editor's load error.
+const NOTICE = "flex shrink-0 items-center gap-3 rounded-card bg-surface px-3 py-2 text-12 shadow-raised";
+// A choice holds a label over a value that may wrap, so it sizes to its content; the picked one is ink-ringed (selection is ink).
+const choiceClass = "rounded-control border px-2.5 py-1.5 text-12 text-ink transition-colors hover:bg-hover disabled:opacity-40";
 const fingerprint = (document: DesignDocument) => JSON.stringify(document);
-const rounded = (value: number) => Math.round(value * 100) / 100;
+const roundCoordinate = (value: number) => Math.round(value * 100) / 100;
 const DraftFields = createContext({ pending: (_value: boolean) => {}, fields: new Map<string, DesignFieldDraft>(), scope: "" });
 
 function designError(cause: unknown): string {
@@ -100,10 +114,10 @@ function Field({
     className: fieldClass,
   };
   return (
-    <label className="flex min-w-0 flex-col gap-1 text-[11px] text-ink-3">
+    <label className="flex min-w-0 flex-col gap-1 text-11 text-ink-3">
       <span>{label}</span>
       {multiline ? (
-        <textarea {...common} rows={3} className={`${fieldClass} resize-y`} />
+        <textarea {...common} rows={3} className={`min-w-0 resize-y ${FIELD_AREA}`} />
       ) : (
         <input
           {...common}
@@ -237,14 +251,29 @@ export function DesignDocumentEditor({
     },
     [cacheKey, fieldDrafts],
   );
+  // Catalog families load once per family; until then the preview draws the fallback the document names. The counter only
+  // re-renders, so fontsReady is read again from the loaded fonts.
+  const [, setLoadedFonts] = useState(0);
+  const fontsReady = designFontsLoaded(document);
+  useEffect(() => {
+    if (fontsReady) return;
+    let current = true;
+    loadDesignFonts(document)
+      .then(() => current && setLoadedFonts((count) => count + 1))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [document, fontsReady]);
   // Pending saves reject edits. Removing the controller also clears any unacknowledged pointer/keyboard movement.
   const { html, previewError } = useMemo(() => {
     try {
-      return { html: artifactDocument(designHtml(document, { interactive: !saving })), previewError: "" };
+      // Built again once the catalog fonts load, so the preview embeds them.
+      return { html: artifactDocument(designHtml(document, { interactive: !saving })), previewError: "", fontsReady };
     } catch (cause) {
-      return { html: "", previewError: designError(cause) };
+      return { html: "", previewError: designError(cause), fontsReady };
     }
-  }, [document, saving]);
+  }, [document, saving, fontsReady]);
   const syncSelection = useCallback(
     () =>
       frame.current?.contentWindow?.postMessage(
@@ -443,7 +472,7 @@ export function DesignDocumentEditor({
       if (isDesignVersionConflict(message)) {
         try {
           const latest = await bridgeForKey(chatId).artifacts.get({ chatId, id: base.id });
-          if (latest.format !== "design") throw new Error("This page is no longer an editable design.");
+          if (latest.format !== "design") throw new Error("This page is no longer an editable design.", { cause });
           // Only disjoint fields can merge automatically. A new Save is still required.
           if (replace || !stageMerge(latest)) {
             setIncoming(latest);
@@ -552,13 +581,28 @@ export function DesignDocumentEditor({
     const id = `${type}-${crypto.randomUUID().slice(0, 8)}`;
     const node: DesignNode = {
       id,
-      name: type === "text" ? "Text" : type === "frame" ? "Frame" : type === "image" ? "Image" : type === "ellipse" ? "Ellipse" : "Rectangle",
+      name:
+        type === "text"
+          ? "Text"
+          : type === "frame"
+            ? "Frame"
+            : type === "image"
+              ? "Image"
+              : type === "icon"
+                ? "Icon"
+                : type === "ellipse"
+                  ? "Ellipse"
+                  : "Rectangle",
       type,
       x: 32,
       y: 32,
-      width: type === "text" ? 240 : 160,
-      height: type === "text" ? 44 : 120,
-      ...(type === "text" ? { text: "New text", fontSize: 24, fill: "#1f2937" } : { fill: "#dce6df", radius: 12 }),
+      width: type === "text" ? 240 : type === "icon" ? 24 : 160,
+      height: type === "text" ? 44 : type === "icon" ? 24 : 120,
+      ...(type === "text"
+        ? { text: "New text", fontSize: 24, fill: "#1f2937" }
+        : type === "icon"
+          ? { icon: "star", fill: "#1f2937", strokeWidth: 2 }
+          : { fill: "#dce6df", radius: 12 }),
       ...(type === "frame" ? { layout: "free" as const } : {}),
     };
     if (change([{ op: "insert", node }])) setSelection([id]);
@@ -603,7 +647,7 @@ export function DesignDocumentEditor({
     (x: number, y: number) => {
       const roots = selectionRoots(document, selectedIds);
       if (!roots.every((node) => movable(document, node))) return;
-      change(roots.map((node) => ({ op: "update", id: node.id, patch: { x: rounded((node.x ?? 0) + x), y: rounded((node.y ?? 0) + y) } })));
+      change(roots.map((node) => ({ op: "update", id: node.id, patch: { x: roundCoordinate((node.x ?? 0) + x), y: roundCoordinate((node.y ?? 0) + y) } })));
     },
     [document, selectedIds, change],
   );
@@ -733,9 +777,11 @@ export function DesignDocumentEditor({
     previewError,
   ]);
 
+  const fieldScope = selectedNode?.id ?? "selection";
+  const draftFields = useMemo(() => ({ pending: setEditingField, fields: fieldDrafts, scope: fieldScope }), [fieldDrafts, fieldScope]);
   if (!enabled) return null;
   return (
-    <DraftFields.Provider value={{ pending: setEditingField, fields: fieldDrafts, scope: selectedNode?.id ?? "selection" }}>
+    <DraftFields.Provider value={draftFields}>
       {active &&
         workspace.tools &&
         createPortal(
@@ -760,7 +806,7 @@ export function DesignDocumentEditor({
         createPortal(
           <>
             {suspendedDraft && (
-              <div data-slot="design-suspended-draft" className="flex shrink-0 items-center gap-3 border-b border-line bg-accent/10 px-4 py-2 text-[12px]">
+              <div data-slot="design-suspended-draft" className={NOTICE}>
                 <span className="flex-1">An unsaved draft was kept when the editor closed.</span>
                 <button type="button" className={buttonClass} onClick={restoreSuspendedDraft}>
                   Restore unsaved draft
@@ -777,16 +823,11 @@ export function DesignDocumentEditor({
                 </button>
               </div>
             )}
-            {error && (
-              <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-line bg-red/10 px-4 py-2 text-[12px] text-red">
-                <span className="flex-1">{error}</span>
-              </div>
-            )}
+            <InlineError variant="floating" className="shrink-0">
+              {error}
+            </InlineError>
             {(notice || incoming || recovery) && (
-              <div
-                data-slot="design-version-notice"
-                className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-accent/10 px-4 py-2 text-[12px]"
-              >
+              <div data-slot="design-version-notice" className={`${NOTICE} flex-wrap gap-2`}>
                 <span className="min-w-40 flex-1">{notice}</span>
                 {incoming && !reviewing && (
                   <button
@@ -814,12 +855,12 @@ export function DesignDocumentEditor({
               </div>
             )}
             {incoming && reviewing && merge && (
-              <section data-slot="design-conflict-review" className="flex max-h-[38vh] shrink-0 flex-col border-b border-line bg-canvas px-4 py-3 text-[12px]">
+              <section data-slot="design-conflict-review" className="flex max-h-[38vh] shrink-0 flex-col rounded-card bg-surface p-3 text-12 shadow-raised">
                 <p className="mb-2 font-medium">Review version {incoming.version}</p>
                 {merge.error && (
-                  <p role="alert" className="mb-2 text-red">
+                  <InlineError size={12} className="mb-2">
                     These changes cannot be combined: {merge.error}
-                  </p>
+                  </InlineError>
                 )}
                 {merge.structural ? (
                   <>
@@ -838,7 +879,7 @@ export function DesignDocumentEditor({
                     {dirty && (
                       <button
                         type="button"
-                        className={`${buttonClass} mt-3 self-start border-red/40 text-red`}
+                        className={`${dangerClass} mt-3 self-start`}
                         disabled={saving}
                         onClick={() => void persist(state.current.document, incoming, true)}
                       >
@@ -866,7 +907,7 @@ export function DesignDocumentEditor({
                                 type="button"
                                 aria-label={`Use ${side} for ${field.label}`}
                                 aria-pressed={choices[field.key] === side}
-                                className={`${buttonClass} break-words text-left ${choices[field.key] === side ? "border-accent bg-accent/10" : ""}`}
+                                className={`${choiceClass} break-words text-left ${choices[field.key] === side ? "border-ink bg-hover-2" : "border-line"}`}
                                 onClick={() => setChoices((current) => ({ ...current, [field.key]: side }))}
                               >
                                 <span className="mb-1 block text-ink-3">{side === "latest" ? "Latest" : "Mine"}</span>
@@ -897,17 +938,23 @@ export function DesignDocumentEditor({
           type="button"
           aria-label={`Select design ${saved.title}`}
           onClick={() => workspace.activate(saved.id)}
-          className={`mb-2 max-w-full truncate text-left text-[13px] ${active ? "text-ink" : "text-ink-3"}`}
+          className={`mb-2 max-w-full truncate text-left text-13 ${active ? "text-ink" : "text-ink-3"}`}
         >
           {saved.title}
+          {document.kit && (
+            <span className="ml-2 text-ink-3">
+              {document.consistency?.mode === "strict" ? "Strict · " : ""}
+              {document.kit.title} · kit v{document.kit.version}
+            </span>
+          )}
         </button>
         <div
           data-slot="design-editor-preview"
-          className={`relative bg-white shadow-raised ${active ? "outline outline-1 outline-accent/40" : ""}`}
+          className={`relative bg-paper shadow-raised ${active ? "outline outline-1 outline-accent/40" : ""}`}
           style={{ width: document.width, height: document.height }}
         >
           {previewError ? (
-            <div role="alert" data-slot="design-preview-error" className="absolute inset-0 bg-surface p-5 text-[12px] text-ink">
+            <div role="alert" data-slot="design-preview-error" className="absolute inset-0 bg-surface p-5 text-12 text-ink">
               <p className="font-medium">Preview unavailable</p>
               <p className="mt-2 text-ink-2">{previewError}</p>
               <p className="mt-2 text-ink-3">Your draft is still here. Edit the layers or undo the last change to restore the preview.</p>
@@ -933,18 +980,16 @@ export function DesignDocumentEditor({
             {selectedNode ? (
               <div className="flex flex-col gap-4 p-3" key={`${selectedNode.id}:${fieldRevision}`}>
                 <div>
-                  <div className="text-[12px] font-medium">{selectedNode.name ?? selectedNode.id}</div>
-                  <div className="mt-0.5 text-[10px] capitalize text-ink-3">{selectedNode.type}</div>
+                  <div className="text-12 font-medium">{selectedNode.name ?? selectedNode.id}</div>
+                  <div className="mt-0.5 text-11 capitalize text-ink-3">{selectedNode.type}</div>
                 </div>
                 <Field label="Layer name" value={selectedNode.name ?? selectedNode.id} disabled={saving} onCommit={(name) => patch({ name })} />
                 {selectedInstance ? (
                   <>
-                    <div className="rounded-control border border-line bg-canvas p-2 text-[11px] leading-4 text-ink-3">
-                      Linked instance. Edit the main component to update every instance.
-                    </div>
+                    <div className="rounded-control bg-field p-2 text-11 text-ink-3">Linked instance. Edit the main component to update every instance.</div>
                     <div className="grid grid-cols-2 gap-2">
-                      <Field label="X" value={rounded(selectedNode.x ?? 0)} number disabled={saving} onCommit={(x) => patch({ x: Number(x) })} />
-                      <Field label="Y" value={rounded(selectedNode.y ?? 0)} number disabled={saving} onCommit={(y) => patch({ y: Number(y) })} />
+                      <Field label="X" value={roundCoordinate(selectedNode.x ?? 0)} number disabled={saving} onCommit={(x) => patch({ x: Number(x) })} />
+                      <Field label="Y" value={roundCoordinate(selectedNode.y ?? 0)} number disabled={saving} onCommit={(y) => patch({ y: Number(y) })} />
                     </div>
                     <div className="flex gap-2">
                       <button type="button" className={buttonClass} onClick={() => setSelection([selectedInstance.componentId!])}>
@@ -959,7 +1004,7 @@ export function DesignDocumentEditor({
                   <>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span className="text-[11px] text-ink-3">Width sizing</span>
+                        <span className="text-11 text-ink-3">Width sizing</span>
                         <Select
                           label="Width sizing"
                           value={selectedNode.widthMode ?? "fixed"}
@@ -974,7 +1019,7 @@ export function DesignDocumentEditor({
                         />
                       </div>
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span className="text-[11px] text-ink-3">Height sizing</span>
+                        <span className="text-11 text-ink-3">Height sizing</span>
                         <Select
                           label="Height sizing"
                           value={selectedNode.heightMode ?? "fixed"}
@@ -990,7 +1035,7 @@ export function DesignDocumentEditor({
                       </div>
                     </div>
                     {((selectedNode.widthMode && selectedNode.widthMode !== "fixed") || (selectedNode.heightMode && selectedNode.heightMode !== "fixed")) && (
-                      <p className="text-[11px] leading-4 text-ink-3">Hug follows content. Fill uses available space. Width and height are fallback sizes.</p>
+                      <p className="text-11 text-ink-3">Hug follows content. Fill uses available space. Width and height are fallback sizes.</p>
                     )}
                     <div className="grid grid-cols-2 gap-2">
                       {(
@@ -1004,7 +1049,7 @@ export function DesignDocumentEditor({
                         <Field
                           key={key}
                           label={label}
-                          value={rounded(value)}
+                          value={roundCoordinate(value)}
                           number
                           min={key === "width" || key === "height" ? 1 : undefined}
                           disabled={saving}
@@ -1082,19 +1127,21 @@ export function DesignDocumentEditor({
                     )}
                     <Field
                       label={selectedNode.type === "text" ? "Text color" : "Fill"}
-                      value={selectedNode.fill ?? (selectedNode.type === "text" ? "#202720" : selectedNode.type === "frame" ? "transparent" : "#d8ded8")}
+                      value={selectedNode.fill ?? designDefaultFill(selectedNode)}
                       disabled={saving}
                       onCommit={(fill) => patch({ fill })}
                     />
                     <div className="grid grid-cols-2 gap-2">
-                      <Field
-                        label="Radius"
-                        value={selectedNode.radius ?? 0}
-                        number
-                        min={0}
-                        disabled={saving}
-                        onCommit={(radius) => patch({ radius: Number(radius) })}
-                      />
+                      {selectedNode.type !== "icon" && (
+                        <Field
+                          label="Radius"
+                          value={selectedNode.radius ?? 0}
+                          number
+                          min={0}
+                          disabled={saving}
+                          onCommit={(radius) => patch({ radius: Number(radius) })}
+                        />
+                      )}
                       <Field
                         label="Opacity"
                         value={selectedNode.opacity ?? 1}
@@ -1105,21 +1152,48 @@ export function DesignDocumentEditor({
                         onCommit={(opacity) => patch({ opacity: Number(opacity) })}
                       />
                     </div>
-                    <Field label="Stroke" value={selectedNode.stroke ?? "transparent"} disabled={saving} onCommit={(stroke) => patch({ stroke })} />
-                    <Field
-                      label="Stroke width"
-                      value={selectedNode.strokeWidth ?? (selectedNode.stroke ? 1 : 0)}
-                      number
-                      min={0}
-                      disabled={saving}
-                      onCommit={(strokeWidth) => patch({ strokeWidth: Number(strokeWidth) })}
-                    />
+                    {selectedNode.type !== "icon" && (
+                      <Field label="Stroke" value={selectedNode.stroke ?? "transparent"} disabled={saving} onCommit={(stroke) => patch({ stroke })} />
+                    )}
+                    {selectedNode.type !== "icon" && (
+                      <Field
+                        label="Stroke width"
+                        value={selectedNode.strokeWidth ?? (selectedNode.stroke ? 1 : 0)}
+                        number
+                        min={0}
+                        disabled={saving}
+                        onCommit={(strokeWidth) => patch({ strokeWidth: Number(strokeWidth) })}
+                      />
+                    )}
                     {selectedNode.type === "image" && (
                       <Field label="Image URL" value={selectedNode.src ?? ""} disabled={saving} onCommit={(src) => patch({ src })} />
                     )}
+                    {selectedNode.type === "icon" && (
+                      <>
+                        <Field
+                          label="Icon"
+                          value={selectedNode.icon ?? ""}
+                          disabled={saving}
+                          onCommit={(icon) => {
+                            const name = icon.trim().toLowerCase();
+                            if (Object.hasOwn(designIcons, name)) patch({ icon: name });
+                            else setNotice(`No Lucide icon named "${name}". Try a name from lucide.dev/icons.`);
+                          }}
+                        />
+                        <Field
+                          label="Line weight"
+                          value={selectedNode.strokeWidth ?? 2}
+                          number
+                          min={0.5}
+                          max={4}
+                          disabled={saving}
+                          onCommit={(strokeWidth) => patch({ strokeWidth: Number(strokeWidth) })}
+                        />
+                      </>
+                    )}
                     {selectedNode.type === "frame" && (
                       <>
-                        <div className="border-t border-line pt-3 text-[12px] font-medium">Layout</div>
+                        <div className="border-t border-line pt-3 text-12 font-medium">Layout</div>
                         <Select
                           label="Layout"
                           value={selectedNode.layout ?? "free"}
@@ -1189,7 +1263,7 @@ export function DesignDocumentEditor({
                     </div>
                     {selectedNode.type === "frame" && (
                       <div className="flex flex-col gap-2 border-t border-line pt-3">
-                        <div className="text-[12px] font-medium">{selectedNode.component ? "Main component" : "Component"}</div>
+                        <div className="text-12 font-medium">{selectedNode.component ? "Main component" : "Component"}</div>
                         <button
                           type="button"
                           className={buttonClass}
@@ -1206,47 +1280,45 @@ export function DesignDocumentEditor({
                   <button type="button" className={buttonClass} disabled={saving} onClick={duplicate}>
                     Duplicate
                   </button>
-                  <button type="button" className={`${buttonClass} text-red`} disabled={saving} onClick={remove}>
+                  <button type="button" className={dangerClass} disabled={saving} onClick={remove}>
                     Delete
                   </button>
                 </div>
               </div>
             ) : selectedIds.length > 1 ? (
               <div className="flex flex-col gap-4 p-3">
-                <div className="text-[12px] font-medium">{selectedIds.length} layers selected</div>
-                <p className="text-[11px] leading-4 text-ink-3">Drag to move them together. Arrow keys move 1 px; Shift + arrows move 10 px.</p>
+                <div className="text-12 font-medium">{selectedIds.length} layers selected</div>
+                <p className="text-11 text-ink-3">Drag to move them together. Arrow keys move 1 px; Shift + arrows move 10 px.</p>
                 {groupPosition && (
                   <div className="grid grid-cols-2 gap-2">
                     <Field
                       label="Selection X"
-                      value={rounded(groupPosition.x)}
+                      value={roundCoordinate(groupPosition.x)}
                       number
                       disabled={saving || !canMoveSelection}
                       onCommit={(x) => move(Number(x) - groupPosition.x, 0)}
                     />
                     <Field
                       label="Selection Y"
-                      value={rounded(groupPosition.y)}
+                      value={roundCoordinate(groupPosition.y)}
                       number
                       disabled={saving || !canMoveSelection}
                       onCommit={(y) => move(0, Number(y) - groupPosition.y)}
                     />
                   </div>
                 )}
-                {!canMoveSelection && (
-                  <p className="text-[11px] leading-4 text-ink-3">Unlock layers and select their automatic-layout frame to move this selection.</p>
-                )}
+                {!canMoveSelection && <p className="text-11 text-ink-3">Unlock layers and select their automatic-layout frame to move this selection.</p>}
                 <div className="flex gap-2 border-t border-line pt-3">
                   <button type="button" className={buttonClass} disabled={saving} onClick={duplicate}>
                     Duplicate
                   </button>
-                  <button type="button" className={`${buttonClass} text-red`} disabled={saving} onClick={remove}>
+                  <button type="button" className={dangerClass} disabled={saving} onClick={remove}>
                     Delete
                   </button>
                 </div>
               </div>
             ) : (
-              <p className="p-4 text-[12px] text-ink-3">Select a layer to edit its properties. Shift-click to select more.</p>
+              <p className="p-4 text-12 text-ink-3">Select a layer to edit its properties. Shift-click to select more.</p>
             )}
           </ScrollArea>,
           workspace.inspector,

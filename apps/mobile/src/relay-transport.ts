@@ -1,17 +1,28 @@
 import { fromB64url, phoneFinish, phoneHello, type Channel, type KeyPair } from "@milagre/shared/relay-crypto";
 import { createAssembler, splitBody, type RelayMessage, type RelayRequest } from "@milagre/shared/relay-rpc";
+import { connectDeviceRoutes, PROBE_TIMEOUT } from "@milagre/shared/route-supervisor";
 
+type RelayEvents = {
+  open: unknown;
+  message: { data?: unknown };
+  error: unknown;
+  close: { code?: number };
+};
 export type RelaySocket = {
   binaryType: string;
-  onopen: (() => void) | null;
-  onmessage: ((event: { data?: unknown }) => void) | null;
-  onerror: ((event: unknown) => void) | null;
-  onclose: ((event: { code?: number }) => void) | null;
+  addEventListener<K extends keyof RelayEvents>(type: K, listener: (event: RelayEvents[K]) => void): void;
   send(data: Uint8Array): void;
   close(code?: number, reason?: string): void;
 };
-export type RelayTimers = { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (id: unknown) => void };
-export type RelayResponse = { status: number; headers: Record<string, string>; body: Uint8Array };
+export type RelayTimers = {
+  setTimeout: (fn: () => void, ms: number) => unknown;
+  clearTimeout: (id: unknown) => void;
+};
+export type RelayResponse = {
+  status: number;
+  headers: Record<string, string>;
+  body: Uint8Array;
+};
 type RelayLiveHandle = { close(): void };
 export type RelayTransport = {
   request(method: "GET" | "POST", path: string, headers: Record<string, string>, body?: Uint8Array | string): Promise<RelayResponse>;
@@ -25,6 +36,9 @@ export type RelayTransport = {
 export type RelayTransportOptions = {
   /** The relay's WebSocket base, e.g. wss://relay.milagre.cloud. */
   relay: string;
+  /** Private routes, in LAN then Tailscale order, tried before the fallback. */
+  direct?: string[];
+  probe?: (endpoint: string, hostId: string) => Promise<boolean>;
   hostId: string;
   /** The Mac's box public key from the pairing code, base64url. Replies are accepted from this key only. */
   key: string;
@@ -68,6 +82,8 @@ const BACKOFF = [1000, 2000, 5000, 10000, 30000];
 const PING = 20_000;
 const SILENCE = 45_000;
 const HANDSHAKE = 15_000;
+// Asked for in the hello: the Mac then sends a window's messages as one frame, which dispatch takes apart.
+const BATCH_CAP = "batch";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const defaultTimers: RelayTimers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>) };
@@ -83,7 +99,10 @@ function toBytes(data: unknown): Uint8Array | null {
   return null; // a text frame: the relay only sends binary
 }
 
-type Pending = { resolve: (response: RelayResponse) => void; reject: (error: Error) => void };
+type Pending = {
+  resolve: (response: RelayResponse) => void;
+  reject: (error: Error) => void;
+};
 type LiveState = {
   path: string;
   onData: (data: string) => void;
@@ -115,7 +134,6 @@ type Conn = {
  */
 export function createRelayTransport(options: RelayTransportOptions): RelayTransport {
   const { relay, hostId, token, identity, create = nativeSocket, random = platformRandom, timers = defaultTimers, jitter = Math.random } = options;
-  const url = `${relay.replace(/\/+$/, "")}/v1/phone?id=${encodeURIComponent(hostId)}`;
   const lives = new Set<LiveState>();
   let conn: Conn | null = null;
   let connecting: Promise<Conn> | null = null;
@@ -124,6 +142,35 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
   let refused: RelayTransportError | null = null;
   /** True while close() ends the socket, so that is not reported as a loss. */
   let closing = false;
+  let generation = 0;
+
+  async function probe(endpoint: string): Promise<boolean> {
+    if (options.probe) return options.probe(endpoint, hostId);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
+    try {
+      const response = await fetch(`${endpoint.replace(/^ws:/, "http:")}/v1/hello`, { signal: controller.signal, redirect: "error" });
+      if (!response.ok) return false;
+      const hello = await response.json();
+      return hello.v === 1 && hello.hostId === hostId;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function open(): Promise<Conn> {
+    if (!options.direct?.length) return openAt(relay);
+    const mine = generation;
+    const result = await connectDeviceRoutes({
+      primary: relay,
+      direct: options.direct,
+      probe,
+      connect: openAt,
+      stopped: () => mine !== generation,
+      final: () => refused !== null,
+    });
+    return result.connection;
+  }
 
   function teardown(c: Conn, error: RelayTransportError) {
     if (conn === c) conn = null;
@@ -131,7 +178,8 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
     timers.clearTimeout(c.silence);
     const pending = [...c.pending.values()];
     c.pending.clear();
-    for (const live of [...c.lives.values()]) down(live, c, true);
+    // A copy: down notifies subscribers that may close or open live streams.
+    for (const live of Array.from(c.lives.values())) down(live, c, true);
     for (const request of pending) request.reject(error);
   }
 
@@ -180,21 +228,27 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
       case "ping":
         send(c, { t: "pong" });
         return;
+      case "batch": {
+        // The messages of one window on the Mac, in order (it batches only because this phone's hello asked).
+        const items: unknown = message.items;
+        if (Array.isArray(items)) for (const item of items) dispatch(c, item as RelayMessage);
+        return;
+      }
       default:
         return; // pong, and anything newer than this app
     }
   }
 
   /** Opens the socket and runs the handshake; resolves once the Mac's accept is verified against the pinned key. */
-  function open(): Promise<Conn> {
+  function openAt(endpoint: string): Promise<Conn> {
     return new Promise<Conn>((resolve, reject) => {
       let socket: RelaySocket;
       let hello: ReturnType<typeof phoneHello>;
       const host = fromB64url(options.key);
       try {
-        socket = create(url);
+        socket = create(`${endpoint.replace(/\/+$/, "")}/v1/phone?id=${encodeURIComponent(hostId)}`);
         socket.binaryType = "arraybuffer";
-        hello = phoneHello({ phone: identity, host, token, random, name: options.name ?? undefined });
+        hello = phoneHello({ phone: identity, host, token, random, name: options.name ?? undefined, caps: [BATCH_CAP] });
       } catch {
         return reject(fail("lost"));
       }
@@ -226,7 +280,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
       };
       abortConnect = end;
       handshake = timers.setTimeout(() => end(fail("lost")), HANDSHAKE);
-      socket.onopen = () => {
+      socket.addEventListener("open", () => {
         if (!over) {
           try {
             socket.send(hello.message);
@@ -234,11 +288,11 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
             end(fail("lost"));
           }
         }
-      };
+      });
       // A failed socket always closes afterwards, with the code that says why.
-      socket.onerror = () => {};
-      socket.onclose = (event) => end(fail(event?.code === CLOSE_HOST_OFFLINE ? "host-offline" : "lost"));
-      socket.onmessage = (event) => {
+      socket.addEventListener("error", () => {});
+      socket.addEventListener("close", (event) => end(fail(event?.code === CLOSE_HOST_OFFLINE ? "host-offline" : "lost")));
+      socket.addEventListener("message", (event) => {
         if (over) return;
         const bytes = toBytes(event.data);
         if (!bytes || !bytes.length) return end(fail("lost"));
@@ -294,7 +348,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
         };
         next.ping = timers.setTimeout(tick, PING);
         resolve(next);
-      };
+      });
     });
   }
 
@@ -333,7 +387,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
   function retryLater(live: LiveState) {
     // A refused phone has nothing to gain from asking again.
     if (live.closed || refused) return;
-    const wait = BACKOFF[Math.min(live.failures, BACKOFF.length - 1)] * (0.8 + 0.4 * jitter());
+    const wait = (BACKOFF[Math.min(live.failures, BACKOFF.length - 1)] ?? 30000) * (0.8 + 0.4 * jitter());
     live.failures++;
     live.retry = timers.setTimeout(() => subscribe(live), wait);
   }
@@ -391,6 +445,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
       };
     },
     close() {
+      generation++;
       closing = true;
       try {
         for (const live of lives) {

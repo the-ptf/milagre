@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
-import { chatTitle, comparePins, pinOrderAt } from "./chats.mjs";
+import { chatTitle, comparePins, pinOrderAt, shortTitle } from "./chats.mjs";
 
+const image = (index: number) => ({ id: `i${index}`, name: `${index}.png`, path: `/${index}.png` });
 const session: AgentSession = { id: 1, worktree_id: 1, agent_name: "main", status: "Created" };
+
+test("shortTitle keeps a line of 60 characters whole and cuts a longer one to 57 and an ellipsis", () => {
+  assert.equal(shortTitle("CI green"), "CI green");
+  assert.equal(shortTitle("x".repeat(60)), "x".repeat(60));
+  assert.equal(shortTitle("x".repeat(61)), `${"x".repeat(57)}…`);
+  assert.equal(shortTitle("x".repeat(61)).length, 58);
+});
 
 test("chatTitle prefers the user's name, then the first message's first line", () => {
   const messages = [
@@ -17,12 +25,41 @@ test("chatTitle prefers the user's name, then the first message's first line", (
   assert.equal(chatTitle(session, [{ id: 3, session_id: 1, body: "x".repeat(80), context: null }]), `${"x".repeat(57)}…`);
 });
 
+test("chatTitle names an image-only prompt Image or N images and drops image tokens from other prompts", () => {
+  const chat = (body: string, imageCount: number) =>
+    chatTitle(session, [
+      { id: 1, session_id: 1, body, context: null, role: "user", images: Array.from({ length: imageCount }, (_, i) => image(i + 1)) },
+    ] as ChatMessage[]);
+  assert.equal(chat("[Image #1]", 1), "Image");
+  assert.equal(chat("[Image #1] [Image #2]", 2), "2 images");
+  assert.equal(chat("look at [Image #1]   please", 1), "look at please");
+  assert.equal(chat("[Image #3]", 1), "[Image #3]");
+  assert.equal(chat("[Image #1]", 0), "[Image #1]");
+  // From a summary: the count of images the first message carried, or none kept (an older summary), which counts every token.
+  assert.equal(chatTitle({ ...session, summary: { count: 1, titleLine: "[Image #1]", titleImages: 1 } }), "Image");
+  assert.equal(chatTitle({ ...session, summary: { count: 1, titleLine: "[Image #1] [Image #2]" } }), "2 images");
+  assert.equal(chatTitle({ ...session, summary: { count: 1, titleLine: "[Image #2]", titleImages: 1 } }), "[Image #2]");
+  assert.equal(chatTitle({ ...session, title: "Mine", summary: { count: 1, titleLine: "[Image #1]", titleImages: 1 } }), "Mine");
+});
+
 test("chat lists hide a worktree's empty starter chat but keep chats with messages and handovers", async () => {
   const { isListedChat } = await import("./chats.mjs");
   assert.equal(isListedChat({} as never, 0), false);
   assert.equal(isListedChat({} as never, 2), true);
   assert.equal(isListedChat({ handoverPending: true } as never, 0), true);
   assert.equal(isListedChat({ handoverDraft: "" } as never, 0), true);
+});
+
+test("a hidden Run Chat is left out of the lists until it waits on someone", async () => {
+  const { isHiddenRunChat, isListedChat } = await import("./chats.mjs");
+  const hidden = { routine: { routineId: "r", runId: "u", hidden: true } } as AgentSession;
+  assert.equal(isHiddenRunChat(hidden), true);
+  assert.equal(isHiddenRunChat(hidden, true), false);
+  assert.equal(isHiddenRunChat(undefined), false);
+  assert.equal(isListedChat(hidden, 3), false);
+  assert.equal(isListedChat(hidden, 3, true), true);
+  assert.equal(isListedChat({ routine: { routineId: "r", runId: "u", hidden: false } } as AgentSession, 3), true);
+  assert.equal(isListedChat({ routine: { routineId: "r", runId: "u" } } as AgentSession, 3), true); // made before hiding
 });
 
 test("pending input lists its Chat without modifying the persisted Project", async () => {
@@ -84,6 +121,20 @@ test("follow-up input stays pending until its own message arrives and keeps the 
   assert.equal(withPendingChat(saved, pending), saved);
 });
 
+test("an open Chat's page that already holds the saved send shows it once, not with its preview", async () => {
+  const { createPendingChat, withPreview } = await import("./chats.mjs");
+  const state: CoordinatorState = { next_id: 4, projects: {}, worktrees: {}, sessions: { 1: session }, messages: [], tasks: {} };
+  const pending = createPendingChat({ state, worktreeId: 1, sessionId: 1, body: "Follow up", model: "m", provider: "codex" });
+  const before = [{ id: 3, session_id: 1, body: "Original title", role: "user" as const, context: null }];
+  assert.deepEqual(withPreview(before, pending), [...before, pending.message]);
+  // The page was read again (a runs update) before the snapshot's summary named the send.
+  const page = [...before, { ...pending.message, id: 4 }];
+  assert.equal(withPreview(page, pending), page);
+  // Another client's identical text is not this send.
+  const other = [...before, { id: 4, session_id: 1, body: "Follow up", role: "user" as const, context: null, clientMessageId: "another" }];
+  assert.deepEqual(withPreview(other, pending), [...other, pending.message]);
+});
+
 test("legacy acknowledgement requires an accepted target and a new untagged matching input", async () => {
   const { createPendingChat, pendingChatSessionId } = await import("./chats.mjs");
   const state: CoordinatorState = { next_id: 4, projects: {}, worktrees: {}, sessions: { 1: session }, messages: [], tasks: {} };
@@ -97,6 +148,43 @@ test("legacy acknowledgement requires an accepted target and a new untagged matc
   assert.equal(resolve({ ...saved, session_id: 2 }), null);
   assert.equal(resolve({ ...saved, body: "Other input" }), null);
   assert.equal(resolve({ ...saved, clientMessageId: "another-client" }), null);
+});
+
+test("a pending follow-up preserves an unloaded Chat's history and the latest pin settings", async () => {
+  const { createPendingChat, withPendingChat } = await import("./chats.mjs");
+  const summary = {
+    count: 50,
+    firstId: 3,
+    lastId: 80,
+    titleLine: "Original question",
+    lastAt: 123,
+    lastOutcome: "failed" as const,
+    pullRequests: ["https://github.com/a/b/pull/12"],
+    lastModel: "old-model",
+  };
+  const state: CoordinatorState = {
+    next_id: 100,
+    projects: {},
+    worktrees: {},
+    messages: [],
+    tasks: {},
+    sessions: { 1: { ...session, summary } },
+  };
+  const pending = createPendingChat({ state, worktreeId: 1, sessionId: 1, body: "Follow up", model: "new-model", provider: "codex" });
+  const current = { ...state, sessions: { 1: { ...state.sessions[1], pinned: true, pin_order: -1, title: "Renamed" } } };
+  const shown = withPendingChat(current, pending);
+  assert.deepEqual(shown.sessions[1].summary, {
+    ...summary,
+    count: 51,
+    lastId: 100,
+    lastAt: pending.startedAt,
+    lastModel: "new-model",
+    clientMessageIds: [pending.message.clientMessageId],
+  });
+  assert.equal(shown.sessions[1].pinned, true);
+  assert.equal(shown.sessions[1].pin_order, -1);
+  assert.equal(chatTitle(shown.sessions[1]), "Renamed");
+  assert.deepEqual(state.sessions[1].summary, summary);
 });
 
 test("comparePins puts pinned chats first in their order and leaves the rest alone", () => {
@@ -113,4 +201,29 @@ test("pinOrderAt fits a chat between, before or after the pinned ones", () => {
   assert.equal(pinOrderAt([2, 4], 1), 3);
   assert.equal(pinOrderAt([2, 4], 2), 5);
   assert.equal(pinOrderAt([2, 3], 1), 2.5);
+});
+
+test("a resend of the same text reuses the failed send's client id, and anything else is a new message", async () => {
+  const { createPendingChat, createResendMemory } = await import("./chats.mjs");
+  const state: CoordinatorState = { next_id: 4, projects: {}, worktrees: {}, sessions: {}, messages: [], tasks: {} };
+  const memory = createResendMemory();
+  const first = createPendingChat({ state, worktreeId: 1, body: "Hello", model: "m", provider: "codex" });
+  assert.equal(memory.reuse("chat", "Hello"), undefined);
+  memory.remember("chat", first.message.clientMessageId!, "Hello", ["a"]);
+  assert.equal(memory.reuse("other", "Hello", ["a"]), undefined);
+  const again = createPendingChat({
+    state,
+    worktreeId: 1,
+    body: "Hello",
+    model: "m",
+    provider: "codex",
+    clientMessageId: memory.reuse("chat", "Hello", ["a"]),
+  });
+  assert.equal(again.message.clientMessageId, first.message.clientMessageId);
+  assert.notEqual(again.message.id, first.message.id);
+  assert.equal(memory.reuse("chat", "Hello", ["b"]), undefined, "other attachments are another message");
+  assert.equal(memory.reuse("chat", "Hello", ["a"]), undefined, "an edited send forgets the old id");
+  memory.remember("chat", "x", "Hi");
+  memory.forget("chat");
+  assert.equal(memory.reuse("chat", "Hi"), undefined);
 });

@@ -4,9 +4,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { AcpRpc } = require("./acp-rpc.cjs");
-const { AcpSession } = require("./acp-session.cjs");
-const { acpDiff } = require("./acp-events.cjs");
-const { antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
+const { AcpSession, pickOption } = require("./acp-session.cjs");
+const { acpDiff, acpStepResult } = require("./acp-events.cjs");
+const { ANTIGRAVITY_MODES, antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
 const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, loginMessage, missingCliMessage } = require("./events.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -14,7 +14,7 @@ const FAKE = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
 const AGENT = "/opt/antigravity/agy_acp_server.par";
 const TURN = { prompt: "Hi", images: [], model: "gemini-3.8-flash-high", permissionMode: "ask" };
 
-function antigravity(t, { scenario = "reply", resumeId, linked, command = AGENT, interruptGraceMs, workspaceRoots, designsEnabled, env } = {}) {
+function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, env, permissionPolicy } = {}) {
   const events = [];
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-test-"));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-cwd-"));
@@ -23,12 +23,13 @@ function antigravity(t, { scenario = "reply", resumeId, linked, command = AGENT,
     cwd,
     resumeId,
     linked,
+    mcpExtras,
     command,
     env,
     workspaceRoots,
-    designsEnabled,
     clientVersion: "test",
     interruptGraceMs,
+    permissionPolicy,
     config: { ...antigravityAcp, tempRoot },
     emit: (event) => events.push(event),
     createRpc: (options) => {
@@ -44,6 +45,19 @@ function antigravity(t, { scenario = "reply", resumeId, linked, command = AGENT,
   return { session, events, spawned, tempRoot, cwd };
 }
 const ended = (events, count = 1) => waitUntil(() => events.filter(isTerminal).length >= count);
+
+test("a continuation cancelled during ACP initialization submits no prompt", async (t) => {
+  const { session, events } = antigravity(t);
+  let allowed = true;
+  const turn = session.startTurn({ ...TURN, canStart: () => allowed });
+  allowed = false;
+  assert.equal((await turn).cancelled, true);
+  assert.equal(
+    events.some((event) => event.type === "turn-cancelled"),
+    false,
+  );
+  assert.equal((await sent(session, "session/prompt")).length, 0);
+});
 const fake = (session) => session.rpc.request("fake/received");
 const sent = async (session, method) => (await fake(session)).received.filter((message) => message.method === method).map((message) => message.params);
 const of = (events, type) => events.filter((event) => event.type === type);
@@ -93,23 +107,24 @@ test("introduces Milagre and its instructions on the first prompt of each proces
   assert.deepEqual(prompts[1].prompt, [{ type: "text", text: "Again" }]);
 });
 
-test("Designs can be disabled when starting or resuming an ACP session", async (t) => {
-  for (const resumeId of [undefined, "sess-existing"]) {
-    const { session, events } = antigravity(t, { designsEnabled: false, resumeId });
-    await session.startTurn(TURN);
-    await ended(events);
-    const [prompt] = await sent(session, "session/prompt");
-    assert.match(prompt.prompt[0].text, /Designs are off/);
-    assert.doesNotMatch(prompt.prompt[0].text, /design_show|design_read|design_apply/);
-  }
-});
-
-test("sends images as image blocks", async (t) => {
+test("sends images as image blocks and interleaves [Image #N] tokens in reading order", async (t) => {
   const { session, events } = antigravity(t);
-  await session.startTurn({ ...TURN, images: [{ mime: "image/png", bytes: Buffer.from("png"), base64: Buffer.from("png").toString("base64") }] });
+  await session.startTurn({
+    ...TURN,
+    prompt: "First [Image #2] then [Image #1]",
+    images: [
+      { mime: "image/png", bytes: Buffer.from("one"), base64: Buffer.from("one").toString("base64") },
+      { mime: "image/jpeg", bytes: Buffer.from("two"), base64: Buffer.from("two").toString("base64") },
+    ],
+  });
   await ended(events);
   const [prompt] = await sent(session, "session/prompt");
-  assert.deepEqual(prompt.prompt.at(-1), { type: "image", mimeType: "image/png", data: "cG5n" });
+  assert.deepEqual(prompt.prompt.slice(-4), [
+    { type: "text", text: "First " },
+    { type: "image", mimeType: "image/jpeg", data: Buffer.from("two").toString("base64") },
+    { type: "text", text: " then " },
+    { type: "image", mimeType: "image/png", data: Buffer.from("one").toString("base64") },
+  ]);
 });
 
 test("runs the agent with its profile, a private temporary directory and no ambient Google credentials", async (t) => {
@@ -189,6 +204,17 @@ test("a command that exits non-zero is a failed step", async (t) => {
   assert.equal(of(events, "step-completed")[0].status, "failed");
 });
 
+test("in bot mode the policy answers a permission request without a card", async (t) => {
+  const { session, events } = antigravity(t, {
+    scenario: "permission",
+    permissionPolicy: (request) => (request.command === "rm -rf build" ? "deny" : "allow"),
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.equal(replyText(events), "picked:deny");
+  assert.equal(of(events, "permission-request").length, 0);
+});
+
 test("asks before a command and answers with the option picked", async (t) => {
   for (const [decision, option] of [
     ["allow", "allow"],
@@ -217,12 +243,152 @@ test("asks before a command and answers with the option picked", async (t) => {
   }
 });
 
+test("Milagre's plan tools are allowed once without a card in every mode", async (t) => {
+  for (const permissionMode of ["ask", "auto"]) {
+    const { session, events } = antigravity(t, { scenario: "mcp-plan-tool" });
+    await session.startTurn({ ...TURN, permissionMode });
+    await ended(events);
+    assert.equal(of(events, "permission-request").length, 0);
+    assert.equal(replyText(events), "picked:allow");
+  }
+});
+
+test("Milagre's other tools still ask", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "mcp-design-tool" });
+  await session.startTurn({ ...TURN, permissionMode: "auto" });
+  await waitUntil(() => of(events, "permission-request").length === 1);
+  const [request] = of(events, "permission-request");
+  assert.equal(request.tool, "milagre_design_delete");
+  session.respondToPermission(request.requestId, "deny");
+  await ended(events);
+  assert.equal(replyText(events), "picked:deny");
+});
+
 test("Full answers permission requests without a card", async (t) => {
   const { session, events } = antigravity(t, { scenario: "permission" });
   await session.startTurn({ ...TURN, permissionMode: "full" });
   await ended(events);
   assert.equal(of(events, "permission-request").length, 0);
   assert.equal(replyText(events), "picked:allow");
+});
+
+test("guarded turn denies push", async (t) => {
+  const reason = "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.";
+  // In Ask the rest still waits for the user.
+  const ask = antigravity(t, { scenario: "guarded" });
+  await ask.session.startTurn({ ...TURN, permissionMode: "ask", guard: { level: 2, resolveThreads: false } });
+  await waitUntil(() => of(ask.events, "permission-request").length === 1);
+  const [request] = of(ask.events, "permission-request");
+  assert.equal(request.command, "ls build");
+  ask.session.respondToPermission(request.requestId, "allow");
+  await ended(ask.events);
+  assert.equal(replyText(ask.events), "picked:deny picked:allow");
+  // The step says why.
+  const step = of(ask.events, "step-completed").find((event) => event.id === "cmd-1");
+  assert.equal(step.detail, `$ git push origin HEAD\n${reason}`);
+
+  // Full runs the guarded turn in Auto's mode, so commands still ask, and Milagre allows the rest itself.
+  const full = antigravity(t, { scenario: "guarded" });
+  await full.session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await ended(full.events);
+  assert.equal(replyText(full.events), "picked:deny picked:allow");
+  assert.equal(of(full.events, "permission-request").length, 0);
+  // The Chat's next turn is the user's own: Full's own mode again.
+  await full.session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(full.events, 2);
+  const modes = (await sent(full.session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
+  assert.deepEqual(modes, ["auto_edit", "yolo"]);
+});
+
+const WAKE = { level: "escalation", requests: [{ chatId: "/p#2", requestId: "q1" }] };
+
+test("a wake's turn runs in Ask's mode and refuses commands, plan tools and pre-allowed edits, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const guarded = antigravity(t, { scenario: "guarded" });
+    await guarded.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(guarded.events);
+    assert.equal(replyText(guarded.events), "picked:deny picked:deny", permissionMode);
+    assert.equal(of(guarded.events, "permission-request").length, 0, permissionMode);
+    // Ask's mode is the agent's default, so nothing is switched, and Full never reaches yolo.
+    const modes = (await sent(guarded.session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
+    assert.deepEqual(modes, [], permissionMode);
+    assert.equal(guarded.session.permissions.mode, permissionMode, "the Chat's own mode stays for chat_respond");
+
+    const plan = antigravity(t, { scenario: "mcp-plan-tool" });
+    await plan.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(plan.events);
+    assert.equal(replyText(plan.events), "picked:deny", permissionMode);
+
+    const edit = antigravity(t, { scenario: "edit" });
+    await edit.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(edit.events);
+    assert.equal(of(edit.events, "permission-request").length, 0, permissionMode);
+  }
+});
+
+test("tool calls the agent runs without asking still count: past the grace the host stops the turn", async (t) => {
+  const { ESCALATION_TOOL_CALLS, ESCALATION_TOOL_GRACE } = require("@milagre/shared/subchat-escalation");
+  const { session, events } = antigravity(t, { scenario: "slow" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await waitUntil(() => of(events, "turn-started").length === 1);
+  const call = (toolCallId) =>
+    session.handleNotification("session/update", { update: { sessionUpdate: "tool_call", toolCallId, kind: "read", title: "view_file", status: "pending" } });
+  for (let index = 0; index < ESCALATION_TOOL_CALLS + ESCALATION_TOOL_GRACE; index++) call(`read-${index}`);
+  assert.equal(session.cancelRequested, false);
+  call("one-too-many");
+  assert.equal(session.cancelRequested, true);
+  await ended(events);
+});
+
+test("a wake's turn can't put a question to the user", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "question" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  assert.equal(of(events, "question-request").length, 0);
+  assert.equal(replyText(events), "picked:cancelled");
+});
+
+test("an agent that stays out of the strict mode gets no wake: the prompt is never sent", async (t) => {
+  const { session, events } = antigravity(t);
+  session.applyMode = async () => {
+    session.state.mode = "yolo";
+  };
+  const started = await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  assert.equal(started.cancelled, true);
+  assert.equal(started.turnId, null);
+  await ended(events);
+  assert.equal((await sent(session, "session/prompt")).length, 0);
+});
+
+test("the turn after a wake's is the Chat's own again", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "mcp-plan-tool" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events, 2);
+  const modes = (await sent(session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
+  assert.deepEqual(modes, ["yolo"]);
+  assert.equal(replyText(events), "picked:denypicked:allow");
+});
+
+test("a command that writes to GitHub is allowed once, never always", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "guarded" });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  await waitUntil(() => of(events, "permission-request").length === 1);
+  const [push] = of(events, "permission-request");
+  assert.equal(push.command, "git push origin HEAD");
+  assert.equal(push.allowForChat, false);
+  session.respondToPermission(push.requestId, "allow-for-chat");
+  await waitUntil(() => of(events, "permission-request").length === 2);
+  const list = of(events, "permission-request")[1];
+  assert.equal(list.allowForChat, true);
+  session.respondToPermission(list.requestId, "allow-for-chat");
+  await ended(events);
+  assert.equal(replyText(events), "picked:allow picked:allow_always");
+  // An agent that offers no one-time allow gets no "always" for it either.
+  const always = [{ optionId: "allow_always", kind: "allow_always" }];
+  assert.equal(pickOption(always, "allow", { once: true }), null);
+  assert.equal(pickOption(always, "allow").optionId, "allow_always");
 });
 
 test("an edit shows its diff on the card and on the step that ran it", async (t) => {
@@ -255,6 +421,10 @@ test("Auto answers a waiting edit inside the workspace when the mode switches", 
   assert.equal(replyText(events), "picked:allow");
   const modes = (await sent(session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
   assert.deepEqual(modes, ["auto_edit"]);
+});
+
+test("bot mode maps to Antigravity's default mode", () => {
+  assert.equal(ANTIGRAVITY_MODES.bot, "default");
 });
 
 test("acpDiff marks a new file as added lines", () => {
@@ -346,10 +516,10 @@ test("a family and effort resolve to the agent's id from the session's own optio
 });
 
 test("a family the session doesn't offer resolves through the catalog", () => {
-  assert.equal(antigravityAcp.resolveModel({ model: "gemini-3.1-pro", effort: "low", offered: null }), "gemini-3.1-pro-low");
+  assert.equal(antigravityAcp.resolveModel({ model: "gemini-4-argon", effort: "low", offered: null }), "gemini-4-argon-low");
   assert.equal(
-    antigravityAcp.resolveModel({ model: "gemini-3.7-flash", effort: "medium", offered: [{ value: "x", name: "Other (High)" }] }),
-    "gemini-3.7-flash-medium",
+    antigravityAcp.resolveModel({ model: "gemini-4-argon", effort: "medium", offered: [{ value: "x", name: "Other (High)" }] }),
+    "gemini-4-argon-medium",
   );
   assert.equal(antigravityAcp.resolveModel({ model: "nope", effort: "high", offered: null }), "nope");
 });
@@ -509,4 +679,66 @@ test("temp directories carry their owner's pid, and a sweep removes only those w
   fs.mkdirSync(legacy);
   await sweepTempDirs(root);
   assert.deepEqual(fs.readdirSync(root).sort(), [path.basename(legacy), path.basename(mine)].sort());
+});
+
+test("Everywhere servers reach session/new", async (t) => {
+  const { session, events } = antigravity(t, {
+    mcpExtras: async () => ({
+      servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }],
+      off: ["figma"],
+    }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(
+    (await sent(session, "session/new"))[0].mcpServers.map((server) => server.name),
+    ["linear"],
+  );
+});
+
+test("an agent that refuses Everywhere servers still gets milagre, and the linked tools count as available", async (t) => {
+  const available = [];
+  const linked = { url: async () => "http://127.0.0.1:9/mcp/abc", toolsAvailable: (value) => available.push(value) };
+  const { session, events } = antigravity(t, {
+    scenario: "reject-extra-mcp",
+    linked,
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: [] }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(
+    (await sent(session, "session/new")).map((params) => params.mcpServers.map((server) => server.name)),
+    [["milagre", "linear"], ["milagre"]],
+  );
+  assert.deepEqual(available, [true]);
+});
+
+test("a failing mcpExtras still starts the agent and is logged once", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const { session, events } = antigravity(t, {
+    mcpExtras: async () => {
+      throw new Error("boom");
+    },
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.ok(events.some((event) => event.type === "turn-completed"));
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
+});
+
+test("an ACP heartbeat_create result names its Heartbeat on the step and leaves the JSON line out of the detail", () => {
+  const call = {
+    toolCallId: "hb",
+    kind: "other",
+    status: "completed",
+    title: "milagre_heartbeat_create",
+    _meta: { mcp: { server: "milagre", tool: "heartbeat_create" }, is_mcp_tool_call: true },
+    content: [{ type: "content", content: { type: "text", text: '{"routine":{"id":"r1","name":"Babysit"}}\nHeartbeat set: every 15 min.' } }],
+  };
+  assert.deepEqual(acpStepResult(call), { id: "hb", status: "done", routine: { id: "r1", name: "Babysit" }, detail: "Heartbeat set: every 15 min." });
+  // Another tool's JSON first line stays as it is.
+  const other = { ...call, title: "milagre_routine_list", _meta: { mcp: { server: "milagre", tool: "routine_list" }, is_mcp_tool_call: true } };
+  assert.equal(acpStepResult(other).routine, undefined);
+  assert.match(acpStepResult(other).detail, /^\{"routine"/);
 });

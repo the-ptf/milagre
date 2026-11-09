@@ -35,7 +35,7 @@ Do not commit certificates, private keys, passwords or credential files. Keep th
 
 ## Release checks
 
-The workflow checks that all five secrets exist before `semantic-release` creates a tag and GitHub Release. Each macOS job also checks the app-specific password format and authenticates with Apple before installing dependencies. The installer build requires code signing, uses hardened runtime and notarizes the app with `electron-builder`. The app's notarization ticket is stapled before the ZIP and DMG are built.
+The workflow checks that all five secrets exist before it builds; the tag and GitHub Release are created only after the builds pass. Each macOS job also checks the app-specific password format and authenticates with Apple before installing dependencies. The installer build requires code signing, uses hardened runtime and notarizes the app with `electron-builder`. The app's notarization ticket is stapled before the ZIP and DMG are built.
 
 Apple ID, app-specific password and Team ID have surrounding whitespace removed before both app and DMG notarization. The certificate export password is preserved exactly.
 

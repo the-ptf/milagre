@@ -4,6 +4,15 @@ const PREFIX = "milagre-link:";
 // for a Project and `milagre-link:${computerId}|${linkId}` for a Link, so code that slices the Link prefix off gets a
 // Link id that still names its computer. "local" is this Mac, whose keys carry nothing.
 export const LOCAL_COMPUTER = "local";
+
+/** A computer's status dot on both apps (8px, round), as a palette key: green online, orange while it connects or is
+ * being checked, red when it refused the pairing, ink4 offline or unknown. */
+export function presenceTone(state) {
+  if (state === "online") return "green";
+  if (state === "connecting" || state === "reconnecting" || state === "checking") return "orange";
+  if (state === "refused") return "red";
+  return "ink4";
+}
 const COMPUTER_ID = /^[A-Za-z0-9-]{1,64}$/;
 const QUALIFIER = /^([A-Za-z0-9-]{1,64})\|/;
 
@@ -35,12 +44,6 @@ export function qualifyKey(computerId, key) {
   const { link, computerId: current, bare } = parts(key);
   if (current !== LOCAL_COMPUTER) return key;
   return link ? `${PREFIX}${computerId}|${bare}` : `${computerId}|${key}`;
-}
-
-/** A shared Chat's Worktree count, as its rows show it: the agent makes one only in a Project it changes. */
-export function worktreeCountLabel(count) {
-  if (!count) return "No Worktrees yet";
-  return count === 1 ? "1 Worktree" : `${count} Worktrees`;
 }
 
 export function validLinkId(id) {

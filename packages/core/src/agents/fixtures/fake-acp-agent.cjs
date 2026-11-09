@@ -5,6 +5,10 @@
 //   command          a command runs (pending -> in_progress -> completed with output), then text
 //   failing-command  a command that exits 2
 //   permission       a command asks first; the reply text names the option picked ("cancelled" if none)
+//   guarded          `git push origin HEAD` asks first and fails when refused, then `ls build` asks; the reply names both
+//                    options picked
+//   mcp-plan-tool    a Milagre plan tool call asks first; the reply text names the option picked
+//   mcp-design-tool  as mcp-plan-tool, for a Milagre tool that still needs the user's say
 //   edit             an edit asks with its diff, runs as another call, and the asking call fails "never executed"
 //   question         an interaction_ request (a question); the reply text names the option picked
 //   plan             a plan with three entries
@@ -18,16 +22,36 @@
 //   prompt-login     session/prompt fails with -32000
 //   subscription     session/new fails with SUBSCRIPTION_REQUIRED
 //   reject-mcp       session/new and session/resume refuse a non-empty mcpServers
+//   reject-extra-mcp session/new and session/resume refuse an mcpServers list with a server other than milagre
 //   no-resume        no session/resume capability: session/load replays history first
 //   sign-in-line     prints the sign-in URL on stdout and stderr at startup
 // A session id "missing" can't be resumed or loaded. fake/received returns every message received.
 const { createInterface } = require("node:readline");
 
 const scenario = process.env.FAKE_SCENARIO || "reply";
+// Kiro's shapes: "kiro" replies, "kiro-tools" asks for an edit and two commands like kiro-cli's v3 engine.
+const kiro = scenario.startsWith("kiro");
 const received = [];
 let sessions = 0;
-let model = "gemini-3.8-flash-high";
-let mode = "default";
+let model = kiro ? "auto" : "gemini-3.8-flash-high";
+let mode = kiro ? "vibe" : "default";
+// Kiro: models carry their credits and efforts, `effortLevel` follows the model at its default,
+// and approvals are the `autopilot` option.
+const KIRO_MODELS = [
+  { value: "auto", name: "Auto", description: "Models chosen by task", _meta: { kiro: { rateMultiplier: 1, rateUnit: "Credit" } } },
+  {
+    value: "claude-opus-5.5",
+    name: "Claude Opus 5.5",
+    description: "Claude Opus 5.5 model with 1M context window",
+    _meta: { kiro: { rateMultiplier: 2, rateUnit: "Credit", effortLevels: ["low", "medium", "high", "xhigh", "max"], defaultEffortLevel: "medium" } },
+  },
+];
+const kiroDefaultEffort = (value) => {
+  const { _meta: meta } = KIRO_MODELS.find((item) => item.value === value) ?? {};
+  return meta?.kiro.defaultEffortLevel ?? null;
+};
+let effortLevel = null;
+let autopilot = "off";
 let promptWaiter = null;
 let waiting = null;
 let nextServerId = 0;
@@ -39,7 +63,14 @@ const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0
 const update = (sessionId, body) => send({ method: "session/update", params: { sessionId, update: body } });
 const text = (sessionId, value) => update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: value } });
 
-const configOptions = () => [
+const kiroConfigOptions = () => [
+  { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: mode, options: ["vibe", "spec"].map((value) => ({ value, name: value })) },
+  { id: "model", name: "Model", category: "model", type: "select", currentValue: model, options: KIRO_MODELS },
+  ...(effortLevel ? [{ id: "effortLevel", name: "Effort", type: "select", currentValue: effortLevel, options: [] }] : []),
+  { id: "autopilot", name: "Autopilot", type: "select", currentValue: autopilot, options: ["on", "off"].map((value) => ({ value, name: value })) },
+];
+const configOptions = () => (kiro ? kiroConfigOptions() : antigravityConfigOptions());
+const antigravityConfigOptions = () => [
   {
     id: "model",
     name: "Model",
@@ -73,6 +104,9 @@ const OPTIONS = [
   { optionId: "allow", name: "Allow", kind: "allow_once" },
   { optionId: "deny", name: "Deny", kind: "reject_once" },
 ];
+
+// A pending shell command call.
+const commandCall = (toolCallId, line) => ({ toolCallId, title: line, kind: "execute", status: "pending", rawInput: { CommandLine: line, Cwd: "/w" } });
 
 // Asks the client and resolves with its reply's result.
 function ask(params) {
@@ -126,6 +160,64 @@ async function runPrompt(id, sessionId) {
       update(sessionId, { sessionUpdate: "tool_call", ...call });
       const result = await ask({ sessionId, toolCall: call, options: OPTIONS });
       text(sessionId, `picked:${picked(result)}`);
+      return end();
+    }
+    case "guarded": {
+      const push = commandCall("cmd-1", "git push origin HEAD");
+      update(sessionId, { sessionUpdate: "tool_call", ...push });
+      const first = picked(await ask({ sessionId, toolCall: push, options: OPTIONS }));
+      if (first === "deny") update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: "cmd-1", status: "failed" });
+      const list = commandCall("cmd-2", "ls build");
+      update(sessionId, { sessionUpdate: "tool_call", ...list });
+      const second = picked(await ask({ sessionId, toolCall: list, options: OPTIONS }));
+      text(sessionId, `picked:${first} picked:${second}`);
+      return end();
+    }
+    case "mcp-plan-tool":
+    case "mcp-design-tool": {
+      const tool = scenario === "mcp-plan-tool" ? "tasks_set" : "design_delete";
+      const call = {
+        toolCallId: "mcp-1",
+        kind: "other",
+        status: "pending",
+        title: `milagre_${tool}`,
+        rawInput: { arguments: { id: "x" } },
+        _meta: { mcp: { tool, server: "milagre" }, is_mcp_tool_call: true },
+      };
+      update(sessionId, { sessionUpdate: "tool_call", ...call });
+      const result = await ask({ sessionId, toolCall: call, options: OPTIONS });
+      text(sessionId, `picked:${picked(result)}`);
+      return end();
+    }
+    case "kiro-tools": {
+      // A tool call reports its command first; the permission request that follows names only its title.
+      const edit = { type: "diff", path: `${process.cwd()}/notes.txt`, oldText: null, newText: "hello\n" };
+      const results = [];
+      update(sessionId, {
+        sessionUpdate: "tool_call",
+        toolCallId: "edit-1",
+        title: "Edit notes.txt",
+        kind: "edit",
+        status: "pending",
+        content: [edit],
+        locations: [{ path: edit.path }],
+      });
+      results.push(picked(await ask({ sessionId, toolCall: { toolCallId: "edit-1", title: "Edit notes.txt" }, options: OPTIONS })));
+      for (const [toolCallId, command] of [
+        ["run-1", "git status --short"],
+        ["run-2", "git push origin main"],
+      ]) {
+        update(sessionId, {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title: "Run Command",
+          kind: "execute",
+          status: "pending",
+          rawInput: { command, cwd: process.cwd() },
+        });
+        results.push(picked(await ask({ sessionId, toolCall: { toolCallId, title: command }, options: OPTIONS })));
+      }
+      text(sessionId, `picked:${results.join(",")}`);
       return end();
     }
     case "edit": {
@@ -203,6 +295,20 @@ async function runPrompt(id, sessionId) {
     default:
       text(sessionId, "Hel");
       text(sessionId, "lo");
+      // Kiro says what the turn cost just before it ends.
+      if (kiro)
+        update(sessionId, {
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: {
+              kind: "turn_completion",
+              promptTurnSummaries: [
+                { unit: "credit", unitPlural: "credits", usage: 0.03 },
+                { unit: "credit", usage: 0.01 },
+              ],
+            },
+          },
+        });
       return end();
   }
 }
@@ -224,7 +330,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
     return;
   }
-  const mcpRefused = scenario === "reject-mcp" && params.mcpServers?.length;
+  const mcpRefused =
+    (scenario === "reject-mcp" && params.mcpServers?.length) ||
+    (scenario === "reject-extra-mcp" && params.mcpServers?.some((server) => server.name !== "milagre"));
   switch (method) {
     case "initialize":
       return send({
@@ -257,8 +365,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       if (params.configId === "model") {
         if (params.value === "nope") return send({ id, error: { code: -32602, message: "Unknown model" } });
         model = params.value;
+        if (kiro) effortLevel = kiroDefaultEffort(model);
       }
       if (params.configId === "mode") mode = params.value;
+      if (params.configId === "effortLevel") effortLevel = params.value;
+      if (params.configId === "autopilot") autopilot = params.value;
       return send({ id, result: { configOptions: configOptions() } });
     case "session/prompt":
       return void runPrompt(id, params.sessionId);

@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 // node-pty is @milagre/core's dependency, so it is found from there.
-const fromCore = require("node:module").createRequire(path.join(__dirname, "../packages/core/package.json"));
+const fromCore = require("node:module").createRequire(require.resolve("@milagre/core"));
 
 function prepareNodePty(root = path.dirname(fromCore.resolve("node-pty/package.json"))) {
   const helpers = [path.join(root, "build", "Release", "spawn-helper")];

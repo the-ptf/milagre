@@ -41,7 +41,7 @@ async function main() {
     "editor:list": [],
     "notification:state": null,
     "settings:notify-when-waiting": null,
-    "settings:window-translucent": null,
+    "settings:window-background": null,
   };
   for (const [channel, value] of Object.entries(local)) if (!runtime.methods.includes(channel)) ipcMain.handle(channel, () => value);
 
@@ -72,7 +72,7 @@ async function main() {
 
   await window.loadURL(APP_URL);
   await window.webContents.executeJavaScript(
-    `localStorage.setItem("milagre-settings", JSON.stringify({ theme: "dark", defaultPermissionMode: "ask", notifyWhenWaiting: false, notifyOnCompletion: false, showDockBadge: false, showUsageInSidebar: false, legacySidebar: false }))`,
+    `localStorage.setItem("milagre-settings", JSON.stringify({ theme: "dark", defaultPermissionMode: "ask", notifyWhenWaiting: false, notifyOnCompletion: false, showDockBadge: false, showUsageInSidebar: false }))`,
   );
   const reloaded = new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
   window.webContents.reload();

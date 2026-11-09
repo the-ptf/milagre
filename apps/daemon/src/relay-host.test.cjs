@@ -8,7 +8,7 @@ const { b64url, boxKeyPair } = require("@milagre/shared/relay-crypto");
 const { createAssembler, fromBase64 } = require("@milagre/shared/relay-rpc");
 const { readIdentity } = require("./relay-identity.cjs");
 const { createDevices } = require("./devices.cjs");
-const { startRelayHost } = require("./relay-host.cjs");
+const { startRelayHost, createTransportDiagnostics, transportDiagnostics } = require("./relay-host.cjs");
 const {
   random,
   TOKEN,
@@ -25,7 +25,7 @@ const {
 
 async function startMac(
   t,
-  { relayUrl, bridgeUrl, canPair = () => false, token = TOKEN, timing, onStatus, openPeer, allowComputer = async () => "allowed", WebSocket } = {},
+  { relayUrl, bridgeUrl, canPair = () => false, token = TOKEN, timing, onStatus, openPeer, allowComputer = async () => "allowed", WebSocket, diagnostics } = {},
 ) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-host-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
@@ -44,6 +44,7 @@ async function startMac(
     openPeer,
     allowComputer,
     ...(WebSocket ? { WebSocket } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
     onStatus: (status) => {
       statuses.push(status);
       onStatus?.(status);
@@ -224,7 +225,7 @@ test("a live-open with a path that is not a route is refused", async (t) => {
   assert.equal(bridge.seen.liveOpen, 0);
 });
 
-test("a connection is limited to 8 live sockets and 16 requests in flight", async (t) => {
+test("a connection is limited to 8 live sockets and 16 requests in flight, with 64 more waiting their turn", async (t) => {
   const { bridge, connect } = await paired(t);
   const phone = await connect();
   for (let id = 1; id <= 9; id++) phone.send({ t: "live-open", id, path: "/live" });
@@ -238,13 +239,35 @@ test("a connection is limited to 8 live sockets and 16 requests in flight", asyn
   assert.deepEqual(refused, [{ t: "live-close", id: 9, code: 1013 }]);
   assert.equal(bridge.seen.liveOpen, 8);
 
-  for (let id = 100; id < 117; id++) phone.request(id, { path: "/slow" });
-  const over = await phone.response(116);
-  assert.equal(over.status, 429);
+  for (let id = 100; id < 181; id++) phone.request(id, { path: "/slow" });
+  const over = await phone.response(180);
+  assert.equal(over.status, 429, "past 16 running and 64 waiting a flood is refused");
   assert.equal(decode(over.body), '{"v":1,"error":{"message":"Too many requests"}}');
   await until(() => bridge.waiting() === 16, "the 16 requests to reach the bridge");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(bridge.waiting(), 16, "the rest wait on the Mac, not at the bridge");
+  // A busy Mac answering slowly: each free slot takes the next waiting request, so every one is answered.
+  const freeing = setInterval(() => bridge.release(), 10);
+  t.after(() => clearInterval(freeing));
+  // Answers come back in any order, so read them all in one pass.
+  const statuses = new Map();
+  while (statuses.size < 80) {
+    const message = await phone.next();
+    if (message.t === "res" && !message.more) statuses.set(message.id, message.status);
+  }
+  assert.deepEqual(new Set(statuses.values()), new Set([200]));
+});
+
+test("a request that waited too long on the Mac is refused unread, never run late", async (t) => {
+  const { bridge, connect } = await paired(t, { mac: { timing: { queueWaitMs: 150 } } });
+  const phone = await connect();
+  for (let id = 1; id <= 17; id++) phone.request(id, { path: "/slow" });
+  await until(() => bridge.waiting() === 16, "16 requests to reach the bridge");
+  const late = await phone.response(17);
+  assert.equal(late.status, 429, "the phone can't cancel it, so the Mac turns it away instead of running it later");
   bridge.release();
-  assert.equal((await phone.response(100)).status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(bridge.waiting(), 0, "the refused request never reached the bridge");
 });
 
 test("a bad frame closes only that phone", async (t) => {
@@ -835,4 +858,380 @@ test("a computer's second hello replaces its first while it waits, and the new c
   await until(() => second.notices.length >= heard + 2, "the second channel's repeated notices");
   waiting.get(b64url(key.publicKey))("allowed");
   assert.ok((await accepted).channel);
+});
+
+// Webhooks over the host connection (frames 4-7 on conn 0, apps/relay/src/hooks.mjs).
+const crypto = require("node:crypto");
+const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const HOOK_SECRET = "H".repeat(43);
+const HOOK_ID = sha(HOOK_SECRET);
+
+async function hookMac(t, relay, hooks, identityDir) {
+  const dir = identityDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "relay-host-hooks-")));
+  if (!identityDir) t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const identity = await readIdentity(dir);
+  const host = startRelayHost({ relayUrl: relay.url, identity, hooks, hooksOnly: true });
+  t.after(() => host.close());
+  await until(() => host.status() === "online", "host online");
+  return { host, identity, dir };
+}
+function hookSet(ids, extra = {}) {
+  return { ids: () => ids, receive: () => ({ ack: true }), refused: () => {}, owners: () => ({}), ...extra };
+}
+const roomOf = (relay, identity) => relay.hooks.rooms.get(identity.hostId);
+const hookUrlFor = (relay, secret) => `${relay.url.replace(/^ws:/, "http:")}/hook/${secret}`;
+
+test("deliveries that wait for the Mac arrive in order, in batches, and are acked only once receive has them", async (t) => {
+  const relay = await startRelay(t);
+  const batches = [];
+  const hooks = hookSet([HOOK_ID], { receive: (list) => batches.push(list) });
+  const first = await hookMac(t, relay, hooks);
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === first.identity.hostId, "registered");
+  await first.host.close();
+  for (const n of [1, 2, 3]) assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), JSON.stringify({ n }))).status, 202);
+  assert.equal(roomOf(relay, first.identity).storage.deliveries.size(), 3);
+  await hookMac(t, relay, hooks, first.dir);
+  await until(() => roomOf(relay, first.identity).storage.deliveries.size() === 0, "all acked");
+  // Frames that land in one read are one batch; a busy machine may split them, never reorder them.
+  assert.ok(batches.length >= 1 && batches.length <= 3);
+  const all = batches.flat();
+  assert.deepEqual(
+    all.map((delivery) => JSON.parse(new TextDecoder().decode(delivery.body)).n),
+    [1, 2, 3],
+  );
+  assert.equal(all[0].hookId, HOOK_ID);
+  assert.equal(all[0].headers["content-type"], "application/json");
+});
+
+test("a receive that throws acks nothing, so the relay keeps the delivery", async (t) => {
+  const relay = await startRelay(t);
+  let calls = 0;
+  const mac = await hookMac(
+    t,
+    relay,
+    hookSet([HOOK_ID], {
+      receive: () => {
+        calls += 1;
+        throw new Error("disk full");
+      },
+    }),
+  );
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === mac.identity.hostId, "registered");
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
+  await until(() => calls === 1, "receive called");
+  await sleep(100);
+  assert.equal(roomOf(relay, mac.identity).storage.deliveries.size(), 1);
+});
+
+test("every hook set carries the owner keys; a hook another room holds moves only for the right key, else it shows on its Routine", async (t) => {
+  const relay = await startRelay(t);
+  const OWNER = "K".repeat(43);
+  await relay.hooks.directory.claim(HOOK_ID, "someone-else", OWNER);
+  const refusals = [];
+  // Only the URL secret: not enough.
+  const wrong = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: HOOK_SECRET }), refused: (ids) => refusals.push(ids) }));
+  // Reported on the first answer and on the retry after it, never cleared in between (no flicker on the Routine).
+  await until(() => refusals.length >= 2, "the retry's answer", 6000);
+  assert.deepEqual(
+    refusals,
+    refusals.map(() => [HOOK_ID]),
+  );
+  assert.equal(relay.hooks.directory.owner(HOOK_ID), "someone-else");
+  await wrong.host.close();
+
+  const taken = [];
+  const asked = [];
+  const right = await hookMac(
+    t,
+    relay,
+    hookSet([HOOK_ID], {
+      owners: (ids) => {
+        asked.push(ids);
+        return { [HOOK_ID]: OWNER };
+      },
+      refused: (ids) => taken.push(ids),
+    }),
+  );
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === right.identity.hostId, "the hook to move here");
+  assert.deepEqual(asked[0], [HOOK_ID], "the first set already carries the key");
+  assert.ok(taken.every((ids) => ids.length === 0));
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
+});
+
+test("syncHooks sends a changed set at once, and an unchanged one not at all", async (t) => {
+  const relay = await startRelay(t);
+  let ids = [HOOK_ID];
+  const mac = await hookMac(t, relay, hookSet(null, { ids: () => ids }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === mac.identity.hostId, "registered");
+  ids = [];
+  mac.host.syncHooks();
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === null, "released");
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 404);
+});
+
+test("a host without hooks ignores hook frames and never registers anything", async (t) => {
+  const { relay, mac } = await paired(t);
+  const room = relay.hooks.rooms.get(mac.identity.hostId);
+  // The relay would only send HOOK for a registered hook; force one anyway.
+  room.storage.hooks.add(HOOK_ID);
+  room.hooks.receive(HOOK_ID, { headers: {}, query: {}, body: new Uint8Array([1]) });
+  room.hooks.onHostReady();
+  await sleep(100);
+  assert.equal(room.storage.deliveries.size(), 1, "never acked");
+  assert.equal(relay.hooks.directory.owner(HOOK_ID), null);
+  assert.equal(mac.host.status(), "online");
+});
+
+test("a claim the directory failed is asked for again until it lands", async (t) => {
+  const relay = await startRelay(t);
+  const directory = relay.hooks.directory;
+  const claim = directory.claim;
+  let calls = 0;
+  directory.claim = (...args) => {
+    calls += 1;
+    if (calls === 1) throw new Error("directory down");
+    return claim(...args);
+  };
+  const mac = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => directory.owner(HOOK_ID) === mac.identity.hostId, "the hook to be registered after the failure", 6000);
+  assert.ok(calls >= 2);
+});
+
+test("a retired room's host registers no hooks, so its room lets them go, and still acks what waited there", async (t) => {
+  const relay = await startRelay(t);
+  const received = [];
+  const first = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === first.identity.hostId, "registered");
+  await first.host.close();
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
+  // The same identity, now retired by a Reset (phone.cjs hands it hooks with no ids).
+  const retired = startRelayHost({
+    relayUrl: relay.url,
+    identity: first.identity,
+    retired: true,
+    hooks: hookSet([], { receive: (list) => received.push(...list) }),
+  });
+  t.after(() => retired.close());
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === null, "the old room to let go");
+  await until(() => received.length === 1, "the waiting delivery");
+  await until(() => roomOf(relay, first.identity).storage.deliveries.size() === 0, "acked");
+});
+
+test("with phone access off, a phone that dials the webhooks-only host hears the Mac is offline", async (t) => {
+  const relay = await startRelay(t);
+  const mac = await hookMac(t, relay, hookSet([HOOK_ID]));
+  const phone = connectPhone({ relayUrl: relay.url, identity: mac.identity });
+  t.after(() => phone.close());
+  assert.deepEqual(await phone.closed, { code: 4404, reason: "host-offline" });
+});
+
+test("a draining host says drained once it has acked everything its room held, and not before", async (t) => {
+  const relay = await startRelay(t);
+  const first = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === first.identity.hostId, "registered");
+  await first.host.close();
+  for (const n of [1, 2]) assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), JSON.stringify({ n }))).status, 202);
+  const received = [];
+  let drained = 0;
+  let heldWhenDrained = null;
+  // Every answer from the room (hooks.refused hears each one), and how many had come when the host was back online.
+  let answers = 0;
+  let answersWhenBack = null;
+  const draining = startRelayHost({
+    relayUrl: relay.url,
+    identity: first.identity,
+    retired: true,
+    timing: { backoff: [20, 40], jitter: false },
+    onStatus: (status) => {
+      if (status === "online" && drained) answersWhenBack = answers;
+    },
+    hooks: hookSet([], {
+      receive: (list) => received.push(...list),
+      refused: () => (answers += 1),
+      drained: () => {
+        drained += 1;
+        heldWhenDrained = roomOf(relay, first.identity).storage.deliveries.size();
+      },
+    }),
+  });
+  t.after(() => draining.close());
+  await until(() => drained === 1, "drained", 6000);
+  assert.equal(received.length, 2);
+  assert.equal(heldWhenDrained, 0);
+  assert.equal(relay.hooks.directory.owner(HOOK_ID), null, "its hooks released");
+  // Dropped and back, the host asks its room again and hears that it still holds nothing.
+  relay.hostSockets.at(-1).terminate();
+  await until(() => answersWhenBack !== null && answers > answersWhenBack, "the room's answer after the reconnect");
+  assert.equal(drained, 1, "once");
+});
+
+test("a webhook host can confirm an empty room again after hooks are added back", async (t) => {
+  const relay = await startRelay(t);
+  let ids = [HOOK_ID];
+  let drained = 0;
+  const mac = await hookMac(t, relay, hookSet(null, { ids: () => ids, drained: () => (drained += 1) }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID), "registered");
+  ids = [];
+  mac.host.syncHooks();
+  await until(() => drained === 1, "first empty room confirmed");
+  ids = [HOOK_ID];
+  mac.host.syncHooks();
+  await until(() => relay.hooks.directory.owner(HOOK_ID), "registered again");
+  ids = [];
+  mac.host.syncHooks();
+  await until(() => drained === 2, "second empty room confirmed");
+});
+
+test("a draining host whose room holds nothing says drained at once", async (t) => {
+  const relay = await startRelay(t);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-host-drain-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const identity = await readIdentity(dir);
+  let drained = 0;
+  const host = startRelayHost({ relayUrl: relay.url, identity, retired: true, hooks: hookSet([], { drained: () => (drained += 1) }) });
+  t.after(() => host.close());
+  await until(() => drained === 1, "drained");
+});
+
+// Transport diagnostics (relay-host.cjs createTransportDiagnostics): opt-in counters, no payloads.
+test("transport diagnostics are off by default, and a host without them never reads the socket's buffer", async (t) => {
+  if (process.env.MILAGRE_TRANSPORT_DIAGNOSTICS === "1") return t.skip("diagnostics turned on in this environment");
+  assert.equal(transportDiagnostics, null);
+  const reads = { count: 0 };
+  class Counting extends require("ws").WebSocket {
+    get bufferedAmount() {
+      reads.count += 1;
+      return super.bufferedAmount;
+    }
+  }
+  const { connect } = await paired(t, { mac: { WebSocket: Counting } });
+  const phone = await connect();
+  phone.send({ t: "ping" });
+  assert.deepEqual(await phone.next(), { t: "pong" });
+  phone.request(1, { path: "/rpc", method: "POST", body: "{}" });
+  assert.equal((await phone.response(1)).status, 200);
+  assert.equal(reads.count, 0);
+});
+
+test("MILAGRE_TRANSPORT_DIAGNOSTICS=1 at start turns the process-wide diagnostics on; anything else leaves them off", () => {
+  const { execFileSync } = require("node:child_process");
+  const on = (value) =>
+    execFileSync(process.execPath, ["-e", "process.stdout.write(String(require('./relay-host.cjs').transportDiagnostics !== null))"], {
+      cwd: __dirname,
+      env: { ...process.env, MILAGRE_TRANSPORT_DIAGNOSTICS: value },
+    }).toString();
+  assert.equal(on("1"), "true");
+  assert.equal(on("0"), "false");
+  assert.equal(on(""), "false");
+});
+
+test("transport diagnostics count frames, bytes and envelopes both ways, the most the socket held, and reconnects", async (t) => {
+  const clock = { now: 5_000 };
+  const diagnostics = createTransportDiagnostics({ now: () => clock.now });
+  const tally = { inFrames: 0, inBytes: 0, outFrames: 0, outBytes: 0 };
+  const busy = { amount: 0 };
+  // Tallies the relay socket only: the bridge's live sockets share the class.
+  class Tallied extends require("ws").WebSocket {
+    constructor(url, ...rest) {
+      super(url, ...rest);
+      this.relay = String(url).includes("/v1/host");
+      if (this.relay)
+        this.on("message", (data) => {
+          tally.inFrames += 1;
+          tally.inBytes += data.length;
+        });
+    }
+    send(data, ...rest) {
+      if (this.relay) {
+        tally.outFrames += 1;
+        tally.outBytes += typeof data === "string" ? Buffer.byteLength(data) : data.length;
+      }
+      return super.send(data, ...rest);
+    }
+    get bufferedAmount() {
+      return busy.amount || super.bufferedAmount;
+    }
+  }
+  const relay = await startRelay(t);
+  const { mac, connect } = await paired(t, { relay, mac: { WebSocket: Tallied, diagnostics, timing: { backoff: [20], jitter: false } } });
+  const phone = await connect();
+  phone.send({ t: "ping" });
+  assert.deepEqual(await phone.next(), { t: "pong" });
+  busy.amount = 12_345;
+  phone.request(1, { path: "/rpc", method: "POST", headers: { authorization: `Bearer ${TOKEN}` }, body: '{"secret":"s3cr3t"}' });
+  assert.equal((await phone.response(1)).status, 200);
+  busy.amount = 0;
+  phone.close();
+  await until(() => diagnostics.read().in.envelopes.CLOSE === 1, "the relay's CLOSE");
+  const seen = diagnostics.read();
+  assert.equal(seen.in.frames, tally.inFrames);
+  assert.equal(seen.in.bytes, tally.inBytes);
+  assert.equal(seen.out.frames, tally.outFrames);
+  assert.equal(seen.out.bytes, tally.outBytes);
+  assert.deepEqual(
+    Object.entries(seen.in.envelopes).filter(([, n]) => n),
+    [
+      ["OPEN", 1],
+      ["DATA", 3],
+      ["CLOSE", 1],
+      ["text", 2],
+    ],
+  );
+  assert.deepEqual(
+    Object.entries(seen.out.envelopes).filter(([, n]) => n),
+    [
+      ["DATA", 3],
+      ["text", 1],
+    ],
+  );
+  assert.deepEqual(
+    Object.entries(seen.in.messages).filter(([, n]) => n),
+    [
+      ["hello", 1],
+      ["req", 1],
+      ["ping", 1],
+    ],
+  );
+  assert.deepEqual(
+    Object.entries(seen.out.messages).filter(([, n]) => n),
+    [
+      ["hello", 1],
+      ["res", 1],
+      ["pong", 1],
+    ],
+  );
+  assert.equal(seen.maxBufferedAmount, 12_345);
+  assert.deepEqual(seen.active, { phone: 1, retired: 0, hooks: 0 });
+  // Nothing that names a device, the Mac, the bridge or a request is in what diagnostics hand out.
+  const json = JSON.stringify(seen);
+  for (const secret of [TOKEN, "s3cr3t", mac.identity.hostId, b64url(phone.key.publicKey), "/rpc", "127.0.0.1", "Bearer"])
+    assert.ok(!json.includes(secret), secret);
+
+  relay.hostSockets[0].terminate();
+  await until(() => relay.hostSockets.length === 2 && mac.host.status() === "online", "the host back online");
+  const after = diagnostics.read().sockets.phone;
+  assert.equal(after.connects, 2);
+  assert.equal(after.reconnects, 1);
+  assert.equal(after.closes["1006"], 1);
+
+  clock.now = 9_000;
+  diagnostics.reset();
+  const fresh = diagnostics.read();
+  assert.equal(fresh.since, 9_000);
+  assert.equal(fresh.uptimeMs, 0);
+  assert.equal(fresh.in.frames + fresh.out.frames + fresh.sockets.phone.connects + fresh.maxBufferedAmount, 0);
+  assert.deepEqual(fresh.active, { phone: 1, retired: 0, hooks: 0 }, "a reset keeps the hosts running now");
+  clock.now = 9_250;
+  assert.equal(diagnostics.read().uptimeMs, 250);
+
+  await mac.host.close();
+  const stopped = diagnostics.read();
+  assert.deepEqual(stopped.active, { phone: 0, retired: 0, hooks: 0 });
+  assert.equal(stopped.sockets.phone.stopped, 1);
+  assert.equal(stopped.sockets.phone.closes["1000"], 1);
+  // A stopped host counts nothing more.
+  const before = JSON.stringify(diagnostics.read());
+  mac.host.syncHooks();
+  mac.host.drop("anything");
+  assert.equal(JSON.stringify(diagnostics.read()), before);
 });

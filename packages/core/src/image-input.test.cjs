@@ -4,11 +4,10 @@ const { decodeImages } = require("./image-input.cjs");
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII=";
 const image = { id: "one", name: "pasted.png", dataUrl: `data:image/png;base64,${png}` };
 
-test("validates pasted images and rejects unsupported or excessive attachments", () => {
+test("validates pasted images without a count cap and rejects unsupported or oversized images", () => {
   assert.equal(decodeImages([image])[0].mime, "image/png");
-  // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- the test deliberately passes the same item repeatedly to hit the count limit
-  assert.throws(() => decodeImages(Array(5).fill(image)), /up to 4/);
+  assert.equal(decodeImages(Array.from({ length: 120 }, () => ({ ...image }))).length, 120);
   assert.throws(() => decodeImages([{ dataUrl: "data:image/svg+xml;base64,PHN2Zz4=" }]), /PNG/);
   assert.throws(() => decodeImages([{ dataUrl: "data:image/png;base64,aGVsbG8=" }]), /valid supported image/);
-  assert.throws(() => decodeImages([{ dataUrl: "x".repeat(8 * 1024 * 1024) }]), /5 MB/);
+  assert.throws(() => decodeImages([{ dataUrl: "x".repeat(71 * 1024 * 1024) }]), /50 MiB/);
 });

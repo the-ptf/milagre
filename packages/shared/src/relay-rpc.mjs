@@ -3,7 +3,7 @@
 const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const INDEX = new Map([...CHARS].map((char, i) => [char, i]));
 export const CHUNK = 256 * 1024;
-export const MAX_RESPONSE = 32 * 1024 * 1024;
+export const MAX_RESPONSE = 64 * 1024 * 1024;
 
 export function toBase64(bytes) {
   let out = "";

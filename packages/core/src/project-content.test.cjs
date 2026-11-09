@@ -23,6 +23,15 @@ test("attached images become durable project paths, independent of names and sou
   assert.equal((await fs.readFile(image.path)).length, 100);
   await assert.rejects(storeImages(p, [{ dataUrl: "data:text/html;base64,AAAA" }]));
 });
+test("an image uploaded from a chosen file keeps that file as its source, not the upload's temporary path", async (t) => {
+  const { storeImages } = require("./project-content.cjs");
+  const p = await project(t);
+  const [image] = await storeImages(p, [
+    { id: "a", name: "screen.png", dataUrl: png(100), path: "/data/uploads/screen.png", sourcePath: "/Users/me/screen.png" },
+  ]);
+  assert.equal(image.sourcePath, "/Users/me/screen.png");
+  assert.equal(path.dirname(image.path), path.join(p, ".milagre", "images"));
+});
 test("a 4.9 MB legacy Project shrinks while images and complete child transcript survive restart", async (t) => {
   const { readProjectState, saveProjectState, stateFile } = require("./project-store.cjs");
   const p = await project(t);

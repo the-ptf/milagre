@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyProjectOrder, boundedOrder, createProjectOrderStore } from "./project-order-store.ts";
+import { applyProjectOrder, boundedOrder, createProjectOrderStore, dropBefore, moveProject } from "./project-order-store.ts";
 
 function storage() {
   const values = new Map<string, string>();
@@ -70,13 +70,57 @@ test("a saved value stays under the size SecureStore is safe with, however many 
   const values = [...disk.values.values()];
   assert.equal(values.length, 1);
   assert.ok(new TextEncoder().encode(values[0]).length <= 1900);
+  assert.ok(values[0] !== undefined);
   const kept = JSON.parse(values[0]).o as string[];
   assert.ok(kept.length > 10 && kept.length < many.length);
   assert.deepEqual(kept, many.slice(0, kept.length), "the first Projects are the ones kept");
   // The rest come back as new, on top, next launch.
-  const shown = paths(await store.apply("https://mac", many.map((path) => ({ path })).reverse()));
+  const shown = paths(await store.apply("https://mac", many.map((path) => ({ path })).toReversed()));
   assert.deepEqual(shown.slice(-kept.length), kept);
   assert.equal(boundedOrder("x", ["/é".repeat(2000)]).length, 0, "one huge path never exceeds the bound");
+});
+
+test("moveProject drops a Project before another, or at the end", () => {
+  const order = ["/code/a", "/code/b", "/code/c"];
+  assert.deepEqual(moveProject(order, "/code/c", "/code/a"), ["/code/c", "/code/a", "/code/b"], "before the first");
+  assert.deepEqual(moveProject(order, "/code/a", "/code/c"), ["/code/b", "/code/a", "/code/c"], "down one");
+  assert.deepEqual(moveProject(order, "/code/a", null), ["/code/b", "/code/c", "/code/a"], "to the end");
+  assert.deepEqual(moveProject(order, "/code/a", "/code/a"), order, "onto itself is a no-op");
+  assert.deepEqual(moveProject(order, "/code/x", "/code/a"), order, "an unknown Project is a no-op");
+  assert.deepEqual(moveProject(order, "/code/a", "/code/x"), order, "an unknown target is a no-op");
+});
+
+test("dropBefore lands a header between the projects around the release, not on the first", () => {
+  // An expanded list: each 40pt header is followed by 80pt of Chats. D is being dragged, so only A, B and C are measured.
+  const bands = [
+    { path: "/a", top: 0, bottom: 40 },
+    { path: "/b", top: 120, bottom: 160 },
+    { path: "/c", top: 240, bottom: 280 },
+  ];
+  assert.equal(dropBefore(bands, 200), "/c", "over B's Chats, between B and C: before C");
+  assert.equal(dropBefore(bands, 130), "/b", "B's header, top half: before B");
+  assert.equal(dropBefore(bands, 150), "/c", "B's header, lower half: after B");
+  assert.equal(dropBefore(bands, 275), null, "C's header, lower half: at the end");
+  assert.equal(dropBefore(bands, 400), null, "past the last header: at the end");
+  assert.equal(dropBefore(bands, -10), "/a", "above the first: before it");
+  const order = ["/a", "/b", "/c", "/d"];
+  assert.deepEqual(moveProject(order, "/d", dropBefore(bands, 200)), ["/a", "/b", "/d", "/c"]);
+  // B dragged and released over its own group (its header's old place): the header after it is C, so B keeps its place.
+  assert.deepEqual(
+    moveProject(
+      order,
+      "/b",
+      dropBefore(
+        [
+          { path: "/a", top: 0, bottom: 40 },
+          { path: "/c", top: 240, bottom: 280 },
+          { path: "/d", top: 360, bottom: 400 },
+        ],
+        160,
+      ),
+    ),
+    order,
+  );
 });
 
 test("each key is safe for SecureStore", async () => {

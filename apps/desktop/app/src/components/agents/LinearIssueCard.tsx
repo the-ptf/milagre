@@ -6,13 +6,14 @@ export function LinearIssueCard({ issue }: { issue: LinearIssueContext }) {
   return (
     <div data-slot="linear-issue" data-key={issue.key} className="flex w-full max-w-md flex-col gap-2">
       <a
-        href={issue.url}
+        // A Routine Run's card has no link when the issue's URL wasn't Linear's own.
+        href={issue.url || undefined}
         target="_blank"
         rel="noreferrer"
         aria-label={`Open Linear issue ${issue.key}: ${issue.title}`}
-        className="flex w-full flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] hover:border-line-strong"
+        className="flex w-full flex-col gap-1 rounded-card border border-line bg-surface px-3 py-2 text-13 transition-colors duration-fast hover:border-line-strong"
       >
-        <span className="flex items-center gap-1.5 text-[12px] tabular-nums text-ink-3">
+        <span className="flex items-center gap-1.5 text-12 tabular-nums text-ink-3">
           <LinearLogo size={12} />
           <span className="shrink-0 font-medium">{issue.key}</span>
           <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: issue.state.color }} />
@@ -20,7 +21,7 @@ export function LinearIssueCard({ issue }: { issue: LinearIssueContext }) {
         </span>
         <span className="line-clamp-2 font-medium text-ink">{issue.title}</span>
       </a>
-      {issue.note && <p className="self-end whitespace-pre-wrap rounded-xl bg-field px-3 py-1.5 text-ink">{issue.note}</p>}
+      {issue.note && <p className="self-end whitespace-pre-wrap rounded-card bg-field px-3 py-1.5 text-ink">{issue.note}</p>}
     </div>
   );
 }

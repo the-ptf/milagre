@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterSkills, groupSkills, shadowedBy, shortenHome, skillBody, skillProviderLabel } from "./skill-catalog.ts";
+import { filterSkills, groupSkills, rankSkillMatches, shadowedBy, shortenHome, skillBody, skillMatchRank, skillProviderLabel } from "./skill-catalog.ts";
 import type { SkillOption } from "./model.ts";
 
 const skill = (name: string, scope: SkillOption["scope"], provider: string, description = "Use this skill"): SkillOption => ({
@@ -78,4 +78,41 @@ test("home folders shorten to ~ and labels name the CLI", () => {
 test("the body drops only a leading frontmatter block", () => {
   assert.equal(skillBody("---\nname: x\ndescription: y\n---\n# Title\nText\n"), "# Title\nText");
   assert.equal(skillBody("# No frontmatter\n---\nrule"), "# No frontmatter\n---\nrule");
+});
+
+test("a typed query ranks name-prefix matches, then name matches, then description matches", () => {
+  const rows = [
+    { name: "/reorder", description: "Gently put things in order" },
+    { name: "/settle", description: "Close out loose ends" },
+    { name: "/plugin:tl-notes", description: "Notes" },
+    { name: "/tldr", description: "Rewrite for a skimming reader" },
+    { name: "/other", description: "Nothing here" },
+    { name: "/tl", description: "Exact" },
+  ];
+  const read = (row: (typeof rows)[number]) => row;
+  assert.deepEqual(
+    rankSkillMatches(rows, "tl", read).map((row) => row.name),
+    ["/plugin:tl-notes", "/tldr", "/tl", "/settle", "/reorder"],
+    "prefix matches (a plugin prefix is skipped) in list order, then the name substring, then the description",
+  );
+  assert.deepEqual(
+    rankSkillMatches(rows, "TLD", read).map((row) => row.name),
+    ["/tldr"],
+  );
+  assert.equal(rankSkillMatches(rows, "", read).length, rows.length, "no query keeps every row in order");
+  assert.deepEqual(
+    rankSkillMatches(rows, "", read).map((row) => row.name),
+    rows.map((row) => row.name),
+  );
+  assert.deepEqual(rankSkillMatches(rows, "zzz", read), []);
+});
+
+test("match rank is 0 for a name prefix, 1 for a name match, 2 for a description match and -1 for none", () => {
+  assert.equal(skillMatchRank("/tldr", "Shorter replies", "tl"), 0);
+  assert.equal(skillMatchRank("tldr", "Shorter replies", "  TL "), 0);
+  assert.equal(skillMatchRank("/settle", "Close out", "tl"), 1);
+  assert.equal(skillMatchRank("/gently", "Reorder", "tl"), 1, "tl is inside the name gently");
+  assert.equal(skillMatchRank("/ship", "Open a PR gently", "tl"), 2);
+  assert.equal(skillMatchRank("/ship", "Open a PR", "tl"), -1);
+  assert.equal(skillMatchRank("/ship", "Open a PR", ""), 0);
 });

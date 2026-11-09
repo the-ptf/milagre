@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "@milagre/shared/model";
-import { afterSend, afterSheet, defaultPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "./turn-options.ts";
+import { afterSend, afterSheet, chatPreferences, defaultPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "./turn-options.ts";
 
 const reported: AgentModels = {
   claude: null,
   antigravity: null,
+  kiro: null,
   codex: [
     {
       id: "reported-model",
@@ -52,19 +53,50 @@ test("Antigravity lists one model per family and sends the chosen thinking level
   const models = modelsFor("antigravity", reported);
   assert.deepEqual(
     models.map((model) => model.id),
-    ["gemini-3.8-flash", "gemini-3.1-pro", "gemini-3.7-flash", "gemini-3.6-flash"],
+    ["gemini-4-argon", "gemini-3.8-flash"],
   );
-  const pro = selectedModel("antigravity", "gemini-3.1-pro", reported);
-  assert.deepEqual(pro.efforts, ["low", "high"]);
-  assert.deepEqual(sendOptions(pro, { effort: "low", fastMode: true, permissionMode: "ask" }), {
+  const argon = selectedModel("antigravity", "gemini-4-argon", reported);
+  assert.deepEqual(argon.efforts, ["low", "medium", "high"]);
+  assert.deepEqual(sendOptions(argon, { effort: "low", fastMode: true, permissionMode: "ask" }), {
     provider: "antigravity",
-    model: "gemini-3.1-pro",
+    model: "gemini-4-argon",
     effort: "low",
     fastMode: false,
     permissionMode: "ask",
   });
-  // Pro has no Medium, so it falls back to its default, High.
-  assert.equal(sendOptions(pro, { effort: "medium", fastMode: false, permissionMode: "ask" }).effort, "high");
+  assert.equal(sendOptions(argon, { effort: "medium", fastMode: false, permissionMode: "ask" }).effort, "medium");
+});
+
+test("a partner model reported by Antigravity is selected and sent through Antigravity", () => {
+  const models: AgentModels = {
+    ...reported,
+    antigravity: [
+      {
+        id: "antigravity:claude-sonnet-5.5",
+        name: "Claude Sonnet 5.5",
+        description: "",
+        recommended: false,
+        efforts: ["low", "high", "max"],
+        defaultEffort: "high",
+        ultracode: false,
+        fastMode: false,
+      },
+    ],
+  };
+  const sonnet = selectedModel("antigravity", "antigravity:claude-sonnet-5.5", models);
+  assert.deepEqual(
+    modelsFor("antigravity", models).map((model) => model.name),
+    ["Claude Sonnet 5.5"],
+  );
+  assert.deepEqual(sendOptions(sonnet, { effort: "max", fastMode: false, permissionMode: "ask" }), {
+    provider: "antigravity",
+    model: "antigravity:claude-sonnet-5.5",
+    effort: "max",
+    fastMode: false,
+    permissionMode: "ask",
+  });
+  // A model saved on a different Account must not be offered as a selectable, unsupported extra row.
+  assert.equal(selectedModel("antigravity", "gemini-3.1-pro", models).id, "antigravity:claude-sonnet-5.5");
 });
 
 const claudeChat = { ...defaultPreferences, provider: "codex" as const, model: "gpt-6", pickedOn: "claude" as const };
@@ -120,4 +152,20 @@ test("a fresh Chat uses the saved default model while an existing Chat keeps its
   const defaults = { ...defaultPreferences, provider: "claude" as const, model: "opus" };
   assert.deepEqual(turnTarget(undefined, undefined, defaults), { provider: "claude", model: "opus", picked: false });
   assert.deepEqual(turnTarget(undefined, "codex", defaults), { provider: "codex", model: "", picked: false });
+});
+
+test("a Chat shows the mode the Mac saved on it, whatever this phone picked last", () => {
+  const saved = { ...defaultPreferences, permissionMode: "auto" as const };
+  assert.equal(chatPreferences(undefined, defaultPreferences, "full").permissionMode, "full", "picked on desktop");
+  assert.equal(chatPreferences(saved, defaultPreferences, "full").permissionMode, "full", "picked here, then on desktop");
+  assert.equal(chatPreferences(undefined, defaultPreferences, undefined, "auto").permissionMode, "auto", "an older Chat's running turn");
+  assert.equal(chatPreferences(saved, defaultPreferences).permissionMode, "auto", "a Chat not sent yet");
+  assert.equal(chatPreferences(undefined, defaultPreferences), defaultPreferences);
+});
+
+test("a pick made here shows until the Mac's copy moves on", () => {
+  const picked = { ...defaultPreferences, permissionMode: "full" as const, permissionPick: { mode: "full" as const, over: "ask" as const } };
+  assert.equal(chatPreferences(picked, defaultPreferences, "ask").permissionMode, "full", "not saved on the Mac yet");
+  assert.equal(chatPreferences(picked, defaultPreferences, "full").permissionMode, "full", "saved");
+  assert.equal(chatPreferences(picked, defaultPreferences, "auto").permissionMode, "auto", "changed on desktop since");
 });

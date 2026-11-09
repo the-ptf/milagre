@@ -1,0 +1,32 @@
+{
+  "specVersion": "1.0",
+  "host": { "displayName": "Milagre", "identifier": "did:web:milagre.cloud" },
+  "entries": [
+    {
+      "identifier": "urn:air:milagre.cloud:skill:milagre",
+      "displayName": "Milagre: install and pair",
+      "type": "text/markdown",
+      "url": "https://milagre.cloud/.well-known/agent-skills/milagre/SKILL.md",
+      "representativeQueries": [
+        "how do I install Milagre",
+        "run Claude Code agents in parallel worktrees",
+        "answer coding agent approvals from my phone",
+        "pair the Milagre phone app"
+      ]
+    },
+    {
+      "identifier": "urn:air:milagre.cloud:docs:llms",
+      "displayName": "Milagre overview for language models",
+      "type": "text/plain",
+      "url": "https://milagre.cloud/llms.txt",
+      "representativeQueries": ["what is Milagre", "Milagre download links", "is Milagre open source"]
+    },
+    {
+      "identifier": "urn:air:milagre.cloud:docs:home",
+      "displayName": "Milagre home page as Markdown",
+      "type": "text/markdown",
+      "url": "https://milagre.cloud/index.md",
+      "representativeQueries": ["Milagre features", "does Milagre need another AI subscription", "which computers does Milagre run on"]
+    }
+  ]
+}

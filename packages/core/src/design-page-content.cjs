@@ -5,7 +5,7 @@ function publicPageContent(snapshot) {
   return {
     schemaVersion: snapshot.schemaVersion,
     title: snapshot.title,
-    designs: snapshot.designs.map(({ title, document: input }) => {
+    designs: snapshot.designs.map(({ title, group, document: input }) => {
       const document = validateDesignDocument(input);
       const byId = new Map(document.nodes.map((node) => [node.id, node]));
       const visible = document.nodes.filter((node) => {
@@ -18,13 +18,25 @@ function publicPageContent(snapshot) {
       const literal = (value) => (value?.startsWith("$") ? designColor(document, value) : value);
       return {
         title,
+        ...(group ? { group } : {}),
         document: {
           schemaVersion: 1,
           width: document.width,
           height: document.height,
           ...(document.background ? { background: literal(document.background) } : {}),
           nodes: visible.map((node) => {
-            const { name: _name, component: _component, componentId: _componentId, componentSourceId: _source, hidden: _hidden, ...copy } = node;
+            const {
+              name: _name,
+              component: _component,
+              componentId: _componentId,
+              componentSourceId: _source,
+              hidden: _hidden,
+              textStyle: _textStyle,
+              bindings: _bindings,
+              componentProperties: _properties,
+              componentValues: _values,
+              ...copy
+            } = node;
             return {
               ...copy,
               id: ids.get(node.id),

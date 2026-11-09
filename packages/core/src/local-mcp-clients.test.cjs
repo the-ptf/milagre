@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { assertPrivate } = require("./private-files.cjs");
 const { createLocalMcpStore, privateJson, hash } = require("./local-mcp-store.cjs");
 const { clientCatalog, readConfig, clientEntry, entryToken, canonical, prepareEdit } = require("./local-mcp-client-files.cjs");
 const config = { label: "Editor", grants: { designs: { chatId: "/project#1", designIds: ["one"], capabilities: ["read"] } } };
@@ -33,11 +34,14 @@ test("every client toggle installs its native config, preserves unrelated settin
     const text = fs.readFileSync(client.configPath, "utf8");
     assert.match(text, /keep me/);
     assert.match(text, /127\.0\.0\.1:43210/);
-    assert.equal(fs.statSync(client.configPath).mode & 0o777, 0o600);
+    // 0600 on macOS and Linux; on Windows, an ACL only this user and SYSTEM hold.
+    if (process.platform === "win32") assertPrivate(client.configPath);
+    else assert.equal(fs.statSync(client.configPath).mode & 0o777, 0o600);
     const record = f.store.list().find((c) => c.id === result.connection.id);
     assert.equal(record.clientId, client.id);
     assert.deepEqual(record.grants, config.grants);
-    const token = text.match(/[A-Za-z0-9_-]{43}/)?.[0];
+    // Read the credential field: a long checkout path can also contain 43 token-shaped characters.
+    const token = entryToken(readConfig(clientCatalog({ home: f.home, env: {}, platform: "darwin" }).find((c) => c.id === client.id)).entry);
     assert.equal(f.store.authenticate(token).id, record.id);
     const definition = clientCatalog({ home: f.home, env: {}, platform: "darwin" }).find((c) => c.id === client.id);
     const { entry } = readConfig(definition);
@@ -182,4 +186,39 @@ test("conflicts, malformed configs and symbolic links never overwrite client set
   fs.symlinkSync(target, row.configPath);
   await assert.rejects(async () => f.clients.enable("opencode", config), /symbolic|symlink/i);
   assert.equal(fs.readFileSync(target, "utf8"), "{}");
+});
+
+test("editing a configured client updates its grant in place without rotating its credential, and mints a new one if missing", async (t) => {
+  const f = fixture(t);
+  const initial = await f.clients.enable("claude-code", {
+    label: "Claude Code CLI",
+    grants: { projects: { projectPaths: ["/repo-a"], capabilities: ["read"] } },
+  });
+  const firstFile = fs.readFileSync(initial.configPath, "utf8");
+  const firstToken = firstFile.match(/[A-Za-z0-9_-]{43}/)[0];
+
+  const widened = await f.clients.enable("claude-code", {
+    label: "Claude Code CLI",
+    grants: {
+      projects: { projectPaths: "*", capabilities: ["read"] },
+      worktrees: { projectPaths: "*", capabilities: ["read", "create"] },
+    },
+  });
+  assert.equal(widened.connection.id, initial.connection.id);
+  assert.equal(widened.connection.revision, 2);
+  assert.deepEqual(widened.connection.grants.projects, { projectPaths: "*", capabilities: ["read"] });
+  assert.equal(fs.readFileSync(initial.configPath, "utf8"), firstFile, "configured token stays intact so running CLI sessions keep working");
+  assert.equal(f.store.authenticate(firstToken).revision, 2);
+
+  // If the owned entry was deleted from the client config file, enable repairs it with a fresh credential.
+  fs.writeFileSync(initial.configPath, "{}");
+  assert.equal(f.clients.status().find((c) => c.id === "claude-code").state, "missing");
+  const repaired = await f.clients.enable("claude-code", {
+    label: "Claude Code CLI",
+    grants: { projects: { projectPaths: ["/repo-b"], capabilities: ["read"] } },
+  });
+  assert.notEqual(repaired.connection.id, initial.connection.id);
+  assert.throws(() => f.store.authenticate(firstToken), /Unauthorized/);
+  const secondToken = fs.readFileSync(repaired.configPath, "utf8").match(/[A-Za-z0-9_-]{43}/)[0];
+  assert.equal(f.store.authenticate(secondToken).id, repaired.connection.id);
 });

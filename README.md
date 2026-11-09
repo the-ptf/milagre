@@ -33,7 +33,7 @@ Native installer checks pass on all three platforms. Public distribution is at d
 | Platform                       | Packages                                        | Availability                                                         |
 | ------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------- |
 | macOS, Apple Silicon and Intel | DMG, ZIP, Homebrew cask                         | Signed releases and Homebrew are live                                |
-| Windows, x64                   | Per-user NSIS installer, WinGet manifest        | Native checks pass; signed public release and WinGet listing pending |
+| Windows, x64                   | Per-user NSIS installer, WinGet manifest        | Unsigned betas; signed public release and WinGet listing pending     |
 | Linux, x64                     | AppImage, DEB, RPM, signed APT/RPM repositories | Native checks pass; public release and repository deployment pending |
 
 You need at least one local agent CLI, installed and logged in:
@@ -48,6 +48,8 @@ Milagre uses your existing agent login. It does not provide model credentials or
 > Experimental software. Use Full permission mode only in a Project you can recover.
 
 For the phone companion, start with [pairing and mobile setup](docs/mobile-local.md). Your Mac must be awake, online and running the host for the phone to reach its agents.
+
+To use a computer as a server without a desktop UI, run `npx milagre serve`. The [headless CLI](docs/local-daemon.md#headless-computer) provides terminal pairing and device approval. It requires Node.js 24+ and a signed-in agent CLI on that computer.
 
 ## Finish Windows and Linux publication
 
@@ -68,7 +70,7 @@ See [desktop distribution](docs/agents/distribution.md) for build commands, nati
 
 ## Develop locally
 
-Requires macOS, Node.js 24 or newer, and npm.
+Requires macOS or Windows, Node.js 24 or newer, and npm. Development and CI use Node.js 26 LTS; the packaged desktop app uses its bundled Electron runtime. See [developing on Windows](docs/development.md#developing-on-windows).
 
 ```sh
 npm ci

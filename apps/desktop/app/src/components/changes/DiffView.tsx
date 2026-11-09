@@ -1,20 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { DURATION, EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { EmptyState } from "../primitives/EmptyState";
+import { SpinnerRing } from "../primitives/SpinnerRing";
 import type { DiffFileEntry } from "../../electron";
 import { CommentCard, CommentSlot } from "./DiffComments";
 import { DiffFile } from "./DiffFile";
 import { useCommentDraft, type CommentActions, type CommentStore, type CommentView } from "./useDiffComments";
 import type { Changes } from "./useChanges";
 import type { useDiffPreferences } from "./DiffPrefs";
+import type { PullRequestDetail, PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
+import type { DiffSelection } from "../../lib/diff-comments";
+import { threadsByPath, threadsFor } from "../../lib/pull-request-view";
+import { ReviewBar, ThreadCard, type ThreadActions } from "./PullRequestReview";
+
+/** A PR's diff: GitHub's threads on its files, and its review's writes. Every function is stable. */
+export type PrDiffReview = {
+  pr: PullRequestDetail;
+  threadActions: ThreadActions;
+  addToReview: (selection: DiffSelection, path: string, body: string) => void;
+  submit: (event: ReviewEvent, body: string) => Promise<boolean>;
+  error: string | null;
+};
 
 // The toolbar, preferences and presence live in DiffPrefs, which the app loads up front; this file is its own chunk.
 export { DiffToolbar, useDiffPreferences, useDiffPresence } from "./DiffPrefs";
 
 const NO_COMMENTS: CommentView[] = [];
 
-export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs: ReturnType<typeof useDiffPreferences>; comments: CommentStore }) {
+export function DiffView({
+  changes,
+  prefs,
+  comments,
+  review,
+}: {
+  changes: Changes;
+  prefs: ReturnType<typeof useDiffPreferences>;
+  comments: CommentStore;
+  review?: PrDiffReview;
+}) {
   const reduced = useReducedMotion();
   const { list, load, patchFor, scrollTarget } = changes;
   const scroller = useRef<HTMLDivElement>(null);
@@ -45,6 +70,7 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
 
   const { draft, text, start, over, edit, cancel } = useCommentDraft();
   const { add, update, remove } = comments;
+  const addToReview = review?.addToReview;
   // The rows a selection points at mean something else in the other layout.
   useEffect(() => cancel(), [prefs.layout, cancel]);
   const actions = useMemo<CommentActions>(
@@ -62,8 +88,23 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
         remove(id);
         cancel();
       },
+      ...(addToReview && {
+        addToReview: (selection, path, body) => {
+          addToReview(selection, path, body);
+          cancel();
+        },
+      }),
     }),
-    [start, over, edit, cancel, add, update, remove],
+    [start, over, edit, cancel, add, update, remove, addToReview],
+  );
+
+  // The PR's threads per file, the same arrays while they don't change, so untouched files don't re-render.
+  const threadGroups = useRef<Map<string, PullRequestThread[]>>(undefined);
+  const prThreads = useMemo(() => (threadGroups.current = threadsByPath(review?.pr.threads ?? [], threadGroups.current)), [review?.pr.threads, threadGroups]);
+  const threadActions = review?.threadActions;
+  const renderThreads = useCallback(
+    (threads: PullRequestThread[]) => (threadActions ? threads.map((thread) => <ThreadCard key={thread.id} thread={thread} actions={threadActions} />) : null),
+    [threadActions],
   );
 
   // A file whose comments haven't changed gets the same array back, so it doesn't re-render.
@@ -77,7 +118,7 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
     }
     grouped.current = next;
     return next;
-  }, [comments.comments]);
+  }, [comments.comments, grouped]);
   // Comments on files that left the diff have no file to sit in; they gather at the top so they can still be deleted.
   const paths = new Set(files.map((file) => file.path));
   const orphans = list.state === "ready" && list.isRepo ? comments.comments.filter((comment) => !paths.has(comment.path)) : [];
@@ -89,19 +130,25 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
       initial={{ opacity: 0, x: 32 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 32 }}
-      transition={reduced ? { duration: 0 } : { x: SPRING_LAYOUT, opacity: { duration: 0.2, ease: EASE_OUT } }}
+      transition={reduced ? { duration: 0 } : { x: SPRING_LAYOUT, opacity: { duration: DURATION.base, ease: EASE_OUT } }}
     >
-      {/* Starts 60px down, level with the sidebar and the panel; only the bottom edge fades, while there's more below. */}
-      <ScrollArea ref={scroller} data-diff-view className="diff-scroll mt-[60px] h-[calc(100%-60px)] px-3 pb-4">
-        {files.length === 0 && (
-          <p className="py-16 text-center text-[13px] text-ink-3">{list.state === "ready" ? "No changes to show." : "Loading changes…"}</p>
-        )}
+      {/* Starts under the top bar, level with the sidebar and the panel; only the bottom edge fades, while there's more below. */}
+      <ScrollArea ref={scroller} data-diff-view className="diff-scroll mt-[var(--window-chrome-height)] h-[calc(100%-var(--window-chrome-height))] px-3 pb-4">
+        {files.length === 0 &&
+          (list.state === "ready" ? (
+            <EmptyState size="page" title="No changes to show" />
+          ) : (
+            <p role="status" className="flex items-center justify-center gap-2 py-16 text-13 text-ink-3">
+              <SpinnerRing size={12} />
+              Loading changes…
+            </p>
+          ))}
         {orphans.length > 0 && (
           <div data-diff-orphans className="mb-3 overflow-hidden rounded-card border border-line bg-surface">
             <CommentSlot>
               {orphans.map((comment) => (
                 <div key={comment.id} className="flex flex-col gap-1">
-                  <span className="truncate font-mono text-[11px] text-ink-3" dir="rtl">
+                  <span className="truncate font-mono text-11 text-ink-3" dir="rtl">
                     <bdi>{comment.path}</bdi>
                   </span>
                   <CommentCard comment={comment} onDelete={() => remove(comment.id)} />
@@ -126,10 +173,17 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
               onToggle={toggle}
               onVisible={load}
               onShowLarge={showLarge}
+              threads={review ? threadsFor(prThreads, file.path) : undefined}
+              renderThreads={review ? renderThreads : undefined}
             />
           ))}
         </div>
+        {/* Room under the last file for the review bar that floats over it. */}
+        {review && <div aria-hidden className="h-20" />}
       </ScrollArea>
+      {review && (
+        <ReviewBar pending={review.pr.pendingReview?.count ?? 0} canApprove={!review.pr.viewerIsAuthor} error={review.error} onSubmit={review.submit} />
+      )}
     </motion.div>
   );
 }

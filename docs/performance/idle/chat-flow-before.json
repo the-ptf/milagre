@@ -1,0 +1,110 @@
+[
+  {
+    "count": 40,
+    "trial": 0,
+    "initial": {
+      "nodes": 2714,
+      "renderMs": 82.50000095367432
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 64.20000171661377
+    }
+  },
+  {
+    "count": 40,
+    "trial": 1,
+    "initial": {
+      "nodes": 2714,
+      "renderMs": 79.80000114440918
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 69.2999997138977
+    }
+  },
+  {
+    "count": 40,
+    "trial": 2,
+    "initial": {
+      "nodes": 2714,
+      "renderMs": 67.50000095367432
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 84.7000002861023
+    }
+  },
+  {
+    "count": 300,
+    "trial": 0,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 63.40000009536743
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 111.09999990463257
+    }
+  },
+  {
+    "count": 300,
+    "trial": 1,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 57.000000953674316
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 96.5999960899353
+    }
+  },
+  {
+    "count": 300,
+    "trial": 2,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 54.69999980926514
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 106.9000015258789
+    }
+  },
+  {
+    "count": 1000,
+    "trial": 0,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 58.79999923706055
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 126.29999685287476
+    }
+  },
+  {
+    "count": 1000,
+    "trial": 1,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 90.69999980926514
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 125.50000047683716
+    }
+  },
+  {
+    "count": 1000,
+    "trial": 2,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 78.1000018119812
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 130.5000033378601
+    }
+  }
+]

@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
 const { AttentionNotifier } = require("./notifications.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 function setup({ focused = false } = {}) {
   const shown = [];
@@ -173,7 +174,7 @@ test("a computer's first pairing says another Mac can now drive this one, and it
   const { notifier, shown, opened } = setup();
   assert.equal(notifier.notifyDevicePaired("computer"), true);
   assert.equal(shown[0].options.title, "New computer paired");
-  assert.equal(shown[0].options.body, "Another Mac can now drive your agents on this Mac. If it wasn't you, remove it in Settings → Devices.");
+  assert.equal(shown[0].options.body, `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
   // One pairing notice at a time, whatever paired.
@@ -189,7 +190,7 @@ test("phones that paired while Milagre was closed are named and announced as suc
   assert.deepEqual(shown[0].options, {
     title: "New phone paired",
     subtitle: "",
-    body: "Victor's iPhone paired with this Mac while Milagre was closed. If it wasn't you, remove it in Settings → Devices.",
+    body: `Victor's iPhone paired with ${thisComputer} while Milagre was closed. If it wasn't you, remove it in Settings → Devices.`,
   });
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
@@ -198,27 +199,27 @@ test("phones that paired while Milagre was closed are named and announced as suc
   assert.deepEqual(shown[1].options, {
     title: "2 new phones paired",
     subtitle: "",
-    body: "2 phones paired with this Mac while Milagre was closed. If one wasn't you, remove it in Settings → Devices.",
+    body: `2 phones paired with ${thisComputer} while Milagre was closed. If one wasn't you, remove it in Settings → Devices.`,
   });
   // While Milagre is open: named when the phone sent a name, as before otherwise.
   notifier.notifyPhonesPaired([{ name: "Victor's iPhone" }]);
-  assert.equal(shown[2].options.body, "Victor's iPhone can now reach your agents on this Mac. If it wasn't you, remove it in Settings → Devices.");
+  assert.equal(shown[2].options.body, `Victor's iPhone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
   notifier.notifyPhonesPaired([{ name: null }]);
-  assert.equal(shown[3].options.body, "A phone can now reach your agents on this Mac. If it wasn't you, remove it in Settings → Devices.");
+  assert.equal(shown[3].options.body, `A phone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
 });
 
 test("a computer waiting for Allow is announced once while Milagre is in the background, and its click opens the window", () => {
   const { notifier, shown, opened, state } = setup();
   const studio = { key: "s".repeat(43), name: "studio", at: 1 };
   assert.equal(notifier.notifyComputerWaiting([studio]), true);
-  assert.equal(shown[0].options.title, "studio wants to drive this Mac's chats");
+  assert.equal(shown[0].options.title, `studio wants to drive ${thisComputer}'s chats`);
   assert.equal(shown[0].options.body, "Open Milagre to allow or deny it.");
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
   // The same request again (another computer joined the list) says nothing more about it.
   const lab = { key: "l".repeat(43), name: null, at: 2 };
   assert.equal(notifier.notifyComputerWaiting([studio, lab]), true);
-  assert.equal(shown[1].options.title, "A computer wants to drive this Mac's chats");
+  assert.equal(shown[1].options.title, `A computer wants to drive ${thisComputer}'s chats`);
   assert.equal(shown[0].closed, true, "one notice at a time");
   assert.equal(notifier.notifyComputerWaiting([studio, lab]), false);
   // Answered: the notice goes.
@@ -237,6 +238,27 @@ test("a remote chat notification keeps only the chat name and still opens that c
   assert.deepEqual(shown[0].options, { title: "Fix login", subtitle: "", body: "Which color?" });
   shown[0].emit("click");
   assert.deepEqual(opened, [chatId]);
+});
+
+test("a Chat hidden from this Mac's sidebar is never announced or counted, and closes once hidden", () => {
+  const badges = [];
+  const { notifier, shown } = setup();
+  const hidden = new Set(["studio|/gym#2"]);
+  notifier.isHidden = (chatId) => hidden.has(chatId);
+  notifier.setBadge = (badge) => badges.push(badge);
+  notifier.observe("studio|/gym#2", question);
+  assert.equal(notifier.notify({ ...notice, chatId: "studio|/gym#2" }), false);
+  assert.equal(badges.at(-1), "");
+  notifier.observe("studio|/shop#3", question);
+  assert.equal(notifier.notify({ ...notice, chatId: "studio|/shop#3" }), true);
+  assert.equal(badges.at(-1), "1");
+  hidden.add("studio|/shop#3");
+  notifier.hiddenChanged();
+  assert.equal(shown[0].closed, true);
+  assert.equal(badges.at(-1), "");
+  hidden.clear();
+  notifier.hiddenChanged();
+  assert.equal(badges.at(-1), "2");
 });
 
 test("forgetComputer closes what a removed computer waited on and clears the badge", () => {
@@ -303,6 +325,28 @@ test("a held completion shows once its last background subagent ends with no tur
   assert.equal(shown.length, 3);
 });
 
+test("a command left running in the background (a dev server) doesn't hold the turn's announcement", () => {
+  const { notifier, shown } = setup();
+  notifier.sync({ projectPath: "/shop", activeChatId: null, unread: [], notifyOnCompletion: true });
+  notifier.observe("/shop#2", { type: "turn-started", turnId: "t1" });
+  notifier.observe("/shop#2", { type: "background-tasks", tasks: [{ id: "srv", kind: "local_bash", title: "npm run dev", startedAt: 1 }] });
+  notifier.observe("/shop#2", { type: "text-delta", text: "The dev server is up." });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), true);
+  assert.equal(shown[0].options.body, "The dev server is up.");
+});
+
+test("a stopped turn is never announced, even once its background subagent ends", () => {
+  const { notifier, shown } = setup();
+  notifier.sync({ projectPath: "/shop", activeChatId: null, unread: [], notifyOnCompletion: true });
+  notifier.observe("/shop#2", { type: "turn-started", turnId: "t1" });
+  notifier.observe("/shop#2", backgroundAgent("a", "running"));
+  notifier.observe("/shop#2", { type: "turn-cancelled" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), false);
+  notifier.observe("/shop#2", backgroundAgent("a", "cancelled"));
+  assert.equal(shown.length, 0);
+});
+
 test("completion previews keep the start of the latest reply, without markdown or a cut-off first word", () => {
   const { notifier, shown } = setup();
   notifier.observe("/shop#2", { type: "turn-started" });
@@ -347,4 +391,96 @@ test("desktop approval notifications preserve the command's shell syntax", () =>
     body: "Codex needs approval: Run: find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__",
   });
   assert.equal(shown[0].options.body, "Codex needs approval: Run: find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__");
+});
+
+test("a chosen chime silences a chat's notification and plays in the window; with no window the system sound stays", () => {
+  const played = [];
+  let window = true;
+  const shown = [];
+  const notifier = new AttentionNotifier({
+    createNotification: (options) => {
+      const notification = Object.assign(new EventEmitter(), { options, show() {}, close() {} });
+      shown.push(notification);
+      return notification;
+    },
+    isAppFocused: () => false,
+    openChat: () => {},
+    canPlayChime: () => window,
+    playChime: (chime) => played.push(chime),
+  });
+  notifier.observe("/shop#2", question);
+  notifier.notify(notice);
+  assert.equal(shown[0].options.silent, undefined);
+  assert.deepEqual(played, []);
+
+  notifier.setChime("faaah");
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" });
+  assert.equal(shown[1].options.silent, true);
+  assert.deepEqual(played, ["faaah"]);
+
+  window = false;
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" });
+  assert.equal(shown[2].options.silent, undefined);
+  assert.deepEqual(played, ["faaah"]);
+
+  notifier.setChime("air-horn");
+  assert.equal(notifier.chime, "system");
+});
+
+test("a quiet turn (a heartbeat's pass) leaves no completion alert", () => {
+  const { notifier, shown } = setup();
+  notifier.sync({ projectPath: "/shop", activeChatId: "/shop#1", unread: [], notifyOnCompletion: true });
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "text-delta", text: "(pass) CI green" });
+  notifier.observe("/shop#2", { type: "turn-completed", quiet: true });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), false);
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), true);
+  assert.equal(shown.length, 1);
+});
+
+test("a quiet failed turn (a heartbeat failing again) leaves no alert", () => {
+  const { notifier, shown } = setup();
+  notifier.sync({ projectPath: "/shop", activeChatId: "/shop#1", unread: [], notifyOnCompletion: true });
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "turn-failed", message: "boom", quiet: true });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), false);
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "turn-failed", message: "boom" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), true);
+  assert.equal(shown.length, 1);
+});
+
+test("notification schedules silence waiting and completion alerts while retaining unread badges", () => {
+  let clock = Date.parse("2026-10-21T12:59Z");
+  const shown = [];
+  const badges = [];
+  const notifier = new AttentionNotifier({
+    now: () => clock,
+    createNotification: () => {
+      shown.push(true);
+      return Object.assign(new EventEmitter(), { show() {}, close() {} });
+    },
+    isAppFocused: () => false,
+    openChat() {},
+    setBadge: (value) => badges.push(value),
+  });
+  notifier.setSchedule({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone: "America/Toronto" });
+  notifier.observe("/shop#2", question);
+  assert.equal(notifier.notify(notice), false);
+  notifier.observe("/shop#3", { type: "turn-started" });
+  notifier.observe("/shop#3", { type: "turn-completed" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#3", title: "Finished" }), false);
+  assert.equal(badges.at(-1), "1");
+  assert.equal(shown.length, 0);
+  clock = Date.parse("2026-10-21T13:00Z");
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#3", title: "Finished" }), false, "no delayed completion backlog");
+  notifier.observe("/shop#4", question);
+  assert.equal(notifier.notify({ ...notice, chatId: "/shop#4" }), true);
+  assert.equal(shown.length, 1);
 });

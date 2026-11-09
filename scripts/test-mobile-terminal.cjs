@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld("ReactNativeWebView", { postMessage: (message) =
 
 async function electronChecks() {
   const { app, BrowserWindow, ipcMain } = require("electron");
-  const { createTerminals, terminalEnvironment } = require("../packages/core/src/terminals.cjs");
+  const { createTerminals, terminalEnvironment, terminalShell } = require("../packages/core/src/terminals.cjs");
   const { followTerminal } = await import(pathToFileURL(path.join(__dirname, "../packages/shared/src/terminal-client.mjs")).href);
   const [page, themesFile] = process.argv.slice(2);
   const themes = JSON.parse(fs.readFileSync(themesFile, "utf8"));
@@ -26,9 +26,12 @@ async function electronChecks() {
   fs.writeFileSync(preloadFile, preload);
   await app.whenReady();
   const window = new BrowserWindow({ width: 390, height: 640, useContentSize: true, show: false, webPreferences: { preload: preloadFile, sandbox: false } });
+  const selectedShell = process.platform === "linux" ? terminalShell() : { file: "/bin/sh", args: [] };
+  // The disposable home has no profile yet; skip zsh's first-run configuration wizard.
+  fs.writeFileSync(path.join(scratch, ".zshrc"), "# Terminal fixture\n");
   const terminals = createTerminals({
     resolveChat: async () => [{ path: scratch, label: "phone" }],
-    shell: () => ({ file: "/bin/sh", args: [] }),
+    shell: () => selectedShell,
     environment: () => terminalEnvironment({ PATH: "/usr/bin:/bin", HOME: scratch, PS1: "$ " }),
   });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
@@ -111,6 +114,10 @@ async function electronChecks() {
     await evaluate("window.terminalFocus()");
     await type("echo phone-$((40+2))\r");
     await waitFor(async () => (await shown()).includes("phone-42"), "the command's output");
+    if (path.basename(selectedShell.file) === "zsh") {
+      await type("echo shell-name:$0\r");
+      await waitFor(async () => /shell-name:[^\s]*zsh/.test(await shown()), "the selected shell is running zsh");
+    }
 
     // A held Ctrl turns the next letter into its control character: Ctrl+C stops a running command.
     await type("sleep 30\r");

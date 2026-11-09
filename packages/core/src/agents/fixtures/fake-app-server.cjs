@@ -3,8 +3,10 @@
 // approval), file-approval, permissions (extra sandbox permissions), withdrawn (an approval Codex
 // takes back), steer (the first turn waits; turn/steer joins it, or is refused when its text says
 // "too late"), no-turn-id (the first turn is never given an id and ends on its own), stubborn (turn never ends, interrupt unanswered), hang-init (initialize unanswered),
+// hang-thread (thread/start and thread/resume unanswered),
 // resume-exit (exits on thread/resume), slow-stop (the first turn takes 150ms to stop after an interrupt),
 // late-approval (like slow-stop, and Codex asks for a command approval while the turn is stopping),
+// reject-extra-mcp (thread/start and thread/resume fail when `config` carries an MCP server other than milagre with a url),
 // reject-config (thread/start and thread/resume fail with an RPC error when they carry `config`),
 // question (Codex asks a question and ends the turn on the answer), question-steer (Codex asks a question
 // and the turn waits for turn/steer), question-withdrawn (a question Codex takes back), late-question
@@ -22,6 +24,8 @@ let pendingTurn = null;
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const notify = (method, params) => send({ method, params });
+// A shell command item, as Codex wraps it in the user's login shell.
+const commandItem = (itemId, shell) => ({ type: "commandExecution", id: itemId, command: `/bin/zsh -lc '${shell}'`, cwd: "/repo", status: "inProgress" });
 const completeTurn = (threadId, turnId, status, error = null) => notify("turn/completed", { threadId, turn: { id: turnId, items: [], status, error } });
 
 const QUESTIONS = [
@@ -52,7 +56,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     if (pendingTurn && pendingTurn.approvalId === id) {
       const result = message.result || {};
       const answer = result.decision !== undefined ? `decision:${result.decision}` : `answer:${JSON.stringify(message.result ?? message.error)}`;
-      notify("item/agentMessage/delta", { threadId: pendingTurn.threadId, turnId: pendingTurn.turnId, itemId: "msg-1", delta: answer });
+      // A turn that asks again once answered (guarded): the next approval, and every answer in the reply at the end.
+      if (pendingTurn.next) {
+        const { next } = pendingTurn;
+        pendingTurn = { ...pendingTurn, approvalId: next(answer), next: null, earlier: answer };
+        return;
+      }
+      const delta = [pendingTurn.earlier, answer].filter(Boolean).join(" ");
+      notify("item/agentMessage/delta", { threadId: pendingTurn.threadId, turnId: pendingTurn.turnId, itemId: "msg-1", delta });
       completeTurn(pendingTurn.threadId, pendingTurn.turnId, "completed");
       pendingTurn = null;
     }
@@ -121,10 +132,16 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "fake/received":
       return send({ id, result: { received, threadStarts } });
     case "thread/start":
+      if (scenario === "hang-thread") return undefined;
+      if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
+        return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
       if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
       threadStarts += 1;
       return send({ id, result: { thread: { id: `thread-${threadStarts}` }, model: params.model } });
     case "thread/resume":
+      if (scenario === "hang-thread") return undefined;
+      if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
+        return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
       if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
       if (scenario === "resume-exit") {
         process.stderr.write("resume exploded\n");
@@ -201,7 +218,32 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           params: { threadId, turnId, itemId: "cmd-1", startedAtMs: 0, command: "/bin/zsh -lc 'rm -rf build'", cwd: "/repo", reason: "Clean the build" },
         });
       }
-      if (["mcp-approval", "mcp-form"].includes(scenario)) {
+      // A babysit Run's turn: Codex asks about `git push`, then about `ls build`.
+      if (scenario === "guarded") {
+        const ask = (requestId, item) => {
+          notify("item/started", { threadId, turnId, item });
+          send({
+            id: requestId,
+            method: "item/commandExecution/requestApproval",
+            params: { threadId, turnId, itemId: item.id, startedAtMs: 0, command: item.command, cwd: "/repo" },
+          });
+        };
+        const push = commandItem("cmd-1", "git push origin HEAD");
+        pendingTurn = {
+          threadId,
+          turnId,
+          approvalId: "srv-1",
+          next: (answer) => {
+            notify("item/completed", { threadId, turnId, item: { ...push, status: answer === "decision:decline" ? "declined" : "completed" } });
+            ask("srv-2", commandItem("cmd-2", "ls build"));
+            return "srv-2";
+          },
+        };
+        ask("srv-1", push);
+        return undefined;
+      }
+      if (["mcp-approval", "mcp-form", "mcp-plan-approval"].includes(scenario)) {
+        const tool = scenario === "mcp-plan-approval" ? "tasks_set" : "design_delete";
         pendingTurn = { threadId, turnId, approvalId: "srv-mcp" };
         return send({
           id: "srv-mcp",
@@ -211,7 +253,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             turnId,
             serverName: "milagre",
             mode: "form",
-            message: 'Allow the milagre MCP server to run tool "design_show"?',
+            message: `Allow the milagre MCP server to run tool "${tool}"?`,
             requestedSchema: { type: "object", properties: scenario === "mcp-form" ? { email: { type: "string" } } : {} },
             _meta: {
               codex_approval_kind: "mcp_tool_call",

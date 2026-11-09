@@ -98,6 +98,7 @@ async function fixture(t, { createSession, lazyMessages, ...options } = {}) {
     maxFrameBytes: 8192,
     runtimeOptions: {
       cwd: project,
+      chatsHome: path.join(directory, "chats"),
       environmentReady: Promise.resolve(),
       titleModels: {},
       ...(lazyMessages === undefined ? {} : { lazyMessages }),
@@ -153,7 +154,7 @@ async function fixture(t, { createSession, lazyMessages, ...options } = {}) {
       await fs.rm(directory, { recursive: true, force: true });
     }
   });
-  return { daemon, dataDir, project, sessions, client };
+  return { daemon, dataDir, project, chatsHome: path.join(directory, "chats"), sessions, client };
 }
 
 test("independent clients reconnect to a running Chat and its pending approval", async (t) => {
@@ -879,29 +880,119 @@ test("a client that takes state patches gets what changed, one that doesn't stil
   assert.equal(applyStatePatch(applied, next.payload.patch).sessions[session.id].title, "Again");
 });
 
-test("a state the client can't patch from, or a patch over the event limit, says to read the state again", async (t) => {
+test("an open's reply carries its state's number, so the first change is a patch on it; one over the event limit says to read again", async (t) => {
   // An 8 KB frame: the event limit is 2 KB, so a reply longer than that can't go as a patch.
   const { project, client } = await fixture(t);
   const desktop = await client();
   const events = [];
   desktop.on("event", (event) => events.push(event));
-  await desktop.call("daemon:state-patches");
+  const { epoch } = await desktop.call("daemon:state-patches");
   const opened = await desktop.call("project:open", [project]);
+  // Nothing was sent for this Project yet: its numbers start at the state the open answered with.
+  assert.equal(opened.epoch, epoch);
+  assert.equal(typeof opened.version, "number");
   const session = Object.values(opened.state.sessions)[0];
   const states = () => events.filter((event) => event.channel === "project:state");
   await desktop.call("chat:patch", [project, session.id, { title: "First" }]);
-  // The first state sent for this Project has nothing before it to patch from, so it says to read it.
-  const first = await waitFor(() => states()[0]);
-  assert.equal(first.payload.resync, true);
-  assert.equal("state" in first.payload, false);
-  const held = await desktop.call("state:read", [project]);
+  // The first change follows on from the reply, instead of sending the window to read the whole state again.
+  const first = await waitFor(() => states().find((event) => event.payload.version > opened.version));
+  assert.equal(first.payload.base, opened.version);
+  assert.equal("resync" in first.payload, false);
+  const patched = applyStatePatch(opened.state, first.payload.patch);
+  assert.deepEqual(patched, (await desktop.call("project:snapshot", [project])).state);
+  // Opening it again answers with the state sent last, under its number.
+  const reopened = await desktop.call("project:open", [project]);
+  assert.equal(reopened.version, first.payload.version);
+  assert.deepEqual(reopened.state, patched);
   await desktop.call("chat:git-note", [`${project}#${session.id}`, "x".repeat(5000)]);
-  const large = await waitFor(() => states().find((event) => event.payload.version > held.version));
+  const large = await waitFor(() => states().find((event) => event.payload.version > first.payload.version));
   assert.equal(large.payload.resync, true);
   assert.equal("patch" in large.payload, false);
   const again = await desktop.call("state:read", [project]);
   assert.equal(again.version, large.payload.version);
   assert.equal(again.state.messages.at(-1).body.length, 5000);
+});
+
+test("canvas:snapshot leaves out the messages a lean client reads by Chat, and keeps them for a whole one", async (t) => {
+  const { project, client } = await fixture(t);
+  const lean = await client();
+  await lean.call("daemon:state-patches", [{ messages: false, transcripts: false, archivedSubagents: false }]);
+  const whole = await client();
+  await whole.call("daemon:state-patches");
+  const opened = await whole.call("project:open", [project]);
+  const session = Object.values(opened.state.sessions)[0];
+  await whole.call("chat:git-note", [`${project}#${session.id}`, "A note worth keeping"]);
+  await whole.call("daemon:flush");
+  const stateOf = (snapshot) => snapshot.states.find((entry) => entry.path === project).state;
+  const full = stateOf(await whole.call("canvas:snapshot"));
+  const trimmed = stateOf(await lean.call("canvas:snapshot"));
+  assert.ok(full.messages.some((message) => message.body.includes("A note worth keeping")));
+  assert.deepEqual(trimmed.messages, []);
+  assert.equal(trimmed.messagesInChats, true);
+  assert.equal(trimmed.sessions[session.id].summary.count, full.sessions[session.id].summary.count);
+});
+
+test("a reply whose state differs from the last sent only in a Chat it loaded keeps that number, for lean and whole clients", async (t) => {
+  const { daemon, project, client } = await fixture(t, { lazyMessages: { idleMs: 0, sweepMs: 0 } });
+  const lean = await client();
+  await lean.call("daemon:state-patches", [{ messages: false }]);
+  const whole = await client();
+  const wholeEvents = [];
+  whole.on("event", (event) => wholeEvents.push(event));
+  await whole.call("daemon:state-patches", [{}]);
+  const opened = await lean.call("project:open", [project]);
+  const session = Object.values(opened.state.sessions)[0];
+  await lean.call("chat:git-note", [`${project}#${session.id}`, "First note"]);
+  await lean.call("daemon:flush");
+  // The Chat leaves memory (a state sent to every client), then its page loads it back: a state sent to nobody.
+  await daemon.unloadIdle();
+  const sent = await whole.call("state:read", [project]);
+  await lean.call("chat:messages", [project, session.id, { turns: 5 }]);
+  const leanOpen = await lean.call("project:open", [project]);
+  const wholeOpen = await whole.call("project:open", [project]);
+  assert.equal(leanOpen.version, sent.version);
+  assert.equal(wholeOpen.version, sent.version);
+  assert.deepEqual(wholeOpen.state, sent.state);
+  // The next change is a patch on that number, and gives the state a fresh read does.
+  await lean.call("chat:patch", [project, session.id, { title: "Renamed" }]);
+  const change = await waitFor(() => wholeEvents.find((event) => event.channel === "project:state" && event.payload.version > sent.version));
+  assert.equal(change.payload.base, sent.version);
+  assert.deepEqual(applyStatePatch(wholeOpen.state, change.payload.patch), (await whole.call("state:read", [project])).state);
+});
+
+test("project:read with { state: false } opens the Project without its state, under the number of the state last sent", async (t) => {
+  const { project, client } = await fixture(t);
+  const desktop = await client();
+  const { epoch } = await desktop.call("daemon:state-patches", [{ messages: false }]);
+  const opened = await desktop.call("project:open", [project]);
+  assert.deepEqual(await desktop.call("project:read", [project, { state: false }]), {
+    path: project,
+    name: path.basename(project),
+    git: true,
+    version: opened.version,
+    epoch,
+  });
+  // Without it, as before, with the number beside the state.
+  const read = await desktop.call("project:read", [project]);
+  assert.deepEqual([read.version, read.epoch, read.state.sessions], [opened.version, epoch, opened.state.sessions]);
+});
+
+test("a connection's Project follows a sidebar open, and a Link it opens has none", async (t) => {
+  const { project, client } = await fixture(t);
+  const other = path.join(path.dirname(project), "other");
+  await fs.mkdir(other);
+  execFileSync("git", ["init", "-b", "main", other], { stdio: "ignore" });
+  const desktop = await client();
+  await desktop.call("project:open", [other]);
+  await desktop.call("project:open", [project]);
+  assert.equal((await desktop.call("project:current")).path, project);
+  assert.equal((await desktop.call("canvas:open-project", [other])).path, other);
+  assert.equal((await desktop.call("project:current")).path, other, "the sidebar's open is the connection's Project");
+  const ids = Object.fromEntries((await desktop.call("project:registry")).map((entry) => [entry.path, entry.id]));
+  const link = await desktop.call("link:create", [{ name: "Both", projectIds: [ids[project], ids[other]] }]);
+  await desktop.call("link:open", [link.id]);
+  // With a Link open there is no Project of its own: the window's next start opens the launch Project.
+  assert.equal((await desktop.call("project:current")).path, project);
 });
 
 test("a client that reads transcripts on demand gets each subagent with the end of its transcript", async (t) => {
@@ -964,6 +1055,15 @@ test("a client that reads transcripts on demand gets each subagent with the end 
   assert.equal(tail.transcriptLength, 20);
   assert.equal((await desktop.call("state:read", [project])).state.sessions[2].subagents[0].transcriptLength, 20);
   assert.equal((await whole.call("project:open", [project])).state.sessions[2].subagents[0].transcript.length, 20);
+  // The canvas reads every Project's state in one reply, under `states`.
+  const canvas = await desktop.call("canvas:snapshot");
+  const canvasState = canvas.states.find((entry) => entry.path === project).state;
+  assert.deepEqual(canvasState.messages, []);
+  assert.equal(canvasState.messagesInChats, true);
+  assert.equal(canvasState.sessions[2].subagents[0].transcript.length, tail.transcript.length);
+  assert.equal(canvasState.sessions[2].subagents[0].transcriptLength, 20);
+  const wholeCanvas = await whole.call("canvas:snapshot");
+  assert.equal(wholeCanvas.states.find((entry) => entry.path === project).state.sessions[2].subagents[0].transcript.length, 20);
   const read = await desktop.call("chat:subagent", [project, 2, "child"]);
   assert.deepEqual(read.transcript, transcript);
   await assert.rejects(desktop.call("chat:subagent", [project, 2, "gone"]), /no longer in this Chat/);
@@ -982,12 +1082,14 @@ test("a client that reads transcripts on demand gets each subagent with the end 
 
 test("a client that reads archived subagents on demand gets each as a summary, in states, patches and updates", async (t) => {
   const entry = (n) => ({ id: `e${n}`, kind: "message", text: `Entry ${n}` });
+  let emit;
   const { project, client } = await fixture(t, {
     createSession(_provider, options) {
+      emit = options.emit;
       return {
         closed: false,
         async startTurn() {
-          // An archived child that runs again: archiving only hides it.
+          // An archived child that ended runs again, as a resumed session picks up its background agents.
           options.emit({ type: "turn-started", turnId: "turn-1" });
           options.emit({
             type: "subagent-update",
@@ -1013,7 +1115,6 @@ test("a client that reads archived subagents on demand gets each as a summary, i
     archived: true,
     prompt: "Check the auth flow",
     latestActivity: "Reading auth.ts",
-    communications: [{ id: "c1", fromId: null, toId: "child", text: "Look at the tests too", at: 1 }],
     transcript,
   };
   const live = { id: "live", title: "Tests", status: "completed", startedAt: 1, updatedAt: 2, latestActivity: "Finished", transcript: [entry(1)] };
@@ -1062,7 +1163,6 @@ test("a client that reads archived subagents on demand gets each as a summary, i
   const read = await desktop.call("chat:subagent", [project, 2, "child"]);
   assert.equal(read.prompt, "Check the auth flow");
   assert.equal(read.latestActivity, "Reading auth.ts");
-  assert.deepEqual(read.communications, child.communications);
   assert.deepEqual(read.transcript, transcript);
 
   // Restoring it sends its details as a patch on the summary; archiving it again takes them back out.
@@ -1083,17 +1183,26 @@ test("a client that reads archived subagents on demand gets each as a summary, i
   assert.equal(archivedAgain.detailsOnDemand, true);
   assert.equal("latestActivity" in archivedAgain, false);
 
-  // A running archived child's update goes to this client as a summary, and to the other with its tail.
+  // An ended child that runs again is back on the track, so its update goes whole.
   await desktop.call("chat:send", [{ projectPath: project, sessionId: 2, body: "Go", provider: "codex", model: "test", permissionMode: "ask" }]);
   const isUpdate = (event) => event.channel === "agent:event" && event.payload.event.type === "subagent-update";
-  const update = (await waitFor(() => events.find(isUpdate))).payload.event.agent;
+  const resumed = (await waitFor(() => events.find(isUpdate))).payload.event.agent;
+  assert.equal(resumed.detailsOnDemand, undefined);
+  assert.equal(resumed.latestActivity, "Writing");
+  // One archived while it runs stays archived: its update goes to this client as a summary, and to the other with its tail.
+  await desktop.call("chat:archive-subagent", [project, 2, "child", true]);
+  emit({
+    type: "subagent-update",
+    agent: { id: "child", title: "Review", status: "running", startedAt: 1, updatedAt: Date.now(), latestActivity: "Testing", transcript: [entry(22)] },
+  });
+  const update = (await waitFor(() => events.filter(isUpdate)[1])).payload.event.agent;
   assert.equal(update.detailsOnDemand, true);
   assert.deepEqual(update.transcript, []);
   assert.equal("latestActivity" in update, false);
-  const tailUpdate = (await waitFor(() => tailEvents.find(isUpdate))).payload.event.agent;
-  assert.equal(tailUpdate.latestActivity, "Writing");
-  assert.equal(tailUpdate.transcriptLength, 21);
-  assert.equal((await desktop.call("chat:subagent", [project, 2, "child"])).latestActivity, "Writing");
+  const tailUpdate = (await waitFor(() => tailEvents.filter(isUpdate)[1])).payload.event.agent;
+  assert.equal(tailUpdate.latestActivity, "Testing");
+  assert.equal(tailUpdate.transcriptLength, 22);
+  assert.equal((await desktop.call("chat:subagent", [project, 2, "child"])).latestActivity, "Testing");
 });
 
 test("a client that reads messages by Chat gets states without them, and each change's messages beside its patch", async (t) => {
@@ -1223,4 +1332,45 @@ test("a Chat the host unloaded reads back whole, and no client hears its message
   // And on disk: everything, in order.
   await lean.call("daemon:flush");
   assert.deepEqual(bodies((await readSavedState(project)).messages), ["First note", "A needle in here", "Third note"]);
+});
+
+test("a host keeps its Chats home in the home folder it is given, never the user's", async (t) => {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-daemon-home-")));
+  const dataDir = path.join(directory, "profile");
+  const daemon = await startDaemon({
+    dataDir,
+    version: "9.8.7",
+    homeDir: directory,
+    runtimeOptions: { cwd: directory, environmentReady: Promise.resolve(), titleModels: {} },
+  });
+  const c = await connect({ dataDir });
+  t.after(async () => {
+    c.close();
+    try {
+      await daemon.close();
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+  assert.deepEqual(await c.call("chats:home"), { path: path.join(directory, ".milagre", "chats"), exists: false });
+});
+
+test("chats:ensure opens the Chats home with its state's number, leaves the connection's Project alone, and a reconnect's open keeps it off the recent list", async (t) => {
+  const { project, chatsHome, client } = await fixture(t);
+  const desktop = await client();
+  const { epoch } = await desktop.call("daemon:state-patches");
+  await desktop.call("project:open", [project]);
+  const opened = await desktop.call("chats:ensure");
+  assert.equal(opened.path, chatsHome);
+  assert.equal(opened.kind, "chats");
+  assert.equal(opened.epoch, epoch);
+  assert.equal(typeof opened.version, "number");
+  // The window still shows its Project (project:current answers the connection's Project): only a switch moves it.
+  const shown = await desktop.call("project:current");
+  assert.equal(shown.path, project);
+  assert.equal(shown.kind, undefined);
+  // A reconnecting window (or the phone) opens it with project:open: still never recent.
+  assert.equal((await desktop.call("project:open", [chatsHome])).path, chatsHome);
+  assert.ok(!(await desktop.call("project:recent")).some((item) => item.path === chatsHome));
+  assert.deepEqual(await desktop.call("chats:home"), { path: chatsHome, exists: true });
 });

@@ -2,12 +2,17 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-import React, { useState } from "react";
+import React, { Profiler, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { SpinnerRing } from "/src/components/primitives/SpinnerRing";
+import { followDisplayVisibility, useDisplayNow, useDisplayValue } from "/src/lib/display-clock";
+followDisplayVisibility();
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
+import { formatElapsed } from "@milagre/shared/display-clock";
 import { startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
 window.milagre = Object.freeze({ listEditors: async () => [] });
@@ -18,7 +23,12 @@ let runs = startRun({}, "a", "gpt-6-sol");
 window.clock = 120000;
 runs = startRun(runs, "b", "gpt-6-sol");
 window.clock = 165000;
+function InactiveClock() {
+  return <span data-inactive-clock>{useDisplayNow(1000, false)}</span>;
+}
 function Fixture() {
+  const [inactive, setInactive] = useState(false);
+  window.mountInactive = () => setInactive(true);
   const [chat, setChat] = useState("a");
   const [asking, setAsking] = useState(false);
   const [, setVersion] = useState(0);
@@ -27,6 +37,8 @@ function Fixture() {
   window.newTurn = () => { runs = startRun(runs, chat, "gpt-6-sol"); setVersion(v => v + 1); };
   if (!chat) return <div>Chat closed</div>;
   return <div style={{ height: "100%", padding: 12 }}>
+    {inactive && <InactiveClock />}
+    <div data-rings style={{ display: "flex", alignItems: "center", gap: 4 }}>{[10, 12, 16].map(size => <SpinnerRing key={size} size={size} color="rgb(255, 0, 0)" />)}</div>
     <ChatComposer messages={[{ id: 1, session_id: chat === "a" ? 1 : 2, context: null, role: "user", body: "Check the chat timer" }]}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={true} sendBlocked={false}
@@ -39,14 +51,24 @@ function Fixture() {
   </div>;
 }
 document.documentElement.classList.add("dark");
-createRoot(document.getElementById("root")).render(<Fixture />);
+window.labelCommits = 0;
+function LabelProbe() {
+  return <span data-label-probe>{useDisplayValue(250, now => formatElapsed(now - 100000))}</span>;
+}
+createRoot(document.getElementById("root")).render(<><Fixture /><Profiler id="label" onRender={() => window.labelCommits++}><LabelProbe /></Profiler></>);
 `;
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-chat-timer-")));
   await app.whenReady();
-  const window = new BrowserWindow({ width: 800, height: 600, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
+  const window = new BrowserWindow({
+    width: 800,
+    height: 600,
+    useContentSize: true,
+    show: false,
+    webPreferences: { backgroundThrottling: false },
+  });
   window.webContents.on("console-message", (details) => {
     if (details.level === "error") console.error(details.message);
   });
@@ -69,27 +91,105 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`!!(${timer})`);
+    await waitFor('document.querySelector("[data-label-probe]")?.textContent === "1m 05s"');
+    const commits = await evaluate("window.labelCommits");
+    for (const clock of [165250, 165500, 165750]) {
+      await evaluate(`window.clock = ${clock}`);
+      await delay(300);
+      assert.equal(await evaluate("window.labelCommits"), commits, "unchanged snapshots skip React commits");
+    }
+    await evaluate("window.clock = 166000");
+    await waitFor(`window.labelCommits === ${commits + 1}`);
+    await evaluate("window.clock = 165000");
+    await waitFor(`(${timer}) === "1m 05s"`);
+    // The SVG pixels stay still; only their HTML boxes animate. Exercise the
+    // shared primitive at rail, row and normal sizes, plus the real running mark.
+    assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.spinner-ring')).slice(0, 3).map(el => [el.offsetWidth, el.offsetHeight])`), [
+      [10, 10],
+      [12, 12],
+      [16, 16],
+    ]);
+    assert.equal(await evaluate(`document.querySelector('.spinner-ring circle:last-child').getAttribute('stroke')`), "rgb(255, 0, 0)");
+    const targets = `document.getAnimations().filter(a => ['spin', 'running-logo-glow', 'running-logo-twinkle'].includes(a.animationName))`;
+    assert.equal(await evaluate(`${targets}.length >= 6 && ${targets}.every(a => a.effect.target instanceof HTMLSpanElement)`), true);
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.spinner-ring')).animationTimingFunction`), "steps(24)");
+    assert.equal(await evaluate(`document.querySelector('.running-logo').getAttribute('aria-hidden')`), "true");
+    assert.equal(await evaluate(`document.querySelectorAll('.running-logo > span > svg > path').length`), 3);
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.running-logo-leg-right')).animationDelay`), "0.24s");
+    // Seek the actual browser animations to check the retained holds and peaks.
+    async function seek(time) {
+      return evaluate(
+        `(() => { const result = {}; for (const a of ${targets}) { a.pause(); a.currentTime = ${time}; if (a.animationName.startsWith('running-logo')) result[a.effect.target.className] = getComputedStyle(a.effect.target).opacity; } return result; })()`,
+      );
+    }
+    assert.equal((await seek(0))["running-logo-leg running-logo-leg-left"], "0.15");
+    assert.equal((await seek(288))["running-logo-leg running-logo-leg-left"], "0.55");
+    assert.equal((await seek(528))["running-logo-leg running-logo-leg-left"], "0.55");
+    assert.equal((await seek(960))["running-logo-leg running-logo-leg-left"], "0.15");
+    assert.equal((await seek(1200))["running-logo-star"], "0.45");
+    assert.equal((await seek(1680))["running-logo-star"], "1");
+    assert.equal((await seek(2040))["running-logo-star"], "1");
+    await evaluate(`${targets}.forEach(a => a.play())`);
+    await evaluate(`document.documentElement.setAttribute('data-display-hidden', '')`);
+    assert.equal(await evaluate(`${targets}.every(a => getComputedStyle(a.effect.target).animationPlayState === 'paused')`), true);
+    await evaluate(`document.documentElement.removeAttribute('data-display-hidden')`);
+    assert.equal(
+      await evaluate(`${targets}.every(a => getComputedStyle(a.effect.target).animationPlayState === 'running')`),
+      true,
+      "visible unfocused window keeps animating",
+    );
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(await evaluate(`${targets}.length`), 0, "reduced motion leaves both indicators static");
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.running-logo-star')).opacity`), "0.45");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+    window.webContents.debugger.detach();
     await screenshot("initial");
-    assert.equal(await evaluate(timer), "1m 5.0s", "opening mid-turn shows time since the turn began");
+    assert.equal(await evaluate(timer), "1m 05s", "opening mid-turn shows time since the turn began");
     await evaluate('window.openChat("b")');
-    await waitFor(`(${timer}) === "45.0s"`);
+    await waitFor(`(${timer}) === "45s"`);
     await screenshot("other-chat");
     await evaluate("window.openChat(null)");
     await waitFor(`!(${timer})`);
     await evaluate('window.clock = 185000; window.openChat("a")');
-    await waitFor(`(${timer}) === "1m 25.0s"`);
+    await waitFor(`(${timer}) === "1m 25s"`);
     await screenshot("reopened");
     await evaluate("window.ask(true)");
     await delay(50);
-    assert.equal(await evaluate(timer), "1m 25.0s", "question waits keep the turn's timer");
+    assert.equal(await evaluate(timer), "1m 25s", "question waits keep the turn's timer");
     await evaluate("window.clock = 190000; window.ask(false)");
-    await waitFor(`(${timer}) === "1m 30.0s"`);
+    await waitFor(`(${timer}) === "1m 30s"`);
     await evaluate("window.clock = 250000");
-    await waitFor(`(${timer}) === "2m 30.0s"`);
+    await waitFor(`(${timer}) === "2m 30s"`);
     await evaluate("window.newTurn()");
-    await waitFor(`(${timer}) === "0.0s"`);
+    await waitFor(`(${timer}) === "0s"`);
     await screenshot("new-turn");
-    console.log("PASS: timers survive chat switches, remounts, question waits and delayed ticks; new turns reset");
+    await evaluate(
+      `Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" }); document.dispatchEvent(new Event("visibilitychange"));`,
+    );
+    const hiddenCommits = await evaluate("window.labelCommits");
+    await evaluate("window.clock = 800000");
+    await delay(550);
+    assert.equal(await evaluate(timer), "0s", "hidden clocks pause");
+    assert.equal(await evaluate("window.labelCommits"), hiddenCommits);
+    await evaluate(
+      `Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" }); document.dispatchEvent(new Event("visibilitychange"));`,
+    );
+    await waitFor(`(${timer}) === "9m 10s"`);
+
+    await evaluate("window.mountInactive()");
+    await waitFor('document.querySelector("[data-inactive-clock]")?.textContent === "800000"');
+    await evaluate("window.clock = 3850000");
+    await waitFor(`(${timer}) === "1h 00m 00s"`);
+    assert.equal(
+      await evaluate('document.querySelector("[data-inactive-clock]").textContent'),
+      "800000",
+      "inactive readers keep their mount time without ticking",
+    );
+    await screenshot("hour");
+    console.log(
+      "PASS: compositor indicator targets, sizes, sampled holds, hidden and reduced motion; labels commit once per second; timers survive chat switches, remounts, question waits, hidden windows and delayed ticks; inactive readers keep their mount time; new turns reset",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);
@@ -112,7 +212,7 @@ async function main() {
           if (id === "/__chat_timer_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__chat_timer__") return next();
             const html = await server.transformIndexHtml(
               request.url,

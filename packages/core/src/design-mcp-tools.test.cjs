@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createChatArtifacts } = require("./chat-artifacts.cjs");
 const { createDesignToolGroup } = require("./design-mcp-tools.cjs");
+const firstLine = (result) => JSON.parse(result.text.split("\n", 1)[0]);
 const document = { schemaVersion: 1, width: 390, height: 844, nodes: [] };
 async function fixture(t, designIds = ["allowed"], capabilities = ["read", "write"]) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-mcp-"));
@@ -48,7 +49,7 @@ test("design-only adapter lists and reads only explicitly granted designs", asyn
   await assert.rejects(tools.design_read.run({ id: "allowed", chatId: "/other#2" }), /Unrecognized key/);
   await assert.rejects(tools.design_show.run({ title: "Implicit", document }), /outside/);
   await assert.rejects(tools.design_show.run({ id: "outside", title: "Other", document, expectedVersion: 1 }), /outside/);
-  assert.equal(JSON.parse(await tools.design_show.run({ id: "allowed", title: "Revised", document, expectedVersion: 1 })).version, 2);
+  assert.equal(firstLine(await tools.design_show.run({ id: "allowed", title: "Revised", document, expectedVersion: 1 })).version, 2);
 });
 test("comment scope follows the comment's design, not the comment ID", async (t) => {
   const { tools, comments, artifacts, scope } = await fixture(t);
@@ -59,20 +60,26 @@ test("comment scope follows the comment's design, not the comment ID", async (t)
   assert.equal(result[0].resolved.note, "Done");
   assert.equal(result[1].resolved, undefined);
 });
-test("revocation, capabilities and Designs OFF govern already cached tool calls", async (t) => {
+test("revocation and capabilities govern already cached tool calls", async (t) => {
   const { tools, revoke } = await fixture(t);
   revoke();
-  await assert.rejects(tools.design_apply.run({ id: "allowed", expectedVersion: 1, operations: [{ op: "replace", document }] }), /revoked/);
+  await assert.rejects(
+    tools.design_apply.run({
+      id: "allowed",
+      expectedVersion: 1,
+      operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }],
+    }),
+    /revoked/,
+  );
   const readOnly = await fixture(t, "*", ["read"]);
   assert.equal(readOnly.tools.design_apply, undefined);
   assert.equal(readOnly.tools.artifact_resolve_comment, undefined);
-  await readOnly.artifacts.setEnabled(false);
-  assert.deepEqual(readOnly.group.tools({ scope: readOnly.scope, assertActive: readOnly.assertActive }), []);
-  await assert.rejects(readOnly.tools.design_read.run({ id: "allowed" }), /Designs are off/);
+  assert.ok(readOnly.group.tools({ scope: readOnly.scope, assertActive: readOnly.assertActive }).length > 0);
+  assert.equal(JSON.parse(await readOnly.tools.design_read.run({ id: "allowed" })).id, "allowed");
 });
 test("wildcard creation is confined to the granted Chat and empty scope grants nothing", async (t) => {
   const wildcard = await fixture(t, "*");
-  const created = JSON.parse(await wildcard.tools.design_show.run({ title: "New", document }));
+  const created = firstLine(await wildcard.tools.design_show.run({ title: "New", document }));
   assert.ok(created.id);
   const empty = await fixture(t, []);
   assert.deepEqual(JSON.parse(await empty.tools.design_list.run({})), []);
@@ -101,7 +108,11 @@ test("composed registry rejects queued design and comment mutations after revoca
   for (const change of ["revoke", "edit"]) {
     for (const [method, name, args] of [
       ["showDesign", "design_show", { id: "allowed", title: "Changed", document, expectedVersion: 1 }],
-      ["apply", "design_apply", { id: "allowed", expectedVersion: 1, operations: [{ op: "replace", document: { ...document, width: 400 } }] }],
+      [
+        "apply",
+        "design_apply",
+        { id: "allowed", expectedVersion: 1, operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }] },
+      ],
       ["resolveComment", "artifact_resolve_comment", { note: "Resolved" }],
     ]) {
       const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-mcp-queued-"));
@@ -166,6 +177,51 @@ test("external Designs adapter never exposes HTML artifacts or their comments", 
   assert.ok(JSON.parse(await tools.design_list.run({})).every((item) => item.format === "design"));
   assert.ok(JSON.parse(await tools.artifact_comments.run({ all: true })).every((item) => item.id !== comment.id));
   await assert.rejects(tools.design_read.run({ id: html.id }), /separate formats/);
-  await assert.rejects(tools.design_apply.run({ id: html.id, expectedVersion: html.version, operations: [{ op: "replace", document }] }), /separate formats/);
+  await assert.rejects(
+    tools.design_apply.run({
+      id: html.id,
+      expectedVersion: html.version,
+      operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }],
+    }),
+    /separate formats/,
+  );
   await assert.rejects(tools.artifact_resolve_comment.run({ id: comment.id, note: "Do not resolve" }), /outside/);
+});
+
+// design_show and design_apply advertise open layer objects and plain color strings (chat-artifacts.cjs); the server
+// still checks every field.
+test("the slim design tool schemas still reject bad colors, unknown fields and replace", async (t) => {
+  const { tools } = await fixture(t);
+  const box = { id: "box", type: "rectangle", width: 10, height: 10 };
+  const apply = (expectedVersion, operations) => tools.design_apply.run({ id: "allowed", expectedVersion, operations });
+  assert.equal(firstLine(await apply(1, [{ op: "insert", node: box }])).version, 2);
+  await assert.rejects(apply(2, [{ op: "update", id: "box", patch: { fill: "url(evil)" } }]), /CSS color/);
+  await assert.rejects(apply(2, [{ op: "update", id: "box", patch: { fill: "$missing" } }]), /token "\$missing" does not exist/);
+  await assert.rejects(apply(2, [{ op: "update", id: "box", patch: { shadow: 4 } }]), /Unrecognized key/);
+  await assert.rejects(apply(2, [{ op: "insert", node: { ...box, id: "other", blur: 2 } }]), /Unrecognized key/);
+  await assert.rejects(apply(2, [{ op: "insert", node: { id: "other", type: "rectangle" } }]));
+  await assert.rejects(apply(2, [{ op: "replace", document }]));
+  const show = (node) => tools.design_show.run({ id: "allowed", title: "Changed", expectedVersion: 2, document: { ...document, nodes: [node] } });
+  await assert.rejects(show({ ...box, stroke: "not a color" }), /CSS color/);
+  await assert.rejects(show({ ...box, shadow: 4 }), /Unrecognized key/);
+  assert.equal(JSON.parse(await tools.design_read.run({ id: "allowed" })).version, 2, "nothing rejected was saved");
+});
+
+test("inspection and preflight never create versions and retain connection scope", async (t) => {
+  const { tools, artifacts, scope } = await fixture(t);
+  const inspected = await tools.design_inspect.run({ id: "allowed" });
+  assert.equal(firstLine(inspected).version, 1);
+  assert.equal(inspected.images.length, 1);
+  assert.match(inspected.text, /"inspection"/);
+  await assert.rejects(tools.design_inspect.run({ id: "outside" }), /outside/);
+  await assert.rejects(tools.design_inspect.run({ id: "allowed", nodeId: "missing" }), /missing or hidden/);
+  const operations = [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }];
+  assert.equal(JSON.parse(await tools.design_validate.run({ id: "allowed", expectedVersion: 1, operations })).valid, true);
+  assert.equal(JSON.parse(await tools.design_validate.run({ id: "allowed", expectedVersion: 2, operations })).valid, false);
+  assert.equal((await artifacts.get({ chatId: scope.chatId, id: "allowed" })).version, 1);
+  assert.deepEqual((await artifacts.get({ chatId: scope.chatId, id: "allowed" })).document.nodes, []);
+  await assert.rejects(tools.design_validate.run({ id: "outside", expectedVersion: 1, operations }), /outside/);
+  const invalid = JSON.parse(await tools.design_validate.run({ document: { ...document, nodes: [{ ...operations[0].node, fill: "banana" }] } }));
+  assert.equal(invalid.valid, false);
+  assert.deepEqual(invalid.errors[0].path, ["nodes", 0, "fill"]);
 });

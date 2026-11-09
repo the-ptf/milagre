@@ -2,7 +2,7 @@ export type SimulatorOrientation = "portrait" | "portrait-upside-down" | "landsc
 export interface SimulatorDevice {
   id: string;
   name: string;
-  platform: "ios";
+  platform: "ios" | "android";
   version: string;
 }
 export interface SimulatorIceServer {
@@ -15,18 +15,32 @@ export interface SimulatorStatus {
   height: number;
   orientation: SimulatorOrientation;
   generation: number;
+  displayGeneration?: number;
   controlling: boolean;
   ready: boolean;
+  /** Reported by the host helper, not inferred from the simulator name. */
+  supportsHingeAngle?: boolean;
+  hingeAngle?: number;
+  hingePose?: "closed" | "open" | "book" | "laptop" | "tent";
+  /** Runtime input-mode hint, not a touch-delivery failure. */
+  deviceHubInputActive?: boolean;
+  /** @deprecated Compatibility alias for the same unverified input-mode hint. */
   inputBlocked?: boolean;
 }
 export type SimulatorInput =
   | { kind: "touch"; phase: "begin" | "move" | "end"; points: { x: number; y: number }[] }
   | { kind: "button"; button: "home" }
   | { kind: "rotate"; orientation: SimulatorOrientation }
+  | { kind: "pose"; pose: "closed" | "open" | "book" | "laptop" | "tent" }
+  | { kind: "hinge"; angle: number }
   | { kind: "key"; phase: "down" | "up"; usage: number; key?: string; shifted?: boolean };
 export interface SimulatorChannel {
+  frame?(
+    after: number,
+    signal: AbortSignal,
+  ): Promise<{ sequence: number; data: string; mimeType: "image/jpeg" | "image/png" | "video/avcc"; reset?: boolean } | null>;
   status(): Omit<SimulatorStatus, "generation" | "controlling"> & { error?: string };
-  send(event: SimulatorInput): void;
+  send(event: SimulatorInput): void | Promise<void>;
   close(): Promise<void>;
 }
 export interface SimulatorAdapter {
@@ -50,7 +64,14 @@ export interface SimulatorOptions {
 }
 export interface Simulators {
   list(): Promise<{ devices: SimulatorDevice[]; supported: boolean; error?: string }>;
-  open(request: { deviceId: string }, owner: string): Promise<{ viewerId: string; device: SimulatorDevice; iceServers: SimulatorIceServer[] }>;
+  open(
+    request: { deviceId: string },
+    owner: string,
+  ): Promise<{ viewerId: string; device: SimulatorDevice; iceServers: SimulatorIceServer[]; transport?: "frames" }>;
+  frame(
+    request: { viewerId: string; after: number },
+    owner: string,
+  ): Promise<{ sequence: number; data: string; mimeType: "image/jpeg" | "image/png" | "video/avcc"; reset?: boolean; status: SimulatorStatus } | null>;
   offer(request: { viewerId: string; sdp: string }, owner: string): Promise<{ type: "answer"; sdp: string }>;
   status(request: { viewerId: string }, owner: string): Promise<SimulatorStatus>;
   control(request: { viewerId: string; takeOver: boolean }, owner: string): Promise<SimulatorStatus>;

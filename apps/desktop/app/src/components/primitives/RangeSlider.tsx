@@ -1,8 +1,9 @@
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "motion/react";
 import { useEffect, useLayoutEffect, useState } from "react";
-import { SPRING_GLIDE } from "../../lib/ease";
+import { EASE_OUT, SPRING_GLIDE } from "../../lib/ease";
 import { useSlider } from "../../lib/use-slider";
 import type { SliderOptions } from "../../lib/use-slider";
+import Tooltip from "./Tooltip";
 
 // Grab feedback for the handle's height only.
 const SPRING_BOUNCY = { type: "spring", stiffness: 500, damping: 14, mass: 0.7 } as const;
@@ -13,13 +14,15 @@ export interface RangeSliderProps extends SliderOptions {
   /** A tick dot at each step. */
   showTicks?: boolean;
   /** A slim position track for paging through a long list. */
-  variant?: "default" | "position";
+  variant?: "default" | "position" | "context";
+  secondary?: SliderOptions;
   className?: string;
 }
 
 /** After beUI's Range Slider: tick dots and a vertical-bar handle that bounces as it lands on each
  * step. Drag anywhere on the track or use the arrow keys; reduced motion drops the springs. */
-export function RangeSlider({ showTicks = true, variant = "default", className = "", ...options }: RangeSliderProps) {
+export function RangeSlider({ showTicks = true, variant = "default", className = "", secondary, ...options }: RangeSliderProps) {
+  const second = useSlider(secondary ?? options);
   const reduce = useReducedMotion();
   const { percent, dragging, min, max, step, trackProps, handleProps } = useSlider(options);
   const [trackWidth, setTrackWidth] = useState(176);
@@ -44,26 +47,44 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   const smooth = useSpring(target, SPRING_GLIDE);
   const position = reduce ? target : smooth;
   const handleX = useTransform(position, (p) => HANDLE_INSET + (Math.max(0, trackWidth - HANDLE_INSET * 2 - 4) * p) / 100);
-  // The rounded fill ends at the handle; translating a full-size fill inside the clip keeps its corner round.
+  // The fill's round end sits at the handle; translating a full-size fill inside the clip keeps its corner round.
   const fillX = useTransform(position, (p) => (p >= 100 ? "0%" : `calc(${p - 100}% + ${14 - 0.16 * p}px)`));
 
   // Floor, so a range the step does not divide stops its dots at the last whole step.
   const steps = Math.floor(Number(((max - min) / step).toFixed(6)));
   const ticks = showTicks && steps > 0 && steps <= 50 ? Array.from({ length: steps + 1 }, (_, i) => Number((min + i * step).toFixed(6))) : [];
 
+  if (variant === "context") {
+    return (
+      <div className={`relative h-12 ${className}`}>
+        {[{ trackProps, handleProps, percent }, ...(secondary ? [second] : [])].map((slider, index) => (
+          <div key={index} {...slider.trackProps} className="pointer-events-none absolute inset-0 touch-none">
+            <div
+              {...slider.handleProps}
+              className="pointer-events-auto absolute top-[21px] size-5 -translate-x-1/2 cursor-grab rounded-full border-[3px] bg-surface outline-none focus-visible:ring-4 focus-visible:ring-accent/20"
+              style={{ left: `${slider.percent}%`, borderColor: index ? "var(--ink)" : "var(--orange)" }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (variant === "position") {
     return (
       <div {...trackProps} data-position-track className={`relative flex h-7 touch-none select-none items-center ${className}`}>
-        <div aria-hidden className="pointer-events-none h-[5px] w-full rounded-full bg-black/15 dark:bg-white/15" />
-        <motion.div
-          {...handleProps}
-          data-position-thumb
-          title="Jump to a message. Use arrow keys to move."
-          initial={false}
-          animate={{ x: (percent / 100) * Math.max(0, trackWidth - 22) }}
-          transition={{ duration: reduce ? 0 : 0.22, ease: [0.23, 1, 0.32, 1] }}
-          className="absolute left-0 h-[5px] w-[22px] rounded-full bg-black dark:bg-white"
-        />
+        <div aria-hidden className="pointer-events-none h-1 w-full rounded-full bg-line-strong" />
+        <Tooltip label="Jump to a message" asChild>
+          <motion.div
+            {...handleProps}
+            data-position-thumb
+            aria-description="Use the arrow keys to move."
+            initial={false}
+            animate={{ x: (percent / 100) * Math.max(0, trackWidth - 24) }}
+            transition={{ duration: reduce ? 0 : 0.22, ease: [...EASE_OUT] }}
+            className="absolute left-0 h-1 w-6 rounded-full bg-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          />
+        </Tooltip>
       </div>
     );
   }
@@ -71,7 +92,7 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   return (
     <div
       {...trackProps}
-      className={`relative flex h-8 touch-none select-none items-center overflow-hidden rounded-control bg-field ${options.disabled ? "pointer-events-none opacity-50" : "cursor-grab active:cursor-grabbing"} ${className}`}
+      className={`relative flex h-8 touch-none select-none items-center overflow-hidden rounded-control bg-field ${options.disabled ? "pointer-events-none opacity-40" : "cursor-grab active:cursor-grabbing"} ${className}`}
     >
       <div aria-hidden className="pointer-events-none absolute inset-x-[2px] inset-y-0 overflow-hidden rounded-control">
         <motion.div className="absolute inset-0 rounded-control bg-ink/15" style={{ x: fillX }} />
@@ -89,7 +110,7 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
         {...handleProps}
         animate={reduce ? undefined : { scaleY: dragging ? 1.35 : 1 }}
         transition={SPRING_BOUNCY}
-        className="absolute top-1/2 left-0 h-5 w-1 rounded-full bg-ink outline-none ring-inset ring-ink/30 focus-visible:ring-4"
+        className="absolute top-1/2 left-0 h-5 w-1 rounded-full bg-ink outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-field"
         style={{ x: handleX, y: "-50%" }}
       />
     </div>

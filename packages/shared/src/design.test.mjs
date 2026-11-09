@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DESIGN_INK,
+  DESIGN_PLACEHOLDER,
+  designDefaultFill,
   applyDesignOperations,
   buildDesignControllerScript,
   createExampleDesign,
   designColor,
+  designFontFaces,
   designHtml,
   designLayout,
   designNodeAt,
@@ -13,6 +17,7 @@ import {
   diffDesignDocuments,
   validateDesignDocument,
 } from "./design.mjs";
+import { designIcons } from "./design-icons.mjs";
 
 const screen = () => ({
   schemaVersion: 1,
@@ -83,7 +88,7 @@ test("diffs keep ordinary edits small and preserve structural changes", () => {
   assert.deepEqual(diffDesignDocuments(after, after), []);
   const inserted = applyDesignOperations(after, [{ op: "insert", index: 1, node: { id: "image", type: "image", width: 20, height: 20 } }]);
   assert.deepEqual(applyDesignOperations(after, diffDesignDocuments(after, inserted)), inserted);
-  const reordered = { ...inserted, nodes: [...inserted.nodes].reverse() };
+  const reordered = { ...inserted, nodes: inserted.nodes.toReversed() };
   assert.deepEqual(applyDesignOperations(inserted, diffDesignDocuments(inserted, reordered)), reordered);
   const removed = applyDesignOperations(original, [{ op: "delete", id: "frame" }]);
   assert.deepEqual(applyDesignOperations(original, diffDesignDocuments(original, removed)), removed);
@@ -132,7 +137,8 @@ test("the bundled example is a valid editable document without remote assets", (
   const document = validateDesignDocument(createExampleDesign());
   assert.equal(document.width, 390);
   assert.equal(designLayout(document).size, document.nodes.length);
-  assert.ok(designHtml(document).length < 20000);
+  // The embedded Inter faces are a fixed cost; the markup around them must stay small.
+  assert.ok(designHtml(document).length - designFontFaces(document).length < 20000);
 });
 
 test("feedback hit testing follows the frontmost layer and respects a clipped frame", () => {
@@ -161,4 +167,123 @@ test("feedback on a generated component child names its editable instance", () =
   assert.equal(hit?.id, "copy");
   const revised = applyDesignOperations(document, [{ op: "update", id: hit.id, patch: { x: 200 } }]);
   assert.equal(revised.nodes.find((node) => node.id === "copy").x, 200);
+});
+
+const PIXEL = "data:image/png;base64,iVBORw0KGgo=";
+
+test("an image with a source paints no placeholder behind its transparent pixels", () => {
+  const document = validateDesignDocument({
+    schemaVersion: 1,
+    width: 390,
+    height: 844,
+    nodes: [
+      { id: "icon", type: "image", width: 24, height: 24, src: PIXEL },
+      { id: "empty", type: "image", y: 40, width: 24, height: 24 },
+      { id: "tinted", type: "image", y: 80, width: 24, height: 24, src: PIXEL, fill: "#ff0000" },
+    ],
+  });
+  const html = designHtml(document);
+  const style = (id) => new RegExp(`data-design-node="${id}"[^>]*style="([^"]*)"`).exec(html)[1];
+  assert.match(style("icon"), /background:transparent/);
+  assert.match(style("empty"), /background:#d8ded8/);
+  assert.match(style("tinted"), /background:#ff0000/);
+});
+
+const iconScreen = (icon = {}) => ({
+  schemaVersion: 1,
+  width: 390,
+  height: 844,
+  nodes: [{ id: "close", type: "icon", icon: "x", x: 20, y: 20, width: 24, height: 24, fill: "#111111", strokeWidth: 2, ...icon }],
+});
+
+test("icon layers name a Lucide icon and reject properties they can't draw", () => {
+  assert.equal(validateDesignDocument(iconScreen()).nodes[0].icon, "x");
+  assert.throws(
+    () => validateDesignDocument(iconScreen({ icon: "chevron-up-down" })),
+    /Unknown icon "chevron-up-down" on layer "close"\. Did you mean chevrons-up-down/,
+  );
+  assert.throws(() => validateDesignDocument(iconScreen({ icon: undefined })), /needs an icon name/);
+  for (const extra of [{ stroke: "#000" }, { radius: 4 }, { text: "x" }, { src: "https://example.com/x.png" }]) {
+    assert.throws(() => validateDesignDocument(iconScreen(extra)), /Icon layer "close" can't use/, JSON.stringify(extra));
+  }
+  assert.throws(
+    () =>
+      validateDesignDocument({ ...iconScreen(), nodes: [...iconScreen().nodes, { id: "inside", parentId: "close", type: "rectangle", width: 4, height: 4 }] }),
+    /must be a frame/,
+  );
+  assert.throws(
+    () => validateDesignDocument({ ...iconScreen(), nodes: [{ id: "label", type: "text", width: 10, height: 10, icon: "x" }] }),
+    /Only icon layers use "icon"/,
+  );
+});
+
+test("insert, update and replace all validate icon names", () => {
+  const base = validateDesignDocument(iconScreen());
+  assert.throws(() => applyDesignOperations(base, [{ op: "update", id: "close", patch: { icon: "crosss" } }]), /Unknown icon "crosss"/);
+  assert.throws(
+    () => applyDesignOperations(base, [{ op: "insert", node: { id: "n", type: "icon", icon: "nope", width: 24, height: 24 } }]),
+    /Unknown icon "nope"/,
+  );
+  assert.throws(() => applyDesignOperations(base, [{ op: "replace", document: iconScreen({ icon: "nope" }) }]), /Unknown icon "nope"/);
+  assert.equal(applyDesignOperations(base, [{ op: "update", id: "close", patch: { icon: "check" } }]).nodes[0].icon, "check");
+});
+
+test("icon layers render Lucide geometry with their color and weight", () => {
+  const document = validateDesignDocument({ ...iconScreen({ fill: "$ink", strokeWidth: 1.5, width: 32, height: 24 }), tokens: { ink: "#123456" } });
+  const html = designHtml(document);
+  assert.match(html, /data-design-node="close"[^>]*style="[^"]*background:transparent/);
+  assert.match(
+    html,
+    /<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="none" stroke="#123456" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" color="#123456" aria-hidden="true"><path d="M18 6 6 18"\/><path d="m6 6 12 12"\/><\/svg>/,
+  );
+  const svg = designSvg(document);
+  assert.match(
+    svg,
+    /<svg x="20" y="20" width="32" height="24" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="none" stroke="#123456" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" color="#123456"><path d="M18 6 6 18"\/>/,
+  );
+  assert.doesNotMatch(svg, /<clipPath/, "icons need no clip shape");
+  assert.match(html, /data-design-node="close"[^>]*style="[^"]*border:0px/, "strokeWidth is a line weight, never a border");
+});
+
+test("icon layers default to the ink color and weight 2", () => {
+  const document = iconScreen({ fill: undefined, strokeWidth: undefined });
+  assert.match(designHtml(document), /stroke="#202720" stroke-width="2"/);
+  assert.match(designSvg(document), /stroke="#202720" stroke-width="2"/);
+});
+
+test("icons with currentColor dots take the line color", () => {
+  assert.match(designIcons.tag, /fill="currentColor"/);
+  const document = iconScreen({ icon: "tag", fill: "#ab1234" });
+  assert.match(designHtml(document), /color="#ab1234"[^>]*>.*<circle[^>]*fill="currentColor"/);
+  assert.match(designSvg(document), /color="#ab1234"><path[^>]*\/>.*<circle[^>]*fill="currentColor"/);
+});
+
+test("each layer type's default fill matches what the renderers paint", () => {
+  assert.deepEqual(
+    [
+      { type: "text" },
+      { type: "icon" },
+      { type: "frame" },
+      { type: "image", src: "https://example.com/a.png" },
+      { type: "image" },
+      { type: "rectangle" },
+      { type: "ellipse" },
+    ].map(designDefaultFill),
+    [DESIGN_INK, DESIGN_INK, "transparent", "transparent", DESIGN_PLACEHOLDER, DESIGN_PLACEHOLDER, DESIGN_PLACEHOLDER],
+  );
+  assert.deepEqual([DESIGN_INK, DESIGN_PLACEHOLDER], ["#202720", "#d8ded8"]);
+  const document = {
+    schemaVersion: 1,
+    width: 390,
+    height: 844,
+    nodes: [
+      { id: "box", type: "rectangle", x: 0, y: 0, width: 10, height: 10 },
+      { id: "label", type: "text", x: 0, y: 20, width: 100, height: 20, text: "Hi" },
+      { id: "photo", type: "image", x: 0, y: 50, width: 10, height: 10 },
+    ],
+  };
+  const svg = designSvg(document);
+  assert.match(svg, /<rect x="0" y="0" width="10" height="10" rx="0" fill="#d8ded8"\/>/);
+  assert.match(svg, /<text fill="#202720"/);
+  assert.match(svg, /<rect x="0" y="50" width="10" height="10" rx="0" fill="#d8ded8"\/>/);
 });

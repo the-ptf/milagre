@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -20,11 +21,12 @@ const localMcp = {
  revoke: async id=>{window.records=window.records.map(c=>c.id===id?{...c,revokedAt:'2026-10-13T00:00:00Z'}:c);},
 };
 document.documentElement.classList.add('dark');
-window.milagre={localMcp,listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
-createRoot(document.getElementById('root')).render(<div style={{display:'flex',height:'100vh',padding:16,gap:16}}><SettingsNav section="local-mcp" onSelect={()=>{}} onBack={()=>{}} /><main className="bg-page rounded-2xl" style={{flex:1}}><SettingsPanel section="local-mcp" models={[]} /></main></div>);
+window.milagre={localMcp,mcp:{accounts:async()=>[],check:async()=>({servers:[]}),onChanged:()=>()=>{}},listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
+createRoot(document.getElementById('root')).render(<div style={{display:'flex',height:'100vh',padding:16,gap:16}}><SettingsNav section="mcp" onSelect={()=>{}} /><main className="bg-page rounded-2xl" style={{flex:1}}><SettingsPanel section="mcp" models={[]} /></main></div>);
 `;
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
+  if (process.platform === "darwin") app.setActivationPolicy("accessory");
   app.setPath("userData", fs.mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-local-mcp-ui-")));
   await app.whenReady();
   const win = new BrowserWindow({ width: 1120, height: 980, show: false, webPreferences: { backgroundThrottling: false } });
@@ -48,13 +50,17 @@ async function browserChecks() {
   };
   try {
     await win.loadURL(process.argv[2]);
-    // Radix selects arrow-key destinations on focus. A hidden window changes activeElement
-    // without dispatching focus events, so keyboard verification needs an actual focused window.
-    win.show();
-    win.focus();
+    // Radix selects arrow-key destinations on focus. Chromium's focus emulation delivers
+    // those focus events while the native window stays hidden and never steals focus.
+    win.webContents.debugger.attach("1.3");
+    await win.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
     await waitFor(`document.hasFocus()`);
-    await waitFor(`document.querySelectorAll('[role=switch]').length===8`);
-    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Milagre MCP");
+    assert.equal(win.isVisible(), false);
+    assert.equal(win.isFocused(), false);
+    await waitFor(`document.querySelectorAll('[data-local-mcp] [role=checkbox]').length===8`);
+    // The Milagre MCP sits on MCP servers, under the servers each provider uses; Published pages moved to Phone & sharing.
+    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "MCP servers");
+    assert.equal(await evaluate(`!!document.querySelector('[data-slot=published-pages-setting]')`), false);
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
     assert.equal(await evaluate(`!!document.querySelector('#custom-mcp-settings')`), false);
     assert.equal(await evaluate(`document.body.textContent.includes('Create MCP config')`), false);
@@ -65,23 +71,41 @@ async function browserChecks() {
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await win.webContents.capturePage()).toPNG());
     };
-    await evaluate(`document.querySelector('[data-local-client="claude-code"] [role=switch]').click()`);
+    await evaluate(`document.querySelector('[data-local-client="claude-code"] [role=checkbox]').click()`);
     await waitFor(`!!document.querySelector('form')`);
     await evaluate(`document.querySelector('[role=radio][data-state=checked]').focus()`);
+    await waitFor(`document.activeElement?.getAttribute('aria-label')==='Projects'`);
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
+    await waitFor(`document.querySelector('[role=radio][aria-label="All Projects"]').getAttribute('aria-checked')==='true'`);
+    assert.equal(await evaluate(`document.activeElement.getAttribute('aria-label')`), "All Projects");
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
     win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
     await waitFor(`document.querySelector('[role=radio][aria-label="Designs only"]').getAttribute('aria-checked')==='true'`);
+    assert.equal(await evaluate(`document.activeElement.getAttribute('aria-label')`), "Designs only");
     win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
     win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
-    await waitFor(`document.querySelector('[role=radio][aria-label="Projects"]').getAttribute('aria-checked')==='true'`);
+    await waitFor(`document.querySelector('[role=radio][aria-label="All Projects"]').getAttribute('aria-checked')==='true'`);
     win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Left" });
-    await evaluate(`document.querySelector('[role=checkbox]').focus()`);
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
+    await waitFor(`document.querySelector('[role=radio][aria-label="Projects"]').getAttribute('aria-checked')==='true'`);
+    assert.equal(await evaluate(`document.activeElement.getAttribute('aria-label')`), "Projects");
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Left" });
+    await evaluate(`document.querySelector('form [role=checkbox][aria-label="Project"]').focus()`);
     win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" });
     win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Space" });
-    await waitFor(`document.querySelector('[role=checkbox]').getAttribute('aria-checked')==='true'`);
+    await waitFor(`document.querySelector('form [role=checkbox][aria-label="Project"]').getAttribute('aria-checked')==='true'`);
+    assert.equal(await evaluate(`document.activeElement.getAttribute('aria-label')`), "Project");
     await click("Enable Claude Code CLI");
-    await waitFor(`document.querySelector('[data-local-client="claude-code"] [role=switch]').getAttribute('aria-checked')==='true'`);
+    await waitFor(`document.querySelector('[data-local-client="claude-code"] [role=checkbox]').getAttribute('aria-checked')==='true'`);
     assert.deepEqual(await evaluate("window.created[0].grants.projects.projectPaths"), ["/test/project"]);
-    await evaluate(`document.querySelector('[data-local-client="codex"] [role=switch]').click()`);
+    await evaluate(`document.querySelector('[data-local-client="gemini"] [role=checkbox]').click()`);
+    await waitFor(`!!document.querySelector('form')`);
+    await evaluate(`document.querySelector('[role=radio][aria-label="All Projects"]').click()`);
+    await click("Enable Gemini CLI");
+    await waitFor(`document.querySelector('[data-local-client="gemini"] [role=checkbox]').getAttribute('aria-checked')==='true'`);
+    assert.equal(await evaluate("window.created[1].grants.projects.projectPaths"), "*");
+    assert.equal(await evaluate(`document.querySelector('[data-local-client="gemini"]').textContent.includes('All Projects')`), true);
+    await evaluate(`document.querySelector('[data-local-client="codex"] [role=checkbox]').click()`);
     await waitFor(`!!document.querySelector('form')`);
     await evaluate(`document.querySelector('[role=radio][aria-label="Designs only"]').click()`);
     await fill("Chat reference", "/test/project#2");
@@ -89,23 +113,26 @@ async function browserChecks() {
     await evaluate(`document.querySelector('form').scrollIntoView({block:'center'})`);
     await shot("local-mcp-client-access");
     await click("Enable Codex CLI");
-    await waitFor(`document.querySelector('[data-local-client="codex"] [role=switch]').getAttribute('aria-checked')==='true'`);
-    assert.deepEqual(await evaluate("window.created[1].grants"), { designs: { chatId: "/test/project#2", designIds: ["one", "two"], capabilities: ["read"] } });
+    await waitFor(`document.querySelector('[data-local-client="codex"] [role=checkbox]').getAttribute('aria-checked')==='true'`);
+    assert.deepEqual(await evaluate("window.created[2].grants"), { designs: { chatId: "/test/project#2", designIds: ["one", "two"], capabilities: ["read"] } });
     await evaluate(`document.querySelector('h1').scrollIntoView()`);
     await shot("local-mcp-clients-dark");
     await evaluate(`document.documentElement.classList.remove('dark')`);
     await delay(100);
     await shot("local-mcp-clients-light");
     await evaluate(`document.documentElement.classList.add('dark')`);
-    await evaluate(`document.querySelector('[data-local-client="codex"] [role=switch]').click()`);
-    await waitFor(`document.querySelector('[data-local-client="codex"] [role=switch]').getAttribute('aria-checked')==='false'`);
-    await evaluate(`document.querySelector('[role=switch][aria-label="Custom MCP"]').click()`);
+    await evaluate(`document.querySelector('[data-local-client="codex"] [role=checkbox]').click()`);
+    await waitFor(`document.querySelector('[data-local-client="codex"] [role=checkbox]').getAttribute('aria-checked')==='false'`);
+    await evaluate(`document.querySelector('[role=checkbox][aria-label="Custom MCP"]').click()`);
     await waitFor(`!!document.querySelector('#custom-mcp-settings form')`);
+    await evaluate(`document.querySelector('#custom-mcp-settings [role=radio][aria-label="All Projects"]').click()`);
+    assert.equal(await evaluate(`document.querySelector('#custom-mcp-settings button[type=submit]').disabled`), true);
     await fill("Connection name", "Design editor");
+    assert.equal(await evaluate(`document.querySelector('#custom-mcp-settings button[type=submit]').disabled`), false);
     await evaluate(`document.querySelector('[role=radio][aria-label="Designs only"]').click()`);
     await fill("Chat reference", "/test/project#2");
     await fill("Design IDs", "one, two");
-    await evaluate(`document.querySelector('[role=checkbox]').click()`);
+    await evaluate(`document.querySelector('form [role=checkbox][aria-label="Allow design edits"]').click()`);
     await evaluate(`document.querySelector('form').scrollIntoView({block:'center'})`);
     await shot("local-mcp-scope");
     await click("Create configuration");
@@ -113,10 +140,10 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.body.textContent.includes('fixture-secret')`), false);
     await click("Copy MCP config");
     assert.equal(await evaluate(`JSON.parse(window.copied).mcpServers.milagre.headers.Authorization`), "Bearer fixture-secret");
-    await evaluate(`document.querySelector('[role=switch][aria-label="Custom MCP"]').click()`);
+    await evaluate(`document.querySelector('[role=checkbox][aria-label="Custom MCP"]').click()`);
     await waitFor(`!document.querySelector('#custom-mcp-settings')`);
     assert.equal(await evaluate(`!!window.records[0].revokedAt`), false);
-    await evaluate(`document.querySelector('[role=switch][aria-label="Custom MCP"]').click()`);
+    await evaluate(`document.querySelector('[role=checkbox][aria-label="Custom MCP"]').click()`);
     await waitFor(`!!document.querySelector('#custom-mcp-settings')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-local-credential]')`), false);
     await evaluate(`document.querySelector('details').open=true`);
@@ -130,7 +157,11 @@ async function browserChecks() {
     await click("Revoke");
     await waitFor(`document.body.textContent.includes('(Revoked)')`);
     assert.equal(await evaluate(`document.querySelector('[data-local-connection]').querySelectorAll('button').length`), 0);
-    console.log("PASS: custom MCP stays hidden until selected, closing clears its credential, and shadcn scope controls support keyboard and saved grants.");
+    assert.equal(win.isVisible(), false);
+    assert.equal(win.isFocused(), false);
+    console.log(
+      "PASS: custom MCP stays hidden until selected, closing clears its credential, and shadcn scope controls support keyboard, focus and saved grants in a hidden window.",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);
@@ -149,7 +180,7 @@ async function main() {
         resolveId: (id) => (id === "/__local_mcp.tsx" ? id : null),
         load: (id) => (id === "/__local_mcp.tsx" ? fixture : null),
         configureServer(server) {
-          server.middlewares.use(async (req, res, next) => {
+          useAsyncMiddleware(server.middlewares, async (req, res, next) => {
             if (req.url !== "/__local_mcp__") return next();
             res.setHeader("Content-Type", "text/html");
             res.end(

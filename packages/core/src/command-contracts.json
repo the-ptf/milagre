@@ -1,0 +1,8942 @@
+{
+  "commands": {
+    "simulator:list": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T1"
+          }
+        }
+      ]
+    },
+    "simulator:attach": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T2"
+          }
+        }
+      ]
+    },
+    "simulator:detach": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T3"
+          }
+        }
+      ]
+    },
+    "simulator:open": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T4"
+          }
+        }
+      ]
+    },
+    "simulator:frame": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T5"
+          }
+        }
+      ]
+    },
+    "simulator:offer": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T6"
+          }
+        }
+      ]
+    },
+    "simulator:status": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T7"
+          }
+        }
+      ]
+    },
+    "simulator:control": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T8"
+          }
+        }
+      ]
+    },
+    "simulator:input": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T9"
+          }
+        }
+      ]
+    },
+    "simulator:repair": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T17"
+          }
+        }
+      ]
+    },
+    "simulator:close": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T18"
+          }
+        }
+      ]
+    },
+    "computer-use:settings:read": {
+      "parameters": []
+    },
+    "computer-use:settings:save": {
+      "parameters": [
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T19"
+          }
+        }
+      ]
+    },
+    "computer-use:status": {
+      "parameters": []
+    },
+    "computer-use:guide": {
+      "parameters": []
+    },
+    "computer-use:frame": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T20"
+          }
+        }
+      ]
+    },
+    "simlock:settings:read": {
+      "parameters": []
+    },
+    "simlock:settings:save": {
+      "parameters": [
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T21"
+          }
+        }
+      ]
+    },
+    "simlock:identity": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T22"
+          }
+        }
+      ]
+    },
+    "simlock:models": {
+      "parameters": []
+    },
+    "simlock:lease": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T23"
+          }
+        }
+      ]
+    },
+    "simlock:release": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T24"
+          }
+        }
+      ]
+    },
+    "browser-comments:add": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T25"
+          }
+        }
+      ]
+    },
+    "browser-comments:list": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T32"
+          }
+        }
+      ]
+    },
+    "browser-comments:send-from-page": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T33"
+          }
+        }
+      ]
+    },
+    "browser:list": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T34"
+          }
+        }
+      ]
+    },
+    "browser:attach": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T35"
+          }
+        }
+      ]
+    },
+    "browser:detach": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T36"
+          }
+        }
+      ]
+    },
+    "browser:open": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T37"
+          }
+        }
+      ]
+    },
+    "browser:frame": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T38"
+          }
+        }
+      ]
+    },
+    "browser:status": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T39"
+          }
+        }
+      ]
+    },
+    "browser:control": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T40"
+          }
+        }
+      ]
+    },
+    "browser:input": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T41"
+          }
+        }
+      ]
+    },
+    "browser:close": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T48"
+          }
+        }
+      ]
+    },
+    "terminal:profiles": {
+      "parameters": []
+    },
+    "terminal:setShell": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T49"
+          }
+        }
+      ]
+    },
+    "terminal:list": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T50"
+          }
+        }
+      ]
+    },
+    "terminal:open": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T51"
+          }
+        }
+      ]
+    },
+    "terminal:read": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T52"
+          }
+        }
+      ]
+    },
+    "terminal:input": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T53"
+          }
+        }
+      ]
+    },
+    "terminal:resize": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T54"
+          }
+        }
+      ]
+    },
+    "terminal:close": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T55"
+          }
+        }
+      ]
+    },
+    "designs:enabled:read": {
+      "parameters": []
+    },
+    "bots:enabled:read": {
+      "parameters": []
+    },
+    "bots:enabled:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "bots:list": {
+      "parameters": []
+    },
+    "bots:templates": {
+      "parameters": []
+    },
+    "bots:create": {
+      "parameters": [
+        {
+          "name": "input",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T56"
+          }
+        }
+      ]
+    },
+    "bots:update": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T58"
+          }
+        }
+      ]
+    },
+    "bots:remove": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "bots:send": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "text",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "bots:answer-gate": {
+      "parameters": [
+        {
+          "name": "chatKey",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "requestId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "choice",
+          "optional": false,
+          "schema": {
+            "enum": ["once", "always", "deny"]
+          }
+        }
+      ]
+    },
+    "bots:revoke-grant": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "bots:brief:read": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "bots:memory:read": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "bots:memory:save": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "text",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "base",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "artifact-preview:register": {
+      "parameters": [
+        {
+          "name": "html",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "source",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T59"
+          }
+        }
+      ]
+    },
+    "artifact-preview:release": {
+      "parameters": [
+        {
+          "name": "url",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "artifact:sharing-status": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T61"
+          }
+        }
+      ]
+    },
+    "artifact:all-page-shares": {
+      "parameters": []
+    },
+    "artifact:revoke-saved-page-share": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T62"
+          }
+        }
+      ]
+    },
+    "artifact:page-shares": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T63"
+          }
+        }
+      ]
+    },
+    "artifact:share-page": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T64"
+          }
+        }
+      ]
+    },
+    "artifact:revoke-page-share": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T65"
+          }
+        }
+      ]
+    },
+    "artifact:get": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T66"
+          }
+        }
+      ]
+    },
+    "artifact:asset": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T68"
+          }
+        }
+      ]
+    },
+    "artifact:list": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T69"
+          }
+        }
+      ]
+    },
+    "artifact:apply": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T70"
+          }
+        }
+      ]
+    },
+    "artifact:delete": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T97"
+          }
+        }
+      ]
+    },
+    "artifact:add-comments": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T98"
+          }
+        }
+      ]
+    },
+    "artifact:comments": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T102"
+          }
+        }
+      ]
+    },
+    "runtime:connection": {
+      "parameters": []
+    },
+    "runtime:restart-host": {
+      "parameters": []
+    },
+    "attachment:preview": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "attachment:read": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "offset",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "version",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:files": {
+      "parameters": [
+        {
+          "name": "root",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "query",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "skills:list": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "skills:read": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "dictation:context": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T103"
+          }
+        }
+      ]
+    },
+    "dictation:polish": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T104"
+          }
+        }
+      ]
+    },
+    "skills:open": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T105"
+          }
+        }
+      ]
+    },
+    "skills:reveal": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:branches": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:image": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:set-icon": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "icon",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "app:version": {
+      "parameters": []
+    },
+    "triage:prepare": {
+      "parameters": [
+        {
+          "name": "client",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "worktree:create": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T106"
+          }
+        }
+      ]
+    },
+    "worktree:link-issue": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T107"
+          }
+        }
+      ]
+    },
+    "worktree:unlink-issue": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T108"
+          }
+        }
+      ]
+    },
+    "worktree:roots": {
+      "parameters": []
+    },
+    "worktree:status": {
+      "parameters": [
+        {
+          "name": "worktreePath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "base",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "worktree:remove": {
+      "parameters": [
+        {
+          "name": "worktreePath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T109"
+          }
+        }
+      ]
+    },
+    "files-to-copy:read": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "files-to-copy:preview": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "patterns",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "files-to-copy:save": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "patterns",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "worktree-setup:read": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "worktree-setup:save": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "command",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project-git:read": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project-git:save": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T111"
+          }
+        }
+      ]
+    },
+    "main-sync:read": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "main-sync:save": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "override",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": false
+              },
+              {
+                "const": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "main-sync:default:read": {
+      "parameters": []
+    },
+    "main-sync:default:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "linear:status": {
+      "parameters": []
+    },
+    "linear:connect": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T112"
+          }
+        }
+      ]
+    },
+    "linear:disconnect": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T113"
+          }
+        }
+      ]
+    },
+    "linear:enabled:read": {
+      "parameters": []
+    },
+    "linear:enabled:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "linear:move-to-started:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "limits:auto-switch:read": {
+      "parameters": []
+    },
+    "limits:auto-switch:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "limits:resume-at-reset:read": {
+      "parameters": []
+    },
+    "limits:resume-at-reset:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "app-update:auto:read": {
+      "parameters": []
+    },
+    "app-update:auto:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "app-update:state": {
+      "parameters": []
+    },
+    "app-update:check": {
+      "parameters": []
+    },
+    "app-update:install": {
+      "parameters": []
+    },
+    "computer:resources:read": {
+      "parameters": [
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T114"
+          }
+        }
+      ]
+    },
+    "storage:worktrees": {
+      "parameters": []
+    },
+    "storage:remove-worktree": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T115"
+          }
+        }
+      ]
+    },
+    "keybindings:read": {
+      "parameters": []
+    },
+    "keybindings:set-command": {
+      "parameters": [
+        {
+          "name": "command",
+          "optional": false,
+          "schema": {
+            "enum": [
+              "commandPalette.toggle",
+              "chat.new",
+              "project.add",
+              "settings.open",
+              "theme.toggle",
+              "sidebar.toggle",
+              "canvas.open",
+              "usage.open",
+              "grid.toggle",
+              "grid.focusPrevious",
+              "grid.focusNext",
+              "chat.parent",
+              "chat.jump.1",
+              "chat.jump.2",
+              "chat.jump.3",
+              "chat.jump.4",
+              "chat.jump.5",
+              "chat.jump.6",
+              "chat.jump.7",
+              "chat.jump.8",
+              "chat.jump.9",
+              "chat.find",
+              "chat.quote",
+              "dictation.toggle",
+              "changes.toggle",
+              "terminal.toggle",
+              "terminal.new",
+              "artifacts.toggle",
+              "designs.toggle",
+              "browser.toggle",
+              "simulator.toggle"
+            ]
+          }
+        },
+        {
+          "name": "rules",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/T118"
+            }
+          }
+        }
+      ]
+    },
+    "keybindings:reset-command": {
+      "parameters": [
+        {
+          "name": "command",
+          "optional": false,
+          "schema": {
+            "enum": [
+              "commandPalette.toggle",
+              "chat.new",
+              "project.add",
+              "settings.open",
+              "theme.toggle",
+              "sidebar.toggle",
+              "canvas.open",
+              "usage.open",
+              "grid.toggle",
+              "grid.focusPrevious",
+              "grid.focusNext",
+              "chat.parent",
+              "chat.jump.1",
+              "chat.jump.2",
+              "chat.jump.3",
+              "chat.jump.4",
+              "chat.jump.5",
+              "chat.jump.6",
+              "chat.jump.7",
+              "chat.jump.8",
+              "chat.jump.9",
+              "chat.find",
+              "chat.quote",
+              "dictation.toggle",
+              "changes.toggle",
+              "terminal.toggle",
+              "terminal.new",
+              "artifacts.toggle",
+              "designs.toggle",
+              "browser.toggle",
+              "simulator.toggle"
+            ]
+          }
+        }
+      ]
+    },
+    "keybindings:reset": {
+      "parameters": []
+    },
+    "app:open-keybindings-file": {
+      "parameters": []
+    },
+    "context:settings:read": {
+      "parameters": []
+    },
+    "context:settings:save": {
+      "parameters": [
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T119"
+          }
+        }
+      ]
+    },
+    "babysit:settings:read": {
+      "parameters": []
+    },
+    "babysit:settings:save": {
+      "parameters": [
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T120"
+          }
+        }
+      ]
+    },
+    "done:settings:read": {
+      "parameters": []
+    },
+    "done:settings:save": {
+      "parameters": [
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T123"
+          }
+        }
+      ]
+    },
+    "keep-awake:settings:read": {
+      "parameters": []
+    },
+    "keep-awake:settings:save": {
+      "parameters": [
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T124"
+          }
+        }
+      ]
+    },
+    "routines:enabled:read": {
+      "parameters": []
+    },
+    "routines:list": {
+      "parameters": []
+    },
+    "routines:update": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T125"
+          }
+        }
+      ]
+    },
+    "routines:delete": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "routines:run-now": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "routines:flow-act": {
+      "parameters": [
+        {
+          "name": "routineId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "runId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "action",
+          "optional": false,
+          "schema": {
+            "enum": ["end", "approve", "reject", "pause", "resume", "retry"]
+          }
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T142"
+          }
+        }
+      ]
+    },
+    "routines:flow-test": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "routines:create": {
+      "parameters": [
+        {
+          "name": "input",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T143"
+          }
+        }
+      ]
+    },
+    "routines:targets": {
+      "parameters": []
+    },
+    "routines:linear-options": {
+      "parameters": [
+        {
+          "name": "args",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T145"
+          }
+        }
+      ]
+    },
+    "routines:hook": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "routines:rotate-hook": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "mcp:accounts": {
+      "parameters": []
+    },
+    "mcp:check": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "accountId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "mcp:definition": {
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "target",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "everywhere"]
+          }
+        }
+      ]
+    },
+    "mcp:save": {
+      "parameters": [
+        {
+          "name": "def",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T146"
+              },
+              {
+                "$ref": "#/$defs/T147"
+              }
+            ]
+          }
+        },
+        {
+          "name": "target",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "everywhere"]
+          }
+        },
+        {
+          "name": "previous",
+          "optional": true,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/T148"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "mcp:saveUrl": {
+      "parameters": [
+        {
+          "name": "def",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T146"
+              },
+              {
+                "$ref": "#/$defs/T147"
+              }
+            ]
+          }
+        },
+        {
+          "name": "target",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "everywhere"]
+          }
+        },
+        {
+          "name": "previous",
+          "optional": true,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/T149"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "mcp:remove": {
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "target",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "everywhere"]
+          }
+        }
+      ]
+    },
+    "mcp:toggle": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "accountId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "name",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "on",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "mcp:signIn": {
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "accounts",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/T150"
+            }
+          }
+        }
+      ]
+    },
+    "mcp:cancelSignIn": {
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "local-mcp:status": {
+      "parameters": []
+    },
+    "local-mcp:create": {
+      "parameters": [
+        {
+          "name": "input",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T151"
+          }
+        }
+      ]
+    },
+    "local-mcp:update": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "input",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T151"
+          }
+        }
+      ]
+    },
+    "local-mcp:rotate": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "local-mcp:revoke": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "local-mcp:enableClient": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "input",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T151"
+          }
+        }
+      ]
+    },
+    "local-mcp:disableClient": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "linear:issues": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T157"
+          }
+        }
+      ]
+    },
+    "linear:worktree-issues": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "worktree:refresh-diffs": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "worktreeIds",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        }
+      ]
+    },
+    "worktree:pull-request": {
+      "parameters": [
+        {
+          "name": "worktreePath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "worktree:pull-requests": {
+      "parameters": [
+        {
+          "name": "worktreePath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "refs",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "pull-requests:snapshot": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "pull-requests:open": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:reveal": {
+      "parameters": [
+        {
+          "name": "folder",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "image:copy": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "image:save": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "name",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "image:menu": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "name",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "git:changes": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T158"
+          }
+        }
+      ]
+    },
+    "git:history": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T159"
+          }
+        }
+      ]
+    },
+    "git:diff-files": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T160"
+          }
+        }
+      ]
+    },
+    "git:diff-file": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T161"
+          }
+        }
+      ]
+    },
+    "git:generate": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T162"
+          }
+        }
+      ]
+    },
+    "git:commit": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T165"
+          }
+        }
+      ]
+    },
+    "git:push": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T166"
+          }
+        }
+      ]
+    },
+    "git:open-pr": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T167"
+          }
+        }
+      ]
+    },
+    "pr:detail": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T168"
+          }
+        }
+      ]
+    },
+    "pr:diff-files": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T169"
+          }
+        }
+      ]
+    },
+    "pr:diff-file": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T170"
+          }
+        }
+      ]
+    },
+    "pr:comment": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T171"
+          }
+        }
+      ]
+    },
+    "pr:reply": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T172"
+          }
+        }
+      ]
+    },
+    "pr:delete-comment": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T173"
+          }
+        }
+      ]
+    },
+    "pr:submit-review": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T174"
+          }
+        }
+      ]
+    },
+    "pr:resolve-thread": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T175"
+          }
+        }
+      ]
+    },
+    "pr:merge": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T176"
+          }
+        }
+      ]
+    },
+    "pr:ready": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T177"
+          }
+        }
+      ]
+    },
+    "pr:image": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T178"
+          }
+        }
+      ]
+    },
+    "pr:labels": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T179"
+          }
+        }
+      ]
+    },
+    "pr:set-labels": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T180"
+          }
+        }
+      ]
+    },
+    "pr:reviewer-candidates": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T181"
+          }
+        }
+      ]
+    },
+    "pr:request-reviewers": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T182"
+          }
+        }
+      ]
+    },
+    "editor:list": {
+      "parameters": []
+    },
+    "editor:open": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T183"
+          }
+        }
+      ]
+    },
+    "project:current": {
+      "parameters": []
+    },
+    "project:open": {
+      "parameters": []
+    },
+    "project:open-at": {
+      "parameters": [
+        {
+          "name": "folder",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "default": {
+            "takeNotice": true
+          },
+          "schema": {
+            "$ref": "#/$defs/T184"
+          }
+        }
+      ]
+    },
+    "fs:list-dirs": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T185"
+          }
+        }
+      ]
+    },
+    "media:read": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T186"
+          }
+        }
+      ]
+    },
+    "project:recent": {
+      "parameters": []
+    },
+    "project:known": {
+      "parameters": []
+    },
+    "onboarding:agent-folders": {
+      "parameters": []
+    },
+    "onboarding:create": {
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "onboarding:clone": {
+      "parameters": [
+        {
+          "name": "url",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "onboarding:init-git": {
+      "parameters": [
+        {
+          "name": "folder",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:set-hidden": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "hidden",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "scope:retry-save": {
+      "parameters": [
+        {
+          "name": "scope",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:read": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T187"
+          }
+        }
+      ]
+    },
+    "chats:home": {
+      "parameters": []
+    },
+    "chats:ensure": {
+      "parameters": []
+    },
+    "link:list": {
+      "parameters": []
+    },
+    "link:create": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T188"
+          }
+        }
+      ]
+    },
+    "link:update": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T189"
+          }
+        }
+      ]
+    },
+    "link:delete-check": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "link:delete": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "link:open": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "link:snapshot": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "link:send": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T190"
+          }
+        }
+      ]
+    },
+    "project:registry": {
+      "parameters": []
+    },
+    "project:position": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "position",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T194"
+          }
+        }
+      ]
+    },
+    "canvas:snapshot": {
+      "parameters": []
+    },
+    "canvas:link-add": {
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T195"
+          }
+        },
+        {
+          "name": "b",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T195"
+          }
+        }
+      ]
+    },
+    "canvas:link-remove": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "canvas:link-restore": {
+      "parameters": [
+        {
+          "name": "link",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T196"
+          }
+        }
+      ]
+    },
+    "canvas:links": {
+      "parameters": []
+    },
+    "linked:grant": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "linkId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "canvas:worktree-position": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "worktreePath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "position",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T197"
+          }
+        }
+      ]
+    },
+    "canvas:open-project": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "linked:snapshot": {
+      "parameters": []
+    },
+    "linked:remote-enabled:read": {
+      "parameters": []
+    },
+    "linked:remote-enabled:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "device-notes:read": {
+      "parameters": []
+    },
+    "device-notes:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "linked:stop-negotiation": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:switch": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:forget": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:retry-quit": {
+      "parameters": []
+    },
+    "checkpoint:list": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T198"
+          }
+        }
+      ]
+    },
+    "checkpoint:preview": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T199"
+          }
+        }
+      ]
+    },
+    "checkpoint:restore": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T200"
+          }
+        }
+      ]
+    },
+    "chat:send": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T202"
+          }
+        }
+      ]
+    },
+    "chat:send-status": {
+      "parameters": [
+        {
+          "name": "owner",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:resume": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "chat:reload": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:queue-send": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:queue-remove": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:limit-switch": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "accountId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:limit-resume": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "sourceMessageId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "chat:limit-resume:cancel": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "sendId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:patch": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "patch",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T203"
+          }
+        }
+      ]
+    },
+    "chat:delete": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "chat:detach": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "chat:archive-subagent": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "archived",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "chat:archive-finished-subagents": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "chat:git-note": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:set-open": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "chat:runs": {
+      "parameters": []
+    },
+    "chat:message": {
+      "parameters": [
+        {
+          "name": "scope",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "state:read": {
+      "parameters": [
+        {
+          "name": "scope",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:messages": {
+      "parameters": [
+        {
+          "name": "scope",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T204"
+          }
+        }
+      ]
+    },
+    "chat:search": {
+      "parameters": [
+        {
+          "name": "scope",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "query",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/$defs/T205"
+          }
+        }
+      ]
+    },
+    "chat:subagent": {
+      "parameters": [
+        {
+          "name": "scope",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "agentId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:task-output": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "taskId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:scopes": {
+      "parameters": []
+    },
+    "accounts:scope": {
+      "parameters": [
+        {
+          "name": "scopeKey",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "refresh",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "accounts:assign": {
+      "parameters": [
+        {
+          "name": "scopeKey",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "accountId",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "agent:models": {
+      "parameters": [
+        {
+          "name": "scopeKey",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "agent:cli-status": {
+      "parameters": [
+        {
+          "name": "scopeKey",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "agent:provider-updates": {
+      "parameters": []
+    },
+    "agent:update-cli": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "targetVersion",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "advisor:stop": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "advisor:retry": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "agent:interrupt": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "agent:respond-permission": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T206"
+          }
+        }
+      ]
+    },
+    "agent:answer-question": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T207"
+          }
+        }
+      ]
+    },
+    "agent:dismiss-suggestion": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T210"
+          }
+        }
+      ]
+    },
+    "agent:set-permission-mode": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T211"
+          }
+        }
+      ]
+    },
+    "agent:ports": {
+      "parameters": []
+    },
+    "agent:stop-port": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "pid",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "update:state": {
+      "parameters": []
+    },
+    "update:release-notes": {
+      "parameters": [
+        {
+          "name": "version",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "update:check": {
+      "parameters": []
+    },
+    "update:channel": {
+      "parameters": []
+    },
+    "update:set-channel": {
+      "parameters": [
+        {
+          "name": "channel",
+          "optional": false,
+          "schema": {
+            "enum": ["stable", "beta"]
+          }
+        }
+      ]
+    },
+    "update:install": {
+      "parameters": []
+    },
+    "phone:status": {
+      "parameters": []
+    },
+    "phone:set-enabled": {
+      "parameters": [
+        {
+          "name": "enabled",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "phone:set-lan": {
+      "parameters": [
+        {
+          "name": "enabled",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "phone:reset": {
+      "parameters": []
+    },
+    "phone:open-pairing": {
+      "parameters": []
+    },
+    "devices:list": {
+      "parameters": []
+    },
+    "devices:remove": {
+      "parameters": [
+        {
+          "name": "key",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "devices:acknowledge": {
+      "parameters": [
+        {
+          "name": "keys",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "devices:pending": {
+      "parameters": []
+    },
+    "devices:allow": {
+      "parameters": [
+        {
+          "name": "key",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "devices:deny": {
+      "parameters": [
+        {
+          "name": "key",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:list": {
+      "parameters": [
+        {
+          "name": "refresh",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "accounts:add": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:select": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:login": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:cancel": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:remove": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "usage:read": {
+      "parameters": [
+        {
+          "name": "scopeKey",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "usage:cached": {
+      "parameters": [
+        {
+          "name": "scopeKey",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "usage:accounts:read": {
+      "parameters": []
+    },
+    "usage:accounts:cached": {
+      "parameters": []
+    },
+    "token-usage:read": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T212"
+          }
+        }
+      ]
+    },
+    "settings:notify-when-waiting": {
+      "parameters": [
+        {
+          "name": "on",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "settings:notification-chime": {
+      "parameters": [
+        {
+          "name": "chime",
+          "optional": false,
+          "schema": {
+            "enum": ["system", "miracle", "faaah", "bombastic-side-eye", "vine-boom", "metal-pipe", "bruh", "emotional-damage"]
+          }
+        }
+      ]
+    },
+    "settings:notification-schedule": {
+      "parameters": [
+        {
+          "name": "schedule",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/T214"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "settings:window-background": {
+      "parameters": [
+        {
+          "name": "background",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "notification:state": {
+      "parameters": [
+        {
+          "name": "state",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T215"
+          }
+        }
+      ]
+    },
+    "floating-inbox:snapshot": {
+      "parameters": []
+    },
+    "settings:floating-inbox": {
+      "parameters": [
+        {
+          "name": "on",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "floating-inbox:toggle": {
+      "parameters": []
+    },
+    "floating-inbox:select": {
+      "parameters": [
+        {
+          "name": "key",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "floating-inbox:selected": {
+      "parameters": []
+    },
+    "floating-inbox:is-open": {
+      "parameters": []
+    },
+    "floating-inbox:dock-expanded": {
+      "parameters": [
+        {
+          "name": "on",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        },
+        {
+          "name": "reducedMotion",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "floating-inbox:close": {
+      "parameters": []
+    },
+    "floating-inbox:count": {
+      "parameters": [
+        {
+          "name": "count",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "floating-inbox:height": {
+      "parameters": [
+        {
+          "name": "height",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "reducedMotion",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "floating-inbox:preview": {
+      "parameters": [
+        {
+          "name": "key",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        {
+          "name": "y",
+          "optional": true,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "floating-inbox:preview-key": {
+      "parameters": []
+    },
+    "floating-inbox:placement": {
+      "parameters": []
+    },
+    "floating-inbox:drag-begin": {
+      "parameters": [
+        {
+          "name": "reducedMotion",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "floating-inbox:drag-move": {
+      "parameters": []
+    },
+    "floating-inbox:drag-end": {
+      "parameters": [
+        {
+          "name": "cancel",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "floating-inbox:drag-overlay": {
+      "parameters": []
+    },
+    "floating-inbox:open-chat": {
+      "parameters": [
+        {
+          "name": "key",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "floating-inbox:settings": {
+      "parameters": []
+    },
+    "notification:completed": {
+      "parameters": [
+        {
+          "name": "notice",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T216"
+          }
+        }
+      ]
+    },
+    "attachment:upload": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T217"
+          }
+        }
+      ]
+    },
+    "computers:invoke": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "method",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "args",
+          "optional": true,
+          "schema": {
+            "type": "array",
+            "items": {}
+          }
+        }
+      ]
+    },
+    "computers:list": {
+      "parameters": []
+    },
+    "computers:preview": {
+      "parameters": [
+        {
+          "name": "link",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "computers:add": {
+      "parameters": [
+        {
+          "name": "link",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T218"
+          }
+        }
+      ]
+    },
+    "computers:cancel-add": {
+      "parameters": []
+    },
+    "computers:rename": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "name",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "computers:remove": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "computers:set-enabled": {
+      "parameters": [
+        {
+          "name": "on",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "computers:remember": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "entry",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T219"
+              },
+              {
+                "$ref": "#/$defs/T220"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "computers:recall": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "entry",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T222"
+          }
+        }
+      ]
+    },
+    "computers:note": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "line",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:dictation-status": {
+      "parameters": []
+    },
+    "app:dictation-download": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:dictation-cancel": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:dictation-remove": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:dictation-prepare": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:dictation-transcribe": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T223"
+          }
+        }
+      ]
+    },
+    "app:dictation-open-settings": {
+      "parameters": []
+    },
+    "browser-panel:pages": {
+      "parameters": [
+        {
+          "name": "pages",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/T229"
+            }
+          }
+        }
+      ]
+    },
+    "browser-panel:capture": {
+      "parameters": [
+        {
+          "name": "contentsId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "rect",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T230"
+          }
+        }
+      ]
+    },
+    "browser-panel:remote-partition": {
+      "parameters": [
+        {
+          "name": "chatKey",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "browser-panel:clear-sign-ins": {
+      "parameters": [
+        {
+          "name": "computerId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    }
+  },
+  "native": [
+    "app:dictation-cancel",
+    "app:dictation-download",
+    "app:dictation-open-settings",
+    "app:dictation-prepare",
+    "app:dictation-remove",
+    "app:dictation-status",
+    "app:dictation-transcribe",
+    "app:open-keybindings-file",
+    "app:retry-quit",
+    "app:version",
+    "artifact-preview:register",
+    "artifact-preview:release",
+    "browser-panel:capture",
+    "browser-panel:clear-sign-ins",
+    "browser-panel:pages",
+    "browser-panel:remote-partition",
+    "editor:list",
+    "editor:open",
+    "floating-inbox:close",
+    "floating-inbox:count",
+    "floating-inbox:dock-expanded",
+    "floating-inbox:drag-begin",
+    "floating-inbox:drag-end",
+    "floating-inbox:drag-move",
+    "floating-inbox:drag-overlay",
+    "floating-inbox:height",
+    "floating-inbox:is-open",
+    "floating-inbox:open-chat",
+    "floating-inbox:placement",
+    "floating-inbox:preview",
+    "floating-inbox:preview-key",
+    "floating-inbox:select",
+    "floating-inbox:selected",
+    "floating-inbox:settings",
+    "floating-inbox:snapshot",
+    "floating-inbox:toggle",
+    "image:copy",
+    "image:menu",
+    "image:save",
+    "notification:completed",
+    "notification:state",
+    "project:open",
+    "project:open-at",
+    "project:reveal",
+    "runtime:connection",
+    "runtime:restart-host",
+    "settings:floating-inbox",
+    "settings:notification-chime",
+    "settings:notification-schedule",
+    "settings:notify-when-waiting",
+    "settings:window-background",
+    "skills:open",
+    "skills:reveal",
+    "update:channel",
+    "update:check",
+    "update:install",
+    "update:release-notes",
+    "update:set-channel",
+    "update:state"
+  ],
+  "$defs": {
+    "T1": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T2": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "deviceId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "deviceId"],
+      "additionalProperties": false
+    },
+    "T3": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "deviceId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "deviceId"],
+      "additionalProperties": false
+    },
+    "T4": {
+      "type": "object",
+      "properties": {
+        "deviceId": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["deviceId", "chatId"],
+      "additionalProperties": false
+    },
+    "T5": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        },
+        "after": {
+          "type": "number"
+        }
+      },
+      "required": ["viewerId", "after"],
+      "additionalProperties": false
+    },
+    "T6": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        },
+        "sdp": {
+          "type": "string"
+        }
+      },
+      "required": ["viewerId", "sdp"],
+      "additionalProperties": false
+    },
+    "T7": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        }
+      },
+      "required": ["viewerId"],
+      "additionalProperties": false
+    },
+    "T8": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        },
+        "takeOver": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["viewerId", "takeOver"],
+      "additionalProperties": false
+    },
+    "T9": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "number"
+        },
+        "generation": {
+          "type": "number"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/T10"
+            },
+            {
+              "$ref": "#/$defs/T12"
+            },
+            {
+              "$ref": "#/$defs/T13"
+            },
+            {
+              "$ref": "#/$defs/T14"
+            },
+            {
+              "$ref": "#/$defs/T15"
+            },
+            {
+              "$ref": "#/$defs/T16"
+            }
+          ]
+        }
+      },
+      "required": ["viewerId", "sequence", "generation", "event"],
+      "additionalProperties": false
+    },
+    "T10": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "touch"
+        },
+        "phase": {
+          "enum": ["begin", "move", "end"]
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T11"
+          }
+        }
+      },
+      "required": ["kind", "phase", "points"],
+      "additionalProperties": false
+    },
+    "T11": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "T12": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "button"
+        },
+        "button": {
+          "enum": ["home", "back"]
+        }
+      },
+      "required": ["kind", "button"],
+      "additionalProperties": false
+    },
+    "T13": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "rotate"
+        },
+        "orientation": {
+          "enum": ["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]
+        }
+      },
+      "required": ["kind", "orientation"],
+      "additionalProperties": false
+    },
+    "T14": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "pose"
+        },
+        "pose": {
+          "enum": ["closed", "open", "book", "laptop", "tent"]
+        }
+      },
+      "required": ["kind", "pose"],
+      "additionalProperties": false
+    },
+    "T15": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "hinge"
+        },
+        "angle": {
+          "type": "number"
+        }
+      },
+      "required": ["kind", "angle"],
+      "additionalProperties": false
+    },
+    "T16": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "key"
+        },
+        "phase": {
+          "enum": ["down", "up"]
+        },
+        "usage": {
+          "type": "number"
+        },
+        "key": {
+          "type": "string"
+        },
+        "shifted": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["kind", "phase", "usage"],
+      "additionalProperties": false
+    },
+    "T17": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        }
+      },
+      "required": ["viewerId"],
+      "additionalProperties": false
+    },
+    "T18": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        }
+      },
+      "required": ["viewerId"],
+      "additionalProperties": false
+    },
+    "T19": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "enum": [false, true]
+        },
+        "cursor": {
+          "enum": [false, true],
+          "description": "Draw Milagre's agent cursor and the current step on the screen while an agent acts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "T20": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "after": {
+          "type": "number"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T21": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "enum": [false, true]
+        },
+        "gatewayUrl": {
+          "type": "string",
+          "description": "The gateway in use: the saved one, else the one this Mac's agent-device or Simlock worker points at."
+        },
+        "maxLeases": {
+          "type": "number"
+        },
+        "maxLeaseMinutes": {
+          "type": "number"
+        },
+        "agentToken": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T22": {
+      "type": "object",
+      "properties": {
+        "gatewayUrl": {
+          "type": "string"
+        },
+        "agentToken": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T23": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "platform": {
+          "enum": ["ios", "android"]
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "platform"],
+      "additionalProperties": false
+    },
+    "T24": {
+      "type": "object",
+      "properties": {
+        "deviceId": {
+          "type": "string"
+        }
+      },
+      "required": ["deviceId"],
+      "additionalProperties": false
+    },
+    "T25": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T26"
+          }
+        }
+      },
+      "required": ["chatId", "comments"],
+      "additionalProperties": false
+    },
+    "T26": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "element": {
+          "$ref": "#/$defs/T27"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": ["url", "title", "element", "text"],
+      "additionalProperties": false
+    },
+    "T27": {
+      "type": "object",
+      "properties": {
+        "selector": {
+          "type": "string",
+          "description": "A CSS selector that finds it again on the page."
+        },
+        "tag": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string",
+          "description": "How a person names it: `<PayButton> button \"Pay now\"`."
+        },
+        "role": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "html": {
+          "type": "string",
+          "description": "Its outer HTML, cut short, with secret-looking values redacted."
+        },
+        "styles": {
+          "$ref": "#/$defs/T28",
+          "description": "The computed styles that matter for layout and look."
+        },
+        "box": {
+          "$ref": "#/$defs/T29",
+          "description": "Where it sits in the viewport, in CSS pixels, and the viewport's size."
+        },
+        "viewport": {
+          "$ref": "#/$defs/T30"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Its React components, innermost last, when the page is a React development build."
+        },
+        "source": {
+          "type": "string",
+          "description": "Its component's source location (`src/Checkout.tsx:88`), when the page exposes it."
+        },
+        "point": {
+          "$ref": "#/$defs/T31",
+          "description": "Where on it the user clicked, as fractions of its box: the comment's pin goes there."
+        }
+      },
+      "required": ["selector", "tag", "label", "box", "viewport"],
+      "additionalProperties": false
+    },
+    "T28": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "T29": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      },
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false
+    },
+    "T30": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      },
+      "required": ["width", "height"],
+      "additionalProperties": false
+    },
+    "T31": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "T32": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T33": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "targetId", "x", "y", "text"],
+      "additionalProperties": false
+    },
+    "T34": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T35": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "browserId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "browserId"],
+      "additionalProperties": false
+    },
+    "T36": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "browserId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "browserId"],
+      "additionalProperties": false
+    },
+    "T37": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "targetId"],
+      "additionalProperties": false
+    },
+    "T38": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        },
+        "after": {
+          "type": "number"
+        }
+      },
+      "required": ["viewerId", "after"],
+      "additionalProperties": false
+    },
+    "T39": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        }
+      },
+      "required": ["viewerId"],
+      "additionalProperties": false
+    },
+    "T40": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        },
+        "takeOver": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["viewerId", "takeOver"],
+      "additionalProperties": false
+    },
+    "T41": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "number"
+        },
+        "generation": {
+          "type": "number"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/T42"
+            },
+            {
+              "$ref": "#/$defs/T43"
+            },
+            {
+              "$ref": "#/$defs/T44"
+            },
+            {
+              "$ref": "#/$defs/T45"
+            },
+            {
+              "$ref": "#/$defs/T46"
+            },
+            {
+              "$ref": "#/$defs/T47"
+            }
+          ]
+        }
+      },
+      "required": ["viewerId", "sequence", "generation", "event"],
+      "additionalProperties": false
+    },
+    "T42": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "mouse"
+        },
+        "phase": {
+          "enum": ["move", "down", "up"]
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "button": {
+          "enum": ["left", "middle", "right", "none"]
+        },
+        "clickCount": {
+          "type": "number"
+        },
+        "modifiers": {
+          "type": "number"
+        }
+      },
+      "required": ["kind", "phase", "x", "y"],
+      "additionalProperties": false
+    },
+    "T43": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "wheel"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "deltaX": {
+          "type": "number"
+        },
+        "deltaY": {
+          "type": "number"
+        },
+        "modifiers": {
+          "type": "number"
+        }
+      },
+      "required": ["kind", "x", "y", "deltaX", "deltaY"],
+      "additionalProperties": false
+    },
+    "T44": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "key"
+        },
+        "phase": {
+          "enum": ["down", "up"]
+        },
+        "key": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "keyCode": {
+          "type": "number"
+        },
+        "text": {
+          "type": "string"
+        },
+        "modifiers": {
+          "type": "number"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "enum": ["selectAll", "copy", "cut", "paste", "undo", "redo"]
+          }
+        }
+      },
+      "required": ["kind", "phase", "key", "code", "keyCode"],
+      "additionalProperties": false
+    },
+    "T45": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": ["kind", "text"],
+      "additionalProperties": false
+    },
+    "T46": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "navigate"
+        },
+        "action": {
+          "enum": ["back", "forward", "reload"]
+        }
+      },
+      "required": ["kind", "action"],
+      "additionalProperties": false
+    },
+    "T47": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "viewport"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      },
+      "required": ["kind", "width", "height"],
+      "additionalProperties": false
+    },
+    "T48": {
+      "type": "object",
+      "properties": {
+        "viewerId": {
+          "type": "string"
+        }
+      },
+      "required": ["viewerId"],
+      "additionalProperties": false
+    },
+    "T49": {
+      "type": "object",
+      "properties": {
+        "shell": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "required": ["shell"],
+      "additionalProperties": false
+    },
+    "T50": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T51": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "cols": {
+          "type": "number"
+        },
+        "rows": {
+          "type": "number"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T52": {
+      "type": "object",
+      "properties": {
+        "terminalId": {
+          "type": "string"
+        },
+        "after": {
+          "type": "number"
+        },
+        "limit": {
+          "type": "number"
+        }
+      },
+      "required": ["terminalId", "after"],
+      "additionalProperties": false
+    },
+    "T53": {
+      "type": "object",
+      "properties": {
+        "terminalId": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "required": ["terminalId", "data"],
+      "additionalProperties": false
+    },
+    "T54": {
+      "type": "object",
+      "properties": {
+        "terminalId": {
+          "type": "string"
+        },
+        "cols": {
+          "type": "number"
+        },
+        "rows": {
+          "type": "number"
+        }
+      },
+      "required": ["terminalId", "cols", "rows"],
+      "additionalProperties": false
+    },
+    "T55": {
+      "type": "object",
+      "properties": {
+        "terminalId": {
+          "type": "string"
+        }
+      },
+      "required": ["terminalId"],
+      "additionalProperties": false
+    },
+    "T56": {
+      "type": "object",
+      "properties": {
+        "templateId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "answers": {
+          "$ref": "#/$defs/T57"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": ["templateId", "name", "answers", "provider", "model"],
+      "additionalProperties": false
+    },
+    "T57": {
+      "type": "object",
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ci": {
+          "type": "string"
+        },
+        "linearTeam": {
+          "type": "string"
+        }
+      },
+      "required": ["projects"],
+      "additionalProperties": false
+    },
+    "T58": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "brief": {
+          "type": "string"
+        },
+        "paused": {
+          "enum": [false, true]
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "T59": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T60"
+          }
+        },
+        "inline": {
+          "enum": [true]
+        }
+      },
+      "additionalProperties": false
+    },
+    "T60": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": ["name", "hash", "size", "type"],
+      "additionalProperties": false
+    },
+    "T61": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": ["designs", "artifacts"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "T62": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+    "T63": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["designs", "artifacts"]
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T64": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "acknowledgePublic": {
+          "const": true
+        },
+        "kind": {
+          "enum": ["designs", "artifacts"]
+        }
+      },
+      "required": ["chatId", "acknowledgePublic"],
+      "additionalProperties": false
+    },
+    "T65": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["designs", "artifacts"]
+        }
+      },
+      "required": ["chatId", "id"],
+      "additionalProperties": false
+    },
+    "T66": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "number"
+        },
+        "fonts": {
+          "$ref": "#/$defs/T67"
+        }
+      },
+      "required": ["chatId", "id"],
+      "additionalProperties": false
+    },
+    "T67": {
+      "type": "object",
+      "properties": {
+        "have": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["have"],
+      "additionalProperties": false
+    },
+    "T68": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "length": {
+          "type": "number"
+        }
+      },
+      "required": ["chatId", "name"],
+      "additionalProperties": false
+    },
+    "T69": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "format": {
+          "enum": ["design", "html"]
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T70": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "expectedVersion": {
+          "type": "number"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T71"
+              },
+              {
+                "$ref": "#/$defs/T77"
+              },
+              {
+                "$ref": "#/$defs/T79"
+              },
+              {
+                "$ref": "#/$defs/T80"
+              },
+              {
+                "$ref": "#/$defs/T91"
+              },
+              {
+                "$ref": "#/$defs/T93"
+              },
+              {
+                "$ref": "#/$defs/T94"
+              },
+              {
+                "$ref": "#/$defs/T95"
+              }
+            ]
+          }
+        },
+        "intent": {
+          "$ref": "#/$defs/T96"
+        }
+      },
+      "required": ["chatId", "id", "expectedVersion", "operations"],
+      "additionalProperties": false
+    },
+    "T71": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "update"
+        },
+        "id": {
+          "type": "string"
+        },
+        "patch": {
+          "$ref": "#/$defs/T72"
+        }
+      },
+      "required": ["op", "id", "patch"],
+      "additionalProperties": false
+    },
+    "T72": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "enum": ["text", "icon", "frame", "rectangle", "ellipse", "image"]
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "widthMode": {
+          "enum": ["fill", "fixed", "hug"]
+        },
+        "heightMode": {
+          "enum": ["fill", "fixed", "hug"]
+        },
+        "minWidth": {
+          "type": "number"
+        },
+        "minHeight": {
+          "type": "number"
+        },
+        "fill": {
+          "type": "string"
+        },
+        "stroke": {
+          "type": "string"
+        },
+        "strokeWidth": {
+          "type": "number"
+        },
+        "radius": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "fontWeight": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "textAlign": {
+          "enum": ["left", "right", "center"]
+        },
+        "src": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "layout": {
+          "enum": ["free", "horizontal", "vertical"]
+        },
+        "gap": {
+          "type": "number"
+        },
+        "padding": {
+          "type": "number"
+        },
+        "align": {
+          "enum": ["end", "center", "start"]
+        },
+        "justify": {
+          "enum": ["end", "center", "start", "space-between"]
+        },
+        "hidden": {
+          "enum": [false, true]
+        },
+        "locked": {
+          "enum": [false, true]
+        },
+        "component": {
+          "enum": [false, true]
+        },
+        "componentId": {
+          "type": "string"
+        },
+        "componentSourceId": {
+          "type": "string"
+        },
+        "textStyle": {
+          "type": "string"
+        },
+        "bindings": {
+          "$ref": "#/$defs/T73"
+        },
+        "componentProperties": {
+          "$ref": "#/$defs/T74"
+        },
+        "componentValues": {
+          "$ref": "#/$defs/T76"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T73": {
+      "type": "object",
+      "properties": {
+        "minWidth": {},
+        "minHeight": {},
+        "radius": {},
+        "gap": {},
+        "padding": {}
+      },
+      "additionalProperties": false
+    },
+    "T74": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "$ref": "#/$defs/T75"
+      }
+    },
+    "T75": {
+      "type": "object",
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "field": {
+          "enum": ["text", "fill", "opacity", "icon", "hidden"]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "const": false
+              },
+              {
+                "const": true
+              }
+            ]
+          }
+        }
+      },
+      "required": ["nodeId", "field"],
+      "additionalProperties": false
+    },
+    "T76": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "const": false
+          },
+          {
+            "const": true
+          }
+        ]
+      }
+    },
+    "T77": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "insert"
+        },
+        "node": {
+          "$ref": "#/$defs/T78"
+        },
+        "index": {
+          "type": "number"
+        }
+      },
+      "required": ["op", "node"],
+      "additionalProperties": false
+    },
+    "T78": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "enum": ["text", "icon", "frame", "rectangle", "ellipse", "image"]
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "widthMode": {
+          "enum": ["fill", "fixed", "hug"]
+        },
+        "heightMode": {
+          "enum": ["fill", "fixed", "hug"]
+        },
+        "minWidth": {
+          "type": "number"
+        },
+        "minHeight": {
+          "type": "number"
+        },
+        "fill": {
+          "type": "string"
+        },
+        "stroke": {
+          "type": "string"
+        },
+        "strokeWidth": {
+          "type": "number"
+        },
+        "radius": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "text": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "fontWeight": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "textAlign": {
+          "enum": ["left", "right", "center"]
+        },
+        "src": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "layout": {
+          "enum": ["free", "horizontal", "vertical"]
+        },
+        "gap": {
+          "type": "number"
+        },
+        "padding": {
+          "type": "number"
+        },
+        "align": {
+          "enum": ["end", "center", "start"]
+        },
+        "justify": {
+          "enum": ["end", "center", "start", "space-between"]
+        },
+        "hidden": {
+          "enum": [false, true]
+        },
+        "locked": {
+          "enum": [false, true]
+        },
+        "component": {
+          "enum": [false, true]
+        },
+        "componentId": {
+          "type": "string"
+        },
+        "componentSourceId": {
+          "type": "string"
+        },
+        "textStyle": {
+          "type": "string"
+        },
+        "bindings": {
+          "$ref": "#/$defs/T73"
+        },
+        "componentProperties": {
+          "$ref": "#/$defs/T74"
+        },
+        "componentValues": {
+          "$ref": "#/$defs/T76"
+        }
+      },
+      "required": ["id", "type", "width", "height"],
+      "additionalProperties": false
+    },
+    "T79": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "delete"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": ["op", "id"],
+      "additionalProperties": false
+    },
+    "T80": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "replace"
+        },
+        "document": {
+          "$ref": "#/$defs/T81"
+        }
+      },
+      "required": ["op", "document"],
+      "additionalProperties": false
+    },
+    "T81": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "background": {
+          "type": "string"
+        },
+        "kit": {
+          "$ref": "#/$defs/T82"
+        },
+        "consistency": {
+          "$ref": "#/$defs/T88"
+        },
+        "tokens": {
+          "$ref": "#/$defs/T28"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T78"
+          }
+        }
+      },
+      "required": ["schemaVersion", "width", "height", "nodes"],
+      "additionalProperties": false
+    },
+    "T82": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "number"
+        },
+        "title": {
+          "type": "string"
+        },
+        "colors": {
+          "$ref": "#/$defs/T28"
+        },
+        "textStyles": {
+          "$ref": "#/$defs/T83"
+        },
+        "spacing": {
+          "$ref": "#/$defs/T85"
+        },
+        "radii": {
+          "$ref": "#/$defs/T85"
+        },
+        "components": {
+          "$ref": "#/$defs/T86"
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T87"
+          }
+        }
+      },
+      "required": ["id", "version", "title", "colors", "textStyles", "spacing", "radii"],
+      "additionalProperties": false
+    },
+    "T83": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "$ref": "#/$defs/T84"
+      }
+    },
+    "T84": {
+      "type": "object",
+      "properties": {
+        "fontFamily": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "fontWeight": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        }
+      },
+      "required": ["fontSize"],
+      "additionalProperties": false
+    },
+    "T85": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "T86": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/T78"
+        }
+      }
+    },
+    "T87": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": ["title", "source"],
+      "additionalProperties": false
+    },
+    "T88": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": ["advisory", "strict"]
+        },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T89"
+          }
+        }
+      },
+      "required": ["mode"],
+      "additionalProperties": false
+    },
+    "T89": {
+      "type": "object",
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/T90"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": ["nodeId", "field", "value", "reason"],
+      "additionalProperties": false
+    },
+    "T90": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      }
+    },
+    "T91": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "document"
+        },
+        "patch": {
+          "$ref": "#/$defs/T92"
+        }
+      },
+      "required": ["op", "patch"],
+      "additionalProperties": false
+    },
+    "T92": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "background": {
+          "type": "string"
+        },
+        "kit": {
+          "$ref": "#/$defs/T82"
+        },
+        "consistency": {
+          "$ref": "#/$defs/T88"
+        },
+        "tokens": {
+          "$ref": "#/$defs/T28"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T93": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "detach"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": ["op", "id"],
+      "additionalProperties": false
+    },
+    "T94": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "duplicate"
+        },
+        "id": {
+          "type": "string"
+        },
+        "newId": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": ["op", "id", "newId"],
+      "additionalProperties": false
+    },
+    "T95": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "unset"
+        },
+        "id": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "enum": ["parentId", "textStyle", "bindings", "componentValues"]
+          }
+        }
+      },
+      "required": ["op", "id", "fields"],
+      "additionalProperties": false
+    },
+    "T96": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": ["text-only", "fit-text"]
+        },
+        "textIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "layoutIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["mode", "textIds"],
+      "additionalProperties": false
+    },
+    "T97": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "id"],
+      "additionalProperties": false
+    },
+    "T98": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T99"
+          }
+        }
+      },
+      "required": ["chatId", "comments"],
+      "additionalProperties": false
+    },
+    "T99": {
+      "type": "object",
+      "properties": {
+        "design": {
+          "$ref": "#/$defs/T100"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "near": {
+          "type": "string"
+        },
+        "anchor": {
+          "type": "string"
+        },
+        "tab": {
+          "$ref": "#/$defs/T101",
+          "description": "On an Artifact page split into tabs: the tab it was pinned on."
+        },
+        "text": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": ["design", "text"],
+      "additionalProperties": false
+    },
+    "T100": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "number"
+        },
+        "title": {
+          "type": "string"
+        },
+        "format": {
+          "enum": ["design", "html"],
+          "description": "Older transcript entries have no format; resolve them through the host's catalog."
+        },
+        "inline": {
+          "enum": [false, true],
+          "description": "An immutable HTML reply displayed in the transcript, independent of the live Artifact page."
+        },
+        "height": {
+          "type": "number"
+        },
+        "group": {
+          "type": "string",
+          "description": "The part of the app a design belongs to; the canvas lays out one row per group."
+        }
+      },
+      "required": ["id", "version", "title"],
+      "additionalProperties": false
+    },
+    "T101": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "title"],
+      "additionalProperties": false
+    },
+    "T102": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T103": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "chatTitle": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "number"
+        }
+      },
+      "required": ["cwd"],
+      "additionalProperties": false
+    },
+    "T104": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "chatTitle": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "description": "The user's pick: \"auto\" (the Chat's agent, `provider`, then the others) or one agent alone."
+        },
+        "scope": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "number"
+        }
+      },
+      "required": ["cwd", "text"],
+      "additionalProperties": false
+    },
+    "T105": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "editor": {
+          "type": "string"
+        }
+      },
+      "required": ["projectPath", "file"],
+      "additionalProperties": false
+    },
+    "T106": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "baseBranch": {
+          "type": "string"
+        },
+        "useProjectBase": {
+          "enum": [false, true],
+          "description": "A configured Project base wins over a remembered or fallback client selection."
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "issueKey": {
+          "type": "string"
+        },
+        "issueWorkspace": {
+          "type": "string",
+          "description": "The Linear workspace the issue was picked from."
+        }
+      },
+      "required": ["projectPath", "prompt"],
+      "additionalProperties": false
+    },
+    "T107": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "worktreeId": {
+          "type": "number"
+        },
+        "key": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": ["projectPath", "worktreeId", "key"],
+      "additionalProperties": false
+    },
+    "T108": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "worktreeId": {
+          "type": "number"
+        }
+      },
+      "required": ["projectPath", "worktreeId"],
+      "additionalProperties": false
+    },
+    "T109": {
+      "type": "object",
+      "properties": {
+        "force": {
+          "enum": [false, true]
+        },
+        "base": {
+          "type": "string"
+        },
+        "projectPath": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "string"
+        },
+        "seen": {
+          "$ref": "#/$defs/T110"
+        }
+      },
+      "required": ["force", "base", "projectPath", "chatId", "seen"],
+      "additionalProperties": false
+    },
+    "T110": {
+      "type": "object",
+      "properties": {
+        "uncommitted": {
+          "type": "number"
+        },
+        "unpushed": {
+          "type": "number"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "head": {
+          "type": "string"
+        },
+        "removable": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["uncommitted", "unpushed", "branch", "head", "removable"],
+      "additionalProperties": false
+    },
+    "T111": {
+      "type": "object",
+      "properties": {
+        "template": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "dashesOnly": {
+          "enum": [false, true]
+        },
+        "baseBranch": {
+          "type": "string"
+        },
+        "trackBase": {
+          "enum": [false, true]
+        },
+        "instructions": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T112": {
+      "type": "object",
+      "properties": {
+        "window": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["window"],
+      "additionalProperties": false
+    },
+    "T113": {
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": ["workspace"],
+      "additionalProperties": false
+    },
+    "T114": {
+      "type": "object",
+      "properties": {
+        "fresh": {
+          "enum": [false, true]
+        }
+      },
+      "additionalProperties": false
+    },
+    "T115": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "seen": {
+          "$ref": "#/$defs/T110"
+        },
+        "force": {
+          "enum": [false, true]
+        },
+        "activity": {
+          "$ref": "#/$defs/T116"
+        },
+        "idleBefore": {
+          "type": "number"
+        },
+        "lastAt": {
+          "type": "number"
+        }
+      },
+      "required": ["projectPath", "path", "seen", "force", "activity", "idleBefore", "lastAt"],
+      "additionalProperties": false
+    },
+    "T116": {
+      "type": "object",
+      "properties": {
+        "worktreeId": {
+          "type": "number"
+        },
+        "chats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T117"
+          }
+        }
+      },
+      "required": ["worktreeId", "chats"],
+      "additionalProperties": false
+    },
+    "T117": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number"
+        },
+        "lastAt": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "lastId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "count": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "lastAt", "lastId", "count"],
+      "additionalProperties": false
+    },
+    "T118": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "when": {
+          "type": "string"
+        }
+      },
+      "required": ["key"],
+      "additionalProperties": false
+    },
+    "T119": {
+      "type": "object",
+      "properties": {
+        "buttonThreshold": {
+          "type": "number"
+        },
+        "autoThreshold": {
+          "type": "number"
+        },
+        "autoCompact": {
+          "enum": [false, true]
+        },
+        "followUps": {
+          "enum": ["now", "queue"],
+          "description": "A message sent while a turn runs: steer it, or wait for the turn to end."
+        }
+      },
+      "additionalProperties": false
+    },
+    "T120": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "enum": [false, true]
+        },
+        "intervalMinutes": {
+          "type": "number"
+        },
+        "wake": {
+          "type": "array",
+          "items": {
+            "enum": ["comments", "checks", "conflicts", "behind"]
+          }
+        },
+        "level": {
+          "enum": [1, 2, 3, 4, 5]
+        },
+        "resolveThreads": {
+          "enum": [false, true]
+        },
+        "stopWhenGreen": {
+          "enum": [false, true]
+        },
+        "stopAfterDays": {
+          "$ref": "#/$defs/T121",
+          "description": "An off rule keeps its number, so turning it back on restores it."
+        },
+        "stopAfterFailures": {
+          "$ref": "#/$defs/T122"
+        },
+        "ownRule": {
+          "enum": [false, true]
+        },
+        "ownRuleText": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T121": {
+      "type": "object",
+      "properties": {
+        "on": {
+          "enum": [false, true]
+        },
+        "days": {
+          "type": "number"
+        }
+      },
+      "required": ["on", "days"],
+      "additionalProperties": false
+    },
+    "T122": {
+      "type": "object",
+      "properties": {
+        "on": {
+          "enum": [false, true]
+        },
+        "times": {
+          "type": "number"
+        }
+      },
+      "required": ["on", "times"],
+      "additionalProperties": false
+    },
+    "T123": {
+      "type": "object",
+      "properties": {
+        "retentionHours": {
+          "type": "number",
+          "description": "How long a Chat stays in the Done list before the host archives it; 0 is never."
+        }
+      },
+      "additionalProperties": false
+    },
+    "T124": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "enum": [false, true]
+        }
+      },
+      "additionalProperties": false
+    },
+    "T125": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "enum": [false, true]
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "cron": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "maxRuns": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "const": "codex"
+            },
+            {
+              "const": "claude"
+            },
+            {
+              "const": "antigravity"
+            },
+            {
+              "const": "kiro"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "permissionMode": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/T126"
+            }
+          ],
+          "description": "The model a Run retries on after a provider-side failure; null goes back to the automatic pick."
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/T127"
+            },
+            {
+              "$ref": "#/$defs/T128"
+            },
+            {
+              "$ref": "#/$defs/T129"
+            }
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/T130"
+            },
+            {
+              "$ref": "#/$defs/T131"
+            }
+          ]
+        },
+        "signingSecret": {
+          "type": "string",
+          "description": "Webhook Routines: a new HMAC secret (write-only, never read back) and the header the signature comes in (null or blank: the default)."
+        },
+        "signingHeader": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "flowDraft": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/T132"
+                  },
+                  {
+                    "$ref": "#/$defs/T134"
+                  },
+                  {
+                    "$ref": "#/$defs/T135"
+                  },
+                  {
+                    "$ref": "#/$defs/T136"
+                  },
+                  {
+                    "$ref": "#/$defs/T140"
+                  },
+                  {
+                    "$ref": "#/$defs/T141"
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "A flow's draft steps, saved as they are edited; null drops the draft."
+        },
+        "publishFlow": {
+          "enum": [true],
+          "description": "Makes the draft the steps new Runs use (the next revision)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "T126": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "enum": ["codex", "claude", "antigravity", "kiro"]
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        }
+      },
+      "required": ["provider", "model"],
+      "additionalProperties": false
+    },
+    "T127": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "schedule"
+        },
+        "cron": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      },
+      "required": ["kind", "cron", "timezone"],
+      "additionalProperties": false
+    },
+    "T128": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "linear"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "event": {
+          "enum": ["assigned", "label-added", "state", "comment"]
+        },
+        "team": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": ["kind", "workspace", "event"],
+      "additionalProperties": false
+    },
+    "T129": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "webhook"
+        },
+        "hookId": {
+          "type": "string"
+        },
+        "signed": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["kind", "hookId", "signed"],
+      "additionalProperties": false
+    },
+    "T130": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "chat"
+        },
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["kind", "chatId"],
+      "additionalProperties": false
+    },
+    "T131": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "new-chat"
+        },
+        "projectPath": {
+          "type": "string"
+        },
+        "workspace": {
+          "enum": ["worktree", "project"]
+        }
+      },
+      "required": ["kind", "projectPath", "workspace"],
+      "additionalProperties": false
+    },
+    "T132": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "agent"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": ["codex", "claude", "antigravity", "kiro"]
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "enum": ["ask", "auto", "full", "bot"]
+        },
+        "chat": {
+          "enum": ["run", "own"]
+        },
+        "output": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T133"
+          }
+        },
+        "retries": {
+          "type": "number"
+        },
+        "onInvalid": {
+          "enum": ["ask-once", "stop"]
+        }
+      },
+      "required": ["id", "name", "kind", "prompt", "chat", "output", "retries", "onInvalid"],
+      "additionalProperties": false
+    },
+    "T133": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "enum": ["number", "text", "choice", "yes-no", "link"]
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": ["name", "type"],
+      "additionalProperties": false
+    },
+    "T134": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "if"
+        },
+        "field": {
+          "type": "string",
+          "description": "`<stepId>.<field>` or `trigger.<path>`."
+        },
+        "test": {
+          "enum": ["is", "is-not", "contains", "is-set"]
+        },
+        "value": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T132"
+              },
+              {
+                "$ref": "#/$defs/T134"
+              },
+              {
+                "$ref": "#/$defs/T135"
+              },
+              {
+                "$ref": "#/$defs/T136"
+              },
+              {
+                "$ref": "#/$defs/T140"
+              },
+              {
+                "$ref": "#/$defs/T141"
+              }
+            ]
+          }
+        },
+        "otherwise": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T132"
+              },
+              {
+                "$ref": "#/$defs/T134"
+              },
+              {
+                "$ref": "#/$defs/T135"
+              },
+              {
+                "$ref": "#/$defs/T136"
+              },
+              {
+                "$ref": "#/$defs/T140"
+              },
+              {
+                "$ref": "#/$defs/T141"
+              }
+            ]
+          }
+        }
+      },
+      "required": ["id", "name", "kind", "field", "test", "yes", "otherwise"],
+      "additionalProperties": false
+    },
+    "T135": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "ask"
+        },
+        "message": {
+          "type": "string"
+        },
+        "expiresInHours": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "name", "kind", "message", "expiresInHours"],
+      "additionalProperties": false
+    },
+    "T136": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "wait"
+        },
+        "until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/T137"
+            },
+            {
+              "$ref": "#/$defs/T138"
+            },
+            {
+              "$ref": "#/$defs/T139"
+            }
+          ]
+        },
+        "timeoutHours": {
+          "type": "number",
+          "description": "For a Linear state or a review: how long to wait before the step fails."
+        }
+      },
+      "required": ["id", "name", "kind", "until", "timeoutHours"],
+      "additionalProperties": false
+    },
+    "T137": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "time"
+        },
+        "minutes": {
+          "type": "number"
+        }
+      },
+      "required": ["kind", "minutes"],
+      "additionalProperties": false
+    },
+    "T138": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "linear-state"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": ["kind", "state"],
+      "additionalProperties": false
+    },
+    "T139": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "pr-review"
+        }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "T140": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "pull-request"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "draft": {
+          "enum": [false, true]
+        },
+        "askFirst": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["id", "name", "kind", "title", "body", "draft", "askFirst"],
+      "additionalProperties": false
+    },
+    "T141": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "linear-comment"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "kind", "body"],
+      "additionalProperties": false
+    },
+    "T142": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T143": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/T127"
+            },
+            {
+              "$ref": "#/$defs/T128"
+            },
+            {
+              "$ref": "#/$defs/T129"
+            }
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/T130"
+            },
+            {
+              "$ref": "#/$defs/T131"
+            }
+          ]
+        },
+        "provider": {
+          "enum": ["codex", "claude", "antigravity", "kiro"]
+        },
+        "model": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "type": "string"
+        },
+        "fallback": {
+          "$ref": "#/$defs/T126",
+          "description": "What a Run retries on after a provider-side failure; unset, another installed provider's recommended model."
+        },
+        "maxRuns": {
+          "type": "number"
+        },
+        "expiresAt": {
+          "type": "number"
+        },
+        "signingSecret": {
+          "type": "string",
+          "description": "Webhook Routines: the HMAC secret, write-only (signs the Routine), and the header the signature comes in."
+        },
+        "signingHeader": {
+          "type": "string"
+        },
+        "flow": {
+          "$ref": "#/$defs/T144",
+          "description": "A flow: its steps, published at revision 1, or with `publish: false` kept as a draft (the Routine stays off)."
+        }
+      },
+      "required": ["name", "prompt", "trigger", "target"],
+      "additionalProperties": false
+    },
+    "T144": {
+      "type": "object",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T132"
+              },
+              {
+                "$ref": "#/$defs/T134"
+              },
+              {
+                "$ref": "#/$defs/T135"
+              },
+              {
+                "$ref": "#/$defs/T136"
+              },
+              {
+                "$ref": "#/$defs/T140"
+              },
+              {
+                "$ref": "#/$defs/T141"
+              }
+            ]
+          }
+        },
+        "publish": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["steps"],
+      "additionalProperties": false
+    },
+    "T145": {
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "type": "string"
+        },
+        "team": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T146": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "enum": ["http", "sse"]
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "$ref": "#/$defs/T28"
+        }
+      },
+      "required": ["name", "type", "url", "headers"],
+      "additionalProperties": false
+    },
+    "T147": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "const": "stdio"
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "$ref": "#/$defs/T28"
+        }
+      },
+      "required": ["name", "type", "command", "args", "env"],
+      "additionalProperties": false
+    },
+    "T148": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "target": {
+          "enum": ["codex", "claude", "everywhere"]
+        }
+      },
+      "required": ["name", "target"],
+      "additionalProperties": false
+    },
+    "T149": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "target": {
+          "enum": ["codex", "claude", "everywhere"]
+        }
+      },
+      "required": ["name", "target"],
+      "additionalProperties": false
+    },
+    "T150": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "enum": ["codex", "claude", "antigravity", "kiro"]
+        },
+        "accountId": {
+          "type": "string"
+        }
+      },
+      "required": ["provider", "accountId"],
+      "additionalProperties": false
+    },
+    "T151": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "grants": {
+          "$ref": "#/$defs/T152"
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      },
+      "required": ["label", "grants"],
+      "additionalProperties": false
+    },
+    "T152": {
+      "type": "object",
+      "properties": {
+        "projects": {
+          "$ref": "#/$defs/T153"
+        },
+        "worktrees": {
+          "$ref": "#/$defs/T154"
+        },
+        "chats": {
+          "$ref": "#/$defs/T155"
+        },
+        "designs": {
+          "$ref": "#/$defs/T156"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T153": {
+      "type": "object",
+      "properties": {
+        "projectPaths": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "const": "*"
+            }
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "enum": ["read", "create"]
+          }
+        }
+      },
+      "required": ["projectPaths", "capabilities"],
+      "additionalProperties": false
+    },
+    "T154": {
+      "type": "object",
+      "properties": {
+        "projectPaths": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "const": "*"
+            }
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "enum": ["read", "create"]
+          }
+        }
+      },
+      "required": ["projectPaths", "capabilities"],
+      "additionalProperties": false
+    },
+    "T155": {
+      "type": "object",
+      "properties": {
+        "projectPaths": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "const": "*"
+            }
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "enum": ["start", "read", "create"]
+          }
+        }
+      },
+      "required": ["projectPaths", "capabilities"],
+      "additionalProperties": false
+    },
+    "T156": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "designIds": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "const": "*"
+            }
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "enum": ["read", "write"]
+          }
+        }
+      },
+      "required": ["chatId", "designIds", "capabilities"],
+      "additionalProperties": false
+    },
+    "T157": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "fresh": {
+          "enum": [false, true]
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": ["fresh"],
+      "additionalProperties": false
+    },
+    "T158": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd"],
+      "additionalProperties": false
+    },
+    "T159": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "recordedBase": {
+          "type": "string"
+        },
+        "branchesVersion": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        }
+      },
+      "required": ["cwd"],
+      "additionalProperties": false
+    },
+    "T160": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "mode": {
+          "enum": ["uncommitted", "committed"]
+        }
+      },
+      "required": ["cwd", "mode"],
+      "additionalProperties": false
+    },
+    "T161": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "mode": {
+          "enum": ["uncommitted", "committed"]
+        },
+        "path": {
+          "type": "string"
+        },
+        "oldPath": {
+          "type": "string"
+        },
+        "untracked": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "mode", "path"],
+      "additionalProperties": false
+    },
+    "T162": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": ["codex", "claude", "antigravity", "kiro"]
+        },
+        "chat": {
+          "$ref": "#/$defs/T163"
+        }
+      },
+      "required": ["cwd", "chat"],
+      "additionalProperties": false
+    },
+    "T163": {
+      "type": "object",
+      "properties": {
+        "chatTitle": {
+          "type": "string"
+        },
+        "firstMessage": {
+          "type": "string"
+        },
+        "recentMessages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "testCommands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T164"
+          }
+        }
+      },
+      "required": ["chatTitle", "firstMessage", "recentMessages", "testCommands"],
+      "additionalProperties": false
+    },
+    "T164": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "status": {
+          "enum": ["done", "failed"]
+        }
+      },
+      "required": ["command", "status"],
+      "additionalProperties": false
+    },
+    "T165": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "message"],
+      "additionalProperties": false
+    },
+    "T166": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd"],
+      "additionalProperties": false
+    },
+    "T167": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "title", "body"],
+      "additionalProperties": false
+    },
+    "T168": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        }
+      },
+      "required": ["cwd", "number"],
+      "additionalProperties": false
+    },
+    "T169": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "base", "head"],
+      "additionalProperties": false
+    },
+    "T170": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "oldPath": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "base", "head", "path"],
+      "additionalProperties": false
+    },
+    "T171": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "startLine": {
+          "type": "number"
+        },
+        "side": {
+          "enum": ["LEFT", "RIGHT"]
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "number", "path", "line", "body"],
+      "additionalProperties": false
+    },
+    "T172": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "number", "threadId", "body"],
+      "additionalProperties": false
+    },
+    "T173": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "commentId": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "commentId"],
+      "additionalProperties": false
+    },
+    "T174": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "event": {
+          "enum": ["COMMENT", "APPROVE", "REQUEST_CHANGES"]
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "number", "event", "body"],
+      "additionalProperties": false
+    },
+    "T175": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "resolved": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "threadId", "resolved"],
+      "additionalProperties": false
+    },
+    "T176": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "method": {
+          "enum": ["squash", "merge", "rebase"]
+        },
+        "auto": {
+          "enum": [false, true]
+        },
+        "admin": {
+          "enum": [false, true]
+        },
+        "disableAuto": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "number", "method"],
+      "additionalProperties": false
+    },
+    "T177": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "draft": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "number"],
+      "additionalProperties": false
+    },
+    "T178": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "url"],
+      "additionalProperties": false
+    },
+    "T179": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd"],
+      "additionalProperties": false
+    },
+    "T180": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["cwd", "number", "add", "remove"],
+      "additionalProperties": false
+    },
+    "T181": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd"],
+      "additionalProperties": false
+    },
+    "T182": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["cwd", "number", "add", "remove"],
+      "additionalProperties": false
+    },
+    "T183": {
+      "type": "object",
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "editor": {
+          "type": "string"
+        }
+      },
+      "required": ["root"],
+      "additionalProperties": false
+    },
+    "T184": {
+      "type": "object",
+      "properties": {
+        "takeNotice": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["takeNotice"],
+      "additionalProperties": false
+    },
+    "T185": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T186": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": ["scope", "path"],
+      "additionalProperties": false
+    },
+    "T187": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [false, true]
+        }
+      },
+      "additionalProperties": false
+    },
+    "T188": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "projectIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hidden": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["name", "projectIds"],
+      "additionalProperties": false
+    },
+    "T189": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "projectIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hidden": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["id", "name", "projectIds"],
+      "additionalProperties": false
+    },
+    "T190": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "What the agent is sent: the body with the attached files listed."
+        },
+        "provider": {
+          "enum": ["codex", "claude", "antigravity", "kiro"]
+        },
+        "model": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "enum": ["ask", "auto", "full", "bot"]
+        },
+        "delivery": {
+          "enum": ["now", "queue"],
+          "description": "While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior."
+        },
+        "clientMessageId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "The chat to send to, or null for a new chat in the worktree."
+        },
+        "body": {
+          "type": "string",
+          "description": "The message as the chat shows it."
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T191"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths of the files attached to the message."
+        },
+        "effort": {
+          "type": "string"
+        },
+        "ultracode": {
+          "enum": [false, true]
+        },
+        "fastMode": {
+          "enum": [false, true],
+          "description": "Claude only: faster Opus output at premium usage rates."
+        },
+        "replies": {
+          "enum": ["concise", "normal"],
+          "description": "How long Claude's replies run; Claude only, Codex ignores it."
+        },
+        "tldrEnabled": {
+          "enum": [false, true],
+          "description": "Apply bundled TLDR writing rules to both providers. Defaults to true."
+        },
+        "prAction": {
+          "$ref": "#/$defs/T192",
+          "description": "A PR-blocker pill's action. Milagre checks it and writes the body, prompt and context itself, ignoring the ones sent."
+        },
+        "linearIssue": {
+          "$ref": "#/$defs/T193",
+          "description": "The first message of a Chat started from an issue. Milagre reads the issue and writes the body, prompt and context itself."
+        },
+        "compact": {
+          "enum": [false, true],
+          "description": "Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent."
+        },
+        "sentFrom": {
+          "enum": ["phone", "tablet", "computer"],
+          "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
+        },
+        "linkId": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        }
+      },
+      "required": ["prompt", "provider", "model", "permissionMode", "sessionId", "body", "images", "files", "linkId", "operationId"],
+      "additionalProperties": false
+    },
+    "T191": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "dataUrl": {
+          "type": "string",
+          "description": "Draft and legacy images use dataUrl; persisted images use path."
+        },
+        "sourcePath": {
+          "type": "string",
+          "description": "Original file attachment when path points at the durable image copy."
+        }
+      },
+      "required": ["id", "name"],
+      "additionalProperties": false
+    },
+    "T192": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "enum": ["conflicts", "behind", "changes-requested", "checks-failed"]
+        },
+        "pr": {
+          "type": "number"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": ["action", "pr", "url"],
+      "additionalProperties": false
+    },
+    "T193": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["key"],
+      "additionalProperties": false
+    },
+    "T194": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "T195": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string"
+        },
+        "worktree_path": {
+          "type": "string"
+        }
+      },
+      "required": ["project_id"],
+      "additionalProperties": false
+    },
+    "T196": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "a": {
+          "$ref": "#/$defs/T195"
+        },
+        "b": {
+          "$ref": "#/$defs/T195"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "a", "b", "created_at"],
+      "additionalProperties": false
+    },
+    "T197": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "T198": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId"],
+      "additionalProperties": false
+    },
+    "T199": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "id"],
+      "additionalProperties": false
+    },
+    "T200": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "decisions": {
+          "$ref": "#/$defs/T201"
+        },
+        "approved": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["chatId", "token", "decisions", "approved"],
+      "additionalProperties": false
+    },
+    "T201": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "enum": ["keep", "restore"]
+      }
+    },
+    "T202": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "delivery": {
+          "enum": ["now", "queue"],
+          "description": "While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior."
+        },
+        "clientMessageId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "The chat to send to, or null for a new chat in the worktree."
+        },
+        "worktreeId": {
+          "type": "number"
+        },
+        "body": {
+          "type": "string",
+          "description": "The message as the chat shows it."
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T191"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths of the files attached to the message."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "What the agent is sent: the body with the attached files listed."
+        },
+        "provider": {
+          "enum": ["codex", "claude", "antigravity", "kiro"]
+        },
+        "model": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "enum": ["ask", "auto", "full", "bot"]
+        },
+        "effort": {
+          "type": "string"
+        },
+        "ultracode": {
+          "enum": [false, true]
+        },
+        "fastMode": {
+          "enum": [false, true],
+          "description": "Claude only: faster Opus output at premium usage rates."
+        },
+        "replies": {
+          "enum": ["concise", "normal"],
+          "description": "How long Claude's replies run; Claude only, Codex ignores it."
+        },
+        "tldrEnabled": {
+          "enum": [false, true],
+          "description": "Apply bundled TLDR writing rules to both providers. Defaults to true."
+        },
+        "prAction": {
+          "$ref": "#/$defs/T192",
+          "description": "A PR-blocker pill's action. Milagre checks it and writes the body, prompt and context itself, ignoring the ones sent."
+        },
+        "linearIssue": {
+          "$ref": "#/$defs/T193",
+          "description": "The first message of a Chat started from an issue. Milagre reads the issue and writes the body, prompt and context itself."
+        },
+        "compact": {
+          "enum": [false, true],
+          "description": "Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent."
+        },
+        "sentFrom": {
+          "enum": ["phone", "tablet", "computer"],
+          "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
+        }
+      },
+      "required": ["projectPath", "sessionId", "worktreeId", "body", "images", "files", "prompt", "provider", "model", "permissionMode"],
+      "additionalProperties": false
+    },
+    "T203": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "A name the user gave the chat."
+        },
+        "unread": {
+          "enum": [false, true],
+          "description": "A turn ended while the chat wasn't open, or the user marked it unread."
+        },
+        "archived": {
+          "enum": [false, true],
+          "description": "Hidden from the chat list."
+        },
+        "pinned": {
+          "enum": [false, true],
+          "description": "Shown in the chat list's Pinned section, above the rest, in `pin_order`."
+        },
+        "pin_order": {
+          "type": "number",
+          "description": "Where a pinned chat sits among the pinned ones, lowest first. Kept when unpinned; only read while pinned."
+        },
+        "done": {
+          "enum": [false, true],
+          "description": "Marks the chat Done (the host stamps `done_at` with its own clock) or reopens it."
+        },
+        "kept": {
+          "enum": [true],
+          "description": "The user took the Chat over: a hidden Run Chat stays in the lists from then on. Pins are this device's own\n(chat-pins.ts) and never reach the host, so pinning one says so with this instead. Nothing is saved for it."
+        }
+      },
+      "additionalProperties": false
+    },
+    "T204": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "number"
+        },
+        "turns": {
+          "type": "number"
+        },
+        "limit": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T205": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T206": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": ["deny", "allow", "allow-for-chat"]
+        }
+      },
+      "required": ["chatId", "requestId", "decision"],
+      "additionalProperties": false
+    },
+    "T207": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "answers": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/T208"
+            }
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "images": {
+          "$ref": "#/$defs/T209"
+        },
+        "suggestionId": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "requestId", "answers"],
+      "additionalProperties": false
+    },
+    "T208": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "T209": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/T191"
+        }
+      }
+    },
+    "T210": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "id"],
+      "additionalProperties": false
+    },
+    "T211": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": ["ask", "auto", "full", "bot"]
+        }
+      },
+      "required": ["chatId", "mode"],
+      "additionalProperties": false
+    },
+    "T212": {
+      "type": "object",
+      "properties": {
+        "range": {
+          "enum": ["24h", "7d", "30d", "90d"]
+        },
+        "timeZone": {
+          "type": "string",
+          "description": "IANA time zone the days are cut in; the host's own when absent or unknown."
+        },
+        "days": {
+          "$ref": "#/$defs/T213",
+          "description": "Days picked on the calendar (\"2026-10-16\"), both included; they replace `range`. One day reads by the hour."
+        }
+      },
+      "required": ["range"],
+      "additionalProperties": false
+    },
+    "T213": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": ["from", "to"],
+      "additionalProperties": false
+    },
+    "T214": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        },
+        "timeZone": {
+          "type": "string"
+        }
+      },
+      "required": ["days", "start", "end", "timeZone"],
+      "additionalProperties": false
+    },
+    "T215": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "activeChatId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "unread": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notifyOnCompletion": {
+          "enum": [false, true]
+        },
+        "showDockBadge": {
+          "enum": [false, true]
+        },
+        "hidden": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Projects hidden from this Mac's sidebar (this Mac's paths, `${computerId}|/path` for paired ones): they stay quiet."
+        }
+      },
+      "required": ["projectPath", "activeChatId", "unread", "notifyOnCompletion", "showDockBadge"],
+      "additionalProperties": false
+    },
+    "T216": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": ["chatId", "title"],
+      "additionalProperties": false
+    },
+    "T217": {
+      "type": "object",
+      "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "base64": {
+          "type": "string"
+        },
+        "reuse": {
+          "type": "string"
+        },
+        "transferId": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "totalBytes": {
+          "type": "number"
+        }
+      },
+      "required": ["projectPath"],
+      "additionalProperties": false
+    },
+    "T218": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T219": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "state"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "state": {}
+      },
+      "required": ["kind", "scope", "state"],
+      "additionalProperties": false
+    },
+    "T220": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "chat"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "number"
+        },
+        "window": {
+          "$ref": "#/$defs/T221"
+        }
+      },
+      "required": ["kind", "scope", "chatId", "window"],
+      "additionalProperties": false
+    },
+    "T221": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {}
+        },
+        "hasMore": {
+          "enum": [false, true]
+        },
+        "total": {
+          "type": "number"
+        }
+      },
+      "required": ["messages", "hasMore", "total"],
+      "additionalProperties": false
+    },
+    "T222": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "chat"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "number"
+        }
+      },
+      "required": ["kind", "scope", "chatId"],
+      "additionalProperties": false
+    },
+    "T223": {
+      "type": "object",
+      "properties": {
+        "audio": {
+          "$ref": "#/$defs/T224"
+        },
+        "language": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": ["audio", "language", "prompt", "model"],
+      "additionalProperties": false
+    },
+    "T224": {
+      "type": "object",
+      "properties": {
+        "byteLength": {
+          "type": "number",
+          "description": "Read-only. The length of the ArrayBuffer (in bytes)."
+        },
+        "slice": {
+          "$ref": "#/$defs/T225",
+          "description": "Returns a section of an ArrayBuffer."
+        },
+        "maxByteLength": {
+          "type": "number",
+          "description": "If this ArrayBuffer is resizable, returns the maximum byte length given during construction; returns the byte length if not.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/maxByteLength)"
+        },
+        "resizable": {
+          "enum": [false, true],
+          "description": "Returns true if this ArrayBuffer can be resized.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resizable)"
+        },
+        "resize": {
+          "$ref": "#/$defs/T226",
+          "description": "Resizes the ArrayBuffer to the specified size (in bytes).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resize)"
+        },
+        "detached": {
+          "enum": [false, true],
+          "description": "Returns a boolean indicating whether or not this buffer has been detached (transferred).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/detached)"
+        },
+        "transfer": {
+          "$ref": "#/$defs/T227",
+          "description": "Creates a new ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transfer)"
+        },
+        "transferToFixedLength": {
+          "$ref": "#/$defs/T228",
+          "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
+        }
+      },
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength"],
+      "additionalProperties": false
+    },
+    "T225": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T226": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T227": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T228": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T229": {
+      "type": "object",
+      "properties": {
+        "contentsId": {
+          "type": "number"
+        },
+        "chatKey": {
+          "type": "string"
+        }
+      },
+      "required": ["contentsId", "chatKey"],
+      "additionalProperties": false
+    },
+    "T230": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      },
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -5,7 +5,14 @@ const { z } = require("zod");
 const { chatTitle } = require("@milagre/shared/chats");
 const { isNote } = require("@milagre/shared/chat-summary");
 const { providerName } = require("@milagre/shared/providers");
-const { projectOfKey, runStatus, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { chatActivity } = require("@milagre/shared/chat-activity");
+
+/** A linked Chat's status, the same activity its sidebar row shows (chat-activity.mjs), with its background work. */
+function linkedStatus(session, run) {
+  const { activity, background } = chatActivity(session, run);
+  return { status: activity, ...(background ? { backgroundWork: background } : {}) };
+}
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { createGit } = require("./git/client.cjs");
 const { buildLinkedSummary } = require("./linked-summary.cjs");
@@ -26,18 +33,30 @@ function lastReply(state, sessionId) {
   )?.body;
 }
 
-/** What a Chat's agent replied after a Delegation's message (Milagre's own notes left out), or undefined. */
+// The text a reply ends with: what follows its last tool step, or the last stretch of text between steps when it ended on
+// one. A saved reply holds the whole turn (its narration between tool calls too); step offsets index its body.
+function replyEnd(message) {
+  const body = message.body ?? "";
+  const cuts = [...new Set([0, ...(message.steps ?? []).filter((step) => step.kind !== "thinking").map((step) => step.offset ?? 0)])]
+    .filter((cut) => cut >= 0 && cut <= body.length)
+    .sort((a, b) => a - b);
+  for (let index = cuts.length - 1; index >= 0; index--) {
+    const text = body.slice(cuts[index], cuts[index + 1] ?? body.length).trim();
+    if (text) return text;
+  }
+  return body.trim();
+}
+
+/**
+ * What a Chat's agent ended its reply to a Delegation with (Milagre's own notes left out), or undefined: the text after
+ * the last tool step of its last reply, so the narration of the work stays in that Chat and the report is its answer.
+ */
 function delegationReply(state, sessionId, delegationId) {
   const messages = (state.messages ?? state).filter((message) => message.session_id === sessionId);
   const start = messages.findIndex((message) => message.context?.kind === "delegation" && message.context.delegationId === delegationId);
   if (start === -1) return undefined;
-  return (
-    messages
-      .slice(start + 1)
-      .filter((message) => message.role === "assistant" && message.context === null && message.body?.trim())
-      .map((message) => message.body.trim())
-      .join("\n\n") || undefined
-  );
+  const last = messages.slice(start + 1).findLast((message) => message.role === "assistant" && message.context === null && message.body?.trim());
+  return last ? replyEnd(last) || undefined : undefined;
 }
 
 /** "Project / branch / Chat title", how one Chat names another across a Link. */
@@ -102,7 +121,7 @@ function createLinkedReads(view) {
             ref,
             title: chatTitle(session, messages),
             provider: session.provider ? providerName(session.provider) : undefined,
-            status: runStatus(runs[ref]),
+            ...linkedStatus(session, runs[ref]),
             archived: session.archived,
             activity: runs[ref] ? Number.MAX_SAFE_INTEGER : (messages.at(-1)?.id ?? 0),
             lastReply: lastReply(messages, session.id),
@@ -122,7 +141,7 @@ function createLinkedReads(view) {
                 ref,
                 title: chatTitle(session, messages),
                 provider: session.provider ? providerName(session.provider) : undefined,
-                status: runStatus(runs[ref]),
+                ...linkedStatus(session, runs[ref]),
                 archived: session.archived,
                 activity: runs[ref] ? Number.MAX_SAFE_INTEGER : (messages.at(-1)?.id ?? 0),
                 lastReply: lastReply(messages, session.id),
@@ -293,15 +312,37 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
     },
     {
       name: "delegate",
-      description: `Ask for changes in a linked Worktree. That side's own agent carries them out in the Chat you pick (a Chat ref from linked_overview, or "new"); its Delegation report comes back to this Chat later, so don't wait for it. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
+      description: `Hand work to another Chat: in a linked Worktree, or in any Worktree of this Chat's own Project (this one included, no Link needed). That Chat's own agent carries it out in the Chat you pick (a Chat ref, or "new"); its Delegation report comes back to this Chat later and reaches you with your next turn, so don't wait for it. Use it instead of chat_start when you want the result back; chat_start sends a message without nesting the Chat or reporting back. delegation_detach undoes the nesting. The message runs in that Chat's own permission mode (a new Chat takes yours); if that is more than yours, the user approves first: the call can wait minutes for that card, so wait for its result, don't end the turn or move on. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
       input: {
-        worktree,
-        chat: z.string().describe('A Chat ref from linked_overview (projectPath#id) in that Worktree, or "new".'),
+        worktree: z
+          .string()
+          .describe("The Worktree's absolute path: as linked_overview shows it after \"worktree\", or from worktree_list for this Chat's own Project."),
+        chat: z.string().describe('A Chat ref (projectPath#id) in that Worktree, from linked_overview or chat_list, or "new".'),
         message: z.string().min(1),
         negotiation: z.boolean().optional(),
+        computer: z
+          .string()
+          .optional()
+          .describe("Another paired computer's name, for a Worktree on it, as linked_overview lists them. Leave out for this computer."),
+        newWorktree: z
+          .boolean()
+          .optional()
+          .describe(
+            'With computer and chat "new": start in a new Worktree of the Project whose path `worktree` gives, made there from its main branch. For this computer, use worktree_create first instead.',
+          ),
       },
       readOnly: false,
       run: (args) => delegations.delegate(chatId, args),
+    },
+    {
+      name: "delegation_detach",
+      description:
+        "Stop a Chat being a subchat: a Chat you delegated to (or this Chat itself, when `chat` is left out) leaves its parent in the sidebar, and its open Delegations from you end without stopping its work. Their reports no longer come back.",
+      input: {
+        chat: z.string().optional().describe("The Chat ref (projectPath#id) to detach. Leave out to detach this Chat from its parent."),
+      },
+      readOnly: false,
+      run: ({ chat }) => delegations.detach(chat ?? chatId, chatId),
     },
     {
       name: "conclude_negotiation",
@@ -314,24 +355,9 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
   ];
 }
 
-/** The JSON Schema of a definition's input, for MCP's tools/list. */
-function inputSchema(definition) {
-  const { $schema: _schema, ...schema } = z.toJSONSchema(z.object(definition.input));
-  return schema;
-}
+const { inputSchema, runTool } = require("./command-dispatcher.cjs");
 
-/** Runs a definition with arguments checked against its input; failures come back as the tool's error text. */
-async function runTool(definition, args) {
-  try {
-    const parsed = (definition.strict ? z.strictObject(definition.input) : z.object(definition.input)).parse(args ?? {});
-    return { text: String(await definition.run(parsed)), isError: false };
-  } catch (error) {
-    const text =
-      error instanceof z.ZodError
-        ? `Invalid arguments: ${error.issues.map((issue) => `${issue.path.join(".") || "input"} ${issue.message}`).join("; ")}`
-        : error.message;
-    return { text, isError: true };
-  }
-}
+/** MCP content for a tool result: its text, then any images, which Claude and Codex both read. */
+const mcpContent = ({ text, images = [] }) => [{ type: "text", text }, ...images.map((image) => ({ type: "image", data: image.base64, mimeType: image.mime }))];
 
-module.exports = { chatLabel, createLinkedReads, delegationReply, inputSchema, linkedToolDefinitions, runTool };
+module.exports = { chatLabel, createLinkedReads, delegationReply, inputSchema, linkedToolDefinitions, mcpContent, runTool };

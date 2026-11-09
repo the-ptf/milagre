@@ -1,4 +1,4 @@
-import { mix, onColor, withAlpha } from "./color.ts";
+import { contrastRatio, mix, onColor, over, readableOn, withAlpha } from "./color.ts";
 import type { Ansi, Scheme, ThemePalette, ThemeSource } from "./types.ts";
 import type { SyntaxKind } from "../file-syntax.mjs";
 
@@ -6,13 +6,14 @@ import type { SyntaxKind } from "../file-syntax.mjs";
 const tint = (page: string, color: string, scheme: Scheme, light: number, dark: number) =>
   scheme === "dark" ? withAlpha(color, dark) : mix(page, color, light);
 
+/** Tokens solved from the rest of the palette at the end, so a theme never sets text below 4.5:1. */
+type Solved = "ink4" | "greenInk" | "orangeInk" | "redInk" | "onGreen" | "onOrange" | "onRed";
+
 export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette {
   const { page, surface, ink, accent, green, orange, red } = source;
   const dark = scheme === "dark";
   const toward = (t: number) => mix(surface, ink, t);
-  const tooltipBg = dark ? mix(page, "#000000", 0.3) : mix(ink, page, 0.06);
-  const tooltipFg = dark ? ink : page;
-  const derived: ThemePalette = {
+  const derived: Omit<ThemePalette, Solved> = {
     page,
     surface,
     ink,
@@ -25,24 +26,20 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     syntax: source.syntax,
     canvas: mix(page, ink, dark ? 0.025 : 0.03),
     inset: mix(page, surface, 0.5),
-    hover: toward(dark ? 0.05 : 0.035),
-    hover2: toward(dark ? 0.09 : 0.07),
+    // Translucent ink, so a hover darkens whatever it sits on: page, card or field.
+    hover: withAlpha(ink, dark ? 0.05 : 0.06),
+    hover2: withAlpha(ink, dark ? 0.09 : 0.1),
     field: toward(dark ? 0.06 : 0.04),
-    ink2: mix(ink, page, 0.36),
+    ink2: mix(ink, page, 0.25),
     ink3: mix(ink, page, 0.56),
     onAccent: onColor(accent, page),
     line: toward(dark ? 0.09 : 0.07),
     lineStrong: toward(dark ? 0.14 : 0.12),
-    lineSoft: toward(dark ? 0.06 : 0.045),
     accentInk: dark ? mix(accent, ink, 0.35) : mix(accent, "#000000", 0.12),
     accentTint: tint(page, accent, scheme, 0.08, 0.16),
     greenTint: tint(page, green, scheme, 0.08, 0.14),
     orangeTint: tint(page, orange, scheme, 0.08, 0.14),
     redTint: tint(page, red, scheme, 0.08, 0.14),
-    tooltipBg,
-    tooltipFg,
-    tooltipMuted: mix(tooltipFg, tooltipBg, 0.3),
-    tooltipBorder: mix(tooltipBg, tooltipFg, 0.12),
     diffAdd: tint(page, green, scheme, 0.12, 0.12),
     diffAddWord: tint(page, green, scheme, 0.3, 0.3),
     diffRemove: tint(page, red, scheme, 0.1, 0.12),
@@ -51,7 +48,35 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     selection: withAlpha(accent, 0.3),
   };
   const given = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined));
-  return { ...derived, ...given } as ThemePalette;
+  const palette = { ...derived, ...given } as Omit<ThemePalette, Solved>;
+  // ink2, ink3 and the status colors carry metadata, descriptions and counts at 10–13px, so as text they need 4.5:1
+  // wherever they sit: the page, cards, fields, the hover-2 highlight (on page or card) and, for a status, its own
+  // tint. A theme's own ink3 stays as ink4, for icons at rest, dots and disabled controls.
+  const { page: pg, surface: sf } = palette;
+  const behind = (fill: string) => [over(fill, pg), over(fill, sf)];
+  const text = [pg, sf, ...behind(palette.field), ...behind(palette.hover2)];
+  const onTint = (tint: string) => [pg, sf, ...behind(tint)];
+  const worst = (color: string) => Math.min(...text.map((bg) => contrastRatio(color, bg)));
+  const ink2 = readableOn(palette.ink2, palette.ink, text);
+  // Where ink2 is itself close to 4.5:1, a readable ink3 would pass it; the levels then share ink2.
+  const ink3 = readableOn(palette.ink3, palette.ink, text);
+  const greenInk = readableOn(palette.green, palette.ink, onTint(palette.greenTint));
+  const orangeInk = readableOn(palette.orange, palette.ink, onTint(palette.orangeTint));
+  const redInk = readableOn(palette.red, palette.ink, onTint(palette.redTint));
+  return {
+    ...palette,
+    ink2,
+    ink3: worst(ink3) > worst(ink2) ? ink2 : ink3,
+    ink4: palette.ink3,
+    accentInk: readableOn(palette.accentInk, palette.ink, onTint(palette.accentTint)),
+    greenInk,
+    orangeInk,
+    redInk,
+    // Labels on a status fill that carries a count or a word: the fill is the -ink color (bg-red-ink text-on-red).
+    onGreen: onColor(greenInk, pg),
+    onOrange: onColor(orangeInk, pg),
+    onRed: onColor(redInk, pg),
+  };
 }
 
 export function ansi(c: {

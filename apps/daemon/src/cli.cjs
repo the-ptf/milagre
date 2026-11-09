@@ -21,6 +21,7 @@ async function main() {
       "app-version": { type: "string" },
       cwd: { type: "string" },
       "worktree-root": { type: "string" },
+      "chats-home": { type: "string" },
     },
   });
   if (values.help) {
@@ -65,7 +66,8 @@ async function main() {
       runtimeOptions: {
         cwd: values.cwd || process.cwd(),
         worktreeRoot: values["worktree-root"],
-        keepAwake: new KeepAwake({ powerSaveBlocker: createPowerBlocker() }),
+        chatsHome: values["chats-home"],
+        keepAwake: new KeepAwake({ powerSaveBlocker: createPowerBlocker(), enabled: false }),
       },
     });
     console.log(JSON.stringify({ status: "ready", pid: process.pid, dataDir, socketPath: daemon.socketPath }));

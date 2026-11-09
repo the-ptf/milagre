@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createGit } = require("./git/client.cjs");
 
-// Brings a Project's main branch up to its remote before a new Worktree is made (see
+// Brings the selected source branch up to its remote before a new Worktree is made (see
 // docs/superpowers/specs/2026-10-08-main-branch-sync-design.md). Only ever a fast-forward: a branch with
 // commits of its own, a dirty checkout or one mid-merge is left alone and the reason comes back.
 
@@ -49,11 +49,13 @@ async function operationInProgress(client, checkout) {
   return null;
 }
 
-async function syncMainBranch(projectPath, { client = createGit(), now = Date.now } = {}) {
+async function syncMainBranch(projectPath, { branch: sourceBranch, client = createGit(), now = Date.now } = {}) {
   let branch = "main";
   const result = (outcome, extra = {}) => ({ at: now(), outcome, branch, ...extra });
   try {
-    branch = (await client.read.resolveBase(projectPath)).name;
+    branch = sourceBranch ?? (await client.read.resolveBase(projectPath)).name;
+    if (typeof branch !== "string" || !branch || branch.startsWith("-") || /[\0\n*?[~^:]/.test(branch))
+      return result("skipped", { message: "No local source branch" });
     const local = `refs/heads/${branch}`;
     const before = await client.read.commitOf(projectPath, local);
     if (!before) return result("skipped", { message: `No local ${branch} branch` });

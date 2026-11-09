@@ -11,7 +11,8 @@ const { startMobileBridge } = require("./mobile-bridge.cjs");
 
 async function fixture(t) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-simulator-rpc-"));
-  const opens = [],
+  const frames = [],
+    opens = [],
     disconnected = [];
   const simulators = {
     async list() {
@@ -20,6 +21,15 @@ async function fixture(t) {
     async open(request, owner) {
       opens.push({ request, owner });
       return { viewerId: "private-viewer" };
+    },
+    async frame(request, owner) {
+      frames.push({ request, owner });
+      return {
+        sequence: 1,
+        data: "cGl4ZWxz",
+        mimeType: "image/jpeg",
+        status: { width: 1, height: 1, generation: 1, ready: true, controlling: true, orientation: "portrait" },
+      };
     },
     async closeViewer() {
       return null;
@@ -48,6 +58,7 @@ async function fixture(t) {
   return {
     dataDir,
     opens,
+    frames,
     disconnected,
     chatId,
     async client() {
@@ -94,9 +105,52 @@ test("paired mobile reaches the same simulator service; unauthenticated and conf
   assert.equal((await paired("simulator:attach", [{ chatId: f.chatId, deviceId: "test-device" }])).status, 200);
   assert.equal((await paired("simulator:open", [{ chatId: f.chatId, deviceId: "test-device" }])).status, 200);
   assert.equal(typeof f.opens[0].owner, "string");
+  const frame = await paired("simulator:frame", [{ viewerId: "private-viewer", after: 0 }]);
+  assert.equal(frame.status, 200);
+  assert.equal((await frame.json()).result.data, "cGl4ZWxz");
+  assert.equal(f.frames[0].owner, f.opens[0].owner);
   assert.equal((await paired("simulator:list", [], false)).status, 401);
   const confined = await f.bridge(true);
-  for (const method of ["list", "attach", "detach", "open", "offer", "status", "control", "input", "repair", "close"]) {
+  for (const method of ["list", "attach", "detach", "open", "offer", "frame", "status", "control", "input", "repair", "close"]) {
     assert.equal((await confined(`simulator:${method}`, [{ viewerId: "private-viewer" }])).status, 403, method);
   }
+});
+
+test("simulator images cross the encrypted phone relay without a direct media connection", async (t) => {
+  const { startTestMac, connectPhone } = require("./relay-test-kit.cjs");
+  const bytes = Buffer.alloc(600000, 17).toString("base64");
+  const owners = [];
+  const mac = await startTestMac(t, {
+    lan: false,
+    runtime: {
+      simulators: {
+        list: async () => ({ devices: [{ id: "relay-device", name: "iPhone", platform: "ios", version: "27" }], supported: true }),
+        open: async (_request, owner) => {
+          owners.push(owner);
+          return { viewerId: "relay-viewer", transport: "frames" };
+        },
+        frame: async (_request, owner) => {
+          owners.push(owner);
+          return { sequence: 1, data: bytes, mimeType: "image/jpeg" };
+        },
+        closeViewer: async () => null,
+        disconnect: async () => {},
+        close: async () => {},
+      },
+    },
+  });
+  const opened = await mac.client.call("project:open", [mac.project]);
+  const chatId = `${opened.path}#${Object.values(opened.state.sessions)[0].id}`;
+  await mac.client.call("simulator:attach", [{ chatId, deviceId: "relay-device" }]);
+  const phone = mac.dial(connectPhone, { name: "Simulator relay test" });
+  assert.ok((await phone.hello()).channel);
+  const call = async (id, method, args) => {
+    phone.request(id, { path: "/rpc", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ v: 1, method, args }) });
+    const response = await phone.response(id, 15000);
+    assert.equal(response.status, 200);
+    return JSON.parse(Buffer.from(response.body).toString());
+  };
+  assert.equal((await call(1, "simulator:open", [{ chatId, deviceId: "relay-device" }])).result.transport, "frames");
+  assert.equal((await call(2, "simulator:frame", [{ viewerId: "relay-viewer", after: 0 }])).result.data, bytes);
+  assert.equal(owners[0], owners[1]);
 });

@@ -37,6 +37,11 @@ export function rememberChat(scope: string, chatId: number, chat: { messages: un
     remember(scope, { kind: "chat", scope, chatId, window: { messages: chat.messages, hasMore: chat.hasMore, total: chat.total } }),
   );
 }
+/** A line about a remote scope for the host's daemon.log: the window keeps no log of its own. */
+export function noteComputer(scope: string, line: string) {
+  if (!isRemoteKey(scope)) return;
+  void Promise.resolve(window.milagre.computers?.note?.(computerOfKey(scope), line)).catch(() => {});
+}
 let started = false;
 /** Follows every remote scope's state; App starts it once. */
 export function startOfflineCache() {

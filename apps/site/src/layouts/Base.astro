@@ -45,6 +45,8 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
     <meta name="twitter:image" content={ogImage} />
     <meta name="twitter:image:alt" content={ogImageAlt} />
     <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+    <link rel="alternate" type="text/markdown" href="/index.md" />
+    <link rel="ai-catalog" href="/.well-known/ai-catalog.json" />
     {schema.map((item) => <script type="application/ld+json" is:inline set:html={JSON.stringify(item)} />)}
     <script is:inline>
       // Each device sees its own download (and Android its own recording), chosen before first paint; anything else gets the Mac one. iPadOS reports itself as a Mac with touch.
@@ -57,6 +59,15 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
         // Only some browsers name the distribution (Firefox on Ubuntu, Debian, Mint and Fedora does; Chrome doesn't).
         if (/Ubuntu|Debian|Mint|Pop!_OS|elementary|Zorin|Kali|Raspbian/i.test(ua)) document.documentElement.dataset.linux = "deb";
         else if (/Fedora|Red Hat|CentOS|Rocky|AlmaLinux|openSUSE|SUSE|Mageia/i.test(ua)) document.documentElement.dataset.linux = "rpm";
+      }
+      // The hero's poster is the largest paint: the Android or iPhone take on phone-sized screens, the Mac window elsewhere.
+      if (location.pathname === "/") {
+        const poster = document.createElement("link");
+        poster.rel = "preload";
+        poster.as = "image";
+        poster.fetchPriority = "high";
+        poster.href = matchMedia("(max-width: 700px)").matches ? (document.documentElement.dataset.platform === "android" ? "/demo/android.webp" : "/demo/phone.webp") : "/demo/desktop.webp";
+        document.head.append(poster);
       }
     </script>
   </head>

@@ -1,5 +1,8 @@
+import { uploadAttachment } from "@milagre/shared/attachment-upload";
+import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ChatMessage, CoordinatorState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
+import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { applyStatePatch } from "@milagre/shared/state-patch";
 import type { StatePatch } from "@milagre/shared/state-patch";
 import { phoneSnapshot } from "./chat-scope.ts";
@@ -11,6 +14,8 @@ import { localEndpoint, relayAddress, validAccess, validRelay, type Access, type
 export type OpenProject = {
   path: string;
   name: string;
+  /** "chats" for the Chats home. Absent for every other Project and on older hosts. */
+  kind?: ProjectKind;
   state: CoordinatorState;
   link?: OpenLink;
   /** Derived before the host removes shell output from phone snapshots. Absent on older hosts. */
@@ -26,7 +31,15 @@ export type Snapshot = { project: OpenProject; runs: Runs; previewOnly?: false }
 export type ProjectPreview = Omit<Snapshot, "previewOnly"> & { previewOnly: true };
 export type RegisteredProject = { id: string; path: string; name: string };
 /** `hidden`: the user keeps this Project out of the Projects list (and desktop's all-Projects sidebar). */
-export type RecentProject = { path: string; name?: string; hidden?: boolean; link?: NamedProjectLink; projects?: RegisteredProject[] };
+/** `origin`: the Git remote as "host/owner/repo", the same on every computer with a clone of that repository. */
+export type RecentProject = {
+  path: string;
+  name?: string;
+  hidden?: boolean;
+  origin?: string;
+  link?: NamedProjectLink;
+  projects?: RegisteredProject[];
+};
 
 // The pairing link's parts moved to @milagre/shared with parsePairing; the phone's modules still import them from here.
 export { localEndpoint, relayAddress, validAccess, validRelay };
@@ -38,8 +51,7 @@ export type ClientHost = { address: string; token: string; access?: Access; rela
 export type RouteView = { current(): RelayTransport | null; subscribe(listener: () => void): () => void };
 /** The phone's side of the relay, injected so this file stays free of native modules. */
 export type RelayRuntime = {
-  /** Device consent runs before the network deadline starts. */
-  beforeCall?(method: string, args: unknown[]): Promise<void>;
+  randomUUID?(): string;
   /** The one transport for this Mac, opened on first use and shared by every client. */
   transport(host: { relay: RelayLink; token: string }): Promise<RelayTransport>;
   /** This computer's LAN route; requests and live streams use its transport while `current()` has one. */
@@ -64,12 +76,59 @@ function mediaName(text: string, path: string): string {
 
 type Answer = { status: number; ok: boolean; etag?: string | null; text: () => Promise<string> };
 const LOST = "Connection lost. Reconnect to your computer. Check the Chat before sending again.";
+/** What a retired client's callers get: the computer it served was replaced, and nothing more is started for it. */
+const replaced = () => new Error("This computer was replaced.");
+/** The connection dropped or a deadline passed: the request may have reached the Mac (see retryKind in send-retry). */
+const lost = () => Object.assign(new Error(LOST), { retry: "unknown" as const });
 const decoder = new TextDecoder();
+// The waits before a request a busy Mac turned away (429) goes again; its own deadline ends the tries.
+const BUSY_RETRY_DELAYS = [250, 500, 1000, 2000] as const;
+/** Waits `ms`, or rejects as a lost connection once `signal` aborts (the request's deadline passed). */
+function pause(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(lost());
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(lost());
+      },
+      { once: true },
+    );
+  });
+}
 const MEDIA_AT_ONCE = 4;
+// Deleting a Link removes its untouched Worktrees one after another: the desktop daemon client waits as long.
+const LINK_DELETE_MS = 30 * 60 * 1000;
 // Creating a worktree can fetch and copy files; removing one with big ignored folders can take minutes.
-const LONG_CALLS = new Set(["worktree:create", "worktree:remove", "link:send", "link:open"]);
+const LONG_CALLS = new Set([
+  "worktree:create",
+  "worktree:remove",
+  "storage:worktrees",
+  "storage:remove-worktree",
+  "link:send",
+  "link:open",
+  "agent:update-cli",
+  // PR reads and writes go through gh to GitHub (paged GraphQL, a fetch for missing commits, a merge).
+  "pr:detail",
+  "pr:diff-files",
+  "pr:diff-file",
+  "pr:comment",
+  "pr:reply",
+  "pr:submit-review",
+  "pr:merge",
+  "pr:ready",
+  "pr:image",
+  "pr:labels",
+  "pr:set-labels",
+  "pr:reviewer-candidates",
+  "pr:request-reviewers",
+]);
 // Settings › MCP: the Mac caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
-const MCP_CALLS = new Set(["mcp:accounts", "mcp:check"]);
+// A Browser page proxy may download cloudflared, start a tunnel (30 s at most) and wait for its name in DNS (20 s).
+const PAGE_URL_MS = 75000;
+const MCP_CALLS = new Set(["mcp:accounts", "mcp:check", "mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]);
 // The Mac embeds images before uploading a public snapshot; match its desktop RPC deadline.
 const DESIGN_SHARE_CALLS = new Set(["artifact:share-page", "artifact:revoke-page-share", "artifact:revoke-saved-page-share"]);
 
@@ -86,10 +145,10 @@ function overRelay(
   signal: AbortSignal,
 ) {
   // The transport cannot cancel a request, so the deadline only stops waiting for it.
-  const deadline = new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error(LOST)), { once: true }));
+  const deadline = new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(lost()), { once: true }));
   const answer = through.then((relayed) =>
     relayed.request(method, route, headers, body).catch((error) => {
-      throw (error as Error)?.name === "RelayTransportError" ? error : new Error(LOST);
+      throw (error as Error)?.name === "RelayTransportError" ? error : lost();
     }),
   );
   return Promise.race([deadline, answer]);
@@ -138,6 +197,18 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   const token = host.token.trim();
   // The last snapshot per route and its ETag: an unchanged Project answers 304 instead of megabytes.
   const cached = new Map<string, { etag: string; value: unknown }>();
+  // Every route is cached by its URL, so a route whose URL varies (the Projects of /chat-lists) must not pile up.
+  const CACHED_ROUTES = 200;
+  const CHAT_LISTS = "/chat-lists?";
+  function remember(route: string, entry: { etag: string; value: unknown }) {
+    // The Projects asked for change from read to read: only the latest batch's answer can still be revalidated.
+    if (route.startsWith(CHAT_LISTS)) for (const known of cached.keys()) if (known !== route && known.startsWith(CHAT_LISTS)) cached.delete(known);
+    cached.delete(route);
+    cached.set(route, entry);
+    while (cached.size > CACHED_ROUTES) cached.delete(cached.keys().next().value!);
+  }
+  // Set once the owner replaced this client: it starts no request, transport or stream after that.
+  let retired = false;
   // Per Project, the last snapshot the host numbered: the next one comes as a patch on it, a few hundred bytes where a
   // large Project's snapshot runs to megabytes. A host that doesn't number snapshots answers with the whole one.
   const numbered = new Map<string, { epoch: string; version: number; value: SnapshotAnswer }>();
@@ -173,6 +244,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   // The Mac adds the token to every request it forwards; over the relay or the LAN it only rides the handshake.
   /** The transport this request rides: the LAN when it is up, else the relay for a relay computer, else none (HTTPS). */
   const carrier = (): Promise<RelayTransport> | null => {
+    if (retired) throw replaced();
     const lan = lanNow();
     if (lan) return Promise.resolve(lan);
     return relay ? runtime!.transport({ relay, token }) : null;
@@ -183,7 +255,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     try {
       response = await fetcher(url + route, { method: body === undefined ? "GET" : "POST", headers: { ...auth, ...headers }, body, signal, redirect: "error" });
     } catch {
-      throw new Error(LOST);
+      throw lost();
     }
     if (response.redirected || (response.url && new URL(response.url).origin !== url))
       throw new Error("The computer address redirected. Enter its direct HTTPS address.");
@@ -202,28 +274,45 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   }
 
   function request<T>(route: string, body?: unknown, deadlineMs = timeoutMs, extraHeaders: Record<string, string> = {}): Promise<T> {
+    const started = Date.now();
     return timed(deadlineMs, async (signal) => {
-      const previous = body === undefined ? cached.get(route) : undefined;
-      const headers = { "Content-Type": "application/json", ...extraHeaders, ...(previous ? { "If-None-Match": previous.etag } : {}) };
-      const sent = body === undefined ? undefined : JSON.stringify(body);
-      let response: Answer;
-      const through = carrier();
-      if (through) {
-        const relayed = await overRelay(through, sent === undefined ? "GET" : "POST", route, headers, sent, signal);
-        response = {
-          status: relayed.status,
-          ok: relayed.status >= 200 && relayed.status < 300,
-          etag: relayed.headers.etag,
-          text: async () => decoder.decode(relayed.body),
-        };
-      } else response = await overHttp(route, headers, sent, signal);
-      if (response.status === 304 && cached.has(route)) return cached.get(route)!.value as T;
-      let value;
-      // Cloudflare and proxies answer with an HTML page when the request never reaches the host.
-      try {
-        value = JSON.parse(await response.text());
-      } catch {
-        throw new Error(
+      for (let tries = 0; ; tries++) {
+        try {
+          return await attempt<T>(route, body, extraHeaders, signal);
+        } catch (error) {
+          // A busy Mac turns a request away unread (429), so it goes again while its deadline lasts.
+          const delay = BUSY_RETRY_DELAYS[Math.min(tries, BUSY_RETRY_DELAYS.length - 1)] ?? 2000;
+          if ((error as { status?: number }).status !== 429 || Date.now() - started + delay >= deadlineMs) throw error;
+          await pause(delay, signal);
+        }
+      }
+    });
+  }
+
+  async function attempt<T>(route: string, body: unknown, extraHeaders: Record<string, string>, signal: AbortSignal): Promise<T> {
+    if (retired) throw replaced();
+    const previous = body === undefined ? cached.get(route) : undefined;
+    const headers = { "Content-Type": "application/json", ...extraHeaders, ...(previous ? { "If-None-Match": previous.etag } : {}) };
+    const sent = body === undefined ? undefined : JSON.stringify(body);
+    let response: Answer;
+    const through = carrier();
+    if (through) {
+      const relayed = await overRelay(through, sent === undefined ? "GET" : "POST", route, headers, sent, signal);
+      response = {
+        status: relayed.status,
+        ok: relayed.status >= 200 && relayed.status < 300,
+        etag: relayed.headers.etag,
+        text: async () => decoder.decode(relayed.body),
+      };
+    } else response = await overHttp(route, headers, sent, signal);
+    if (response.status === 304 && cached.has(route)) return cached.get(route)!.value as T;
+    let value;
+    // Cloudflare and proxies answer with an HTML page when the request never reaches the host.
+    try {
+      value = JSON.parse(await response.text());
+    } catch {
+      throw Object.assign(
+        new Error(
           [401, 403].includes(response.status)
             ? through
               ? "Your Mac refused this phone. Scan its code again in Settings → Devices."
@@ -231,16 +320,16 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
             : response.status >= 500
               ? "Your computer isn't answering. Check that Milagre and its mobile host are running on your Mac."
               : `Unexpected response from your computer (${response.status}).`,
-        );
-      }
-      if (value?.v !== 1) throw new Error("Incompatible daemon response. Update the app and daemon together.");
-      // The Mac's channel holds 16 requests at once (phone-channels.cjs); a busy Mac fills it with slow ones.
-      if (response.status === 429) throw new Error("Your computer is busy right now. Try again in a moment.");
-      if (!response.ok || value.error)
-        throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
-      if (body === undefined && response.etag) cached.set(route, { etag: response.etag, value: value.result });
-      return value.result as T;
-    });
+        ),
+        { status: response.status },
+      );
+    }
+    if (value?.v !== 1) throw new Error("Incompatible daemon response. Update the app and daemon together.");
+    // The Mac runs 16 requests at once and holds 64 more (phone-channels.cjs, mobile-bridge.cjs); an older Mac refuses past 16.
+    if (response.status === 429) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
+    if (!response.ok || value.error) throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
+    if (body === undefined && response.etag) remember(route, { etag: response.etag, value: value.result });
+    return value.result as T;
   }
 
   const mediaRoute = (projectPath: string, path: string) => `/media?projectPath=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(path)}`;
@@ -280,7 +369,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       // The carrier is chosen when the request starts: a route that switched while this waited its turn is not the one to use.
       const response = await inTurn(async () => {
         const through = carrier();
-        if (!through) throw new Error(LOST);
+        if (!through) throw lost();
         return timed(timeoutMs, (signal) => overRelay(through, "GET", mediaRoute(projectPath, path), {}, undefined, signal));
       });
       if (response.status !== 200) throw new Error("Could not load this image from your Mac.");
@@ -295,29 +384,51 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
 
   return {
     url,
+    /** Stops this client from starting any request, relay transport or stream; what is already in flight settles on its own. */
+    retire() {
+      retired = true;
+    },
     async recentScopes(): Promise<RecentProject[]> {
-      const [projects, groups] = await Promise.all([
+      // All three requests settle before this answers or fails: a caller that limits requests in flight counts them as one job.
+      const [recent, linked, registered] = await Promise.allSettled([
         request<RecentProject[]>("/rpc", { v: 1, method: "project:recent", args: [] }),
-        Promise.all([
-          request<NamedProjectLink[]>("/rpc", { v: 1, method: "link:list", args: [] }),
-          request<RegisteredProject[]>("/rpc", { v: 1, method: "project:registry", args: [] }),
-        ]).catch((error) => {
-          if (/not available from mobile|demo computer only/i.test(error.message)) return [[], []] as [NamedProjectLink[], RegisteredProject[]];
-          throw error;
-        }),
+        request<NamedProjectLink[]>("/rpc", { v: 1, method: "link:list", args: [] }),
+        request<RegisteredProject[]>("/rpc", { v: 1, method: "project:registry", args: [] }),
       ]);
+      if (recent.status === "rejected") throw recent.reason;
+      let groups: [NamedProjectLink[], RegisteredProject[]];
+      const failure = linked.status === "rejected" ? linked : registered.status === "rejected" ? registered : null;
+      if (failure) {
+        if (!/not available from mobile|demo computer only/i.test((failure.reason as Error)?.message)) throw failure.reason;
+        groups = [[], []];
+      } else groups = [(linked as PromiseFulfilledResult<NamedProjectLink[]>).value, (registered as PromiseFulfilledResult<RegisteredProject[]>).value];
+      const projects = recent.value;
       const [links, registry] = groups;
       return [
-        ...projects,
-        ...links.map((link) => ({
+        ...projects.map(({ hidden: _hidden, ...project }) => project),
+        ...links.map(({ hidden: _hidden, ...link }) => ({
           path: scopeKey({ kind: "link", linkId: link.id }),
           name: link.name,
-          hidden: link.hidden,
           link,
           projects: link.projectIds.map((id) => registry.find((project) => project.id === id) ?? { id, name: "Unavailable Project", path: "" }),
         })),
       ];
     },
+    /**
+     * Where this computer keeps its Chats without a Project, whether made yet or not; null when its daemon predates them
+     * (it refuses the command) or it is a demo computer. Asked next to the Project list, never as one of its entries.
+     */
+    async chatsHome(): Promise<ChatsHome | null> {
+      try {
+        const home = await request<ChatsHome | null>("/rpc", { v: 1, method: "chats:home", args: [] });
+        return home && typeof home.path === "string" && home.path ? { path: home.path, exists: home.exists === true } : null;
+      } catch (error) {
+        if (/not available from mobile|demo computer only/i.test((error as Error)?.message)) return null;
+        throw error;
+      }
+    },
+    /** Makes this computer's Chats home when it is missing and opens it, without moving the computer's shown Project. */
+    ensureChatsHome: () => request<{ path: string; name: string; kind?: ProjectKind }>("/rpc", { v: 1, method: "chats:ensure", args: [] }),
     async open(owner: string) {
       const link = isLinkScopeKey(owner);
       const opened = await request<{ path?: string }>(
@@ -327,20 +438,33 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       );
       return phoneSnapshot(await readSnapshot(link ? owner : (opened.path ?? owner)));
     },
-    upload: (projectPath: string, name: string, base64: string) => request<{ path: string; name: string }>("/attachments", { projectPath, name, base64 }),
+    upload: (projectPath: string, name: string, base64: string) =>
+      uploadAttachment(
+        (part) =>
+          retrySend(() => request<{ path: string; name: string; id?: string } | null>("/attachments", part), {
+            retryable: (error) => retryKind(error) !== null,
+          }),
+        { projectPath, name, base64 },
+        runtime?.randomUUID,
+      ),
+    reuseUpload: (projectPath: string, id: string) => request<{ path: string; name: string; id: string } | null>("/attachments", { projectPath, reuse: id }),
     // Git fetches, worktree setup and removing a worktree get the same deadline as the desktop daemon client.
     call: async <T>(method: string, args: unknown[] = []) => {
-      if (runtime?.beforeCall) await runtime.beforeCall(method, args);
+      if (retired) throw replaced();
       return request<T>(
         "/rpc",
         { v: 1, method, args },
-        LONG_CALLS.has(method)
-          ? Math.max(timeoutMs, 330000)
-          : DESIGN_SHARE_CALLS.has(method)
-            ? Math.max(timeoutMs, method === "artifact:share-page" ? 360000 : 120000)
-            : MCP_CALLS.has(method)
-              ? Math.max(timeoutMs, 45000)
-              : timeoutMs,
+        method === "link:delete"
+          ? Math.max(timeoutMs, LINK_DELETE_MS)
+          : LONG_CALLS.has(method)
+            ? Math.max(timeoutMs, 330000)
+            : DESIGN_SHARE_CALLS.has(method)
+              ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
+              : MCP_CALLS.has(method)
+                ? Math.max(timeoutMs, 45000)
+                : method === "browser:page-url"
+                  ? Math.max(timeoutMs, PAGE_URL_MS)
+                  : timeoutMs,
       );
     },
     media,
@@ -363,13 +487,22 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     message: (projectPath: string, id: number) => request<ChatMessage>(`/message?projectPath=${encodeURIComponent(projectPath)}&id=${id}`),
     snapshot: async (projectPath: string) => phoneSnapshot(await readSnapshot(projectPath)),
     preview: (projectPath: string) => request<ProjectPreview | Snapshot>("/snapshot?projectPath=" + encodeURIComponent(projectPath) + "&view=chats"),
+    /**
+     * The drawer previews of up to 20 Projects in one read-only request. A Project the Mac can't read comes back as
+     * `{ error }`. A Mac without the route fails with code "unsupported": ask for each Project's `preview` instead.
+     */
+    chatLists: (paths: string[]) =>
+      request<Record<string, ProjectPreview | { error: string }>>("/chat-lists?paths=" + encodeURIComponent(JSON.stringify(paths))).catch((error: unknown) => {
+        throw (error as { status?: number })?.status === 404 ? Object.assign(error as Error, { code: "unsupported" as const }) : error;
+      }),
     /** Just the Project's streaming turns: what a live "runs" signal fetches instead of the whole snapshot. */
     runs: (projectPath: string) => request<Runs>("/runs?projectPath=" + encodeURIComponent(projectPath)),
     /** Chat keys, in every Project, whose turn waits on an approval or question. */
     attention: () => request<string[]>("/attention"),
     inbox: () => request<import("@milagre/shared/attention").InboxSnapshot>("/inbox"),
     /** The Project's live socket, through the same tunnel and Access headers as every request, or through the relay. */
-    live: (projectPath: string, options: LiveOptions) => {
+    live: (projectPath: string, options: LiveOptions): Live => {
+      if (retired) return { close() {} };
       const path = `/live?projectPath=${encodeURIComponent(projectPath)}`;
       const open = () => {
         const through = carrier();

@@ -1,5 +1,8 @@
+import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOutdated, type DiffComment, type DiffSelection, type DiffSide } from "../../lib/diff-comments";
+import type { ChangesMode } from "../../lib/pull-request-view";
+import type { CommentCounts } from "./ChangesPanel";
 import type { Changes } from "./useChanges";
 import { hunksOf } from "./useDiffFiles";
 
@@ -35,9 +38,11 @@ function viewOf(comment: DiffComment, outdated: boolean): CommentView {
 
 export type CommentStore = ReturnType<typeof useDiffComments>;
 
+const modeOf = (comment: DiffComment): ChangesMode => comment.mode ?? "uncommitted";
+
 /**
- * The chat's diff comments, kept in localStorage per chat. Whether one is outdated is judged against the diff that
- * is shown: its file is gone from the list, or the rows it was written on read differently now.
+ * The chat's diff comments, kept in localStorage per chat. Each belongs to the diff it was written on; the shown
+ * diff's comments are judged outdated against it: their file is gone from the list, or their rows read differently now.
  */
 export function useDiffComments(chatKey: string | null, changes: Changes) {
   const [store, setStore] = useState(() => ({ key: chatKey, comments: read(chatKey) }));
@@ -51,9 +56,11 @@ export function useDiffComments(chatKey: string | null, changes: Changes) {
       return { key: previous.key, comments };
     });
   }, []);
+  const { list, patchFor, load, diffOpen, mode } = changes;
   const add = useCallback(
-    (comment: Omit<DiffComment, "id" | "createdAt">) => change((all) => [...all, { ...comment, id: crypto.randomUUID(), createdAt: Date.now() }]),
-    [change],
+    (comment: Omit<DiffComment, "id" | "createdAt" | "mode">) =>
+      change((all) => [...all, { ...comment, mode, id: crypto.randomUUID(), createdAt: Date.now() }]),
+    [change, mode],
   );
   const update = useCallback(
     (id: string, body: string) => change((all) => all.map((comment) => (comment.id === id ? { ...comment, body } : comment))),
@@ -62,19 +69,19 @@ export function useDiffComments(chatKey: string | null, changes: Changes) {
   const remove = useCallback((id: string) => change((all) => all.filter((comment) => comment.id !== id)), [change]);
   const removeMany = useCallback((ids: string[]) => change((all) => all.filter((comment) => !ids.includes(comment.id))), [change]);
 
-  const { list, patchFor, load, diffOpen } = changes;
   const files = list.state === "ready" && list.isRepo ? list.files : undefined;
+  const shown = comments.filter((comment) => modeOf(comment) === mode);
 
   // Commented files need their patch to be judged, even when they're far from the viewport.
   useEffect(() => {
     if (!diffOpen || !files) return;
-    for (const path of new Set(comments.map((comment) => comment.path))) {
+    for (const path of new Set(shown.map((comment) => comment.path))) {
       const file = files.find((entry) => entry.path === path);
       if (file && !patchFor(file)) load(file);
     }
   });
 
-  const current = comments.map((comment): CommentView => {
+  const current = shown.map((comment): CommentView => {
     let outdated = false;
     if (files) {
       const file = files.find((entry) => entry.path === comment.path);
@@ -89,11 +96,15 @@ export function useDiffComments(chatKey: string | null, changes: Changes) {
   if (stable.current.length !== current.length || stable.current.some((view, index) => view !== current[index])) stable.current = current;
   const all = stable.current;
 
+  // Every section's, for the Changes tab.
   const counts = useMemo(() => {
-    const result: Record<string, number> = {};
-    for (const comment of all) result[comment.path] = (result[comment.path] ?? 0) + 1;
+    const result: CommentCounts = {};
+    for (const comment of comments) {
+      const paths = (result[modeOf(comment)] ??= {});
+      paths[comment.path] = (paths[comment.path] ?? 0) + 1;
+    }
     return result;
-  }, [all]);
+  }, [comments]);
   const sendable = useMemo(() => all.filter((comment) => !comment.outdated), [all]);
 
   return { comments: all, sendable, counts, add, update, remove, removeMany };
@@ -134,8 +145,11 @@ export function useCommentDraft() {
     );
   }, []);
   const edit = useCallback((comment: DiffComment, hunk: number, lines: number[], side: DiffSide | undefined) => {
+    const anchor = lines[0];
+    const head = lines.at(-1);
+    if (anchor === undefined || head === undefined) return;
     text.current = comment.body;
-    setDraft({ path: comment.path, hunk, side, anchor: lines[0], head: lines[lines.length - 1], dragging: false, editing: comment.id });
+    setDraft({ path: comment.path, hunk, side, anchor, head, dragging: false, editing: comment.id });
   }, []);
   const cancel = useCallback(() => {
     text.current = "";
@@ -152,4 +166,6 @@ export type CommentActions = {
   cancel: () => void;
   save: (selection: DiffSelection | undefined, path: string, body: string, editing: string | undefined) => void;
   remove: (id: string) => void;
+  /** On a PR's diff: the comment goes to the viewer's pending review on GitHub instead of the Chat. */
+  addToReview?: (selection: DiffSelection, path: string, body: string) => void;
 };

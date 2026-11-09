@@ -37,8 +37,10 @@ Before you write a change, and again before you publish:
 
 1. Fingerprint your tree: `npx expo-updates fingerprint:generate --platform ios` (the `hash` field).
 2. Compare it with the latest TestFlight build: `npx eas-cli@latest build:list --platform ios --status finished --limit 1 --json --non-interactive` (its `runtime.version`).
-3. If they match, publish with `npm run update:testflight -- --message "<what changed>"` once the PR is merged, from `main`.
+3. If they match, publish once the PR is merged: run the **Mobile OTA** GitHub Action from `main` (`gh workflow run mobile-ota.yml -f platform=ios -f message="<what changed>"`; `platform` is `ios`, `android` or `both`). It repeats this fingerprint check per platform and refuses an update no build can take. `npm run update:testflight -- --message "<what changed>"` from a clean `main` checkout still works as the local fallback.
 4. If they differ, stop. A new build is required, and that needs the user's approval: say what changed the fingerprint and whether a JS-only way exists. Do not merge the PR, start `eas build`, upload to TestFlight or build an APK until they say yes.
+
+A new native build ships through the **Mobile release** GitHub Action (iOS to TestFlight, Android as the APK on the newest GitHub release). Every run waits for Victor's approval on the `mobile-release` environment; never dispatch it without his go-ahead.
 
 CI runs the same comparison as the `Mobile fingerprint` check and fails the PR when the hash changes without the `native-build-approved` label.
 

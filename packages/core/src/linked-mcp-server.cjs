@@ -1,6 +1,7 @@
 const http = require("node:http");
 const { randomBytes } = require("node:crypto");
-const { inputSchema, runTool } = require("./linked-tools.cjs");
+const { mcpContent } = require("./linked-tools.cjs");
+const { createCommandDispatcher } = require("./command-dispatcher.cjs");
 
 const MAX_BODY = 1024 * 1024;
 // Design documents allow 1,000,000 UTF-16 units in their canonical JSON. A JSON encoder can escape
@@ -12,6 +13,7 @@ const MAX_DESIGN_BODY = 6 * 1000000 + 64 * 1024;
 // with calls approved through elicitation in Ask mode). It listens on loopback only; each Chat has its own unguessable
 // path, which is all that names the Chat. Requests are answered with plain JSON, never a stream.
 function createLinkedMcpServer({ toolsFor }) {
+  const commands = createCommandDispatcher({ definitions: toolsFor });
   const tokens = new Map();
   const chats = new Map();
   let listening = null;
@@ -56,7 +58,10 @@ function createLinkedMcpServer({ toolsFor }) {
       const messages = Array.isArray(message) ? message : [message];
       // Only a single design-writing call gets the larger wire budget. Other tools and multi-call batches
       // keep their original bound; the document and operation schemas still validate the contents.
-      const designCall = messages.length === 1 && messages[0]?.method === "tools/call" && ["design_show", "design_apply"].includes(messages[0]?.params?.name);
+      const designCall =
+        messages.length === 1 &&
+        messages[0]?.method === "tools/call" &&
+        ["design_show", "design_apply", "html_preview", "html_render"].includes(messages[0]?.params?.name);
       if (bytes > MAX_BODY && !designCall) return tooLarge(MAX_BODY);
       Promise.all(messages.map((item) => answer(chatId, item))).then(
         (answers) => {
@@ -94,18 +99,13 @@ function createLinkedMcpServer({ toolsFor }) {
         return ok({});
       case "tools/list":
         return ok({
-          tools: tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: inputSchema(tool),
-            annotations: { readOnlyHint: tool.readOnly },
-          })),
+          tools: commands.list(chatId),
         });
       case "tools/call": {
         const tool = tools.find((item) => item.name === message.params?.name);
         if (!tool) return ok({ content: [{ type: "text", text: `Unknown tool: ${message.params?.name}` }], isError: true });
-        const { text, isError } = await runTool(tool, message.params?.arguments);
-        return ok({ content: [{ type: "text", text }], isError });
+        const result = await commands.run(chatId, tool.name, message.params?.arguments);
+        return ok({ content: mcpContent(result), isError: result.isError });
       }
       default:
         return { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } };

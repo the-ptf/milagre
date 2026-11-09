@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -24,7 +25,7 @@ window.milagre = {
    window.cli = { state: 'ready' };
    return { ok: true, version: '1.3.0' };
  },
- listAccounts: async () => structuredClone(snapshot),
+ listAccounts: async () => ({ providers: snapshot.providers.map(group => ({ ...structuredClone(group), installed: group.provider !== 'antigravity' || window.cli.state !== 'missing' })) }),
  listRecentProjects: async () => [],
  onAccountsChanged: () => () => {},
  accountAction: async (action, provider, value) => {
@@ -71,6 +72,19 @@ async function browserChecks() {
     await waitFor(
       `!!document.querySelector('[data-antigravity-row]') && document.querySelector('[data-antigravity-row]').textContent.includes('Not installed')`,
     );
+    const antigravitySection = `document.querySelector('[data-antigravity-row]').closest('section')`;
+    assert.equal(await evaluate(`${antigravitySection}.textContent.includes('Add account')`), false);
+    assert.equal(await evaluate(`${antigravitySection}.querySelector('[role=radio]') !== null`), false);
+    assert.equal(
+      await evaluate(`(() => {
+      const row = document.querySelector('[data-antigravity-row]');
+      return Math.round(row.closest('section').getBoundingClientRect().bottom - row.getBoundingClientRect().bottom);
+    })()`),
+      // pb-3 plus the card's 1px border.
+      13,
+      "The install row keeps its bottom inset without account controls",
+    );
+    await evaluate(`${antigravitySection}.scrollIntoView({block:'center'})`);
     await shot("antigravity-install");
     await click("Install");
     await waitFor(`window.calls.some(c=>c.action==='install' && c.provider==='antigravity')`);
@@ -80,6 +94,9 @@ async function browserChecks() {
     await shot("antigravity-downloading");
     await evaluate(`window.finishInstall()`);
     await waitFor(`document.querySelector('[data-antigravity-row]').textContent.includes('Installed.')`);
+    await waitFor(`${antigravitySection}.querySelector('[role=radio]') !== null`);
+    assert.equal(await evaluate(`${antigravitySection}.textContent.includes('Add account')`), true);
+    await evaluate(`${antigravitySection}.scrollIntoView({block:'center'})`);
     await shot("antigravity-installed");
     assert.equal(await evaluate(`!!document.querySelector('[role=radio][aria-label="work@example.test"]')`), true, "Account row is directly selectable");
     await evaluate(`document.querySelector('[role=radio][aria-label="work@example.test"]').click()`);
@@ -98,7 +115,7 @@ async function browserChecks() {
     await waitFor(`document.querySelectorAll('[role=radio][aria-label="work@example.test"]').length===2`);
     await click("Add account");
     await evaluate(
-      `(()=>{const input=document.querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Second account');input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+      `(()=>{const input=document.querySelector('input:not([data-settings-search])');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Second account');input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
     );
     await shot("add-account");
     await click("Continue to sign in");
@@ -126,7 +143,7 @@ async function main() {
         resolveId: (id) => (id === "/__accounts.tsx" ? id : null),
         load: (id) => (id === "/__accounts.tsx" ? fixture : null),
         configureServer(server) {
-          server.middlewares.use(async (req, res, next) => {
+          useAsyncMiddleware(server.middlewares, async (req, res, next) => {
             if (req.url !== "/__accounts__") return next();
             res.setHeader("Content-Type", "text/html");
             res.end(

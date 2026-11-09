@@ -17,11 +17,17 @@ test("a Chat's summary holds what the lists show, in the Project's order", () =>
     // A message re-sent after a split reply sits after it with a lower id.
     message(6, { role: "user", body: "and again", model: "sonnet" }),
     message(8, { role: "assistant", context: { kind: "git-action" } as never, body: "Committed" }),
+    // Babysitting the PR stopping is a line Milagre wrote, not the last reply.
+    message(9, {
+      role: "assistant",
+      context: { kind: "babysit-stopped", routineId: "r1", pr: 12, reason: "merged" },
+      body: "Stopped babysitting PR #12: merged.",
+    }),
   ];
   assert.deepEqual(summarizeChat(messages), {
-    count: 5,
+    count: 6,
     firstId: 4,
-    lastId: 8,
+    lastId: 9,
     titleLine: "Fix the login",
     lastOutcome: "failed",
     pullRequests: ["https://github.com/a/b/pull/12"],
@@ -42,4 +48,27 @@ test("summaries compare by what they say", () => {
   assert.ok(sameSummary({ count: 1, pullRequests: ["1"] }, { count: 1, pullRequests: ["1"] }));
   assert.ok(!sameSummary({ count: 1 }, { count: 2 }));
   assert.ok(!sameSummary({ count: 1, pullRequests: ["1"] }, { count: 1, pullRequests: ["2"] }));
+});
+
+test("a Chat that started from a Linear issue names the issue, so a comment on it can find the Chat", () => {
+  const card = message(3, {
+    role: "user",
+    body: "Look at ENG-12",
+    context: { kind: "linear-issue", key: "ENG-12", title: "T", url: "u", state: { name: "Todo", type: "unstarted", color: "#aaa" }, workspace: "acme" },
+  });
+  const summary = summarizeChat([card, message(4, { role: "assistant", body: "On it." })]);
+  assert.equal(summary.linearIssue, "ENG-12");
+  assert.equal(summary.linearWorkspace, "acme");
+  // Only the first message counts: a card further down is a different matter.
+  const later = summarizeChat([message(1, { role: "user", body: "hi" }), card]);
+  assert.equal(later.linearIssue, undefined);
+  assert.equal(sameSummary(summary, summarizeChat([card, message(4, { role: "assistant", body: "On it." })])), true);
+});
+
+test("a Chat that began with images keeps how many, so their tokens can be named in its title", () => {
+  const image = { id: "i", name: "a.png", path: "/a.png" };
+  const summary = summarizeChat([message(1, { role: "user", body: "[Image #1] [Image #2]", images: [image, image] })]);
+  assert.equal(summary.titleLine, "[Image #1] [Image #2]");
+  assert.equal(summary.titleImages, 2);
+  assert.equal("titleImages" in summarizeChat([message(1, { role: "user", body: "hi" })]), false);
 });

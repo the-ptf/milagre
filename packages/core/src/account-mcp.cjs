@@ -26,6 +26,22 @@ function readText(file) {
 
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
+// The names copied last time, beside the target config, so a server removed from the source can be removed again
+// without touching servers the account added itself.
+const recordFile = (targetFile) => path.join(path.dirname(targetFile), "milagre-inherited-mcp.json");
+function readRecorded(targetFile) {
+  try {
+    const names = JSON.parse(fs.readFileSync(recordFile(targetFile), "utf8")).names;
+    return new Set(Array.isArray(names) ? names : []);
+  } catch {
+    return new Set();
+  }
+}
+function writeRecorded(targetFile, names) {
+  const file = recordFile(targetFile);
+  writeIfChanged(file, readText(file), `${JSON.stringify({ names: [...names].toSorted() })}\n`);
+}
+
 // User servers sit at the top level of .claude.json, local ones under projects[path]. The Account's file
 // is written by Claude Code at sign-in; before that there is nothing to merge into.
 function inheritClaudeMcp(sourceFile, targetFile) {
@@ -35,6 +51,8 @@ function inheritClaudeMcp(sourceFile, targetFile) {
   const source = JSON.parse(sourceText);
   const target = JSON.parse(targetText);
   if (!isObject(source) || !isObject(target)) return;
+  const sourceNames = new Set(isObject(source.mcpServers) ? Object.keys(source.mcpServers) : []);
+  if (isObject(target.mcpServers)) for (const name of readRecorded(targetFile)) if (!sourceNames.has(name)) delete target.mcpServers[name];
   if (isObject(source.mcpServers) && Object.keys(source.mcpServers).length)
     target.mcpServers = { ...(isObject(target.mcpServers) ? target.mcpServers : {}), ...source.mcpServers };
   for (const [project, settings] of Object.entries(isObject(source.projects) ? source.projects : {})) {
@@ -45,8 +63,8 @@ function inheritClaudeMcp(sourceFile, targetFile) {
   }
   const next = JSON.stringify(target, null, 2);
   // Unchanged servers leave the file alone, whatever formatting Claude Code wrote it with.
-  if (JSON.stringify(JSON.parse(targetText), null, 2) === next) return;
-  writeIfChanged(targetFile, targetText, next);
+  if (JSON.stringify(JSON.parse(targetText), null, 2) !== next) writeIfChanged(targetFile, targetText, next);
+  writeRecorded(targetFile, sourceNames);
 }
 
 // The server a TOML table header belongs to: [mcp_servers.pencil] and [mcp_servers.pencil.env] are both
@@ -76,15 +94,18 @@ function inheritCodexMcp(sourceFile, targetFile) {
   const targetText = readText(targetFile);
   if (sourceText === null || targetText === null) return;
   const inherited = tomlSections(sourceText).filter((section) => section.server);
-  if (!inherited.length) return;
   const names = new Set(inherited.map((section) => section.server));
-  const kept = tomlSections(targetText).filter((section) => !names.has(section.server));
+  // A server copied last time that the source no longer has goes, sub-tables included.
+  const removed = new Set([...readRecorded(targetFile)].filter((name) => !names.has(name)));
+  if (!inherited.length && !removed.size) return;
+  const kept = tomlSections(targetText).filter((section) => !names.has(section.server) && !removed.has(section.server));
   const body = kept
     .map((section) => section.lines.join("\n"))
     .join("\n")
     .replace(/\n*$/, "\n");
   const added = inherited.map((section) => section.lines.join("\n").replace(/\n*$/, "\n")).join("\n");
-  writeIfChanged(targetFile, targetText, `${body}\n${added}`);
+  writeIfChanged(targetFile, targetText, inherited.length ? `${body}\n${added}` : body);
+  writeRecorded(targetFile, names);
 }
 
 function inheritMcp(provider, { sourceDir, targetDir, home, configDirSet }) {

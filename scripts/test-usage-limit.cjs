@@ -2,18 +2,17 @@
 // its headline shows on its own while a turn runs or the reply isn't the Chat's last message; with the Chat idle it
 // lists the Project's other accounts (signed-out ones greyed), a failed switch says why and re-enables, a good one calls
 // the bridge and replaces the buttons with the result; no other account offers Add account, and only limited ones also
-// offer Manage accounts. Also checks the Experimental switch reads and saves through the bridge.
+// offer Manage accounts. The message that continued the Chat on the new account shows as a line, not a bubble. Also checks the Experimental switch reads and saves through the bridge.
 // Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-// This fixture exercises a device that has already accepted AI sharing: a switch continues the Chat.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
+// A switch continues the Chat.
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
@@ -40,8 +39,18 @@ const accountSets = {
 window.switchCalls = [];
 window.accountsOpened = 0;
 window.autoSaves = [];
+window.resumeSaves = [];
+window.resumeCalls = [];
+window.failResume = false;
 window.milagre = Object.freeze({
   listEditors: async () => [],
+  listAccounts: async () => ({ providers: [{ provider: "claude", selectedId: "default", accounts: [account("default")] }] }),
+  accountAction: async () => ({ providers: [] }),
+  readLimitResumeAtReset: async () => {
+    if (!["settings", "resume", "reset", "queued", "unknown-reset", "remote-resume"].includes(scenario)) throw new Error("Older host");
+    return { resumeAtReset: true };
+  },
+  saveLimitResumeAtReset: async (value) => (window.resumeSaves.push(value), { resumeAtReset: value }),
   readLimitAutoSwitch: async () => ({ autoSwitch: false }),
   saveLimitAutoSwitch: async (value) => (window.autoSaves.push(value), { autoSwitch: value }),
   listRecentProjects: async () => [],
@@ -49,6 +58,13 @@ window.milagre = Object.freeze({
 });
 const bridge = {
   ...window.milagre,
+  scheduleLimitResume: async (...args) => {
+    window.resumeCalls.push(["schedule", ...args]);
+    if (window.failResume) throw new Error("Could not schedule this continuation");
+    window.setPending({ at: future, sourceMessageId: 2, sendId: "schedule-2" });
+    return true;
+  },
+  cancelLimitResume: async (...args) => { window.resumeCalls.push(["cancel", ...args]); window.setPending(undefined); return true; },
   getProjectAccounts: async (scopeKey) => ({
     scopeKey,
     providers: [{ provider: "claude", accountId: null, effectiveId: "default", defaultId: "default", accounts: accountSets[scenario] ?? accountSets.running }],
@@ -60,16 +76,30 @@ const bridge = {
     return { continued: true, label: "work@example.com" };
   },
 };
-const limited = { id: 2, session_id: 7, role: "assistant", body: "You've hit your session limit · resets 12:10pm", outcome: "failed", context: { kind: "limit", provider: "claude", accountId: "default", resetsAt: future } };
+const limited = { id: 2, session_id: 7, role: "assistant", body: "You've hit your session limit · resets 12:10pm", outcome: "failed", context: { kind: "limit", provider: "claude", accountId: "default", resetsAt: scenario === "unknown-reset" ? undefined : future } };
 function Fixture() {
+  const [pending, setPending] = useState(undefined);
+  window.setPending = setPending;
   const messages = [
     { id: 1, session_id: 7, context: null, role: "user", body: "Wire up the invoices export" },
     limited,
     ...(scenario === "older" ? [{ id: 3, session_id: 7, context: null, role: "user", body: "Try again" }] : []),
+    ...(scenario === "reset" ? [
+      { id: 3, session_id: 7, role: "user", body: "Continued after the usage limit reset", context: { kind: "limit-reset" } },
+      { id: 4, session_id: 7, role: "assistant", body: "The export is finished", outcome: "completed", context: null },
+    ] : []),
+    ...(scenario === "continued"
+      ? [
+          { id: 3, session_id: 7, role: "user", body: "Switched to work@example.com after the usage limit", context: { kind: "account-switch", provider: "claude", label: "work@example.com" } },
+          { id: 4, session_id: 7, role: "assistant", body: "Picking up the invoices export where it stopped.", outcome: "completed", context: null },
+        ]
+      : []),
   ];
   return <div style={{ height: "100%", padding: 12 }}>
-    <BridgeContext.Provider value={bridge}><ScopeContext.Provider value="/fixture">
+    <BridgeContext.Provider value={bridge}><ScopeContext.Provider value={scenario === "remote-resume" ? "peer|/fixture" : "/fixture"}>
       <ChatComposer messages={messages}
+        limitSourceMessageId={["resume", "queued", "unknown-reset", "remote-resume"].includes(scenario) ? 2 : undefined}
+        limitPending={pending} limitResumeBlocked={scenario === "queued"}
         imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
         projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={scenario === "running"} sendBlocked={false}
         onOpenAccounts={() => { window.accountsOpened++; }}
@@ -82,7 +112,7 @@ function Fixture() {
   </div>;
 }
 function Settings() {
-  return <div style={{ padding: 12, height: "100%" }}><SettingsPanel section="experimental" models={[]} update={null} /></div>;
+  return <div style={{ padding: 12, height: "100%" }}><SettingsPanel section="accounts" models={[]} update={null} /></div>;
 }
 document.documentElement.classList.add("dark");
 createRoot(document.getElementById("root")).render(scenario === "settings" ? <Settings /> : <Fixture />);
@@ -160,6 +190,18 @@ async function browserChecks(base) {
     ]);
     await screenshot("switched");
 
+    // The message that continued the Chat is a line between the card and the reply, not a bubble the user typed.
+    await open("continued");
+    const divider = 'document.querySelector("[data-account-switch-divider]")';
+    await waitFor(`!!${divider}`);
+    assert.equal(await evaluate(`${divider}.textContent`), "Switched towork@example.com");
+    assert.equal(await evaluate(`${divider}.getAttribute("aria-label")`), "Switched to work@example.com after the usage limit");
+    assert.equal(
+      await evaluate('[...document.querySelectorAll("[data-slot=message]")].some((item) => item.textContent.includes("after the usage limit"))'),
+      false,
+    );
+    await screenshot("continued");
+
     // No other account: Add account opens Settings > Accounts.
     await open("none");
     await waitFor(`!!${card}.querySelector("[data-usage-limit-add]")`);
@@ -177,20 +219,61 @@ async function browserChecks(base) {
     assert.equal(await evaluate("window.accountsOpened"), 1, "a new page, a new count");
     await screenshot("all-limited");
 
-    // Experimental: the Mac-owned switch reads off, saves through the bridge.
+    // Schedule and cancel use the exact source and schedule identity; a failed action stays retryable.
+    await open("resume");
+    const resume = `${card}.querySelector("[data-limit-resume-action]")`;
+    await waitFor(`!!${resume}`);
+    assert.match(await evaluate(`${resume}.textContent`), /Continue at/);
+    await evaluate("window.failResume = true");
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${card}.textContent.includes("Could not schedule this continuation")`);
+    await evaluate("window.failResume = false");
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${resume}.textContent === "Cancel"`);
+    assert.match(await evaluate(`${card}.textContent`), /Continues at/);
+    await screenshot("reset-scheduled");
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${resume}.textContent.startsWith("Continue at")`);
+    assert.deepEqual(await evaluate("window.resumeCalls"), [
+      ["schedule", "/fixture", 7, 2],
+      ["schedule", "/fixture", 7, 2],
+      ["cancel", "/fixture", 7, "schedule-2"],
+    ]);
+    await open("remote-resume");
+    await waitFor(`!!${resume}`);
+    await evaluate(`${resume}.click()`);
+    await waitFor(`${resume}.textContent === "Cancel"`);
+    assert.deepEqual(await evaluate("window.resumeCalls[0]"), ["schedule", "peer|/fixture", 7, 2]);
+    for (const scenario of ["queued", "unknown-reset"]) {
+      await open(scenario);
+      assert.equal(await evaluate(`!!${resume}`), false);
+    }
+    await open("reset");
+    assert.equal(await evaluate('document.querySelector("[data-limit-reset-divider]").textContent'), "Continued after the usage limit reset");
+
+    // Accounts > Usage limits: the Mac-owned checkbox reads off, saves through the bridge.
     await window.loadURL(`${base}?scenario=settings`);
     const toggle =
-      'document.querySelector(\'[role="switch"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
+      'document.querySelector(\'[role="checkbox"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
     await waitFor(`!!${toggle}`);
     assert.match(await evaluate("document.body.textContent"), /move its Project to the next signed-in account and continue/);
     await evaluate(`${toggle}.click()`);
     await waitFor("JSON.stringify(window.autoSaves) === '[true]'");
     await waitFor(`${toggle}.getAttribute("aria-checked") === "true"`);
     await screenshot("setting-on");
+    const resumeToggle = 'document.querySelector(\'[role="checkbox"][aria-label="Continue when the limit resets"]\')';
+    await waitFor(`!!${resumeToggle}`);
+    assert.equal(await evaluate(`${resumeToggle}.getAttribute("aria-checked")`), "true");
+    await evaluate(`${resumeToggle}.click()`);
+    await waitFor("JSON.stringify(window.resumeSaves) === '[false]'");
+    await waitFor(`${resumeToggle}.getAttribute("aria-checked") === "false"`);
+    await evaluate(`${resumeToggle}.click()`);
+    await waitFor("JSON.stringify(window.resumeSaves) === '[false,true]'");
+    await waitFor(`${resumeToggle}.getAttribute("aria-checked") === "true"`);
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: the limit card shows its headline alone while a turn runs or after the Chat moved on; idle, it lists the other accounts with signed-out ones greyed, reports a failed switch and re-enables, and shows the result of a good one; Add account and Manage accounts open Settings; the Experimental switch saves through the bridge",
+      "PASS: the limit card shows its headline alone while a turn runs or after the Chat moved on; idle, it lists the other accounts with signed-out ones greyed, reports a failed switch and re-enables, and shows the result of a good one; the continue message is a line; Add account and Manage accounts open Settings; the Accounts switch saves through the bridge",
     );
     app.exit(0);
   } catch (error) {
@@ -217,7 +300,7 @@ async function main() {
           if (id === "/__usage_limit_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url?.split("?")[0] !== "/__usage_limit__") return next();
             const html = await server.transformIndexHtml(
               request.url,

@@ -218,3 +218,24 @@ for (const transport of ["external", "internal"]) {
     assert.deepEqual((await (await send(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" }))).json()).result, {});
   });
 }
+
+test("a tool result with images answers with text then image content", async (t) => {
+  const { createLocalMcpServer } = require("./local-mcp-server.cjs");
+  const server = createLocalMcpServer({
+    authenticate: () => ({ id: "design" }),
+    toolsFor: () => [{ name: "design_show", input: {}, readOnly: false, run: () => ({ text: "{}", images: [{ mime: "image/png", base64: "AAAA" }] }) }],
+  });
+  t.after(() => server.close());
+  const url = await server.listen();
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { authorization: "Bearer token", "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "design_show", arguments: {} } }),
+  });
+  const { result } = await response.json();
+  assert.equal(result.isError, false);
+  assert.deepEqual(result.content, [
+    { type: "text", text: "{}" },
+    { type: "image", data: "AAAA", mimeType: "image/png" },
+  ]);
+});

@@ -1,10 +1,19 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { branchTicket } = require("@milagre/shared/branch-policy");
+const { resolveBranchPolicy, availablePolicyBranch } = require("./branch-policy.cjs");
 const { createGit } = require("./git/client.cjs");
-const { createWorktree: create, issueBranch, slugify, DEFAULT_WORKTREE_ROOT } = require("./worktrees.cjs");
+const { createWorktree: create, slugify, DEFAULT_WORKTREE_ROOT } = require("./worktrees.cjs");
 const { resolveSetupCommand, runSetupCommand } = require("./worktree-setup.cjs");
+const { removeWorktree: removeChecked } = require("./worktree-cleanup.cjs");
+const { changedCopiedFiles } = require("./worktree-files.cjs");
 const { validLinkId } = require("@milagre/shared/chat-scopes");
 
+/**
+ * A shared Link Chat's workspace: a folder of aliases, one per Project the Chat edits. A new Chat starts with none, and
+ * each Project gets its Worktree (branch, folder and setup command) only when the Chat's agent is about to edit it
+ * (`addMember`, the link_worktree_create tool), so a Chat that touches one Project leaves the others alone.
+ */
 function createLinkWorkspaces({
   store,
   registry,
@@ -13,16 +22,42 @@ function createLinkWorkspaces({
   getSettings = async () => ({}),
   createWorktree = create,
   runSetup = runSetupCommand,
+  deferSetup,
+  removeWorktree = removeChecked,
+  changedCopied = changedCopiedFiles,
   git = createGit(),
 }) {
   const queues = new Map();
+  // Links whose Worktrees a delete released this run: a Chat or Worktree queued behind the release must not be made.
+  const released = new Set();
+  const refuseReleased = (id, state) => {
+    if (released.has(id) || state.deletedAt) throw new Error("This Link is being deleted.");
+  };
+  // A member is the Chat's once its Worktree exists and its setup ran, or waits for its review (deferSetup).
+  const isReady = (member) => Boolean(member.setupDone || member.setupDeferred);
+  // One preparation at a time per Link, so a new Chat and a new member never race on the same state.
+  function queued(key, task) {
+    const run = (queues.get(key) ?? Promise.resolve()).catch(() => {}).then(task);
+    queues.set(key, run);
+    run
+      .finally(() => {
+        if (queues.get(key) === run) queues.delete(key);
+      })
+      .catch(() => {});
+    return run;
+  }
+  // The Chat's Worktrees follow its preparation: a member reaches the session once its setup is done.
   async function save(id, preparation) {
+    const ready = preparation.members.filter(isReady);
     await store.update(
       id,
       (state) => ({
         ...state,
         next_id: Math.max(state.next_id, preparation.chatId + 1),
         preparations: { ...state.preparations, [preparation.operationId]: preparation },
+        ...(state.sessions?.[preparation.chatId]
+          ? { sessions: { ...state.sessions, [preparation.chatId]: { ...state.sessions[preparation.chatId], worktrees: ready } } }
+          : {}),
       }),
       { chats: [] },
     );
@@ -35,148 +70,64 @@ function createLinkWorkspaces({
       if (!members[i]) throw new Error(`Link Project ${path.basename(path.dirname(link.projectIds[i]))} is unavailable. Restore its folder before sending.`);
     return members;
   }
-  /** The Chat's member Projects. A preparation from before Worktrees were made on demand made every member at once. */
-  function normalized(prep) {
-    if (prep.projects) return prep;
-    const ready = prep.status === "ready";
-    prep.projects = prep.members.map((member) => ({
-      projectId: member.projectId,
-      projectPath: member.projectPath,
-      projectName: member.projectName,
-      alias: member.alias,
-    }));
-    for (const member of prep.members) member.status ??= ready ? "ready" : "reserved";
-    return prep;
-  }
-  const readyMembers = (prep) => prep.members.filter((member) => member.status === "ready");
-  const prepared = (prep) => ({ workspacePath: prep.workspacePath, projects: prep.projects, worktrees: readyMembers(prep) });
-  async function writeManifest(linkId, prep) {
+  const result = (prep) => ({ workspacePath: prep.workspacePath, worktrees: prep.members.filter(isReady) });
+  async function writeManifest(link, prep) {
     await fs.mkdir(prep.workspacePath, { recursive: true });
+    for (const member of prep.members.filter(isReady)) {
+      const alias = path.join(prep.workspacePath, member.alias);
+      try {
+        await fs.symlink(member.worktreePath, alias, process.platform === "win32" ? "junction" : "dir");
+      } catch (error) {
+        if (error.code !== "EEXIST" || (await fs.realpath(alias)) !== member.worktreePath) throw error;
+      }
+    }
     await fs.writeFile(
       path.join(prep.workspacePath, "milagre-workspace.json"),
-      JSON.stringify({ linkId, chatId: prep.chatId, projects: prep.projects, worktrees: readyMembers(prep) }, null, 2),
+      JSON.stringify({ linkId: link.id, chatId: prep.chatId, projects: prep.members.filter(isReady) }, null, 2),
     );
   }
-  // A Chat reserves its folder and its member Projects. No Worktree is made until the agent edits a Project
-  // (prepareMember). `issue` (a Chat started from a Linear issue) names each member's branch after it when it's made.
-  async function prepare({ link, chatId, prompt = "", operationId, issue }) {
-    if (!validLinkId(operationId) || !Number.isSafeInteger(chatId) || chatId < 1) throw new Error("Invalid Link preparation request");
-    const state = await store.get(link.id);
-    let prep = state.preparations[operationId] ?? Object.values(state.preparations).find((item) => item.chatId === chatId);
-    if (prep?.chatId !== undefined && prep.chatId !== chatId) throw new Error("Preparation belongs to another Chat");
-    if (prep?.status === "failed") {
-      if (prep.retainedPaths?.length) throw new Error(prep.error);
-      prep = undefined;
-    }
-    if (prep) normalized(prep);
-    if (prep?.status === "ready") return prepared(prep);
-    if (!prep) {
-      const projects = await membersAvailable(link);
-      prep = {
-        operationId,
-        chatId,
-        prompt,
-        status: "reserved",
-        workspacePath: path.join(store.directory(link.id), "workspaces", String(chatId)),
-        projects: projects.map((project, index) => ({
-          projectId: project.id,
-          projectPath: project.path,
-          projectName: project.name,
-          alias: `${slugify(project.name) || "project"}-${index + 1}`,
-        })),
-        members: [],
-        ...(issue ? { issue: { key: issue.key, title: issue.title, branchName: issue.branchName } } : {}),
-      };
-      await save(link.id, prep);
-    }
-    // A member a crash interrupted is checked and finished, as it would have been then.
-    for (const member of prep.members)
-      if (member.status === "reserved") {
-        await ownProject(member.projectPath);
-        await makeMember(link.id, prep, member);
-      }
-    await writeManifest(link.id, prep);
-    prep.status = "ready";
-    await save(link.id, prep);
-    return prepared(prep);
-  }
-
-  /** The member Project `name` names: its id, path, name or alias. */
-  function memberProject(prep, name) {
-    const wanted = String(name ?? "").trim();
-    const lower = wanted.toLowerCase();
-    return prep.projects.find(
-      (project) =>
-        project.projectId === wanted ||
-        project.projectPath === wanted ||
-        project.alias.toLowerCase() === lower ||
-        String(project.projectName ?? "").toLowerCase() === lower,
-    );
-  }
-
-  // The Chat's Worktree in one member Project, made the first time the agent asks for it.
-  async function prepareMember({ linkId, chatId, project: name }) {
-    const state = await store.get(linkId);
-    const prep = Object.values(state.preparations).find((item) => item.chatId === chatId);
-    if (!prep || prep.status !== "ready") throw new Error("This Chat's Link workspace isn't ready.");
-    normalized(prep);
-    const project = memberProject(prep, name);
-    if (!project)
-      throw new Error(
-        `No Project ${JSON.stringify(String(name ?? ""))} in this Chat. Choose one of: ${prep.projects.map((item) => item.projectName).join(", ")}.`,
-      );
-    let member = prep.members.find((item) => item.projectId === project.projectId);
-    if (member?.status === "ready") return { member, created: false, ...prepared(prep) };
-    if (member?.status === "failed") {
-      if (member.retainedPaths?.length) throw new Error(member.error);
-      prep.members = prep.members.filter((item) => item !== member);
-      member = undefined;
-    }
-    await ownProject(project.projectPath);
-    if (!member) {
-      member = await reserveMember(prep, project);
-      prep.members.push(member);
-      await save(linkId, prep);
-    }
-    await makeMember(linkId, prep, member);
-    await writeManifest(linkId, prep);
-    return { member, created: true, ...prepared(prep) };
-  }
-
-  async function reserveMember(prep, project) {
-    const index = prep.projects.indexOf(project);
-    const settings = await getSettings(project.projectPath);
-    const base = (await git.read.resolveBase(project.projectPath)).ref ?? "HEAD";
+  // The branch, folder and setup a member will get, checked free before anything is made. `index` is the Project's
+  // place in the Link, so its alias and branch suffix stay the same whichever Project the Chat edits first.
+  async function reserve(prep, project, index) {
+    const settings = await getSettings(project.path);
+    const policy = settings.git ?? (await resolveBranchPolicy(project.path)).effective;
+    const base = policy.baseBranch || (await git.read.resolveBase(project.path)).ref || "HEAD";
     const suffix = `${prep.operationId.slice(0, 8)}${index}`;
-    const named = prep.issue ? await issueBranch({ projectPath: project.projectPath, issue: prep.issue, suffix, git }) : undefined;
-    const name = named ? `${slugify(named.split("/").pop()) || "chat"}-${suffix}` : `${slugify(prep.prompt) || "chat"}-${suffix}`;
-    const branch = named ?? `milagre/${name}`;
-    const worktreePath = path.join(root, path.basename(project.projectPath), name);
-    if (await git.read.refExists(project.projectPath, `refs/heads/${branch}`)) throw new Error(`Project ${project.projectName}: branch already exists`);
+    const name = `${slugify(prep.prompt) || "chat"}-${suffix}`;
+    const worktreePath = path.join(root, path.basename(project.path), name);
+    const issue = prep.issue;
+    const branch = await availablePolicyBranch(
+      project.path,
+      policy,
+      { slug: issue?.title || prep.prompt || "chat", ticket: issue?.key || branchTicket(prep.prompt), suffix },
+      { issueBranch: issue ? issue.branchName || "" : undefined },
+    );
     try {
       await fs.lstat(worktreePath);
-      throw new Error(`Project ${project.projectName}: Worktree folder already exists`);
+      throw new Error(`Project ${project.name}: Worktree folder already exists`);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
-    const resolved = await resolveSetupCommand(project.projectPath, settings.setupCommand);
+    const resolved = await resolveSetupCommand(project.path, settings.setupCommand);
     return {
-      ...project,
-      status: "reserved",
+      projectId: project.id,
+      projectPath: project.path,
+      projectName: project.name,
       worktreePath,
       branch,
-      ...(named ? { named: true } : {}),
+      trackBase: policy.trackBase,
       base,
-      initialCommit: await git.read.commitOf(project.projectPath, base),
+      initialCommit: await git.read.commitOf(project.path, base),
       suffix,
+      alias: `${slugify(project.name) || "project"}-${index + 1}`,
       ...(settings.filesToCopy !== undefined ? { copyPatterns: settings.filesToCopy } : {}),
       setupCommand: resolved.command,
+      setupSource: resolved.source,
     };
   }
-
-  // Creates (or, after a crash, verifies) one member's Worktree, runs its setup and links it into the Chat's folder.
-  // A failure removes a Worktree nothing changed yet and keeps any other for inspection.
-  async function makeMember(linkId, prep, member) {
+  // Creates (or, after a restart, verifies) one member's Worktree and runs its setup. On failure an untouched Worktree
+  // is removed with its branch and the member forgotten, so asking again starts over; a changed one is retained.
+  async function materialize(link, prep, member) {
     try {
       const discovered = (await git.read.worktreeList(member.projectPath)).find((item) => item.path === member.worktreePath);
       if (discovered) {
@@ -188,42 +139,49 @@ function createLinkWorkspaces({
         const created = await createWorktree({
           projectPath: member.projectPath,
           baseBranch: member.base,
+          branch: member.branch,
+          folderSlug: slugify(prep.prompt) || "chat",
+          trackBase: member.trackBase === true,
           root,
           suffix: member.suffix,
           prompt: prep.prompt,
-          ...(member.named ? { branch: member.branch } : {}),
           copyPatterns: member.copyPatterns,
         });
         member.base = created.base;
         member.worktreePath = await fs.realpath(created.path);
         member.initialCommit = await git.read.commitOf(member.worktreePath, "HEAD");
         member.created = true;
-        await save(linkId, prep);
+        await save(link.id, prep);
       }
-      if (member.setupCommand && !member.setupDone) {
+      if (member.setupCommand && !member.setupDone && !member.setupDeferred) {
         if (member.setupStarted) throw new Error("Setup was interrupted. Its Worktree has been retained for inspection");
-        member.setupStarted = true;
-        await save(linkId, prep);
-        const result = await runSetup({ cwd: member.worktreePath, command: member.setupCommand });
-        if (result.status !== "done") throw new Error(`Setup ${result.status}: ${result.output || result.error || "command did not complete"}`);
+        if (deferSetup) {
+          // The setup waits for the same review as an ordinary Worktree's, before the agent works in this one.
+          await deferSetup({
+            worktreePath: member.worktreePath,
+            projectPath: member.projectPath,
+            resolved: { command: member.setupCommand, source: member.setupSource ?? "repo" },
+            strict: true,
+          });
+          member.setupDeferred = true;
+        } else {
+          member.setupStarted = true;
+          await save(link.id, prep);
+          const result = await runSetup({ cwd: member.worktreePath, command: member.setupCommand });
+          if (result.status !== "done") throw new Error(`Setup ${result.status}: ${result.output || result.error || "command did not complete"}`);
+        }
       }
-      member.setupDone = true;
-      await fs.mkdir(prep.workspacePath, { recursive: true });
-      const alias = path.join(prep.workspacePath, member.alias);
-      try {
-        await fs.symlink(member.worktreePath, alias, process.platform === "win32" ? "junction" : "dir");
-      } catch (error) {
-        if (error.code !== "EEXIST" || (await fs.realpath(alias)) !== member.worktreePath) throw error;
-      }
-      member.status = "ready";
-      await save(linkId, prep);
+      if (!member.setupDeferred) member.setupDone = true;
+      await writeManifest(link, prep);
+      await save(link.id, prep);
+      return member;
     } catch (error) {
-      const retainedPaths = [];
+      let retained = false;
       const exists = await fs.lstat(member.worktreePath).then(
         () => true,
         () => false,
       );
-      if (exists)
+      if (exists) {
         try {
           if (
             (member.setupStarted && !member.setupDone) ||
@@ -231,55 +189,141 @@ function createLinkWorkspaces({
             (await git.read.commitOf(member.worktreePath, "HEAD")) !== member.initialCommit ||
             (await git.read.text(member.worktreePath, ["status", "--porcelain", "--untracked-files=all", "--ignored"])).trim()
           )
-            throw new Error("Modified or unverified");
+            throw new Error("Modified or unverified", { cause: error });
           await git.write.checked(member.projectPath, ["worktree", "remove", "--", member.worktreePath]);
           await git.write.checked(member.projectPath, ["branch", "-d", "--", member.branch]);
-          member.created = false;
         } catch {
-          retainedPaths.push(member.worktreePath);
+          retained = true;
         }
-      member.status = "failed";
-      member.retainedPaths = retainedPaths;
-      member.error = `Project ${member.projectName}: ${error.message}${retainedPaths.length ? `\nRetained Worktree: ${retainedPaths.join(", ")}` : ""}`;
-      await save(linkId, prep);
-      throw new Error(member.error, { cause: error });
+      }
+      const message = `Project ${member.projectName}: ${error.message}${retained ? `\nRetained Worktree: ${member.worktreePath}` : ""}`;
+      if (retained) Object.assign(member, { setupDone: false, setupDeferred: false, retained: true, error: message });
+      else prep.members = prep.members.filter((item) => item !== member);
+      await save(link.id, prep);
+      throw new Error(message, { cause: error });
     }
   }
-  function queued(key, work) {
-    const run = (queues.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
-    queues.set(key, run);
-    run
-      .finally(() => {
-        if (queues.get(key) === run) queues.delete(key);
-      })
-      .catch(() => {});
-    return run;
+  // Members reserved but not finished: a quit interrupted them, or the preparation was saved before Worktrees were made
+  // on demand. A retained member stays as it is, for inspection.
+  const unfinished = (prep) => prep.status !== "ready" || prep.members.some((member) => !isReady(member) && !member.retained);
+  async function finishMembers(link, prep) {
+    for (const member of prep.members) {
+      if (isReady(member) || member.retained) continue;
+      await ownProject(member.projectPath);
+      await materialize(link, prep, member);
+    }
+  }
+  // A new Chat's workspace folder, with no Worktree yet; an unfinished preparation finishes first.
+  // `issue`: a Chat started from a Linear issue, whose Worktrees are named after it when they're made (reserve).
+  async function prepare({ link, chatId, prompt = "", operationId, issue }) {
+    if (!validLinkId(operationId) || !Number.isSafeInteger(chatId) || chatId < 1) throw new Error("Invalid Link preparation request");
+    const state = await store.get(link.id);
+    refuseReleased(link.id, state);
+    let prep = state.preparations[operationId] ?? Object.values(state.preparations).find((item) => item.chatId === chatId);
+    if (prep?.chatId !== undefined && prep.chatId !== chatId) throw new Error("Preparation belongs to another Chat");
+    if (prep && !unfinished(prep)) return result(prep);
+    if (prep?.status === "failed") {
+      if (prep.retainedPaths?.length) throw new Error(prep.error);
+      prep = undefined;
+    }
+    await membersAvailable(link);
+    prep ??= {
+      operationId,
+      chatId,
+      prompt,
+      workspacePath: path.join(store.directory(link.id), "workspaces", String(chatId)),
+      members: [],
+      ...(issue ? { issue: { key: issue.key, title: issue.title, branchName: issue.branchName } } : {}),
+    };
+    await finishMembers(link, prep);
+    await writeManifest(link, prep);
+    prep.status = "ready";
+    await save(link.id, prep);
+    return result(prep);
+  }
+  // Which Link Project the agent means: its name, alias, folder name or path, in any case.
+  function find(projects, prep, wanted) {
+    const value = String(wanted ?? "").trim();
+    const lower = value.toLowerCase();
+    const index = projects.findIndex(
+      (project, i) =>
+        project.id === value ||
+        project.path === value ||
+        project.name.toLowerCase() === lower ||
+        path.basename(project.path).toLowerCase() === lower ||
+        `${slugify(project.name) || "project"}-${i + 1}` === lower ||
+        prep.members.some((member) => member.projectId === project.id && member.worktreePath === value),
+    );
+    if (index === -1) throw new Error(`No Project "${value}" in this Link. Its Projects: ${projects.map((project) => project.name).join(", ")}.`);
+    return index;
+  }
+  async function addMember({ link, chatId, project: wanted }) {
+    const state = await store.get(link.id);
+    refuseReleased(link.id, state);
+    const prep = Object.values(state.preparations).find((item) => item.chatId === chatId);
+    if (prep?.status !== "ready") throw new Error("This Chat's workspace is not ready.");
+    const projects = await membersAvailable(link);
+    const index = find(projects, prep, wanted);
+    const project = projects[index];
+    let member = prep.members.find((item) => item.projectId === project.id);
+    if (member && isReady(member)) return { member, created: false };
+    if (member?.retained) throw new Error(member.error);
+    await ownProject(project.path);
+    if (!member) {
+      member = await reserve(prep, project, index);
+      prep.members.push(member);
+      await save(link.id, prep);
+    }
+    return { member: await materialize(link, prep, member), created: true };
+  }
+  // A deleted Link's Worktrees. One git says holds nothing unsaved goes with its milagre/ branch, through the same checked
+  // removal as an archived Chat's (worktree-cleanup.cjs). One with changes or unpushed commits stays, as does one whose
+  // setup was cut short, that was never verified, or that can't be checked. Each comes back with its member record.
+  async function release(linkId) {
+    const state = await store.get(linkId);
+    const members = new Map();
+    for (const prep of Object.values(state.preparations)) for (const member of prep.members) members.set(member.worktreePath, member);
+    for (const session of Object.values(state.sessions)) for (const member of session.worktrees ?? []) members.set(member.worktreePath, member);
+    const removed = [],
+      kept = [];
+    released.add(linkId);
+    for (const member of members.values()) {
+      const exists = await fs.lstat(member.worktreePath).then(
+        () => true,
+        () => false,
+      );
+      if (!exists) continue;
+      // What its commits are counted against. A base reserved as "HEAD" (no main, master or origin/HEAD) would be the
+      // Worktree's own HEAD and count none, so the commit it started from stands in.
+      const checkedBase = member.base && member.base !== "HEAD" ? member.base : member.initialCommit;
+      try {
+        if ((!member.created && !isReady(member)) || (member.setupStarted && !member.setupDone)) throw new Error("Unverified Worktree");
+        // git status leaves out ignored files, so a copied .env edited here would go with a clean Worktree.
+        if ((await changedCopied({ projectPath: member.projectPath, worktreePath: member.worktreePath, setting: member.copyPatterns })).length)
+          throw new Error("Copied files changed");
+        await removeWorktree({ path: member.worktreePath, root, projectPath: member.projectPath, base: checkedBase });
+        removed.push(member);
+      } catch {
+        kept.push({ ...member, checkedBase });
+      }
+    }
+    return { removed, kept };
   }
   return {
     membersAvailable,
+    /**
+     * Removes a deleted Link's untouched Worktrees and resolves to `{ removed, kept }` member records; a kept one carries
+     * `checkedBase`, the ref its commits were counted against. From then on the Link gets no new Chat or Worktree.
+     */
+    releaseLinkWorktrees: (linkId) => queued(linkId, () => release(linkId)),
     prepareLinkChat: (request) => queued(request.link.id, () => prepare(request)),
-    /** `{ member, created, workspacePath, projects, worktrees }`: the member's Worktree and the Chat's made ones. */
-    prepareLinkMember: (request) => queued(request.linkId, () => prepareMember(request)),
-    /** The Chat's Projects and the Worktrees made in them so far, from its preparation. */
-    async chatMembers(linkId, chatId) {
-      const prep = Object.values((await store.get(linkId)).preparations).find((item) => item.chatId === chatId);
-      return prep ? prepared(normalized(prep)) : null;
-    },
+    /** Gives a Link Chat its Worktree in one Project, or the one it has. Resolves to `{ member, created }`. */
+    addLinkWorktree: (request) => queued(request.link.id, () => addMember(request)),
     async recoverLinkPreparations(linkId) {
       const link = (await registry.listProjectGroups()).find((item) => item.id === linkId);
       if (!link) throw new Error("Link no longer exists");
-      const failures = [];
-      for (const prep of Object.values((await store.get(linkId)).preparations)) {
-        normalized(prep);
-        if (!["ready", "failed"].includes(prep.status)) await this.prepareLinkChat({ link, chatId: prep.chatId, operationId: prep.operationId });
-        else if (prep.status === "ready")
-          for (const member of prep.members.filter((item) => item.status === "reserved"))
-            await queued(linkId, async () => {
-              await ownProject(member.projectPath);
-              await makeMember(linkId, prep, member);
-            }).catch((error) => failures.push(error));
-      }
-      if (failures.length) throw failures[0];
+      for (const prep of Object.values((await store.get(linkId)).preparations))
+        if (prep.status !== "failed" && unfinished(prep)) await queued(link.id, () => prepare({ link, chatId: prep.chatId, operationId: prep.operationId }));
     },
   };
 }

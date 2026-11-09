@@ -189,3 +189,22 @@ test("finds the Android APK in the newest recent release that has one, skipping 
   assert.equal(calls[0].url, RECENT_RELEASES_API);
   assert.equal(await latestDownload("android", github([{ draft: false, assets: release.assets }]).fetchImpl), RELEASES_PAGE);
 });
+
+test("an agent asking for Markdown gets the home page as Markdown; browsers keep HTML, and both vary on Accept", async () => {
+  const markdown = await handleRequest(new Request("https://milagre.cloud/", { headers: { accept: "text/markdown, text/html;q=0.8" } }), {
+    assets,
+    fetchImpl: github({}).fetchImpl,
+  });
+  assert.equal(markdown.headers.get("content-type"), "text/markdown; charset=utf-8");
+  assert.equal(await markdown.text(), "asset /index.md");
+  assert.equal(markdown.headers.get("x-markdown-tokens"), "4");
+  assert.equal(markdown.headers.get("vary"), "Accept");
+  const html = await handleRequest(new Request("https://milagre.cloud/", { headers: { accept: "text/html" } }), { assets, fetchImpl: github({}).fetchImpl });
+  assert.equal(await html.text(), "asset /");
+  assert.equal(html.headers.get("vary"), "Accept");
+  const other = await handleRequest(new Request("https://milagre.cloud/privacy", { headers: { accept: "text/markdown" } }), {
+    assets,
+    fetchImpl: github({}).fetchImpl,
+  });
+  assert.equal(await other.text(), "asset /privacy");
+});

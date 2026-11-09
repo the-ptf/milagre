@@ -98,14 +98,16 @@ test("a client that holds tails keeps each update's as it comes", () => {
 });
 
 test("an archived subagent goes as a summary of what its row shows, the same object each time", () => {
+  // Subagents saved while the subagent canvas existed still carry its `communications`.
+  const legacy = { communications: [{ id: "c1", fromId: null, toId: "child", text: "Look at the tests too", at: 5 }] };
   const archived = agent(entries(1, 40), {
+    ...legacy,
     archived: true,
     status: "completed",
     endedAt: 9,
     provider: "codex",
     prompt: "Check the auth flow",
     latestActivity: "Finished",
-    communications: [{ id: "c1", fromId: null, toId: "child", text: "Look at the tests too", at: 5 }],
   });
   const summary = withArchivedSummary(archived);
   assert.deepEqual(summary, {

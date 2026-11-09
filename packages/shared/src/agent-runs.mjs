@@ -4,8 +4,9 @@
 
 import { hasTranscriptTail } from "./subagent-transcript.mjs";
 import { qualifyKey } from "./chat-scopes.mjs";
+import { nativePlan } from "./chat-plan.mjs";
 
-export { LOCAL_COMPUTER, computerOfKey, qualifyKey, unqualifyKey } from "./chat-scopes.mjs";
+export { computerOfKey } from "./chat-scopes.mjs";
 
 export const MAX_OUTPUT = 20_000;
 
@@ -48,8 +49,9 @@ export function lastUserModel(state, sessionId) {
   return state.sessions?.[sessionId]?.summary?.lastModel ?? "";
 }
 
-export function startRun(runs, chatId, model) {
-  return { ...runs, [chatId]: { text: "", model, startedAt: Date.now(), steps: [], approvals: [], questions: [], answered: {} } };
+export function startRun(runs, chatId, model, permissionMode) {
+  const run = { text: "", model, startedAt: Date.now(), steps: [], approvals: [], questions: [], answered: {} };
+  return { ...runs, [chatId]: permissionMode ? { ...run, permissionMode } : run };
 }
 
 /** The run with one step changed, or null when it has no such step or `update` declines. */
@@ -59,17 +61,22 @@ function updateStep(run, id, update) {
   return next ? { ...run, steps: run.steps.map((step, position) => (position === index ? next : step)) } : null;
 }
 
-/** The detail a step ends with replaces what streamed into it; a step that ends without one keeps none. */
-function endStep({ detail: _streamed, ...step }, end) {
+/** Tool completion replaces its output. A missing reasoning summary must not erase a public summary already streamed. */
+function endStep({ detail: streamed, ...step }, end) {
+  const detail = end.detail ?? (step.kind === "thinking" ? streamed : undefined);
   return {
     ...step,
     status: end.status,
     title: end.title ?? step.title,
     ...(end.note === undefined ? {} : { note: end.note }),
-    ...(end.detail === undefined ? {} : { detail: end.detail }),
+    ...(detail === undefined ? {} : { detail }),
     ...(end.durationMs === undefined ? {} : { durationMs: end.durationMs }),
+    ...(end.endedAt === undefined ? {} : { endedAt: end.endedAt }),
+    ...(end.summary === undefined ? {} : { summary: end.summary }),
+    ...(end.error === undefined ? {} : { error: end.error }),
     ...(end.file === undefined ? {} : { file: end.file }),
     ...(end.artifact === undefined ? {} : { artifact: end.artifact }),
+    ...(end.routine === undefined ? {} : { routine: end.routine }),
   };
 }
 
@@ -130,13 +137,15 @@ export function applyRunEvent(runs, chatId, event, model = "") {
   switch (event.type) {
     // A message sent while a turn runs steers it; otherwise it starts one.
     case "message-sent": {
-      if (!run) return startRun(runs, chatId, event.model);
+      if (!run) return startRun(runs, chatId, event.model, event.permissionMode);
       const split = splitRun(run);
       return split ? { ...runs, [chatId]: split } : runs;
     }
     // A turn this window didn't start, such as a steering message that arrived as the last turn ended.
-    case "turn-started":
-      return run ? runs : startRun(runs, chatId, model);
+    case "turn-started": {
+      const next = run ? runs : startRun(runs, chatId, model);
+      return event.turnId === undefined || next[chatId].turnId === event.turnId ? next : { ...next, [chatId]: { ...next[chatId], turnId: event.turnId } };
+    }
     case "permission-request": {
       if (!run) return runs;
       const { type: _type, ...request } = event;
@@ -163,12 +172,6 @@ export function applyRunEvent(runs, chatId, event, model = "") {
     }
     case "subagents-waiting":
       return run ? { ...runs, [chatId]: { ...run, waitingForSubagents: event.waiting } } : runs;
-    // The agent's to-do list as it last reported it; an empty list clears it.
-    case "tasks-updated": {
-      if (!run) return runs;
-      const { tasks: _cleared, ...rest } = run;
-      return { ...runs, [chatId]: event.tasks.length ? { ...rest, tasks: event.tasks } : rest };
-    }
     case "context-usage":
       return run ? { ...runs, [chatId]: { ...run, contextUsage: { used: event.used, size: event.size } } } : runs;
     // The user's answers to a question were saved as their message, after the reply so far (see recordAnswers).
@@ -179,13 +182,22 @@ export function applyRunEvent(runs, chatId, event, model = "") {
       return run ? { ...runs, [chatId]: { ...run, text: run.text + event.text, ...(run.waitingForSubagents ? { waitingForSubagents: false } : {}) } } : runs;
     case "step-started": {
       if (!run) return runs;
+      const viewed = event.step.kind === "image" && event.step.imageOrigin === "viewed";
+      const existing = run.steps.findIndex((step) => step.id === event.step.id);
+      const admitted = existing !== -1 && run.steps[existing].kind === "image" && run.steps[existing].imageOrigin === "viewed";
+      // Count the reply after steering splits, not the provider turn. Replays keep their slot.
+      if (viewed && !admitted && run.steps.filter((step) => step.kind === "image" && step.imageOrigin === "viewed").length >= 16) return runs;
       const step = {
         ...event.step,
         ...(event.step.detail === undefined ? {} : { detail: capOutput(event.step.detail) }),
         status: "running",
         offset: run.text.length,
       };
-      return { ...runs, [chatId]: { ...run, steps: [...run.steps.filter((item) => item.id !== step.id), step] } };
+      const steps =
+        viewed && existing !== -1
+          ? run.steps.map((item, index) => (index === existing ? step : item))
+          : [...run.steps.filter((item) => item.id !== step.id), step];
+      return { ...runs, [chatId]: { ...run, steps } };
     }
     case "step-output": {
       const next =
@@ -217,20 +229,32 @@ export function applyRunEvent(runs, chatId, event, model = "") {
  */
 export function applyAgentEvent(state, runs, projectPath, chatId, event) {
   const sessionId = sessionIdFromKey(chatId);
-  const session = state.sessions[sessionId];
+  let session = state.sessions[sessionId];
   if (!chatInProject(projectPath, chatId) || !session) return { state, runs, changed: false };
   const run = runs[chatId];
+  // Input, reset and a new turn invalidate even a suggestion still in flight from the old turn.
+  const clearSuggestion = ["message-sent", "turn-started", "session-reset"].includes(event.type);
+  const suggestionChanged = clearSuggestion && (session.suggestion !== undefined || session.suggestionTurnId !== undefined);
+  if (suggestionChanged) {
+    const { suggestion: _suggestion, suggestionTurnId: _turn, ...rest } = session;
+    session = rest;
+    state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+  }
   switch (event.type) {
+    case "prompt-suggestion": {
+      if (run || session.provider !== "claude" || !event.turnId || event.turnId !== session.suggestionTurnId || !event.text.trim())
+        return { state, runs, changed: false };
+      return {
+        state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, suggestion: { text: event.text, turnId: event.turnId } } } },
+        runs,
+        changed: true,
+      };
+    }
     case "subagent-update": {
       if (event.agent.id === session.native_session_id) return { state, runs, changed: false };
       const children = (session.subagents ?? []).filter((agent) => agent.id !== session.native_session_id);
       const previous = children.find((agent) => agent.id === event.agent.id);
       if (previous && previous.updatedAt > event.agent.updatedAt) return { state, runs, changed: false };
-      const communications = new Map((previous?.communications ?? []).map((entry) => [entry.id, entry]));
-      for (const entry of event.agent.communications ?? []) {
-        // Resuming a provider may replay an item with a new observation time.
-        if (!communications.has(entry.id)) communications.set(entry.id, entry);
-      }
       // A resumed provider can rediscover a child before it has replayed the earlier output.
       // A client that holds transcript tails (subagent-transcript.mjs) gets the host's merged transcript, or its tail,
       // and keeps it as it comes.
@@ -239,46 +263,91 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         ? {
             ...previous,
             ...event.agent,
-            archived: previous.archived,
+            // One that ended and runs again (a resumed session picks up its background agents, as after an account
+            // switch) is back on the track; one archived while it runs stays archived.
+            archived: previous.archived && !(!subagentActive(previous) && subagentActive(event.agent)),
             title: event.agent.title === "Subagent" ? previous.title : event.agent.title,
             prompt: event.agent.prompt ?? previous.prompt,
             parentId: event.agent.parentId ?? previous.parentId,
             startedAt: Math.min(previous.startedAt, event.agent.startedAt),
-            communications: [...communications.values()].sort((a, b) => a.at - b.at).slice(-20),
             transcript:
               event.agent.source === "milagre-advisor" || tail
                 ? event.agent.transcript
                 : [...new Map([...previous.transcript, ...event.agent.transcript].map((entry) => [entry.id, entry])).values()].slice(-100),
             transcriptLength: event.agent.transcriptLength,
+            // A child that runs again comes without an end (subagents.cjs); the old one must not stop its clock.
+            endedAt: event.agent.endedAt,
             // An archived subagent's summary stays one only while updates come as summaries (subagent-transcript.mjs).
             detailsOnDemand: event.agent.detailsOnDemand,
           }
         : event.agent;
       if (agent.transcriptLength === undefined) delete agent.transcriptLength;
+      if (agent.endedAt === undefined) delete agent.endedAt;
       if (agent.detailsOnDemand === undefined) delete agent.detailsOnDemand;
       const subagents = previous ? children.map((child) => (child.id === agent.id ? agent : child)) : [...children, agent];
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, subagents } } }, runs, changed: true };
+    }
+    // The agent process's background work besides subagents (chat-activity.mjs) outlasts the turn too; each set replaces the last.
+    case "background-tasks": {
+      const tasks = Array.isArray(event.tasks) ? event.tasks : [];
+      if (JSON.stringify(tasks) === JSON.stringify(session.backgroundTasks ?? [])) return { state, runs, changed: false };
+      const { backgroundTasks: _previous, ...rest } = session;
+      const next = tasks.length ? { ...rest, backgroundTasks: tasks } : rest;
+      return { state: { ...state, sessions: { ...state.sessions, [sessionId]: next } }, runs, changed: true };
+    }
+    // A Chat's plan lives on its session (chat-plan.mjs), so it outlasts the turn. Milagre's task tools replace it whole.
+    case "plan-updated": {
+      const { plan: _previous, ...rest } = session;
+      const next = event.plan ? { ...rest, plan: event.plan } : rest;
+      return { state: { ...state, sessions: { ...state.sessions, [sessionId]: next } }, runs, changed: true };
+    }
+    // A provider's own todo list fills the plan until Milagre's tools own it.
+    case "tasks-updated": {
+      const plan = nativePlan(session.plan, event.tasks, Date.now());
+      if (plan === session.plan) return { state, runs, changed: false };
+      const { plan: _previous, ...rest } = session;
+      return { state: { ...state, sessions: { ...state.sessions, [sessionId]: plan ? { ...rest, plan } : rest } }, runs, changed: true };
     }
     case "session-started": {
       if (session.native_session_id === event.nativeId) return { state, runs, changed: false };
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, native_session_id: event.nativeId } } }, runs, changed: true };
     }
     case "session-reset": {
-      if (!session.native_session_id) return { state, runs, changed: false };
+      if (!session.native_session_id) return { state, runs, changed: suggestionChanged };
       const { native_session_id: _forgotten, ...rest } = session;
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: rest } }, runs, changed: true };
     }
-    case "message-sent":
-      return run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
+    case "message-sent": {
+      const next = run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
+      // A steered run's first text is likely the answer to that message: see step-started.
+      if (run) next.runs = { ...next.runs, [chatId]: { ...next.runs[chatId], steered: true } };
+      return { ...next, changed: next.changed || suggestionChanged };
+    }
     case "turn-started":
-      return { state, runs: applyRunEvent(runs, chatId, event, lastUserModel(state, sessionId)), changed: false };
+      return { state, runs: applyRunEvent(runs, chatId, event, lastUserModel(state, sessionId)), changed: suggestionChanged };
     // A /compact the user asked for shows its progress on its divider: Claude's own compaction step stays out of the reply.
     case "step-started":
       if (event.step.id.startsWith("compact-") && pendingCompaction(state, sessionId)) return { state, runs, changed: false };
+      // Text written after a steering message, before the agent goes back to its tools, answers the user: it is saved
+      // as its own reply, so it isn't folded into the activity with the text between steps.
+      // ponytail: the first text after the steer, even when the agent wrote it before it read the message.
+      if (run?.steered && run.text.trim()) {
+        const split = splitRunForSteer(state, runs, projectPath, chatId);
+        const { steered: _answered, ...rest } = split.runs[chatId];
+        return { state: split.state, runs: applyRunEvent({ ...split.runs, [chatId]: rest }, chatId, event), changed: split.changed };
+      }
       return { state, runs: applyRunEvent(runs, chatId, event), changed: false };
     case "context-compacting":
       return pendingCompaction(state, sessionId) ? { state, runs, changed: false } : addCompaction(state, runs, projectPath, chatId, "preparing");
     case "context-compacted": {
+      // The boundary may be the last usage event of a /compact turn. Keep the gauge accurate even without a later API request.
+      const size = run?.contextUsage?.size ?? session.contextUsage?.size;
+      if (Number.isFinite(event.after) && event.after >= 0 && size > 0) {
+        const contextUsage = { used: event.after, size };
+        session = { ...session, contextUsage };
+        state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+        if (run) runs = { ...runs, [chatId]: { ...run, contextUsage } };
+      }
       const request = pendingCompaction(state, sessionId);
       if (!request) return addCompaction(state, runs, projectPath, chatId, "done", event);
       const before = request.role === "user" ? (request.context.before ?? event.before) : (event.before ?? request.context.before);
@@ -295,6 +364,13 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     case "turn-failed": {
       if (!run) return { state, runs, changed: false };
       const remaining = applyRunEvent(runs, chatId, event);
+      const { suggestion: _suggestion, suggestionTurnId: _turn, ...rest } = session;
+      const suggestionTurnId = event.type === "turn-completed" && session.provider === "claude" ? run.turnId : null;
+      const suggestionUpdated = Boolean(suggestionTurnId) || session.suggestion !== undefined || session.suggestionTurnId !== undefined;
+      if (suggestionUpdated) {
+        session = { ...rest, ...(suggestionTurnId ? { suggestionTurnId } : {}) };
+        state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+      }
       // The context gauge outlives the run, so the composer still shows it between turns.
       if (run.contextUsage) state = { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, contextUsage: run.contextUsage } } };
       // A compaction request whose turn ends before its boundary did not happen.
@@ -302,7 +378,7 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       if (unfinished) state = withContext(state, unfinished, { ...unfinished.context, status: "failed" });
       // The reply so far was saved when a steering message split it; there is nothing left to show.
       if (event.type === "turn-completed" && run.split && !run.text.trim() && !run.steps.length)
-        return { state, runs: remaining, changed: Boolean(run.contextUsage) || Boolean(unfinished) };
+        return { state, runs: remaining, changed: Boolean(run.contextUsage) || Boolean(unfinished) || suggestionUpdated };
       // A /compact turn says nothing: its divider is the whole reply.
       if (event.type === "turn-completed" && !run.text.trim() && !run.steps.length && isCompactionRequest(lastUserMessage(state, sessionId)))
         return { state, runs: remaining, changed: true };
@@ -315,6 +391,8 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         role: "assistant",
         model: run.model,
         outcome: event.type === "turn-completed" ? "completed" : event.type === "turn-cancelled" ? "cancelled" : "failed",
+        // What the turn cost, when the agent reports it (Kiro's credits).
+        ...(event.type === "turn-completed" && Number.isFinite(event.credits) ? { credits: event.credits } : {}),
         // Codex sends no end for a command still running when a turn stops, so the turn's end closes it.
         ...savedSteps(run.text, run.steps, event.type === "turn-completed" ? "done" : "failed"),
       };
@@ -373,8 +451,8 @@ function replyBody(text, event, hasSteps) {
     const failure = event.notice ? event.message : `Agent error: ${event.message}`;
     return reply ? `${reply}\n\n${failure}` : failure;
   }
-  if (event.type === "turn-cancelled" && event.quit) return reply ? `${reply}\n\nStopped when Milagre closed.` : "Stopped when Milagre closed.";
-  if (event.type === "turn-cancelled") return reply ? `${reply}\n\nWhat should I work on instead?` : "What should I work on instead?";
+  // Cancellation belongs to the message's outcome, not to the agent's words (or language).
+  if (event.type === "turn-cancelled") return reply;
   return reply || (hasSteps ? "" : "The agent finished without a reply.");
 }
 
@@ -411,7 +489,7 @@ export function splitRunForSteer(state, runs, projectPath, chatId) {
  * steering message), so the answers sit between what the agent asked and what it does next.
  * `messageId` is the new message's id, so it can be taken back if the answers don't reach the agent.
  */
-export function recordAnswers(state, runs, projectPath, chatId, body, answered) {
+export function recordAnswers(state, runs, projectPath, chatId, body, answered, images) {
   const sessionId = sessionIdFromKey(chatId);
   const run = runs[chatId];
   if (!chatInProject(projectPath, chatId) || !state.sessions[sessionId] || !run || !body) return { state, runs, messageId: null };
@@ -424,6 +502,7 @@ export function recordAnswers(state, runs, projectPath, chatId, body, answered) 
     role: "user",
     model: run.model,
     ...(answered?.length ? { answered } : {}),
+    ...(images?.length ? { images } : {}),
   };
   return {
     state: { ...split.state, next_id: message.id + 1, messages: [...split.state.messages, message] },

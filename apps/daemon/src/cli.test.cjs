@@ -31,7 +31,8 @@ test("standalone CLI serves, reads saved state and stops without leaving its soc
     await exited;
     await fs.rm(dir, { recursive: true, force: true });
   });
-  for (let i = 0; !output.includes("\n") && i < 200; i++) {
+  // A Windows start runs its ACL checks first, which can take several seconds.
+  for (let i = 0; !output.includes("\n") && i < 1000; i++) {
     assert.equal(child.exitCode, null, errors);
     await delay(20);
   }

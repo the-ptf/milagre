@@ -181,12 +181,13 @@ test("HTML embeds the bundled script once, escapes configuration and loads nothi
 });
 
 /** Runs the exact bundled script with only DOM boundaries replaced. */
-function harness(call) {
+function harness(call, transport = "mobile") {
   const listeners = {},
     elements = {},
     timers = new Map(),
     intervals = new Map(),
-    posted = [];
+    posted = [],
+    resized = [];
   let serial = 0;
   const element = (id) => {
     const handlers = {};
@@ -213,14 +214,14 @@ function harness(call) {
       },
       async decode() {},
       addEventListener(name, fn) {
-        handlers[name] = fn;
+        (handlers[name] ||= new Set()).add(fn);
       },
-      fire(name, event) {
-        handlers[name]?.(event);
+      emit(name, event) {
+        for (const handler of handlers[name] || []) handler(event);
       },
     };
   };
-  for (const id of ["config", "stage", "frame", "message", "live", "keys", "back", "forward", "reload", "keyboard", "control", "retry"])
+  for (const id of ["config", "stage", "frame", "comment-pin", "message", "live", "keys", "back", "forward", "reload", "keyboard", "control", "retry"])
     elements[id] = element(id);
   const document = {
     documentElement: { style: { setProperty() {} } },
@@ -243,11 +244,28 @@ function harness(call) {
       },
     },
   };
-  const bridge = createBrowserBridge(call, (reply) => window.browserReply(JSON.parse(JSON.stringify(reply))));
+  if (transport === "desktop") {
+    delete window.ReactNativeWebView;
+    window.parent = {
+      postMessage(message) {
+        message = JSON.parse(JSON.stringify(message));
+        posted.push(message);
+        void bridge.receive(message);
+      },
+    };
+  }
+  const bridge = createBrowserBridge(call, (reply) => {
+    const data = JSON.parse(JSON.stringify(reply));
+    if (transport === "desktop") listeners["window:message"]({ source: window.parent, data });
+    else window.browserReply(data);
+  });
   runInNewContext(BROWSER_RECEIVER_SCRIPT, {
     window,
     document,
     ResizeObserver: class {
+      constructor(fn) {
+        resized.push(fn);
+      }
       observe() {}
     },
     setTimeout: (fn, delay) => {
@@ -271,6 +289,7 @@ function harness(call) {
     bridge,
     intervals,
     posted,
+    resize: () => resized.forEach((fn) => fn()),
     timeout(delay) {
       for (const [id, value] of timers)
         if (value.delay === delay) {
@@ -283,7 +302,16 @@ function harness(call) {
     },
   };
 }
-const STATUS = { generation: 2, controlling: true, ready: true, title: "Login", url: "https://example.com/", canGoBack: true, canGoForward: false };
+const STATUS = {
+  generation: 2,
+  controlling: true,
+  ready: true,
+  title: "Login",
+  url: "https://example.com/",
+  canGoBack: true,
+  canGoForward: false,
+  supportsViewport: true,
+};
 function host(calls, { status = STATUS, frames = 1 } = {}) {
   let served = 0;
   return async (method, args) => {
@@ -309,7 +337,9 @@ const pointer = (pointerType, clientX = 100, clientY = 100, extra = {}) => ({
   preventDefault() {},
   ...extra,
 });
-const inputs = (calls) => calls.filter(([method]) => method === "input").map(([, args]) => args.event);
+const sent = (calls) => calls.filter(([method]) => method === "input").map(([, args]) => args.event);
+// Input from the user; the viewer's size has its own test.
+const inputs = (calls) => sent(calls).filter((event) => event.kind !== "viewport");
 
 test("the receiver shows frames, reports the page and maps a mouse click to page coordinates", async () => {
   const calls = [],
@@ -324,8 +354,8 @@ test("the receiver shows frames, reports the page and maps a mouse click to page
   );
   assert.equal(h.elements.back.disabled, false);
   assert.equal(h.elements.forward.disabled, true);
-  h.elements.stage.onpointerdown(pointer("mouse"));
-  h.elements.stage.onpointerup(pointer("mouse"));
+  h.elements.stage.emit("pointerdown", pointer("mouse"));
+  h.elements.stage.emit("pointerup", pointer("mouse"));
   await h.flush();
   assert.deepEqual(inputs(calls), [
     { kind: "mouse", phase: "down", x: 0.25, y: 0.25, button: "left", clickCount: 1 },
@@ -336,20 +366,127 @@ test("the receiver shows frames, reports the page and maps a mouse click to page
   h.bridge.dispose();
 });
 
+test("the page lays out at the stage's size while this viewer controls it, and follows it when it resizes", async () => {
+  const calls = [],
+    h = harness(host(calls));
+  await h.flush();
+  const viewports = () => sent(calls).filter((event) => event.kind === "viewport");
+  assert.deepEqual(viewports(), [{ kind: "viewport", width: 400, height: 400 }], "sent once control and a frame arrive");
+  h.elements.stage.clientWidth = 640.4;
+  h.elements.stage.clientHeight = 300;
+  h.resize();
+  h.resize();
+  await h.flush();
+  assert.equal(viewports().length, 1, "a resize waits until the stage settles");
+  h.timeout(150);
+  h.timeout(150);
+  await h.flush();
+  assert.deepEqual(viewports().at(-1), { kind: "viewport", width: 640, height: 300 });
+  assert.equal(viewports().length, 2, "an unchanged size is not sent again");
+  h.bridge.dispose();
+});
+
+test("a view-only viewer leaves the page's size alone", async () => {
+  const calls = [],
+    h = harness(host(calls, { status: { ...STATUS, controlling: false } }));
+  await h.flush();
+  h.resize();
+  h.timeout(150);
+  await h.flush();
+  assert.equal(sent(calls).length, 0);
+  h.bridge.dispose();
+});
+
+for (const transport of ["desktop", "mobile"]) {
+  for (const takeOver of [false, true]) {
+    test(`${transport} retains input on an older host after ${takeOver ? "takeover" : "initial control"}, resize and reconnect`, async () => {
+      const calls = [];
+      const status = { ...STATUS, controlling: !takeOver };
+      delete status.supportsViewport; // Pre-resize hosts never advertise the capability.
+      let served = false;
+      const h = harness(async (method, args) => {
+        calls.push([method, args]);
+        if (method === "open") {
+          served = false;
+          return { viewerId: "viewer", target: {} };
+        }
+        if (method === "control" && args.takeOver) status.controlling = true;
+        if (method === "status" || method === "control") return status;
+        if (method === "frame") {
+          if (served) return new Promise(() => {});
+          served = true;
+          return { sequence: 1, data: "jpeg", viewport: { width: 800, height: 400 }, generation: status.generation };
+        }
+        if (method === "input") {
+          if (args.event.kind === "viewport") throw new Error("Invalid browser input event.");
+          return { accepted: true };
+        }
+        return null;
+      }, transport);
+      await h.flush();
+      if (takeOver) {
+        assert.equal(sent(calls).length, 0);
+        h.elements.control.emit("click");
+        await h.flush();
+      }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        assert.equal(h.elements.retry.hidden, true, h.elements.message.textContent);
+        assert.equal(h.elements.frame.style.top, "100px", "the legacy viewport remains letterboxed");
+        h.elements.stage.emit("pointerdown", pointer(transport === "mobile" ? "touch" : "mouse", 100, 150));
+        h.elements.stage.emit("pointerup", pointer(transport === "mobile" ? "touch" : "mouse", 100, 150));
+        h.elements.keys.emit("beforeinput", { inputType: "insertText", data: "hello", preventDefault() {} });
+        h.elements.reload.emit("click");
+        await h.flush();
+        assert.deepEqual(sent(calls).slice(-4), [
+          { kind: "mouse", phase: "down", x: 0.25, y: 0.25, button: "left", clickCount: 1 },
+          { kind: "mouse", phase: "up", x: 0.25, y: 0.25, button: "left", clickCount: 1 },
+          { kind: "text", text: "hello" },
+          { kind: "navigate", action: "reload" },
+        ]);
+        h.elements.stage.clientWidth = 600;
+        h.resize();
+        h.timeout(150);
+        for (const poll of h.intervals.values()) poll();
+        await h.flush();
+        assert.equal(
+          sent(calls).some((event) => event.kind === "viewport"),
+          false,
+        );
+        assert.equal(h.elements.retry.hidden, true);
+        if (attempt === 0) {
+          assert.equal(
+            calls.some(([method]) => method === "close"),
+            false,
+            "unsupported resizing never closes the viewer",
+          );
+          h.document.hidden = true;
+          h.listeners.visibilitychange();
+          await h.flush();
+          h.document.hidden = false;
+          h.elements.stage.clientWidth = 400;
+          h.elements.retry.emit("click");
+          await h.flush();
+        }
+      }
+      h.bridge.dispose();
+    });
+  }
+}
+
 test("typing sends keys, inserted text and line breaks; Escape closes only when not typing into the page", async () => {
   const calls = [],
     h = harness(host(calls));
   await h.flush();
   const key = (key, code, extra = {}) => ({ key, code, preventDefault() {}, ...extra });
-  h.elements.keys.onkeydown(key("h", "KeyH"));
-  h.elements.keys.onkeyup(key("h", "KeyH"));
-  h.elements.keys.fire("beforeinput", { inputType: "insertText", data: "olá", preventDefault() {} });
-  h.elements.keys.fire("beforeinput", { inputType: "insertParagraph", data: null, preventDefault() {} });
-  h.elements.keys.fire("compositionstart", {});
+  h.elements.keys.emit("keydown", key("h", "KeyH"));
+  h.elements.keys.emit("keyup", key("h", "KeyH"));
+  h.elements.keys.emit("beforeinput", { inputType: "insertText", data: "olá", preventDefault() {} });
+  h.elements.keys.emit("beforeinput", { inputType: "insertParagraph", data: null, preventDefault() {} });
+  h.elements.keys.emit("compositionstart", {});
   h.elements.keys.value = "に";
-  h.elements.keys.fire("input", {});
-  h.elements.keys.fire("compositionend", { data: "日本" });
-  h.elements.keys.onkeydown(key("Escape", "Escape"));
+  h.elements.keys.emit("input", {});
+  h.elements.keys.emit("compositionend", { data: "日本" });
+  h.elements.keys.emit("keydown", key("Escape", "Escape"));
   await h.flush();
   assert.deepEqual(
     inputs(calls).map((event) => (event.kind === "text" ? event.text : `${event.phase}:${event.key}`)),
@@ -371,11 +508,11 @@ test("view-only viewers send no input until they take control", async () => {
   assert.equal(h.elements.control.hidden, false);
   assert.equal(h.elements.reload.disabled, true);
   assert.equal(h.elements.live.textContent, "View only. Take control to interact.");
-  h.elements.stage.onpointerdown(pointer("mouse"));
-  h.elements.reload.onclick();
+  h.elements.stage.emit("pointerdown", pointer("mouse"));
+  h.elements.reload.emit("click");
   await h.flush();
   assert.equal(inputs(calls).length, 0);
-  h.elements.control.onclick();
+  h.elements.control.emit("click");
   await h.flush();
   assert.deepEqual(
     calls.filter(([method]) => method === "control").map(([, args]) => args.takeOver),
@@ -388,13 +525,13 @@ test("touch scrolls the page and a held press is released when focus leaves", as
   const calls = [],
     h = harness(host(calls));
   await h.flush();
-  h.elements.stage.onpointerdown(pointer("touch", 100, 300));
-  h.elements.stage.onpointermove(pointer("touch", 100, 250));
-  h.elements.stage.onpointerup(pointer("touch", 100, 250));
+  h.elements.stage.emit("pointerdown", pointer("touch", 100, 300));
+  h.elements.stage.emit("pointermove", pointer("touch", 100, 250));
+  h.elements.stage.emit("pointerup", pointer("touch", 100, 250));
   await h.flush();
   assert.deepEqual(inputs(calls), [{ kind: "wheel", x: 0.25, y: 0.75, deltaX: 0, deltaY: 100 }], "a 50px swipe at half scale scrolls 100 page pixels");
   calls.length = 0;
-  h.elements.stage.onpointerdown(pointer("mouse"));
+  h.elements.stage.emit("pointerdown", pointer("mouse"));
   h.listeners["window:blur"]();
   await h.flush();
   assert.deepEqual(
@@ -442,5 +579,19 @@ test("a timed out open is cancelled and its late viewer is closed", async () => 
   gate.resolve({ viewerId: "orphan" });
   await h.flush();
   assert.ok(calls.some(([method, args]) => method === "close" && args.viewerId === "orphan"));
+  h.bridge.dispose();
+});
+
+test("a comment pin follows the displayed frame and disappears when cancelled", async () => {
+  const h = harness(host([]));
+  await h.flush();
+  h.window.browserCommentPoint({ x: 0.25, y: 0.75 });
+  assert.equal(h.elements["comment-pin"].hidden, false);
+  assert.equal(h.elements["comment-pin"].style.left, "100px");
+  assert.equal(h.elements["comment-pin"].style.top, "300px");
+  h.window.browserCommentPoint(null);
+  assert.equal(h.elements["comment-pin"].hidden, true);
+  h.window.browserCommentPoint({ x: -1, y: 1 });
+  assert.equal(h.elements["comment-pin"].hidden, true);
   h.bridge.dispose();
 });

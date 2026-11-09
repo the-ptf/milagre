@@ -39,7 +39,7 @@ jobs:
             runner: windows-latest
             command: npm run package:win --
           - platform: linux
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             command: npm run package:linux --
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
@@ -58,7 +58,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - name: Capture native desktop screenshots
         run: echo "MILAGRE_SCREENSHOT_DIR=$RUNNER_TEMP/package-screenshots" >> "$GITHUB_ENV"
@@ -130,8 +130,6 @@ jobs:
         run: |-
           node scripts/generate-linux-repository.cjs --tag "$RELEASE_TAG" --artifacts release --output release/linux-repository --sign-rpm
           node scripts/verify-linux-repository.cjs --directory release/linux-repository --tag "$RELEASE_TAG" --fingerprint "$MILAGRE_LINUX_SIGNING_KEY" --artifacts release
-          # The stable feed is mirrored to beta, as a stable Publish does.
-          cp release/latest-linux.yml release/beta-linux.yml
           node scripts/finalize-update-feeds.cjs --tag "$RELEASE_TAG" --platform linux
       - name: Install and exercise signed Fedora RPM
         run: |-

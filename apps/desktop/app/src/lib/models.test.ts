@@ -62,8 +62,9 @@ test("capabilities come from the reported models", () => {
     codex: { "gpt-6-sol": { efforts: ["low", "ultra"], defaultEffort: "medium", ultracode: false, fastMode: true } },
     claude: { "claude-opus-5-5": { efforts: ["low", "xhigh"], ultracode: true, fastMode: true } },
     antigravity: {},
+    kiro: {},
   });
-  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null }), { codex: {}, claude: {}, antigravity: {} });
+  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null, kiro: null }), { codex: {}, claude: {}, antigravity: {}, kiro: {} });
   assert.equal(capabilitiesFrom(null), null);
 });
 
@@ -135,15 +136,17 @@ test("a stale id gives way to its provider's recommended model", () => {
   assert.equal(providerForId("gpt-6.1-sol"), "codex");
   assert.equal(providerForId("gemini-3.8-flash-high"), "antigravity");
   assert.equal(providerForId("gemini-pro-agent"), "antigravity");
+  assert.equal(providerForId("antigravity:claude-sonnet-5.5"), "antigravity");
+  assert.equal(providerForId("antigravity:gpt-oss-120b"), "antigravity");
 });
 
 test("Antigravity's picker shows one row per model family, with the family's thinking levels as efforts", () => {
   const antigravity = mergeModels(null, MODEL_CATALOG).filter((model) => model.provider === "antigravity");
   assert.deepEqual(
     antigravity.map((model) => model.name),
-    ["Gemini 3.8 Flash", "Gemini 3.1 Pro", "Gemini 3.7 Flash", "Gemini 3.6 Flash"],
+    ["Gemini 4 Argon", "Gemini 3.8 Flash"],
   );
-  assert.deepEqual(capabilityFor(antigravity[1], null).efforts, ["low", "high"]);
+  assert.deepEqual(capabilityFor(antigravity[0], null).efforts, ["low", "medium", "high"]);
   const reportedList: AgentModels = {
     codex: null,
     claude: null,
@@ -152,4 +155,13 @@ test("Antigravity's picker shows one row per model family, with the family's thi
   assert.deepEqual(capabilitiesFrom(reportedList)?.antigravity, {
     "gemini-3.1-pro": { efforts: ["low", "high"], defaultEffort: "low", ultracode: false, fastMode: false },
   });
+});
+
+test("an empty refresh preserves the current selection and direct resolution has a maintained fallback", () => {
+  const current = MODEL_CATALOG[1];
+  assert.ok(current);
+  assert.equal(nextSelection([], current, { defaultId: MODEL_CATALOG[0].id, applyDefault: true }), current);
+  assert.equal(resolveModel([], undefined, "codex"), MODEL_CATALOG[0]);
+  assert.equal(resolveModel([], undefined, "claude").provider, "claude");
+  assert.equal(resolveModel([], undefined, "antigravity").provider, "antigravity");
 });

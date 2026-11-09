@@ -1,13 +1,21 @@
 /** What the bridge's live socket says: fetch the runs, or the whole Project, again. It never carries state. */
-export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs";
+export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "token-usage" | "keybindings" | "pulls";
 /** Whether a live message names a signal this app knows; a newer bridge may send others, which are ignored. */
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
-  type === "runs" || type === "project" || type === "accounts" || type === "links" || type === "designs";
+  type === "runs" ||
+  type === "project" ||
+  type === "accounts" ||
+  type === "links" ||
+  type === "designs" ||
+  type === "mcp" ||
+  type === "routines" ||
+  type === "usage" ||
+  type === "token-usage" ||
+  type === "keybindings" ||
+  type === "pulls";
+type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
 export type LiveSocket = {
-  onopen: (() => void) | null;
-  onmessage: ((event: { data?: unknown }) => void) | null;
-  onerror: ((event: { message?: string }) => void) | null;
-  onclose: (() => void) | null;
+  addEventListener<K extends keyof LiveEvents>(type: K, listener: (event: LiveEvents[K]) => void): void;
   close(code?: number, reason?: string): void;
 };
 export type Timers = { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (id: unknown) => void };
@@ -64,7 +72,7 @@ export function openLive(
       up = false;
       onStatus(false);
     }
-    const wait = unsupported ? UNSUPPORTED : BACKOFF[Math.min(failures, BACKOFF.length - 1)];
+    const wait = unsupported ? UNSUPPORTED : (BACKOFF[Math.min(failures, BACKOFF.length - 1)] ?? 30000);
     failures++;
     unsupported = false;
     // Jitter, so a Mac coming back is not met by every socket at once.
@@ -81,14 +89,14 @@ export function openLive(
       return;
     }
     socket = next;
-    next.onopen = () => {
+    next.addEventListener("open", () => {
       if (next !== socket) return;
       failures = 0;
       up = true;
       quiet();
       onStatus(true);
-    };
-    next.onmessage = (event) => {
+    });
+    next.addEventListener("message", (event) => {
       if (next !== socket) return;
       quiet();
       let type: unknown;
@@ -98,13 +106,13 @@ export function openLive(
         return;
       }
       if (isLiveSignal(type)) onSignal(type);
-    };
+    });
     // Both platforms put the refused upgrade's status in the message ("…101… but was '404 Not Found'").
-    next.onerror = (event) => {
+    next.addEventListener("error", (event) => {
       if (/\b404\b/.test(event?.message ?? "")) unsupported = true;
       lost(next);
-    };
-    next.onclose = () => lost(next);
+    });
+    next.addEventListener("close", () => lost(next));
   }
   connect();
   return {
@@ -119,6 +127,12 @@ export function openLive(
   };
 }
 
+/** The first wait before a failed Project fetch is tried again with the socket open, doubling up to the cap. */
+const PROJECT_RETRY_MS = 1000;
+const PROJECT_RETRY_MAX_MS = 8000;
+/** How long after a failed first fetch back in the foreground it is tried again, before any error shows. */
+const RESUME_RETRY_MS = 1500;
+
 export type SyncOptions = {
   /** Opens the Project's live socket. */
   connect: (options: Pick<LiveOptions, "onSignal" | "onStatus">) => Live;
@@ -129,6 +143,8 @@ export type SyncOptions = {
   links?: () => void;
   /** A host-wide setting also travels over confined Project sockets. */
   designs?: () => void;
+  /** The Mac's PR poll found a change in a Project's PRs. */
+  pulls?: () => void;
   liveStatus?: (open: boolean) => void;
   onError: (error: Error) => void;
   active: () => boolean;
@@ -150,6 +166,7 @@ export function syncProject({
   accounts,
   links,
   designs,
+  pulls,
   liveStatus,
   onError,
   active,
@@ -164,6 +181,22 @@ export function syncProject({
   // One fetch at a time, so a slow response never lands over a newer one; "project" covers "runs".
   let pending: LiveSignal | null = null;
   let fetching = false;
+  // A Project fetch that failed with the socket open is tried again: no signal may come until the turn ends, and until
+  // then a send the computer took keeps the composer waiting for the saved copy (a busy Mac's 429, a dropped answer).
+  let retry: unknown;
+  let failures = 0;
+  // Counts the trips to the background: iOS closes the phone's sockets there, so a fetch on its way when the app left
+  // fails without the computer being gone. That failure is not shown; the fetch on return catches up.
+  let departures = 0;
+  // The first fetch back in the foreground may run before the network has woken; its failure is tried again once, quietly.
+  let resumed = false;
+  let resumeRetry: unknown;
+  function retryLater() {
+    timers.clearTimeout(retry);
+    if (stopped || !open) return;
+    retry = timers.setTimeout(() => void pull("project"), Math.min(PROJECT_RETRY_MS * 2 ** failures, PROJECT_RETRY_MAX_MS));
+    failures++;
+  }
   async function pull(kind: LiveSignal) {
     pending = pending === "project" || kind === "project" ? "project" : "runs";
     if (fetching) return;
@@ -173,10 +206,24 @@ export function syncProject({
       while (pending && !stopped) {
         const next = pending;
         pending = null;
+        const departed = departures;
         try {
           await (next === "project" ? snapshot() : runs());
+          if (next === "project") {
+            failures = 0;
+            resumed = false;
+            timers.clearTimeout(retry);
+          }
         } catch (error) {
-          if (!stopped) onError(error as Error);
+          if (stopped || departed !== departures) continue;
+          if (next === "project" && resumed) {
+            resumed = false;
+            timers.clearTimeout(resumeRetry);
+            resumeRetry = timers.setTimeout(() => void pull("project"), RESUME_RETRY_MS);
+            continue;
+          }
+          onError(error as Error);
+          if (next === "project") retryLater();
         }
       }
     } finally {
@@ -199,7 +246,9 @@ export function syncProject({
         if (signal === "accounts") accounts?.();
         else if (signal === "links") links?.();
         else if (signal === "designs") designs?.();
-        else void pull(signal);
+        else if (signal === "pulls") pulls?.();
+        // The Routines screen and the Chat header read Routines on their own socket (use-routines.ts).
+        else if (signal === "runs" || signal === "project") void pull(signal);
       },
       // On opening, catch up on what changed while it was down; on losing it, poll until it is back.
       onStatus: (next) => {
@@ -215,7 +264,12 @@ export function syncProject({
     });
   }
   function background() {
+    departures++;
+    resumed = false;
+    timers.clearTimeout(resumeRetry);
     timers.clearTimeout(poll);
+    timers.clearTimeout(retry);
+    failures = 0;
     live?.close();
     live = null;
     open = false;
@@ -231,6 +285,7 @@ export function syncProject({
       background();
       return;
     }
+    resumed = true;
     void pull("project");
     start();
     schedule();

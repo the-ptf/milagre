@@ -6,7 +6,7 @@ import { relayRuntime } from "./relay-native";
 import { lanRoutes } from "./routes-native";
 import { savedHosts } from "./hosts-native";
 import { useSession } from "./session";
-import { createPushController, notificationTarget, type PushView } from "./push-controller";
+import { createPushController, notificationTarget, viewedChat, type PushView } from "./push-controller";
 import { nativeActivity } from "./live-activity-native";
 import { pushNative, pushStore } from "./push-native";
 import type { PushPreferences, PushState } from "./push-store";
@@ -53,10 +53,14 @@ function usePushState() {
   );
   const targetMatches =
     (!params.hostId || params.hostId === session.client?.url) && (!params.projectPath || params.projectPath === session.snapshot?.project.path);
-  const view: PushView =
+  const chat: PushView =
     path === "/chat" && targetMatches && session.client && session.snapshot && params.id && /^\d+$/.test(String(params.id))
       ? { hostId: session.client.url, chatId: `${session.snapshot.project.path}#${params.id}` }
       : null;
+  // A sheet's route replaces /chat, but the Chat it opened over is still on screen.
+  const [shown, setShown] = useState<PushView>(null);
+  const view = viewedChat(path, chat, shown, session.client?.url);
+  if (view?.hostId !== shown?.hostId || view?.chatId !== shown?.chatId) setShown(view);
   const viewRef = useRef(view);
   useLayoutEffect(() => {
     viewRef.current = view;

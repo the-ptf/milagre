@@ -8,6 +8,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const { designHtml } = require("@milagre/shared/design");
 
@@ -227,8 +228,8 @@ const designs = {
   open: { title: 'Chat open', width: 390, height: 844, format: 'design', document: ${JSON.stringify(designOpen())}, html: ${JSON.stringify(designHtml(designOpen()))} },
 };
 const replies = {
-  getCurrentProject: project, getRuns: {runs:{},seq:1}, getModels: {codex:null,claude:null,antigravity:null},
-  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'}},
+  getCurrentProject: project, getRuns: {runs:{},seq:1}, getModels: {codex:null,claude:null,antigravity:null,kiro:null},
+  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'},kiro:{state:'missing'}},
   getRuntimeConnection: {connected:true}, getLinkedWork: {delegations:[],negotiations:[],receiveOnly:[]},
   listRecentProjects: [{path:project.path,name:project.name}], listBranches: ['main'],
   getWorktreeRoots: [], getCachedUsage: {providers:[]}, readUsage: {providers:[]}, getAgentPorts: {},
@@ -238,7 +239,7 @@ const replies = {
 window.milagre = new Proxy({}, {get(_, name) {
   if (name === 'git') return {
     diffStats: async () => ({ added: 12, removed: 6 }),
-    diffFiles: async () => ({ isRepo: true, base: 'main', files: entries }),
+    diffFiles: async ({ mode }) => ({ isRepo: true, base: 'main', files: mode === 'committed' ? [] : entries }),
     diffFile: async ({ path }) => ({ patch: FILES[path].patch, binary: false, tooLarge: false }),
   };
   if (name === 'terminals') return {
@@ -392,7 +393,7 @@ async function browserChecks() {
   surfaces.diff = {
     title: CHAT_TITLES.shell,
     async ready() {
-      await evaluate(`document.querySelector('[data-changes-toggle]').click()`);
+      await evaluate(`document.querySelector('[data-panel-toggle=changes]').click()`);
       await waitFor(`document.querySelectorAll('[data-diff-tree-file]').length === 3`);
       await evaluate(`document.querySelector('[data-diff-tree-file]').click()`);
       await waitFor(`document.querySelectorAll('[data-diff-file]').length === 3 && document.querySelectorAll('[data-diff-body] .code-token').length > 20`);
@@ -491,9 +492,9 @@ async function browserChecks() {
       );
       assert.equal(await style("body", "backgroundColor"), await css("backgroundColor", p.page), `${label}: the window is the theme's page`);
       assert.equal(
-        await style("[data-slot=artifact-dock] [aria-label='Zoom in']", "color"),
-        await css("color", p.ink2),
-        `${label}: toolbar icons use the secondary ink`,
+        await style("[data-slot=artifact-dock] header [aria-label='Close designs']", "color"),
+        await css("color", p.ink3),
+        `${label}: toolbar icons use the tertiary ink (IconButton ghost rests at ink-3)`,
       );
     },
   };
@@ -531,7 +532,7 @@ async function main() {
         resolveId: (id) => (id === "/__gallery-app.tsx" ? id : undefined),
         load: (id) => (id === "/__gallery-app.tsx" ? fixture : undefined),
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__gallery/app") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

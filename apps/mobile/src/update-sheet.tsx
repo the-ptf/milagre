@@ -1,11 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ActivityIndicator, AppState, View, Text } from "react-native";
+import { AppState, View, Text } from "react-native";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { router, useNavigationContainerRef } from "expo-router";
 import * as Updates from "expo-updates";
 import type { NavigationState, PartialState } from "expo-router/react-navigation";
 import { createUpdateController, watchUpdates, type UpdateState } from "./update-controller";
+import { lineHeight, radius, type } from "./design-tokens";
+import { SpinnerRing } from "./icons";
 import { useTheme } from "./theme";
-import { PillButton } from "./ui";
+import { CircleButton, PillButton, useAnnounce } from "./ui";
 
 const AppUpdates = createContext<{ state: UpdateState; check: (force?: boolean) => Promise<void>; install: () => Promise<void>; dismiss: () => void } | null>(
   null,
@@ -17,7 +20,7 @@ export function useAppUpdates() {
 }
 
 export function UpdateShell({ children }: { children: ReactNode }) {
-  const { isStartupProcedureRunning, isChecking, isDownloading, isUpdatePending, checkError, downloadError } = Updates.useUpdates();
+  const { isStartupProcedureRunning, isChecking, isDownloading, isUpdatePending, checkError, downloadError, downloadedUpdate } = Updates.useUpdates();
   const controller = useMemo(
     () =>
       createUpdateController({
@@ -30,9 +33,9 @@ export function UpdateShell({ children }: { children: ReactNode }) {
   );
   const state = useSyncExternalStore(controller.subscribe, controller.get, controller.get);
   useEffect(() => {
-    controller.syncNative({ isStartupProcedureRunning, isChecking, isDownloading, isUpdatePending, checkError, downloadError });
+    controller.syncNative({ isStartupProcedureRunning, isChecking, isDownloading, isUpdatePending, checkError, downloadError, downloadedUpdate });
     if (AppState.currentState === "active") void controller.check();
-  }, [controller, isStartupProcedureRunning, isChecking, isDownloading, isUpdatePending, checkError, downloadError]);
+  }, [controller, isStartupProcedureRunning, isChecking, isDownloading, isUpdatePending, checkError, downloadError, downloadedUpdate]);
   useEffect(
     () =>
       watchUpdates(controller, {
@@ -84,7 +87,8 @@ export function UpdateShell({ children }: { children: ReactNode }) {
     present();
     return unsubscribe;
   }, [presented, navigationRef]);
-  return <AppUpdates.Provider value={{ state, check: controller.check, install: controller.install, dismiss: defer }}>{children}</AppUpdates.Provider>;
+  const value = useMemo(() => ({ state, check: controller.check, install: controller.install, dismiss: defer }), [state, controller, defer]);
+  return <AppUpdates.Provider value={value}>{children}</AppUpdates.Provider>;
 }
 
 // Expo Router wraps the app stack in its generated root navigator.
@@ -99,26 +103,59 @@ function updateNavigator(state: NavigationState | PartialState<NavigationState> 
 
 export function useUpdatePresentation(state: UpdateState) {
   const actionable = state.status === "ready" || state.status === "error";
-  const [presentation, setPresentation] = useState({ status: state.status, presented: actionable && AppState.currentState === "active", dismissed: false });
-  if (presentation.status !== state.status) {
+  const [presentation, setPresentation] = useState({
+    status: state.status,
+    updateId: state.updateId,
+    presented: actionable && AppState.currentState === "active",
+    dismissed: false,
+  });
+  if (presentation.status !== state.status || presentation.updateId !== state.updateId) {
+    const dismissed = presentation.dismissed && (!state.updateId || state.updateId === presentation.updateId);
     setPresentation({
       ...presentation,
       status: state.status,
-      presented: presentation.presented || (!presentation.dismissed && actionable && AppState.currentState === "active"),
+      updateId: state.updateId,
+      dismissed,
+      presented: presentation.presented || (!dismissed && actionable && AppState.currentState === "active"),
     });
   }
   const dismiss = useCallback(() => setPresentation((previous) => ({ ...previous, presented: false, dismissed: true })), []);
   useEffect(() => {
-    // Later lasts through navigation and polling; returning to the app offers the pending update again.
+    // Dismissal survives foreground checks; a different downloaded update can prompt again.
     const subscription = AppState.addEventListener("change", (next) => {
-      if (next === "active") setPresentation((previous) => ({ ...previous, dismissed: false, presented: previous.presented || actionable }));
+      if (next === "active") setPresentation((previous) => ({ ...previous, presented: previous.presented || (!previous.dismissed && actionable) }));
     });
     return () => subscription.remove();
   }, [actionable]);
   return { presented: presentation.presented, dismiss };
 }
 
-export function UpdateSheet({ state, onUpdate, onRetry, onDismiss }: { state: UpdateState; onUpdate: () => void; onRetry: () => void; onDismiss: () => void }) {
+export function UpdateSettingsBadge() {
+  const { state } = useAppUpdates();
+  const { colors } = useTheme();
+  if (!["ready", "downloading", "error"].includes(state.status)) return null;
+  return (
+    <View
+      accessibilityLabel="Update available"
+      pointerEvents="none"
+      style={{ position: "absolute", right: 4, top: 4, width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.green }}
+    />
+  );
+}
+
+export function UpdateSheet({
+  state,
+  onUpdate,
+  onRetry,
+  onDismiss,
+  onNotes,
+}: {
+  state: UpdateState;
+  onUpdate: () => void;
+  onRetry: () => void;
+  onDismiss: () => void;
+  onNotes: () => void;
+}) {
   const { colors } = useTheme();
   const actionable = state.status === "ready" || state.status === "error";
   const busy = state.status === "checking" || state.status === "downloading" || state.status === "restarting";
@@ -144,27 +181,31 @@ export function UpdateSheet({ state, onUpdate, onRetry, onDismiss }: { state: Up
           : busy
             ? "You can keep using Milagre while the update downloads."
             : "";
+  // Status changes and errors, not the title the sheet opens with (VoiceOver reads that as the sheet appears).
+  useAnnounce(state.error ? `${title}. ${state.error}` : title);
   return (
-    <View accessibilityLiveRegion="polite" style={{ padding: 24, paddingTop: 32, gap: 20 }}>
-      <View style={{ gap: 10 }}>
+    <View style={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 32, gap: 24 }}>
+      <View style={{ gap: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          {busy && <ActivityIndicator accessibilityLabel={title} color={colors.ink2} />}
-          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 24, fontWeight: "600" }}>
+          {busy && <SpinnerRing size={20} tone="ink2" />}
+          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
             {title}
           </Text>
+          {state.status !== "restarting" && <CircleButton label="Dismiss update" icon={Cancel01Icon} onPress={onDismiss} />}
         </View>
-        {description ? <Text style={{ color: colors.ink2, fontSize: 16, lineHeight: 23 }}>{description}</Text> : null}
+        {description ? <Text style={{ color: colors.ink2, fontSize: type.callout, lineHeight: lineHeight.callout }}>{description}</Text> : null}
         {state.error ? (
-          <Text selectable accessibilityRole="alert" style={{ color: colors.red, fontSize: 15, lineHeight: 22 }}>
+          <Text selectable accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
             {state.error}
           </Text>
         ) : null}
       </View>
-      <View style={{ gap: 10 }}>
+      <View style={{ gap: 12 }}>
+        {(actionable || state.status === "downloading") && <PillButton title="What's new" secondary onPress={onNotes} />}
         {actionable || state.status === "check-error" ? (
           <PillButton title={state.error ? "Try again" : "Update now"} onPress={state.status === "ready" ? onUpdate : onRetry} />
         ) : null}
-        {state.status !== "restarting" && <PillButton title={state.status === "up-to-date" ? "Done" : "Later"} secondary onPress={onDismiss} />}
+        {state.status === "up-to-date" && <PillButton title="Done" secondary onPress={onDismiss} />}
       </View>
     </View>
   );

@@ -6,6 +6,18 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+:root {
+  --window-chrome-height: 44px;
+  --window-chrome-top: calc((var(--window-chrome-height) - 32px) / 2);
+
+  /* Settings > Appearance; applyAppearance (lib/appearance.ts) overrides these inline. Defaults are today's values. */
+  --sidebar-delta: 0px;
+  --chat-size: 13px;
+  --code-size: 12px;
+  --chat-width: 768px;
+  --motion-scale: 1;
+}
+
 html[data-floating-inbox],
 html[data-floating-inbox] body,
 html[data-floating-inbox] #root {
@@ -15,31 +27,6 @@ html[data-floating-inbox] #root {
   /* The global reduced-motion duration also starts implicit canvas color
    * transitions. Keep the native window transparent from its first frame. */
   transition: none;
-}
-
-.floating-inbox-panel {
-  --surface: #fafafa;
-  --field: #ededed;
-  --inset: #f2f2f2;
-  --ink: #191919;
-  --ink-2: #424242;
-  --ink-3: #777;
-  --line: rgb(0 0 0 / 0.06);
-  --line-strong: rgb(0 0 0 / 0.15);
-  --hover: #e7e7e7;
-  --hover-2: #dedede;
-}
-.dark .floating-inbox-panel {
-  --surface: #161616;
-  --field: #242424;
-  --inset: #202020;
-  --ink: #f5f5f5;
-  --ink-2: #dedede;
-  --ink-3: #8d8d8d;
-  --line: rgb(255 255 255 / 0.06);
-  --line-strong: rgb(255 255 255 / 0.19);
-  --hover: #292929;
-  --hover-2: #393939;
 }
 
 .floating-inbox-drag {
@@ -238,6 +225,22 @@ html[data-floating-inbox] #root {
   }
 }
 
+/* A Settings row a search result opened: an accent tint that holds a moment, then fades back to the row's own surface. */
+[data-settings-found] {
+  animation: settings-found 2.6s ease-out;
+}
+@keyframes settings-found {
+  0%,
+  45% {
+    background-color: color-mix(in oklab, var(--accent) 24%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 24%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
 /* Creepster (Font Diner, SIL OFL 1.1, see assets/Creepster-OFL.txt): the dripping Mortal Kombat lettering of the
  * Ultracode overlay. Used nowhere else. */
 @font-face {
@@ -253,8 +256,8 @@ html[data-floating-inbox] #root {
 }
 .command-palette::backdrop {
   opacity: 1;
-  transition: opacity 120ms cubic-bezier(0.16, 1, 0.3, 1);
-  background: rgb(0 0 0 / 24%);
+  transition: opacity var(--duration-fast) var(--ease-enter);
+  background: var(--scrim);
   backdrop-filter: blur(var(--blur-overlay));
   -webkit-backdrop-filter: blur(var(--blur-overlay));
 }
@@ -287,8 +290,8 @@ html[data-floating-inbox] #root {
   }
 }
 
-/* GENERIC FOUNDATION — tokens, @theme, base rules, the primitive-*
- * spacing utilities, and shared keyframes below are needed by EVERY
+/* GENERIC FOUNDATION — tokens, @theme, base rules
+ * and shared keyframes below are needed by EVERY
  * component. Blocks tagged COMPONENT-SPECIFIC further down belong to
  * one primitive each. */
 /* ──────────────────────────────────────────────────────────
@@ -304,19 +307,19 @@ html[data-floating-inbox] #root {
   --canvas: #e9f1fa;
   --surface: #ffffff;
   --inset: #f9fcff;
-  --hover: #f6f6f7;
-  --hover-2: #edeeee;
+  /* translucent ink (6% / 10%), so a hover darkens page, card and field alike; hover-2 is the open row */
+  --hover: #1c222b0f;
+  --hover-2: #1c222b1a;
 
-  /* ink ramp */
+  /* ink ramp: ink-2 and ink-3 read at 4.5:1 on page, surface, field and hover-2 */
   --ink: #1c222b;
-  --ink-2: #616770;
-  --ink-3: #8c929a;
+  --ink-2: #4b515a;
+  --ink-3: #60656d;
+  --ink-4: #8c929a;
 
   /* borders — solid and crisp, not alpha */
   --line: #edeeee;
   --line-strong: #e0e1e3;
-  --line-soft: #f3f4f4;
-  --grid-line: color-mix(in srgb, var(--line) 78%, transparent);
   --field: #f5f5f5;
   --stripe: oklch(0.405 0 0 / 0.075);
   --stripe-bg: var(--page);
@@ -329,20 +332,39 @@ html[data-floating-inbox] #root {
   /* semantic */
   --green: #199a4d;
   --green-tint: #e5f2ef;
-  /* Ultracode's color, the same purple as its Fatality overlay */
-  --purple: oklch(0.627 0.265 303.9);
-  --purple-ink: oklch(0.558 0.288 302.321);
-  --purple-tint: oklch(0.977 0.014 308.299);
+  /* Ultracode's brand purple, also merged PRs; mirrors ULTRACODE_PURPLE in @milagre/shared/themes */
+  --purple: #ad46ff;
+  --purple-ink: #8e2bdc;
+  --purple-tint: #f6edff;
   --orange: #ef720d;
   --orange-tint: #f5efee;
   --red: #e3474c;
   --red-tint: #f5ecef;
+  /* status text: 4.5:1 on page, surface and their own tint */
+  --green-ink: #007e33;
+  --orange-ink: #bf4600;
+  --red-ink: #cb2f39;
 
-  /* chart overlays — neutral system colors with enough contrast on either theme */
-  --tooltip-bg: #272d36;
-  --tooltip-fg: #f4f9fe;
-  --tooltip-muted: #b1b6bd;
-  --tooltip-border: #3c424b;
+  /* labels on filled controls: themes write --on-accent and --on-green/orange/red (lib/theme-sheet.ts), for the
+   * accent or -ink fills (bg-red-ink text-on-red); on-ink is the surface (@theme below) */
+  --on-accent: #ffffff;
+  --on-green: #ffffff;
+  --on-orange: #ffffff;
+  --on-red: #ffffff;
+  /* full-screen media (lightbox): black behind, white on top, in every theme; paper is a page that stays white */
+  --media: #000000;
+  --on-media: #ffffff;
+  --on-media-2: rgb(255 255 255 / 0.8);
+  --on-media-tint: rgb(255 255 255 / 0.15);
+  --paper: #ffffff;
+  /* behind a modal dialog or the command palette */
+  --scrim: rgb(0 0 0 / 0.2);
+
+  /* motion: hover and press 120, enter 180, panels and sheets 280; press scales to 0.97 */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
+  --press-scale: 0.97;
 
   /* shadows — our solid hairline ring + shadow-plugin's smooth layered stacks
    * (--shadow-xs…lg come from shadow-plugin/unprefixed) so every surface reads
@@ -352,7 +374,8 @@ html[data-floating-inbox] #root {
   --shadow-card: 0 0 0 1px var(--line), var(--shadow-sm);
   --shadow-raised: 0 0 0 1px var(--line), var(--shadow-md);
   --shadow-overlay: 0 0 0 1px var(--line), var(--shadow-lg);
-  --shadow-inset-field: inset 0 1px 2px oklch(0 0 0 / 0.12);
+  /* a numbered comment pin over content: a surface ring that keeps it off whatever it sits on */
+  --shadow-pin: 0 0 0 1.5px var(--surface), var(--shadow-sm);
 
   /* diff view row tints */
   --diff-add: #ddeee8;
@@ -366,16 +389,16 @@ html[data-floating-inbox] #root {
   --canvas: #111b29;
   --surface: #172232;
   --inset: #121c2b;
-  --hover: #202b3b;
-  --hover-2: #273242;
+  --hover: #e9eff70d;
+  --hover-2: #e9eff717;
 
   --ink: #e9eff7;
-  --ink-2: #9199a4;
-  --ink-3: #646c79;
+  --ink-2: #abb2bd;
+  --ink-3: #939ca9;
+  --ink-4: #646c79;
 
   --line: #273242;
   --line-strong: #303b4a;
-  --line-soft: #212c3c;
   --field: #212c3c;
   --stripe: oklch(1 0 0 / 0.055);
   --stripe-bg: var(--page);
@@ -386,18 +409,23 @@ html[data-floating-inbox] #root {
 
   --green: #3cbb72;
   --green-tint: #3cbb7224;
-  --purple: oklch(0.627 0.265 303.9);
-  --purple-ink: oklch(0.827 0.119 306.383);
-  --purple-tint: oklch(0.627 0.265 303.9 / 0.18);
+  --purple: #ad46ff;
+  --purple-ink: #d0a3ff;
+  --purple-tint: #ad46ff2e;
   --orange: #f68f3c;
   --orange-tint: #f68f3c24;
   --red: #ee5c61;
   --red-tint: #ee5c6124;
+  --green-ink: var(--green);
+  --orange-ink: var(--orange);
+  --red-ink: #f66468;
 
-  --tooltip-bg: #050912;
-  --tooltip-fg: #e9eff7;
-  --tooltip-muted: #9ba1aa;
-  --tooltip-border: #191f28;
+  /* the light accent and status fills take a dark label in dark mode (onColor in packages/shared/src/themes/color.ts) */
+  --on-accent: var(--page);
+  --on-green: var(--page);
+  --on-orange: var(--page);
+  --on-red: var(--page);
+  --scrim: rgb(0 0 0 / 0.4);
 
   --shadow-hairline: 0 0 0 1px var(--line);
   /* Elevation rings go to a subtle *light* hairline in dark mode: the ring
@@ -408,7 +436,6 @@ html[data-floating-inbox] #root {
   --shadow-card: 0 0 0 1px oklch(1 0 0 / 0.11), 0 1px 2px oklch(0 0 0 / 0.2), 0 2px 6px oklch(0 0 0 / 0.2);
   --shadow-raised: 0 0 0 1px oklch(1 0 0 / 0.13), 0 2px 10px oklch(0 0 0 / 0.22);
   --shadow-overlay: 0 0 0 1px oklch(1 0 0 / 0.15), 0 8px 28px oklch(0 0 0 / 0.34);
-  --shadow-inset-field: inset 0 1px 2px oklch(0 0 0 / 0.4);
 
   /* diff view row tints */
   --diff-add: #3cbb721f;
@@ -426,36 +453,67 @@ html[data-floating-inbox] #root {
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
   --color-hover: var(--hover);
   --color-hover-2: var(--hover-2);
+  /* Deprecated alias of hover (decision 1: a hovered row is bg-hover, the open row bg-hover-2). Delete once no
+   * hover:bg-hover-sidebar is left. */
+  --color-hover-sidebar: var(--hover);
   --color-field: var(--field);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-tint: var(--accent-tint);
+  --color-diff-add: var(--diff-add-color, var(--green));
+  --color-diff-remove: var(--diff-remove-color, var(--red));
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
+  --color-green-ink: var(--green-ink);
+  /* Ultracode and merged PRs */
+  --color-purple: var(--purple);
   --color-purple-ink: var(--purple-ink);
   --color-purple-tint: var(--purple-tint);
   --color-orange: var(--orange);
   --color-orange-tint: var(--orange-tint);
+  --color-orange-ink: var(--orange-ink);
   --color-red: var(--red);
   --color-red-tint: var(--red-tint);
+  --color-red-ink: var(--red-ink);
+  /* Labels on a filled control: text-on-ink on bg-ink (primary), text-on-accent on bg-accent, text-on-red on bg-red.
+   * on-ink reads --surface where it is used, so a panel that redefines --surface (the floating inbox) still matches. */
+  --color-on-ink: var(--surface);
+  --color-on-accent: var(--on-accent);
+  --color-on-green: var(--on-green);
+  --color-on-orange: var(--on-orange);
+  --color-on-red: var(--on-red);
+  --color-scrim: var(--scrim);
+  --color-media: var(--media);
+  --color-on-media: var(--on-media);
+  --color-on-media-2: var(--on-media-2);
+  --color-on-media-tint: var(--on-media-tint);
+  --color-paper: var(--paper);
+
+  /* motion: duration-fast / duration-base / duration-slow, active:scale-press */
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-base: var(--duration-base);
+  --transition-duration-slow: var(--duration-slow);
+  --scale-press: var(--press-scale);
 
   /* shadows */
   --shadow-hairline: var(--shadow-hairline);
   --shadow-btn: var(--shadow-btn);
-  --shadow-inset-field: var(--shadow-inset-field);
   --shadow-card: var(--shadow-card);
   --shadow-raised: var(--shadow-raised);
   --shadow-overlay: var(--shadow-overlay);
+  --shadow-pin: var(--shadow-pin);
 
   /* type */
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono-face), ui-monospace, "SF Mono", monospace;
+  --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--mono-font, ui-monospace, "SF Mono", monospace);
 
-  /* radii — chips 6, controls 8, cards 10, windows 14, pills 999 */
+  /* radii — inline 4, chips 6, controls 8, cards 10, windows 14, pills 999 (.interface-design/system.md) */
+  --radius-inline: 4px;
   --radius-chip: 6px;
   --radius-control: 8px;
   --radius-card: 10px;
@@ -466,20 +524,34 @@ html[data-floating-inbox] #root {
   --blur-overlay: 3px;
   --blur-chip: 8px;
   --blur-edge: 4px;
-
-  /* easing — strong curves; built-ins are too weak */
-  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* "Translucent window": the window is see-through and macOS blurs what's behind it. The two
- * sliders set how much shows through, 0 to 1: `--window-translucency` thins the page's own tint,
- * and `--panel-translucency` thins the sidebar, panels and fields (at 0.4 a light surface keeps
- * 72% of its opacity and a dark one 62%, so text stays readable). */
-.translucent,
-.translucent body {
-  background: transparent;
+/* Type, motion: the scale in .interface-design/system.md. Each text size brings its line height, so a control's height
+   never depends on which size utility it uses. design-tokens.test.ts keeps new code on these. */
+@theme {
+  --text-10: 10px;
+  --text-10--line-height: 14px;
+  --text-11: 11px;
+  --text-11--line-height: 16px;
+  --text-12: 12px;
+  --text-12--line-height: 16px;
+  --text-13: 13px;
+  --text-13--line-height: 18px;
+  --text-15: 15px;
+  --text-15--line-height: 20px;
+  --text-17: 17px;
+  --text-17--line-height: 24px;
+  --text-22: 22px;
+  --text-22--line-height: 28px;
+  --text-26: 26px;
+  --text-26--line-height: 32px;
+
+  --ease-enter: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-slide: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* A bare transition / transition-colors runs at duration-fast on the enter curve, not Tailwind's 150ms ease. */
+  --default-transition-duration: var(--duration-fast);
+  --default-transition-timing-function: var(--ease-enter);
 }
 
 /* ── base ─────────────────────────────────────────────── */
@@ -492,12 +564,16 @@ html[data-floating-inbox] #root {
 html[data-popover-open] .title-drag {
   -webkit-app-region: no-drag;
 }
+/* A control inside a drag region (or a floating card over one) that must take its own clicks. */
+.no-drag {
+  -webkit-app-region: no-drag;
+}
 
-/* A docked simulator (SimulatorTrack) and an open design (ArtifactCard) sit in this space beside the chat. A chat pane
+/* A docked simulator (SimulatorTrack), the Browser panel and an open design (ArtifactCard) sit in this space beside the chat. A chat pane
    inside the workspace already has it from the workspace; reserving it twice would leave the chat no room. */
 [data-workspace-main],
 [data-chat-pane]:not([data-workspace-main] [data-chat-pane]) {
-  margin-right: calc(var(--simulator-dock, 0px) + var(--artifact-dock, 0px));
+  margin-right: calc(var(--simulator-dock, 0px) + var(--browser-dock, 0px) + var(--artifact-dock, 0px));
 }
 
 html {
@@ -523,9 +599,11 @@ body {
   background-attachment: fixed;
   color: var(--ink);
   font-feature-settings: "cv11", "ss01";
-  font-size: 14px;
-  letter-spacing: -0.01em;
-  line-height: 1.5;
+  /* The 13/18 body step: text with no size class follows the type scale. Unitless, so text that sets only a size
+     (sidebar and chat sizes) keeps a proportional line. */
+  font-size: 13px;
+  letter-spacing: 0;
+  line-height: calc(18 / 13);
 }
 
 ::selection {
@@ -633,18 +711,31 @@ a {
 
 /* The conversation rail sits over the left edge of the transcript. When the
  * window is too narrow for the centred column to clear it, the column's left
- * padding grows so the ticks keep their own lane (36px from the edge). */
-.chat-column {
-  padding-left: clamp(12px, calc(36px - (100% - 768px) / 2), 36px);
+ * padding grows so the ticks keep their own lane (36px from the edge).
+ * The chip row and composer share these insets (.chat-gutter), so the composer card's
+ * edges line up with the transcript's text edges at every width setting. */
+.chat-column,
+.chat-gutter {
+  --column: 768px;
+  padding-left: clamp(12px, calc(36px - (100% - var(--column)) / 2), 36px);
 }
-
-/* Keep the component nav scrollable but hide its scrollbar. */
-.component-nav-scroll {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* legacy Edge */
+/* The composer wrap is p-1.5; its sides take the transcript's 12px (the column's px-3). */
+.chat-gutter {
+  padding-right: 12px;
 }
-.component-nav-scroll::-webkit-scrollbar {
-  display: none; /* WebKit */
+.chat-column[data-chat-width="wide"],
+.chat-gutter[data-chat-width="wide"] {
+  --column: 1024px;
+}
+.chat-column[data-chat-width="custom"],
+.chat-gutter[data-chat-width="custom"] {
+  --column: var(--chat-width);
+}
+/* Full: the column fills the pane, so the rail lane is plain padding. */
+.chat-column[data-chat-width="full"],
+.chat-gutter[data-chat-width="full"] {
+  padding-left: 36px;
+  padding-right: 24px;
 }
 
 /* MessageScroller owns the visual rail. Keep the browser scrollbar out of the
@@ -657,6 +748,41 @@ a {
 
 .message-scroller-viewport::-webkit-scrollbar {
   display: none;
+}
+
+/* The composer row's pills: frosted glass over the transcript, a tint of their tone, a hairline ring (a ring, not a
+ * border, so a PillMorph panel inside the surface lines up with its edge) and a lit top edge. */
+.status-pill {
+  background: color-mix(in oklab, color-mix(in oklab, var(--status-pill-tint, var(--surface)) 9%, var(--surface)) 68%, transparent);
+  backdrop-filter: blur(var(--blur-chip)) saturate(1.6);
+  -webkit-backdrop-filter: blur(var(--blur-chip)) saturate(1.6);
+  box-shadow:
+    0 0 0 1px var(--status-pill-ring, var(--line)),
+    inset 0 1px 0 oklch(1 0 0 / 0.55),
+    0 1px 2px oklch(0.24 0.008 258 / 0.05);
+}
+.status-pill:not(:disabled):hover {
+  /* hover is translucent ink, so it goes over the frosted fill instead of into it */
+  background:
+    linear-gradient(var(--hover), var(--hover)),
+    color-mix(in oklab, color-mix(in oklab, var(--status-pill-tint, var(--surface)) 12%, var(--surface)) 84%, transparent);
+}
+.dark .status-pill {
+  box-shadow:
+    0 0 0 1px var(--status-pill-ring, var(--line)),
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    0 1px 2px oklch(0 0 0 / 0.24);
+}
+
+/* A PR label chip in its GitHub colour (--label). Text and chip keep the colour's hue at a fixed lightness per theme,
+ * so any label's text clears 4.5:1 on its chip: dark on a pale chip in light, light on a deep chip in dark. */
+.pr-label {
+  color: oklch(from var(--label) 0.42 min(c, 0.14) h);
+  background-color: oklch(from var(--label) 0.94 min(c, 0.05) h);
+}
+.dark .pr-label {
+  color: oklch(from var(--label) 0.88 min(c, 0.1) h);
+  background-color: oklch(from var(--label) 0.33 min(c, 0.06) h);
 }
 
 /* The prompt is a floating control, not a raised card. Keep its elevation
@@ -711,71 +837,62 @@ a {
   }
 }
 
-.prompt-input-highlighted {
-  color: transparent;
-}
-.prompt-input-highlighted::selection {
-  color: var(--ink);
-}
-
-@media (min-width: 64rem) {
-  .component-nav-scroll {
-    -webkit-mask-image: linear-gradient(to bottom, oklch(0 0 0) 0, oklch(0 0 0) calc(100% - 6rem), transparent 100%);
-    mask-image: linear-gradient(to bottom, oklch(0 0 0) 0, oklch(0 0 0) calc(100% - 6rem), transparent 100%);
-  }
-}
-
-/* Mobile demo gestures should operate controls and visualizations rather than
- * selecting surrounding labels. Text entry and code remain intentionally
- * selectable. */
-@media (hover: none) and (pointer: coarse) {
-  .primitive-showcase {
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-  }
-
-  .primitive-showcase :is(input, textarea, [contenteditable="true"], pre, code) {
-    -webkit-user-select: text;
-    user-select: text;
-    -webkit-touch-callout: default;
-  }
-
-  .primitive-showcase :is(a, button, [role="button"]) {
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .primitive-showcase :is(a, button, [role="button"]):focus-visible {
-    outline: none;
-  }
-
-  .primitive-showcase :is(img, svg, canvas) {
-    -webkit-user-drag: none;
-  }
-
-  .insight-chart-stage {
-    touch-action: pan-y;
-  }
+/* Chips in the prompt take exactly one line: their content uses the field's line height, and the border sits in
+   negative margins, so a chip never makes its line taller (the compact composer expands when a line grows). */
+[data-prompt-editor] [data-chip] > [data-chip] {
+  line-height: inherit;
+  margin-block: -1px;
+  vertical-align: top;
 }
 
 /* Tailwind v4 resets buttons to cursor:default — anything
  * clickable must invite the click */
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]),
-label:has(input),
+label:has(input, [role="checkbox"], [role="radio"]),
 a {
   cursor: pointer;
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 4px;
+/* The base focus ring lives in the base layer so a component's own focus-visible: utilities win over it, and a
+   rounded control keeps its radius; anything unrounded gets 4px. Unlayered rules below still override it. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Chrome labels don't select when a drag crosses them. Content (transcript, markdown, code, diffs, errors, paths)
+     stays selectable, and so does anything editable. */
+  button,
+  [role="button"],
+  [role="menuitem"],
+  [role="tab"],
+  [role="option"],
+  label,
+  nav,
+  header {
+    user-select: none;
+  }
+
+  /* Fields show focus with their own border or ring utilities, not the outline. */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [contenteditable]:focus-visible {
+    outline: none;
+  }
 }
 
-[data-position-thumb]:focus-visible,
-[data-inbox-arrow]:focus-visible {
+[data-position-thumb]:focus-visible {
   outline: none;
+}
+
+/* The undo panel takes the focus for its keys; its highlighted row already shows where they go. */
+[data-undo-panel]:focus-visible {
+  outline: none;
+  border-radius: revert-layer;
 }
 
 [data-inbox-scroller] {
@@ -787,89 +904,9 @@ a {
   display: none;
 }
 
-/* The project menu's rows show keyboard focus with their own fill, in ink rather than the accent. */
-[data-workspace-menu] :focus-visible,
+/* Menu rows show keyboard focus as an inset accent ring over their own fill, so the clipped panel never cuts it. */
 [data-scope-menu-panel] :focus-visible {
-  outline: none;
-}
-
-/* Project action rows keep the picker's neutral focus fill inside its scrolling panel. */
-[data-link-project-menu] [data-picker-row]:focus-visible {
-  outline: none;
-}
-
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-[contenteditable]:focus-visible {
-  outline: none;
-}
-
-.animated-underline {
-  position: relative;
-  display: inline-block;
-}
-
-.animated-underline::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 1px;
-  content: "";
-  background: currentColor;
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 280ms var(--ease-link);
-}
-
-a:hover .animated-underline::after,
-a:focus-visible .animated-underline::after {
-  transform: scaleX(1);
-}
-
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — StreamingText / ContextCards
- * Favicon source avatars.
- * Copy this block only alongside StreamingText / ContextCards; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.source-avatar {
-  box-shadow: 0 0 0 1px oklch(0.21 0.034 263.436 / 0.1);
-}
-
-.dark .source-avatar {
-  box-shadow: 0 0 0 1px oklch(1 0 0 / 0.08);
-}
-
-/* ── primitive spacing system ─────────────────────────────
- * Shared optical offsets for small demo cards. Use these
- * instead of hand-tuning 10/12/14px per component.
- */
-
-.primitive-card-pad {
-  padding: 12px;
-}
-
-.primitive-card-bar {
-  padding: 10px 12px;
-}
-
-.primitive-card-footer {
-  padding: 10px;
-}
-
-.primitive-table-cell {
-  padding: 10px 12px;
-}
-
-.primitive-icon-button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-control);
+  outline-offset: -2px;
 }
 
 /* ── shared keyframes ─────────────────────────────────── */
@@ -885,15 +922,11 @@ a:focus-visible .animated-underline::after {
   }
 }
 
-.home-reveal {
-  will-change: opacity, transform, filter;
-}
-
 /* The sidebar is one persistent 224–420px tree clipped by a 52px shell.
  * Every rail glyph remains centered at x=26 in both states. */
 /* Progressive blur where content scrolls under a window edge. One masked blur leaves a crisp copy showing
  * through wherever its mask is half on, so four blurs that double in strength stack up
- * instead, each switched on a step closer to the edge. The last child is the page-colored tint.
+ * instead, each switched on a step closer to the edge. The last child is the tint toward the transcript's background.
  * --blur-dir points from the content toward the edge; the blur starts at --blur-start and is at full
  * strength from --blur-end on. */
 .progressive-blur > * {
@@ -932,31 +965,35 @@ a:focus-visible .animated-underline::after {
   display: none;
 }
 
-/* The top of a scrolled chat, under the window-drag strip. Blur and tint build across the whole overlay, so the
- * text softens gradually and is fully blurred only at the window edge. */
+/* The fades tint toward the background the transcript sits on, so an empty area under one shows no band: the page,
+ * or the surface of a focused ChatGrid tile (which sets --chat-bg). */
+[data-chat-tile] {
+  --chat-bg: var(--surface);
+}
+
+/* The top of a scrolled chat, under the window-drag strip: the text fades into the background toward the window edge. */
 .chat-top-blur {
   --blur-dir: to top;
   --blur-start: 0%;
   --blur-end: 100%;
 }
 .chat-top-blur > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--page) 55%, transparent), transparent);
-}
-.chat-top-blur[data-busy] > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--page) 80%, transparent), transparent);
+  background: linear-gradient(to bottom, var(--chat-bg, var(--page)), transparent);
 }
 
-/* The bottom mirrors the top: blur and tint grow gradually toward the composer. */
+/* The bottom mirrors the top: the text fades toward the composer. */
 .chat-bottom-blur {
   --blur-dir: to bottom;
   --blur-start: 0%;
   --blur-end: 100%;
 }
 .chat-bottom-blur > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--page) 55%, transparent), transparent);
+  background: linear-gradient(to top, var(--chat-bg, var(--page)), transparent);
 }
-.chat-bottom-blur[data-busy] > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--page) 80%, transparent), transparent);
+/* The chat's edges fade into the background without blurring the text: only the tint layer draws. */
+.chat-top-blur > :not(:last-child),
+.chat-bottom-blur > :not(:last-child) {
+  display: none;
 }
 
 /* Messages far off screen skip layout and paint; the size of the last render stands in, so scrolling stays steady.
@@ -1091,20 +1128,8 @@ a:focus-visible .animated-underline::after {
     transform var(--sidebar-copy-duration) var(--sidebar-easing);
 }
 
-.sidebar-logo,
-.sidebar-collapse-control,
-.sidebar-expand-control {
-  transition-duration: var(--sidebar-copy-duration);
-  transition-timing-function: ease-out;
-}
-
 .sidebar-chat-initials {
   display: none;
-}
-
-.sidebar-expand-control {
-  pointer-events: none;
-  opacity: 0;
 }
 
 .sidebar-glide-highlight {
@@ -1129,174 +1154,63 @@ a:focus-visible .animated-underline::after {
 
 /* Hidden labels must not take space away from the centered icon. */
 [data-sidebar-collapsed="true"] .sidebar-row > .sidebar-copy,
-[data-sidebar-collapsed="true"] .sidebar-workspace-control > .sidebar-copy {
+[data-sidebar-collapsed="true"] .sidebar-rail-button > .sidebar-copy {
   display: none;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-workspace-control {
-  width: 32px;
-  left: 6px;
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-  pointer-events: auto;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-collapse-control {
-  pointer-events: none;
-  opacity: 0;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-logo {
-  opacity: 1;
 }
 
 [data-sidebar-collapsed="true"] .sidebar-chat-initials {
   display: flex;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-expand-control {
-  pointer-events: auto;
-  opacity: 1;
-}
-
-/* Usage rows: the rail shows only the provider mark and its fullest window. */
+/* Usage rows: the rail (or compact mode) shows only the provider mark and its fullest window. */
 .sidebar-usage-rail {
   display: none;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-usage {
-  flex-direction: column;
+.sidebar-usage[data-usage-compact="true"] {
+  flex-direction: row;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-usage-row {
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-row {
+  flex: none;
+  width: 32px;
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-row > .sidebar-copy,
+[data-sidebar-collapsed="true"] .sidebar-usage-row > .sidebar-copy {
+  display: none;
+}
+
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-rail,
+[data-sidebar-collapsed="true"] .sidebar-usage-rail {
+  display: block;
+}
+
+[data-sidebar-collapsed="true"] .sidebar-usage {
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
+[data-sidebar-collapsed="true"] .sidebar-usage .sidebar-usage-row {
+  flex: none;
   width: 100%;
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-usage-row > .sidebar-copy {
-  display: none;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-usage-rail {
-  display: block;
-}
-
 [data-sidebar-collapsed="true"] .sidebar-glide-highlight {
   left: 6px;
   right: auto;
   width: 32px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .home-reveal {
-    opacity: 1 !important;
-    transform: none !important;
-    filter: none !important;
-  }
-}
-
-/* ── filter table electric status colors ─────────────────── */
-
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — FilterTable
- * Electric status-pill colors.
- * Copy this block only alongside FilterTable; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.filter-status-todo,
-.filter-status-progress,
-.filter-status-done {
-  border: 1px solid transparent;
-}
-
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — InsightCards
- * Liveline chart tooltip + cursor.
- * Copy this block only alongside InsightCards; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.insight-chart-stage {
-  overflow: hidden;
-}
-
-.insight-chart-cursor {
-  position: absolute;
-  z-index: 4;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--ink);
-  opacity: 0.26;
-  pointer-events: none;
-}
-
-.insight-chart-tooltip-anchor {
-  position: absolute;
-  z-index: 5;
-  top: 8px;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-.insight-chart-tooltip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 5px 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  color: var(--tooltip-fg);
-  background: var(--tooltip-bg);
-  box-shadow: var(--shadow-overlay);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.insight-chart-tooltip-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.insight-chart-tooltip-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: 50%;
-}
-
-/* Status pills derive their colors from one base hue with color-mix, in light and dark. */
-.filter-status-todo {
-  --tag-base: oklch(0.757 0.153 66.401);
-}
-.filter-status-progress {
-  --tag-base: oklch(0.671 0.118 219.351);
-}
-.filter-status-done {
-  --tag-base: oklch(0.652 0.131 162.865);
-}
-
-.filter-status-todo,
-.filter-status-progress,
-.filter-status-done {
-  color: color-mix(in srgb, var(--tag-base) 92%, var(--ink));
-  background: color-mix(in srgb, var(--tag-base) 20%, var(--surface));
-  border-color: color-mix(in srgb, var(--tag-base) 34%, var(--surface));
-}
-
-/* Dark mode — a richer, saturated same-hue fill
- * with bright same-hue text and no visible border (light mode keeps the soft
- * tinted pastels above). */
-.dark .filter-status-todo,
-.dark .filter-status-progress,
-.dark .filter-status-done {
-  color: color-mix(in srgb, var(--tag-base) 86%, white);
-  background: color-mix(in srgb, var(--tag-base) 34%, var(--surface));
-  border-color: color-mix(in srgb, var(--tag-base) 34%, var(--surface));
 }
 
 @keyframes fade-in {
@@ -1308,74 +1222,14 @@ a:focus-visible .animated-underline::after {
   }
 }
 
-@keyframes eq-bounce {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(1);
-  }
+/* A running title's static tint, kept when reduced motion turns the sweep off. */
+.step-running {
+  color: var(--ink-3);
+  -webkit-text-fill-color: currentColor;
 }
 
-/* ── StreamText primitive ─────────────────────────────────
- * Fast character reveal: the newest few characters carry a
- * soft, masked blur so the leading edge resolves smoothly as
- * text flows in. The caret holds solid while streaming, then
- * blinks once the string settles. */
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — StreamText
- * The streaming caret + tail.
- * Copy this block only alongside StreamText; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.stream-tail {
-  filter: blur(1.6px);
-  -webkit-mask-image: linear-gradient(to right, oklch(0 0 0) 20%, oklch(0 0 0 / 0.2));
-  mask-image: linear-gradient(to right, oklch(0 0 0) 20%, oklch(0 0 0 / 0.2));
-}
-
-.stream-caret {
-  display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  margin-left: 1.5px;
-  translate: 0 -0.5px;
-  border-radius: 1px;
-  background: var(--ink);
-  vertical-align: text-bottom;
-  animation: caret-blink 1s step-end infinite;
-}
-
-.stream-caret.is-streaming {
-  animation: none;
-}
-
-@keyframes caret-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stream-caret {
-    animation: none;
-  }
-  .stream-tail {
-    filter: none;
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-}
-
-/* A running tool row: a light highlight sweeps across the title's glyphs until the tool is done. */
-/* The gradient is a fixed-size tile pinned to the viewport (background-attachment: fixed), so every
- * piece of the title (label and code chip) shares one set of coordinates and the highlight travels
- * across the whole title, left to right. Moving it one tile width is one seamless loop. */
+/* The fixed tile keeps all title spans in phase. Only keyframes own the gradient and text clipping:
+ * the sweep loops while the step runs and goes with the class when it finishes or waits. */
 @keyframes step-shimmer {
   from {
     background-position: 0 0;
@@ -1383,21 +1237,21 @@ a:focus-visible .animated-underline::after {
   to {
     background-position: 320px 0;
   }
+  from,
+  to {
+    background-image: linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px);
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
-.step-shimmer {
-  background-image: linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px);
+.step-running.step-sweep {
   background-size: 320px 100vh;
   background-repeat: repeat-x;
   background-attachment: fixed;
   animation: step-shimmer 1.2s linear infinite;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
 }
 
-/* The same sweep for code chips, whose second background layer (the chip fill) stays put. */
 @keyframes step-shimmer-code {
   from {
     background-position:
@@ -1409,33 +1263,29 @@ a:focus-visible .animated-underline::after {
       320px 0,
       0 0;
   }
+  from,
+  to {
+    background-image:
+      linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px),
+      linear-gradient(var(--field), var(--field));
+    background-clip: text, border-box;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
-/* Code in a title keeps its chip: the chip's fill sits behind the clipped gradient. */
-code.step-shimmer {
-  background-image:
-    linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px),
-    linear-gradient(var(--field), var(--field));
+code.step-running.step-sweep {
   background-size:
     320px 100vh,
     100% 100%;
   background-repeat: repeat-x, no-repeat;
   background-attachment: fixed, scroll;
   animation-name: step-shimmer-code;
-  -webkit-background-clip: text, border-box;
-  background-clip: text, border-box;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .step-shimmer,
-  code.step-shimmer {
-    animation: none !important;
-    background-image: none;
-    -webkit-text-fill-color: currentColor;
-    color: var(--ink-3);
-  }
-  code.step-shimmer {
-    background-color: var(--field);
+  .step-running.step-sweep,
+  code.step-running.step-sweep {
+    animation: none;
   }
 }
 
@@ -1456,45 +1306,201 @@ code.step-shimmer {
   }
 }
 
+/* COMPONENT-SPECIFIC — DownloadRing: the arrow falls into the ring, rests and drops out below it, again and again, while a
+ * speech model downloads. The ring clips it, so it reads as one arrow going down and down. Reduced motion holds it still. */
+@keyframes download-drop {
+  0% {
+    transform: translateY(-115%);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+  35% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  62% {
+    transform: translateY(0);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
+  }
+  100% {
+    transform: translateY(115%);
+    opacity: 0;
+  }
+}
+
+.download-drop {
+  animation: download-drop 1.3s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .download-drop {
+    animation: none;
+  }
+}
+
 /* COMPONENT-SPECIFIC — ThinkingIndicator: the Milagre mark twinkling, lit like the old pixel loader. On a 2.4s cycle
  * the legs and the sparkle take turns: while the sparkle holds, the legs light up, left then right, from 15% ink; once
  * they are dim again the sparkle swells, turns and settles back (four-fold symmetry, so the quarter turn loops seamlessly).
  * Reduced motion stops every part on a dim, static logo. */
+:root[data-display-hidden] *,
+:root[data-display-hidden] *::before,
+:root[data-display-hidden] *::after {
+  animation-play-state: paused !important;
+}
+
 .running-logo {
   overflow: visible;
 }
-.running-logo * {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-.running-logo-mark {
+/* Animate HTML boxes so the compositor can reuse each SVG's painted pixels. */
+.running-logo > span {
+  position: absolute;
+  inset: 0;
   fill: var(--ink);
+}
+.running-logo svg {
+  display: block;
+  overflow: visible;
 }
 .running-logo-leg {
   opacity: 0.15;
-  animation: running-logo-glow 2400ms ease-in-out infinite;
+  animation: running-logo-glow 2400ms step-end infinite;
 }
 .running-logo-leg-right {
   animation-delay: 240ms;
 }
 .running-logo-star {
   opacity: 0.45;
-  animation: running-logo-twinkle 2400ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  transform-origin: 50% 32.3%;
+  animation: running-logo-twinkle 2400ms step-end infinite;
 }
 
+/* Sample the original easing curves every 80 ms, retaining their hold/peak
+ * boundaries. step-end limits updates without turning the eased ramps linear. */
 @keyframes running-logo-twinkle {
-  0%,
+  0% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  3.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  6.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  10% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  13.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  16.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  20% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  23.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  26.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  30% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  33.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  36.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  40% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  43.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  46.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
   50% {
     opacity: 0.45;
     transform: scale(1) rotate(0deg);
+  }
+  53.33333% {
+    opacity: 0.46504;
+    transform: scale(1.00821) rotate(1.2309deg);
+  }
+  56.66667% {
+    opacity: 0.53199;
+    transform: scale(1.04472) rotate(6.70836deg);
+  }
+  60% {
+    opacity: 0.725;
+    transform: scale(1.15) rotate(22.5deg);
+  }
+  63.33333% {
+    opacity: 0.91801;
+    transform: scale(1.25528) rotate(38.29164deg);
+  }
+  66.66667% {
+    opacity: 0.98496;
+    transform: scale(1.29179) rotate(43.7691deg);
   }
   70% {
     opacity: 1;
     transform: scale(1.3) rotate(45deg);
   }
+  73.33333% {
+    opacity: 1;
+    transform: scale(1.29042) rotate(46.86329deg);
+  }
+  76.66667% {
+    opacity: 1;
+    transform: scale(1.23715) rotate(57.22021deg);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1.14683) rotate(74.78238deg);
+  }
+  83.33333% {
+    opacity: 1;
+    transform: scale(1.12202) rotate(79.60766deg);
+  }
   85% {
     opacity: 1;
     transform: scale(1.12) rotate(80deg);
+  }
+  86.66667% {
+    opacity: 0.99383;
+    transform: scale(1.11865) rotate(80.1121deg);
+  }
+  90% {
+    opacity: 0.91801;
+    transform: scale(1.10211) rotate(81.49075deg);
+  }
+  93.33333% {
+    opacity: 0.64203;
+    transform: scale(1.0419) rotate(86.50851deg);
+  }
+  96.66667% {
+    opacity: 0.47928;
+    transform: scale(1.00639) rotate(89.46763deg);
   }
   100% {
     opacity: 0.45;
@@ -1502,20 +1508,125 @@ code.step-shimmer {
   }
 }
 @keyframes running-logo-glow {
-  0%,
-  40%,
-  100% {
+  0% {
     opacity: 0.15;
   }
-  12%,
+  3.33333% {
+    opacity: 0.21409;
+  }
+  6.66667% {
+    opacity: 0.38801;
+  }
+  10% {
+    opacity: 0.52755;
+  }
+  12% {
+    opacity: 0.55;
+  }
+  13.33333% {
+    opacity: 0.55;
+  }
+  16.66667% {
+    opacity: 0.55;
+  }
+  20% {
+    opacity: 0.55;
+  }
   22% {
     opacity: 0.55;
+  }
+  23.33333% {
+    opacity: 0.54572;
+  }
+  26.66667% {
+    opacity: 0.49434;
+  }
+  30% {
+    opacity: 0.38801;
+  }
+  33.33333% {
+    opacity: 0.26429;
+  }
+  36.66667% {
+    opacity: 0.17788;
+  }
+  40% {
+    opacity: 0.15;
+  }
+  43.33333% {
+    opacity: 0.15;
+  }
+  46.66667% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.15;
+  }
+  53.33333% {
+    opacity: 0.15;
+  }
+  56.66667% {
+    opacity: 0.15;
+  }
+  60% {
+    opacity: 0.15;
+  }
+  63.33333% {
+    opacity: 0.15;
+  }
+  66.66667% {
+    opacity: 0.15;
+  }
+  70% {
+    opacity: 0.15;
+  }
+  73.33333% {
+    opacity: 0.15;
+  }
+  76.66667% {
+    opacity: 0.15;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  83.33333% {
+    opacity: 0.15;
+  }
+  86.66667% {
+    opacity: 0.15;
+  }
+  90% {
+    opacity: 0.15;
+  }
+  93.33333% {
+    opacity: 0.15;
+  }
+  96.66667% {
+    opacity: 0.15;
+  }
+  100% {
+    opacity: 0.15;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .running-logo * {
+  .running-logo > span {
     animation: none !important;
+  }
+  /* Still show that something is loading: a slow two-step fade instead of the turn, no movement. */
+  .running-logo,
+  .spinner-ring,
+  .refresh-spin.animate-spin {
+    animation: reduced-motion-loading 1.6s steps(2, jump-none) infinite !important;
+  }
+}
+
+@keyframes reduced-motion-loading {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
   }
 }
 
@@ -1543,10 +1654,11 @@ code.step-shimmer {
   transform-origin: center;
 }
 .startup-splash-mark {
-  fill: #0a0a0a;
+  fill: var(--ink);
 }
-.dark .startup-splash-mark {
-  fill: #ffffff;
+/* A Chat's transcript on its way: the splash mark appears only once the wait is long enough to notice. */
+.chat-loading {
+  animation: fade-in 240ms ease-out 300ms both;
 }
 .startup-splash-screen[data-leaving] {
   pointer-events: none;
@@ -1563,15 +1675,15 @@ code.step-shimmer {
   animation: app-enter-sidebar 520ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
 }
 .startup-splash-leg {
-  animation: splash-leg 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: splash-leg 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .startup-splash-leg-right {
-  animation-delay: 60ms;
+  animation-delay: 40ms;
 }
 .startup-splash-star {
   animation:
-    splash-star-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) 140ms both,
-    splash-star-twinkle 2400ms cubic-bezier(0.65, 0, 0.35, 1) 800ms infinite;
+    splash-star-in 300ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both,
+    splash-star-twinkle 2400ms cubic-bezier(0.65, 0, 0.35, 1) 640ms infinite;
 }
 
 @keyframes splash-leg {
@@ -1661,10 +1773,10 @@ code.step-shimmer {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  animation: chat-title-out 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: chat-title-out 150ms var(--ease-enter) both;
 }
 .chat-title[data-changing] .chat-title-current {
-  animation: chat-title-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: chat-title-in 240ms var(--ease-enter) both;
 }
 @keyframes chat-title-out {
   to {
@@ -1691,27 +1803,69 @@ code.step-shimmer {
     display: none;
   }
 }
-.milagre-canvas-flow .react-flow__controls {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: var(--shadow-card);
+/* The Projects canvas sits on the window's own dotted page, like the subagent canvas: no panel, edges fade out. */
+[data-workspace-main]:has(> .milagre-canvas) {
+  margin-left: -12px;
+  padding-right: 0;
+  padding-bottom: 0;
 }
 
-.milagre-canvas-flow .react-flow__controls-button {
+.milagre-canvas-surface {
+  --canvas-edge: 16px;
+  mask-image:
+    linear-gradient(to right, transparent, #000 var(--canvas-edge), #000 calc(100% - var(--canvas-edge)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--canvas-edge), #000 calc(100% - var(--canvas-edge)), transparent);
+  mask-composite: intersect;
+}
+
+.milagre-canvas-flow {
+  --xy-background-color: transparent;
+}
+
+/* A Project: its hue at a whisper, so the cards stay the brightest thing in it. */
+.milagre-canvas-section {
+  background: color-mix(in srgb, var(--section) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--section) 20%, transparent);
+}
+
+.milagre-canvas-flow .react-flow__node-project,
+.milagre-canvas-flow .react-flow__node-worktree {
+  border-radius: var(--radius-card);
+}
+
+/* Link dots wait for the pointer: on the card or section under it, and on every one while a Link is being drawn. */
+.milagre-canvas-flow .milagre-canvas-handle {
+  opacity: 0;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--line-strong);
   background: var(--surface);
-  color: var(--ink-2);
-  fill: currentColor;
-  border-color: var(--line);
+  transition:
+    opacity 120ms ease-out,
+    border-color 120ms ease-out,
+    transform 120ms ease-out;
 }
 
-.milagre-canvas-flow .react-flow__controls-button:hover {
-  background: var(--hover-2);
+.milagre-canvas-flow .react-flow__node:hover > div > .milagre-canvas-handle,
+.milagre-canvas-flow .react-flow__node:focus-within > div > .milagre-canvas-handle,
+.milagre-canvas-flow[data-connecting] .milagre-canvas-handle,
+.milagre-canvas-flow .milagre-canvas-handle:hover {
+  opacity: 1;
 }
 
-.milagre-canvas-flow .react-flow__attribution {
-  background: transparent;
-  color: var(--ink-3);
+.milagre-canvas-flow .milagre-canvas-handle:hover,
+.milagre-canvas-flow .react-flow__handle.connectingfrom,
+.milagre-canvas-flow .react-flow__handle.valid {
+  border-color: var(--accent);
+  transform: translate(var(--handle-shift, 0), -50%) scale(1.2);
+}
+
+.milagre-canvas-flow .react-flow__handle-left {
+  --handle-shift: -50%;
+}
+
+.milagre-canvas-flow .react-flow__handle-right {
+  --handle-shift: 50%;
 }
 
 /* A Link something travels along: its line moves toward the receiving side. Still under reduced motion. */
@@ -1736,4 +1890,70 @@ code.step-shimmer {
 /* The Terminal panel's surface shows through xterm: its stylesheet paints the viewport black whatever the theme says. */
 [data-terminal-body] .xterm .xterm-viewport {
   background-color: transparent;
+}
+
+/* ── welcome sky ──────────────────────────────────────── */
+/* A new Chat's backdrop: a faint wash of light from above and the logo's sparkle glinting on the page, one or two at a
+ * time. Neutral ink, no colour: it should be noticed on the second look, not the first. */
+.welcome-sky {
+  --sky-light: color-mix(in srgb, var(--accent) 11%, transparent);
+  --sky-sparkle: var(--ink-4);
+  animation: fade-in 1200ms ease-out both;
+}
+.dark .welcome-sky {
+  --sky-light: rgb(255 255 255 / 0.07);
+  --sky-sparkle: var(--ink-2);
+}
+.welcome-sky-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(70% 55% at 50% 0%, var(--sky-light), transparent);
+  animation: welcome-sky-wash 10s ease-in-out infinite alternate;
+}
+.welcome-sky-sparkle {
+  position: absolute;
+  fill: var(--sky-sparkle);
+  opacity: 0;
+  scale: 0;
+  animation-name: welcome-sky-glint;
+  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
+/* The sky spans the window, so the sidebar card lets it through while a new Chat shows; no blur, so the glints under
+ * it cost nothing. */
+:root[data-welcome-sky] aside[data-sidebar-collapsed] {
+  background-color: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+@keyframes welcome-sky-wash {
+  from {
+    opacity: 0.6;
+  }
+}
+/* Most of each cycle is dark; the glint drifts a few pixels down as it turns, like light settling. */
+@keyframes welcome-sky-glint {
+  0% {
+    opacity: 0;
+    scale: 0;
+    rotate: 0deg;
+    translate: 0 -4px;
+  }
+  7% {
+    opacity: 0.9;
+    scale: 1;
+  }
+  16%,
+  100% {
+    opacity: 0;
+    scale: 0;
+    rotate: 90deg;
+    translate: 0 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-sky,
+  .welcome-sky-wash,
+  .welcome-sky-sparkle {
+    animation: none;
+  }
 }

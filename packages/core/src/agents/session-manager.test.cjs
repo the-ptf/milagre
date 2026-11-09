@@ -73,6 +73,48 @@ const request = (chatId, extra = {}) => ({
   ...extra,
 });
 
+test("sessions receive the chat's permission policy", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  const policy = () => "allow";
+  const asked = [];
+  manager.permissionPolicy = (chatId) => {
+    asked.push(chatId);
+    return chatId === "/p#1" ? policy : undefined;
+  };
+  await manager.startTurn(request("/p#1"));
+  await manager.startTurn(request("/p#2"));
+  assert.equal(created[0].options.permissionPolicy, policy);
+  assert.equal(created[1].options.permissionPolicy, undefined);
+  assert.deepEqual(asked, ["/p#1", "/p#2"]);
+});
+
+test("hasSession tells whether a chat has a live session", async (t) => {
+  const { manager } = harness();
+  t.after(() => manager.closeAll());
+  assert.equal(manager.hasSession("/p#1"), false);
+  await manager.startTurn(request("/p#1"));
+  assert.equal(manager.hasSession("/p#1"), true);
+  await manager.closeChat("/p#1");
+  assert.equal(manager.hasSession("/p#1"), false);
+});
+
+test("createSession receives the turn's accountId", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1", { accountId: "work" }));
+  assert.equal(created[0].options.accountId, "work");
+});
+
+test("a shared Link Chat's session is told it is one, for its system prompt", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1", { sharedLink: true }));
+  await manager.startTurn(request("2"));
+  assert.equal(created[0].options.sharedLink, true);
+  assert.equal(created[1].options.sharedLink, undefined);
+});
+
 test("account switches keep active replies, then resume their history with the new account", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());
@@ -460,32 +502,6 @@ test("TLDR changes resume the same chat with new instructions between turns", as
   assert.equal(created[2].options.tldrEnabled, true);
 });
 
-test("Designs changes refresh instructions and tools between turns while preserving native history", async (t) => {
-  const { manager, created } = harness();
-  t.after(() => manager.closeAll());
-  let enabled = true;
-  manager.linkedFor = () => ({ tools: enabled ? [{ name: "design_show" }] : [] });
-  await manager.startTurn(request("1"));
-  assert.equal(created[0].options.designsEnabled, true);
-  created[0].nativeId = "thread-current";
-  created[0].turnActive = true;
-  enabled = false;
-  await manager.startTurn(request("1", { designsEnabled: false }));
-  assert.equal(created.length, 1, "changing the setting does not interrupt a running turn");
-  created[0].turnActive = false;
-  await manager.startTurn(request("1", { designsEnabled: false }));
-  assert.equal(created[0].closed, true);
-  assert.equal(created[1].options.designsEnabled, false);
-  assert.equal(created[1].options.resumeId, "thread-current");
-  assert.deepEqual(created[1].options.linked.tools, []);
-  created[1].nativeId = "thread-current";
-  enabled = true;
-  await manager.startTurn(request("1", { designsEnabled: true }));
-  assert.equal(created[2].options.designsEnabled, true);
-  assert.deepEqual(created[2].options.linked.tools, [{ name: "design_show" }]);
-  assert.equal(created[2].options.resumeId, "thread-current");
-});
-
 test("TLDR changes leave a running turn alone and apply once it finishes", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());
@@ -513,12 +529,97 @@ test("background children prevent idle eviction after the parent finishes", asyn
   await waitUntil(() => created[0].closed);
 });
 
+test("a provider switch or a new folder never closes a process its background subagents run in (T3 #16000)", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  const claude = (extra = {}) => request("1", { provider: "claude", ...extra });
+  await manager.startTurn(claude());
+  created[0].emit({ type: "subagent-update", agent: { id: "bg", status: "running", background: true } });
+  created[0].emit({ type: "subagent-update", agent: { id: "fg", status: "running" } });
+  created[0].emit({ type: "turn-completed" });
+  assert.equal(manager.backgroundWork("1"), 1);
+  await assert.rejects(manager.startTurn(claude({ provider: "codex" })), /A background task is still running in this Chat\. Switching to Codex would stop it/);
+  await assert.rejects(manager.startTurn(claude({ cwd: "/elsewhere" })), /can't move to another folder/);
+  // New Links (workspace roots) or instructions wait for the next process: the turn runs on this one.
+  await manager.startTurn(claude({ workspaceRoots: ["/linked"] }));
+  assert.equal(created.length, 1);
+  assert.equal(created[0].closed, false);
+  assert.equal(created[0].turns.length, 2);
+  // Once the background subagent ends, the switch goes ahead.
+  created[0].emit({ type: "subagent-update", agent: { id: "bg", status: "completed", background: true } });
+  assert.equal(manager.backgroundWork("1"), 0);
+  await manager.startTurn(claude({ provider: "codex" }));
+  assert.equal(created[0].closed, true);
+  assert.equal(created[1].provider, "codex");
+});
+
+test("a background task keeps the agent process open and counts as background work until the process reports it done", async (t) => {
+  const { manager, created } = harness({ idleMs: 15 });
+  t.after(() => manager.closeAll());
+  const claude = (extra = {}) => request("1", { provider: "claude", ...extra });
+  await manager.startTurn(claude());
+  created[0].emit({ type: "background-tasks", tasks: [{ id: "b1", kind: "local_bash", title: "sleep 75", startedAt: 1 }] });
+  created[0].emit({ type: "turn-completed" });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(created[0].closed, false);
+  assert.equal(manager.backgroundWork("1"), 1);
+  await assert.rejects(manager.startTurn(claude({ provider: "codex" })), /A background task is still running in this Chat/);
+  created[0].emit({ type: "background-tasks", tasks: [] });
+  assert.equal(manager.backgroundWork("1"), 0);
+  await waitUntil(() => created[0].closed);
+});
+
+test("a background command's output is read from the chat's live agent process, and not after it closes", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await assert.rejects(manager.taskOutput("1", "b1"), /That background task has ended/);
+  await manager.startTurn(request("1", { provider: "claude" }));
+  created[0].taskOutput = async (taskId) => ({ output: `tail of ${taskId}`, totalBytes: 12, truncated: false });
+  assert.deepEqual(await manager.taskOutput("1", "b1"), { output: "tail of b1", totalBytes: 12, truncated: false });
+  await manager.closeChat("1");
+  await assert.rejects(manager.taskOutput("1", "b1"), /That background task has ended/);
+});
+
+test("background subagents count only for a provider that has them", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1"));
+  created[0].emit({ type: "subagent-update", agent: { id: "bg", status: "running", background: true } });
+  created[0].emit({ type: "background-tasks", tasks: [{ id: "b1", kind: "local_bash", title: "sleep", startedAt: 1 }] });
+  assert.equal(manager.backgroundWork("1"), 0);
+});
+
+test("only a usage-limited idle process releases background work for another account or provider", async (t) => {
+  for (const next of [
+    { provider: "claude", accountId: "work" },
+    { provider: "codex", accountId: "default" },
+  ]) {
+    const { manager, created } = harness();
+    t.after(() => manager.closeAll());
+    await manager.startTurn(request("1", { provider: "claude", accountId: "personal" }));
+    created[0].emit({ type: "background-tasks", tasks: [{ id: "bg", kind: "local_bash" }] });
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), false);
+    created[0].emit({ type: "turn-failed", limit: { provider: "claude" } });
+    assert.equal(await manager.releaseLimited("1", "claude", "personal"), false);
+    created[0].turnActive = true;
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), false);
+    created[0].turnActive = false;
+    created[0].emit({ type: "turn-started", turnId: "retry" });
+    created[0].emit({ type: "turn-completed" });
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), false);
+    created[0].emit({ type: "turn-failed", limit: { provider: "claude" } });
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), true);
+    assert.equal(created[0].closed, true);
+    assert.equal(manager.backgroundWork("1"), 0);
+  }
+});
+
 test("Milagre's own tools ask through the chat's approval cards and read its permission mode", async () => {
   const added = [];
   const session = {
     turnActive: true,
     closed: false,
-    permissions: { mode: "auto", add: (request, answer) => added.push({ request, answer }) },
+    permissions: { mode: "auto", add: (request, answer, options) => added.push({ request, answer, options }) },
     startTurn: async () => ({ turnId: "t", steered: false }),
     close: async () => {},
   };
@@ -529,6 +630,8 @@ test("Milagre's own tools ask through the chat's approval cards and read its per
   assert.equal(manager.permissionMode("p#1"), "auto");
   assert.equal(manager.isTurnActive("p#1"), true);
   const decision = manager.askApproval("p#1", { requestId: "r" });
+  // Milagre's own card: Bot rules leave it to the user (PendingPermissions).
+  assert.deepEqual(added[0].options, { fromMilagre: true });
   added[0].answer("deny");
   assert.equal(await decision, "deny");
 });
@@ -547,11 +650,11 @@ test("an Antigravity session's models are recorded for its account once the turn
   created[0].currentModel = "gemini-new-low";
   await manager.startTurn(base);
   assert.deepEqual(
-    listAntigravityModels({ accountId: "acct" }).map(({ id, efforts, defaultEffort }) => ({ id, efforts, defaultEffort })),
+    (await listAntigravityModels({ accountId: "acct" })).map(({ id, efforts, defaultEffort }) => ({ id, efforts, defaultEffort })),
     [{ id: "gemini-new", efforts: ["low", "high"], defaultEffort: "low" }],
   );
   assert.notDeepEqual(
-    listAntigravityModels({ accountId: "other" }).map((model) => model.id),
+    (await listAntigravityModels({ accountId: "other" })).map((model) => model.id),
     ["gemini-new"],
   );
   forgetAntigravityModels();
@@ -576,4 +679,29 @@ test("batched provider messages keep the latest reply's notification context", a
   let preview = "";
   for (const { event } of sent) if (event.type === "text-delta") preview = notificationPreview(preview, event.text, event.startsMessage);
   assert.equal(completionNotice("Fix login", { failed: false, body: preview }).body, "Login fixed. Tests passed.");
+});
+
+test("a new session is told about this machine's network after its own instructions, and an address change restarts nothing", async () => {
+  let note = "Network: at 10.0.0.4.";
+  const created = [];
+  const manager = new SessionManager({
+    send: () => {},
+    hostInstructions: () => note,
+    createSession: (provider, options) => {
+      const session = new FakeSession(provider, options);
+      created.push(session);
+      return session;
+    },
+    batchMs: 20,
+  });
+  await manager.startTurn(request("a", { workspaceInstructions: "Owned: api" }));
+  assert.equal(created[0].options.workspaceInstructions, "Owned: api\n\nNetwork: at 10.0.0.4.");
+  await manager.startTurn(request("b"));
+  assert.equal(created[1].options.workspaceInstructions, "Network: at 10.0.0.4.");
+  note = "Network: at 10.0.0.9.";
+  await manager.startTurn(request("a", { workspaceInstructions: "Owned: api" }));
+  assert.equal(created.length, 2, "the session that started with the old address keeps running");
+  note = "";
+  await manager.startTurn(request("c"));
+  assert.equal(created[2].options.workspaceInstructions, undefined);
 });

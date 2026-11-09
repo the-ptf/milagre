@@ -269,3 +269,170 @@ test("a compaction that fails keeps the change as it is", async () => {
     console.warn = warn;
   }
 });
+
+test("save failures stay visible through retry and newer edits until all changes reach disk", async () => {
+  let failure = Object.assign(new Error("disk full"), { code: "ENOSPC" });
+  let release;
+  let began;
+  let pause = false;
+  const saved = [];
+  const notices = [];
+  const states = new ProjectStates({
+    read: async () => ({ count: 0 }),
+    save: async (_path, state) => {
+      saved.push(state);
+      if (failure) throw failure;
+      if (pause)
+        await new Promise((resolve) => {
+          release = resolve;
+          began();
+        });
+    },
+    persistenceChanged: (_path, state) => notices.push(state.persistence),
+  });
+  await states.update("/a", bump);
+  await assert.rejects(states.flush("/a"), /disk full/);
+  assert.deepEqual((await states.get("/a")).persistence, { error: "disk full", code: "ENOSPC", saving: false });
+  assert.equal((await states.get("/b")).persistence, undefined);
+  failure = null;
+  pause = true;
+  const started = new Promise((resolve) => {
+    began = resolve;
+  });
+  const retry = states.flush("/a");
+  await started;
+  assert.equal((await states.get("/a")).persistence.saving, true);
+  await states.update("/a", bump);
+  pause = false;
+  release();
+  await retry;
+  assert.equal((await states.get("/a")).persistence, undefined);
+  assert.equal((await states.get("/a")).count, 2);
+  assert.deepEqual(
+    saved.map((state) => state.count),
+    [1, 1, 2],
+  );
+  assert.ok(
+    saved.every((state) => !Object.hasOwn(state, "persistence")),
+    "runtime status never reaches disk",
+  );
+  assert.equal(notices.at(-1), undefined);
+  assert.ok(notices.slice(0, -1).every(Boolean), "an older successful write cannot clear the warning");
+  await states.close();
+});
+
+test("permission failures cannot be cleared by a mutation begun before the failure", async () => {
+  const states = new ProjectStates({
+    read: async () => ({ count: 0 }),
+    save: async () => {
+      throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+    },
+  });
+  await states.update("/a", bump);
+  let release;
+  const edit = states.update(
+    "/a",
+    (state) =>
+      new Promise((resolve) => {
+        release = () => resolve(bump(state));
+      }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(states.write("/a"), /permission denied/);
+  release();
+  await edit;
+  assert.equal((await states.get("/a")).persistence.code, "EACCES");
+  assert.equal((await states.get("/a")).count, 2);
+  await assert.rejects(states.close(), /permission denied/);
+});
+
+test("explicit retry saves the latest transient state without replaying a change", async () => {
+  let fail = true;
+  const saved = [];
+  const states = new ProjectStates({
+    read: async () => ({ count: 0 }),
+    save: async (_path, state) => {
+      if (fail) throw new Error("disk full");
+      saved.push(state.count);
+    },
+  });
+  await states.update("/p", bump);
+  await assert.rejects(states.flush("/p"), /disk full/);
+  await states.update("/p", bump, { persist: false });
+  fail = false;
+  await states.retry("/p");
+  assert.deepEqual(saved, [2]);
+  assert.equal((await states.get("/p")).persistence, undefined);
+  await states.close();
+});
+
+test("an async no-op read returns current save status, and stale publications normalize it", async () => {
+  const { states } = harness({ failSaves: 1 });
+  const { state: old } = await states.update("/p", bump);
+  let release;
+  const read = states.update(
+    "/p",
+    (state) =>
+      new Promise((resolve) => {
+        release = () => resolve(state);
+      }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(states.write("/p"), /disk full/);
+  release();
+  assert.equal((await read).state.persistence.error, "disk full");
+  const failed = await states.get("/p");
+  await states.retry("/p");
+  assert.equal(states.withPersistence("/p", failed).persistence, undefined);
+  assert.equal(states.withPersistence("/p", old).persistence, undefined);
+  await states.close();
+});
+
+test("a transient mutation queued during recovery keeps the warning until its own retry", async () => {
+  let fail = true;
+  let releaseWrite;
+  let began;
+  let slow = false;
+  const saved = [];
+  const states = new ProjectStates({
+    read: async () => ({ count: 0 }),
+    save: async (_path, state) => {
+      if (fail) throw new Error("disk full");
+      saved.push(state.count);
+      if (slow)
+        await new Promise((resolve) => {
+          releaseWrite = resolve;
+          began();
+        });
+    },
+  });
+  await states.update("/p", bump);
+  await assert.rejects(states.flush("/p"), /disk full/);
+  fail = false;
+  slow = true;
+  const started = new Promise((resolve) => {
+    began = resolve;
+  });
+  const retry = states.retry("/p");
+  await started;
+  let releaseEdit;
+  const edit = states.update(
+    "/p",
+    (state) =>
+      new Promise((resolve) => {
+        releaseEdit = () => resolve(bump(state));
+      }),
+    { persist: false },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  slow = false;
+  releaseWrite();
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseEdit();
+  await Promise.all([retry, edit]);
+  assert.equal((await states.get("/p")).persistence?.saving, false, "latest transient edit remains unsaved, and retry stays available");
+  await states.retry("/p");
+  assert.equal((await states.get("/p")).persistence, undefined);
+  assert.deepEqual(saved, [1, 2]);
+  await states.close();
+});

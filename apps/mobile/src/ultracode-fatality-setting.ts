@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { readUltracodeFatality, saveUltracodeFatality } from "./hosts-native";
 
-// The phone's "Ultracode Fatality" setting (Settings > Experimental), read once and shared by Settings and the model sheet.
+// The phone's "Ultracode Fatality" setting (Settings › Church), read once and shared by Settings and the model sheet.
 let on = false;
 const listeners = new Set<() => void>();
 void readUltracodeFatality().then((saved) => {

@@ -1,5 +1,5 @@
-// Archiving a Chat, shared by the desktop sidebar and the phone: what the confirm step offers, and the steps an
-// archive takes. Nothing here touches a window or a network; each app passes in what it does. Types: archive.d.mts.
+// Chat deletion shared by desktop and mobile. Internal archive names preserve the cleanup API.
+// Each app supplies its own persistence and network operations. Types: archive.d.mts.
 import { GIT_CODES, gitMessage } from "./git-codes.mjs";
 import { ipcErrorCode, ipcErrorMessage } from "./result.mjs";
 
@@ -52,36 +52,63 @@ export function deleteNote(status) {
 }
 
 /**
- * The confirm step after "Archive". A chat whose worktree isn't Milagre's, is shared, or can't be checked
- * only hides, and a check that failed never offers deletion. A clean worktree offers removing it. One with unsaved
- * work offers only deleting it, with a line saying what goes and how to keep it. There is no "keep": archive
- * only hides and nothing lists archived chats, so a kept worktree would be invisible and orphaned. Dismissing
- * the menu leaves the chat as it is.
+ * What a Chat without a Project would lose, in plain words: its folder is all the user knows of its Worktree.
+ * "Its folder has 3 changed files that will be deleted."
  */
-export function archiveChoices({ plan, running }) {
-  const { milagreOwned, shared, status } = plan;
-  const terminals = terminalNote(plan.terminals ?? []);
-  const withTerminals = (reason) => [reason, terminals].filter(Boolean).join(" ") || null;
-  if (!milagreOwned || shared || !status) {
-    return { choices: [{ mode: "hide", label: running ? "Stop and archive" : "Confirm archive", tone: "danger" }], reason: withTerminals(null) };
-  }
-  if (status.removable) {
-    return {
-      choices: [{ mode: "remove", label: running ? "Stop, archive and remove worktree" : "Archive and remove worktree", tone: "plain" }],
-      reason: withTerminals(null),
+export function homeLossReason(status) {
+  if (status.uncommitted > 0) return `Its folder has ${plural(status.uncommitted, "changed file")} that will be deleted.`;
+  return "Its folder has saved work that will be deleted.";
+}
+
+/** Archive immediately. Only remove a worktree checked as safe; keep unsaved work for restoration. */
+export function archiveMode(plan) {
+  return plan?.milagreOwned && !plan.shared && plan.status?.removable ? "remove" : "hide";
+}
+
+/** The immediate deletion mode; shared, external and unchecked Worktrees stay. */
+export function archiveChoices({ plan }) {
+  const mode = archiveMode(plan);
+  return { choices: [{ mode, label: "Delete", tone: "danger" }], reason: null, immediate: true };
+}
+
+/** How long a deleted Chat can still be brought back: its toast's Undo. The conversation and worktree go after it. */
+export const DELETE_UNDO_MS = 6000;
+
+// Deletions waiting out their Undo, by `projectPath#id`: each holds the function that calls the deletion off.
+const undoable = new Map();
+
+/**
+ * Waits out a deletion's Undo. Resolves `true` when `undoDelete` called it off, `false` once the time is up. A second
+ * wait on the same Chat ends the first as if its time were up.
+ */
+export function deleteUndoWindow(chatId, ms = DELETE_UNDO_MS) {
+  undoable.get(chatId)?.(false);
+  return new Promise((resolve) => {
+    const finish = (undone) => {
+      clearTimeout(timer);
+      if (undoable.get(chatId) === finish) undoable.delete(chatId);
+      resolve(undone);
     };
-  }
-  return {
-    choices: [{ mode: "delete", label: running ? "Stop, archive and delete worktree" : "Archive and delete worktree", tone: "danger" }],
-    reason: withTerminals(deleteNote(status)),
-  };
+    const timer = setTimeout(() => finish(false), ms);
+    // Node (the tests) needn't stay up for it; React Native's timers have no unref.
+    timer.unref?.();
+    undoable.set(chatId, finish);
+  });
+}
+
+/** Calls off a deletion still waiting out its Undo; `false` when it has gone ahead (or never started). */
+export function undoDelete(chatId) {
+  const finish = undoable.get(chatId);
+  if (!finish) return false;
+  finish(true);
+  return true;
 }
 
 /** What archiving ends among the chat's Terminals: those running a command, by its name. */
 export function terminalNote(busy) {
   if (!busy.length) return null;
-  if (busy.length === 1) return `Archiving ends the Terminal running ${busy[0]}.`;
-  return `Archiving ends ${busy.length} Terminals running ${[...new Set(busy)].join(", ")}.`;
+  if (busy.length === 1) return `Deleting ends the Terminal running ${busy[0]}.`;
+  return `Deleting ends ${busy.length} Terminals running ${[...new Set(busy)].join(", ")}.`;
 }
 
 /**
@@ -99,9 +126,10 @@ export function removeFailureNotice(error) {
 }
 
 /**
- * Archives a chat. The chat is hidden first, so a worktree that won't go never keeps the archive from happening.
+ * Deletes a Chat. It is hidden at once; `undoWindow`, when given, then holds the permanent steps back, and an Undo in it
+ * brings the Chat back ("undone") with nothing removed. After it the checked Worktree cleanup runs.
  * The worktree is removed only when the chosen mode asks for it, the menu's status is at hand, and no other chat
- * uses it by now. A refusal or an error becomes a notice, the worktree stays, and the chat is restored.
+ * uses it by now. A refusal restores the Chat. With its Worktree kept, destroy removes the conversation.
  */
 export async function archiveChat(deps, sessionId, mode, plan) {
   const latest = deps.getState();
@@ -109,9 +137,23 @@ export async function archiveChat(deps, sessionId, mode, plan) {
   const wantsRemoval = mode === "remove" || mode === "delete";
   // Another chat may have started using the worktree since the menu looked at it.
   const removing = wantsRemoval && latest && worktree?.base && plan?.status && !worktreeShared(latest, sessionId) ? worktree : null;
+  // The window opens with the toast, before the host has answered the hide, so an Undo tapped at once still counts.
+  const undone = deps.undoWindow?.();
   const stopped = deps.stop();
   await deps.hide();
-  if (!removing || !plan?.status) return "hidden";
+  if (undone && (await undone)) {
+    await deps.restore();
+    return "undone";
+  }
+  if (!removing || !plan?.status) {
+    try {
+      await deps.destroy();
+    } catch (error) {
+      await deps.restore();
+      throw error;
+    }
+    return "hidden";
+  }
   const sessionIds = Object.values(latest.sessions)
     .filter((session) => session.worktree_id === removing.id)
     .map((session) => session.id);
@@ -130,4 +172,14 @@ export async function archiveChat(deps, sessionId, mode, plan) {
   deps.applyRemoval({ worktreeId: removing.id, sessionIds });
   deps.refreshBranches();
   return "removed";
+}
+
+/**
+ * Archives a shared (Link) Chat, which keeps its Worktrees. As `archiveChat` does, only a running turn is stopped, and
+ * the stop never holds the archive up: waiting on it left the Chat unarchived whenever `agent:interrupt` timed out.
+ */
+export async function archiveLinkChat({ running, stop, hide }) {
+  // The stop goes out first; one that throws or rejects is let go.
+  if (running) new Promise((resolve) => resolve(stop())).catch(() => {});
+  await hide();
 }

@@ -1,14 +1,16 @@
-import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
+import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Clipboard from "expo-clipboard";
-import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, ClipboardPasteIcon, KeyboardIcon, QrCodeIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Cancel01Icon, ClipboardPasteIcon, KeyboardIcon, QrCodeIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { parsePairing, type Pairing } from "../pairing";
+import { privatePairingLink } from "@milagre/shared/pairing-link";
 import { useSession } from "../session";
 import { Icon } from "../icons";
-import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, useStyles } from "../ui";
+import { CircleButton, ErrorNotice, Field, Group, ListRow, PageScroll, PillButton, SheetHeader, useStyles } from "../ui";
+import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 /** One sheet, two steps: scan (with paste as a shortcut), or type the address and token. */
@@ -23,6 +25,7 @@ export default function AddComputer() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [privateOnly, setPrivateOnly] = useState(false);
   async function pair(pairing: Pairing) {
     if (busy) return;
     setBusy(true);
@@ -41,53 +44,53 @@ export default function AddComputer() {
   }
   function fromLink(text: string) {
     try {
-      void pair(parsePairing(text));
+      void pair(parsePairing(privateOnly ? privatePairingLink(text) : text));
     } catch (e) {
       setError((e as Error).message);
       setScanned(false);
     }
   }
   const header = (
-    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 }}>
-      {manual ? (
-        <CircleButton
-          label="Back"
-          icon={ArrowLeft01Icon}
-          onPress={() => {
-            setManual(false);
-            setError("");
-          }}
-        />
-      ) : (
-        <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-      )}
-      <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-        {manual ? "Enter manually" : "Add computer"}
-      </Text>
-      {manual ? (
-        <CircleButton
-          label="Connect"
-          icon={Tick02Icon}
-          filled
-          onPress={() => {
-            try {
-              void pair({ address: address.trim(), token: token.trim(), name: "" });
-            } catch (e) {
-              setError((e as Error).message);
-            }
-          }}
-        />
-      ) : (
-        <View style={{ width: 40 }} />
-      )}
-    </View>
+    <SheetHeader
+      title={manual ? "Enter manually" : "Add computer"}
+      leading={
+        manual ? (
+          <CircleButton
+            label="Back"
+            icon={ArrowLeft01Icon}
+            onPress={() => {
+              setManual(false);
+              setError("");
+            }}
+          />
+        ) : (
+          <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
+        )
+      }
+      trailing={
+        manual ? (
+          <CircleButton
+            label="Connect"
+            icon={Tick02Icon}
+            filled
+            onPress={() => {
+              try {
+                void pair({ address: address.trim(), token: token.trim(), name: "" });
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          />
+        ) : null
+      }
+    />
   );
   // A form sheet sizes its first scroll view to the sheet, so the header scrolls with the content.
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0 }} automaticallyAdjustKeyboardInsets>
       <Stack.Screen options={{ headerShown: false }} />
       {header}
-      <View style={{ padding: 20, paddingTop: 8, gap: 18 }}>
+      <View style={{ padding: 16, paddingTop: 8, gap: 16 }}>
         {manual ? (
           <>
             <Field label="Computer address" value={address} onChangeText={setAddress} keyboardType="url" autoFocus />
@@ -107,13 +110,13 @@ export default function AddComputer() {
             <View
               style={{
                 height: 320,
-                borderRadius: 24,
+                borderRadius: radius.sheet,
                 borderCurve: "continuous",
                 overflow: "hidden",
-                backgroundColor: "#15171a",
+                backgroundColor: colors.media,
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 14,
+                gap: 12,
               }}
             >
               {permission?.granted ? (
@@ -133,29 +136,37 @@ export default function AddComputer() {
               ) : null}
               <View
                 pointerEvents="none"
-                style={{ width: 200, height: 200, borderRadius: 28, borderWidth: 3, borderColor: "#ffffffcc", alignItems: "center", justifyContent: "center" }}
+                style={{
+                  width: 200,
+                  height: 200,
+                  borderRadius: radius.sheet,
+                  borderCurve: "continuous",
+                  borderWidth: 3,
+                  borderColor: colors.onMedia2,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
-                {!permission?.granted && <Icon icon={QrCodeIcon} color="#ffffff55" size={64} />}
+                {!permission?.granted && <Icon icon={QrCodeIcon} tone="onMedia2" size={64} />}
               </View>
               {permission?.granted ? (
-                <Text style={{ color: "#ffffffcc", fontSize: 14 }}>Point at the QR code on your Mac</Text>
+                <Text style={{ color: colors.onMedia2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Point at the QR code on your Mac</Text>
               ) : (
-                <Pressable
-                  accessibilityRole="button"
+                <PillButton
+                  secondary
+                  title={permission?.canAskAgain === false ? "Allow camera access in Settings" : "Allow camera to scan"}
                   onPress={() => void (permission?.canAskAgain === false ? Linking.openSettings() : requestPermission())}
-                  style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: "#ffffff26" }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
-                    {permission?.canAskAgain === false ? "Allow camera access in Settings" : "Allow camera to scan"}
-                  </Text>
-                </Pressable>
+                />
               )}
             </View>
             <View style={{ gap: 6 }}>
               <Text style={styles.label}>On your Mac</Text>
               <Text style={styles.text}>Open Milagre, go to Settings → Devices, turn on Allow devices to connect and scan the QR code it shows.</Text>
             </View>
-            <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
+            <Group footer="Automatic tries LAN and Tailscale before the remote connection. Private pairing needs both devices on the same network or tailnet.">
+              <ListRow title="LAN or Tailscale only" disabled={busy} toggle={{ value: privateOnly, onChange: () => setPrivateOnly(!privateOnly) }} />
+            </Group>
+            <Group>
               {[
                 {
                   icon: ClipboardPasteIcon,
@@ -169,26 +180,18 @@ export default function AddComputer() {
                   icon: KeyboardIcon,
                   title: "Enter address and token",
                   onPress: () => {
+                    if (privateOnly) {
+                      setError("For private pairing, scan or paste the Mac's LAN or Tailscale pairing link.");
+                      return;
+                    }
                     setManual(true);
                     setError("");
                   },
                 },
-              ].map((row, index) => (
-                <View key={row.title}>
-                  {index > 0 && <View style={styles.separator} />}
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={row.onPress}
-                    disabled={busy}
-                    style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, opacity: pressed ? 0.5 : 1 })}
-                  >
-                    <Icon icon={row.icon} tone="accent" size={20} />
-                    <Text style={[styles.text, { flex: 1 }]}>{row.title}</Text>
-                    <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-                  </Pressable>
-                </View>
+              ].map((row) => (
+                <ListRow key={row.title} title={row.title} icon={row.icon} disabled={busy} onPress={row.onPress} />
               ))}
-            </View>
+            </Group>
           </>
         )}
         <Text style={styles.caption}>Pairing gives this device access to your computer&apos;s Projects and Chats. Keep pairing links private.</Text>

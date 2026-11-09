@@ -12,6 +12,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import * as Font from "expo-font";
+import { mix, withAlpha } from "@milagre/shared/themes";
+import { useTheme } from "./theme";
 import { useUltracodeAudio } from "./ultracode-audio";
 
 const DURATION = 2600;
@@ -36,6 +38,7 @@ const CREEPSTER = { Creepster: require("../assets/fonts/Creepster-Regular.ttf") 
  * announcer and the model sheet's Ultra rumble play under it. Reduced motion keeps the word and voice, not the slam. */
 export function UltracodeFatality({ onDone }: { onDone: () => void }) {
   useUltracodeAudio();
+  const { colors } = useTheme();
   const reduce = useReducedMotion();
   const [font, setFont] = useState(Font.isLoaded("Creepster") ? "Creepster" : FALLBACK);
   useEffect(() => {
@@ -77,9 +80,14 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
 
   return (
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { zIndex: 100, alignItems: "center", justifyContent: "center" }, veilStyle]}>
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000000cc" }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: withAlpha(colors.media, 0.8) }]} />
       <View
-        style={[StyleSheet.absoluteFill, { experimental_backgroundImage: "radial-gradient(ellipse at center, transparent 30%, rgba(76,29,149,0.6) 100%)" }]}
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            experimental_backgroundImage: `radial-gradient(ellipse at center, transparent 30%, ${withAlpha(mix(colors.purple, colors.media, 0.5), 0.6)} 100%)`,
+          },
+        ]}
       />
       <Animated.View style={wordStyle}>
         <Animated.Text
@@ -88,8 +96,8 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
             fontFamily: font,
             fontSize: 56,
             letterSpacing: 2,
-            color: "#c084fc",
-            textShadowColor: "#a855f7cc",
+            color: mix(colors.purple, colors.onMedia, 0.3),
+            textShadowColor: withAlpha(colors.purple, 0.8),
             textShadowRadius: 18,
           }}
         >
@@ -118,6 +126,8 @@ function Dot({
   duration: number;
   light: boolean;
 }) {
+  const { colors } = useTheme();
+  const spark = mix(colors.purple, colors.onMedia, 0.3);
   const t = useSharedValue(0);
   useEffect(() => {
     t.set(withDelay(delay, withTiming(1, { duration, easing: Easing.linear })));
@@ -142,8 +152,8 @@ function Dot({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: light ? "#f0abfc" : "#c084fc",
-          boxShadow: "0 0 10px 2px #c084fce6",
+          backgroundColor: light ? mix(colors.purple, colors.onMedia, 0.6) : spark,
+          boxShadow: `0 0 10px 2px ${withAlpha(spark, 0.9)}`,
         },
         style,
       ]}

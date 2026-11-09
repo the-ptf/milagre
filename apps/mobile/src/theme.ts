@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
-import { Appearance, Platform, useColorScheme } from "react-native";
-import { onColor, resolvePalette, withAlpha, type ThemePalette } from "@milagre/shared/themes";
+import { Appearance, Platform, StyleSheet, useColorScheme } from "react-native";
+import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES } from "@milagre/shared/appearance";
+import { mix, onColor, resolvePalette, ULTRACODE_PURPLE, withAlpha, type ThemePalette } from "@milagre/shared/themes";
 import { readThemeSettings, saveThemeSettings } from "./hosts-native";
 import { getThemeSettings, initThemeStore, setThemeSettings, subscribeTheme, type PhoneThemeSettings } from "./theme-store";
 
@@ -13,11 +14,34 @@ export type Palette = ThemePalette & {
   text: string;
   muted: string;
   error: string;
+  /** Label on an ink fill: the surface, as desktop's on-ink. */
   onInk: string;
+  /** The idle Chat mark: a solid ink4 dot. */
   idleDot: string;
+  /** Behind a modal sheet or panel (desktop's --scrim). */
+  scrim: string;
+  /** @deprecated Use `scrim`. */
   backdrop: string;
   purpleInk: string;
   purpleTint: string;
+  /** Label on the plain red fill (a recording mic, icon only). */
+  onRed: string;
+  /** Label on a redInk fill: the filled destructive PillButton (desktop's --on-red on bg-red-ink). */
+  onRedInk: string;
+  /** A page that is white in every theme: HTML artifacts, QR codes, design thumbnails. */
+  paper: string;
+  /** Elevation as `boxShadow`, each with its hairline ring, so an elevated surface takes no border. Dark variants are deeper. */
+  shadowCard: string;
+  shadowRaised: string;
+  shadowOverlay: string;
+  /** Camera and full-screen media: black behind, white on top, the same in every theme. */
+  media: string;
+  onMedia: string;
+  onMedia2: string;
+  onMediaTint: string;
+  /** Additions and deletions: the theme's green and red unless Diff colors picks another pair. */
+  add: string;
+  remove: string;
 };
 
 function applyMode(mode: PhoneThemeSettings["mode"]) {
@@ -25,23 +49,56 @@ function applyMode(mode: PhoneThemeSettings["mode"]) {
 }
 void initThemeStore({ read: readThemeSettings, save: saveThemeSettings }).then(() => applyMode(getThemeSettings().mode));
 
-// Ultracode's purple is a brand color, the same in every theme (desktop keeps --purple out of the theme sheet too).
-const ULTRACODE = {
-  light: { purple: "#ad46ff", purpleInk: "#8e2bdc", purpleTint: "#f6edff" },
-  dark: { purple: "#ad46ff", purpleInk: "#d0a3ff", purpleTint: "#ad46ff2e" },
+const MEDIA = { media: "#000000", onMedia: "#ffffff", onMedia2: "#ffffffcc", onMediaTint: "#ffffff26", paper: "#ffffff" };
+const ELEVATION = {
+  light: { card: "0 1px 3px #0000000f", raised: "0 4px 20px #0000000f", overlay: "0 8px 28px #00000017" },
+  dark: { card: "0 1px 3px #00000040", raised: "0 4px 20px #00000059", overlay: "0 8px 28px #00000080" },
 };
 function extend(p: ThemePalette, scheme: "light" | "dark"): Palette {
+  const ring = `0 0 0 ${StyleSheet.hairlineWidth}px ${p.line}`;
+  const shadow = ELEVATION[scheme];
   return {
     ...p,
-    ...ULTRACODE[scheme],
+    // Ultracode's purple is a brand color, the same in every theme (desktop keeps --purple out of the theme sheet too).
+    ...ULTRACODE_PURPLE[scheme],
     bg: p.page,
     panel: p.surface,
     text: p.ink,
     muted: p.ink2,
-    error: p.red,
-    onInk: onColor(p.ink, p.page),
-    idleDot: withAlpha(p.ink3, 0.4),
+    error: p.redInk,
+    onInk: p.surface,
+    onRed: onColor(p.red, p.page),
+    onRedInk: p.onRed,
+    shadowCard: `${ring}, ${shadow.card}`,
+    shadowRaised: `${ring}, ${shadow.raised}`,
+    shadowOverlay: `${ring}, ${shadow.overlay}`,
+    ...MEDIA,
+    idleDot: p.ink4,
+    scrim: scheme === "dark" ? "#00000066" : "#00000033",
     backdrop: scheme === "dark" ? "#00000066" : "#00000033",
+    add: p.green,
+    remove: p.red,
+  };
+}
+
+/** A status tone as text: its -ink shade, 4.5:1 on page, card and its tint. Icons, dots and spinners keep the fill tone. */
+export function inkFor(colors: Palette, tone: "accent" | "green" | "orange" | "red" | "purple" | "ink" | "ink2" | "ink3"): string {
+  return tone === "ink" || tone === "ink2" || tone === "ink3" ? colors[tone] : colors[`${tone}Ink`];
+}
+
+// Diff colors: swap the add/remove colors and the diff row tints; the theme's own green and red stay for status and errors.
+function withDiffColors(p: Palette, diffColors: PhoneThemeSettings["diffColors"], scheme: "light" | "dark"): Palette {
+  const pair = DIFF_PAIRS.find((entry) => entry.id === diffColors)?.[scheme];
+  if (!pair) return p;
+  const tint = (color: string, light: number, dark: number) => (scheme === "dark" ? withAlpha(color, dark) : mix(p.page, color, light));
+  return {
+    ...p,
+    add: pair.add,
+    remove: pair.remove,
+    diffAdd: tint(pair.add, 0.12, 0.12),
+    diffAddWord: tint(pair.add, 0.3, 0.3),
+    diffRemove: tint(pair.remove, 0.1, 0.12),
+    diffRemoveWord: tint(pair.remove, 0.26, 0.3),
   };
 }
 
@@ -53,11 +110,11 @@ function setTheme(patch: Partial<PhoneThemeSettings>) {
 // One palette object per theme, shared by every component, so per-palette style caches hit across the app.
 const paletteCache = new Map<string, Palette>();
 function paletteFor(settings: PhoneThemeSettings, scheme: "light" | "dark"): Palette {
-  const key = `${settings.colorTheme}|${scheme}|${JSON.stringify(settings.customTheme ?? null)}`;
+  const key = `${settings.colorTheme}|${settings.diffColors}|${scheme}|${JSON.stringify(settings.customTheme ?? null)}`;
   let palette = paletteCache.get(key);
   if (!palette) {
     if (paletteCache.size > 24) paletteCache.clear();
-    palette = extend(resolvePalette(settings.colorTheme, scheme, settings.customTheme), scheme);
+    palette = withDiffColors(extend(resolvePalette(settings.colorTheme, scheme, settings.customTheme), scheme), settings.diffColors, scheme);
     paletteCache.set(key, palette);
   }
   return palette;
@@ -67,8 +124,20 @@ export function useTheme() {
   const settings = useSyncExternalStore(subscribeTheme, getThemeSettings);
   const scheme = useColorScheme() === "dark" ? "dark" : "light";
   const palette = paletteFor(settings, scheme);
-  return { colors: palette, scheme, settings, set: setTheme } as const;
+  const scale = appearanceScales(settings);
+  return { colors: palette, scheme, settings, set: setTheme, diff: { add: palette.add, remove: palette.remove }, ...scale } as const;
 }
+
+/** Text size in px for chat text (15 by default), code size in px (12), and the motion multiplier (1, 0.6, 0). */
+function appearanceScales(settings: Pick<PhoneThemeSettings, "textSize" | "codeSize" | "motion">) {
+  const text = PHONE_TEXT_SIZES.find((entry) => entry.id === settings.textSize)?.px ?? 15;
+  const code = PHONE_CODE_SIZES.find((entry) => entry.id === settings.codeSize)?.px ?? 12;
+  const motionScale = MOTION_SPEEDS.find((entry) => entry.id === settings.motion)?.scale ?? 1;
+  return { typeScale: text / 15, textPx: text, codeSize: code, motionScale };
+}
+
+/** The motion multiplier for code outside React (worklet setup, module-level animations). */
+export const getMotionScale = () => appearanceScales(getThemeSettings()).motionScale;
 
 /** A hook for a style sheet that depends on the palette: built once per palette, shared by every component that calls it. */
 export function createStylesHook<T>(make: (colors: Palette) => T): () => T {

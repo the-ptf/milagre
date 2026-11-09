@@ -1,9 +1,10 @@
 import { useReducedMotion } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
-import { type ComponentPropsWithRef, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ComponentPropsWithRef, type Ref, createContext, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PreviewRail, type PreviewRailItem } from "../motion/PreviewRail";
+import { Icon } from "../primitives/Icon";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
+import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 
 const PREVIEW_TITLE_LENGTH = 56;
 const PREVIEW_DESCRIPTION_LENGTH = 88;
@@ -24,7 +25,15 @@ function getMessageText(message: HTMLElement) {
     message.querySelector<HTMLElement>('[data-slot="message-bubble-content"]') ??
     message.querySelector<HTMLElement>('[data-slot="message-content"]') ??
     message;
-  return (surface.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (surface !== message) return (surface.textContent ?? "").replace(/\s+/g, " ").trim();
+  // Answerless replies preview their summary, independent of which activity rows were opened.
+  const walker = document.createTreeWalker(message, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node instanceof Element ? (node.matches('[data-slot="activity-body"]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP) : NodeFilter.FILTER_ACCEPT,
+  });
+  let text = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) text += node.textContent ?? "";
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function getMessagePreview(message: HTMLElement, assistantResponse?: HTMLElement) {
@@ -67,6 +76,12 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
   /** Compatibility with the previous local API. */
   autoScrollKey?: string | number;
 }
+
+/** Whether the scroller around a transcript follows its bottom now: read when it matters, so following renders nothing. */
+export const MessageFollowContext = createContext<{ readonly current: boolean } | null>(null);
+
+/** Dispatched on the viewport of a parked transcript that is back in the document and needs measuring again. */
+export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
 
 export function MessageScroller({
   followOutput = true,
@@ -144,10 +159,15 @@ export function MessageScroller({
     if (navigation !== "rail") return;
     const viewport = viewportRef.current;
     const targets = [...railTargetsRef.current.entries()];
-    if (!viewport || targets.length === 0) return;
+    const first = targets[0];
+    if (!viewport) return;
+    if (!first) {
+      setActiveRailId("");
+      return;
+    }
 
     if (viewport.scrollTop <= followThreshold) {
-      setActiveRailId((current) => (current === targets[0][0] ? current : targets[0][0]));
+      setActiveRailId((current) => (current === first[0] ? current : first[0]));
       return;
     }
 
@@ -161,19 +181,28 @@ export function MessageScroller({
     // Messages sit in document order, so their centres only grow: binary-search the first one past the viewport centre.
     const viewportCenter = viewport.getBoundingClientRect().top + viewport.clientHeight / 2;
     const centerOf = (index: number) => {
-      const rect = targets[index][1].getBoundingClientRect();
+      const target = targets[index];
+      if (!target) return undefined;
+      const rect = target[1].getBoundingClientRect();
       return rect.top + rect.height / 2;
     };
     let low = 0;
     let high = targets.length - 1;
     while (low < high) {
       const mid = (low + high) >> 1;
-      if (centerOf(mid) < viewportCenter) low = mid + 1;
+      const center = centerOf(mid);
+      if (center === undefined) return;
+      if (center < viewportCenter) low = mid + 1;
       else high = mid;
     }
     const previous = low > 0 ? low - 1 : low;
-    const nearest = Math.abs(centerOf(previous) - viewportCenter) <= Math.abs(centerOf(low) - viewportCenter) ? previous : low;
-    const nearestId = targets[nearest][0];
+    const previousCenter = centerOf(previous);
+    const lowCenter = centerOf(low);
+    if (previousCenter === undefined || lowCenter === undefined) return;
+    const nearest = Math.abs(previousCenter - viewportCenter) <= Math.abs(lowCenter - viewportCenter) ? previous : low;
+    const target = targets[nearest];
+    if (!target) return;
+    const nearestId = target[0];
 
     setActiveRailId((current) => (current === nearestId ? current : nearestId));
   }, [followThreshold, navigation]);
@@ -191,13 +220,15 @@ export function MessageScroller({
     let nextAssistant: HTMLElement | undefined;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       responses[index] = nextAssistant;
-      if (messages[index].dataset.from === "assistant") nextAssistant = messages[index];
+      const message = messages[index];
+      if (message?.dataset.from === "assistant") nextAssistant = message;
     }
     const cache = previewCacheRef.current;
     const targets = new Map<string, HTMLElement>();
     // Sample the whole Chat, including both ends, rather than growing a tick per message.
-    const nextItems = messageNavigationIndices(messages.length).map((index) => {
+    const nextItems = messageNavigationIndices(messages.length).flatMap((index) => {
       const message = messages[index];
+      if (!message) return [];
       let id = railIdRef.current.get(message);
       if (!id) {
         railIdCounterRef.current += 1;
@@ -212,12 +243,14 @@ export function MessageScroller({
         if (index < messages.length - LIVE_TAIL) cache.set(message, preview);
       }
 
-      return {
-        id,
-        label: preview.label,
-        description: preview.description,
-        ariaLabel: `Go to ${sender} message ${index + 1} of ${messages.length}`,
-      };
+      return [
+        {
+          id,
+          label: preview.label,
+          description: preview.description,
+          ariaLabel: `Go to ${sender} message ${index + 1} of ${messages.length}`,
+        },
+      ];
     });
     railMessageCountRef.current = messages.length;
 
@@ -307,6 +340,23 @@ export function MessageScroller({
     programmaticScrollRef.current = false;
   }, []);
 
+  // A parked transcript put back in the document (ChatComposer's TranscriptSlots) with messages whose size
+  // contain-intrinsic-size never learned measures every message once more.
+  const [measurePass, setMeasurePass] = useState(0);
+  const shownBefore = useRef(false);
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const remeasure = () => {
+      setMeasuring(true);
+      setMeasurePass((pass) => pass + 1);
+    };
+    viewport.addEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
+    // Effects run again when a hidden <Activity> shows this scroller again; display:none dropped the remembered sizes.
+    if (shownBefore.current) remeasure();
+    shownBefore.current = true;
+    return () => viewport.removeEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
+  }, []);
   useEffect(() => {
     let settle = 0;
     const first = requestAnimationFrame(() => {
@@ -316,7 +366,8 @@ export function MessageScroller({
       cancelAnimationFrame(first);
       cancelAnimationFrame(settle);
     };
-  }, []);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- each pass runs the settle frames again
+  }, [measurePass]);
 
   useLayoutEffect(() => {
     followingRef.current = followOutput;
@@ -375,19 +426,30 @@ export function MessageScroller({
     });
     mutationObserver.observe(content, { childList: true });
     if (list !== content) mutationObserver.observe(list, { childList: true });
+    // While a panel edge is dragged the viewport resizes on every frame: the list is rebuilt once, when the drag ends.
+    let rebuildAfterDrag = false;
     const resizeObserver = new ResizeObserver((entries) => {
       // A resized viewport can change what fits, so it rebuilds the list; content growth only checks overflow and the active item.
-      if (entries.some((entry) => entry.target === viewport)) scheduleRailSync();
+      if (panelResizing()) rebuildAfterDrag = true;
+      else {
+        if (entries.some((entry) => entry.target === viewport)) scheduleRailSync();
+        scheduleRailRefresh();
+      }
       setRailOverflowing(viewport.scrollHeight > viewport.clientHeight + 1 && railMessageCountRef.current > 1);
-      scheduleRailRefresh();
       scheduleActiveRailItem();
     });
     resizeObserver.observe(content);
     resizeObserver.observe(viewport);
+    const offDragEnd = onPanelResizeEnd(() => {
+      if (!rebuildAfterDrag) return;
+      rebuildAfterDrag = false;
+      scheduleRailSync();
+    });
 
     return () => {
       mutationObserver.disconnect();
       resizeObserver.disconnect();
+      offDragEnd();
     };
   }, [navigation, scheduleActiveRailItem, scheduleRailRefresh, scheduleRailSync]);
 
@@ -406,7 +468,7 @@ export function MessageScroller({
     (item: PreviewRailItem) => {
       const viewport = viewportRef.current;
       const target = railTargetsRef.current.get(item.id);
-      if (!viewport || !target) return;
+      if (!viewport || !target || !contentRef.current?.contains(target)) return;
 
       const lastItem = railItems.at(-1)?.id === item.id;
       setActiveRailId(item.id);
@@ -455,7 +517,7 @@ export function MessageScroller({
         if (["ArrowUp", "PageUp", "Home"].includes(event.key)) leaveLiveEdge();
         onViewportKeyDown?.(event);
       }}
-      className={`h-full min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain outline-none [overflow-anchor:none] ${navigation === "rail" ? "message-scroller-viewport [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" : "[scrollbar-gutter:stable]"} ${viewportClassName}`}
+      className={`h-full min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain focus-visible:-outline-offset-2 [overflow-anchor:none] ${navigation === "rail" ? "message-scroller-viewport [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" : "[scrollbar-gutter:stable]"} ${viewportClassName}`}
     >
       <div
         ref={contentRef}
@@ -467,7 +529,7 @@ export function MessageScroller({
         className={contentClassName}
         {...contentProps}
       >
-        {children}
+        <MessageFollowContext value={followingRef}>{children}</MessageFollowContext>
       </div>
     </section>
   );
@@ -502,9 +564,9 @@ export function MessageScroller({
               setFollowing(true);
               scrollToEnd(reduce || !smooth ? "auto" : "smooth");
             }}
-            className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-line-strong/50 bg-surface/60 text-ink shadow-overlay backdrop-blur-chip transition-colors hover:bg-surface/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink"
+            className="pointer-events-auto inline-flex size-10 items-center justify-center rounded-full bg-surface/60 text-ink shadow-overlay backdrop-blur-chip transition-[background-color,scale] duration-fast hover:bg-surface/80 active:scale-press"
           >
-            <HugeiconsIcon icon={ArrowDown01Icon} size={20} aria-hidden="true" />
+            <Icon icon={ArrowDown01Icon} size={18} />
           </button>
         </div>
       )}

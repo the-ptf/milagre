@@ -9,8 +9,9 @@ const http = require("node:http");
 const { setTimeout: delay } = require("node:timers/promises");
 const { WebSocket } = require("ws");
 const { startDaemon } = require("./server.cjs");
-const { forPhone, runsForPhone, startMobileBridge } = require("./mobile-bridge.cjs");
+const { forPhone, runsForPhone, startMobileBridge, METHODS } = require("./mobile-bridge.cjs");
 const { connect } = require("./client.cjs");
+const { ensureDaemon } = require("./bootstrap.cjs");
 const { demoRuntimeOptions } = require("./demo-agent.cjs");
 
 test("phone projections preserve PR references without shell output", () => {
@@ -39,6 +40,50 @@ test("phone projections preserve PR references without shell output", () => {
   assert.equal(project.pullRequestRefs, undefined, "projection metadata does not change stored state");
 });
 
+test("/runs takes one Project's turns by key, the same shape as before, without copying the others", () => {
+  const { projectRuns } = require("./mobile-bridge.cjs");
+  const mine = { text: "here", steps: [] };
+  const theirs = { text: "elsewhere", steps: [] };
+  const all = { runs: { "/p#1": mine, "/p-other#2": theirs, "/p#3": mine }, seq: 7 };
+  const own = projectRuns(all, "/p");
+  assert.deepEqual(Object.keys(own.runs), ["/p#1", "/p#3"]);
+  assert.equal(own.seq, 7);
+  assert.equal(own.runs["/p#1"], mine, "a run of the Project is passed on as it is (runsForPhone slims a copy)");
+  assert.deepEqual(projectRuns({ runs: undefined, seq: 0 }, "/p"), { runs: {}, seq: 0 });
+});
+
+test("overlapping runs reads share one host read until an event comes in, and none is kept once it lands", async () => {
+  const { sharedRead } = require("./mobile-bridge.cjs");
+  let calls = 0;
+  const answers = [];
+  const shared = sharedRead(
+    () =>
+      new Promise((resolve) => {
+        calls++;
+        answers.push(resolve);
+      }),
+  );
+  const first = shared.read();
+  const second = shared.read();
+  await delay(0);
+  assert.equal(calls, 1, "a read while one is on its way shares it");
+  shared.changed();
+  const third = shared.read();
+  await delay(0);
+  assert.equal(calls, 2, "after an event, a read goes to the host again: the one on its way may predate the change");
+  answers[0]("a");
+  answers[1]("b");
+  assert.deepEqual(await Promise.all([first, second, third]), ["a", "a", "b"]);
+  const fourth = shared.read();
+  await delay(0);
+  assert.equal(calls, 3, "a landed read is never reused");
+  answers[2]("c");
+  assert.equal(await fourth, "c");
+  const failing = sharedRead(() => Promise.reject(new Error("busy")));
+  await assert.rejects(failing.read(), /busy/);
+  await assert.rejects(failing.read(), /busy/, "a failed read is not kept either");
+});
+
 async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-")));
   const dataDir = path.join(root, "profile");
@@ -51,11 +96,10 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
     runtimeOptions: {
       environmentReady: Promise.resolve(),
       titleModels: {},
-      worktreeRoot: path.join(root, "worktrees"),
-      // Only the Projects a test opens: never the ones under this Mac's own code folders.
-      registryRoots: [],
       agentCli: Object.assign(async () => ({ command: null, problem: "Test has no provider" }), { invalidate() {} }),
       ...runtimeOptions,
+      // Fixture-owned paths must win over demo options, including an undefined worktreeRoot.
+      worktreeRoot: path.join(root, "worktrees"),
     },
   });
   const token = randomBytes(32).toString("hex");
@@ -70,6 +114,30 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
     request("/rpc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ v: 1, method, args }) });
   return { dataDir, project, bridge, request, rpc, token, daemon };
 }
+
+test("phone and desktop receive the same Project icon, including large repository images and icon resets", async (t) => {
+  const { dataDir, project, rpc } = await fixture(t);
+  const png = await fs.readFile(path.join(__dirname, "../../desktop/app/public/logo-milagre-image.png"));
+  const repositoryIcon = `data:image/png;base64,${png.toString("base64")}`;
+  assert.ok(repositoryIcon.length > 600_000, "exercise the full-size icon previously replaced with a folder on phones");
+  await fs.mkdir(path.join(project, ".milagre"));
+  await fs.writeFile(path.join(project, ".milagre/icon.png"), png);
+  const desktop = await connect({ dataDir });
+  t.after(() => desktop.close());
+  await desktop.call("project:open", [project]);
+  const phoneCall = async (method, args) => {
+    const response = await rpc(method, args);
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  assert.equal(await desktop.call("project:image", [project]), repositoryIcon);
+  assert.ok((await phoneCall("project:image", [project])) === repositoryIcon, "phone receives the repository icon unchanged");
+  const chosenIcon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+  assert.equal(await phoneCall("project:set-icon", [project, chosenIcon]), chosenIcon);
+  assert.equal(await desktop.call("project:image", [project]), chosenIcon);
+  assert.ok((await phoneCall("project:set-icon", [project, null])) === repositoryIcon, "reset restores the repository icon on phones");
+  assert.equal(await phoneCall("project:image", [project]), await desktop.call("project:image", [project]));
+});
 
 test("inbox question and approval actions settle through the owner, and Clear removes unread outcomes", async (t) => {
   const { rpc, request, project } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
@@ -152,14 +220,15 @@ test("mobile bridge forwards commands to the existing owner and reads cached sna
 
 test("a phone opens a named Link and sends one shared Chat with two owned Worktrees", async (t) => {
   const demo = demoRuntimeOptions();
-  // The demo agent changes both Projects, so it asks for this Chat's Worktree in each first, as a real agent does.
+  // The Projects the agent changes: each gets the shared Chat's Worktree first, as a real agent's would.
+  const edits = [];
   const createSession = (provider, context) => {
     const session = demo.createSession(provider, context);
-    const start = session.startTurn.bind(session);
+    const startTurn = session.startTurn.bind(session);
     session.startTurn = async (turn) => {
-      const tool = context.linked?.tools.find((item) => item.name === "link_worktree");
-      for (const main of context.readRoots ?? []) await tool.run({ project: path.basename(main) });
-      return start(turn);
+      const tool = context.linked?.tools.find((item) => item.name === "link_worktree_create");
+      if (tool) for (const project of edits) await tool.run({ project });
+      return startTurn(turn);
     };
     return session;
   };
@@ -176,17 +245,25 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   const registryResponse = await rpc("project:registry");
   assert.equal(registryResponse.status, 200);
   const registered = (await registryResponse.json()).result;
+  edits.push(...registered.map((item) => item.name));
   const made = await rpc("link:create", [{ name: "Together", projectIds: registered.map((item) => item.id) }]);
   assert.equal(made.status, 200);
   const link = (await made.json()).result;
   const desktopReader = await connect({ dataDir });
   try {
-    const hidden = await rpc("link:update", [{ ...link, hidden: true }]);
-    assert.equal(hidden.status, 200);
-    assert.equal((await desktopReader.call("link:list"))[0].hidden, true, "A phone visibility change reaches the desktop registry");
-    await desktopReader.call("link:update", [{ ...link, hidden: false }]);
+    assert.deepEqual(
+      await desktopReader.call("worktree:roots"),
+      [path.join(path.dirname(project), "worktrees")],
+      "Undefined demo options must not replace the fixture's temporary Worktree root",
+    );
+    await desktopReader.call("link:update", [{ ...link, hidden: true }]);
+    const hiddenAttempt = await rpc("link:update", [{ ...link, hidden: false }]);
+    assert.equal(hiddenAttempt.status, 200);
+    assert.equal((await desktopReader.call("link:list"))[0].hidden, true, "A phone Link update never alters the Mac's own Link visibility");
     const listed = await (await rpc("link:list")).json();
-    assert.equal(listed.result[0].hidden, undefined, "A desktop visibility change reaches the phone without deleting the Link");
+    assert.equal(listed.result[0].hidden, undefined, "The Mac's own Link visibility is not sent to the phone");
+    assert.equal((await rpc("project:set-hidden", [project, true])).status, 403, "Project visibility is kept on each device, not mutated over mobile RPC");
+    await desktopReader.call("link:update", [{ ...link, hidden: false }]);
   } finally {
     desktopReader.close();
   }
@@ -231,6 +308,10 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   const png = Buffer.from("89504e470d0a1a0a00000000", "hex");
   const media = (file) => request(`/media?projectPath=${encodeURIComponent(owner)}&path=${encodeURIComponent(file)}`);
   for (const member of saved.link.state.sessions[id].worktrees) {
+    assert.ok(
+      (await fs.realpath(member.worktreePath)).startsWith(path.join(path.dirname(project), "worktrees") + path.sep),
+      "Every owned Worktree stays inside the fixture so teardown removes it",
+    );
     const image = path.join(member.worktreePath, "screenshot.png");
     await fs.writeFile(image, png);
     assert.equal((await media(image)).status, 200, "Images in either owned Worktree are available to the shared Chat");
@@ -250,6 +331,12 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   assert.equal((await request("/runs?projectPath=" + encodeURIComponent(owner))).status, 200);
   assert.equal((await rpc("chat:patch", [owner, id, { title: "From phone" }])).status, 200);
   assert.equal((await (await request(snapshotRoute)).json()).result.link.state.sessions[id].title, "From phone");
+  // The phone deletes the Link as the desktop does: the screenshots above leave both Worktrees changed, so both stay.
+  assert.deepEqual((await (await rpc("link:delete-check", [link.id])).json()).result, { chats: 1, running: [] });
+  const deleted = (await (await rpc("link:delete", [link.id])).json()).result;
+  assert.deepEqual(deleted.removed, []);
+  assert.equal(deleted.kept.length, 2);
+  assert.deepEqual((await (await rpc("link:list")).json()).result, []);
 });
 
 test("mobile archives finished subagents through the shared owner and restores their output", async (t) => {
@@ -585,9 +672,9 @@ test("mobile uploads are private, bounded and scoped to an open Project", async 
   assert.equal(await fs.readFile(file.path, "utf8"), "Review this document");
   assert.equal((await fs.stat(file.path)).mode & 0o777, 0o600);
   assert.equal((await upload({ ...payload, base64: "invalid!" })).status, 400);
-  assert.equal((await upload({ ...payload, base64: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") })).status, 413);
+  assert.equal((await upload({ ...payload, base64: Buffer.alloc(50 * 1024 * 1024 + 1).toString("base64") })).status, 413);
   const next = (await (await upload(payload)).json()).result;
-  assert.notEqual(next.path, file.path);
+  assert.equal(next.path, file.path, "identical uploads reuse the completed file");
 });
 
 test("a chat screenshot outside the Project is served privately and retained after its temporary source is removed", async (t) => {
@@ -669,9 +756,9 @@ test("mobile media serves images only from the Project Worktrees and Milagre ima
   await fs.mkdir(path.join(worktree, "folder.png"));
   assert.equal((await media(path.join(worktree, "folder.png"))).status, 403);
 
-  // 15 MiB cap.
+  // 50 MiB cap.
   const big = path.join(worktree, "big.png");
-  await fs.writeFile(big, Buffer.concat([png, Buffer.alloc(15 * 1024 * 1024)]));
+  await fs.writeFile(big, Buffer.concat([png, Buffer.alloc(50 * 1024 * 1024)]));
   assert.equal((await media(big)).status, 413);
 
   // Same token and host rules as every other route.
@@ -698,6 +785,70 @@ test("the bridge reports a lost daemon and stops listening, so its owner can res
   await daemon.close();
   await bridge.lost;
   await assert.rejects(fetch(bridge.url + "/rpc", { method: "POST" }));
+});
+
+test("a busy daemon's requests wait their turn at the bridge, and only a flood past the waiting room is refused", async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-")));
+  const dataDir = path.join(root, "profile");
+  // Its own process, so it can be frozen like a CPU-starved Mac while the bridge keeps answering.
+  const host = await ensureDaemon({ dataDir, version: "test", cwd: root });
+  const { pid } = host.status;
+  host.close();
+  const token = randomBytes(32).toString("hex");
+  const bridge = await startMobileBridge({ dataDir, port: 0, token });
+  t.after(async () => {
+    process.kill(pid, "SIGCONT");
+    await bridge.close();
+    const client = await connect({ dataDir });
+    await client.call("daemon:stop").catch(() => {});
+    client.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const status = () =>
+    fetch(bridge.url + "/rpc", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ v: 1, method: "daemon:status", args: [] }),
+    });
+  process.kill(pid, "SIGSTOP");
+  const held = Array.from({ length: 16 + 64 }, () => status());
+  await delay(200);
+  const flood = await status();
+  assert.equal(flood.status, 429, "past 16 running and 64 waiting the bridge refuses");
+  process.kill(pid, "SIGCONT");
+  const answered = await Promise.all(held);
+  assert.deepEqual(new Set(answered.map((response) => response.status)), new Set([200]), "every waiting request was answered");
+});
+
+test("a request that waited too long at the bridge is refused unread, never run late", async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-")));
+  const dataDir = path.join(root, "profile");
+  const host = await ensureDaemon({ dataDir, version: "test", cwd: root });
+  const { pid } = host.status;
+  host.close();
+  const token = randomBytes(32).toString("hex");
+  const bridge = await startMobileBridge({ dataDir, port: 0, token, queueWaitMs: 150 });
+  t.after(async () => {
+    process.kill(pid, "SIGCONT");
+    await bridge.close();
+    const client = await connect({ dataDir });
+    await client.call("daemon:stop").catch(() => {});
+    client.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const status = () =>
+    fetch(bridge.url + "/rpc", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ v: 1, method: "daemon:status", args: [] }),
+    });
+  process.kill(pid, "SIGSTOP");
+  const running = Array.from({ length: 16 }, () => status());
+  await delay(100);
+  const late = await status();
+  assert.equal(late.status, 429, "a relayed request keeps its socket open after the phone gave up, so it leaves the line");
+  process.kill(pid, "SIGCONT");
+  assert.deepEqual(new Set((await Promise.all(running)).map((response) => response.status)), new Set([200]));
 });
 
 test("snapshots carry an ETag, an unchanged one is a 304, and large bodies are gzipped", async (t) => {
@@ -934,6 +1085,64 @@ function scriptedAgent() {
   };
   return { sessions, runtimeOptions: { createSession, agentCli: Object.assign(async () => ({ command: "/scripted/codex" }), { invalidate() {} }) } };
 }
+
+test("desktop and phone preview exact external files shared in streaming and saved assistant replies", async (t) => {
+  const agent = scriptedAgent();
+  const { project, dataDir, rpc } = await fixture(t, { runtimeOptions: agent.runtimeOptions });
+  const file = path.join(path.dirname(project), "shared report.md");
+  const privateFile = path.join(path.dirname(project), "private.txt");
+  await fs.writeFile(file, "Shared report contents");
+  await fs.writeFile(privateFile, "Private contents");
+  const desktop = await connect({ dataDir });
+  t.after(() => desktop.close());
+  const opened = await desktop.call("project:open", [project]);
+  const sessionId = Number(Object.keys(opened.state.sessions)[0]);
+  const preview = async (target) => await (await rpc("attachment:preview", [target])).json();
+  assert.ok((await preview(file)).error, "an unshared external file is refused");
+  assert.equal((await rpc("chat:send", [{ projectPath: project, sessionId, body: "Share the report", provider: "codex", model: "test" }])).status, 200);
+  for (let i = 0; i < 100 && !agent.sessions.length; i++) await delay(10);
+  const session = agent.sessions[0];
+  assert.ok(session, "the scripted agent started");
+  session.emit({ type: "text-delta", text: "Read the [report](../shared%20report.md:12)." });
+  // A command behind the event observes the updated streaming reply.
+  let streamed;
+  for (let i = 0; i < 100; i++) {
+    streamed = await preview(file);
+    if (streamed.result) break;
+    await delay(10);
+  }
+  assert.equal(streamed.result?.text, "Shared report contents");
+  assert.equal((await desktop.call("attachment:preview", [file])).text, streamed.result.text);
+  const downloaded = [];
+  await require("@milagre/shared/attachment-download").downloadAttachment(
+    async (offset, version) => (await (await rpc("attachment:read", version === undefined ? [file, offset] : [file, offset, version])).json()).result,
+    (bytes) => {
+      downloaded.push(Buffer.from(bytes));
+    },
+  );
+  assert.equal(Buffer.concat(downloaded).toString(), "Shared report contents");
+  assert.equal((await desktop.call("attachment:read", [file, 0])).size, Buffer.byteLength("Shared report contents"));
+  assert.equal(
+    (await desktop.call("chat:all-messages", [project])).some((message) => message.role === "assistant"),
+    false,
+    "reply is still streaming",
+  );
+  assert.ok((await preview(privateFile)).error, "a neighboring file stays private");
+  assert.equal((await rpc("attachment:read", [privateFile, 0])).status, 409, "downloads enforce the same access check");
+  session.turnActive = false;
+  session.emit({ type: "turn-completed" });
+  let saved;
+  for (let i = 0; i < 100; i++) {
+    const messages = await desktop.call("chat:all-messages", [project]);
+    saved = messages.find((message) => message.role === "assistant");
+    if (saved) break;
+    await delay(10);
+  }
+  assert.ok(saved, "reply is saved before previewing it again");
+  assert.equal((await preview(file)).result.text, "Shared report contents");
+  assert.equal((await desktop.call("attachment:preview", [file])).text, "Shared report contents");
+});
+
 function openLive(bridge, projectPath, headers, options = {}) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`${bridge.url.replace(/^http/, "ws")}/live?projectPath=${encodeURIComponent(projectPath)}`, { headers, ...options });
@@ -1235,6 +1444,138 @@ test("drawer snapshots are marked and cached separately from full snapshots", as
   assert.equal((await request(route + "&view=chats", { headers: { "if-none-match": response.headers.get("etag") } })).status, 304);
 });
 
+test("chat-lists reads several Projects in one request without opening them or touching their recent order", async (t) => {
+  const { project, request, rpc, dataDir } = await fixture(t);
+  const other = path.join(path.dirname(project), "other");
+  await fs.mkdir(other);
+  execFileSync("git", ["init", "-b", "main", other], { stdio: "ignore" });
+  await rpc("project:open", [project]);
+  await rpc("project:open", [other]);
+  const unopened = path.join(path.dirname(project), "unopened");
+  await fs.mkdir(unopened);
+  const desktop = await connect({ dataDir });
+  t.after(() => desktop.close());
+  const recent = async () => (await desktop.call("project:recent")).map((entry) => entry.path);
+  const before = await recent();
+  const route = (paths) => "/chat-lists?paths=" + encodeURIComponent(JSON.stringify(paths));
+  const response = await request(route([project, other, "link:missing", "relative", unopened]));
+  assert.equal(response.status, 200);
+  const { result } = await response.json();
+  assert.deepEqual(Object.keys(result).sort(), [other, project, "link:missing", "relative", unopened].sort());
+  for (const owner of [project, other]) {
+    assert.equal(result[owner].previewOnly, true);
+    assert.equal(result[owner].project.path, owner);
+  }
+  const single = (await (await request("/snapshot?projectPath=" + encodeURIComponent(project) + "&view=chats")).json()).result;
+  assert.deepEqual(result[project], single);
+  for (const owner of ["link:missing", "relative"]) assert.equal(typeof result[owner].error, "string");
+  assert.deepEqual(result[unopened], { error: "Open the project before reading its snapshot." });
+  assert.deepEqual(await recent(), before, "reading the lists leaves the recent Projects as they were");
+  assert.equal(
+    (await request(route([project, other]), { headers: { "if-none-match": (await request(route([project, other]))).headers.get("etag") } })).status,
+    304,
+  );
+});
+
+test("chat-lists refuses more than 20 Projects, and a list that is not a JSON list of paths", async (t) => {
+  const { project, request } = await fixture(t);
+  const route = (paths) => "/chat-lists?paths=" + encodeURIComponent(paths);
+  const twenty = Array.from({ length: 20 }, (_, index) => path.join(project, String(index)));
+  assert.equal((await request(route(JSON.stringify(twenty)))).status, 200);
+  for (const paths of [JSON.stringify([...twenty, project]), "not json", JSON.stringify({ a: 1 }), JSON.stringify([project, 3]), JSON.stringify([])])
+    assert.equal((await request(route(paths))).status, 400, paths);
+  assert.equal((await request("/chat-lists")).status, 400);
+});
+
+test("a confined phone gets an error, never data, for a Project outside its folder in chat-lists", async (t) => {
+  const { project, dataDir, rpc, token } = await fixture(t);
+  await rpc("project:open", [project]);
+  const outside = path.join(path.dirname(project), "outside");
+  await fs.mkdir(outside);
+  const bridge = await startMobileBridge({ dataDir, port: 0, token, allowedRoot: project });
+  t.after(() => bridge.close());
+  const response = await fetch(bridge.url + "/chat-lists?paths=" + encodeURIComponent(JSON.stringify([project, outside])), {
+    headers: { authorization: "Bearer " + token },
+  });
+  assert.equal(response.status, 200);
+  const { result } = await response.json();
+  assert.equal(result[project].previewOnly, true);
+  assert.deepEqual(Object.keys(result[outside]), ["error"]);
+});
+
+test("chat-lists reads an unchanged batch once, and leaves the Projects a snapshot holds warm", async (t) => {
+  // A bridge whose host connection counts what it reads, built from its own copy of the module (it takes `connect` at load).
+  const { project, dataDir, token, rpc } = await fixture(t);
+  const clientModule = require("./client.cjs");
+  const realConnect = clientModule.connect;
+  const reads = { "state:read": 0, "chat:all-messages": 0 };
+  clientModule.connect = async (options) => {
+    const connection = await realConnect(options);
+    const call = connection.call.bind(connection);
+    connection.call = async (method, args) => {
+      if (method in reads) reads[method]++;
+      return call(method, args);
+    };
+    return connection;
+  };
+  const bridgePath = require.resolve("./mobile-bridge.cjs");
+  const kept = require.cache[bridgePath];
+  delete require.cache[bridgePath];
+  const { startMobileBridge: startCountingBridge } = require("./mobile-bridge.cjs");
+  require.cache[bridgePath] = kept;
+  clientModule.connect = realConnect;
+  t.after(() => {
+    clientModule.connect = realConnect;
+  });
+  const bridge = await startCountingBridge({ dataDir, port: 0, token });
+  t.after(() => bridge.close());
+  const get = (route) => fetch(bridge.url + route, { headers: { authorization: `Bearer ${token}` } });
+  const projects = [project];
+  for (let index = 1; index < 20; index++) {
+    const other = path.join(path.dirname(project), `batch-${index}`);
+    await fs.mkdir(other);
+    execFileSync("git", ["init", "-q", "-b", "main", other], { stdio: "ignore" });
+    projects.push(other);
+  }
+  for (const item of projects) assert.equal((await rpc("project:open", [item])).status, 200);
+  const list = "/chat-lists?paths=" + encodeURIComponent(JSON.stringify(projects));
+  const snapshot = (owner) => get("/snapshot?projectPath=" + encodeURIComponent(owner));
+  const spent = async (run) => {
+    const before = { ...reads };
+    await run();
+    return { stateReads: reads["state:read"] - before["state:read"], messageReads: reads["chat:all-messages"] - before["chat:all-messages"] };
+  };
+
+  // The Project a phone has open is held by its snapshot, and a 20-Project list neither reads it again nor evicts it.
+  assert.deepEqual(await spent(async () => assert.equal((await snapshot(project)).status, 200)), { stateReads: 1, messageReads: 1 });
+  const first = await spent(async () => assert.equal((await get(list)).status, 200));
+  assert.deepEqual(first, { stateReads: 19, messageReads: 20 }, "the held Project is borrowed; the other 19 are read without being held");
+  assert.deepEqual(
+    await spent(async () => assert.equal((await snapshot(project)).status, 200)),
+    { stateReads: 0, messageReads: 1 },
+    "the snapshot's Project stayed held",
+  );
+
+  // The same batch again, with nothing changed: no Project is read.
+  const response = await get(list);
+  assert.deepEqual(await spent(async () => assert.equal((await get(list)).status, 200)), { stateReads: 0, messageReads: 0 });
+  assert.equal((await get(list)).headers.get("etag"), response.headers.get("etag"));
+
+  // A change to one Project lists that Project again, and only it.
+  const chat = Object.values((await (await snapshot(project)).json()).result.project.state.sessions)[0];
+  const host = await connect({ dataDir });
+  t.after(() => host.close());
+  await host.call("chat:git-note", [`${project}#${chat.id}`, "A note"]);
+  let again;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    again = await spent(async () => assert.equal((await get(list)).status, 200));
+    if (again.messageReads) break;
+    await delay(20);
+  }
+  assert.equal(again.messageReads, 1, "only the Project that changed is read again");
+  assert.deepEqual(await spent(async () => assert.equal((await get(list)).status, 200)), { stateReads: 0, messageReads: 0 });
+});
+
 test("phone:routes is answered by the phone hook, never forwarded to the daemon", async (t) => {
   const asked = [];
   const answer = { hostId: "h".repeat(22), key: "k".repeat(43), lan: ["ws://192.168.1.20:8798"] };
@@ -1289,47 +1630,28 @@ test("account assignment changes notify live phones independently of Project sta
   assert.equal(phone.messages.filter((type) => type === "accounts").length, 1);
 });
 
-test("Designs setting changes reach every phone, including Settings without a selected Project", async (t) => {
+test("older phones can still read and save the Designs setting, and both answer that Designs are on", async (t) => {
+  const { rpc } = await fixture(t);
+  assert.deepEqual((await (await rpc("designs:enabled:read")).json()).result, { enabled: true });
+  assert.deepEqual((await (await rpc("designs:enabled:save", [false])).json()).result, { enabled: true });
+  assert.deepEqual((await (await rpc("designs:enabled:read")).json()).result, { enabled: true });
+});
+
+test("Routines changes reach every phone as a routines signal, Settings included", async (t) => {
   const { project, bridge, rpc, token } = await fixture(t);
   const auth = { authorization: `Bearer ${token}` };
   const projectPhone = await openLive(bridge, project, auth);
   const settingsPhone = await openLive(bridge, "", auth);
-  assert.equal(settingsPhone.socket.readyState, WebSocket.OPEN);
-  assert.deepEqual((await (await rpc("designs:enabled:read")).json()).result, { enabled: true });
-  assert.deepEqual((await (await rpc("designs:enabled:save", [false])).json()).result, { enabled: false });
-  await until(() => projectPhone.messages.includes("designs") && settingsPhone.messages.includes("designs"));
-  assert.deepEqual((await (await rpc("designs:enabled:read")).json()).result, { enabled: false });
-  assert.deepEqual((await (await rpc("designs:enabled:save", [true])).json()).result, { enabled: true });
-  await until(() => settingsPhone.messages.filter((type) => type === "designs").length === 2);
-});
-
-test("confined phones receive Designs changes on their permitted Project socket", async (t) => {
-  const { project, dataDir, rpc, token } = await fixture(t);
-  await rpc("project:open", [project]);
-  const bridge = await startMobileBridge({ dataDir, port: 0, token, allowedRoot: project });
-  t.after(() => bridge.close());
-  const auth = { authorization: "Bearer " + token };
-  assert.equal((await openLive(bridge, "", auth)).status, 400);
-  const phone = await openLive(bridge, project, auth);
-  const read = async (method) => {
-    const response = await fetch(bridge.url + "/rpc", {
-      method: "POST",
-      headers: { ...auth, "content-type": "application/json" },
-      body: JSON.stringify({ v: 1, method, args: [] }),
-    });
-    assert.equal(response.status, 200);
-    return (await response.json()).result;
+  assert.equal((await rpc("project:open", [project])).status, 200);
+  const routine = {
+    name: "Daily",
+    prompt: "Look",
+    trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+    target: { kind: "new-chat", projectPath: project, workspace: "project" },
   };
-  assert.deepEqual(
-    (await read("project:recent")).map((entry) => entry.path),
-    [project],
-  );
-  await rpc("designs:enabled:save", [false]);
-  await until(() => phone.messages.includes("designs"));
-  assert.deepEqual(await read("designs:enabled:read"), { enabled: false });
-  await rpc("designs:enabled:save", [true]);
-  await until(() => phone.messages.filter((type) => type === "designs").length === 2);
-  assert.deepEqual(await read("designs:enabled:read"), { enabled: true });
+  assert.equal((await rpc("routines:create", [routine])).status, 200);
+  await until(() => projectPhone.messages.includes("routines") && settingsPhone.messages.includes("routines"));
+  assert.equal(settingsPhone.messages.filter((type) => type === "routines").length, 1);
 });
 
 test("a Link made or removed on the computer tells live phones to read the Links again", async (t) => {
@@ -1569,8 +1891,6 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
       environmentReady: Promise.resolve(),
       titleModels: {},
       worktreeRoot: path.join(root, "worktrees"),
-      // Only the Projects a test opens: never the ones under this Mac's own code folders.
-      registryRoots: [],
       agentCli: Object.assign(async () => ({ command: null, problem: "Test has no provider" }), { invalidate() {} }),
     },
   });
@@ -1621,4 +1941,103 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
   removed = false;
   consistent((await json(`/snapshot?projectPath=${at}&view=chats`)).project.state);
   assert.equal(removed, true, "the Worktree went during the chat list's read");
+});
+
+test("a phone may edit URL servers and switch them, but not add command servers or start a sign-in", () => {
+  for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) assert.ok(METHODS.has(method), method);
+  for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.ok(!METHODS.has(method), method);
+});
+
+test("phone checkpoint RPCs preview and restore a task with explicit confirmation", async (t) => {
+  const { project, rpc, request, dataDir } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
+  await fs.writeFile(path.join(project, "draft.txt"), "before task");
+  await rpc("project:open", [project]);
+  const state = (await (await request("/snapshot?projectPath=" + encodeURIComponent(project))).json()).result.project.state;
+  const sessionId = Object.values(state.sessions)[0].id,
+    chatId = `${project}#${sessionId}`;
+  await rpc("chat:send", [{ projectPath: project, sessionId, body: "hello", provider: "codex", model: "demo", permissionMode: "ask" }]);
+  await fs.writeFile(path.join(project, "draft.txt"), "agent");
+  let items;
+  for (let i = 0; i < 150; i++) {
+    items = (await (await rpc("checkpoint:list", [{ chatId }])).json()).result;
+    if (items?.[0]?.completedAt) break;
+    await delay(20);
+  }
+  assert.ok(items[0].completedAt);
+  await fs.writeFile(path.join(project, "draft.txt"), "manual later");
+  const preview = (await (await rpc("checkpoint:preview", [{ chatId, id: items[0].id }])).json()).result;
+  assert.equal(preview.files[0].conflict, true);
+  const payload = { chatId, token: preview.token, decisions: { [preview.files[0].key]: "restore" } };
+  assert.equal((await rpc("checkpoint:restore", [payload])).status, 409);
+  assert.equal(await fs.readFile(path.join(project, "draft.txt"), "utf8"), "manual later");
+  const restored = await rpc("checkpoint:restore", [{ ...payload, approved: true }]);
+  assert.equal(restored.status, 200);
+  assert.equal(await fs.readFile(path.join(project, "draft.txt"), "utf8"), "before task");
+  const desktop = await connect({ dataDir });
+  try {
+    assert.equal((await desktop.call("checkpoint:list", [{ chatId }])).length, 2);
+  } finally {
+    desktop.close();
+  }
+});
+
+test("a phone may read a webhook Routine's URL and rotate it", () => {
+  for (const method of ["routines:hook", "routines:rotate-hook"]) assert.ok(METHODS.has(method), method);
+});
+
+test("completed usage reads notify Project and Project-less phone views", async (t) => {
+  const unavailable = (provider) => async () => ({ provider, status: "unavailable", windows: [] });
+  const { project, bridge, rpc, token } = await fixture(t, {
+    runtimeOptions: { usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") } },
+  });
+  await rpc("project:open", [project]);
+  const auth = { authorization: `Bearer ${token}` };
+  const projectPhone = await openLive(bridge, project, auth);
+  const settingsPhone = await openLive(bridge, "", auth);
+  assert.equal((await rpc("usage:read", [project])).status, 200);
+  await until(() => projectPhone.messages.includes("usage") && settingsPhone.messages.includes("usage"));
+  assert.equal((await rpc("usage:cached", [project])).status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(projectPhone.messages.filter((type) => type === "usage").length, 1);
+});
+
+test("phone uploads above 5 MiB fit the HTTP and daemon carriers and sends use image references", async (t) => {
+  const { project, request, rpc } = await fixture(t);
+  await rpc("project:open", [project]);
+  const { uploadAttachment } = require("@milagre/shared/attachment-upload");
+  const bytes = Buffer.alloc(6 * 1024 * 1024, 0);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
+  const file = await uploadAttachment(
+    async (part) => {
+      const response = await request("/attachments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(part) });
+      assert.equal(response.status, 200);
+      return (await response.json()).result;
+    },
+    { projectPath: project, name: "large.png", base64: bytes.toString("base64") },
+  );
+  assert.deepEqual(await fs.readFile(file.path), bytes);
+  const sent = await rpc("chat:send", [
+    {
+      projectPath: project,
+      worktreeId: 1,
+      body: "Review images",
+      images: Array.from({ length: 6 }, (_, i) => ({ id: String(i), name: "large.png", path: file.path })),
+      files: [],
+      provider: "claude",
+      model: "test",
+    },
+  ]);
+  assert.equal(sent.status, 200, await sent.text());
+});
+
+test("the host's PR poll finding a change tells live phones to read their PR rows again", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {
+    stdio: "ignore",
+  });
+  assert.equal((await rpc("project:open", [project])).status, 200);
+  const phone = await openLive(bridge, project, { authorization: `Bearer ${token}` });
+  // No GitHub remote here: the first read settles as "no PR", which is still news to a phone showing the row.
+  assert.equal((await rpc("worktree:pull-request", [project])).status, 200);
+  await until(() => phone.messages.includes("pulls"));
 });

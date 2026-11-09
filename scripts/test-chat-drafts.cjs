@@ -1,11 +1,11 @@
-// Every Chat, and the new-chat screen, keeps its own draft while you move between them.
+// Every Chat, and the new-chat screen, keeps its own draft while you move between them,
+// and Up/Down in the prompt step through the prompts sent in that Chat.
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 const fixture = `
-// This fixture exercises a device that has already accepted AI sharing.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";
@@ -18,13 +18,33 @@ state.sessions = {
 state.messages = [
   { id: 4, session_id: 3, role: "user", body: "Alpha chat", context: null },
   { id: 6, session_id: 5, role: "user", body: "Beta chat", context: null },
+  { id: 7, session_id: 3, role: "user", body: "Second alpha prompt", context: null },
+  { id: 8, session_id: 3, role: "user", body: "Commit the changes", context: { kind: "git-action" } },
 ];
-state.next_id = 7;
+state.next_id = 9;
+// A Link that already has a Chat: a new Chat picked for it from the heading must not open that one.
+const link = { id: "f1713d69-569d-405b-a0b2-19bfdf565a76", name: "Shop + API", projectIds: ["p1", "p2"], createdAt: "" };
+const linkState = { next_id: 9, messagesInChats: true, sessions: { 3: { id: 3, agent_name: "Claude", provider: "claude", status: "Idle", title: "Old link chat", workspacePath: "/w", worktrees: [], summary: { count: 1, firstId: 1, lastId: 1, titleLine: "Old link chat" } } }, messages: [], preparations: {} };
 window.milagre = new Proxy({
+  listNamedLinks: async () => [link],
+  openNamedLink: () => new Promise((resolve, reject) => {
+    window.finishLinkSwitch = () => resolve({ link, projects: [{ id: "p1", path: "/fixture", name: "Fixture" }, { id: "p2", path: "/second", name: "Second" }], state: structuredClone(linkState), version: 1, epoch: "link-host" });
+    window.failLinkSwitch = () => reject(new Error("Link unavailable"));
+    if (!window.delayLinkSwitch) window.finishLinkSwitch();
+  }),
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
   getLinkedWork: async () => ({ delegations: [], negotiations: [], receiveOnly: [] }),
   getCurrentProject: async () => ({ path: "/fixture", name: "Fixture", state }),
+  listRecentProjects: async () => [
+    { path: "/fixture", name: "Fixture", openedAt: "" },
+    { path: "/second", name: "Second", openedAt: "" },
+  ],
+  readProject: () => new Promise(() => {}),
+  switchProject: (path) => new Promise((resolve, reject) => {
+    window.finishProjectSwitch = () => resolve({ path, name: "Second", state: { ...state, sessions: {}, messages: [], worktrees: { 1: { id: 1, name: "main", path, project_id: 1 } } } });
+    window.failProjectSwitch = () => reject(new Error("Computer unavailable"));
+  }),
   listBranches: async () => ["main"],
   listEditors: async () => [],
   getCachedUsage: async () => ({ providers: [] }),
@@ -50,14 +70,15 @@ async function browserChecks() {
     }
     throw Error(`Timed out: ${source}`);
   }
-  const prompt = `document.querySelector('textarea[aria-label="Prompt"]')`;
+  const prompt = `document.querySelector('[data-prompt-editor]')`;
   const type = (text) =>
     evaluate(`(() => {
       const input = ${prompt};
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(text)});
+      input.value = ${JSON.stringify(text)};
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
   const promptIs = (text) => waitFor(`${prompt}?.value === ${JSON.stringify(text)}`);
+  const press = (key) => evaluate(`${prompt}.dispatchEvent(new KeyboardEvent('keydown', { key: '${key}', bubbles: true, cancelable: true }))`);
   const setPermissionMode = async (mode) => {
     // Mode is "Ask", "Auto", or "Full"
     // Wait for the permission mode dropdown and click it
@@ -91,8 +112,7 @@ async function browserChecks() {
     fs.writeFileSync(path.join(dir, `${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
   try {
-    await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
+    await openRenderer(window, process.argv[2], `!!document.querySelector('[aria-label="New chat"]')`);
     await openChat("Alpha chat");
     await type("Draft for alpha");
     await promptIs("Draft for alpha");
@@ -116,6 +136,23 @@ async function browserChecks() {
     await screenshot("new-chat-restored");
     console.log("PASS: the new-chat draft comes back after visiting another Chat");
 
+    await openChat("Alpha chat");
+    await promptIs("Draft for alpha");
+    await press("ArrowUp");
+    await promptIs("Second alpha prompt");
+    await press("ArrowUp");
+    await promptIs("Alpha chat");
+    await press("ArrowUp");
+    await promptIs("Alpha chat");
+    await screenshot("history-oldest");
+    await press("ArrowDown");
+    await promptIs("Second alpha prompt");
+    await press("ArrowDown");
+    await promptIs("Draft for alpha");
+    await press("ArrowDown");
+    await promptIs("Draft for alpha");
+    console.log("PASS: Up and Down step through the Chat's sent prompts and restore the draft");
+
     // Test permission mode options
     await openChat("Alpha chat");
     await setPermissionMode("Auto");
@@ -128,6 +165,75 @@ async function browserChecks() {
     await expectPermissionMode("Full");
     await screenshot("beta-permission-full");
     console.log("PASS: permission mode is attached to each chat separately");
+
+    await newChat();
+    await type("Keep this draft visible");
+    await evaluate(`document.querySelector('[data-new-chat-project]').click()`);
+    const second = `[...document.querySelectorAll('[data-new-chat-heading] [data-picker-row]')].find(row => row.querySelector('strong')?.textContent === 'Second')`;
+    await waitFor(`!!(${second})`);
+    await evaluate(`(${second}).click()`);
+    await waitFor(`typeof window.finishProjectSwitch === 'function'`);
+    await promptIs("Keep this draft visible");
+    await type("Edited while connecting");
+    await evaluate(`window.failProjectSwitch()`);
+    await waitFor(`document.body.textContent.includes('Computer unavailable')`);
+    await promptIs("Edited while connecting");
+    await evaluate(`window.finishProjectSwitch = null; document.querySelector('[data-new-chat-project]').click()`);
+    await waitFor(`!!(${second})`);
+    await evaluate(`(${second}).click()`);
+    await waitFor(`typeof window.finishProjectSwitch === 'function'`);
+    await evaluate(`window.finishProjectSwitch()`);
+    await waitFor(`document.querySelector('[data-new-chat-project]')?.textContent.includes('Second')`);
+    await promptIs("Edited while connecting");
+    console.log("PASS: a slow or failed Project switch keeps the draft visible and carries edits made during the wait");
+
+    // Picking a Link from the same dropdown opens a new Chat there, not the Link's last one, and the draft goes with it.
+    await type("Carry me to the Link");
+    await evaluate(`document.querySelector('[data-new-chat-project]').click()`);
+    const linkRow = `[...document.querySelectorAll('[data-new-chat-heading] [data-picker-row]')].find(row => row.querySelector('strong')?.textContent === 'Shop + API')`;
+    await waitFor(`!!(${linkRow})`);
+    await evaluate(`window.delayLinkSwitch = true`);
+    await evaluate(`(${linkRow}).click()`);
+    await waitFor(`typeof window.failLinkSwitch === 'function'`);
+    await promptIs("Carry me to the Link");
+    await type("Edited while Link opens");
+    await evaluate(`window.failLinkSwitch()`);
+    await waitFor(`document.body.textContent.includes('Link unavailable')`);
+    await promptIs("Edited while Link opens");
+    console.log("PASS: a rejected Link open keeps the latest draft in its source Project");
+
+    const pickLink = async () => {
+      await evaluate(`window.finishLinkSwitch = null; document.querySelector('[data-new-chat-project]').click()`);
+      await waitFor(`!!(${linkRow})`);
+      await evaluate(`(${linkRow}).click()`);
+      await waitFor(`typeof window.finishLinkSwitch === 'function'`);
+    };
+    await pickLink();
+    // Even leaving and returning to the same new Chat cancels this handoff.
+    await newChat();
+    await evaluate(`window.finishLinkSwitch()`);
+    await delay(150);
+    await waitFor(`document.querySelector('[data-new-chat-project]')?.textContent.includes('Second')`);
+    await promptIs("Edited while Link opens");
+    console.log("PASS: superseded Link opens do not adopt or consume the source draft");
+
+    await pickLink();
+    await promptIs("Edited while Link opens");
+    await type("Latest Link draft");
+    await evaluate(`window.finishLinkSwitch()`);
+    await promptIs("Latest Link draft");
+    await waitFor(`!document.querySelector('[aria-label="Conversation"]')?.textContent.includes('Old link chat')`);
+    await screenshot("link-new-chat-draft");
+    console.log("PASS: a slow Link open carries the latest draft to a new Chat, not its last Chat");
+
+    await type("Edited in the Link");
+    await newChat();
+    await promptIs("");
+    await pickLink();
+    await promptIs("");
+    await evaluate(`window.finishLinkSwitch()`);
+    await promptIs("Edited in the Link");
+    console.log("PASS: a cached Link keeps its destination draft on an empty handoff and never replays the previous transfer");
     app.exit(0);
   } catch (error) {
     console.error(error);
@@ -150,7 +256,7 @@ async function main() {
           if (id === "/__chat_drafts_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__chat_drafts__") return next();
             const html = await server.transformIndexHtml(
               request.url,

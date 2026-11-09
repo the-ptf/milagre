@@ -28,6 +28,20 @@ const settled = new Map();
 const SWEEP_MIN_AGE_MS = 60_000;
 const swept = new Set();
 
+// Suggestions belong to the live provider query. Reconnects retain them, host restarts do not.
+function withoutSuggestions(state) {
+  if (!Object.values(state.sessions ?? {}).some((session) => session.suggestion !== undefined || session.suggestionTurnId !== undefined)) return state;
+  return {
+    ...state,
+    sessions: Object.fromEntries(
+      Object.entries(state.sessions).map(([id, session]) => {
+        const { suggestion: _suggestion, suggestionTurnId: _turn, ...rest } = session;
+        return [id, rest];
+      }),
+    ),
+  };
+}
+
 // `durable` syncs the bytes and the rename to disk before returning. Only the migration of a linked worktree's old
 // chats asks for it, since it renames that file next; routine saves only rename. Resolves to what the save wrote: the
 // message rows written and removed, whether it wrote a sidecar, and the size of coordination.json.
@@ -36,7 +50,7 @@ async function saveProjectState(projectPath, state, { sweepMinAgeMs = SWEEP_MIN_
   // The state in memory is compacted already (see compactProjectDetails); this catches one that wasn't.
   const details = { wrote: false };
   const compacted = await compactDetails(projectPath, await migrateImages(projectPath, state), { tracker: details });
-  const persisted = await compactSubagents(projectPath, compacted, tracker);
+  const persisted = withoutSuggestions(await compactSubagents(projectPath, compacted, tracker));
   // Messages go to chats.db first; coordination.json then points at it. A state from before keeps its array until then.
   // The Chats the state holds unloaded (see message-store.cjs) keep their rows, and those whose Chat is gone lose them.
   // Read from the state given: the copies above hold the same messages, but can hold them in arrays of their own.
@@ -110,7 +124,7 @@ async function saveProjectState(projectPath, state, { sweepMinAgeMs = SWEEP_MIN_
  * before sidecars) moved out. It holds every Chat's messages; ProjectStates unloads the idle ones later.
  */
 async function readProjectState(projectPath) {
-  const raw = JSON.parse(await fs.readFile(stateFile(projectPath), "utf8"));
+  const raw = withoutSuggestions(JSON.parse(await fs.readFile(stateFile(projectPath), "utf8")));
   resetStore(projectPath);
   if (isMarker(raw.messages)) {
     const rows = await readRows(projectPath);

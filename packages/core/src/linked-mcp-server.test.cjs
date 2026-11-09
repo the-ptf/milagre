@@ -21,8 +21,8 @@ async function fixture(t) {
   return { api, url };
 }
 
-test("the live MCP endpoint removes Designs tools while off and never exposes retired HTML tools", async (t) => {
-  const { api, url } = await fixture(t);
+test("the live MCP endpoint lists Designs tools and never exposes retired HTML tools", async (t) => {
+  const { url } = await fixture(t);
   let id = 0;
   const request = async (method, params = {}) => {
     const response = await fetch(url, {
@@ -38,7 +38,17 @@ test("the live MCP endpoint removes Designs tools while off and never exposes re
   const list = () => request("tools/list");
   const call = (name, args) => request("tools/call", { name, arguments: args });
   const names = (result) => result.tools.map((tool) => tool.name);
-  assert.deepEqual(names(await list()), ["design_show", "design_read", "design_apply", "design_export", "artifact_comments", "artifact_resolve_comment"]);
+  assert.deepEqual(names(await list()), [
+    "design_show",
+    "design_read",
+    "design_inspect",
+    "design_validate",
+    "design_apply",
+    "design_export",
+    "design_delete",
+    "artifact_comments",
+    "artifact_resolve_comment",
+  ]);
   const document = {
     schemaVersion: 1,
     width: 390,
@@ -47,16 +57,12 @@ test("the live MCP endpoint removes Designs tools while off and never exposes re
   };
   const shown = await call("design_show", { id: "welcome", title: "Welcome", document });
   assert.equal(shown.isError, false);
-  assert.equal(JSON.parse(shown.content[0].text).format, "design");
-  await api.setEnabled(false);
-  assert.deepEqual(names(await list()), []);
-  for (const name of ["design_show", "design_read", "design_apply", "artifact_show", "artifact_read"]) {
-    const rejected = await call(name, { id: "welcome", expectedVersion: 1, operations: [{ op: "delete", id: "heading" }] });
+  assert.equal(JSON.parse(shown.content[0].text.split("\n", 1)[0]).format, "design");
+  for (const name of ["artifact_show", "artifact_read"]) {
+    const rejected = await call(name, { id: "welcome" });
     assert.equal(rejected.isError, true);
     assert.match(rejected.content[0].text, /Unknown tool/);
   }
-  await api.setEnabled(true);
-  assert.equal(names(await list()).length, 6);
   const read = await call("design_read", { id: "welcome" });
   assert.equal(read.isError, false);
   const source = JSON.parse(read.content[0].text);
@@ -102,14 +108,14 @@ test("MCP accepts maximum-sized design documents encoded as UTF-8 and escaped JS
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "design_apply", arguments: { id: encoding, expectedVersion: 1, operations: [{ op: "replace", document }] } },
+      params: { name: "design_show", arguments: { id: encoding, title: encoding, expectedVersion: 1, document } },
     });
     if (encoding === "escaped") editBody = editBody.replaceAll("界", "\\u754c");
     const editResponse = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: editBody });
     assert.equal(editResponse.status, 200);
     const editResult = (await editResponse.json()).result;
     assert.equal(editResult.isError, false, editResult.content[0].text);
-    assert.equal(JSON.parse(editResult.content[0].text).version, 2);
+    assert.equal(JSON.parse(editResult.content[0].text.split("\n", 1)[0]).version, 2);
   }
 });
 

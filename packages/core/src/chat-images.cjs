@@ -3,8 +3,9 @@ const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { createHash } = require("node:crypto");
 const MarkdownIt = require("markdown-it");
-const { MAX_IMAGE_BYTES, IMAGE_ERRORS } = require("@milagre/shared/limits");
+const { MAX_ATTACHMENT_BYTES, IMAGE_ERRORS } = require("@milagre/shared/limits");
 const { chatInProject, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { isWindowsPath } = require("@milagre/shared/file-link");
 const { storeImages } = require("./project-content.cjs");
 const markdown = new MarkdownIt({ html: false });
 const validate = markdown.validateLink.bind(markdown);
@@ -14,13 +15,15 @@ const mimeTypes = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/j
 function localPath(source, cwd) {
   try {
     if (/^file:/i.test(source)) return fileURLToPath(source);
-    if (/^[a-z][a-z\d+.-]*:/i.test(source) || source.startsWith("//")) return null;
+    // C:\ looks like a URL scheme; on Windows it is the drive of a path an agent shared.
+    const windowsPath = process.platform === "win32" && isWindowsPath(source);
+    if ((/^[a-z][a-z\d+.-]*:/i.test(source) && !windowsPath) || source.startsWith("//")) return null;
     return path.resolve(cwd, decodeURIComponent(source));
   } catch {
     return null;
   }
 }
-function imagePaths(message, cwd) {
+function imagePaths(message, cwd, { includeViewed = true } = {}) {
   const paths = new Set();
   const visit = (tokens) => {
     for (const token of tokens) {
@@ -33,7 +36,7 @@ function imagePaths(message, cwd) {
   };
   visit(markdown.parse(message.body || message.text || "", {}));
   for (const step of message.steps || [])
-    if (step.kind === "image" && step.file) {
+    if (step.kind === "image" && step.file && (includeViewed || step.imageOrigin !== "viewed")) {
       const file = localPath(step.file, cwd);
       if (file && mimeTypes[path.extname(file).toLowerCase()]) paths.add(file);
     }
@@ -61,7 +64,7 @@ class ChatImages {
       try {
         const info = await handle.stat();
         if (!info.isFile()) throw new Error("Not an image file.");
-        if (info.size > MAX_IMAGE_BYTES) throw new Error(IMAGE_ERRORS.size);
+        if (info.size > MAX_ATTACHMENT_BYTES) throw new Error(IMAGE_ERRORS.size);
         // Bounded even if the file grows after stat.
         const buffer = Buffer.alloc(info.size + 1);
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
@@ -89,7 +92,11 @@ class ChatImages {
   async capture(projectPath, state, message) {
     if (message.role !== "assistant") return message;
     const images = [...(message.images || [])];
-    for (const file of [...imagePaths(message, this.cwd(state, message, projectPath))].slice(0, 16)) {
+    const cwd = this.cwd(state, message, projectPath);
+    // Keep Markdown and generated images in their original slots; snapshots have their own allowance.
+    const legacy = [...imagePaths(message, cwd, { includeViewed: false })].slice(0, 16);
+    const viewed = [...imagePaths({ steps: message.steps?.filter((step) => step.imageOrigin === "viewed") }, cwd)].slice(0, 16);
+    for (const file of new Set([...legacy, ...viewed])) {
       if (images.some((image) => image.sourcePath === file || image.path === file)) continue;
       try {
         images.push(await this.copy(projectPath, file));
@@ -112,7 +119,7 @@ class ChatImages {
     const name = path.basename(requested);
     const needles = [...new Set([JSON.stringify(name).slice(1, -1), encodeURIComponent(name), encodeURI(name)])];
     const messages = this.states.messagesContaining ? await this.states.messagesContaining(projectPath, needles) : state.messages;
-    for (const message of [...messages].reverse()) {
+    for (const message of messages.toReversed()) {
       if (message.role !== "assistant") continue;
       const stored = message.images?.find((image) => image.sourcePath === requested);
       if (stored?.path) return stored.path;
@@ -134,4 +141,4 @@ class ChatImages {
     return null;
   }
 }
-module.exports = { ChatImages };
+module.exports = { ChatImages, imagePaths };

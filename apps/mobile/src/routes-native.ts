@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { AppState } from "react-native";
 import * as Network from "expo-network";
 import { b64url } from "@milagre/shared/relay-crypto";
@@ -82,6 +83,16 @@ export const lanRoutes = {
     void found.supervisor.check();
   },
   kind: (id: string): "lan" | "remote" => (entries.get(id)?.supervisor.current().kind === "lan" ? "lan" : "remote"),
+  /** The IP the LAN route to this computer dialed, where its dev servers answer too; null off the LAN route. */
+  address(id: string): string | null {
+    const route = entries.get(id)?.supervisor.current();
+    if (route?.kind !== "lan") return null;
+    try {
+      return new URL(route.endpoint).hostname.replace(/^\[|\]$/g, "") || null;
+    } catch {
+      return null;
+    }
+  },
   subscribe(id: string, listener: () => void) {
     return entry(id, entries.get(id)?.token ?? "").supervisor.subscribe(() => listener());
   },
@@ -121,3 +132,11 @@ Network.addNetworkStateListener(() => lanRoutes.checkAll());
 setInterval(() => {
   if (AppState.currentState === "active") lanRoutes.checkAll();
 }, CHECK_EVERY);
+
+/** The address the phone reaches a computer's own servers on (lanRoutes.address), following its route as it changes. */
+export function useReachableHost(id: string | null | undefined): string | null {
+  return useSyncExternalStore(
+    (listener) => (id ? lanRoutes.subscribe(id, listener) : () => {}),
+    () => (id ? lanRoutes.address(id) : null),
+  );
+}

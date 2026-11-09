@@ -26,8 +26,9 @@ export function sessionWithTranscriptTails(session) {
 }
 
 // Archived subagents as a client that reads them on demand holds them (#321). An archived subagent is hidden until the
-// user opens it from the Archived list, yet its prompt, latest activity, communications and transcript tail made up most
-// of a large Project's lean state. Such a client gets it as a summary: what its row shows (title, status, times,
+// user opens it from the Archived list, yet its prompt, latest activity and transcript tail made up most of a large
+// Project's lean state. Subagents saved before the subagent canvas was removed also carry `communications`, the
+// messages it drew between them, which a summary drops too. Such a client gets it as a summary: what its row shows (title, status, times,
 // provider), with an empty transcript and `detailsOnDemand`; opening it reads the whole subagent with chat:subagent.
 
 const summaries = new WeakMap();

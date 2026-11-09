@@ -1,0 +1,110 @@
+[
+  {
+    "count": 40,
+    "trial": 0,
+    "initial": {
+      "nodes": 2714,
+      "renderMs": 86.09999942779541
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 79.89999961853027
+    }
+  },
+  {
+    "count": 40,
+    "trial": 1,
+    "initial": {
+      "nodes": 2714,
+      "renderMs": 86.40000009536743
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 67.90000104904175
+    }
+  },
+  {
+    "count": 40,
+    "trial": 2,
+    "initial": {
+      "nodes": 2714,
+      "renderMs": 59.29999876022339
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 68.39999771118164
+    }
+  },
+  {
+    "count": 300,
+    "trial": 0,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 71.39999961853027
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 77.49999856948853
+    }
+  },
+  {
+    "count": 300,
+    "trial": 1,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 65.09999942779541
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 66.00000333786011
+    }
+  },
+  {
+    "count": 300,
+    "trial": 2,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 68.49999904632568
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 80.30000162124634
+    }
+  },
+  {
+    "count": 1000,
+    "trial": 0,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 72.39999914169312
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 66.79999876022339
+    }
+  },
+  {
+    "count": 1000,
+    "trial": 1,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 62
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 66.49999570846558
+    }
+  },
+  {
+    "count": 1000,
+    "trial": 2,
+    "initial": {
+      "nodes": 2715,
+      "renderMs": 67.09999990463257
+    },
+    "background": {
+      "commits": 60,
+      "renderMs": 99.1999979019165
+    }
+  }
+]

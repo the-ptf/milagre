@@ -3,12 +3,16 @@ import { Text, View } from "react-native";
 import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
 import { useSession } from "../session";
 import { ProjectNavigation } from "../project-navigation";
-import { ErrorNotice, useStyles } from "../ui";
+import { EmptyState, ErrorNotice, useStyles } from "../ui";
 import { LoadingLogo } from "../loading-logo";
+import { useSplit } from "../split-context";
+import { requestNavigation } from "../navigation-commands";
 
 export default function ProjectsScreen() {
   const styles = useStyles();
   const session = useSession();
+  // On a wide iPad the Chats list is the pinned sidebar, so this page only invites a pick.
+  const { pinned } = useSplit();
   const { resume } = useLocalSearchParams<{ resume?: string }>();
   const attempted = useRef(false);
   const [restoring, setRestoring] = useState(resume === "1" && !!session.lastLocation && session.lastLocation.hostId === session.client?.url);
@@ -28,7 +32,7 @@ export default function ProjectsScreen() {
           router.replace({ pathname: "/chat", params: { id: String(chat.id), projectPath: copy.project.path, hostId: target.hostId } });
       })
       .catch(() => {
-        if (!cancelled) setError("Could not reopen your last Chat. Choose a project below to continue.");
+        if (!cancelled) setError("Could not reopen your last Chat. Choose a Project below to continue.");
       })
       .finally(() => {
         if (!cancelled) setRestoring(false);
@@ -45,11 +49,11 @@ export default function ProjectsScreen() {
         <View
           accessible
           accessibilityRole="progressbar"
-          accessibilityLabel="Reopening your Chat..."
+          accessibilityLabel="Reopening your Chat…"
           style={{ flex: 1, justifyContent: "center", alignItems: "center", gap: 12 }}
         >
           <LoadingLogo size={64} />
-          <Text style={styles.muted}>Reopening your Chat...</Text>
+          <Text style={styles.muted}>Reopening your Chat…</Text>
         </View>
       ) : (
         <>
@@ -58,7 +62,15 @@ export default function ProjectsScreen() {
               <ErrorNotice message={error} />
             </View>
           ) : null}
-          <ProjectNavigation key={session.client.url} onNavigate={(href, secondary) => (secondary ? router.push(href) : router.replace(href))} />
+          {pinned ? (
+            <View style={{ flex: 1, justifyContent: "center" }}>
+              <EmptyState title="Pick a Chat" action={{ title: "New Chat", onPress: () => requestNavigation({ kind: "new" }) }}>
+                Choose one in the sidebar, or start a new one with ⌘N.
+              </EmptyState>
+            </View>
+          ) : (
+            <ProjectNavigation onNavigate={(href, secondary) => (secondary ? router.push(href) : router.replace(href))} />
+          )}
         </>
       )}
     </View>

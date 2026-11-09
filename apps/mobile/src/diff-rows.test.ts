@@ -15,6 +15,8 @@ test("a patch becomes a hunk header and numbered lines", () => {
 
 test("a changed pair highlights only the word that changed", () => {
   const [, , removed, added] = diffRows(patch);
+  assert.ok(added !== undefined);
+  assert.ok(removed !== undefined);
   assert.ok(removed.type === "line" && added.type === "line");
   assert.deepEqual(
     wordSegments(removed.line.text, removed.words)

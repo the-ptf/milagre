@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React from "react";
@@ -64,7 +65,7 @@ window.milagre = {
   },
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
-updateSettings({ legacySidebar: false, chatRowShow: DESKTOP_CHAT_ROW_SHOW });
+updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: "grouped" });
 const recents = [
   { id: "1", label: "Alpha login fix", details: { path: "/work/api/.w/alpha", branch: "alpha" } },
   { id: "2", label: "Bravo endpoint", details: { path: "/work/api/.w/bravo", branch: "bravo" } },
@@ -317,7 +318,7 @@ async function main() {
           if (id === "/__sidebar_links_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__sidebar_links__") return next();
             const html = await server.transformIndexHtml(
               request.url,

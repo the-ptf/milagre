@@ -75,6 +75,65 @@ test("the registry joins linked worktrees, keeps canvas positions and removes mi
   assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")).projects, []);
 });
 
+test("between writes a list reads the file as it is, and an open of the Project already first writes nothing", async (t) => {
+  const root = await fixture(t);
+  const first = await repository(root, "first", { coordination: false });
+  const second = await repository(root, "second", { coordination: false });
+  const file = path.join(root, "userData", "project-registry.json");
+  let seconds = 0;
+  const registry = createProjectRegistry(file, { roots: [], now: () => new Date(Date.UTC(2026, 9, 1, 10, 0, seconds++)) });
+  await registry.add(await resolveProject(first.main));
+  await registry.add(await resolveProject(second.main));
+  // The first list scans and checks every entry with git; the next ones read the file.
+  await registry.list();
+  const saved = await fs.readFile(file, "utf8");
+  const { mtimeMs } = await fs.stat(file);
+  assert.deepEqual(
+    (await registry.list()).map((entry) => entry.path),
+    [second.main, first.main],
+  );
+  await registry.add(await resolveProject(second.main));
+  assert.equal(await fs.readFile(file, "utf8"), saved, "only its openedAt would change");
+  assert.equal((await fs.stat(file)).mtimeMs, mtimeMs);
+  // Another Project moves up, with its canvas position.
+  await registry.setPosition((await resolveProject(first.main)).id, { x: 5, y: 6 });
+  await registry.add(await resolveProject(first.main));
+  assert.deepEqual(
+    (await registry.list()).map((entry) => [entry.path, entry.position]),
+    [
+      [first.main, { x: 5, y: 6 }],
+      [second.main, null],
+    ],
+  );
+});
+
+test("an open drops an entry whose folder went away, its Links, and the same folder under another identity", async (t) => {
+  const root = await fixture(t);
+  const kept = await repository(root, "kept", { coordination: false });
+  const gone = await repository(root, "gone", { coordination: false });
+  const plain = path.join(root, "plain");
+  await fs.mkdir(plain);
+  const file = path.join(root, "userData", "project-registry.json");
+  const registry = createProjectRegistry(file, { roots: [] });
+  for (const folder of [gone.main, plain, kept.main]) await registry.add(await resolveProject(folder));
+  const ids = Object.fromEntries((await registry.list()).map((entry) => [entry.path, entry.id]));
+  await registry.addLink({ project_id: ids[gone.main] }, { project_id: ids[kept.main] }, {});
+  assert.equal((await registry.snapshot()).links.length, 1);
+  // The plain folder becomes a repository, and another Project's folder is deleted.
+  git(plain, "init", "-q");
+  await fs.rm(gone.main, { recursive: true });
+  await registry.add(await resolveProject(plain));
+  const saved = await registry.snapshot();
+  assert.deepEqual(
+    saved.projects.map((entry) => [entry.path, entry.git]),
+    [
+      [plain, true],
+      [kept.main, true],
+    ],
+  );
+  assert.deepEqual(saved.links, []);
+});
+
 test("the first registry list scans existing coordination files once", async (t) => {
   const root = await fixture(t);
   const first = await repository(root, "build");
@@ -119,14 +178,14 @@ test("Links and Worktree positions survive restart and removed Worktrees lose th
   assert.equal((await reopened.snapshot()).worktreePositions[a.id][first.linked], undefined);
 });
 
-test("resolveProject names a folder that is not a Git repository instead of showing Git's error", async () => {
+test("resolveProject opens a folder outside Git as its own Project, but never a disk's root", async () => {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-not-git-"));
   try {
     const real = await fs.realpath(folder);
-    await assert.rejects(
-      resolveProject(real),
-      new Error(`${path.basename(real)} isn't a Git repository. Choose a folder that contains a Git project, or run git init there first.`),
-    );
+    assert.deepEqual(await resolveProject(real), { id: real, path: real, name: path.basename(real), git: false });
+    await assert.rejects(resolveProject(path.parse(real).root), /not the whole disk/);
+    await fs.writeFile(path.join(real, "file.txt"), "");
+    await assert.rejects(resolveProject(path.join(real, "file.txt")), /isn't a folder/);
   } finally {
     await fs.rm(folder, { recursive: true, force: true });
   }

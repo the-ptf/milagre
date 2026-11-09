@@ -12,7 +12,10 @@ const { once } = require("node:events");
 const { createRuntime } = require("@milagre/core");
 const { socketPath: pathFor, prepareSocketDirectory } = require("./paths.cjs");
 const { VERSION, MAX_FRAME_BYTES, MAX_PENDING, pageSize, wire } = require("./protocol.cjs");
-const { createPhone } = require("./phone.cjs");
+const { createPhone, RELAY_URL } = require("./phone.cjs");
+const { transportDiagnostics } = require("./relay-host.cjs");
+const { computerName } = require("./mobile-pairing.cjs");
+const { lanAddresses } = require("./lan-addresses.cjs");
 const { createMobilePush } = require("./mobile-push.cjs");
 const { createLiveActivity } = require("./live-activity.cjs");
 const { createExpoPush } = require("./expo-push.cjs");
@@ -41,8 +44,15 @@ const DEVICE_METHODS = Object.freeze([
 ]);
 // A paired desktop's own channel (peer-channel.cjs): rpc / evt / part messages over the relay or the LAN.
 const DESKTOP_PEER = "desktop-peer-v1";
+// A paired desktop may open TCP streams from this computer on its channel (peer-streams.cjs).
+const PEER_TCP = "peer-tcp-v1";
+// A paired desktop may register its Browser pages for this host's Chats, reached back over its channel (#832).
+const PEER_PANEL_PAGES = "peer-panel-pages-v1";
 // Asked by a paired desktop, which has no phone:* methods: where it can reach this Mac (relay identity, LAN routes).
 const PEER_METHODS = Object.freeze(["peer:routes"]);
+// The desktop app's update, checked and installed from the phone or a paired desktop (host-updates.cjs).
+const { APP_UPDATE_METHODS, createHostUpdates } = require("./host-updates.cjs");
+const { BROWSER_SIGN_IN_METHODS, createHostBrowserSignIns } = require("./host-browser-sign-ins.cjs");
 // The remote folder picker and a remote chat's images (spec "Remote-only helpers"); paired desktops may call both.
 const REMOTE_FILES = "remote-files-v1";
 const FILE_METHODS = Object.freeze(["fs:list-dirs", "media:read"]);
@@ -62,7 +72,7 @@ const STATE_METHODS = Object.freeze(["state:read"]);
 const PAGES_TTL_MS = 30000;
 // What one connection may hold in paged responses at once, in characters. A response larger than that alone is still
 // served when nothing else is held; the rest wait for a reader to finish rather than evict a response being read.
-const PAGES_BUDGET_CHARS = 64 * 1024 * 1024;
+const PAGES_BUDGET_CHARS = 96 * 1024 * 1024;
 // Their replies are sized to fit a frame already; paging them again would never end.
 const PAGE_METHODS = new Set(["daemon:result-page", "daemon:snapshot-page"]);
 
@@ -136,7 +146,7 @@ function createResultPages(maxFrameBytes, { ttlMs = PAGES_TTL_MS, budgetChars = 
     usage: () => ({ slots, chars: held }),
     clear() {
       closed = true;
-      for (const id of [...captures.keys()]) release(id);
+      for (const id of captures.keys()) release(id);
       admit();
     },
   };
@@ -219,7 +229,8 @@ function leanResult(result, form = WHOLE) {
     const project = withState(result.project);
     if (project !== result.project) lean = { ...lean, project };
   }
-  for (const key of ["projects", "links"])
+  // canvas:snapshot carries every Project's state, as `states: [{ path, state }]`.
+  for (const key of ["projects", "links", "states"])
     if (Array.isArray(result[key])) {
       const items = result[key].map(withState);
       if (items.some((item, index) => item !== result[key][index])) lean = { ...lean, [key]: items };
@@ -277,6 +288,32 @@ function stateScope(channel, payload) {
   return null;
 }
 
+// Requests whose reply is the Project a window shows from then on: its first open, a sidebar row, a switch, onboarding.
+// Not chats:ensure: it makes and opens the Chats home without moving what a window shows (the switch that follows does).
+const SHOWN_PROJECT = new Set([
+  "project:open",
+  "project:current",
+  "project:switch",
+  "canvas:open-project",
+  "onboarding:create",
+  "onboarding:clone",
+  "onboarding:init-git",
+]);
+// Replies that carry the state of the Project or Link they open or read: `state` beside its `path`, or beside its `link`.
+const STATE_REPLIES = new Set([...SHOWN_PROJECT, "chats:ensure", "project:read", "project:snapshot", "link:open", "link:snapshot"]);
+/** The Project or Link (scope key) whose state a reply to `method` carries; null for one without a state. */
+function replyScope(method, result) {
+  if (!STATE_REPLIES.has(method) || !hasState(result)) return null;
+  if (method.startsWith("link:")) return typeof result.link?.id === "string" ? scopeKey({ kind: "link", linkId: result.link.id }) : null;
+  return typeof result.path === "string" ? result.path : null;
+}
+/** Whether two states differ in nothing but their messages: which Chats' messages are in memory (message-store.cjs). */
+function sameButMessages(a, b) {
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const keys = Object.keys(b);
+  return keys.length === Object.keys(a).length && keys.every((key) => key === "messages" || (Object.hasOwn(a, key) && a[key] === b[key]));
+}
+
 // A project's state is encoded once per state object (states are replaced, never changed in place) and reused by every
 // event, reply and client, so a burst of events and the reads that follow them serialise it once.
 const encodedStates = new WeakMap();
@@ -311,10 +348,17 @@ function eventFrame(channel, payload, seq, inlineLimit) {
   return { json, bytes: Buffer.byteLength(json) + 1 };
 }
 
+/** Adds `listener` to `set`; the result removes it. */
+function subscribe(set, listener) {
+  set.add(listener);
+  return () => set.delete(listener);
+}
+
 async function startDaemon({
   dataDir,
   version,
   runtimeOptions = {},
+  computerOptions = {},
   phoneOptions = {},
   pushOptions = {},
   homeDir = os.homedir(),
@@ -332,6 +376,8 @@ async function startDaemon({
   // Anything bigger travels in pages, or (a state in an event) is read in pages by the client.
   const inlineLimit = Math.floor(maxFrameBytes / 4);
   const clients = new Map();
+  const desktopCommands = require("./desktop-commands.cjs").createDesktopCommands();
+  const hostUpdates = createHostUpdates(desktopCommands);
   const views = new Map();
   let eventSeq = 0;
   // Connections that take state patches, and per scope the last state sent and its number. The numbers start again with
@@ -345,25 +391,58 @@ async function startDaemon({
   let stopping;
   let listening = false;
   const sender = createExpoPush({ ...pushOptions, onError, onInvalid: (token) => push.invalidate(token) });
+  const isChatFocused = (chatId) => [...views.values()].some((view) => view.focused && view.chatId === chatId);
+  // Whether a window of this host's own is focused: what the computers it drives are told (computers.cjs setFocused).
+  const windowFocused = () => [...views.values()].some((view) => view.focused && !view.peer);
   const push = createMobilePush({
     dataDir,
     send: sender.send,
+    isChatFocused,
+    // Bots' threads and the Chats they open: the bot hears when they finish, not the phone.
+    isQuietChat: (chatId) => runtime.isQuietChat(chatId),
     onError,
     context: async (chatId) => {
       const owner = projectOfKey(chatId);
+      // A Project hidden from the sidebar and the phone's list sends no pushes.
+      if (!isLinkScopeKey(owner) && (await runtime.invoke("project:recent", [])).some((project) => project.path === owner && project.hidden)) return null;
       const project = await runtime.invoke(isLinkScopeKey(owner) ? "link:snapshot" : "project:snapshot", [
         isLinkScopeKey(owner) ? scopeFromKey(owner).linkId : owner,
       ]);
       return attentionContext(project.state, project.link?.name || project.name || require("node:path").basename(project.path), sessionIdFromKey(chatId));
     },
   });
+  // This daemon's paired computers, for its Chats' Delegations to them (spec 2026-10-23). `computers` is made below; the
+  // runtime only calls these after it starts.
+  const remoteListeners = { event: new Set(), online: new Set(), removed: new Set() };
+  let macName;
+  const remoteComputers = {
+    list: () => computers.remote.list(),
+    invoke: (id, method, args) => computers.remote.invoke(id, method, args),
+    thisMac: () => (macName ??= computerName()),
+    onEvent: (listener) => subscribe(remoteListeners.event, listener),
+    onOnline: (listener) => subscribe(remoteListeners.online, listener),
+    onRemoved: (listener) => subscribe(remoteListeners.removed, listener),
+  };
   const runtime = createRuntime({
+    // Webhook URLs point at the relay the phone uses.
+    hookRelayUrl: phoneOptions.relayUrl ?? RELAY_URL,
+    remoteComputers,
+    // What a Chat's agent is told about where the user can reach this Mac: they often read from a phone or another Mac.
+    hostNetwork: () => ({ name: (macName ??= computerName()), addresses: lanAddresses() }),
     ...runtimeOptions,
+    // Each computer's Chats home sits in the home folder it serves, so a host started on a temporary one (tests) never
+    // touches the user's.
+    chatsHome: runtimeOptions.chatsHome ?? require("node:path").join(homeDir, ".milagre", "chats"),
     dataDir,
     version,
-    isChatFocused: (chatId) => [...views.values()].some((view) => view.focused && view.chatId === chatId),
+    isChatFocused,
+    // Open on any screen: a Subchat's wait is deferred, and its family counts a human, on a phone's view too.
+    isChatSeen: (chatId) => isChatFocused(chatId) || push.viewing(chatId),
     notifyWaiting(notice) {
       broadcast("notification:waiting", notice);
+      // A flow Run waiting for approval raised no agent event, so the phone hears it here (agent ones go through observe).
+      // Nor does a Subchat's reminder: the request it is about was announced minutes ago.
+      if (/^(?:flow|reminder):/.test(String(notice?.requestId ?? ""))) push.notice(notice.chatId, notice);
       runtimeOptions.notifyWaiting?.(notice);
     },
     emit(channel, payload) {
@@ -374,6 +453,16 @@ async function startDaemon({
   const liveActivity = createLiveActivity({ snapshot: () => runtime.snapshot(), answer: (value) => runtime.invoke("agent:answer-question", [value]) });
   function broadcast(channel, payload) {
     if (channel === "agent:event") push.observe(payload.chatId, payload.event);
+    // A Routine made, deleted, paused or rotated may change the hooks the relay holds. Later, since the runtime can say so
+    // while it is still being made, before the phone is.
+    if (channel === "routines:changed")
+      queueMicrotask(() => {
+        try {
+          void phone.syncHooks().catch(() => {});
+        } catch {
+          /* the phone isn't made yet; its start sends the set */
+        }
+      });
     const seq = ++eventSeq;
     const patched = statePatch(channel, payload, seq);
     if (!clients.size) return;
@@ -444,6 +533,30 @@ async function startDaemon({
     };
   }
   /**
+   * The number of the state a reply carries (see statePatch), so the window that holds it takes the scope's next change
+   * as a patch on it instead of reading the state again. A scope that has sent no state yet is numbered from this one;
+   * the last state sent keeps its number; so does a newer one that differs from it only in which Chats' messages are in
+   * memory, which every client sees the same. Null for any other (an older state, or one with changes not sent yet): the
+   * window reads the state again on the next change, as before.
+   */
+  function replyNumber(scope, state) {
+    const sent = sentStates.get(scope);
+    if (!sent) {
+      sentStates.set(scope, { version: 1, state });
+      return 1;
+    }
+    if (sent.state === state) return sent.version;
+    return runtime.stateOf(scope) === state && sameButMessages(sent.state, state) ? sent.version : null;
+  }
+  /**
+   * The number of the last state sent for a scope, for a reply that leaves the state out (project:read with
+   * `{ state: false }`): a window holding that state is up to date, and later changes reach it as patches on it.
+   */
+  function sentNumber(scope, state) {
+    if (!sentStates.has(scope)) sentStates.set(scope, { version: 1, state });
+    return sentStates.get(scope).version;
+  }
+  /**
    * A scope's state with its number, for a client that takes patches, beside the rest of its snapshot (a Project's path
    * and name, a Link's definition). A newer state than the one sent goes out first.
    */
@@ -474,8 +587,31 @@ async function startDaemon({
     onPending: (requests) => broadcast("devices:pending", { requests }),
     // Each paired desktop is one more client of this daemon, with the paired-desktop deny set.
     openPeer: (carrier) => acceptConnection({ ...carrier, policy: peerPolicy }),
+    // Webhook Routines ride the relay host; the phone module keeps one running for them while phone access is off.
+    hooks: {
+      ids: () => runtime.routines.hookIds(),
+      receive: (deliveries) => runtime.routines.receiveHooks(deliveries),
+      refused: (ids) => runtime.routines.hooksRefused(ids),
+      owners: (ids) => runtime.routines.hookOwners(ids),
+    },
     ...phoneOptions,
   });
+  const computers = require("./computer-service.cjs").createComputerService({
+    dataDir,
+    ...computerOptions,
+    emit: (channel, payload) => broadcast(channel, payload),
+    onRemoteEvent: (id, channel, payload) => {
+      for (const listener of remoteListeners.event) listener(id, channel, payload);
+    },
+    onOnline: (id) => {
+      for (const listener of remoteListeners.online) listener(id);
+    },
+    onRemoved: (id) => {
+      for (const listener of remoteListeners.removed) listener(id);
+    },
+  });
+  const browserSignIns = createHostBrowserSignIns({ desktop: desktopCommands, computers: () => computers.remote.list() });
+  const browserPages = require("./browser-page-proxy.cjs").createBrowserPageProxy();
   /**
    * One client of the daemon, whatever carries its frames: the Unix socket below, and a paired desktop's channel (peer-channel.cjs).
    * The carrier supplies `send(message, json, bytes)`, which writes one frame as wire()'s send does (it may throw
@@ -485,7 +621,7 @@ async function startDaemon({
    * the socket has none. The carrier hands the result each parsed request (`receive`), a framing error (`invalid`) and,
    * once, its own close (`close`).
    */
-  function acceptConnection({ send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null }) {
+  function acceptConnection({ send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null, openStream = null }) {
     if (mustAuthenticate && !authenticationToken) throw new Error("requireAuthentication needs a daemon that has an authentication token");
     let authenticated = !mustAuthenticate;
     let challenge;
@@ -501,9 +637,13 @@ async function startDaemon({
     const awaitingPages = new Set();
     // Result pages and paged snapshots share one store and its rules.
     const resultPages = createResultPages(maxFrameBytes, { ttlMs: pagesTtlMs, budgetChars: pagesBudgetChars });
-    const view = { focused: false, projectPath: null, chatId: null };
+    // `peer`: a paired computer's window. Its focus counts for this host's own Chats (isChatFocused), never for the
+    // computers this host drives: passing it on sent every focus round a ring of paired computers forever.
+    const view = { focused: false, projectPath: null, chatId: null, peer: policy === peerPolicy };
     // Never accept an actor supplied in RPC arguments. Each authenticated connection owns its viewer capabilities.
-    const context = Object.freeze({ clientId: randomUUID() });
+    // A paired desktop's channel can also carry streams back to that desktop (peer-streams.cjs): its Browser pages reach
+    // this host's browser service through them.
+    const context = Object.freeze({ clientId: randomUUID(), ...(openStream ? { openStream } : {}) });
     // This connection in clients, views and patchClients.
     const key = Symbol("connection");
     const connection = { send, policy };
@@ -597,6 +737,12 @@ async function startDaemon({
         let result;
         if (request.method === "daemon:status")
           result = {
+            ...(request.args[0]?.commands === true
+              ? {
+                  desktopCommands: policy ? [] : desktopCommands.list(),
+                  commandDefinitions: runtime.commandDefinitions().filter((definition) => !policy?.denies(definition.name)),
+                }
+              : {}),
             pid: process.pid,
             version,
             protocolVersion: VERSION,
@@ -606,19 +752,40 @@ async function startDaemon({
             closing: runtime.isClosing(),
             // A capability tied to a method this connection may not call is not advertised to it (mobile push is push:*).
             capabilities: [
+              "command-dispatch-v1",
+              ...(policy ? [] : ["computer-management-v1"]),
+              ...(policy ? [] : ["desktop-commands-v1"]),
               "desktop-v1",
               "snapshot-pages-v1",
               "result-pages-v1",
-              ...(policy?.denies("push:register") ? [] : ["mobile-push-v1"]),
+              ...(policy?.denies("push:register") ? [] : ["mobile-push-v1", "mobile-push-schedule-v1"]),
               STATE_PATCHES,
               CHAT_PAGES,
               SUBAGENT_TAILS,
               ARCHIVED_SUMMARIES,
               DESKTOP_PEER,
+              ...(policy === peerPolicy ? [PEER_TCP, PEER_PANEL_PAGES] : []),
               REMOTE_FILES,
             ],
             methods: [
               ...runtime.methods,
+              ...(request.args[0]?.commands === true
+                ? [
+                    "project:open",
+                    "daemon:status",
+                    "daemon:snapshot",
+                    "daemon:snapshot-page",
+                    "daemon:result-page",
+                    "daemon:flush",
+                    "daemon:focus",
+                    "daemon:state-patches",
+                    "daemon:stop",
+                  ]
+                : []),
+              ...(request.args[0]?.computerManagement === true || request.args[0]?.commands === true ? computers.methods : []),
+              "desktop:register",
+              "desktop:respond",
+              "desktop:invoke",
               ...PHONE_METHODS,
               ...DEVICE_METHODS,
               ...PUSH_METHODS,
@@ -626,9 +793,35 @@ async function startDaemon({
               ...STATE_METHODS,
               ...PEER_METHODS,
               ...FILE_METHODS,
+              ...APP_UPDATE_METHODS,
+              ...BROWSER_SIGN_IN_METHODS,
+              "browser:page-url",
+              "browser:release-page-url",
+              "browser:keep-page-url",
             ].filter((method) => !policy?.denies(method)),
           };
-        else if (request.method === "phone:status") result = phone.status();
+        else if (request.method.startsWith("computers:")) {
+          if (policy) throw Object.assign(new Error("Computer management requires a local owner connection"), { code: "NOT_AVAILABLE_REMOTELY" });
+          result = await computers.invoke(request.method, request.args, {
+            send: (channel, payload) => connection.send({ v: VERSION, event: { channel, payload } }),
+          });
+        } else if (request.method.startsWith("desktop:")) {
+          if (policy) throw Object.assign(new Error("Desktop capabilities are available only to local clients"), { code: "NOT_AVAILABLE_REMOTELY" });
+          const input = request.args[0] ?? {};
+          if (request.method === "desktop:register")
+            result = desktopCommands.register(key, input.methods, (payload) => connection.send({ v: VERSION, event: { channel: "desktop:request", payload } }));
+          else if (request.method === "desktop:respond") result = desktopCommands.respond(key, input);
+          else if (request.method === "desktop:invoke") result = await desktopCommands.invoke(input.method, input.args);
+          else throw new Error(`Unknown command: ${request.method}`);
+        } else if (request.method === "phone:status") {
+          result = phone.status();
+          // Relay transport counters (relay-host.cjs), only while MILAGRE_TRANSPORT_DIAGNOSTICS=1 turned them on at start.
+          // `{ resetTransport: true }` reads them, then starts them over. phone:* stays this Mac's own: peers are denied.
+          if (transportDiagnostics) {
+            result = { ...result, transport: transportDiagnostics.read() };
+            if (request.args[0]?.resetTransport === true) transportDiagnostics.reset();
+          }
+        }
         // Settings shows the reply, which arrives after the status events: answer with the settled status, not the
         // "starting" one a reset began from, or the window hides the new code.
         else if (request.method === "phone:set-enabled") {
@@ -663,6 +856,11 @@ async function startDaemon({
         else if (request.method === "devices:allow") result = phone.allowDevice(request.args[0]);
         else if (request.method === "devices:deny") result = phone.denyDevice(request.args[0]);
         else if (request.method === "peer:routes") result = phone.peerRoutes();
+        else if (APP_UPDATE_METHODS.includes(request.method)) result = await hostUpdates.invoke(request.method);
+        else if (BROWSER_SIGN_IN_METHODS.includes(request.method)) result = await browserSignIns.invoke(request.method, request.args);
+        else if (request.method === "browser:page-url") result = await browserPages.open(request.args[0]);
+        else if (request.method === "browser:release-page-url") result = await browserPages.release(request.args[0]);
+        else if (request.method === "browser:keep-page-url") result = browserPages.keep(request.args[0]);
         else if (request.method === "live-activity:state") result = liveActivity.state(request.args[0]);
         else if (request.method === "live-activity:open") result = liveActivity.open(request.args[0]);
         else if (request.method === "live-activity:answer") result = await liveActivity.choose(request.args[0]);
@@ -708,10 +906,12 @@ async function startDaemon({
           const next = request.args[0];
           if (!next || typeof next.focused !== "boolean") throw new Error("Expected a focused boolean");
           view.focused = next.focused;
+          computers.setFocused(windowFocused());
           if (view.focused) await runtime.focused(view);
         } else if (request.method === "chat:set-open") {
+          // A Chat switch reads that Chat and its own Worktree's diff stat, never a whole Project's (see daemon:focus).
           view.chatId = typeof request.args[0] === "string" ? request.args[0] : null;
-          await runtime.focused(view);
+          await runtime.chatOpened(view.chatId);
         } else if (request.method === "daemon:stop") {
           await runtime.close();
           result = { stopping: true };
@@ -719,11 +919,44 @@ async function startDaemon({
         // Only a desktop open (it passes takeNotice) takes the restored-chats notice; the phone's bridge opens without it.
         else if (request.method === "project:open") result = await runtime.openProject(request.args[0], { takeNotice: request.args[1]?.takeNotice === true });
         else if (request.method === "project:current" && view.projectPath) result = await runtime.invoke("project:snapshot", [view.projectPath]);
-        else result = await runtime.invoke(request.method, request.args, context);
+        // { path, name, git } and the number of the state this host last sent, without the state: for a window that holds
+        // it and only needs the Project open here (another computer's Project).
+        else if (request.method === "project:read" && request.args[1]?.state === false) {
+          const { state, ...project } = await runtime.invoke("project:read", [request.args[0]], context);
+          result = { ...project, version: sentNumber(project.path, state), epoch };
+        } else {
+          const args =
+            policy &&
+            (request.method === "link:update" || request.method === "link:create") &&
+            request.args[0] &&
+            typeof request.args[0] === "object" &&
+            !Array.isArray(request.args[0]) &&
+            "hidden" in request.args[0]
+              ? [
+                  (() => {
+                    const { hidden: _hidden, ...rest } = request.args[0];
+                    return rest;
+                  })(),
+                  ...request.args.slice(1),
+                ]
+              : request.args;
+          result = await runtime.invoke(request.method, args, context);
+        }
         // An open may finish after its caller disconnects. Dispose that late session as well.
         if (isClosed() && /^(simulator|browser):/.test(request.method)) await runtime.disconnect?.(context.clientId);
-        if (request.method === "link:open" && result?.link) view.linkId = result.link.id;
-        if (["project:open", "project:current", "project:switch"].includes(request.method) && result?.path) view.projectPath = result.path;
+        // The window's Project is the one it shows: a Link it opens has none (its focus reads no Project's diff stats).
+        if (request.method === "link:open" && result?.link) {
+          view.linkId = result.link.id;
+          view.projectPath = null;
+        }
+        // A paired desktop opens another Mac's Project with project:read and options ({ state }); a sidebar read passes none.
+        const opensProject = SHOWN_PROJECT.has(request.method) || (request.method === "project:read" && request.args[1] && typeof request.args[1] === "object");
+        if (opensProject && result?.path) view.projectPath = result.path;
+        const scope = replyScope(request.method, result);
+        if (scope) {
+          const number = replyNumber(scope, result.state);
+          if (number !== null) result = { ...result, version: number, epoch };
+        }
         await reply(result ?? null);
         if (request.method === "daemon:stop") void close().catch(onError);
       } catch (error) {
@@ -751,7 +984,9 @@ async function startDaemon({
         clearTimeout(authenticationTimeout);
         if (!authenticated) unauthenticated--;
         clients.delete(key);
+        desktopCommands.disconnect(key);
         views.delete(key);
+        computers.setFocused(windowFocused());
         patchClients.delete(key);
         for (const claim of noticeClaims) phone.releaseDeviceNotices(claim);
         noticeClaims.clear();
@@ -787,9 +1022,12 @@ async function startDaemon({
       // Keep the listening socket available after a failed save so a client
       // can receive the error and retry stop after disk recovery.
       await phone.close();
+      await browserPages.close();
       await push.close();
       await sender.close();
       await runtime.close();
+      await computers.close();
+      desktopCommands.close();
       // Saved: tell every client this stop was asked for, so a desktop doesn't start the host again (a crash sends nothing).
       broadcast("daemon:stopping", {});
       const stopped = listening ? new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))) : Promise.resolve();

@@ -69,7 +69,7 @@ test("Windows job keeper isolates PowerShell modules and restores the target env
 
 test(
   "Windows native helpers survive inherited PowerShell 7 modules and preserve the application module path",
-  { skip: process.platform !== "win32", timeout: 45000 },
+  { skip: process.platform !== "win32", timeout: 90000 },
   async (t) => {
     const { once } = require("node:events");
     const { windowsAcl } = require("./private-files.cjs");
@@ -101,6 +101,72 @@ test(
     }
   },
 );
+
+test("Windows private directories can be protected repeatedly without elevated privileges", { skip: process.platform !== "win32" }, (t) => {
+  const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("./private-files.cjs");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-private-repeat-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    preparePrivateDirectory(directory);
+    // preparePrivateDirectory protects a folder once per process; this protects it again each time.
+    windowsAcl(directory, { mode: "protect" });
+    assertPrivate(directory);
+  }
+  const file = path.join(directory, "token");
+  fs.writeFileSync(file, "fixture");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    windowsAcl(file, { mode: "protect" });
+    assertPrivate(file);
+  }
+  assert.equal(fs.readFileSync(file, "utf8"), "fixture");
+});
+
+test("Windows protects a private folder once per process, and again when it is made anew", { skip: process.platform !== "win32", timeout: 90000 }, (t) => {
+  // A fresh copy of the module, counting the PowerShell runs it starts.
+  const childProcess = require("node:child_process");
+  const execFileSync = childProcess.execFileSync;
+  let runs = 0;
+  childProcess.execFileSync = function (...args) {
+    runs++;
+    return execFileSync.apply(this, args);
+  };
+  const modulePath = require.resolve("./private-files.cjs");
+  delete require.cache[modulePath];
+  let privateFiles;
+  try {
+    privateFiles = require("./private-files.cjs");
+  } finally {
+    childProcess.execFileSync = execFileSync;
+    delete require.cache[modulePath];
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-private-once-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const directory = path.join(root, "local-mcp");
+  for (let attempt = 0; attempt < 3; attempt++) privateFiles.preparePrivateDirectory(directory);
+  privateFiles.assertPrivate(directory);
+  assert.equal(runs, 1);
+  // A file is checked every time. It is protected first, as the stores write theirs: an elevated process (CI) makes
+  // its files owned by Administrators.
+  const file = path.join(directory, "endpoint.json");
+  fs.writeFileSync(file, "{}");
+  privateFiles.windowsAcl(file, { mode: "protect" });
+  privateFiles.assertPrivate(file);
+  privateFiles.assertPrivate(file);
+  assert.equal(runs, 4);
+  // The same path made again is another folder: it is protected again.
+  fs.rmSync(directory, { recursive: true });
+  privateFiles.preparePrivateDirectory(directory);
+  privateFiles.assertPrivate(directory);
+  assert.equal(runs, 5);
+  // A junction in its place is refused before any PowerShell run.
+  fs.rmSync(directory, { recursive: true });
+  const elsewhere = path.join(root, "elsewhere");
+  fs.mkdirSync(elsewhere);
+  fs.symlinkSync(elsewhere, directory, "junction");
+  assert.throws(() => privateFiles.preparePrivateDirectory(directory), /Not a private directory/);
+  assert.throws(() => privateFiles.assertPrivate(directory), /must not be a symlink/);
+  assert.equal(runs, 5);
+});
 
 test("Windows executable lookup searches only absolute PATH directories and prefers PATHEXT launchers", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-path-"));
@@ -145,6 +211,7 @@ test("Linux without SHELL falls back to /bin/sh", async () => {
       return null;
     },
     dirs: () => [],
+    npmBin: async () => null,
   });
   assert.equal(shell, "/bin/sh");
 });
@@ -164,6 +231,30 @@ test("npm cmd shims run their JavaScript entry directly with literal arguments",
     assert.deepEqual(invocation.args, [entry, ...args]);
     fs.writeFileSync(shim, "@echo dangerous %*");
     assert.throws(() => commandInvocation(shim, args, { platform: "win32" }), /Unsupported Windows command wrapper/);
+    // npm's own npm.cmd (Node 24) names its script through a variable.
+    const npm = path.join(root, "npm.cmd");
+    const npmCli = path.join(root, "node_modules/npm/bin/npm-cli.js");
+    fs.mkdirSync(path.dirname(npmCli), { recursive: true });
+    fs.writeFileSync(npmCli, "");
+    fs.writeFileSync(path.join(root, "node_modules/npm/bin/npm-prefix.js"), "");
+    const npmShim = [
+      "@ECHO OFF",
+      'SET "NODE_EXE=%~dp0\\node.exe"',
+      'IF NOT EXIST "%NODE_EXE%" (',
+      '  SET "NODE_EXE=node"',
+      ")",
+      'SET "NPM_PREFIX_JS=%~dp0\\node_modules\\npm\\bin\\npm-prefix.js"',
+      'SET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"',
+      '"%NODE_EXE%" "%NPM_CLI_JS%" %*',
+      "",
+    ].join("\r\n");
+    fs.writeFileSync(npm, npmShim);
+    assert.deepEqual(commandInvocation(npm, args, { platform: "win32" }), { file: process.execPath, args: [npmCli, ...args] });
+    // The variable must name a script beside the launcher, as the direct form must.
+    fs.writeFileSync(npm, npmShim.replace("%~dp0\\node_modules\\npm\\bin\\npm-cli.js", "%~dp0\\..\\elsewhere\\npm-cli.js"));
+    assert.throws(() => commandInvocation(npm, args, { platform: "win32" }), /Unsafe Windows command wrapper|ENOENT/);
+    fs.writeFileSync(npm, npmShim.replace("%~dp0\\node_modules\\npm\\bin\\npm-cli.js", "C:\\other\\npm-cli.js"));
+    assert.throws(() => commandInvocation(npm, args, { platform: "win32" }), /Unsupported Windows command wrapper/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -193,6 +284,49 @@ test("Windows ACL operations encode paths and fail closed on command errors", ()
         },
       }),
     /ACL denied/,
+  );
+  // PowerShell's CLIXML and the encoded command stay out of the message: the script's reason and the path go in.
+  const failed = (fields) =>
+    Object.assign(new Error(`Command failed: powershell.exe -EncodedCommand ${"A".repeat(4000)}`), { status: 1, stderr: "", ...fields });
+  assert.throws(
+    () =>
+      windowsAcl("C:\\private", {
+        execFileSyncImpl() {
+          throw failed({
+            stderr:
+              '#< CLIXML\r\n<Objs Version="1.1.0.1"><S S="Error">Private path grants access to another Windows account_x000D__x000A_</S><S S="Error">At line:18 char:59_x000D__x000A_</S></Objs>',
+          });
+        },
+      }),
+    (error) => error.message === "Private path grants access to another Windows account: C:\\private",
+  );
+  assert.throws(
+    () =>
+      windowsAcl("C:\\private", {
+        execFileSyncImpl() {
+          throw failed({ code: "ETIMEDOUT" });
+        },
+      }),
+    (error) => error.code === "ETIMEDOUT" && error.message === "Windows PowerShell could not check its permissions (ETIMEDOUT): C:\\private",
+  );
+});
+
+test("a Windows private path another account can read fails with that reason and the path", { skip: process.platform !== "win32", timeout: 90000 }, (t) => {
+  const { execFileSync } = require("node:child_process");
+  const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("./private-files.cjs");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-private-shared-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  preparePrivateDirectory(directory);
+  const file = path.join(directory, "token");
+  fs.writeFileSync(file, "fixture");
+  // Protected as the stores write theirs: an elevated process (CI) makes its files owned by Administrators.
+  windowsAcl(file, { mode: "protect" });
+  assertPrivate(file);
+  // Builtin Users may read it.
+  execFileSync("icacls", [file, "/grant", "*S-1-5-32-545:(R)"], { stdio: "ignore" });
+  assert.throws(
+    () => assertPrivate(file),
+    (error) => error.message === `Private path grants access to another Windows account: ${file}`,
   );
 });
 
@@ -461,6 +595,50 @@ test("Windows job facade preserves large output, strips control frames and close
   assert.deepEqual(Buffer.concat(chunks), body);
   await closeWindowsJob(child);
   assert.equal(killed, true);
+});
+
+test("Windows job facade hands over a stderr line at once and still strips a split control frame", async () => {
+  const { EventEmitter } = require("node:events");
+  const { PassThrough } = require("node:stream");
+  const { spawnWindowsJob } = require("./agents/windows-job.cjs");
+  const keeper = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+  keeper.kill = () => true;
+  let payload;
+  const child = spawnWindowsJob("C:\\node.exe", [], {}, (_file, _args, options) => {
+    payload = JSON.parse(Buffer.from(options.env.MILAGRE_WINDOWS_JOB_SPEC, "base64"));
+    return keeper;
+  });
+  let seen = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => (seen += chunk));
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  keeper.stderr.write(payload.marker + "PID:123\n");
+  await settle();
+  // Nothing follows this line, as with a sign-in link.
+  keeper.stderr.write("Open the following link: https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=x\n");
+  await settle();
+  assert.equal(seen, "Open the following link: https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=x\n");
+  keeper.stderr.write("short\n" + payload.marker.slice(0, 7));
+  await settle();
+  assert.equal(seen.endsWith("short\n"), true);
+  keeper.stderr.write(payload.marker.slice(7) + "EXIT:0\n");
+  await settle();
+  assert.equal(child.exitCode, 0);
+  assert.equal(seen.includes(payload.marker.slice(0, 7)), false);
+});
+
+test("Windows native job leaves its folder free as soon as the process closes", { skip: process.platform !== "win32" }, async (t) => {
+  const { once } = require("node:events");
+  const { spawnCommand } = require("./agents/command.cjs");
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "milagre job folder "));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const child = spawnCommand(process.execPath, ["-e", "process.stdout.write(process.cwd())"], { cwd: folder, stdio: ["ignore", "pipe", "pipe"] });
+  const chunks = [];
+  child.stdout.on("data", (chunk) => chunks.push(chunk));
+  child.stderr.resume();
+  await once(child, "close");
+  assert.equal(Buffer.concat(chunks).toString(), folder);
+  fs.rmdirSync(folder);
 });
 
 test("Windows native job handles literal arguments and releases an empty job", { skip: process.platform !== "win32" }, async () => {

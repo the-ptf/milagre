@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { withAlpha } from "@milagre/shared/themes";
 import { Pressable, Text, View } from "react-native";
 import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import Animated, {
@@ -11,36 +12,59 @@ import Animated, {
   LinearTransition,
   ReduceMotion,
   useAnimatedStyle,
-  useReducedMotion,
   useSharedValue,
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { IconButton } from "./ui";
+import { duration, easing, lineHeight, radius, type } from "./design-tokens";
+import { announce, IconButton } from "./ui";
+import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
 
-const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
-const TRACK_EASE = cubicBezier(0.23, 1, 0.32, 1);
-export const INBOX_LAYOUT = LinearTransition.duration(240).easing(EASE_OUT).reduceMotion(ReduceMotion.System);
-const ENTER_RIGHT = FadeInRight.duration(180)
-  .easing(EASE_OUT)
-  .withInitialValues({ transform: [{ translateX: 40 }] })
-  .reduceMotion(ReduceMotion.System);
-const ENTER_LEFT = FadeInLeft.duration(180)
-  .easing(EASE_OUT)
-  .withInitialValues({ transform: [{ translateX: -40 }] })
-  .reduceMotion(ReduceMotion.System);
-const EXIT = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
+const EASE_OUT = Easing.bezier(...easing.enter);
+const TRACK_EASE = cubicBezier(...easing.enter);
+type InboxKit = {
+  layout?: ReturnType<typeof LinearTransition.duration>;
+  right?: ReturnType<typeof FadeInRight.duration>;
+  left?: ReturnType<typeof FadeInLeft.duration>;
+  exit?: ReturnType<typeof FadeOut.duration>;
+};
+const kits = new Map<number, InboxKit>();
+/** Layout and page animations for an Animations setting: Fast shortens them, Off drops them. */
+function kitFor(scale: number): InboxKit {
+  let kit = kits.get(scale);
+  if (kit) return kit;
+  const ms = (value: number) => Math.round(value * scale);
+  kit =
+    scale <= 0
+      ? {}
+      : {
+          layout: LinearTransition.duration(ms(duration.slow)).easing(EASE_OUT).reduceMotion(ReduceMotion.System),
+          right: FadeInRight.duration(ms(duration.base))
+            .easing(EASE_OUT)
+            .withInitialValues({ transform: [{ translateX: 40 }] })
+            .reduceMotion(ReduceMotion.System),
+          left: FadeInLeft.duration(ms(duration.base))
+            .easing(EASE_OUT)
+            .withInitialValues({ transform: [{ translateX: -40 }] })
+            .reduceMotion(ReduceMotion.System),
+          exit: FadeOut.duration(ms(duration.fast)).reduceMotion(ReduceMotion.System),
+        };
+  kits.set(scale, kit);
+  return kit;
+}
+export const useInboxLayout = () => kitFor(useTheme().motionScale).layout;
 
 export function InboxPage({ pageKey, direction, children }: { pageKey: string; direction: number; children: ReactNode }) {
   const reduced = useReducedMotion();
+  const kit = kitFor(useMotionScale());
   return (
     <Animated.View
       key={pageKey}
       collapsable={false}
-      entering={reduced ? undefined : direction > 0 ? ENTER_RIGHT : ENTER_LEFT}
-      exiting={reduced ? undefined : EXIT}
-      layout={INBOX_LAYOUT}
+      entering={reduced ? undefined : direction > 0 ? kit.right : kit.left}
+      exiting={reduced ? undefined : kit.exit}
+      layout={kit.layout}
     >
       {children}
     </Animated.View>
@@ -48,10 +72,19 @@ export function InboxPage({ pageKey, direction, children }: { pageKey: string; d
 }
 
 export function InboxPager({ index, count, select, label = "message" }: { index: number; count: number; select: (index: number) => void; label?: string }) {
-  const { scheme, colors } = useTheme();
+  const { colors } = useTheme();
   const reduced = useReducedMotion();
+  const scale = useMotionScale();
   const last = Math.max(0, count - 1);
   const current = Math.min(last, Math.max(0, index));
+  const position = `${count ? current + 1 : 0} of ${count}`;
+  // Read the new position aloud when it changes (not on mount), on VoiceOver and TalkBack alike.
+  const spoken = useRef(position);
+  useEffect(() => {
+    if (spoken.current === position) return;
+    spoken.current = position;
+    announce(position);
+  }, [position]);
   const choose = (page: number) => {
     if (count > 1) select(Math.min(last, Math.max(0, page)));
   };
@@ -64,7 +97,7 @@ export function InboxPager({ index, count, select, label = "message" }: { index:
         accessibilityLabel={`${label} position`}
         accessibilityHint="Tap the track to jump to a message, or adjust to move one at a time."
         accessibilityState={{ disabled: count < 2 }}
-        accessibilityValue={{ min: 1, max: Math.max(1, count), now: current + 1, text: `${count ? current + 1 : 0} of ${count}` }}
+        accessibilityValue={{ min: 1, max: Math.max(1, count), now: current + 1, text: position }}
         accessibilityActions={[
           { name: "increment", label: `Next ${label}` },
           { name: "decrement", label: `Previous ${label}` },
@@ -77,16 +110,16 @@ export function InboxPager({ index, count, select, label = "message" }: { index:
         onPress={({ nativeEvent }) => choose(Math.round(Math.min(1, Math.max(0, nativeEvent.locationX / 100)) * last))}
         style={{ width: 100, height: 44, marginHorizontal: 4, justifyContent: "center" }}
       >
-        <View pointerEvents="none" style={{ width: 100, height: 5, borderRadius: 3, backgroundColor: scheme === "dark" ? "#ffffff26" : "#00000026" }}>
+        <View pointerEvents="none" style={{ width: 100, height: 5, borderRadius: radius.full, backgroundColor: withAlpha(colors.ink, 0.15) }}>
           <Animated.View
             style={{
               width: 22,
               height: 5,
-              borderRadius: 3,
-              backgroundColor: scheme === "dark" ? "#fff" : "#000",
+              borderRadius: radius.full,
+              backgroundColor: colors.ink,
               transform: [{ translateX: last ? (current / last) * 78 : 0 }],
               transitionProperty: "transform",
-              transitionDuration: reduced ? 0 : 220,
+              transitionDuration: reduced ? 0 : Math.round(duration.base * scale),
               transitionTimingFunction: TRACK_EASE,
             }}
           />
@@ -94,10 +127,16 @@ export function InboxPager({ index, count, select, label = "message" }: { index:
       </Pressable>
       <Text
         testID="inbox-position-count"
-        accessibilityLiveRegion="polite"
-        style={{ minWidth: 49, color: colors.ink3, fontSize: 11, textAlign: "center", fontVariant: ["tabular-nums"] }}
+        style={{
+          minWidth: 48,
+          color: colors.ink3,
+          fontSize: type.caption2,
+          lineHeight: lineHeight.caption2,
+          textAlign: "center",
+          fontVariant: ["tabular-nums"],
+        }}
       >
-        {count ? current + 1 : 0} of {count}
+        {position}
       </Text>
       <InboxPagerArrow index={current} direction={1} label={`Next ${label}`} disabled={current >= last} onPress={() => choose(current + 1)} />
     </View>

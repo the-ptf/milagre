@@ -1,13 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import type { HandoffContext, ModelOption } from "../model";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDataTransferHorizontalIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import { ArrowDataTransferHorizontalIcon } from "@hugeicons/core-free-icons";
 import { handoffLabel } from "../lib/handover";
 import { ProviderLogo } from "./ProviderLogo";
 import { Markdown } from "./markdown/Markdown";
-import { ScrollArea } from "./primitives/ScrollArea";
 import { SpinnerRing } from "./primitives/SpinnerRing";
+import { Button } from "./primitives/Button";
+import { Dialog } from "./primitives/Dialog";
+import { Icon } from "./primitives/Icon";
+import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
 /**
  * A provider switch inside the chat: a hairline with "Context handoff  Opus 5.5 → GPT-6" centred on it. It spins while
@@ -18,65 +19,43 @@ export function HandoffDivider({ context, models }: { context: HandoffContext; m
   const label = handoffLabel(context, models);
   const canOpen = context.status === "done" && Boolean(context.brief);
   return (
-    <div
+    <TranscriptDivider
       data-handoff-divider
       data-status={context.status}
-      className="flex w-full items-center gap-3 py-1 text-[12px] text-ink-3"
-      role="group"
-      aria-label={label.restored ? `Context restored to ${label.to}` : `Context handoff from ${label.from} to ${label.to}`}
+      label={label.restored ? `Context restored to ${label.to}` : `Context handoff from ${label.from} to ${label.to}`}
     >
-      <span className="h-px flex-1 bg-line" />
+      {/* The visible text is the button's name; the ::before brings its hit area to 24px without growing the hairline row. */}
       <button
         type="button"
         disabled={!canOpen}
         onClick={() => setOpen(true)}
-        aria-label={canOpen ? "Open the handoff brief" : undefined}
-        className="flex items-center gap-1.5 rounded-control px-2 py-0.5 enabled:hover:bg-hover enabled:hover:text-ink disabled:cursor-default"
+        aria-haspopup={canOpen ? "dialog" : undefined}
+        className="relative -mx-2 flex items-center gap-1.5 rounded-control px-2 py-0.5 transition-colors duration-fast before:absolute before:-inset-y-1 before:inset-x-0 enabled:hover:bg-hover enabled:hover:text-ink disabled:cursor-default"
       >
-        {context.status === "preparing" ? (
-          <SpinnerRing size={12} />
-        ) : (
-          <HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} size={13} strokeWidth={1.8} color="currentColor" />
-        )}
+        {context.status === "preparing" ? <SpinnerRing size={12} /> : <Icon icon={ArrowDataTransferHorizontalIcon} size={12} />}
         <span>{label.restored ? "Context restored" : "Context handoff"}</span>
         {!label.restored && (
           <>
-            <ProviderLogo provider={context.from.provider} size={13} />
+            <ProviderLogo provider={context.from.provider} size={12} />
             <span>{label.from}</span>
             <span aria-hidden="true">→</span>
           </>
         )}
-        <ProviderLogo provider={context.to.provider} size={13} />
+        <ProviderLogo provider={context.to.provider} size={12} />
         <span className="font-medium text-ink-2">{label.to}</span>
-        {context.status === "failed" && <span className="text-orange">· Handoff failed</span>}
+        {context.status === "failed" && <span className="text-orange-ink">· Handoff failed</span>}
       </button>
-      <span className="h-px flex-1 bg-line" />
       {open && context.brief && <HandoffBriefDialog title="Handoff brief" brief={context.brief} onClose={() => setOpen(false)} />}
-    </div>
+    </TranscriptDivider>
   );
 }
 
-const FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
-const BUTTON_PRIMARY =
-  "inline-flex h-8 items-center gap-1.5 rounded-control bg-ink px-3 text-[12.5px] font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40";
-
 /**
- * The brief the new provider was sent, or the linked summary a Link gave a Chat, in a modal as the GitActionsDialog is
- * built: a Preview with Close.
+ * The brief the new provider was sent, or the linked summary a Link gave a Chat, in a Dialog with a Close bar.
  */
 export function HandoffBriefDialog({ title, brief, onClose }: { title: string; brief: string; onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-
-  // Focus moves into the dialog, and back to where it was when the dialog closes.
-  useLayoutEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-    return () => {
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
 
   // Escape closes the dialog wherever focus is, and is consumed here so it doesn't also stop the chat's turn.
   useEffect(() => {
@@ -91,68 +70,27 @@ export function HandoffBriefDialog({ title, brief, onClose }: { title: string; b
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
-  // Tab and Shift+Tab stay inside the dialog.
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Tab") return;
-    const focusable = [...(panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((element) => element.offsetParent !== null);
-    if (!focusable.length) return event.preventDefault();
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || active === panelRef.current)) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || active === panelRef.current)) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  return createPortal(
-    <div
-      data-brief-dialog-overlay
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-[oklch(0.2_0.01_260/0.32)] p-4 [-webkit-app-region:no-drag]"
-      style={{ animation: "fade-in 140ms ease-out both" }}
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+  return (
+    <Dialog
+      data-brief-dialog
+      title={
+        <span id="brief-dialog-title" className="block truncate">
+          {title}
+        </span>
+      }
+      width={680}
+      onClose={onClose}
+      footer="bar"
+      actions={
+        <Button data-brief-close onClick={onClose}>
+          Close
+        </Button>
+      }
+      className="pt-3"
     >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="brief-dialog-title"
-        tabIndex={-1}
-        onKeyDown={handleKeyDown}
-        data-brief-dialog
-        className="flex h-[min(88vh,760px)] w-[680px] max-w-full flex-col overflow-hidden rounded-[14px] bg-surface text-ink shadow-overlay outline-none"
-        style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both" }}
-      >
-        <header className="flex items-center gap-3 px-4 pb-2 pt-3.5">
-          <h2 id="brief-dialog-title" className="min-w-0 flex-1 truncate text-[15px] font-semibold">
-            {title}
-          </h2>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.8} color="currentColor" />
-          </button>
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-1">
-          <ScrollArea data-brief-preview className="flex-1 text-[13px] leading-[1.55]">
-            <Markdown text={brief} />
-          </ScrollArea>
-        </div>
-        <footer className="flex items-center justify-end gap-2 border-t border-line bg-inset px-4 py-3">
-          <button type="button" data-brief-close className={BUTTON_PRIMARY} onClick={onClose}>
-            Close
-          </button>
-        </footer>
+      <div data-brief-preview className="text-13 leading-5">
+        <Markdown text={brief} />
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   );
 }

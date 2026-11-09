@@ -32,22 +32,23 @@ function fakeMac({ hello = "accept", answer = echo } = {}) {
     const reader = createFrameReader("rpc");
     const writer = createFrameWriter("evt");
     let channel = null;
+    const target = new EventTarget();
     const socket = {
       url,
       binaryType: "",
-      onopen: null,
-      onmessage: null,
-      onclose: null,
-      onerror: null,
+      addEventListener: target.addEventListener.bind(target),
+      emit(type, event = {}) {
+        target.dispatchEvent(Object.assign(new Event(type), event));
+      },
       closed: null,
       deliver(bytes) {
         const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        queueMicrotask(() => socket.onmessage?.({ data }));
+        queueMicrotask(() => socket.emit("message", { data }));
       },
       closeWith(code) {
         if (socket.closed) return;
         socket.closed = code;
-        queueMicrotask(() => socket.onclose?.({ code }));
+        queueMicrotask(() => socket.emit("close", { code }));
       },
       close() {
         socket.closeWith(1000);
@@ -92,7 +93,7 @@ function fakeMac({ hello = "accept", answer = echo } = {}) {
       },
     };
     mac.sockets.push(socket);
-    queueMicrotask(() => socket.onopen?.());
+    queueMicrotask(() => socket.emit("open"));
     return socket;
   };
   return mac;

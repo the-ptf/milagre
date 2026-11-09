@@ -116,6 +116,7 @@ const callsAt = (target, demo) => [
   ["project:branches", [target]],
   ["linear:worktree-issues", [target]],
   ["skills:list", [target]],
+  ["project:files", [target, ""]],
   ["skills:read", [target, path.join(target, "SKILL.md")]],
   ["chat:send", [{ projectPath: target, sessionId: 1, body: "hi", provider: "codex", model: "demo", permissionMode: "ask" }]],
   ["chat:send", [{ projectPath: demo, cwd: target, sessionId: 1, body: "hi", provider: "codex", model: "demo", permissionMode: "ask" }]],
@@ -125,6 +126,7 @@ const callsAt = (target, demo) => [
   ],
   ["chat:resume", [target, 1]],
   ["chat:patch", [target, 1, { title: "Renamed" }]],
+  ["chat:delete", [target, 1]],
   ["chat:archive-subagent", [target, 1, "child", true]],
   ["chat:archive-finished-subagents", [target, 1]],
   ["agent:interrupt", [`${target}#1`]],
@@ -137,6 +139,7 @@ const callsAt = (target, demo) => [
   ["worktree:create", [{ projectPath: target, baseBranch: "main", prompt: "Escape" }]],
   ["worktree:link-issue", [{ projectPath: target, worktreeId: 1, key: "ENG-1" }]],
   ["worktree:unlink-issue", [{ projectPath: target, worktreeId: 1 }]],
+  ["git:history", [{ cwd: target, base: "main", limit: 30 }]],
   ["git:diff-files", [{ cwd: target, mode: "uncommitted" }]],
   ["git:diff-file", [{ cwd: target, mode: "uncommitted", path: "secret.png" }]],
   ["worktree:status", [target, "main"]],
@@ -214,6 +217,17 @@ test("a confined bridge refuses a path outside its folder on every path-taking c
   assert.ok(Object.values(outsideState.state.sessions).every((session) => session.title !== "Renamed"));
 });
 
+test("a confined phone searches the files of its own Project and not another's", async (t) => {
+  const f = await fixture(t);
+  await f.rpc("project:open", [f.demo]);
+  const inside = await f.rpc("project:files", [f.demo, "shot"]);
+  assert.equal(inside.status, 200);
+  assert.ok(inside.body.result.includes("shot.png"));
+  const outside = await f.rpc("project:files", [f.outside, "secret"]);
+  assert.equal(outside.status, 403);
+  assert.deepEqual(outside.body, refusedBody);
+});
+
 test(".. and symlinks cannot lead out of the folder", async (t) => {
   const f = await fixture(t);
   await f.rpc("project:open", [f.demo]);
@@ -256,6 +270,11 @@ test("inside the folder the phone browses, reads changes, sends and sees images;
   const snapshot = await (await f.request(`/snapshot?projectPath=${encodeURIComponent(f.demo)}`)).json();
   const chat = Object.values(snapshot.result.project.state.sessions)[0];
   assert.equal((await f.rpc("git:diff-files", [{ cwd: f.demo, mode: "uncommitted" }])).status, 200);
+  const history = await f.rpc("git:history", [{ cwd: f.demo, base: "main", limit: 30 }]);
+  assert.equal(history.status, 200, JSON.stringify(history.body));
+  assert.equal(history.body.result.isRepo, true);
+  assert.equal(history.body.result.branch, "main");
+  assert.deepEqual(history.body.result.commits, []);
   assert.equal((await f.rpc("project:branches", [f.demo])).status, 200);
   assert.equal((await f.rpc("linear:worktree-issues", [f.demo])).status, 200);
   assert.equal((await f.rpc("chat:patch", [f.demo, chat.id, { title: "Inside" }])).status, 200);
@@ -298,6 +317,9 @@ test("inside the folder the phone browses, reads changes, sends and sees images;
   const worktree = created.body.result.project.state.worktrees[created.body.result.worktreeId].path;
   assert.ok(worktree.startsWith(f.demo + path.sep));
   assert.equal((await f.rpc("git:diff-files", [{ cwd: worktree, mode: "uncommitted" }])).status, 200);
+  const worktreeHistory = await f.rpc("git:history", [{ cwd: worktree, base: "main", limit: 30 }]);
+  assert.equal(worktreeHistory.status, 200, JSON.stringify(worktreeHistory.body));
+  assert.equal(worktreeHistory.body.result.isRepo, true);
 });
 
 test("a confined phone archives with the worktree check: roots inside the folder only, status, and removal", async (t) => {
@@ -332,11 +354,16 @@ test("a confined phone gets no worktree root outside its folder", async (t) => {
 
 test("the demo daemon reports only the demo agent, whichever provider the phone picks", async (t) => {
   const f = await fixture(t);
-  assert.deepEqual((await f.rpc("agent:models")).body.result, { codex: [DEMO_MODEL], claude: null, antigravity: null });
+  assert.deepEqual((await f.rpc("agent:models")).body.result, { codex: [DEMO_MODEL], claude: null, antigravity: null, kiro: null });
   const status = (await f.rpc("agent:cli-status")).body.result;
   assert.deepEqual(status.codex, { state: "ready" });
   assert.equal(status.claude.state, "missing");
   assert.deepEqual((await f.rpc("usage:read")).body.result, { providers: [] });
+  for (const method of ["usage:accounts:read", "usage:accounts:cached"]) {
+    const reply = await f.rpc(method);
+    assert.equal(reply.status, 200);
+    assert.deepEqual(reply.body.result, { providers: [] });
+  }
 });
 
 test("without allowedRoot the bridge opens any folder, as before", async (t) => {
@@ -403,11 +430,12 @@ test("a confined phone cannot register for push, and unregister and focus never 
 test("uploads stop at the quota with a 507, and a long message is refused", async (t) => {
   const f = await fixture(t, { bridgeOptions: { attachmentQuota: 1000 } });
   await f.rpc("project:open", [f.demo]);
+  let uploadNumber = 0;
   const upload = (bytes) =>
     f.request("/attachments", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectPath: f.demo, name: "a.bin", base64: Buffer.alloc(bytes, 1).toString("base64") }),
+      body: JSON.stringify({ projectPath: f.demo, name: `a-${++uploadNumber}.bin`, base64: Buffer.alloc(bytes, 1).toString("base64") }),
     });
   assert.equal((await upload(600)).status, 200);
   // Two at once cannot both take the 400 bytes left.
@@ -623,6 +651,41 @@ test("a confined phone reads Designs availability but cannot change the host set
   await assert.rejects(confine.checkCall("designs:enabled:save", [false]), { status: 403, message: REFUSED });
 });
 
+// Babysit settings go into every future babysit Run on the Mac, in every Chat: a confined phone only reads them.
+test("a confined phone reads the Babysit PRs settings but can't change them", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("babysit:settings:read", []);
+  await assert.rejects(confine.checkCall("babysit:settings:save", [{ level: 5 }]), { status: 403, message: REFUSED });
+  await confine.checkCall("done:settings:read", []);
+  await assert.rejects(confine.checkCall("done:settings:save", [{ retentionHours: 1 }]), { status: 403, message: REFUSED });
+});
+
+// keybindings.json names no folder, but a confined phone has no business rebinding the Mac's keys.
+test("a confined phone reads the keybindings but can't change or reset them", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("keybindings:read", []);
+  for (const [method, args] of [
+    ["keybindings:set-command", ["chat.new", [{ key: "mod+u" }]]],
+    ["keybindings:reset-command", ["chat.new"]],
+    ["keybindings:reset", []],
+  ])
+    await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED }, method);
+});
+
+// Routines reach every Chat on the Mac: a confined (demo) phone sees them, and changes nothing.
+test("a confined phone reads Routines but can't switch, create, change, delete or run them, or list the owner's Linear choices", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("routines:enabled:read", []);
+  await confine.checkCall("routines:list", []);
+  await confine.checkCall("routines:targets", []);
+  await assert.rejects(confine.checkCall("routines:linear-options", [{ workspace: "acme", team: "ENG" }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:create", [{ name: "Daily", prompt: "Look" }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:enabled:save", [true]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:update", ["r1", { enabled: false }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:delete", ["r1"]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:run-now", ["r1"]), { status: 403, message: REFUSED });
+});
+
 test("a confined phone reviews designs but cannot apply edits even in its own Project", async () => {
   const confine = createConfinement({ allowedRoot: os.tmpdir() });
   await assert.rejects(confine.checkCall("artifact:apply", [{ chatId: `${os.tmpdir()}#1`, id: "welcome", expectedVersion: 1, operations: [] }]), {
@@ -673,6 +736,17 @@ test("phones link chats with canvas Links, but a confined demo phone sees and ch
     assert.ok(METHODS.has(method), method);
     await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED });
   }
+});
+
+test("a phone reads the Mac's desktop app update, and a confined one never checks or installs it", async (t) => {
+  for (const method of ["app-update:state", "app-update:check", "app-update:install"]) assert.ok(METHODS.has(method), method);
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  assert.deepEqual((await confine.checkCall("app-update:state", [])).args, []);
+  for (const method of ["app-update:check", "app-update:install"]) await assert.rejects(confine.checkCall(method, []), { status: 403, message: REFUSED });
+  // Through the bridge, on a Mac with no desktop app open: the state reads null, and the confined phone starts nothing.
+  const f = await fixture(t);
+  assert.deepEqual(await f.rpc("app-update:state"), { status: 200, body: { v: 1, result: null } });
+  for (const method of ["app-update:check", "app-update:install"]) assert.deepEqual(await f.rpc(method), { status: 403, body: refusedBody });
 });
 
 test("phones can't connect or disconnect Linear", () => {
@@ -727,4 +801,141 @@ test("the demo computer's phone cannot list or check MCP servers", async () => {
     assert.ok(METHODS.has(method), method);
     await assert.rejects(confine.checkCall(method, args), (error) => error.status === 403 && error.message === MCP_REFUSED);
   }
+});
+
+for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) {
+  test(`${method} is refused on the demo computer`, async () => {
+    const confine = createConfinement({ allowedRoot: os.tmpdir() });
+    assert.ok(METHODS.has(method), method);
+    await assert.rejects(confine.checkCall(method, []), (error) => error.status === 403 && error.message === MCP_REFUSED);
+  });
+}
+
+test("the Mac-only MCP commands are not phone methods at all", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) {
+    assert.equal(METHODS.has(method), false, method);
+    await assert.rejects(confine.checkCall(method, []), { status: 403, message: REFUSED });
+  }
+});
+
+// Routines name prompts, Run snapshots (Linear descriptions and comments) and Chats of every Project on the Mac.
+test("a confined phone reads only the Routines and targets of its own Project", async (t) => {
+  const f = await fixture(t);
+  const opened = {};
+  for (const projectPath of [f.demo, f.outside]) {
+    const state = (await f.owner.call("project:open", [projectPath])).state;
+    const worktreeId = Object.values(state.worktrees)[0].id;
+    const sent = await f.owner.call("chat:send", [{ projectPath, worktreeId, body: "hello", provider: "codex", model: "demo", permissionMode: "auto" }]);
+    opened[projectPath] = `${projectPath}#${sent.sessionId}`;
+  }
+  const schedule = { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" };
+  for (const [projectPath, secret] of [
+    [f.demo, "DEMO-PROMPT"],
+    [f.outside, "OUTSIDE-PROMPT"],
+  ]) {
+    await f.owner.call("routines:create", [
+      { name: `Own ${secret}`, prompt: secret, trigger: schedule, target: { kind: "new-chat", projectPath, workspace: "project" } },
+    ]);
+    await f.owner.call("routines:create", [
+      { name: `Beat ${secret}`, prompt: `${secret}-BEAT`, trigger: schedule, target: { kind: "chat", chatId: opened[projectPath] }, maxRuns: 3 },
+    ]);
+  }
+  assert.equal((await f.owner.call("routines:list")).routines.length, 4, "the owner sees every Routine");
+
+  const list = await f.rpc("routines:list");
+  assert.equal(list.status, 200);
+  const listed = JSON.stringify(list.body);
+  assert.ok(listed.includes("DEMO-PROMPT") && listed.includes("DEMO-PROMPT-BEAT"));
+  assert.ok(!listed.includes("OUTSIDE-PROMPT"), "nothing of the other Project's Routines");
+  assert.equal(list.body.result.routines.length, 2);
+
+  const targets = await f.rpc("routines:targets");
+  assert.equal(targets.status, 200);
+  assert.deepEqual(
+    targets.body.result.projects.map((project) => project.path),
+    [f.demo],
+  );
+  assert.ok(!JSON.stringify(targets.body).includes(f.outside));
+});
+
+test("a confined phone never sees a Routine whose Project can't be placed inside its folder", async () => {
+  const root = await fs.realpath(os.tmpdir());
+  const confine = createConfinement({ allowedRoot: root });
+  const inside = { id: "a", prompt: "kept", target: { kind: "new-chat", projectPath: root, workspace: "project" }, runs: [] };
+  const hidden = [
+    { id: "b", prompt: "link", target: { kind: "chat", chatId: "milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2" }, runs: [] },
+    { id: "c", prompt: "gone", target: { kind: "new-chat", projectPath: path.join(root, "no-such-folder-milagre"), workspace: "project" }, runs: [] },
+    { id: "d", prompt: "odd", target: { kind: "chat" }, runs: [] },
+    { id: "e", prompt: "none", runs: [] },
+  ];
+  const result = await confine.filterResult("routines:list", { routines: [inside, ...hidden] });
+  assert.deepEqual(
+    result.routines.map((routine) => routine.id),
+    ["a"],
+  );
+  const targets = await confine.filterResult("routines:targets", {
+    projects: [
+      { path: root, chats: [] },
+      { path: "/elsewhere", chats: [{ title: "x" }] },
+    ],
+  });
+  assert.deepEqual(
+    targets.projects.map((project) => project.path),
+    [root],
+  );
+});
+
+test("a confined phone can neither read a webhook Routine's URL nor rotate it", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("routines:hook", ["r1"]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:rotate-hook", ["r1"]), { status: 403, message: REFUSED });
+});
+
+test("a confined phone's routines:targets reaches the daemon limited to its folder, whatever it sent", async () => {
+  const root = await fs.realpath(os.tmpdir());
+  const confine = createConfinement({ allowedRoot: root });
+  assert.deepEqual(await confine.checkCall("routines:targets", []), { args: [{ within: root }] });
+  assert.deepEqual(await confine.checkCall("routines:targets", [{ within: "/" }]), { args: [{ within: root }] });
+});
+
+test("provider update cards read and install through the phone bridge; confined phones cannot install", async (t) => {
+  const updates = [{ provider: "codex", installedVersion: "0.160.0", version: "0.163.0" }];
+  const installed = [];
+  const runtime = (options) => ({
+    ...options,
+    providerUpdates: async () => updates,
+    runCliUpdate: async (provider, options) => {
+      installed.push([provider, options.targetVersion]);
+      return { ok: true, version: options.targetVersion };
+    },
+  });
+  const confined = await fixture(t, { runtime });
+  const refused = await confined.rpc("agent:update-cli", ["codex", "0.163.0"]);
+  assert.notEqual(refused.status, 200);
+  assert.equal(installed.length, 0);
+  const normal = await fixture(t, { allowedRoot: false, runtime });
+  assert.deepEqual((await normal.rpc("agent:provider-updates")).body.result, updates);
+  assert.equal((await normal.rpc("agent:update-cli", ["codex", "0.163.0"])).body.result.ok, true);
+  assert.deepEqual(installed, [["codex", "0.163.0"]]);
+  assert.notEqual((await normal.rpc("agent:update-cli", ["codex", "$(bad)"])).status, 200);
+  assert.equal(installed.length, 1);
+});
+
+// The Chats home is the Mac's own folder outside the demo, so a confined phone can't read or make it.
+test("chats commands are denied in the demo", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("chats:home", []), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("chats:ensure", []), { status: 403, message: REFUSED });
+  assert.ok(METHODS.has("chats:home") && METHODS.has("chats:ensure"));
+});
+
+test("a confined phone reads page comments of its own Chats but never sends one, which reads a desktop page", async (t) => {
+  const f = await fixture(t);
+  const chatId = `${f.demo}#1`;
+  assert.deepEqual(await f.rpc("browser-comments:send-from-page", [{ chatId, page: "panel-x:y", x: 0.5, y: 0.5, text: "Too big" }]), {
+    status: 403,
+    body: refusedBody,
+  });
+  assert.equal((await f.rpc("browser-comments:list", [{ chatId: `${f.outside}#1` }])).status, 403);
 });

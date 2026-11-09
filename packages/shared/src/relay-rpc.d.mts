@@ -22,7 +22,9 @@ export type RelayLive = { t: "live"; id: number; data: string };
 export type RelayLiveClose = { t: "live-close"; id: number; code?: number };
 export type RelayPing = { t: "ping" };
 export type RelayPong = { t: "pong" };
-export type RelayMessage = RelayRequest | RelayResponsePart | RelayLiveOpen | RelayLive | RelayLiveClose | RelayPing | RelayPong;
+/** The messages of one window, in order, as one frame: a Mac sends these only to a device whose hello asked for "batch". */
+export type RelayBatch = { t: "batch"; items: RelayMessage[] };
+export type RelayMessage = RelayRequest | RelayResponsePart | RelayLiveOpen | RelayLive | RelayLiveClose | RelayPing | RelayPong | RelayBatch;
 
 export type AssembledResponse = { done: false } | { done: true; status: number; headers: Record<string, string>; body: Uint8Array };
 export type ResponseAssembler = {

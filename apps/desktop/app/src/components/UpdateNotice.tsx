@@ -1,23 +1,55 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
+import { AUTO_UPDATE_WAITING } from "@milagre/shared/auto-update";
 import type { UpdateState } from "../electron";
-import { EASE_OUT } from "../lib/ease";
+import { useMotionScale } from "../lib/ease";
 import { useDismiss } from "../lib/use-dismiss";
+import { HIDDEN_FACE, MORPH_SURFACE, morphFace, useSize } from "./motion/morph";
+import { UpdateReleaseNotes } from "./UpdateReleaseNotes";
+import { Cancel01Icon, GiftIcon } from "@hugeicons/core-free-icons";
+import { Button, IconButton } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { ProgressBar } from "./primitives/ProgressBar";
 
 const Updates = createContext<UpdateState | null>(null);
 const SlotRegistry = createContext<((slot: HTMLElement) => () => void) | null>(null);
 export const useAppUpdates = () => useContext(Updates);
 export const showUpdateNotice = () => window.dispatchEvent(new Event("milagre:show-update"));
 
+export function UpdateSettingsBadge() {
+  const state = useAppUpdates();
+  if (!state?.version || !["downloaded", "downloading", "error"].includes(state.status)) return null;
+  return <span role="status" aria-label="Update available" className="absolute right-1 top-1 size-1.5 rounded-full bg-accent" />;
+}
+
 /** Lives above every screen so updates remain reachable without an open Project. */
 export function UpdateShell({ children }: { children: ReactNode }) {
   const [state, setState] = useState<UpdateState | null>(null);
   // The open Chat offers a spot above its composer; the latest one mounted holds the pill.
   const [slots, setSlots] = useState<HTMLElement[]>([]);
+  // A Chat stays mounted but hidden behind Settings, the canvas or a diff; its slot then has no box and gives the pill up.
+  const [shown, setShown] = useState<ReadonlySet<HTMLElement>>(() => new Set());
   const [register] = useState(() => (slot: HTMLElement) => {
     setSlots((previous) => [...previous, slot]);
-    return () => setSlots((previous) => previous.filter((item) => item !== slot));
+    const mark = (visible: boolean) =>
+      setShown((previous) => {
+        if (previous.has(slot) === visible) return previous;
+        const next = new Set(previous);
+        if (visible) next.add(slot);
+        else next.delete(slot);
+        return next;
+      });
+    // Read now so an open Chat takes the pill in this commit; the observer follows later hides and shows.
+    mark(slot.checkVisibility());
+    const observer = new IntersectionObserver((entries) => mark(entries.at(-1)?.isIntersecting ?? false));
+    observer.observe(slot);
+    return () => {
+      observer.disconnect();
+      setSlots((previous) => previous.filter((item) => item !== slot));
+      mark(false);
+    };
   });
   useEffect(() => {
     let changed = false;
@@ -43,7 +75,7 @@ export function UpdateShell({ children }: { children: ReactNode }) {
     <Updates.Provider value={state}>
       <SlotRegistry.Provider value={register}>
         {children}
-        <UpdateNotice state={state} slot={slots.at(-1) ?? null} />
+        <UpdateNotice state={state} slot={slots.findLast((slot) => shown.has(slot)) ?? null} />
       </SlotRegistry.Provider>
     </Updates.Provider>
   );
@@ -56,49 +88,17 @@ export function UpdatePillSlot({ className = "" }: { className?: string }) {
   return <div ref={ref} className={`pointer-events-none absolute left-1/2 z-30 -translate-x-1/2 ${className}`} />;
 }
 
-function Gift({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="8" width="18" height="4" rx="1" />
-      <path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M12 8v13M12 8H7a3 3 0 1 1 3-3l2 3Zm0 0h5a3 3 0 1 0-3-3l-2 3Z" />
-    </svg>
-  );
-}
-
-const HIDDEN_FACE = "invisible transition-[visibility] duration-100 motion-reduce:duration-0";
-
-/** Reports an element's border-box size as it changes. */
-function useSize() {
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  const ref = useCallback((node: HTMLElement | null) => {
-    if (!node) return;
-    const read = () => setSize({ width: node.offsetWidth, height: node.offsetHeight });
-    read();
-    const observer = new ResizeObserver(read);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  return [size, ref] as const;
-}
-
 function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLElement | null }) {
-  const [presentation, setPresentation] = useState({ version: "", open: false });
+  const [presentation, setPresentation] = useState({ version: "", open: false, dismissed: false });
+  const [notesVersion, setNotesVersion] = useState<string | null>(null);
+  const notesTrigger = useRef<HTMLButtonElement>(null);
   const [requestError, setRequestError] = useState("");
   const [pending, setPending] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  // Closing from the keyboard or the dismiss button hands focus back to the pill.
+  // Escape collapses back to the pill; full dismissal hands focus to Settings.
   const refocus = useRef(false);
   const reduce = useReducedMotion();
+  const motionScale = useMotionScale();
   // Both faces stay mounted and report their sizes; the surface takes the size of the one on show.
   const [pillSize, measurePill] = useSize();
   const [cardSize, measureCard] = useSize();
@@ -108,7 +108,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   const failed = state?.status === "error";
   const version = state?.version ?? "";
   if ((ready || (failed && version)) && presentation.version !== version) {
-    setPresentation({ version, open: true });
+    setPresentation({ version, open: true, dismissed: false });
     setRequestError("");
   }
   const open = presentation.open || installing;
@@ -117,25 +117,41 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
     refocus.current = returnFocus;
     setPresentation((previous) => ({ ...previous, open: false }));
   };
+  const dismiss = () => {
+    if (installing || pending) return;
+    setPresentation((previous) => ({ ...previous, open: false, dismissed: true }));
+    document.querySelector<HTMLButtonElement>("[data-update-settings]")?.focus();
+  };
   useDismiss(
-    open,
+    open && !notesVersion,
     () => close(),
     (target) => !!root.current?.contains(target),
   );
   useEffect(() => {
     const show = () => {
-      setPresentation((previous) => ({ ...previous, open: true }));
+      setPresentation((previous) => ({ ...previous, open: true, dismissed: false }));
       requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>("[role=dialog] button")?.focus());
     };
     window.addEventListener("milagre:show-update", show);
     return () => window.removeEventListener("milagre:show-update", show);
   }, []);
+  // The release notes hand focus back to What's new once their modal is out of the page (while it's open, nothing
+  // outside it can take focus).
+  const notesShown = useRef(false);
+  useLayoutEffect(() => {
+    if (notesVersion) notesShown.current = true;
+    else if (notesShown.current) {
+      notesShown.current = false;
+      notesTrigger.current?.focus();
+    }
+  }, [notesVersion]);
   useLayoutEffect(() => {
     if (open || !refocus.current) return;
     refocus.current = false;
     root.current?.querySelector<HTMLButtonElement>("[data-face=pill]")?.focus();
   }, [open]);
   if (!state || (!open && !ready && !installing && !downloading && !failed)) return null;
+  if (presentation.dismissed && !open && !installing) return null;
   if (state.status === "idle" || state.status === "unavailable") return null;
   const title = installing
     ? "Restarting Milagre"
@@ -166,23 +182,13 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   }
   // Both faces hang from the pill's spot: centred above the composer, or the window's bottom left.
   const anchor = slot ? { left: "50%", x: "-50%" } : { left: 0 };
-  // A face shows in the same commit and goes invisible as its fade ends, so a closed card's text and
-  // controls leave the page. Only hiding transitions visibility, which stays visible through those 100ms.
-  const face = (shown: boolean) => ({
-    initial: false,
-    animate: shown
-      ? { opacity: 1, filter: "blur(0px)", transition: { duration: reduce ? 0 : 0.18, delay: reduce ? 0 : 0.06, ease: EASE_OUT } }
-      : { opacity: 0, filter: reduce ? "blur(0px)" : "blur(4px)", transition: { duration: reduce ? 0 : 0.1, ease: EASE_OUT } },
-    style: anchor,
-    inert: !shown,
-    "aria-hidden": !shown || undefined,
-  });
+  const face = (shown: boolean) => ({ ...morphFace(shown, reduce, motionScale), style: anchor });
   const size = open ? cardSize : pillSize;
   const notice = (
     <div
       ref={root}
       data-update-notice=""
-      className={`text-ink [-webkit-app-region:no-drag] ${slot ? "pointer-events-auto" : "fixed bottom-4 left-4 z-50"}`}
+      className={`no-drag text-ink ${slot ? "pointer-events-auto" : "fixed bottom-4 left-4 z-50"}`}
       onKeyDown={(event) => {
         if (event.key === "Escape" && open && !installing && !pending) {
           event.stopPropagation();
@@ -192,8 +198,8 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
     >
       {/* One surface morphs between the pill and the card; both faces stay mounted and crossfade inside it. */}
       <div
-        style={size ? { width: size.width, height: size.height, borderRadius: open ? 16 : size.height / 2 } : undefined}
-        className={`relative overflow-hidden bg-surface transition-[width,height,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
+        style={size ? { width: size.width, height: size.height, borderRadius: open ? 14 : size.height / 2 } : undefined}
+        className={`relative overflow-hidden bg-surface ${MORPH_SURFACE} ${
           open ? "shadow-overlay" : slot ? "shadow-[0_0_0_1px_var(--line-strong)]" : "shadow-btn"
         }`}
       >
@@ -207,24 +213,11 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
           className={`absolute bottom-0 w-[360px] max-w-[calc(100vw-2rem)] p-5 ${open ? "visible" : HIDDEN_FACE}`}
         >
           <div className="flex items-center gap-3">
-            <span className="text-ink-2">
-              <Gift />
-            </span>
-            <h2 className="flex-1 text-[16px] font-medium tracking-[-0.02em]">{title}</h2>
-            {!installing && !pending && (
-              <button
-                type="button"
-                aria-label="Dismiss update"
-                onClick={() => close(true)}
-                className="-mr-1 rounded-md p-1 text-ink-3 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
-              >
-                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="m6 6 12 12M18 6 6 18" />
-                </svg>
-              </button>
-            )}
+            <Icon icon={GiftIcon} size={18} className="text-ink-2" />
+            <h2 className="flex-1 text-15 font-semibold">{title}</h2>
+            {!installing && !pending && <IconButton label="Dismiss update" icon={Cancel01Icon} className="-mr-1" onClick={dismiss} />}
           </div>
-          <div id="update-description" className="mt-3 text-[13px] leading-relaxed text-ink-2" aria-live="polite">
+          <div id="update-description" className="mt-3 text-13 text-ink-2" aria-live="polite">
             <p>
               {ready
                 ? `${version ? `v${version}` : "The update"} is ready to install.`
@@ -238,49 +231,25 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
                         ? "Looking for a newer version of Milagre."
                         : "The update could not finish."}
             </p>
-            {ready && <p className="mt-2">Restarting Milagre will stop running agents.</p>}
+            {ready && <p className="mt-2">{state.auto ? AUTO_UPDATE_WAITING : "Restarting Milagre will stop running agents."}</p>}
           </div>
           {downloading && (
             <div className="mt-4 flex items-center gap-3">
-              <div
-                role="progressbar"
-                aria-label="Update download"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percent}
-                className="h-1.5 flex-1 overflow-hidden rounded-full bg-hover"
-              >
-                <div className="h-full rounded-full bg-ink transition-[width] motion-reduce:transition-none" style={{ width: `${percent}%` }} />
-              </div>
-              <span className="text-[12px] tabular-nums text-ink-2">{percent}%</span>
+              <ProgressBar value={percent / 100} size={6} label="Update download" className="flex-1" />
+              <span className="text-12 tabular-nums text-ink-2">{percent}%</span>
             </div>
           )}
-          {error && (
-            <p role="alert" className="mt-3 text-[13px] leading-relaxed text-red-500">
-              {error}
-            </p>
-          )}
+          <InlineError className="mt-3">{error}</InlineError>
           <div className="mt-5 flex gap-2">
             {version && (
-              <a
-                href={`https://github.com/the-ptf/milagre-ade/releases/tag/v${encodeURIComponent(version)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex flex-1 items-center justify-center rounded-control border border-line-strong px-3 py-2.5 text-[13px] font-medium transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-ink"
-              >
+              <Button ref={notesTrigger} variant="secondary" className="flex-1" onClick={() => setNotesVersion(version)}>
                 What's new
-              </a>
+              </Button>
             )}
             {(ready || failed || installing) && (
-              <button
-                type="button"
-                data-install={ready || installing ? "" : undefined}
-                disabled={busy}
-                onClick={() => void act()}
-                className="flex-1 rounded-control bg-ink px-3 py-2.5 text-[13px] font-medium text-surface transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-wait disabled:opacity-60"
-              >
+              <Button data-install={ready || installing ? "" : undefined} className="flex-1" disabled={busy} onClick={() => void act()}>
                 {installing || pending ? "Restarting…" : ready ? "Install & restart" : "Try again"}
-              </button>
+              </Button>
             )}
           </div>
         </motion.section>
@@ -291,16 +260,21 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
           aria-haspopup="dialog"
           onClick={showUpdateNotice}
           {...face(!open)}
-          className={`absolute bottom-0 flex items-center rounded-full font-medium whitespace-nowrap ${open ? HIDDEN_FACE : "visible transition-colors"} hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink ${
-            slot ? "h-6 gap-1.5 px-2.5 text-[12px]" : "gap-2 px-3 py-2 text-[12px]"
+          className={`absolute bottom-0 flex items-center rounded-full font-medium whitespace-nowrap ${open ? HIDDEN_FACE : "visible transition-colors duration-fast"} hover:bg-hover focus-visible:-outline-offset-2 ${
+            slot ? "h-6 gap-1.5 px-2.5 text-12" : "gap-2 px-3 py-2 text-12"
           }`}
         >
-          <Gift size={slot ? 14 : 20} />
+          <Icon icon={GiftIcon} size={slot ? 14 : 18} />
           <span>{downloading ? `Downloading update · ${percent}%` : title}</span>
-          {ready && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-ink" />}
+          {ready && <span aria-hidden="true" className="size-1.5 rounded-full bg-ink" />}
         </motion.button>
       </div>
     </div>
   );
-  return slot ? createPortal(notice, slot) : notice;
+  return (
+    <>
+      {slot ? createPortal(notice, slot) : notice}
+      {notesVersion && <UpdateReleaseNotes version={notesVersion} onClose={() => setNotesVersion(null)} />}
+    </>
+  );
 }

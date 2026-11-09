@@ -1,10 +1,20 @@
 /** A page in a browser that this Chat's agent started (`agent`) or that the user attached (`attached`). */
-export type BrowserTarget = { id: string; title: string; url: string; browser: string; source: "agent" | "attached" };
+export type BrowserTarget = { id: string; title: string; url: string; browser: string; source: "agent" | "attached" | "panel" };
 /** A browser on this computer that no Chat's agent started. Attaching it is an explicit user action. */
 export type BrowserCandidate = { id: string; browser: string; pages: number; title: string };
 export type BrowserList = { supported: boolean; targets: BrowserTarget[]; others: BrowserCandidate[]; error?: string };
 export type BrowserOpen = { viewerId: string; target: BrowserTarget };
-export type BrowserStatus = { generation: number; controlling: boolean; ready: boolean; title: string; url: string; canGoBack: boolean; canGoForward: boolean };
+export type BrowserStatus = {
+  generation: number;
+  controlling: boolean;
+  ready: boolean;
+  title: string;
+  url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  /** Absent on older hosts. Only send viewport input when explicitly supported. */
+  supportsViewport?: boolean;
+};
 /** `data` is a base64 JPEG on the wire; the mobile wrapper swaps it for a local `uri` before the receiver sees it. */
 export type BrowserFrame = { sequence: number; data: string; uri?: string; viewport: { width: number; height: number }; generation: number };
 export type BrowserInput =
@@ -29,7 +39,9 @@ export type BrowserInput =
       commands?: ("selectAll" | "copy" | "cut" | "paste" | "undo" | "redo")[];
     }
   | { kind: "text"; text: string }
-  | { kind: "navigate"; action: "back" | "forward" | "reload" };
+  | { kind: "navigate"; action: "back" | "forward" | "reload" }
+  /** The viewer's size in CSS pixels: the page lays out at it, whatever size its own window is. */
+  | { kind: "viewport"; width: number; height: number };
 export interface BrowserApi {
   list(request: { chatId: string }): Promise<BrowserList>;
   attach(request: { chatId: string; browserId: string }): Promise<BrowserList>;

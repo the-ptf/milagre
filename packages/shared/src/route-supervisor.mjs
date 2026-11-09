@@ -6,6 +6,30 @@ export const PROBE_TIMEOUT = 2_500;
 export const HOLD_MS = 5 * 60_000;
 const PRIMARY = { kind: "primary" };
 
+/** Try reachable private routes in advertised order, then the saved fallback. Only handshake failures may fall back. */
+export async function connectDeviceRoutes({ primary, direct = [], probe, connect, stopped = () => false, final = () => false }) {
+  const endpoints = [...new Set(direct)];
+  const probes = endpoints.map((endpoint) =>
+    Promise.resolve()
+      .then(() => probe(endpoint))
+      .catch(() => false),
+  );
+  let primaryFailure;
+  for (const [index, endpoint] of endpoints.entries()) {
+    if (!(await probes[index])) continue;
+    if (stopped()) throw new Error("Connection cancelled");
+    try {
+      return { connection: await connect(endpoint), endpoint };
+    } catch (error) {
+      if (final(error) || stopped()) throw error;
+      if (endpoint === primary) primaryFailure = error;
+    }
+  }
+  if (stopped()) throw new Error("Connection cancelled");
+  if (primaryFailure) throw primaryFailure;
+  return { connection: await connect(primary), endpoint: primary };
+}
+
 /** A transport that fails to close must not stop the supervisor from moving on. */
 function closeQuietly(transport) {
   try {

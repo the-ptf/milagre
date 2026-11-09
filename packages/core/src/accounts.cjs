@@ -9,6 +9,7 @@ const { preparePrivateDirectory } = require("./private-files.cjs");
 const { inheritMcp } = require("./account-mcp.cjs");
 const { AMBIENT_ENV } = require("./agents/antigravity-install.cjs");
 const { SUBSCRIPTION_MESSAGE, inspectAntigravityAccount, prepareAntigravityProfile, signInAntigravity } = require("./antigravity-account.cjs");
+const { inspectKiroAccount } = require("./kiro-account.cjs");
 const { PROVIDERS } = require("@milagre/shared/providers");
 
 const { scopeKey, scopeFromKey } = require("@milagre/shared/chat-scopes");
@@ -21,11 +22,18 @@ const validScope = (key) => {
 // own state), so its "default" Account is a Milagre-owned private profile, accounts/antigravity-default, never
 // ~/.gemini. It is signed in from Settings like an added Account.
 const ANTIGRAVITY_DEFAULT = "antigravity-default";
+// Kiro has one Account, the one kiro-cli is signed in to. Signing in to Identity Center takes the organization's start
+// URL and region, so it happens in a terminal; Milagre neither adds Kiro Accounts nor signs them in.
+const KIRO_SIGN_IN_MESSAGE = "Kiro uses the account kiro-cli is signed in to. Run `kiro-cli login` in a terminal to sign in or switch, then refresh.";
 const text = (value) => (typeof value === "string" ? value.slice(0, 200) : undefined);
 
 // Only public identity fields leave the host. Never forward raw CLI output or parsing errors.
 async function inspectAccount(provider, { command, env }) {
   if (provider === "antigravity") return inspectAntigravityAccount({ env });
+  if (provider === "kiro") {
+    const identity = await inspectKiroAccount({ command, env });
+    return { state: identity.state, email: text(identity.email), plan: text(identity.plan), message: identity.message };
+  }
   if (provider === "claude")
     return new Promise((resolve) => {
       execCommand(command, ["auth", "status"], { env, encoding: "utf8", timeout: 10000 }, (_error, stdout) => {
@@ -98,9 +106,10 @@ function createAccounts({
       selected: Object.fromEntries(PROVIDERS.map((provider) => [provider, parsed.selected[provider] ?? "default"])),
     };
   } catch (error) {
-    if (error.code !== "ENOENT") throw new Error("Could not read saved accounts. Restore accounts/accounts.json before switching accounts.");
+    if (error.code !== "ENOENT") throw new Error("Could not read saved accounts. Restore accounts/accounts.json before switching accounts.", { cause: error });
   }
   const identities = new Map();
+  const installed = new Map();
   const logins = new Map();
   let checking = null;
   let closed = false;
@@ -117,6 +126,7 @@ function createAccounts({
   }
   const directory = (provider, id) => {
     if (provider === "antigravity") return path.join(root, id === "default" ? ANTIGRAVITY_DEFAULT : id);
+    if (provider === "kiro") return path.join(home, ".kiro");
     return id === "default"
       ? path.resolve(env[provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"] || path.join(home, `.${provider}`))
       : path.join(root, id);
@@ -186,6 +196,7 @@ function createAccounts({
       providers: PROVIDERS.map((provider) => ({
         provider,
         selectedId: saved.selected[provider],
+        ...(installed.has(provider) ? { installed: installed.get(provider) } : {}),
         accounts: [account(provider, "default"), ...saved.accounts.filter((a) => a.provider === provider)].map((a) => ({
           ...a,
           ...(identities.get(key(provider, a.id)) || { state: "unknown" }),
@@ -206,9 +217,20 @@ function createAccounts({
   }
   async function list(refresh = false) {
     await ready();
+    // Installation is independent of cached sign-in state. Keep saved profiles on disk,
+    // but expose account controls only while the provider exists on this computer.
+    await Promise.all(
+      PROVIDERS.map(async (provider) => {
+        const available = Boolean((await cli(provider)).command);
+        if (installed.get(provider) === false && available) refresh = true;
+        installed.set(provider, available);
+      }),
+    );
+    // A batch started before installation did not include the newly available provider.
+    if (refresh && checking) await checking;
     if (refresh || !identities.size) {
       checking ??= Promise.all(
-        PROVIDERS.flatMap((provider) =>
+        PROVIDERS.filter((provider) => installed.get(provider)).flatMap((provider) =>
           [account(provider, "default"), ...saved.accounts.filter((a) => a.provider === provider)]
             .filter((a) => !logins.has(key(provider, a.id)))
             .map((a) => check(provider, a.id)),
@@ -228,21 +250,23 @@ function createAccounts({
     validScope(scope);
     return {
       scopeKey: scope,
-      providers: snapshot().providers.map((group) => {
-        const accountId = saved.scopes[scope]?.[group.provider] ?? null;
-        const effectiveId = selected(group.provider, scope);
-        const entries = [...group.accounts];
-        if (!entries.some((a) => a.id === effectiveId))
-          entries.push({
-            id: effectiveId,
-            provider: group.provider,
-            label: "Removed account",
-            state: "error",
-            missing: true,
-            message: "This assigned account was removed. Choose another account or use the computer default.",
-          });
-        return { provider: group.provider, accountId, effectiveId, defaultId: group.selectedId, accounts: entries };
-      }),
+      providers: snapshot()
+        .providers.filter((group) => group.installed !== false)
+        .map((group) => {
+          const accountId = saved.scopes[scope]?.[group.provider] ?? null;
+          const effectiveId = selected(group.provider, scope);
+          const entries = [...group.accounts];
+          if (!entries.some((a) => a.id === effectiveId))
+            entries.push({
+              id: effectiveId,
+              provider: group.provider,
+              label: "Removed account",
+              state: "error",
+              missing: true,
+              message: "This assigned account was removed. Choose another account or use the computer default.",
+            });
+          return { provider: group.provider, accountId, effectiveId, defaultId: group.selectedId, accounts: entries };
+        }),
     };
   }
   async function scope(key, refresh = false) {
@@ -278,6 +302,7 @@ function createAccounts({
   }
   async function add(provider, label) {
     providerCheck(provider);
+    if (provider === "kiro") throw new Error(KIRO_SIGN_IN_MESSAGE);
     if (typeof label !== "string" || !label.trim() || label.length > 80) throw new Error("Enter an account name of 1 to 80 characters.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
     if (saved.accounts.length >= 20) throw new Error("You can save up to 20 accounts.");
@@ -352,10 +377,16 @@ function createAccounts({
   }
   async function login(provider, id) {
     account(provider, id);
-    // Antigravity's default profile belongs to Milagre, so it signs in here; other defaults belong to the terminal.
-    if (id === "default" && provider !== "antigravity") throw new Error("Use Add account to sign in without replacing your connected CLI account.");
+    if (provider === "kiro") throw new Error(KIRO_SIGN_IN_MESSAGE);
     if (closed) throw new Error("Account manager is closing.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
+    // Antigravity's default profile belongs to Milagre, so it signs in here. Other defaults belong to the terminal:
+    // one that isn't signed in yet (a first launch) signs in here too, the way `claude auth login` would, but a
+    // signed-in one is never replaced.
+    if (id === "default" && provider !== "antigravity") {
+      const identity = identities.get(key(provider, id)) ?? (await check(provider, id));
+      if (identity.state === "ready") throw new Error("Use Add account to sign in without replacing your connected CLI account.");
+    }
     const status = await cli(provider);
     if (status.problem || !status.command) throw new Error(status.problem || "Install the provider CLI first.");
     const k = key(provider, id);
@@ -451,7 +482,7 @@ function createAccounts({
     assign,
     close() {
       closed = true;
-      for (const k of [...logins.keys()]) cancel(...k.split(":"));
+      for (const k of Array.from(logins.keys())) cancel(...k.split(":"));
     },
   };
 }

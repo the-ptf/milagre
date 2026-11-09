@@ -10,6 +10,8 @@ export interface DiscoveredBrowser {
   pid: number;
   host: string;
   port: number;
+  /** A Browser panel's token path (cdp-proxy.cjs); real browsers have none. */
+  prefix?: string;
   product: string;
   pages: BrowserPage[];
 }
@@ -44,6 +46,11 @@ export interface Browsers {
   control(request: { viewerId: string; takeOver: boolean }, owner: string): Promise<BrowserStatus>;
   input(request: { viewerId: string; sequence: number; generation: number; event: BrowserInput }, owner: string): Promise<{ accepted: boolean }>;
   closeViewer(request: { viewerId: string }, owner: string): Promise<null>;
+  /** A desktop's Browser panel pages and their loopback DevTools endpoint; an empty list takes them away. */
+  setPanelPages(
+    request: { port?: number; prefix?: string; pages: { id: string; chatId: string; title: string; url: string }[] },
+    owner: string,
+  ): Promise<{ pages: number }>;
   disconnect(owner: string): Promise<void>;
   close(): Promise<void>;
 }

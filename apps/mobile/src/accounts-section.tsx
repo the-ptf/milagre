@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon, CheckmarkCircle02Icon, CircleIcon, MoreVerticalIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import type { AccountsSnapshot, ModelProvider } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
 import { Icon, ProviderLogo } from "./icons";
-import { IconButton, PullDown, useStyles } from "./ui";
+import { lineHeight, radius, type as typeScale } from "./design-tokens";
+import { IconButton, InlineError, pressStyle, PullDown, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 export function AccountsSection() {
@@ -56,6 +57,7 @@ export function AccountsForComputer() {
       setBusy(false);
     }
   };
+  const providers = snapshot?.providers.filter((group) => group.installed !== false);
   if (!client) return <Text style={styles.muted}>Connect to a computer to manage its accounts.</Text>;
   return (
     <View style={{ gap: 16 }}>
@@ -72,13 +74,9 @@ export function AccountsForComputer() {
           }}
         />
       </View>
-      {error ? (
-        <Text accessibilityRole="alert" selectable style={styles.text}>
-          {error}
-        </Text>
-      ) : null}
-      {!snapshot && !error ? <Text style={styles.muted}>Checking accounts...</Text> : null}
-      {snapshot?.providers.map((group) => (
+      <InlineError message={error} />
+      {!snapshot && !error ? <Text style={styles.muted}>Checking accounts…</Text> : null}
+      {providers?.map((group) => (
         <View key={group.provider} style={{ gap: 8 }}>
           <View
             style={{
@@ -96,10 +94,10 @@ export function AccountsForComputer() {
           <View
             style={{
               backgroundColor: colors.surface,
-              borderRadius: 14,
+              borderRadius: radius.card,
               borderCurve: "continuous",
               overflow: "hidden",
-              borderWidth: 1,
+              borderWidth: StyleSheet.hairlineWidth,
               borderColor: colors.line,
             }}
           >
@@ -123,11 +121,8 @@ export function AccountsForComputer() {
               return (
                 <View
                   key={account.id}
-                  style={{
-                    borderTopWidth: index ? 1 : 0,
-                    borderColor: colors.line,
-                    backgroundColor: selected ? colors.hover : undefined,
-                  }}
+                  // The tick marks the chosen account (D2): no fill.
+                  style={{ borderTopWidth: index ? StyleSheet.hairlineWidth : 0, borderColor: colors.line }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <Pressable
@@ -142,20 +137,22 @@ export function AccountsForComputer() {
                       onPress={() => {
                         if (!selected) void act("select", group.provider, account.id);
                       }}
-                      style={({ pressed }) => ({
-                        flex: 1,
-                        minWidth: 0,
-                        minHeight: 66,
-                        paddingVertical: 12,
-                        paddingHorizontal: 12,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        opacity: pressed ? 0.6 : 1,
-                      })}
+                      style={({ pressed }) => [
+                        {
+                          flex: 1,
+                          minWidth: 0,
+                          minHeight: 56,
+                          paddingVertical: 12,
+                          paddingHorizontal: 12,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 12,
+                        },
+                        pressStyle({ pressed, disabled: busy || account.state !== "ready", kind: "row" }),
+                      ]}
                     >
                       <Icon icon={selected ? CheckmarkCircle02Icon : CircleIcon} tone={selected ? "ink" : "ink3"} size={20} />
-                      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                         <View
                           style={{
                             flexDirection: "row",
@@ -169,14 +166,15 @@ export function AccountsForComputer() {
                               styles.text,
                               {
                                 flexShrink: 1,
-                                fontSize: 15,
+                                fontSize: typeScale.subheadline,
+                                lineHeight: lineHeight.subheadline,
                                 fontWeight: selected ? "600" : "400",
                               },
                             ]}
                           >
                             {name}
                           </Text>
-                          {type ? <Icon icon={typeIcon} tone="ink3" size={15} /> : null}
+                          {type ? <Icon icon={typeIcon} tone="ink3" size={16} /> : null}
                         </View>
                         {details ? (
                           <Text numberOfLines={1} style={styles.caption}>
@@ -192,7 +190,7 @@ export function AccountsForComputer() {
                         style={{ padding: 4 }}
                         nativeTrigger={{
                           systemImage: "ellipsis",
-                          iconSize: 14,
+                          iconSize: 16,
                           menuTint: colors.ink,
                           rotation: 90,
                           disabled: busy,
@@ -239,18 +237,15 @@ export function AccountsForComputer() {
                             justifyContent: "center",
                           }}
                         >
-                          <Icon icon={MoreVerticalIcon} tone="ink2" size={14} />
+                          <Icon icon={MoreVerticalIcon} tone="ink2" size={16} />
                         </View>
                       </PullDown>
                     )}
                   </View>
-                  {account.message && account.state !== "signing-in" ? (
-                    <Text
-                      accessibilityRole={account.state === "error" ? "alert" : undefined}
-                      style={[styles.caption, { paddingHorizontal: 12, paddingBottom: 10 }]}
-                    >
-                      {account.message}
-                    </Text>
+                  {account.message && account.state === "error" ? (
+                    <InlineError message={account.message} style={{ paddingHorizontal: 12, paddingBottom: 12 }} />
+                  ) : account.message && account.state !== "signing-in" ? (
+                    <Text style={[styles.caption, { paddingHorizontal: 12, paddingBottom: 12 }]}>{account.message}</Text>
                   ) : null}
                 </View>
               );

@@ -6,6 +6,7 @@ const ts = require("typescript");
 
 function adapter({ expoGo = false, device = true, os = "ios", initial = null, permissions = { granted: true }, request = { granted: true } } = {}) {
   const calls = [];
+  let stored = null;
   let tapped, rotated, handler;
   const api = {
     DEFAULT_ACTION_IDENTIFIER: "default",
@@ -15,7 +16,7 @@ function adapter({ expoGo = false, device = true, os = "ios", initial = null, pe
       calls.push("permission");
       return request;
     },
-    setNotificationChannelAsync: async () => calls.push("channel"),
+    setNotificationChannelAsync: async (id, options) => calls.push(`channel ${id} ${options.sound}`),
     getExpoPushTokenAsync: async (options) => {
       calls.push(options);
       return { data: "ExpoPushToken[test]" };
@@ -42,10 +43,17 @@ function adapter({ expoGo = false, device = true, os = "ios", initial = null, pe
     },
     "expo-device": { isDevice: device },
     "expo-crypto": { randomUUID: () => "device-id" },
-    "expo-secure-store": {},
+    "expo-secure-store": {
+      getItemAsync: async () => stored,
+      setItemAsync: async (_key, value) => {
+        stored = value;
+      },
+    },
     "react-native": { Platform: { OS: os } },
     "./push-store": require("../apps/mobile/src/push-store.ts"),
     "./push-controller": require("../apps/mobile/src/push-controller.ts"),
+    "@milagre/shared/notification-schedule": require("@milagre/shared/notification-schedule"),
+    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "expo-notifications": api,
   };
   const source = fs.readFileSync(require.resolve("../apps/mobile/src/push-native.ts"), "utf8");
@@ -58,7 +66,7 @@ function adapter({ expoGo = false, device = true, os = "ios", initial = null, pe
       return modules[id];
     },
   });
-  return { native: exports.pushNative, calls, tap: (value) => tapped(value), rotate: () => rotated(), handler: () => handler };
+  return { store: exports.pushStore, native: exports.pushNative, calls, tap: (value) => tapped(value), rotate: () => rotated(), handler: () => handler };
 }
 
 test("native adapter consumes a cold-start response, running taps and token rotation", async () => {
@@ -81,10 +89,21 @@ test("native adapter consumes a cold-start response, running taps and token rota
   assert.ok(calls.includes("remove-taps") && calls.includes("remove-tokens"));
 });
 
-test("Android prepares the notification channel before permission and uses the existing EAS project", async () => {
+test("Android prepares the notification channels before permission and uses the existing EAS project", async () => {
   const { native, calls } = adapter({ os: "android", permissions: { granted: false } });
   assert.equal(await native.requestPermission(), true);
-  assert.deepEqual(calls.slice(0, 2), ["channel", "permission"]);
+  // One channel per chime: a channel's sound can't change once created.
+  assert.deepEqual(calls.slice(0, 9), [
+    "channel chats default",
+    "channel chats-miracle chime_miracle.wav",
+    "channel chats-faaah chime_faaah.wav",
+    "channel chats-bombastic_side_eye chime_bombastic_side_eye.wav",
+    "channel chats-vine_boom chime_vine_boom.wav",
+    "channel chats-metal_pipe chime_metal_pipe.wav",
+    "channel chats-bruh chime_bruh.wav",
+    "channel chats-emotional_damage chime_emotional_damage.wav",
+    "permission",
+  ]);
   assert.equal(await native.token(), "ExpoPushToken[test]");
   assert.equal(calls.at(-1).projectId, "project-id");
 });
@@ -107,4 +126,19 @@ test("Expo Go skips native listeners and unavailable runtimes explain how to ena
   stop();
   assert.deepEqual(expo.calls, []);
   assert.match(adapter({ device: false }).native.available(), /simulator/);
+});
+
+test("the foreground phone handler silences pushes arriving outside its current schedule", async () => {
+  const { native, store, handler } = adapter();
+  await native.listen(
+    () => null,
+    () => {},
+    () => {},
+  );
+  const notice = { request: { content: { data: {} } } };
+  assert.equal((await handler().handleNotification(notice)).shouldShowBanner, true);
+  await store.update({ schedule: { days: [(new Date().getUTCDay() + 1) % 7], start: "09:00", end: "17:00", timeZone: "UTC" } });
+  const result = await handler().handleNotification(notice);
+  assert.equal(result.shouldShowBanner, false);
+  assert.equal(result.shouldPlaySound, false);
 });

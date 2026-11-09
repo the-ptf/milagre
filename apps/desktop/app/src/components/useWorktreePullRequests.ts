@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "../lib/preference-storage.ts";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CoordinatorState, PullRequest } from "../model";
@@ -5,6 +6,7 @@ import { chatInProject, sessionIdFromKey } from "../lib/agent-runs";
 import { pullRequestRefs, type PullRequestRef } from "../lib/chat-pull-requests";
 import { type PullRequestBlocker, updateBlockerDismissals } from "../lib/pr-blockers";
 import { bridgeForKey, onAnyAgentEvent } from "../lib/computer-bridge";
+import { withChatPullRequests, withPullRequests } from "../lib/pull-request-answers";
 
 // Conflict entries are bare PR URLs, so this key keeps its name from when conflicts were the only blocker.
 const DISMISSED_BLOCKERS = "milagre.dismissed-conflict-actions";
@@ -50,6 +52,29 @@ export function pollWhileActive(refresh: () => void, lastRefresh: () => number):
 // again starts from them, so its rows keep their chips while gh answers instead of losing and regaining them.
 const lastPullRequests = new Map<string, Record<string, PullRequest | null>>();
 const lastChatPullRequests = new Map<string, Record<string, Record<PullRequestRef, PullRequest | null>>>();
+// When each Worktree's PRs were read (by `${projectPath}\n${path}`; for chats' PRs, which ones): a Project opened again
+// within POLL_MS shows them from above and asks gh only for the rest, leaving them to the poll and turn ends.
+const branchReadAt = new Map<string, number>();
+const chatReadAt = new Map<string, { at: number; refs: ReadonlySet<PullRequestRef> }>();
+const readKey = (projectPath: string, path: string) => `${projectPath}\n${path}`;
+const recent = (at: number | undefined) => at !== undefined && Date.now() - at < POLL_MS;
+
+type BranchSnapshot = { projectPath: string; prs: Record<string, PullRequest | null> };
+type ChatSnapshot = { projectPath: string; prs: Record<string, Record<PullRequestRef, PullRequest | null>> };
+// A read's answers merged into the Project's last ones. Answers equal to those held keep the same snapshot, so the
+// Chat rows and composer reading it don't render again on every poll; the snapshot changes only with a Project switch.
+function withBranchAnswers(current: BranchSnapshot, projectPath: string, found: Record<string, PullRequest | null>): BranchSnapshot {
+  const held = current.projectPath === projectPath ? current.prs : (lastPullRequests.get(projectPath) ?? {});
+  const prs = withPullRequests(held, found);
+  lastPullRequests.set(projectPath, prs);
+  return current.projectPath === projectPath && prs === current.prs ? current : { projectPath, prs };
+}
+function withChatAnswers(current: ChatSnapshot, projectPath: string, found: Record<string, Record<PullRequestRef, PullRequest | null>>): ChatSnapshot {
+  const held = current.projectPath === projectPath ? current.prs : (lastChatPullRequests.get(projectPath) ?? {});
+  const prs = withChatPullRequests(held, found);
+  lastChatPullRequests.set(projectPath, prs);
+  return current.projectPath === projectPath && prs === current.prs ? current : { projectPath, prs };
+}
 
 /** PRs stay transient: refresh on opening a project, focus, turn completion, and while visible. */
 export function useWorktreePullRequests(projectPath: string, state: CoordinatorState | null) {
@@ -72,7 +97,7 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
     setDismissedBlockers((current) => updateBlockerDismissals(current, pr, blocker));
   const stateRef = useRef(state);
   stateRef.current = state;
-  const [snapshot, setSnapshot] = useState<{ projectPath: string; prs: Record<string, PullRequest | null> }>({ projectPath: "", prs: {} });
+  const [snapshot, setSnapshot] = useState<BranchSnapshot>({ projectPath: "", prs: {} });
   // The Worktrees whose Chats have a message, from each Chat's summary (an older host's state, without one, from its messages).
   const pathsKey = JSON.stringify(
     [
@@ -91,8 +116,12 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
     ].sort(),
   );
 
+  // An older host (a paired computer not updated yet) has no `pull-requests:snapshot`: read each Worktree as before.
+  const [legacyFor, setLegacyFor] = useState<string | null>(null);
+  const legacy = legacyFor === projectPath;
+
   useEffect(() => {
-    if (!projectPath) return;
+    if (!projectPath || !legacy) return;
     const paths: string[] = JSON.parse(pathsKey);
     let disposed = false;
     let lastRefresh = 0;
@@ -108,12 +137,9 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
               .readPullRequest(path)
               .catch(() => null);
             if (!disposed) {
+              branchReadAt.set(readKey(projectPath, path), Date.now());
               setDismissedBlockers((current) => updateBlockerDismissals(current, pr));
-              setSnapshot((current) => {
-                const prs = { ...(current.projectPath === projectPath ? current.prs : (lastPullRequests.get(projectPath) ?? {})), [path]: pr };
-                lastPullRequests.set(projectPath, prs);
-                return { projectPath, prs };
-              });
+              setSnapshot((current) => withBranchAnswers(current, projectPath, { [path]: pr }));
             }
           } finally {
             pending.delete(path);
@@ -121,7 +147,10 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
         }),
       );
     };
-    void refresh();
+    // Worktrees read moments ago (this Project was open then) keep that answer until the next poll.
+    const unread = paths.filter((path) => !recent(branchReadAt.get(readKey(projectPath, path))));
+    if (unread.length) void refresh(unread);
+    else lastRefresh = Date.now();
     const stopPolling = pollWhileActive(
       () => void refresh(),
       () => lastRefresh,
@@ -138,7 +167,7 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
       stopPolling();
       unsubscribe();
     };
-  }, [projectPath, pathsKey]);
+  }, [projectPath, pathsKey, legacy]);
 
   // PRs the chats created or merged, looked up from each chat's folder (numbers resolve in its repository).
   const chatRefs = useMemo(() => {
@@ -155,51 +184,110 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
     // oxlint-disable-next-line react/preserve-manual-memoization -- the callback reads state?.sessions, state?.worktrees and state!.messages, all listed; the compiler infers the whole state object from the non-null assertion
   }, [state?.messages, state?.sessions, state?.worktrees]);
   const chatRefsKey = JSON.stringify(Object.entries(chatRefs).sort(([a], [b]) => a.localeCompare(b)));
-  const [chatSnapshot, setChatSnapshot] = useState<{ projectPath: string; prs: Record<string, Record<PullRequestRef, PullRequest | null>> }>({
-    projectPath: "",
-    prs: {},
-  });
+  const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot>({ projectPath: "", prs: {} });
   const chatSnapshotRef = useRef(chatSnapshot);
   chatSnapshotRef.current = chatSnapshot;
 
   useEffect(() => {
-    if (!projectPath) return;
+    if (!projectPath || !legacy) return;
     const entries: Array<[string, PullRequestRef[]]> = JSON.parse(chatRefsKey);
     if (!entries.length) return;
     let disposed = false;
     let lastRefresh = 0;
-    // A merged PR can't change again, so it's read once; new and open ones follow the branch PR's refreshes.
-    const refresh = async () => {
+    // A merged PR can't change again, so it's read once; new and open ones follow the branch PR's refreshes. `fresh`
+    // leaves out the Worktrees whose PRs were all read moments ago.
+    const refresh = async (only?: string, fresh = false) => {
       lastRefresh = Date.now();
       const known = chatSnapshotRef.current.projectPath === projectPath ? chatSnapshotRef.current.prs : (lastChatPullRequests.get(projectPath) ?? {});
       await Promise.all(
         entries.map(async ([path, refs]) => {
+          if (only && path !== only) return;
           const selected = refs.filter((ref) => known[path]?.[ref]?.state !== "MERGED");
           if (!selected.length) return;
+          const read = chatReadAt.get(readKey(projectPath, path));
+          if (fresh && read && recent(read.at) && selected.every((ref) => read.refs.has(ref))) return;
           const prs = await bridgeForKey(projectPath)
             .readPullRequests(path, selected)
             .catch(() => selected.map(() => null));
           if (disposed) return;
-          setChatSnapshot((current) => {
-            const previous = current.projectPath === projectPath ? current.prs : (lastChatPullRequests.get(projectPath) ?? {});
-            const read = Object.fromEntries(selected.map((ref, index) => [ref, prs[index] ?? null]));
-            const next = { ...previous, [path]: { ...previous[path], ...read } };
-            lastChatPullRequests.set(projectPath, next);
-            return { projectPath, prs: next };
-          });
+          chatReadAt.set(readKey(projectPath, path), { at: Date.now(), refs: new Set(selected) });
+          // The composer can offer these PRs' actions too, so their reads clear a fixed blocker's dismissal.
+          setDismissedBlockers((current) => prs.reduce((next, pr) => updateBlockerDismissals(next, pr), current));
+          const answers = Object.fromEntries(selected.map((ref, index) => [ref, prs[index] ?? null]));
+          setChatSnapshot((current) => withChatAnswers(current, projectPath, { [path]: answers }));
         }),
       );
     };
-    void refresh();
+    void refresh(undefined, true);
     const stopPolling = pollWhileActive(
       () => void refresh(),
       () => lastRefresh,
     );
+    // At a turn end, like the branch PR, so a Chat's PR doesn't show an older status than its branch PR's.
+    const unsubscribe = onAnyAgentEvent(({ chatId, event }) => {
+      if (!chatInProject(projectPath, chatId) || !isTurnEnd(event)) return;
+      const current = stateRef.current;
+      const session = current?.sessions[sessionIdFromKey(chatId)];
+      const path = session && current?.worktrees[session.worktree_id]?.path;
+      if (path) void refresh(path);
+    });
     return () => {
       disposed = true;
       stopPolling();
+      unsubscribe();
     };
-  }, [projectPath, chatRefsKey]);
+  }, [projectPath, chatRefsKey, legacy]);
+
+  // The host polls GitHub for every client (pull-request-watch.cjs); this reads what it found, which never waits on
+  // gh, and again whenever it says the Project's PRs changed. Reading while the window is focused keeps the Project
+  // on the host's one-minute cadence.
+  useEffect(() => {
+    if (!projectPath) return;
+    const bridge = bridgeForKey(projectPath);
+    let disposed = false;
+    let lastRead = 0;
+    let reading = false;
+    let again = false;
+    const read = async () => {
+      lastRead = Date.now();
+      if (reading) {
+        again = true;
+        return;
+      }
+      reading = true;
+      try {
+        const found = await bridge.readPullRequestSnapshot(projectPath);
+        if (disposed || !found) return;
+        const chatPrs = Object.values(found.chats).flatMap((byRef) => Object.values(byRef));
+        setDismissedBlockers((current) => [...Object.values(found.worktrees), ...chatPrs].reduce((next, pr) => updateBlockerDismissals(next, pr), current));
+        setSnapshot((current) => withBranchAnswers(current, projectPath, found.worktrees));
+        setChatSnapshot((current) => withChatAnswers(current, projectPath, found.chats));
+      } catch (error) {
+        if (!disposed && error instanceof Error && /Unknown command/i.test(error.message)) setLegacyFor(projectPath);
+      } finally {
+        reading = false;
+        if (again && !disposed) {
+          again = false;
+          void read();
+        }
+      }
+    };
+    if (legacy) return;
+    void read();
+    const stopPolling = pollWhileActive(
+      () => void read(),
+      () => lastRead,
+    );
+    const unsubscribe = bridge.onPullRequestsChanged((change) => {
+      if (change.projectPath === projectPath) void read();
+    });
+    return () => {
+      disposed = true;
+      stopPolling();
+      unsubscribe();
+    };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a Worktree or Chat PR new to the Project is read again: the host polls only what it was asked for
+  }, [projectPath, pathsKey, chatRefsKey, legacy]);
 
   return {
     pullRequests: snapshot.projectPath === projectPath ? snapshot.prs : (lastPullRequests.get(projectPath) ?? NO_PRS),

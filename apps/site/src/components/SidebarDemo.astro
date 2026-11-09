@@ -1,0 +1,425 @@
+---
+// The Milagre sidebar, rebuilt from the app's own row markup (apps/desktop/app/src/components/sidebar/ChatRow.tsx and
+// SidebarNav.tsx): same sizes, tokens and Hugeicons, with the same hover, select, ⋮ menu, rename, read state, archive,
+// folding and New chat. Pull request numbers open the Milagre repository.
+import {
+  Add01Icon,
+  Archive02Icon,
+  ArrowDown01Icon,
+  CircleDotIcon,
+  CircleIcon,
+  Copy01Icon,
+  FilterHorizontalIcon,
+  GitMergeIcon,
+  GitPullRequestIcon,
+  LinkSquare02Icon,
+  MoreVerticalIcon,
+  PencilEdit02Icon,
+  Search01Icon,
+  ShieldAlertIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
+import { icon } from "../hugeicon";
+import { REPO_URL } from "../links";
+
+// Each branch is named after a Milagre contributor, so "Copy branch name" credits one of them.
+type Pr = { number: number; kind: "open" | "checking" | "ready" | "merged" };
+type Chat = { title: string; branch: string; mark: "waiting" | "running" | "unread" | "idle"; pr?: Pr; active?: boolean };
+const PR = {
+  open: { icon: GitPullRequestIcon, tone: "green", label: null, tip: "Open pull request" },
+  checking: { icon: CircleDotIcon, tone: "orange", label: "CI running", tip: "CI checks running · Pull request" },
+  ready: { icon: Tick02Icon, tone: "green", label: "Ready", tip: "Ready to merge · Pull request" },
+  merged: { icon: GitMergeIcon, tone: "purple", label: null, tip: "Merged pull request" },
+} as const;
+const MARK_LABEL = { waiting: "Waiting for approval", running: "Working", unread: "Unread", idle: "" };
+const groups: { name: string; image: string; current: boolean; chats: Chat[] }[] = [
+  {
+    name: "milagre",
+    image: "/app-icon-64.webp",
+    current: true,
+    chats: [
+      { title: "Swipe between Chat and Changes", branch: "milagre/victor", mark: "waiting", pr: { number: 195, kind: "open" }, active: true },
+      { title: "Phone pairing follow-ups", branch: "milagre/marcos", mark: "running", pr: { number: 192, kind: "checking" } },
+      { title: "Find Projects from the phone", branch: "milagre/victor-saisse", mark: "unread", pr: { number: 189, kind: "open" } },
+      { title: "Keep the Chat timer running", branch: "milagre/jeferson", mark: "unread", pr: { number: 177, kind: "ready" } },
+      { title: "Link Worktrees and share context", branch: "milagre/victor", mark: "unread", pr: { number: 168, kind: "merged" } },
+    ],
+  },
+  {
+    name: "relay",
+    image: "/demo/relay-icon.webp",
+    current: false,
+    chats: [
+      { title: "Rate-limit pairing attempts", branch: "milagre/marcos", mark: "unread" },
+      { title: "Reconnect after the Mac sleeps", branch: "milagre/victor-saisse", mark: "unread" },
+    ],
+  },
+];
+const spinner = `<svg aria-hidden="true" width="12" height="12" class="spin"><circle cx="6" cy="6" r="5" fill="none" stroke="var(--line)" stroke-width="2"/><circle cx="6" cy="6" r="5" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="8.8 22.6"/></svg>`;
+const markHtml = (mark: Chat["mark"]) =>
+  mark === "running" ? spinner : mark === "waiting" ? `<span class="tone-orange">${icon(ShieldAlertIcon, 13, 2)}</span>` : `<span class="dot"></span>`;
+---
+
+<div class="sidebar" data-sidebar-demo>
+  <div class="tools">
+    <a class="tool wide" href="#linked-projects" data-tip="Canvas">{/* the canvas is the next section */}<Fragment set:html={icon(GitMergeIcon)} /><span>Canvas</span></a>
+    <button type="button" class="tool wide" data-tip="Search commands, chats, and projects" data-tip-keys="⌘K"><Fragment set:html={icon(Search01Icon)} /><span>Search</span></button>
+    <button type="button" class="tool square" aria-label="Filters" data-tip="Filters"><Fragment set:html={icon(FilterHorizontalIcon)} /></button>
+  </div>
+  {
+    groups.map((group) => (
+      <section class="scope" data-scope data-open="true" aria-label={group.name}>
+        <div class="scope-header">
+          <button type="button" class="scope-toggle" data-scope-toggle aria-expanded="true" aria-label={`Collapse ${group.name}`}>
+            <span class="scope-icon">
+              <img src={group.image} alt="" width="20" height="20" />
+              <span class="chevron" set:html={icon(ArrowDown01Icon, 14)} />
+            </span>
+            <span class={`scope-name ${group.current ? "current" : ""}`}>{group.name}</span>
+          </button>
+          <button type="button" class={`scope-new ${group.current ? "" : "hover-only"}`} data-new-chat aria-label={group.current ? "New chat" : `New chat in ${group.name}`} data-tip="New chat" data-tip-keys={group.current ? "⌘N" : undefined} data-tip-align="end" set:html={icon(Add01Icon, 14)} />
+        </div>
+        <ul class="rows" data-rows>
+          {group.chats.map((chat) => (
+            <li class="chat" data-chat data-branch={chat.branch}>
+              <button type="button" class={`row ${chat.pr ? "two" : ""}`} data-row data-mark={chat.mark} aria-current={chat.active ? "page" : undefined}>
+                <span class="mark" role={chat.mark === "idle" ? undefined : "img"} aria-label={MARK_LABEL[chat.mark] || undefined} title={MARK_LABEL[chat.mark] || undefined} set:html={markHtml(chat.mark)} />
+                <span class="title" data-title>{chat.title}</span>
+              </button>
+              {chat.pr && (
+                <div class="facts">
+                  <a class="pr" href={REPO_URL} target="_blank" rel="noopener noreferrer" data-tip={`${PR[chat.pr.kind].tip} #${chat.pr.number}`}>
+                    <span class={`pr-icon tone-${PR[chat.pr.kind].tone}`} set:html={icon(PR[chat.pr.kind].icon, 12)} />
+                    <span class="pr-open" set:html={icon(LinkSquare02Icon, 12)} />
+                    <span>#{chat.pr.number}</span>
+                    {PR[chat.pr.kind].label && <span class={`tone-${PR[chat.pr.kind].tone}`}>{PR[chat.pr.kind].label}</span>}
+                    <span class="visually-hidden">, opens Milagre on GitHub</span>
+                  </a>
+                </div>
+              )}
+              <button type="button" class="more" data-more aria-label="Chat actions" aria-haspopup="menu" aria-expanded="false" set:html={icon(MoreVerticalIcon, 16)} />
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))
+  }
+  <div class="menu" role="menu" data-menu hidden>
+    <button type="button" role="menuitem" data-action="copy"><span set:html={icon(Copy01Icon)} />Copy branch name</button>
+    <button type="button" role="menuitem" data-action="rename"><span set:html={icon(PencilEdit02Icon)} />Rename chat</button>
+    <button type="button" role="menuitem" data-action="unread"><span data-unread-icon set:html={icon(CircleIcon)} /><span data-read-icon hidden set:html={icon(Tick02Icon)} /><span data-unread-label>Mark as unread</span></button>
+    <div class="divider"></div>
+    <button type="button" role="menuitem" data-action="archive"><span set:html={icon(Archive02Icon)} />Archive</button>
+  </div>
+  <div class="tip" data-tip-box role="tooltip" hidden></div>
+  <template data-new-row>
+    <li class="chat" data-chat data-new data-branch="milagre/jeferson">
+      <button type="button" class="row" data-row data-mark="idle"><span class="mark" set:html={markHtml("idle")} /><span class="title" data-title>New chat</span></button>
+      <button type="button" class="more" data-more aria-label="Chat actions" aria-haspopup="menu" aria-expanded="false" set:html={icon(MoreVerticalIcon, 16)} />
+    </li>
+  </template>
+  <dialog class="too-many" data-too-many aria-labelledby="too-many-title">
+    <h2 id="too-many-title">What the hell do you need that many Chats for?</h2>
+    <p>This sidebar stops at three new Chats. Milagre itself doesn't: download it and give every change its own agent.</p>
+    <div class="too-many-actions">
+      <button type="button" class="button" data-too-many-close>Fair, I'll stop</button>
+      <button type="button" class="button button-primary" data-too-many-download>Download Milagre</button>
+    </div>
+  </dialog>
+</div>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-sidebar-demo]");
+  if (root) setUp(root);
+
+  function setUp(root: HTMLElement) {
+    const menu = root.querySelector<HTMLElement>("[data-menu]")!;
+    const tip = root.querySelector<HTMLElement>("[data-tip-box]")!;
+    let menuFor: HTMLElement | null = null;
+
+    const select = (row: HTMLElement) => {
+      root.querySelectorAll("[data-row][aria-current]").forEach((other) => other.removeAttribute("aria-current"));
+      row.setAttribute("aria-current", "page");
+      // Opening a Chat reads it, as in the app.
+      if (row.dataset.mark === "unread") setMark(row, "idle");
+    };
+    const setMark = (row: HTMLElement, mark: "unread" | "idle") => {
+      row.dataset.mark = mark;
+      const label = mark === "unread" ? "Unread" : "";
+      const slot = row.querySelector<HTMLElement>(".mark")!;
+      slot.innerHTML = '<span class="dot"></span>';
+      if (label) slot.setAttribute("aria-label", label);
+      else slot.removeAttribute("aria-label");
+      slot.setAttribute("role", label ? "img" : "presentation");
+    };
+
+    const closeMenu = () => {
+      menu.hidden = true;
+      menuFor?.querySelector("[data-more]")?.setAttribute("aria-expanded", "false");
+      menuFor?.classList.remove("menu-open");
+      menuFor = null;
+    };
+    const openMenu = (chat: HTMLElement, button: HTMLElement) => {
+      if (menuFor === chat) return closeMenu();
+      closeMenu();
+      menuFor = chat;
+      chat.classList.add("menu-open");
+      button.setAttribute("aria-expanded", "true");
+      const unread = chat.querySelector<HTMLElement>("[data-row]")!.dataset.mark === "unread";
+      menu.querySelector<HTMLElement>("[data-unread-label]")!.textContent = unread ? "Mark as read" : "Mark as unread";
+      menu.querySelector<HTMLElement>("[data-unread-icon]")!.hidden = unread;
+      menu.querySelector<HTMLElement>("[data-read-icon]")!.hidden = !unread;
+      const box = root.getBoundingClientRect();
+      const at = button.getBoundingClientRect();
+      menu.style.top = `${at.bottom - box.top + 4}px`;
+      menu.style.left = `${Math.min(at.left - box.left, box.width - 216)}px`;
+      menu.hidden = false;
+      menu.querySelector<HTMLElement>("button")?.focus();
+    };
+
+    const rename = (chat: HTMLElement) => {
+      const title = chat.querySelector<HTMLElement>("[data-title]")!;
+      const input = document.createElement("input");
+      input.className = "rename";
+      input.value = title.textContent ?? "";
+      input.maxLength = 120;
+      input.setAttribute("aria-label", "Chat name");
+      title.hidden = true;
+      title.after(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const finish = (keep: boolean) => {
+        if (done) return;
+        done = true;
+        if (keep && input.value.trim()) title.textContent = input.value.trim();
+        input.remove();
+        title.hidden = false;
+      };
+      input.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") finish(true);
+        else if (event.key === "Escape") finish(false);
+      });
+      input.addEventListener("click", (event) => event.stopPropagation());
+      input.addEventListener("blur", () => finish(true));
+    };
+
+    const archive = (chat: HTMLElement) => {
+      chat.classList.add("archiving");
+      const status = document.createElement("div");
+      status.className = "archiving-pill";
+      status.setAttribute("role", "status");
+      status.innerHTML = '<svg aria-hidden="true" width="12" height="12" class="spin"><circle cx="6" cy="6" r="5" fill="none" stroke="var(--line)" stroke-width="2"/><circle cx="6" cy="6" r="5" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-dasharray="8.8 22.6"/></svg>Archiving...';
+      chat.append(status);
+      setTimeout(() => {
+        chat.style.height = `${chat.offsetHeight}px`;
+        requestAnimationFrame(() => chat.classList.add("gone"));
+        // After the collapse; a timer, since reduced motion has no transition to end.
+        setTimeout(() => chat.remove(), 260);
+      }, 900);
+    };
+
+    root.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const more = target.closest<HTMLElement>("[data-more]");
+      if (more) return openMenu(more.closest<HTMLElement>("[data-chat]")!, more);
+      const action = target.closest<HTMLElement>("[data-action]");
+      if (action && menuFor) {
+        const chat = menuFor;
+        const row = chat.querySelector<HTMLElement>("[data-row]")!;
+        closeMenu();
+        if (action.dataset.action === "copy") void navigator.clipboard?.writeText(chat.dataset.branch ?? "");
+        else if (action.dataset.action === "rename") rename(chat);
+        else if (action.dataset.action === "unread") setMark(row, row.dataset.mark === "unread" ? "idle" : "unread");
+        else if (action.dataset.action === "archive") archive(chat);
+        return;
+      }
+      const toggle = target.closest<HTMLElement>("[data-scope-toggle]");
+      if (toggle) {
+        const scope = toggle.closest<HTMLElement>("[data-scope]")!;
+        const open = scope.dataset.open !== "true";
+        scope.dataset.open = String(open);
+        toggle.setAttribute("aria-expanded", String(open));
+        toggle.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${scope.getAttribute("aria-label")}`);
+        return;
+      }
+      const add = target.closest<HTMLElement>("[data-new-chat]");
+      if (add) {
+        // Three new Chats is plenty for a web page; the fourth asks why.
+        if (root.querySelectorAll("[data-new]").length >= 3) return tooMany.showModal();
+        const scope = add.closest<HTMLElement>("[data-scope]")!;
+        scope.dataset.open = "true";
+        scope.querySelector("[data-scope-toggle]")?.setAttribute("aria-expanded", "true");
+        const template = root.querySelector<HTMLTemplateElement>("[data-new-row]")!;
+        const chat = template.content.firstElementChild!.cloneNode(true) as HTMLElement;
+        scope.querySelector("[data-rows]")!.prepend(chat);
+        select(chat.querySelector<HTMLElement>("[data-row]")!);
+        return;
+      }
+      const row = target.closest<HTMLElement>("[data-row]");
+      if (row) select(row);
+    });
+    const tooMany = root.querySelector<HTMLDialogElement>("[data-too-many]")!;
+    tooMany.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      // A press on the backdrop lands on the dialog itself.
+      if (target === tooMany || target.closest("[data-too-many-close]")) tooMany.close();
+      else if (target.closest("[data-too-many-download]")) {
+        tooMany.close();
+        document.querySelector(".closing")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (menuFor && !menu.contains(event.target as Node) && !(event.target as HTMLElement).closest("[data-more]")) closeMenu();
+    });
+    root.addEventListener("contextmenu", (event) => {
+      const chat = (event.target as HTMLElement).closest<HTMLElement>("[data-chat]");
+      if (!chat) return;
+      event.preventDefault();
+      openMenu(chat, chat.querySelector<HTMLElement>("[data-more]")!);
+    });
+    menu.addEventListener("keydown", (event) => {
+      const items = [...menu.querySelectorAll<HTMLElement>("button")];
+      const index = items.indexOf(document.activeElement as HTMLElement);
+      if (event.key === "Escape") closeMenu();
+      else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+      }
+    });
+
+    // Tooltips under the control after a short rest, like the app's.
+    let tipTimer = 0;
+    root.addEventListener("pointerover", (event) => {
+      const host = (event.target as HTMLElement).closest<HTMLElement>("[data-tip]");
+      clearTimeout(tipTimer);
+      if (!host) return void (tip.hidden = true);
+      tipTimer = window.setTimeout(() => {
+        tip.textContent = host.dataset.tip ?? "";
+        if (host.dataset.tipKeys) {
+          const keys = document.createElement("kbd");
+          keys.textContent = host.dataset.tipKeys;
+          tip.append(keys);
+        }
+        tip.hidden = false;
+        const box = root.getBoundingClientRect();
+        const at = host.getBoundingClientRect();
+        const left = host.dataset.tipAlign === "end" ? at.right - box.left - tip.offsetWidth : at.left - box.left + at.width / 2 - tip.offsetWidth / 2;
+        tip.style.left = `${Math.max(4, Math.min(left, box.width - tip.offsetWidth - 4))}px`;
+        tip.style.top = `${at.bottom - box.top + 6}px`;
+      }, 350);
+    });
+    root.addEventListener("pointerleave", () => {
+      clearTimeout(tipTimer);
+      tip.hidden = true;
+    });
+    root.addEventListener("pointerdown", () => {
+      clearTimeout(tipTimer);
+      tip.hidden = true;
+    });
+  }
+</script>
+
+<style>
+  .sidebar { position: relative; width: min(100%, 300px); padding: 10px 0 8px; border-radius: var(--radius-window); background: oklch(0.215 0.032 258); box-shadow: var(--shadow-overlay), 0 30px 80px oklch(0.1 0.02 258 / 0.45); text-align: left; user-select: none; }
+  :global(.sidebar svg) { display: block; }
+  button { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+  ul { margin: 0; padding: 0; list-style: none; }
+
+  .tools { display: flex; gap: 4px; margin: 0 8px 12px; }
+  .tool { display: flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 8px; border-radius: 8px; color: var(--ink-3); font-size: 13px; text-decoration: none; transition: background-color 150ms, color 150ms; }
+  .tool:hover { background: var(--hover-2); color: var(--ink); }
+  .tool.wide { flex: 1; min-width: 0; }
+  .tool.square { width: 32px; flex: none; }
+
+  .scope + .scope { margin-top: 8px; }
+  .scope-header { position: relative; display: flex; align-items: center; height: 32px; margin: 0 8px; }
+  .scope-toggle { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 32px; padding: 0 60px 0 8px; border-radius: 8px; text-align: left; }
+  .scope-toggle:hover { background: var(--hover-2); }
+  .scope-icon { position: relative; display: flex; width: 20px; height: 20px; flex: none; align-items: center; justify-content: center; }
+  .scope-icon img { width: 20px; height: 20px; border-radius: 5px; transition: opacity 100ms; }
+  .chevron { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink-3); opacity: 0; transition: opacity 100ms, transform 150ms; }
+  .scope-header:hover .scope-icon img, .scope-toggle:focus-visible .scope-icon img { opacity: 0; }
+  .scope-header:hover .chevron, .scope-toggle:focus-visible .chevron { opacity: 1; }
+  [data-open="false"] .chevron { transform: rotate(-90deg); }
+  [data-open="false"] .rows { display: none; }
+  .scope-name { min-width: 0; flex: 1; overflow: hidden; color: var(--ink-2); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+  .scope-name.current { color: var(--ink); font-weight: 500; }
+  .scope-new { position: absolute; right: 4px; display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 6px; color: var(--ink-3); transition: background-color 150ms, color 150ms, transform 150ms, opacity 150ms; }
+  .scope-new:hover { background: var(--hover-2); color: var(--ink); }
+  .scope-new:active, .tool:active { transform: scale(0.96); }
+  .scope-new.hover-only { opacity: 0; }
+  .scope-header:hover .scope-new, .scope-new:focus-visible { opacity: 1; }
+
+  .chat { position: relative; transition: height 220ms var(--ease-out-strong), opacity 220ms; }
+  .row { position: relative; display: flex; width: calc(100% - 16px); height: 32px; align-items: center; margin: 0 8px; padding: 0 8px; border-radius: 8px; text-align: left; transition: background-color 150ms, transform 150ms; }
+  .row.two { height: 46px; align-items: flex-start; padding-top: 6px; }
+  .row:hover, .row[aria-current], .chat.menu-open .row { background: var(--hover-2); }
+  .row:active { transform: scale(0.98); }
+  .mark { display: flex; width: 12px; height: 12px; flex: none; align-items: center; justify-content: center; margin-right: 8px; }
+  .two .mark { margin-top: 4px; }
+  :global([data-sidebar-demo] .dot) { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); opacity: 0.4; }
+  :global([data-sidebar-demo] [data-mark="unread"] .dot) { width: 8px; height: 8px; background: var(--accent); opacity: 1; }
+  .title { min-width: 0; flex: 1; overflow: hidden; color: var(--ink-2); font-size: 14px; font-weight: 500; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; transition: padding 150ms; }
+  [aria-current] .title { color: var(--ink); }
+  [data-mark="unread"] .title { color: var(--ink); font-weight: 600; }
+  .chat:hover .title, .chat.menu-open .title { padding-right: 24px; }
+  :global([data-sidebar-demo] .rename) { min-width: 0; flex: 1; padding: 0; border: 0; outline: none; background: transparent; color: var(--ink); font: 500 14px/20px var(--font-sans); }
+
+  .facts { position: absolute; bottom: 4px; left: 36px; z-index: 2; display: flex; max-width: calc(100% - 72px); }
+  /* ink-2, not the app's ink-3: on the selected row's fill ink-3 misses 4.5:1. 24px tall, a comfortable tap. */
+  .pr { display: inline-flex; min-width: 0; align-items: center; gap: 4px; margin-block: -4px; padding-block: 4px; border-radius: 2px; color: var(--ink-2); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; text-decoration: none; }
+  .pr:hover, .pr:focus-visible { color: var(--ink); }
+  .pr-icon, .pr-open { display: inline-flex; }
+  .pr-open, .pr:hover .pr-icon, .pr:focus-visible .pr-icon { display: none; }
+  .pr:hover .pr-open, .pr:focus-visible .pr-open { display: inline-flex; }
+  /* Global: the marks are drawn from strings, outside the scoped template. */
+  :global([data-sidebar-demo] .tone-green) { color: var(--green); }
+  :global([data-sidebar-demo] .tone-orange) { color: var(--orange); }
+  :global([data-sidebar-demo] .tone-purple) { color: oklch(0.627 0.265 303.9); }
+  :global([data-sidebar-demo] .spin) { animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .more { position: absolute; top: 4px; right: 12px; z-index: 2; display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 6px; color: var(--ink-3); opacity: 0; transition: opacity 100ms, background-color 100ms, color 100ms; }
+  .chat:hover .more, .more:focus-visible, .chat.menu-open .more { opacity: 1; }
+  .more:hover, .chat.menu-open .more { background: var(--hover); color: var(--ink); }
+
+  .menu { position: absolute; z-index: 10; width: 212px; padding: 6px; border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-overlay); animation: pop-in 160ms var(--ease-out-strong) both; transform-origin: top left; }
+  .menu button { display: flex; width: 100%; height: 32px; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; color: var(--ink); font-size: 13px; text-align: left; outline: none; }
+  .menu button:hover, .menu button:focus-visible { background: var(--hover-2); }
+  .menu button > span:first-child, .menu [data-read-icon] { display: flex; width: 20px; justify-content: center; color: var(--ink-2); }
+  .menu [hidden] { display: none !important; }
+  .divider { height: 1px; margin: 4px 0; background: var(--line); }
+  @keyframes pop-in { from { opacity: 0; transform: scale(0.96); } }
+
+  .chat.archiving > :not(.archiving-pill) { opacity: 0.3; pointer-events: none; }
+  :global([data-sidebar-demo] .archiving-pill) { position: absolute; inset: 0 8px; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 6px; margin: auto; width: fit-content; height: 24px; padding: 0 10px; border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 500; box-shadow: var(--shadow-card); }
+  :global([data-sidebar-demo] .chat.gone) { height: 0 !important; opacity: 0; overflow: hidden; }
+
+  .tip[hidden] { display: none; }
+  .tip { position: absolute; z-index: 11; display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px; white-space: nowrap; box-shadow: var(--shadow-overlay); pointer-events: none; }
+  :global([data-sidebar-demo] .tip kbd) { color: var(--ink-3); font: inherit; }
+
+  .too-many { width: min(420px, 100% - 32px); padding: 28px; border: 0; border-radius: var(--radius-window); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-overlay), 0 30px 80px oklch(0.1 0.02 258 / 0.5); text-align: left; user-select: text; }
+  .too-many[open] { animation: pop-in 200ms var(--ease-out-strong) both; }
+  .too-many::backdrop { background: oklch(0.12 0.02 258 / 0.6); backdrop-filter: blur(6px); }
+  .too-many h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; text-wrap: balance; }
+  .too-many p { margin-top: 12px; color: var(--ink-2); font-size: 15px; line-height: 1.6; }
+  .too-many-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+  /* The scoped button reset above outranks the global .button, so the dialog's buttons restate it. */
+  .too-many .button { padding: 0 16px; background: var(--hover); box-shadow: var(--shadow-btn); font: 600 14px var(--font-sans); }
+  .too-many .button:hover { background: var(--hover-2); }
+  .too-many .button-primary { background: var(--ink); color: var(--page); }
+  .too-many .button-primary:hover { background: var(--ink-2); }
+
+  /* Touch screens have no hover to reveal the row actions. */
+  @media (hover: none) {
+    .more { opacity: 0.7; }
+    .title { padding-right: 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global([data-sidebar-demo] .spin) { animation: none; }
+    .chat, .menu { transition: none; animation: none; }
+  }
+</style>

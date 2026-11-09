@@ -3,7 +3,7 @@
     "name": "Milagre",
     "slug": "milagre",
     "scheme": ["milagre", "milagre-local"],
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -14,11 +14,11 @@
         "expo-build-properties",
         {
           "ios": {
-            "enableSceneSupport": true,
             "buildReactNativeFromSource": true
           },
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "extraProguardRules": "-keepnames class com.swmansion.rnscreens.Screen\n-keepnames class com.facebook.react.ReactRootView"
           }
         }
       ],
@@ -38,8 +38,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Milagre uses the camera to scan the pairing code your Mac shows.",
-          "microphonePermission": "Milagre never records audio. iOS asks because the code scanner shares the camera.",
+          "cameraPermission": "Milagre uses the camera to scan your Mac's pairing code and to take photos for a Chat.",
+          "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this device.",
           "recordAudioAndroid": false
         }
       ],
@@ -47,33 +47,45 @@
         "expo-image-picker",
         {
           "photosPermission": "Milagre attaches the photos you pick to a Chat.",
-          "cameraPermission": "Milagre uses the camera to take a photo for a Chat.",
+          "cameraPermission": "Milagre uses the camera to scan your Mac's pairing code and to take photos for a Chat.",
           "microphonePermission": false
         }
       ],
       [
         "expo-notifications",
         {
-          "defaultChannel": "chats"
+          "defaultChannel": "chats",
+          "sounds": [
+            "./assets/sounds/chime_miracle.wav",
+            "./assets/sounds/chime_faaah.wav",
+            "./assets/sounds/chime_bombastic_side_eye.wav",
+            "./assets/sounds/chime_vine_boom.wav",
+            "./assets/sounds/chime_metal_pipe.wav",
+            "./assets/sounds/chime_bruh.wav",
+            "./assets/sounds/chime_emotional_damage.wav"
+          ]
         }
       ],
       [
         "expo-audio",
         {
-          "microphonePermission": false,
-          "recordAudioAndroid": false,
+          "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this device.",
+          "recordAudioAndroid": true,
           "enableBackgroundPlayback": false,
           "enableBackgroundRecording": false
         }
       ],
-      "./plugins/with-live-activity.cjs"
+      "./plugins/with-live-activity.cjs",
+      "expo-font",
+      "expo-status-bar"
     ],
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.victorlucas.milagre",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocalNetworkUsageDescription": "Milagre connects to your computer directly when you are on the same network."
+        "NSLocalNetworkUsageDescription": "Milagre connects to your computer directly when you are on the same network.",
+        "NSSpeechRecognitionUsageDescription": "Milagre turns your dictated message into text on this device. Your voice never leaves it."
       }
     },
     "android": {

@@ -45,4 +45,10 @@ function updateProjectGroup(groups, projects, request) {
   return updated;
 }
 
-module.exports = { validProjectGroup, createProjectGroup, updateProjectGroup };
+/** The Links without `id`. Its shared Chats and Worktrees are the caller's to settle first (link-runtime.cjs). */
+function deleteProjectGroup(groups, id) {
+  if (!groups.some((group) => group.id === id)) throw new Error("Link no longer exists");
+  return groups.filter((group) => group.id !== id);
+}
+
+module.exports = { validProjectGroup, createProjectGroup, updateProjectGroup, deleteProjectGroup };

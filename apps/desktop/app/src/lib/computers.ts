@@ -1,26 +1,63 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ComputersSnapshot, ComputerView } from "../electron.d.ts";
-import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
-import { useSettings } from "./settings.ts";
+import { LOCAL_COMPUTER, computerOfKey, presenceTone } from "@milagre/shared/chat-scopes";
+import { getSettings, updateSettings, useSettings } from "./settings.ts";
+import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
+import { readHiddenComputers, subscribeHiddenComputers } from "./hidden-projects.ts";
 
-/**
- * Tells main whether to connect the saved computers: at launch, and each time Settings › Experimental › Other computers
- * flips. A window without the API (a check's fixture) is left alone.
- */
+/** Read the daemon's saved choice before applying window preferences. Opening a window must not disconnect peers. */
 export function useApplyOtherComputers() {
   const { otherComputers } = useSettings();
+  const initialized = useRef(false);
   useEffect(() => {
-    void Promise.resolve(window.milagre?.computers?.setEnabled?.(otherComputers)).catch(() => {});
+    const sync = () => {
+      const { enabled } = computersSnapshot();
+      if (typeof enabled === "boolean" && getSettings().otherComputers !== enabled) updateSettings({ otherComputers: enabled });
+    };
+    const stop = subscribeComputers(sync);
+    sync();
+    return stop;
+  }, []);
+  useEffect(() => {
+    const api = window.milagre?.computers;
+    if (!api?.list || !api.setEnabled) return;
+    let live = true;
+    const before = computersSnapshot();
+    void api
+      .list()
+      .then(async (next) => {
+        if (!live) return;
+        // A pushed snapshot is newer than the read that was already in flight.
+        if (computersSnapshot() !== before && typeof computersSnapshot().enabled === "boolean") {
+          initialized.current = true;
+          return;
+        }
+        if (!initialized.current) {
+          initialized.current = true;
+          if (typeof next?.enabled === "boolean") {
+            updateSettings({ otherComputers: next.enabled });
+            return;
+          }
+        }
+        // Older hosts have no saved flag. They still take the window's choice.
+        if (next?.enabled !== otherComputers) await api.setEnabled(otherComputers);
+        return;
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
   }, [otherComputers]);
 }
 
 export type ComputerTone = "online" | "connecting" | "offline" | "refused";
-/** The status dot (design sidebar-c-sections v6): green online, amber while it connects, grey offline, red refused. */
+const DOT_VAR = { green: "var(--green)", orange: "var(--orange)", red: "var(--red)", ink4: "var(--ink-4)" } as const;
+/** The status dot, as the phone draws it (presenceTone): green online, orange while it connects, red refused, ink-4 offline. */
 export const DOT_COLOR: Record<ComputerTone, string> = {
-  online: "var(--green)",
-  connecting: "var(--orange)",
-  offline: "var(--ink-3)",
-  refused: "var(--red)",
+  online: DOT_VAR[presenceTone("online")],
+  connecting: DOT_VAR[presenceTone("connecting")],
+  offline: DOT_VAR[presenceTone("offline")],
+  refused: DOT_VAR[presenceTone("refused")],
 };
 
 export function computerTone({ state }: Pick<ComputerView, "state">): ComputerTone {
@@ -64,66 +101,60 @@ export function routeLine(view: ComputerView, now: number): string {
 export const settingsTooltip = (name: string) => `${name} settings: rename, connection, remove`;
 /** Its Projects and rows are dimmed (spec "Sidebar"). */
 export const isDimmed = (view: ComputerView | undefined) => view?.state === "offline" || view?.state === "refused";
-/** Nothing can be sent to it: the composer is disabled and sends are refused. */
-export const isReadOnly = (view: ComputerView | undefined) => view?.state !== "online";
+/**
+ * Cached remote content is read-only. The composer can still save messages to this device's outbox.
+ * Connecting and Reconnecting keep the existing remote read behavior while the transport returns.
+ */
+export const isReadOnly = (view: ComputerView | undefined) =>
+  !view || !(view.state === "online" || view.state === "connecting" || view.state === "reconnecting");
 
-/** The banner over an offline computer's chat (design sidebar-c-sections v3). */
+/** The offline chip's tooltip in the composer's tray (design offline-inline-desktop v7). */
 export function offlineBanner(view: ComputerView, now: number): string {
   const ago = seenAgo(view.lastSeen, now);
-  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. You can read it until ${view.name} is back.`;
+  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. What you send waits on this Mac until ${view.name} is back.`;
 }
-/** Appended to the composer's placeholder while its computer is offline. */
-export const offlinePlaceholder = (name: string) => ` (${name} is offline)`;
+/** The composer's placeholder while its computer is offline: what it sends waits on this Mac. */
+export const offlinePlaceholder = (name: string) => `Queue a message for ${name}…`;
+/** Appended while the connection to it comes back: the draft can be written, and sends once it is online. */
+export const reconnectingPlaceholder = (name: string) => ` (reconnecting to ${name}…)`;
 
-// The window's list of computers, kept current from main (computers:changed).
-let snapshot: ComputersSnapshot = { thisMac: "This Mac", computers: [] };
-let off: ComputersSnapshot = snapshot;
-const listeners = new Set<() => void>();
-let started = false;
-function store(next: ComputersSnapshot | null | undefined) {
-  if (!next || !Array.isArray(next.computers)) return;
-  snapshot = next;
-  off = { thisMac: next.thisMac, computers: [] };
-  for (const listener of listeners) listener();
-}
-function start() {
-  if (started || typeof window === "undefined" || !window.milagre?.computers?.list) return;
-  started = true;
-  let heard = false;
-  window.milagre.onComputersChanged?.((next) => {
-    heard = true;
-    store(next);
-  });
-  void loadFirst(window.milagre.computers.list(), () => heard);
-}
-async function loadFirst(request: Promise<ComputersSnapshot>, heard: () => boolean) {
-  try {
-    const next = await request;
-    if (!heard()) store(next);
-  } catch {
-    // main keeps pushing computers:changed; the list stays as it was
-  }
-}
-function subscribe(listener: () => void) {
-  start();
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
+// What useComputers shows while Other computers is off: this Mac's name only, one object per snapshot.
+const offViews = new WeakMap<ComputersSnapshot, ComputersSnapshot>();
+function offView(current: ComputersSnapshot): ComputersSnapshot {
+  let view = offViews.get(current);
+  if (!view) offViews.set(current, (view = { thisMac: current.thisMac, computers: [] }));
+  return view;
 }
 
-/** This Mac's name and its computers; none while Settings › Experimental › Other computers is off. */
+/** This Mac's name and its computers; none while Settings › Devices › Other computers is off. */
 export function useComputers(): ComputersSnapshot {
   const { otherComputers } = useSettings();
-  const current = useSyncExternalStore(subscribe, () => snapshot);
-  return otherComputers ? current : current === snapshot ? off : { thisMac: current.thisMac, computers: [] };
+  const current = useSyncExternalStore(subscribeComputers, computersSnapshot);
+  return otherComputers ? current : offView(current);
+}
+
+const NONE_HIDDEN: ReadonlySet<string> = new Set();
+/**
+ * The computers whose Projects the sidebar leaves out (unchecked in the computers popover); none while Other computers
+ * is off, so This Mac can't stay hidden with no popover left to show it again.
+ */
+export function useHiddenComputers(): ReadonlySet<string> {
+  const { otherComputers } = useSettings();
+  const hidden = useSyncExternalStore(subscribeHiddenComputers, readHiddenComputers);
+  return otherComputers ? hidden : NONE_HIDDEN;
 }
 
 /** A completion notice's subtitle: a remote chat's computer first, as main labels its waiting notices. */
 export function withComputer(key: string, subtitle: string): string {
   const id = computerOfKey(key);
   if (id === LOCAL_COMPUTER) return subtitle;
-  const name = snapshot.computers.find((computer) => computer.id === id)?.name ?? "Computer";
+  const name = computersSnapshot().computers.find((computer) => computer.id === id)?.name ?? "Computer";
   return subtitle ? `${name} · ${subtitle}` : name;
 }
 
 /** The name a computer is shown by, "Computer" when it is gone from the list. */
-export const computerNameOf = (computerId: string): string => snapshot.computers.find((computer) => computer.id === computerId)?.name ?? "Computer";
+export const computerNameOf = (computerId: string): string => computersSnapshot().computers.find((computer) => computer.id === computerId)?.name ?? "Computer";
+
+/** Where this Mac reaches a computer's own servers (the IP its LAN route dialed); null for this Mac, over the relay or offline. */
+export const computerAddressOf = (computerId: string | null | undefined): string | null =>
+  !computerId || computerId === LOCAL_COMPUTER ? null : (computersSnapshot().computers.find((computer) => computer.id === computerId)?.address ?? null);

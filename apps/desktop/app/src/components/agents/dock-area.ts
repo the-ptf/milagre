@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing.ts";
 
 /**
  * Where the panels docked beside the chat go: the workspace between the sidebar and the git changes panel, which an
  * expanded design fills; `right`, how much of the window's right edge the changes panel takes, so the docks sit to its
- * left and it stays the rightmost; and `top` and `bottom`, the sidebar card's, so every panel lines up with it.
- * From the right: the changes panel, a docked simulator, then the designs. Each sits under the panels right of it, so
- * one sliding in or out passes under its neighbours: designs z-[41], simulator z-[42], changes panel z-[43], all under
- * the window's top strip (z-50).
+ * left and it stays the rightmost; `simulator`, what a docked simulator takes of the workspace, gap included; and `top`
+ * and `bottom`, the sidebar card's, so every panel lines up with it.
+ * From the right: the changes panel, a docked simulator, the Browser panel (`browser`, gap included), then the designs.
+ * Each sits under the panels right of it, so one sliding in or out passes under its neighbours: designs and browser
+ * z-[41], simulator z-[42], changes panel z-[43], all under the window's top strip (z-50).
  */
+type DockArea = { left: number; right: number; width: number; simulator: number; browser: number; top: number; bottom: number };
+
 export function useDockArea() {
-  const [area, setArea] = useState<{ left: number; right: number; width: number; top: number; bottom: number } | null>(null);
+  const [area, setArea] = useState<DockArea | null>(null);
   useEffect(() => {
     const main = document.querySelector<HTMLElement>("[data-workspace-main]") ?? document.querySelector<HTMLElement>("[data-chat-pane]");
     if (!main) return;
@@ -17,23 +21,40 @@ export function useDockArea() {
     const measure = () => {
       const rect = main.getBoundingClientRect();
       const right = document.querySelector("[data-changes-slot]")?.getBoundingClientRect().width ?? 0;
-      // Lined up with the sidebar's card, top and bottom.
-      const sidebar = document.querySelector("aside[aria-label='Workspace navigation']")?.getBoundingClientRect();
-      setArea({
-        left: rect.left,
-        right,
-        width: window.innerWidth - rect.left - right,
-        top: sidebar?.top ?? 40,
-        bottom: sidebar ? window.innerHeight - sidebar.bottom : 12,
+      // It springs open and closed beside the chat, which narrows with it, so <main>'s resizes follow it. Dragged, it
+      // keeps the room the designs saw at the start (the drag stops where the chat would get too narrow), and is
+      // measured again when the drag ends.
+      const docked = document.querySelector("[data-slot=simulator-popover][data-docked]")?.getBoundingClientRect().width ?? 0;
+      const browser = document.querySelector("[data-slot=browser-dock]")?.getBoundingClientRect().width ?? 0;
+      // Lined up with the sidebar's card, top and bottom. Settings hides the card without resizing <main>, so a card with
+      // no size keeps the last place it had: read as zeros, the docks would get no height and nothing would measure
+      // them again on the way back.
+      const card = document.querySelector("aside[aria-label='Workspace navigation']")?.getBoundingClientRect();
+      const sidebar = card && card.height > 0 ? card : null;
+      // Its owners render only when something they lay out by moved: <main> resizes on every frame a panel beside it
+      // slides or is dragged, most often without moving the area.
+      setArea((current) => {
+        const next: DockArea = {
+          left: rect.left,
+          right,
+          width: window.innerWidth - rect.left - right,
+          simulator: current && panelResizing() ? current.simulator : docked > 0.5 ? docked + 12 : 0,
+          browser: current && panelResizing() ? current.browser : browser > 0.5 ? browser + 12 : 0,
+          top: sidebar?.top ?? (card ? current?.top : undefined) ?? 40,
+          bottom: sidebar ? window.innerHeight - sidebar.bottom : ((card ? current?.bottom : undefined) ?? 12),
+        };
+        return current && (Object.keys(next) as (keyof DockArea)[]).every((key) => current[key] === next[key]) ? current : next;
       });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(main);
     window.addEventListener("resize", measure);
+    const offDragEnd = onPanelResizeEnd(measure);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", measure);
+      offDragEnd();
     };
   }, []);
   return area;

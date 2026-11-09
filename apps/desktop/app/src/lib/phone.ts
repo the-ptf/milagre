@@ -1,4 +1,5 @@
 import type { PhoneStatus } from "../electron";
+import { ThisComputer } from "./shortcut-hints.ts";
 
 /** The one line under "Allow devices to connect". */
 export function phoneStatusLine(status: PhoneStatus | null): string {
@@ -18,7 +19,7 @@ export function phoneStatusLine(status: PhoneStatus | null): string {
         return "On, connecting to the relay…";
       }
       // Without a tunnel the bridge answers on this Mac's loopback only.
-      return `This Mac only — ${status.localUrl ? new URL(status.localUrl).hostname : "127.0.0.1"}`;
+      return `${ThisComputer} only — ${status.localUrl ? new URL(status.localUrl).hostname : "127.0.0.1"}`;
   }
 }
 

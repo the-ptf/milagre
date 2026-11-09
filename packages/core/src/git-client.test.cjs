@@ -253,6 +253,35 @@ test("real Git resolves recorded/default bases, common directories and newline W
   run("update-ref", "refs/remotes/origin/trunk", "HEAD");
   run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk");
   assert.deepEqual(await git.resolveBase(repo), { name: "trunk", ref: "refs/remotes/origin/trunk" });
+
+  // A recorded local base is used while it is level with or ahead of its remote, and the remote once it
+  // falls behind or diverges (a force-pushed main left the local branch on the old history).
+  run("update-ref", "refs/remotes/origin/main", "HEAD");
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "main" });
+  run("commit", "--allow-empty", "-m", "local only");
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "main" });
+  run("update-ref", "refs/remotes/origin/main", run("commit-tree", "-m", "rewritten", "HEAD^{tree}"));
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "refs/remotes/origin/main" });
+
+  // With no recorded base, a chat's branch is measured against the branch it was cut from.
+  run("branch", "stack", "main");
+  const stacked = path.join(root, "stacked");
+  run("worktree", "add", "-b", "on-stack", stacked, "stack");
+  assert.deepEqual(await git.chatBase(stacked), { name: "stack", ref: "stack" });
+  assert.deepEqual(await git.chatBase(stacked, "main"), { name: "main", ref: "refs/remotes/origin/main" }, "a recorded base wins");
+  const fromHead = path.join(root, "from-head");
+  run("worktree", "add", "-b", "from-head", fromHead);
+  assert.deepEqual(await git.chatBase(fromHead), { name: "trunk", ref: "refs/remotes/origin/trunk" }, "made from HEAD: the default");
+  run("update-ref", "refs/remotes/origin/their-pr", "HEAD");
+  const tracking = path.join(root, "tracking");
+  run("worktree", "add", "-b", "their-pr", tracking, "origin/their-pr");
+  assert.deepEqual(await git.chatBase(tracking), { name: "trunk", ref: "refs/remotes/origin/trunk" }, "checked out from its own remote copy: the default");
+  // A plain `git checkout <branch>` records the full ref it came from.
+  run("update-ref", "refs/remotes/origin/their-other", "HEAD");
+  run("branch", "their-other", "refs/remotes/origin/their-other");
+  const fullRef = path.join(root, "full-ref");
+  run("worktree", "add", fullRef, "their-other");
+  assert.deepEqual(await git.chatBase(fullRef), { name: "trunk", ref: "refs/remotes/origin/trunk" }, "its own remote copy by full ref: the default");
 });
 
 test("Git process execution belongs only to the Git client", async () => {

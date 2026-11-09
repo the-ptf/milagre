@@ -35,13 +35,25 @@ function clock() {
     const index = queue.findIndex((timer) => timer.ms === ms);
     assert.ok(index !== -1, `No timer waiting ${ms}ms; waiting: ${queue.map((timer) => timer.ms).join(", ")}`);
     const [timer] = queue.splice(index, 1);
+    assert.ok(timer !== undefined);
     timer.fn();
   };
   return { timers, run, queue };
 }
 
-type Answer = { status?: number; headers?: Record<string, string>; body?: Uint8Array | string } | "never";
-type Seen = { method: string; path: string; headers: Record<string, string>; body: Uint8Array };
+type Answer =
+  | {
+      status?: number;
+      headers?: Record<string, string>;
+      body?: Uint8Array | string;
+    }
+  | "never";
+type Seen = {
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: Uint8Array;
+};
 type Mode = "host" | "offline" | "bad-token" | "reset" | "unknown-phone" | "impostor";
 
 /** A relay with a Mac behind it: each socket the phone opens gets its own hostAccept, as the daemon does per connection. */
@@ -50,13 +62,14 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
   const sockets: FakeSocket[] = [];
   const seen: Seen[] = [];
   const sent: Uint8Array[] = [];
-  const state = { mode: "host" as Mode, ping: 0, names: [] as (string | null)[] };
+  const state = { mode: "host" as Mode, ping: 0, names: [] as (string | null)[], caps: [] as string[][] };
   class FakeSocket implements RelaySocket {
     binaryType = "blob";
-    onopen: (() => void) | null = null;
-    onmessage: ((event: { data?: unknown }) => void) | null = null;
-    onerror: ((event: unknown) => void) | null = null;
-    onclose: ((event: { code?: number }) => void) | null = null;
+    target = new EventTarget();
+    addEventListener = this.target.addEventListener.bind(this.target) as RelaySocket["addEventListener"];
+    emit(type: string, event = {}) {
+      this.target.dispatchEvent(Object.assign(new Event(type), event));
+    }
     open = true;
     closedByPhone?: number;
     channel?: Channel;
@@ -66,7 +79,7 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
     constructor() {
       queueMicrotask(() => {
         if (state.mode === "offline") return this.drop(4404);
-        this.onopen?.();
+        this.emit("open");
       });
     }
     // Frames leaving the phone.
@@ -86,12 +99,12 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
     drop(code: number) {
       if (!this.open) return;
       this.open = false;
-      queueMicrotask(() => this.onclose?.({ code }));
+      queueMicrotask(() => this.emit("close", { code }));
     }
     toPhone(bytes: Uint8Array) {
       if (!this.open) return;
       const copy = bytes.slice().buffer; // React Native hands the app an ArrayBuffer
-      queueMicrotask(() => this.onmessage?.({ data: copy }));
+      queueMicrotask(() => this.emit("message", { data: copy }));
     }
     say(message: RelayMessage) {
       this.toPhone(this.channel!.seal(message));
@@ -107,9 +120,15 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
         try {
           const accepted = hostAccept({ host, hello: bytes, isKnown: () => true, token: TOKEN, random });
           state.names.push(accepted.name);
+          state.caps.push(accepted.caps);
           this.channel = accepted.channel;
           // An impostor cannot read the hello, so the closest thing is a reply that was not sealed for this phone and host.
-          if (state.mode === "impostor") accepted.reply[accepted.reply.length - 1] ^= 1;
+          if (state.mode === "impostor") {
+            const last = accepted.reply.length - 1;
+            const byte = accepted.reply[last];
+            assert.ok(byte !== undefined);
+            accepted.reply[last] = byte ^ 1;
+          }
           this.toPhone(accepted.reply);
         } catch (error) {
           assert.ok(error instanceof RelayAuthError);
@@ -184,6 +203,61 @@ function transportFor(fake: ReturnType<typeof relay>, extra: Partial<Parameters<
 
 const GET = (transport: ReturnType<typeof transportFor>["transport"], path = "/rpc/ping") => transport.request("GET", path, { Accept: "application/json" });
 
+test("first pairing tries a reachable tailnet before opening the remote relay", async () => {
+  const fake = relay();
+  const opened: string[] = [];
+  const { transport } = transportFor(fake, {
+    direct: ["ws://192.168.1.20:8798", "ws://100.107.136.115:8798"],
+    probe: async (endpoint) => endpoint.includes("100.107"),
+    create: (url) => {
+      opened.push(url);
+      return fake.create(url);
+    },
+  });
+  await transport.ready();
+  assert.equal(opened.length, 1);
+  assert.ok(opened[0]!.startsWith("ws://100.107.136.115:8798/"));
+  assert.equal(decoder.decode((await GET(transport)).body), '{"v":1,"result":"pong"}');
+  transport.close();
+});
+
+test("an unavailable direct handshake falls back before sending an application request", async () => {
+  const fake = relay();
+  const opened: string[] = [];
+  const { transport } = transportFor(fake, {
+    direct: ["ws://100.107.136.115:8798"],
+    probe: async () => true,
+    create: (url) => {
+      opened.push(url);
+      fake.state.mode = url.startsWith("ws:") ? "offline" : "host";
+      return fake.create(url);
+    },
+  });
+  await GET(transport);
+  assert.equal(opened.length, 2);
+  assert.ok(opened[1]!.startsWith("wss://relay.milagre.cloud/"));
+  assert.equal(fake.seen.length, 1, "the application request is sent only once, after the handshake");
+  transport.close();
+});
+
+test("closing while private routes are being probed cancels the pending connection", async () => {
+  const fake = relay();
+  let finish!: (answer: boolean) => void;
+  const { transport } = transportFor(fake, {
+    direct: ["ws://100.107.136.115:8798"],
+    probe: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  });
+  const attempt = transport.ready();
+  await settle();
+  transport.close();
+  finish(true);
+  await assert.rejects(attempt, /cancelled/);
+  assert.equal(fake.sockets.length, 0);
+});
+
 test("request round trip over the relay", async () => {
   const fake = relay();
   const { transport } = transportFor(fake);
@@ -193,6 +267,7 @@ test("request round trip over the relay", async () => {
   assert.deepEqual(response.headers, { "content-type": "application/json" });
   assert.equal(fake.sockets.length, 1);
   assert.equal((fake.sockets[0] as unknown as { url: string }).url, "wss://relay.milagre.cloud/v1/phone?id=host-1");
+  assert.ok(fake.sockets[0] !== undefined);
   assert.equal(fake.sockets[0].binaryType, "arraybuffer");
   assert.deepEqual(
     fake.seen.map((request) => [request.method, request.path, request.headers, request.body.length]),
@@ -205,6 +280,7 @@ test("a JSON body travels as UTF-8 bytes", async () => {
   const fake = relay();
   const { transport } = transportFor(fake);
   await transport.request("POST", "/rpc/echo", { "Content-Type": "application/json" }, JSON.stringify({ text: "olá ✓" }));
+  assert.ok(fake.seen[0] !== undefined);
   assert.equal(decoder.decode(fake.seen[0].body), '{"text":"olá ✓"}');
   assert.equal(fake.seen[0].method, "POST");
   transport.close();
@@ -217,6 +293,7 @@ test("host gone rejects pending requests, and the next request reconnects", asyn
   const failure = assert.rejects(slow, { message: LOST });
   await settle();
   assert.equal(fake.seen.length, 1, "the request reached the Mac");
+  assert.ok(fake.sockets[0] !== undefined);
   fake.sockets[0].drop(4410);
   await failure;
   const response = await GET(transport, "/fast");
@@ -301,9 +378,11 @@ test("one socket serves concurrent requests and a live stream", async () => {
     ["/a", "/b", "/c"],
   );
   assert.equal(fake.sockets.length, 1);
+  assert.ok(fake.sockets[0] !== undefined);
   assert.deepEqual([...fake.sockets[0].lives.values()], ["/live"]);
   assert.deepEqual(status, [true]);
   const [id] = [...fake.sockets[0].lives.keys()];
+  assert.ok(id !== undefined);
   fake.sockets[0].say({ t: "live", id, data: "runs" });
   fake.sockets[0].say({ t: "live", id: id + 99, data: "ignored" });
   await settle();
@@ -323,6 +402,7 @@ test("an upload over several frames arrives whole", async () => {
   const upload = random(3 * 1024 * 1024);
   const response = await transport.request("POST", "/rpc/upload", { "Content-Type": "application/octet-stream" }, upload);
   assert.equal(JSON.parse(decoder.decode(response.body)).size, upload.length);
+  assert.ok(fake.seen[0] !== undefined);
   assert.deepEqual(fake.seen[0].body, upload);
   // hello + 12 chunks of 256 KiB, each under the relay's limit (the fake socket asserts it).
   assert.equal(fake.sent.length, 1 + 12);
@@ -359,6 +439,7 @@ test("a live stream resubscribes after the socket drops, with backoff", async ()
   );
   await settle();
   assert.deepEqual(status, [true]);
+  assert.ok(fake.sockets[0] !== undefined);
   fake.sockets[0].drop(1006);
   await settle();
   assert.deepEqual(status, [true, false]);
@@ -367,7 +448,9 @@ test("a live stream resubscribes after the socket drops, with backoff", async ()
   await settle();
   assert.equal(fake.sockets.length, 2);
   assert.deepEqual(status, [true, false, true]);
+  assert.ok(fake.sockets[1] !== undefined);
   const [id] = [...fake.sockets[1].lives.keys()];
+  assert.ok(id !== undefined);
   fake.sockets[1].say({ t: "live", id, data: "project" });
   await settle();
   assert.deepEqual(data, ["project"]);
@@ -393,7 +476,9 @@ test("a refused live (too many on one connection) retries later", async () => {
     (up) => status.push(up),
   );
   await settle();
+  assert.ok(fake.sockets[0] !== undefined);
   const [id] = [...fake.sockets[0].lives.keys()];
+  assert.ok(id !== undefined);
   fake.sockets[0].say({ t: "live-close", id, code: 1013 });
   await settle();
   assert.deepEqual(status, [true, false]);
@@ -415,6 +500,7 @@ test("a pairing refused while a live is open stops the live from retrying", asyn
   );
   await settle();
   fake.state.mode = "unknown-phone";
+  assert.ok(fake.sockets[0] !== undefined);
   fake.sockets[0].drop(1006);
   await settle();
   const retry = queue.find((timer) => timer.ms === 1000);
@@ -442,6 +528,7 @@ test("pings go out every 20 s and a socket silent for 45 s is dropped", async ()
     "the next ping is scheduled",
   );
   // The pong restarted the silence timer, so the socket is still alive.
+  assert.ok(fake.sockets[0] !== undefined);
   assert.equal(fake.sockets[0].open, true);
   // A Mac that never answers: the silence timer fires, the request fails and the socket is closed.
   const silent = relay(() => "never");
@@ -450,6 +537,7 @@ test("pings go out every 20 s and a socket silent for 45 s is dropped", async ()
   await settle();
   quiet.run(45000);
   await assert.rejects(hang, { message: LOST });
+  assert.ok(silent.sockets[0] !== undefined);
   assert.equal(silent.sockets[0].open, false);
   assert.equal(quiet.queue.length, 0, "a dead socket leaves no timers");
   transport.close();
@@ -475,6 +563,7 @@ test("close() rejects what is pending and leaves nothing running", async () => {
   await settle();
   transport.close();
   await assert.rejects(hang, { message: LOST });
+  assert.ok(fake.sockets[0] !== undefined);
   assert.equal(fake.sockets[0].closedByPhone !== undefined, true);
   assert.equal(queue.length, 0);
 });
@@ -483,6 +572,7 @@ test("the hello is for the pinned Mac and names this phone", async () => {
   const fake = relay();
   const { transport, phone } = transportFor(fake);
   await GET(transport);
+  assert.ok(fake.sent[0] !== undefined);
   assert.equal(fake.sent[0][0], 0x01);
   assert.deepEqual(fake.sent[0].slice(33, 65), phone.publicKey);
   transport.close();
@@ -498,6 +588,7 @@ test("ready() handshakes once; onLost fires when the socket drops, not on close(
   await transport.ready();
   assert.equal(hellos(), 1);
   assert.equal(lost, 0);
+  assert.ok(fake.sockets[0] !== undefined);
   fake.sockets[0].drop(1006);
   await settle();
   assert.equal(lost, 1);
@@ -548,6 +639,7 @@ test("an onLost that throws cannot skip the teardown: what was pending still fai
   });
   const pending = GET(transport);
   await settle();
+  assert.ok(fake.sockets[0] !== undefined);
   fake.sockets[0].drop(1006);
   await assert.rejects(pending, { message: LOST });
   transport.close();
@@ -562,4 +654,30 @@ test("the hello carries the phone's name when it has one", async () => {
   await unnamed.transport.ready();
   unnamed.transport.close();
   assert.deepEqual(fake.state.names, ["Victor's iPhone", null]);
+});
+
+test("the hello asks for batches, and a batch from the Mac is dispatched one message at a time, in order", async () => {
+  const fake = relay();
+  const { transport } = transportFor(fake);
+  const seen: string[] = [];
+  const live = transport.live(
+    "/live",
+    (data) => seen.push(data),
+    () => {},
+  );
+  await settle();
+  assert.deepEqual(fake.state.caps, [["batch"]]);
+  const socket = fake.sockets[0]!;
+  const pings = fake.state.ping;
+  socket.say({
+    t: "batch",
+    items: [{ t: "live", id: 1, data: "a" }, { t: "ping" }, { t: "live", id: 1, data: "b" }, { t: "live-close", id: 1 }],
+  });
+  await settle();
+  await settle();
+  assert.deepEqual(seen, ["a", "b"]);
+  assert.equal(fake.sent.filter((bytes) => bytes.length > 0).length >= 2, true, "the ping inside the batch was answered");
+  assert.equal(pings, fake.state.ping, "a ping from the Mac is answered with a pong, not a ping");
+  live.close();
+  transport.close();
 });

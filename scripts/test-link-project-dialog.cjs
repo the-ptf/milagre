@@ -5,6 +5,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const preview = process.argv.includes("--preview");
 const names = ["rd-mobile-backend", "rd-mobile", "food-api", "food-web", "rd-food-merchant", "rd-food-apps", "shared-components", "notifications-service"];
 const projects = names.map((name) => ({
@@ -17,6 +18,8 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LinkProjectDialog } from '/src/components/LinkProjectDialog';
+import { DeleteLinkDialog } from '/src/components/DeleteLinkDialog';
+import { deletedLinkText } from '@milagre/shared/worktree-link';
 import '/src/styles.css';
 const projects = ${JSON.stringify(projects)};
 window.milagre = {
@@ -24,13 +27,17 @@ window.milagre = {
   getProjectImage: async () => null,
   createNamedLink: async request => ({ ...request, id: 'preview-link', createdAt: new Date().toISOString() }),
   updateNamedLink: async request => { window.updated = request; return { ...request, createdAt: new Date().toISOString() }; },
+  checkDeleteNamedLink: async id => { window.deleteChecked = id; return window.deleteCheck ?? { chats: 3, running: [] }; },
+  deleteNamedLink: async id => { if (window.deleteFailure) throw new Error(window.deleteFailure); window.deleted = id; return { removed: ['/Users/victor/.milagre/worktrees/food-api/fix-header-1'], kept: ['/Users/victor/.milagre/worktrees/food-web/fix-header-2'] }; },
 };
 function Fixture() {
   const [open, setOpen] = useState(true);
   const [created, setCreated] = useState('');
   const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   window.openLinkDialog = () => setOpen(true);
   window.editLinkDialog = link => { setEditing(link); setOpen(true); };
+  window.deleteLinkDialog = link => setDeleting(link);
   return <main className="flex min-h-screen items-center justify-center bg-surface-2 p-8 text-ink">
     <div className="rounded-[16px] bg-surface p-8 shadow-raised">
       <p className="text-[12px] text-ink-3">Preview</p>
@@ -39,7 +46,8 @@ function Fixture() {
       <button className="mt-5 rounded-control bg-ink px-4 py-2 text-[13px] text-surface" onClick={() => setOpen(true)}>Open Link projects</button>
       {created && <p className="mt-3 text-[13px]">{created}</p>}
     </div>
-    {open && <LinkProjectDialog key={editing?.id ?? 'new'} link={editing ?? undefined} onClose={() => setOpen(false)} onCreated={link => { setCreated(link.name + ' links ' + link.projectIds.length + ' Projects'); setOpen(false); }} />}
+    {open && <LinkProjectDialog key={editing?.id ?? 'new'} link={editing ?? undefined} onClose={() => setOpen(false)} onCreated={link => { setCreated(link.name + ' links ' + link.projectIds.length + ' Projects'); setOpen(false); }} onDelete={link => { setOpen(false); setDeleting(link); }} />}
+    {deleting && <DeleteLinkDialog link={deleting} onClose={() => setDeleting(null)} onDeleted={(link, result) => { setDeleting(null); setCreated(deletedLinkText(link.name, result.kept) ?? 'Deleted ' + link.name); }} />}
   </main>;
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
@@ -136,7 +144,56 @@ async function browserChecks() {
       projectIds: ["/preview/food-api/.git", "/preview/food-web/.git", "/preview/rd-food-merchant/.git"],
     });
     await waitFor(`document.body.textContent.includes('RDFood links 3 Projects')`);
-    console.log("PASS: loading skeleton, no false empty state, four-row limit, scroll access to all eight Projects, and editing a Link's members.");
+
+    // A Link with a running Chat names it and can't be deleted yet; Cancel leaves it as it was.
+    const food = { id: "food", name: "RDFood", projectIds: ["/preview/food-api/.git", "/preview/food-web/.git"], createdAt: "2026-10-01T00:00:00.000Z" };
+    await evaluate(`window.deleteCheck = { chats: 2, running: ['Fix the checkout header'] }; window.deleteLinkDialog(${JSON.stringify(food)})`);
+    await waitFor(`!!document.querySelector('[data-link-delete-dialog] [role="alert"]')`);
+    assert.equal(
+      await evaluate(`document.querySelector('[data-link-delete-dialog] [role="alert"]').textContent`),
+      "Fix the checkout header is running. Stop it before deleting the Link.",
+    );
+    assert.equal(await evaluate(`document.querySelector('[data-link-delete-confirm]').disabled`), true);
+    await screenshot("link-delete-running");
+    // The Chat stops: the dialog asks again on its own, and Delete enables without reopening it.
+    await evaluate("window.deleteCheck = { chats: 2, running: [] }");
+    await waitFor(`!document.querySelector('[data-link-delete-confirm]').disabled && !document.querySelector('[data-link-delete-dialog] [role="alert"]')`);
+    assert.match(await evaluate(`document.querySelector('#delete-link-description').textContent`), /^Its 2 Chats are archived/);
+    // A computer too old to delete Links is asked to update, not shown its refusal.
+    await evaluate(`window.deleteFailure = 'Unknown command: link:delete'; document.querySelector('[data-link-delete-confirm]').click()`);
+    await waitFor(`document.querySelector('[data-link-delete-dialog] [role="alert"]')?.textContent === 'Update Milagre on this Mac to delete its Links.'`);
+    assert.equal(await evaluate(`document.querySelector('[data-link-delete-confirm]').disabled`), false, "Delete can be tried again");
+    await screenshot("link-delete-old-computer");
+    const cancel = `[...document.querySelectorAll('[data-link-delete-dialog] button')].find(button => button.textContent === 'Cancel').click()`;
+    await evaluate(cancel);
+    await waitFor(`!document.querySelector('[data-link-delete-dialog]')`);
+    assert.equal(await evaluate("window.deleted ?? null"), null);
+    await evaluate("window.deleteFailure = null");
+
+    // Edit Link offers Delete Link…, which asks first with the Link's Chat count, Cancel focused.
+    await evaluate(`window.deleteCheck = null; window.editLinkDialog(${JSON.stringify(food)})`);
+    await waitFor(`!!document.querySelector('[data-link-delete]')`);
+    await screenshot("link-edit-delete");
+    await evaluate(`document.querySelector('[data-link-delete]').click()`);
+    await waitFor(`!document.querySelector('#link-dialog-title') && !!document.querySelector('[data-link-delete-dialog]')`);
+    await waitFor(`document.querySelector('#delete-link-description').textContent.startsWith('Its 3 Chats')`);
+    assert.equal(await evaluate(`document.querySelector('#delete-link-title').textContent`), "Delete RDFood?");
+    assert.match(
+      await evaluate(`document.querySelector('#delete-link-description').textContent`),
+      /^Its 3 Chats are archived, and their transcripts stay on disk\. Worktrees without changes are removed\. Ones with changes or unpushed commits stay, as Chats in their Projects\./,
+    );
+    assert.equal(await evaluate(`document.activeElement.textContent`), "Cancel");
+    assert.equal(await evaluate(`document.querySelector('[data-link-delete-confirm]').textContent`), "Delete Link");
+    await screenshot("link-delete-confirm");
+    await evaluate(`document.querySelector('[data-link-delete-confirm]').click()`);
+    await waitFor(`window.deleted === 'food' && !document.querySelector('[data-link-delete-dialog]')`);
+    await waitFor(
+      `document.body.textContent.includes('Deleted RDFood. 1 Worktree with changes stays in its Project: /Users/victor/.milagre/worktrees/food-web/fix-header-2')`,
+    );
+    await screenshot("link-deleted");
+    console.log(
+      "PASS: loading skeleton, no false empty state, four-row limit, scroll access to all eight Projects, editing a Link's members, and deleting a Link (held by a running Chat until it stops, an old computer asked to update, confirmed with its Chat count, kept Worktrees named).",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);
@@ -160,7 +217,7 @@ async function main() {
           if (id === "/__link-dialog.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__link-dialog") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

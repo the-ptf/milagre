@@ -1,4 +1,4 @@
-// Run with npm test -- --only test-settings-devices. Exercises Settings › Devices in the real App against a real daemon (its
+// Run with npm test -- --only test-settings-devices. Exercises Settings › Phone & sharing in the real App against a real daemon (its
 // own temporary data directory and socket, port chosen by the OS): see the devices list fail soft on a host without it,
 // turn device access on, see the QR code and the relay status, copy the link, see a phone and a computer pair and the
 // Computers list appear, see a new phone marked New until seen, remove the phone, see a phone that paired while the owner
@@ -9,6 +9,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 /** The New mark on a phone's row in Settings › Devices, as an expression to evaluate in the window. */
 const newMark = (key) => `document.querySelector('[data-device-row="phone"][data-device-key="${key}"] [data-device-new]')?.textContent`;
@@ -21,6 +22,9 @@ import "/src/styles.css";
 const { ipcRenderer } = window.require("electron");
 const state = { next_id: 3, projects: { 1: { id: 1, name: "shop" } }, worktrees: { 1: { id: 1, name: "main", path: "/fixture", project_id: 1 } }, sessions: { 2: { id: 2, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle" } }, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 window.milagre = new Proxy({
+  // Phone & sharing lists Simlock and Computer use only for a bridge that has them; this one doesn't.
+  simlock: undefined,
+  computerUse: undefined,
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
   getCurrentProject: async () => ({ path: "/fixture", name: "shop", state }),
@@ -44,7 +48,7 @@ window.milagre = new Proxy({
     ipcRenderer.on("phone:status", listener);
     return () => ipcRenderer.removeListener("phone:status", listener);
   },
-}, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
+}, { get(target, key) { return key in target ? target[key] : String(key).startsWith("on") ? () => () => {} : async () => null; } });
 localStorage.setItem("milagre-settings", JSON.stringify({ defaultModelId: "claude-opus-5-5", defaultPermissionMode: "ask" }));
 const { default: App } = await import("/src/App");
 createRoot(document.getElementById("root")).render(<App />);
@@ -101,15 +105,16 @@ async function browserChecks() {
     try {
       return await window.webContents.executeJavaScript(source);
     } catch (error) {
-      throw new Error(`${source}: ${error.message}`);
+      throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
-  async function waitFor(source) {
-    for (let n = 0; n < 200; n++) {
+  async function waitFor(source, tries = 200) {
+    for (let n = 0; n < tries; n++) {
       if (await evaluate(source)) return;
       await delay(25);
     }
-    throw Error(`Timed out: ${source}`);
+    await screenshot("timeout");
+    throw Error(`Timed out: ${source}. Screen: ${await evaluate("document.body.innerText.slice(0, 400)")}`);
   }
   async function click(text) {
     const expr = `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(text)})`;
@@ -123,14 +128,15 @@ async function browserChecks() {
     fs.mkdirSync(screenshotDir, { recursive: true });
     fs.writeFileSync(path.join(screenshotDir, `${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
-  const toggle = `document.querySelector('[role="switch"][aria-label="Allow devices to connect"]')`;
+  const toggle = `document.querySelector('[role="checkbox"][aria-label="Allow devices to connect"]')`;
   const token = async () => new URL((await host.call("phone:status")).pairingLink).searchParams.get("token");
 
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[aria-label="Settings"]')`);
+    // The whole App boots first, which takes a CI runner well over the 5 s a step gets.
+    await waitFor(`!!document.querySelector('[aria-label="Settings"]')`, 1200);
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
-    await click("Devices");
+    await click("Phone & sharing");
 
     // A host from before devices:list: the access controls still work, and the lists say they couldn't be read.
     await waitFor(`!!${toggle} && document.body.textContent.includes('Allow devices to connect')`);
@@ -163,7 +169,7 @@ async function browserChecks() {
     console.log("PASS: turning it on shows the QR code, the relay status, the pairing window and the warning");
 
     // Local network: on by default with phone access, switchable on its own, and it says where a phone on the same network dials.
-    const lanToggle = `document.querySelector('[role="switch"][aria-label="Allow on local network"]')`;
+    const lanToggle = `document.querySelector('[role="checkbox"][aria-label="Allow on local network"]')`;
     await waitFor(`!!${lanToggle} && document.body.textContent.includes('Reachable at 192.168.1.20')`);
     assert.equal(await evaluate(`${lanToggle}.getAttribute('aria-checked')`), "true");
     await screenshot("lan-on");
@@ -184,12 +190,24 @@ async function browserChecks() {
     assert.equal(copied, (await host.call("phone:status")).pairingLink);
     assert.match(copied, /^milagre:\/\/pair\?relay=/);
     console.log("PASS: Copy link copies the link");
+    await evaluate(`document.querySelector('button[aria-label="Pairing connection"]').click()`);
+    await click("LAN or Tailscale only");
+    await click("Copy link");
+    await delay(50);
+    const privateLink = await clipboard.readText();
+    assert.ok(new URL(privateLink).searchParams.get("relay").startsWith("ws://192.168.1.20:"));
+    assert.ok(!privateLink.includes("relay.milagre.cloud"));
+    await screenshot("private-pairing");
+    await evaluate(`document.querySelector('button[aria-label="Pairing connection"]').click()`);
+    await click("Automatic");
+    console.log("PASS: Settings offers a private QR and copied link with no public relay fallback");
 
     // Devices: no phones yet and no Computers list, then a phone and a computer as they pair.
     const phoneKey = "p".repeat(43);
     const computerKey = "c".repeat(43);
-    const hostDevices = () => relays.filter((options) => !options.retired).at(-1).phones;
-    const computersShown = `[...document.querySelectorAll('h2')].some((h) => h.textContent === 'Computers')`;
+    const hostDevices = () => relays.findLast((options) => !options.retired).phones;
+    // The Devices page has no section headings; the Computers list shows as its rows.
+    const computersShown = `!!document.querySelector('[data-device-row="computer"]')`;
     await waitFor(`document.querySelector('[data-devices-empty]')?.textContent === 'No phones yet'`);
     assert.equal(await evaluate(computersShown), false);
     // The Cloudflare note is for a Cloudflare tunnel only (unit-tested in phone.test.ts); this host reaches phones through the relay.
@@ -244,14 +262,14 @@ async function browserChecks() {
     // The window that took it shows it, then confirms.
     assert.equal(await host.call("devices:confirm-notices", [notices.find((reply) => reply.claim).claim]), 1);
     assert.deepEqual(await host.call("devices:take-notices"), { claim: null, devices: [] });
-    await click("Devices");
+    await click("Phone & sharing");
     await waitFor(`${newMark(awayKey)} === 'New'`);
     await evaluate(`document.querySelector('[data-device-row="phone"]').scrollIntoView({ block: 'center' })`);
     await screenshot("device-new");
     // Seen: leaving and coming back shows it without the mark.
     await click("About");
     await waitFor(`!document.querySelector('[data-device-row]')`);
-    await click("Devices");
+    await click("Phone & sharing");
     await waitFor(`document.querySelector('[data-device-row="phone"]')?.textContent.includes('Pixel 9')`);
     assert.equal(await evaluate(`${newMark(awayKey)} ?? null`), null);
     await screenshot("device-seen");
@@ -338,7 +356,7 @@ async function main() {
           if (id === "/__devices_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__devices__") return next();
             const html = await server.transformIndexHtml(
               request.url,

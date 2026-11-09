@@ -1,21 +1,29 @@
+import { isChatsHomeProject } from "@milagre/shared/chats-home";
 import { reconcileState } from "@milagre/shared/reconcile";
 import { keepOrder } from "@milagre/shared/stable-order";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
-import { createClient, type ClientHost, type Client, type OpenProject, type RecentProject, type Snapshot, type ProjectPreview } from "./client";
+import type { AgentRun } from "@milagre/shared/agent-runs";
+import { createClient, type ClientHost, type Client, type OpenProject, type RecentProject, type Runs, type Snapshot, type ProjectPreview } from "./client";
 import { relayRuntime } from "./relay-native";
 import { learnRoutes, lanRoutes } from "./routes-native";
 import { syncProject } from "./live";
 import { refreshLinks } from "./use-links";
 import { useDesigns } from "./use-designs";
-import { readPermission, savedChatDefaults, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
+import { readPermission, savedChatDefaults, savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
 import type { ChatLocation } from "./navigation-store";
 import type { SavedHost } from "./hosts-store";
-import type { AgentCliStatus, AgentModels, PermissionMode } from "@milagre/shared/model";
+import type { AgentCliStatus, AgentModels, ModelProvider, NamedLinkDeleted, PermissionMode } from "@milagre/shared/model";
+import { isLinkScopeKey, scopeKey as keyOfScope } from "@milagre/shared/chat-scopes";
+import { isDeletedLinkState, isLinkGone } from "@milagre/shared/worktree-link";
 import type { Attachment } from "./attachments";
+import type { ComposerQuote } from "@milagre/shared/prompt-parts";
 import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
+import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { createLinkOperations } from "./link-operations";
+import { noteChatProjectOpening, prefetchChatPage } from "./chat-pages";
+import { pullRequestsChanged } from "./pr-status";
 
 const hostOf = (url: string) =>
   // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- url comes from a pairing payload that is not validated here (see the String(url || '') fallback), so it may be empty or missing
@@ -27,14 +35,155 @@ const hostOf = (url: string) =>
 /** A computer to connect to: a saved one, a scanned pairing, or an address and token typed in. */
 export type HostLink = ClientHost & { name?: string };
 
+/**
+ * The open Project's streaming turns, kept apart from its snapshot. A streaming turn sends a runs signal up to every
+ * 150 ms; putting each read into the snapshot replaced the object every screen reads, re-rendering all of them and
+ * re-reading the open Chat's messages. Each update is stamped, and so is each snapshot put on screen (a whole read
+ * carries the runs too): whichever is later is what shows, so a turn's end (its saved reply and its run gone, in one
+ * snapshot) never shows half-applied.
+ */
+class RunsStore {
+  private key: string | null = null;
+  private runs: Runs | null = null;
+  private stamp = 0;
+  private clock = 0;
+  private stamps = new WeakMap<Snapshot, number>();
+  private listeners = new Set<() => void>();
+  /** Moves on each change of what any snapshot of this store shows as its runs. */
+  version = 0;
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+  private changed() {
+    this.version++;
+    for (const listener of Array.from(this.listeners)) listener();
+  }
+  /** Whether `snapshot` is one this store's session put on screen (the Chat beside keeps its own runs in its snapshot). */
+  owns(snapshot: Snapshot) {
+    return this.stamps.has(snapshot);
+  }
+  /** A snapshot just put on screen, read whole or from the cache: its runs show until a later runs read. */
+  confirm(snapshot: Snapshot) {
+    this.stamps.set(snapshot, ++this.clock);
+    this.changed();
+  }
+  clear() {
+    this.key = null;
+    this.runs = null;
+    this.changed();
+  }
+  /** The runs of `snapshot`, of the Project `key` names ("computer|path"): a later runs read's, else its own. */
+  runsFor(key: string, snapshot: Snapshot): Runs {
+    return key === this.key && this.runs && this.stamp > (this.stamps.get(snapshot) ?? 0) ? this.runs : snapshot.runs;
+  }
+  /** Runs read on their own while `snapshot` shows; an answer older (by seq) than what shows now is dropped. */
+  update(key: string, snapshot: Snapshot, runs: Runs) {
+    const current = this.runsFor(key, snapshot);
+    if ((runs.seq ?? 0) < (current.seq ?? 0)) return false;
+    const next = reconcileState(current, runs);
+    if (next === current) return false;
+    this.key = key;
+    this.runs = next;
+    this.stamp = ++this.clock;
+    this.changed();
+    return true;
+  }
+}
+
+const NO_SUBSCRIBE = () => () => {};
+// The snapshots useSession hands out read their runs live; each one's own snapshot, for the store's checks.
+const bases = new WeakMap<Snapshot, Snapshot>();
+const baseOf = (snapshot: Snapshot) => bases.get(snapshot) ?? snapshot;
+// Each component gets its own copy of a session (it tracks whether that component read the runs); the session it copies.
+const sessionBases = new WeakMap<Session, Session>();
+/** Whether two sessions from useSession / useMainSession are the same one (each component holds its own copy). */
+export function sameSession(a: Session, b: Session) {
+  return (sessionBases.get(a) ?? a) === (sessionBases.get(b) ?? b);
+}
+/** The runs that show now for `session`'s Project. */
+function runsOf(session: Session): Runs | undefined {
+  if (!session.snapshot) return undefined;
+  const base = baseOf(session.snapshot);
+  if (!session.client || !session.runsStore.owns(base)) return base.runs;
+  return session.runsStore.runsFor(`${session.client.url}|${base.project.path}`, base);
+}
+
+/**
+ * Hands out `session` with a snapshot whose `runs` reads the live ones. A component re-renders for runs only once it
+ * has read them: the screens that never look at the turns (most of them) no longer re-render on every runs read.
+ */
+class LiveRuns {
+  private touched = false;
+  private last: { session: Session; version: number; value: Session } | null = null;
+  private touch = () => {
+    this.touched = true;
+  };
+  version(store: RunsStore) {
+    return this.touched ? store.version : 0;
+  }
+  wrap(session: Session, version: number): Session {
+    if (this.last?.session === session && this.last.version === version) return this.last.value;
+    const base = session.snapshot;
+    const client = session.client;
+    let value = session;
+    if (base && client && session.runsStore.owns(base)) {
+      const key = `${client.url}|${base.project.path}`;
+      const store = session.runsStore;
+      const touch = this.touch;
+      const snapshot = { ...base };
+      Object.defineProperty(snapshot, "runs", {
+        enumerable: true,
+        configurable: true,
+        get: () => {
+          touch();
+          return store.runsFor(key, base);
+        },
+      });
+      bases.set(snapshot, base);
+      value = { ...session, snapshot };
+      sessionBases.set(value, session);
+    }
+    this.last = { session, version, value };
+    return value;
+  }
+}
+function useLiveRuns(session: Session | null): Session | null {
+  const [reader] = useState(() => new LiveRuns());
+  const store = session?.runsStore;
+  const version = useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, () => (store ? reader.version(store) : 0));
+  return session ? reader.wrap(session, version) : null;
+}
+
 function useSessionState() {
   const [client, setClient] = useState<Client | null>(null);
   const [recent, setRecent] = useState<RecentProject[]>([]);
   // The computer whose Projects list `recent` holds, once it has answered: an empty list before that is not "no Projects".
   const listedFor = useRef<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [runsStore] = useState(() => new RunsStore());
+  // The snapshot last put on screen, which a runs read lands on and the next whole read reconciles with.
+  const latest = useRef<Snapshot | null>(null);
+  /** Every snapshot goes on screen here, so its runs and the runs read apart stay ordered. */
+  const putSnapshot = useCallback(
+    (next: Snapshot | null) => {
+      latest.current = next;
+      if (next) runsStore.confirm(next);
+      else runsStore.clear();
+      setSnapshot(next);
+    },
+    [runsStore],
+  );
   const designs = useDesigns(client, snapshot?.project.path, recent[0]?.path);
   const [error, setError] = useState("");
+  // How many times the connection came back after an error: the Chat on screen reads its pages again on each.
+  const [reconnects, setReconnects] = useState(0);
+  const lost = useRef(false);
+  useEffect(() => {
+    if (error) lost.current = true;
+  }, [error]);
   const [models, setModels] = useState<AgentModels | null>(null);
   const [cliStatus, setCliStatus] = useState<AgentCliStatus | null>(null);
   const [providerError, setProviderError] = useState("");
@@ -44,18 +193,24 @@ function useSessionState() {
   const [lastLocation, setLastLocation] = useState<ChatLocation | null>(null);
   const busyUntil = useRef(0);
   const generation = useRef(0);
+  // The Links this phone is deleting now (`host|scope`), and the last open Link it left because another device deleted it.
+  const deletingLinks = useRef(new Set<string>());
+  const [deletedLink, setDeletedLink] = useState<{ hostId: string; path: string; name: string } | null>(null);
   const selection = useRef<{ client: Client; path: string } | null>(null);
   // The last snapshot of each Project this session saw, so reopening one shows its Chats at once while it refreshes.
   const seen = useRef(new Map<string, Snapshot>());
   const listed = useRef(new Map<string, Snapshot | ProjectPreview>());
   const previews = useRef(new Map<Client, Map<string, Promise<Snapshot | ProjectPreview>>>());
+  // The Project the live snapshot is for: its cached copy is the live one, which a list read must not replace.
+  const liveKey = useRef<string | null>(null);
   // Keep streamed status and local refreshes in the copy a remounted drawer will read.
   useEffect(() => {
     if (client && snapshot) {
       const key = `${client.url}|${snapshot.project.path}`;
       seen.current.set(key, snapshot);
       listed.current.set(key, snapshot);
-    }
+      liveKey.current = key;
+    } else liveKey.current = null;
   }, [client, snapshot]);
   const cachedProject = useCallback(
     (path: string) => (client ? (listed.current.get(`${client.url}|${path}`) ?? seen.current.get(`${client.url}|${path}`)) : undefined),
@@ -91,7 +246,10 @@ function useSessionState() {
     setProviderError("");
     try {
       const args = scopeKey ? [scopeKey] : [];
-      const [models, status] = await Promise.all([client.call<AgentModels>("agent:models", args), client.call<AgentCliStatus>("agent:cli-status", args)]);
+      // A busy Mac (429) answers these on a later try; the error shows only once a minute of tries gives up.
+      const read = <T,>(command: string) =>
+        retrySend(() => client.call<T>(command, args), { retryable: (error) => current() && retryKind(error) !== null, budget: READ_RETRY_BUDGET });
+      const [models, status] = await Promise.all([read<AgentModels>("agent:models"), read<AgentCliStatus>("agent:cli-status")]);
       if (!current()) return;
       providerCache.current.set(key, { models, status });
       setModels(models);
@@ -145,14 +303,18 @@ function useSessionState() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [client, snapshot?.project.path],
   );
-  const connect = async (host: HostLink, remember = true) => {
+  const connect = async (host: HostLink, remember = true, target?: { projectPath: string; onOpen: (state: Snapshot) => void }) => {
     const next = createClient(host, undefined, undefined, relayRuntime);
     const name = host.name || "";
     const current = ++generation.current;
     const previous = selection.current;
     try {
       await next.call("daemon:status");
-      const projects = await savedProjectOrder.apply(next.url, await next.recentScopes());
+      const projects = await savedProjectOrder.apply(next.url, await savedHiddenProjects.apply(next.url, await next.recentScopes()));
+      if (current !== generation.current) return false;
+      // A draft changing computers keeps its current page until the destination is ready. Commit its route and
+      // Project together, without clearing the snapshot (which would unmount the composer and dismiss the keyboard).
+      const state = target ? await next.open(target.projectPath) : null;
       if (current !== generation.current) return false;
       if (process.env.EXPO_PUBLIC_DEMO !== "1") {
         if (remember) {
@@ -171,16 +333,19 @@ function useSessionState() {
         }
       }
       if (current !== generation.current) return false;
+      if (state && target) target.onOpen(state);
       if (process.env.EXPO_PUBLIC_DEMO !== "1") void learnRoutes(next, { token: host.token.trim(), relay: host.relay }).catch(() => {});
       setModels(null);
       setCliStatus(null);
       setProviderError("");
       autoOpen.current = false;
-      selection.current = null;
+      selection.current = state ? { client: next, path: state.project.path } : null;
+      if (state && target) seen.current.set(`${next.url}|${target.projectPath}`, state).set(`${next.url}|${state.project.path}`, state);
+      setOpening(null);
       setClient(next);
       listedFor.current = next.url;
       setRecent(projects);
-      setSnapshot(null);
+      putSnapshot(state);
       setError("");
       setHostName(name || hosts.find((saved) => saved.id === next.url)?.name || hostOf(next.url));
       return true;
@@ -188,6 +353,63 @@ function useSessionState() {
       if (current === generation.current) selection.current = previous;
       throw error;
     }
+  };
+  /** Adopt a previously opened Chat before routing, without waiting for its computer. Summaries aren't full snapshots. */
+  const openCachedChat = (projectPath: string, sessionId: number, host?: SavedHost): Client | null => {
+    const next = host ? createClient(host, undefined, undefined, relayRuntime) : client;
+    if (!next) return null;
+    const sameProject = next === client && latest.current?.project.path === projectPath;
+    const cached = sameProject ? latest.current : seen.current.get(`${next.url}|${projectPath}`);
+    if (!cached?.project.state.sessions[sessionId]) return null;
+    if (sameProject && selection.current?.client === next && selection.current.path === projectPath) {
+      if (cached.project.state.messagesInChats) prefetchChatPage(next, projectPath, sessionId);
+      return next;
+    }
+    autoOpen.current = false;
+    generation.current++;
+    const selected = { client: next, path: cached.project.path };
+    selection.current = selected;
+    setOpening(null);
+    if (next !== client) {
+      setModels(null);
+      setCliStatus(null);
+      setProviderError("");
+      setClient(next);
+      listedFor.current = null;
+      setRecent([]);
+      setHostName(host!.name);
+    }
+    putSnapshot(cached);
+    setError("");
+    const opened = next.open(projectPath);
+    noteChatProjectOpening(next, projectPath, opened);
+    if (cached.project.state.messagesInChats) prefetchChatPage(next, projectPath, sessionId);
+    // The route handoff cancels pending navigation; this selection is already committed. Guard background reads by
+    // selection instead, and don't replace a newer live snapshot with the answer to this earlier open.
+    void opened
+      .then((state) => {
+        if (selection.current !== selected || latest.current !== cached) return;
+        seen.current.set(`${next.url}|${projectPath}`, state).set(`${next.url}|${state.project.path}`, state);
+        putSnapshot(reconcileState(cached, state));
+        setError(state.project.state.sessions[sessionId] ? "" : "This Chat is no longer available on your computer.");
+        return undefined;
+      })
+      .catch((cause) => {
+        if (selection.current === selected && latest.current === cached) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    if (host) {
+      void next
+        .recentScopes()
+        .then(async (projects) => savedProjectOrder.apply(next.url, await savedHiddenProjects.apply(next.url, projects)))
+        .then((projects) => {
+          if (selection.current !== selected) return;
+          listedFor.current = next.url;
+          setRecent(projects);
+          return undefined;
+        })
+        .catch(() => {});
+    }
+    return next;
   };
   const openNotificationTarget = async (host: SavedHost, projectPath: string, sessionId: number) => {
     autoOpen.current = false;
@@ -197,7 +419,7 @@ function useSessionState() {
       await next.call("daemon:status");
       if (current !== generation.current) return false;
       if (process.env.EXPO_PUBLIC_DEMO !== "1") void learnRoutes(next, { token: host.token, relay: host.relay }).catch(() => {});
-      const projects = await savedProjectOrder.apply(next.url, await next.recentScopes());
+      const projects = await savedProjectOrder.apply(next.url, await savedHiddenProjects.apply(next.url, await next.recentScopes()));
       const state = await next.open(projectPath);
       const project = state.project;
       if (current !== generation.current) return false;
@@ -211,7 +433,7 @@ function useSessionState() {
       setClient(next);
       listedFor.current = next.url;
       setRecent(projects);
-      setSnapshot(state);
+      putSnapshot(state);
       setError("");
       setHostName(host.name);
       return true;
@@ -224,7 +446,7 @@ function useSessionState() {
   const cancelNavigation = useCallback(() => {
     generation.current++;
   }, []);
-  const open = async (projectPath: string, options: { background?: boolean; chatId?: number } = {}) => {
+  const open = async (projectPath: string, options: { background?: boolean; chatId?: number; onOpen?: (state: Snapshot) => void } = {}) => {
     if (!client) throw new Error("Connect to your computer first.");
     const current = ++generation.current;
     const previous = selection.current;
@@ -232,7 +454,7 @@ function useSessionState() {
     const cached = seen.current.get(`${client.url}|${projectPath}`);
     if (!options.background) {
       setOpening({ path: projectPath, cached: !!cached });
-      if (cached) setSnapshot(cached);
+      if (cached) putSnapshot(cached);
     }
     try {
       const state = await client.open(projectPath);
@@ -240,14 +462,24 @@ function useSessionState() {
       if (current === generation.current) {
         if (options.chatId !== undefined && !state.project.state.sessions[options.chatId])
           throw new Error("This Chat is no longer available. Choose another Chat.");
+        options.onOpen?.(state);
         selection.current = { client, path: project.path };
         seen.current.set(`${client.url}|${projectPath}`, state).set(`${client.url}|${project.path}`, state);
-        setSnapshot((previous) => reconcileState(previous ?? undefined, state));
+        putSnapshot(reconcileState(latest.current ?? undefined, state));
         setError("");
+        // The Chats home is opened like a Project but never listed as one (the drawer's Chats group holds its Chats).
         setRecent((previous) =>
-          previous.some((item) => item.path === project.path)
+          previous.some((item) => item.path === project.path) || isChatsHomeProject(project)
             ? previous
-            : [...previous, { path: project.path, name: project.name, ...(project.link ? { link: project.link.link, projects: project.link.projects } : {}) }],
+            : [
+                ...previous,
+                {
+                  path: project.path,
+                  name: project.name,
+                  ...(savedHiddenProjects.hidden(client.url).has(project.path) ? { hidden: true } : {}),
+                  ...(project.link ? { link: project.link.link, projects: project.link.projects } : {}),
+                },
+              ],
         );
         return state;
       }
@@ -294,16 +526,94 @@ function useSessionState() {
     },
     [client],
   );
+  // The sidebar's own reads of this computer's Projects warm opening them, as previewProject does, without a second request.
+  const seedPreview = useCallback(
+    (source: Pick<Client, "url">, path: string, copy: Snapshot | ProjectPreview) => {
+      if (!client || source !== client) return;
+      const key = `${client.url}|${path}`;
+      const canonicalKey = `${client.url}|${copy.project.path}`;
+      if (key === liveKey.current || canonicalKey === liveKey.current) return;
+      listed.current.set(key, copy).set(canonicalKey, copy);
+      if (!copy.previewOnly) seen.current.set(key, copy).set(canonicalKey, copy);
+    },
+    [client],
+  );
   const reloadProjects = useCallback(async () => {
     if (!client) return;
     const current = generation.current;
-    const projects = await client.recentScopes();
+    const projects = await savedHiddenProjects.apply(client.url, await client.recentScopes());
     // Opening a Chat opens its Project, which moves it to the top of the host's recent list; rows keep their place.
     if (current === generation.current) {
       listedFor.current = client.url;
       setRecent((previous) => keepOrder(previous, projects, (item) => item.path));
     }
   }, [client]);
+  const forgetProject = async (path: string) => {
+    if (!client) throw new Error("Connect to your computer first.");
+    const removingGeneration = generation.current;
+    await client.call("project:forget", [path]);
+    return dropScope(client.url, path, removingGeneration);
+  };
+  // A deleted Link leaves this phone as a removed Project does. Resolves to what link:delete did, and whether this
+  // navigation is still the one the delete started from.
+  const deleteLink = async (linkId: string) => {
+    if (!client) throw new Error("Connect to your computer first.");
+    const removingGeneration = generation.current;
+    const path = keyOfScope({ kind: "link", linkId });
+    // Its link:state says deleted before link:delete answers: the open Link's refresh leaves it to this.
+    deletingLinks.current.add(`${client.url}|${path}`);
+    try {
+      const result = await client.call<NamedLinkDeleted>("link:delete", [linkId]);
+      return { result, sameNavigation: await dropScope(client.url, path, removingGeneration) };
+    } finally {
+      deletingLinks.current.delete(`${client.url}|${path}`);
+    }
+  };
+  // The Project or Link at `path` is gone from computer `hostId`: its open, saved location and list row go too.
+  const dropScope = async (hostId: string, path: string, removingGeneration: number) => {
+    const sameNavigation = generation.current === removingGeneration;
+    // Invalidate an in-flight open before it can put the removed Project back on screen.
+    if (sameNavigation && (selection.current?.path === path || snapshot?.project.path === path || opening?.path === path)) {
+      generation.current++;
+      selection.current = null;
+      setSnapshot(null);
+      setOpening(null);
+    }
+    const completionGeneration = generation.current;
+    setLastLocation((current) => (current?.hostId === hostId && current.projectPath === path ? null : current));
+    await savedNavigation.forgetProject(hostId, path);
+    seen.current.delete(`${hostId}|${path}`);
+    listed.current.delete(`${hostId}|${path}`);
+    // A removed Project's saved location/cache belongs to its computer; the visible list and navigation belong to
+    // the current selection. Neither an RPC nor a keychain write may replace a newer computer or Chat.
+    if (!sameNavigation || generation.current !== completionGeneration) return false;
+    setRecent((previous) => previous.filter((item) => item.path !== path));
+    void reloadProjects().catch(() => {});
+    return true;
+  };
+  const dropScopeRef = useRef(dropScope);
+  useEffect(() => {
+    dropScopeRef.current = dropScope;
+  });
+  const setProjectHidden = useCallback(
+    async (path: string, hidden: boolean) => {
+      setRecent((previous) =>
+        previous.map((item) => {
+          if (item.path !== path) return item;
+          const { hidden: _hidden, ...rest } = item;
+          return hidden ? { ...rest, hidden: true } : rest;
+        }),
+      );
+      if (client && process.env.EXPO_PUBLIC_DEMO !== "1") await savedHiddenProjects.setHidden(client.url, path, hidden);
+    },
+    [client],
+  );
+  // A Project header dragged in the sidebar: the list takes the new order at once, and the effect below saves it.
+  const reorderProjects = useCallback((order: string[]) => {
+    // A Project the order doesn't know (added since the drag began) stays on top, as a new one does.
+    const rank = (path: string) => order.indexOf(path);
+    setRecent((previous) => [...previous].sort((a, b) => rank(a.path) - rank(b.path)));
+  }, []);
   // The order shown is this computer's saved order, so the next launch starts from it. An empty list is saved too once
   // the computer has answered, so Projects removed and added back don't return to their old places.
   useEffect(() => {
@@ -317,39 +627,57 @@ function useSessionState() {
   const refresh = useCallback(async () => {
     const current = selection.current;
     if (!client || !projectPath || current?.client !== client || current.path !== projectPath) return;
+    const linked = isLinkScopeKey(projectPath);
+    // The open Link was deleted on another device: it goes as a removed Project does, and the Chat on screen leaves for
+    // the Projects list (deletedLink). One this phone is deleting is dropped when link:delete answers.
+    const leave = async () => {
+      if (deletingLinks.current.has(`${client.url}|${projectPath}`)) return;
+      const shown = latest.current?.project.path === projectPath ? latest.current.project : null;
+      const name = shown?.link?.link.name || shown?.name;
+      if (await dropScopeRef.current(client.url, projectPath, generation.current))
+        setDeletedLink({ hostId: client.url, path: projectPath, name: name || "This Link" });
+    };
     try {
       const state = await client.snapshot(projectPath);
       if (current === selection.current) {
+        if (linked && isDeletedLinkState(state.project.state)) return await leave();
         seen.current.set(`${client.url}|${projectPath}`, state);
-        setSnapshot((previous) => reconcileState(previous ?? undefined, state));
+        putSnapshot(reconcileState(latest.current ?? undefined, state));
         setError("");
+        if (lost.current) {
+          lost.current = false;
+          setReconnects((count) => count + 1);
+        }
       }
     } catch (error) {
-      if (current === selection.current) throw error;
+      if (current !== selection.current) return;
+      if (linked && deletingLinks.current.has(`${client.url}|${projectPath}`)) return;
+      if (linked && isLinkGone(error instanceof Error ? error.message : String(error))) return await leave();
+      throw error;
     }
-  }, [client, projectPath]);
-  /** Fetches only the Project's streaming turns and puts them into the snapshot on screen. */
+  }, [client, projectPath, putSnapshot]);
+  /** Fetches only the Project's streaming turns: they go to the runs store, and the snapshot on screen stays as it is. */
   const refreshRuns = useCallback(async () => {
     const current = selection.current;
     if (!client || !projectPath || current?.client !== client || current.path !== projectPath) return;
     try {
       const runs = await client.runs(projectPath);
-      // A snapshot that landed meanwhile may already hold later runs.
-      if (current === selection.current) {
-        setSnapshot((previous) =>
-          previous?.project.path === projectPath && (runs.seq ?? 0) >= (previous.runs.seq ?? 0) ? reconcileState(previous, { ...previous, runs }) : previous,
-        );
+      const shown = latest.current;
+      // A snapshot that landed meanwhile may already hold later runs (the store compares their seq).
+      if (current === selection.current && shown?.project.path === projectPath) {
+        const key = `${client.url}|${projectPath}`;
+        if (runsStore.update(key, shown, runs)) {
+          // Reopening the Project, or a list's read of it, starts from these runs, as it did when they were in the snapshot.
+          const copy = { ...shown, runs: runsStore.runsFor(key, shown) };
+          seen.current.set(key, copy);
+          if (liveKey.current === key) listed.current.set(key, copy);
+        }
         setError("");
       }
     } catch (error) {
       if (current === selection.current) throw error;
     }
-  }, [client, projectPath]);
-  const running = useRef(false);
-  const anyRunning = !!snapshot && Object.keys(snapshot.runs.runs).length > 0;
-  useEffect(() => {
-    running.current = anyRunning;
-  }, [anyRunning]);
+  }, [client, projectPath, runsStore]);
   /** Poll quickly for a while after the user acts, so a new turn shows up before its first event arrives. */
   const expectActivity = () => {
     busyUntil.current = Date.now() + 15000;
@@ -357,9 +685,10 @@ function useSessionState() {
   const { refresh: refreshDesigns, connectionChanged: designsConnectionChanged } = designs;
   // The bridge's live socket says when to fetch; polling is the fallback while it is down or the bridge predates it.
   useEffect(() => {
-    if (!client || !projectPath) return;
+    if (!client) return;
     return syncProject({
-      connect: (options) => client.live(projectPath, options),
+      // All Chats can open Canvas before a Project is selected; Links still change on that computer.
+      connect: (options) => client.live(projectPath ?? "", options),
       snapshot: refresh,
       runs: refreshRuns,
       accounts: () => {
@@ -368,6 +697,7 @@ function useSessionState() {
       },
       links: () => void refreshLinks(client),
       designs: () => void refreshDesigns(),
+      pulls: () => pullRequestsChanged(client),
       liveStatus: designsConnectionChanged,
       onError: (error) => setError(error.message),
       active: () => AppState.currentState === "active",
@@ -376,9 +706,13 @@ function useSessionState() {
         return () => subscription.remove();
       },
       // Live turns refresh every second; an idle Project only needs a slower check for changes made elsewhere.
-      pollDelay: () => (running.current || Date.now() < busyUntil.current ? 1000 : 4000),
+      pollDelay: () => {
+        const shown = latest.current;
+        const running = !!shown && Object.keys(runsStore.runsFor(`${client.url}|${shown.project.path}`, shown).runs).length > 0;
+        return running || Date.now() < busyUntil.current ? 1000 : 4000;
+      },
     });
-  }, [client, projectPath, refresh, refreshRuns, refreshProviders, refreshDesigns, designsConnectionChanged]);
+  }, [client, projectPath, refresh, refreshRuns, refreshProviders, refreshDesigns, designsConnectionChanged, runsStore]);
   const selected = selection.current;
   const isSelected = () => selected !== null && selection.current === selected;
   const disconnect = () => {
@@ -386,7 +720,7 @@ function useSessionState() {
     generation.current++;
     selection.current = null;
     setClient(null);
-    setSnapshot(null);
+    putSnapshot(null);
     setError("");
   };
   return {
@@ -395,7 +729,14 @@ function useSessionState() {
     rememberChat,
     cachedProject,
     previewProject,
+    seedPreview,
     reloadProjects,
+    reorderProjects,
+    forgetProject,
+    deleteLink,
+    /** The open Link this phone left because another device deleted it, set each time; the Chat screen leaves it. */
+    deletedLink,
+    setProjectHidden,
     claimAutoOpen,
     opening,
     hosts,
@@ -405,8 +746,12 @@ function useSessionState() {
     client,
     designs,
     recent,
+    recentLoaded: !!client && listedFor.current === client.url,
+    /** The Project state the computer last sent whole; its streaming turns live in `runsStore` (useRun). */
     snapshot,
+    runsStore,
     error,
+    reconnects,
     setError,
     models,
     cliStatus,
@@ -415,6 +760,7 @@ function useSessionState() {
     providerRevision,
     connect,
     open,
+    openCachedChat,
     openNotificationTarget,
     navigationVersion,
     cancelNavigation,
@@ -431,6 +777,8 @@ function ComposerProvider({ children }: { children: React.ReactNode }) {
   const [linkOperations] = useState(createLinkOperations);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, Attachment[]>>({});
+  // Passages quoted from the transcript, kept beside each Chat's draft until it is sent.
+  const [quotes, setQuotes] = useState<Record<string, ComposerQuote[]>>({});
   const [preferences, setPreferences] = useState<Record<string, TurnPreferences>>({});
   // Compact now, pressed on the context sheet: the chat screen sends `/compact` when its counter moves (see chat.tsx).
   const [compactRequests, setCompactRequests] = useState<Record<string, number>>({});
@@ -459,6 +807,8 @@ function ComposerProvider({ children }: { children: React.ReactNode }) {
       setDrafts,
       attachments,
       setAttachments,
+      quotes,
+      setQuotes,
       preferences,
       setPreferences,
       defaults,
@@ -468,7 +818,7 @@ function ComposerProvider({ children }: { children: React.ReactNode }) {
       compactRequests,
       requestCompact,
     }),
-    [drafts, attachments, preferences, defaults, setDefaultPermission, setDefaultModel, linkOperations, compactRequests, requestCompact],
+    [drafts, attachments, quotes, preferences, defaults, setDefaultPermission, setDefaultModel, linkOperations, compactRequests, requestCompact],
   );
   return <ComposerContext.Provider value={value}>{children}</ComposerContext.Provider>;
 }
@@ -481,6 +831,8 @@ type Composer = {
   setDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   attachments: Record<string, Attachment[]>;
   setAttachments: React.Dispatch<React.SetStateAction<Record<string, Attachment[]>>>;
+  quotes: Record<string, ComposerQuote[]>;
+  setQuotes: React.Dispatch<React.SetStateAction<Record<string, ComposerQuote[]>>>;
   preferences: Record<string, TurnPreferences>;
   setPreferences: React.Dispatch<React.SetStateAction<Record<string, TurnPreferences>>>;
   /** How many times Compact now was pressed per chat key; the chat screen acts on each change. */
@@ -493,21 +845,24 @@ export type MobilePendingChat = {
   hostId: string;
   projectPath: string;
   originChatId: string;
+  /** The New Chat screen's draft id (pending-chats.ts), so the drawer reopens that screen. */
+  draft?: string;
   originSessionId: number | null;
   worktreeId: number;
   newWorktree: boolean;
   accepted: boolean;
   promoted?: boolean;
+  /** The provider the send went to, which the agent starting is named after. */
+  provider?: ModelProvider;
 };
 type PendingChats = {
   pendingChats: Record<string, MobilePendingChat>;
   setPendingChats: React.Dispatch<React.SetStateAction<Record<string, MobilePendingChat>>>;
 };
 const PendingChatsContext = createContext<PendingChats | null>(null);
-function PendingChatsProvider({ children, snapshot, hostId }: { children: React.ReactNode; snapshot: Snapshot | null; hostId?: string }) {
-  const [pendingChats, setPendingChats] = useState<Record<string, MobilePendingChat>>({});
-  // Retire acknowledged previews as the live snapshot catches up, before children render the new state.
-  const accepted = snapshot
+/** The previews of sends the computer took that `snapshot`, of `hostId`, now holds itself: they can go. */
+function caughtUp(pendingChats: Record<string, MobilePendingChat>, snapshot: Snapshot | null, hostId?: string) {
+  return snapshot
     ? Object.entries(pendingChats)
         .filter(
           ([, pending]) =>
@@ -519,9 +874,25 @@ function PendingChatsProvider({ children, snapshot, hostId }: { children: React.
         )
         .map(([key]) => key)
     : [];
-  if (accepted.length) setPendingChats((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !accepted.includes(key))));
+}
+const without = (keys: string[]) => (current: Record<string, MobilePendingChat>) =>
+  Object.fromEntries(Object.entries(current).filter(([key]) => !keys.includes(key)));
+function PendingChatsProvider({ children, snapshot, hostId }: { children: React.ReactNode; snapshot: Snapshot | null; hostId?: string }) {
+  const [pendingChats, setPendingChats] = useState<Record<string, MobilePendingChat>>({});
+  // Retire acknowledged previews as the live snapshot catches up, before children render the new state.
+  const accepted = caughtUp(pendingChats, snapshot, hostId);
+  if (accepted.length) setPendingChats(without(accepted));
   const value = useMemo(() => ({ pendingChats, setPendingChats }), [pendingChats]);
   return <PendingChatsContext.Provider value={value}>{children}</PendingChatsContext.Provider>;
+}
+/** Retires previews as another Project's snapshot catches up, as the provider does for the open one (the Chat beside it). */
+export function useRetireCaughtUp(snapshot: Snapshot | null, hostId?: string) {
+  const { pendingChats, setPendingChats } = usePendingChats();
+  const accepted = caughtUp(pendingChats, snapshot, hostId);
+  const key = accepted.join("\n");
+  useEffect(() => {
+    if (key) setPendingChats(without(key.split("\n")));
+  }, [key, setPendingChats]);
 }
 export function usePendingChats() {
   const pending = useContext(PendingChatsContext);
@@ -533,7 +904,10 @@ export function useComposer() {
   if (!composer) throw new Error("SessionProvider is required");
   return composer;
 }
-const SessionContext = createContext<ReturnType<typeof useSessionState> | null>(null);
+export type Session = ReturnType<typeof useSessionState>;
+const SessionContext = createContext<Session | null>(null);
+/** A Chat of another Project or computer than the open one (the Chat beside it) reads its own Project's session here. */
+const ScopedSessionContext = createContext<Session | null>(null);
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const session = useSessionState();
   return (
@@ -544,8 +918,58 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     </SessionContext.Provider>
   );
 }
+/** The connection and Project this screen works with: the open one, or the one a SessionScope above it names. */
 export function useSession() {
-  const session = useContext(SessionContext);
+  const scoped = useContext(ScopedSessionContext);
+  const session = useLiveRuns(useContext(SessionContext));
+  const own = useLiveRuns(scoped);
+  if (!session) throw new Error("SessionProvider is required");
+  return own ?? session;
+}
+/** The open computer and Project, whatever SessionScope is above. */
+export function useMainSession() {
+  const session = useLiveRuns(useContext(SessionContext));
   if (!session) throw new Error("SessionProvider is required");
   return session;
+}
+/** The session useSession reads, without subscribing to its runs. */
+function useSessionContext() {
+  const scoped = useContext(ScopedSessionContext);
+  const session = useContext(SessionContext);
+  if (!session) throw new Error("SessionProvider is required");
+  return scoped ?? session;
+}
+/** The streaming turn of one Chat ("path#id"), if any; re-renders only as that turn changes. */
+export function useRun(chatKey: string | null | undefined): AgentRun | undefined {
+  const session = useSessionContext();
+  return useSyncExternalStore(session.runsStore.subscribe, () => (chatKey ? runsOf(session)?.runs[chatKey] : undefined));
+}
+/** What a Chat list reads of a turn: that it runs, and whether it waits on an approval or a question. */
+const listShape = (runs: Runs) =>
+  Object.entries(runs.runs)
+    .map(([key, run]) => `${key}:${run.approvals.length}:${run.questions.length}`)
+    .join("\n");
+class ListRuns {
+  private last: { shape: string; runs: Runs } | null = null;
+  pick(runs: Runs | undefined) {
+    if (!runs) return undefined;
+    const shape = listShape(runs);
+    if (this.last?.shape !== shape) this.last = { shape, runs };
+    return this.last.runs;
+  }
+}
+/**
+ * This screen's Project with its runs as a Chat list reads them: they change as a turn starts, asks or ends, not with
+ * every step it streams, so a list re-renders only for what its rows show.
+ */
+export function useListSnapshot(): Snapshot | null {
+  const session = useSessionContext();
+  const [reader] = useState(() => new ListRuns());
+  const runs = useSyncExternalStore(session.runsStore.subscribe, () => reader.pick(runsOf(session)));
+  const base = session.snapshot;
+  return useMemo(() => (base && runs && runs !== base.runs ? { ...base, runs } : base), [base, runs]);
+}
+/** Everything under it reads `session` from useSession instead of the open one; null leaves the open one. */
+export function SessionScope({ session, children }: { session: Session | null; children: React.ReactNode }) {
+  return <ScopedSessionContext.Provider value={session}>{children}</ScopedSessionContext.Provider>;
 }

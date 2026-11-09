@@ -1,4 +1,5 @@
 const { spawn } = require("node:child_process");
+const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
 const { randomBytes } = require("node:crypto");
@@ -118,6 +119,8 @@ function spawnWindowsJob(file, args, options = {}, spawnImpl = spawn) {
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     {
       ...keeperOptions,
+      // The job's process gets the folder (the spec's cwd). The keeper outlives it, and would hold a Worktree against removal.
+      cwd: path.dirname(powershell()),
       detached: false,
       env: { ...powershellEnvironment(targetEnvironment), MILAGRE_WINDOWS_JOB_SPEC: payload },
       stdio: ["pipe", "pipe", "pipe"],
@@ -195,9 +198,12 @@ function spawnWindowsJob(file, args, options = {}, spawnImpl = spawn) {
     while (true) {
       const at = control.indexOf(marker);
       if (at < 0) {
-        const keep = Math.min(marker.length - 1, control.length);
-        if (!closed && !ignored(2) && control.length > keep) child.stderr.write(control.slice(0, -keep));
-        control = control.slice(-keep);
+        // Only what could start a marker waits: a line an agent printed last (a sign-in link) must arrive now, whole.
+        let keep = Math.min(marker.length - 1, control.length);
+        while (keep && !marker.startsWith(control.slice(-keep))) keep--;
+        const held = control.length - keep;
+        if (!closed && !ignored(2) && held) child.stderr.write(control.slice(0, held));
+        control = control.slice(held);
         return;
       }
       if (at && !closed && !ignored(2)) child.stderr.write(control.slice(0, at));

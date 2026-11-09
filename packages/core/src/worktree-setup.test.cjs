@@ -6,11 +6,19 @@ const os = require("node:os");
 const path = require("node:path");
 const { WorktreeSetups, outputTail, resolveSetupCommand, runSetupCommand, setupCompleted, setupNote } = require("./worktree-setup.cjs");
 const { createWorktree } = require("./worktrees.cjs");
-const { KeepAwake } = require("./keep-awake.cjs");
+
+// The setup shell is cmd.exe on Windows. A command that starts a child, notes its pid and waits for it.
+const windows = process.platform === "win32";
+const LONG_COMMAND = windows ? "node child.cjs" : "sleep 30 & echo $! > child.pid; wait";
+const writeLongCommand = async (dir) => {
+  if (windows) await fs.writeFile(path.join(dir, "child.cjs"), "require('fs').writeFileSync('child.pid',String(process.pid));setTimeout(()=>{},30000)");
+};
+// Starting a process through the Windows job wrapper alone takes a few seconds.
+const TIMEOUT_MS = windows ? 8000 : 300;
 
 async function tempDir(t, prefix = "milagre-setup-") {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   return dir;
 }
 
@@ -97,49 +105,63 @@ test("the setup step is a setup step with how it ended", () => {
 test("a command runs in the login shell in its folder and streams its output", async (t) => {
   const dir = await tempDir(t);
   const streamed = [];
-  const result = await runSetupCommand({ command: "pwd; echo out; echo err >&2; exit 3", cwd: dir, onOutput: (text) => streamed.push(text) });
+  const command = windows ? "cd & echo out& 1>&2 echo err& exit /b 3" : "pwd; echo out; echo err >&2; exit 3";
+  const result = await runSetupCommand({ command, cwd: dir, onOutput: (text) => streamed.push(text) });
   assert.equal(result.status, "failed");
   assert.equal(result.exitCode, 3);
-  assert.match(result.output, new RegExp(`${dir}\\n`));
-  assert.match(result.output, /out\n/);
-  assert.match(result.output, /err\n/);
+  assert.ok(result.output.includes(dir), result.output);
+  assert.match(result.output, /out\r?\n/);
+  assert.match(result.output, /err\r?\n/);
   assert.equal(streamed.join(""), result.output);
-  assert.equal((await runSetupCommand({ command: "true", cwd: dir })).status, "done");
+  assert.equal((await runSetupCommand({ command: windows ? "exit /b 0" : "true", cwd: dir })).status, "done");
+});
+
+test("a Windows setup reads cmd.exe's own output as UTF-8, and its command means what it would in cmd.exe", { skip: !windows }, async (t) => {
+  const dir = await tempDir(t);
+  // cmd.exe's echo writes in the console code page: 850 on a Portuguese Windows, 437 on an English one.
+  const echoed = await runSetupCommand({ command: 'echo ação& echo "a & b" | findstr "&"& exit /b 4', cwd: dir });
+  assert.equal(echoed.exitCode, 4);
+  assert.match(echoed.output, /^ação\r?\n"a & b" ?\r?\n$/);
+  // The command is not parsed twice: %, ! and ^ reach its cmd.exe as typed.
+  const literal = await runSetupCommand({ command: "echo 100%% !OS! a^&b", cwd: dir });
+  assert.equal(literal.output.trim(), "100%% !OS! a&b");
 });
 
 test("a timeout stops the command and everything it started", async (t) => {
   const dir = await tempDir(t);
-  const result = await runSetupCommand({ command: "sleep 30 & echo $! > child.pid; wait", cwd: dir, timeoutMs: 300 });
+  await writeLongCommand(dir);
+  const result = await runSetupCommand({ command: LONG_COMMAND, cwd: dir, timeoutMs: TIMEOUT_MS });
   assert.equal(result.status, "timed-out");
   const pid = Number(await fs.readFile(path.join(dir, "child.pid"), "utf8"));
   assert.equal(alive(pid), false);
-  assert.ok(result.durationMs < 5000);
+  assert.ok(result.durationMs < TIMEOUT_MS + 5000);
 });
 
 test("cancelling a chat's setup stops the tree and the turn reports it", async (t) => {
   const dir = await tempDir(t);
+  await writeLongCommand(dir);
   const events = [];
   const setups = new WorktreeSetups({ send: (chatId, event) => events.push({ chatId, event }), batchMs: 5 });
-  assert.deepEqual(
-    await setups.prepare({ worktreePath: dir, projectPath: "/work/shop", resolved: { source: "repo", command: "sleep 30 & echo $! > child.pid; wait" } }),
-    { command: "sleep 30 & echo $! > child.pid; wait", source: "repo" },
-  );
+  assert.deepEqual(await setups.prepare({ worktreePath: dir, projectPath: "/work/shop", resolved: { source: "repo", command: LONG_COMMAND } }), {
+    command: LONG_COMMAND,
+    source: "repo",
+  });
   const turn = setups.beforeTurn("chat#1", dir);
   // A second message while it runs waits for the same run.
   const steer = setups.beforeTurn("chat#1", dir);
-  for (let n = 0; n < 100 && !(await fs.stat(path.join(dir, "child.pid")).catch(() => null)); n++) await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let n = 0; n < 500 && !(await fs.stat(path.join(dir, "child.pid")).catch(() => null)); n++) await new Promise((resolve) => setTimeout(resolve, 20));
   await setups.cancel("chat#1");
   assert.deepEqual(await turn, { cancelled: true, note: "" });
   assert.deepEqual(await steer, { cancelled: true, note: "" });
   const pid = Number(await fs.readFile(path.join(dir, "child.pid"), "utf8"));
   assert.equal(alive(pid), false);
   assert.equal(events[0].event.type, "step-started");
-  assert.equal(events[0].event.step.title, "Running setup `sleep 30 & echo $! > child.pid; wait`");
+  assert.equal(events[0].event.step.title, `Running setup \`${LONG_COMMAND}\``);
   assert.equal(events[0].event.step.kind, "setup");
   const end = events.at(-1).event;
   assert.equal(end.type, "step-completed");
   assert.equal(end.status, "failed");
-  assert.equal(end.title, "Setup failed `sleep 30 & echo $! > child.pid; wait`");
+  assert.equal(end.title, `Setup failed \`${LONG_COMMAND}\``);
   assert.match(end.note, /stopped after/);
   // It ran once: the next turn finds nothing to run.
   assert.deepEqual(await setups.beforeTurn("chat#1", dir), { cancelled: false, note: "" });
@@ -225,44 +247,25 @@ test("a new worktree's setup command runs inside the worktree", async (t) => {
   assert.equal(events.at(-1).status, "done");
 });
 
-test("the Mac stays awake through the setup and into the turn, and a cancelled setup lets it sleep", async () => {
-  const calls = [];
-  const blocker = { start: (type) => (calls.push(`start ${type}`), 1), stop: (id) => calls.push(`stop ${id}`), isStarted: () => true };
-  const awake = new KeepAwake({ powerSaveBlocker: blocker });
-  let finish;
+test("Stop cancels a second Chat waiting for the same Worktree without cancelling its owner's review", async () => {
+  let decide;
+  let ownerSignal;
   const setups = new WorktreeSetups({
-    send: () => {},
-    keepAwake: awake,
-    run: () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
+    send() {},
+    review: ({ signal }) => {
+      ownerSignal = signal;
+      return new Promise((resolve) => {
+        decide = resolve;
+      });
+    },
+    run: () => assert.fail("Skipped setup must not run"),
   });
-  await setups.prepare({ worktreePath: "/w/a", projectPath: "/p", resolved: { source: "repo", command: "npm ci" } });
-  const turn = setups.beforeTurn("p#1", "/w/a");
-  assert.equal(awake.isHolding, true);
-  finish({ status: "failed", exitCode: 1, signal: null, output: "", durationMs: 1 });
-  await turn;
-  // Between the setup and the turn the blocker stays put.
-  assert.equal(awake.isHolding, true);
-  awake.observe("p#1", { type: "turn-started", turnId: "1" });
-  awake.observe("p#1", { type: "turn-completed" });
-  assert.deepEqual(calls, ["start prevent-app-suspension", "stop 1"]);
-
-  calls.length = 0;
-  const stopping = new WorktreeSetups({
-    send: () => {},
-    keepAwake: awake,
-    run: ({ signal }) =>
-      new Promise((resolve) =>
-        signal.addEventListener("abort", () => resolve({ status: "cancelled", exitCode: null, signal: null, output: "", durationMs: 1 })),
-      ),
-  });
-  await stopping.prepare({ worktreePath: "/w/b", projectPath: "/p", resolved: { source: "repo", command: "npm ci" } });
-  const cancelled = stopping.beforeTurn("p#2", "/w/b");
-  assert.equal(awake.isHolding, true);
-  await stopping.cancel("p#2");
-  assert.deepEqual(await cancelled, { cancelled: true, note: "" });
-  assert.equal(awake.isHolding, false);
-  assert.deepEqual(calls, ["start prevent-app-suspension", "stop 1"]);
+  await setups.prepare({ worktreePath: "/w/shared", projectPath: "/p", resolved: { source: "repo", command: "npm ci" } });
+  const owner = setups.beforeTurn("p#1", "/w/shared");
+  const waiting = setups.beforeTurn("p#2", "/w/shared");
+  await setups.cancel("p#2");
+  assert.equal(ownerSignal.aborted, false);
+  decide({ skipped: true, command: "npm ci" });
+  assert.equal((await owner).cancelled, false);
+  assert.equal((await waiting).cancelled, true);
 });

@@ -182,12 +182,16 @@ A new `apps/desktop/electron/computers.cjs`:
   read local paths (they fetch through `media:read` first), notifications settings, updates.
 - OS notifications for a remote computer's chats go through the existing `AttentionNotifier`, labeled with the
   computer.
+- Routines run on the Mac that owns them, and the window lists and manages every computer's (`routines:*` is routed
+  like any other call). A Routine's id and its Runs' ids come back qualified like chat keys (`${computerId}|${id}`), so
+  `bridgeForKey(routine.id)` reaches its computer.
 
 ### Offline cache
 
 Each computer's last sidebar state and the transcripts of its last 20 opened chats are written to
-`userData/computers/<id>/cache.sqlite` when they arrive, and read when the computer is offline. Removing a computer
-deletes its folder.
+`userData/computers/<id>/cache.sqlite` when they arrive, and read when the computer is offline. Its Routines list, its
+Routines switch and its Routine targets are kept the same way; webhook URLs never are. Removing a computer deletes its
+folder.
 
 ## Renderer
 

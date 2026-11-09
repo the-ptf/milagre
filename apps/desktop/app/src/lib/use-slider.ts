@@ -87,9 +87,10 @@ export function useSlider({ value, onValueChange, min = 0, max = 100, step = 1, 
         Home: low,
         End: high,
       };
-      if (event.key in next) {
+      const value = next[event.key];
+      if (value !== undefined) {
         event.preventDefault();
-        commit(next[event.key]);
+        commit(value);
       }
     },
     [disabled, current, stride, low, high, commit],

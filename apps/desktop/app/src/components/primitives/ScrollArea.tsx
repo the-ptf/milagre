@@ -12,15 +12,23 @@ export function ScrollArea({
   as: Tag = "div",
   ref,
   chainScroll = false,
+  horizontal = false,
   className = "",
   ...props
 }: HTMLAttributes<HTMLElement> & {
   as?: "div" | "ul" | "ol";
   ref?: Ref<HTMLElement>;
   chainScroll?: boolean;
+  horizontal?: boolean;
 }) {
   const inner = useRef<HTMLElement>(null);
   useImperativeHandle(ref, () => inner.current as HTMLElement, []);
   useScrollFade(inner);
-  return <Tag ref={inner as Ref<never>} className={`scroll-fade min-h-0 overflow-y-auto ${chainScroll ? "" : "overscroll-contain"} ${className}`} {...props} />;
+  return (
+    <Tag
+      ref={inner as Ref<never>}
+      className={`scroll-fade min-h-0 ${horizontal ? "overflow-x-auto overflow-y-hidden" : "overflow-y-auto"} ${chainScroll ? "" : "overscroll-contain"} ${className}`}
+      {...props}
+    />
+  );
 }

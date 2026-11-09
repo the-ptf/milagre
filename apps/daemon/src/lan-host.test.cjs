@@ -35,6 +35,16 @@ test("/v1/hello names this Mac and nothing else", async (t) => {
   assert.equal((await fetch(`http://127.0.0.1:${host.port}/rpc`)).status, 404);
 });
 
+test("a new phone can pair directly during the owner's pairing window", async (t) => {
+  const { identity, key, phones, url } = await lanMac(t, { knownPhone: false, canPair: () => true });
+  const phone = connectPhone({ relayUrl: url, identity, key });
+  t.after(() => phone.ws.close());
+  assert.ok((await phone.hello()).channel);
+  assert.equal(phones.isKnown(b64url(key.publicKey)), true);
+  phone.request(1, { path: "/rpc" });
+  assert.equal((await phone.response(1)).status, 200);
+});
+
 test("a known phone calls /rpc over the LAN socket", async (t) => {
   const { identity, key, bridge, url } = await lanMac(t);
   const phone = connectPhone({ relayUrl: url, identity, key });
@@ -308,4 +318,59 @@ test("an unknown desktop is refused on the LAN, which never pairs", async (t) =>
   t.after(() => desktop.close());
   assert.deepEqual((await desktop.hello()).error, { t: "error", code: "unknown-phone" });
   assert.equal(daemon.connections.length, 0);
+});
+
+test("a phone that takes batches hears a burst of live messages as one frame, in order, and a response at once", async (t) => {
+  const { identity, key, url } = await lanMac(t, { batchMs: 1000 });
+  const phone = connectPhone({ relayUrl: url, identity, key, caps: ["batch"] });
+  t.after(() => phone.ws.close());
+  assert.ok((await phone.hello()).channel);
+  phone.send({ t: "live-open", id: 1, path: "/live" });
+  assert.deepEqual(await phone.next(), { t: "live", id: 1, data: '{"v":1,"hello":1}' });
+  // Three messages the bridge echoes at once land in one window: one frame carries them, in order.
+  const before = phone.rawFrames;
+  for (const n of [1, 2, 3]) phone.send({ t: "live", id: 1, data: `m${n}` });
+  const echoes = [await phone.next(), await phone.next(), await phone.next()];
+  assert.deepEqual(
+    echoes.map((message) => message.data),
+    ["echo:m1", "echo:m2", "echo:m3"],
+  );
+  assert.equal(phone.rawFrames - before, 1, "one frame carried the three");
+  // A response's last part closes the window at once: no wait for the second.
+  const started = Date.now();
+  phone.request(7, { path: "/rpc" });
+  assert.equal((await phone.response(7)).status, 200);
+  assert.ok(Date.now() - started < 500, "the response did not wait for the window");
+});
+
+test("a phone that does not ask for batches hears one frame per message, as before", async (t) => {
+  const { identity, key, url } = await lanMac(t, { batchMs: 1000 });
+  const phone = connectPhone({ relayUrl: url, identity, key });
+  t.after(() => phone.ws.close());
+  assert.ok((await phone.hello()).channel);
+  phone.send({ t: "live-open", id: 1, path: "/live" });
+  await phone.next();
+  const before = phone.rawFrames;
+  for (const n of [1, 2, 3]) phone.send({ t: "live", id: 1, data: `m${n}` });
+  const echoes = [await phone.next(), await phone.next(), await phone.next()];
+  assert.deepEqual(
+    echoes.map((message) => message.data),
+    ["echo:m1", "echo:m2", "echo:m3"],
+  );
+  assert.equal(phone.rawFrames - before, 3);
+});
+
+test("a desktop that takes batches hears a window of daemon frames as one, in order", async (t) => {
+  const daemon = fakePeerDaemon();
+  const { identity, key, url } = await lanMac(t, { knownKind: "computer", openPeer: daemon.openPeer, batchMs: 300 });
+  const desktop = connectDesktop({ relayUrl: url, identity, key, caps: ["batch"] });
+  t.after(() => desktop.close());
+  assert.ok((await desktop.hello()).channel);
+  const before = desktop.rawFrames;
+  const answers = await Promise.all([desktop.call("a", [1]), desktop.call("b", [2]), desktop.call("c", [3])]);
+  assert.deepEqual(
+    answers.map((answer) => answer.result),
+    [{ echo: [1] }, { echo: [2] }, { echo: [3] }],
+  );
+  assert.equal(desktop.rawFrames - before, 1, "one frame carried the three replies");
 });

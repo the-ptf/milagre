@@ -1,35 +1,60 @@
 import { canCopyImage } from "../lib/media";
 import { useCallback, useRef, useState, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { File01Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, File01Icon } from "@hugeicons/core-free-icons";
 import type { ImageAttachment } from "../model";
+import type { AttachmentUpload } from "./usePastedImages";
 import { mediaKind, mediaUrl } from "../lib/media";
 import type { LightboxItem } from "./motion/MediaLightbox";
 import { lazyView } from "../lib/lazy-view";
 import { MediaLightbox } from "./motion/LazyMediaLightbox";
 import { isRemoteKey, useScope } from "../lib/computer-bridge";
 import { useRemoteMedia } from "../lib/remote-media";
+import { Icon } from "./primitives/Icon";
+import { ProgressBar } from "./primitives/ProgressBar";
+import { Skeleton } from "./primitives/Skeleton";
+import Tooltip from "./primitives/Tooltip";
+
+const NO_IMAGES: ImageAttachment[] = [];
+const NO_FILES: string[] = [];
+const NO_UPLOADS: AttachmentUpload[] = [];
 
 const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
-/** `leading` goes first in the row, which isn't a file the user attached. */
+/**
+ * `leading` goes first in the row, which isn't a file the user attached. `order` lists attachment keys (a path, or a
+ * pasted image's id) in the order they were added; without it images come before files. `previewId`/`onPreview`
+ * control which item the viewer shows, so a chip elsewhere can open it.
+ */
 export function Attachments({
-  images = [],
-  files = [],
+  images = NO_IMAGES,
+  files = NO_FILES,
+  order,
   localFiles,
   removeImage,
   removeFile,
   leading,
+  previewId,
+  onPreview,
+  uploads = NO_UPLOADS,
+  cancelUpload,
 }: {
   images?: ImageAttachment[];
   files?: string[];
+  order?: string[];
   localFiles?: Map<string, File>;
   removeImage?: (id: string) => void;
   removeFile?: (path: string) => void;
   leading?: ReactNode;
+  previewId?: string | null;
+  onPreview?: (id: string | null) => void;
+  /** Files still uploading to the Chat's computer: each shows as a tile that fills as it goes. */
+  uploads?: AttachmentUpload[];
+  cancelUpload?: (id: string) => void;
 }) {
-  // The open item's index among the media; its thumbnail hides while the viewer shows it.
-  const [open, setOpen] = useState<number | null>(null);
+  // The open item's id; its thumbnail hides while the viewer shows it.
+  const [ownPreview, setOwnPreview] = useState<string | null>(null);
+  const openId = previewId !== undefined ? previewId : ownPreview;
+  const setOpenId = onPreview ?? setOwnPreview;
   const thumbs = useRef(new Map<string, HTMLButtonElement>());
   // A remote chat's images come from its computer; its other files have no preview here.
   const scope = useScope();
@@ -40,8 +65,10 @@ export function Attachments({
   ]);
   const sourceOf = (path: string) => (remote ? (remoteSources[path] ?? "") : mediaUrl(path));
   const items = [
-    ...images.map((image) => ({
+    ...images.map((image, index) => ({
       id: image.id,
+      key: image.path ?? image.id,
+      index: index + 1,
       path: image.dataUrl ? undefined : image.path,
       name: image.name,
       src: image.dataUrl ?? sourceOf(image.path ?? ""),
@@ -53,6 +80,8 @@ export function Attachments({
       .filter((path) => !images.some((image) => (image.sourcePath ?? image.path) === path))
       .map((path) => ({
         id: path,
+        key: path,
+        index: undefined,
         path,
         name: path.split("/").at(-1) || path,
         src: sourceOf(path),
@@ -61,18 +90,25 @@ export function Attachments({
         remove: removeFile ? () => removeFile(path) : undefined,
       })),
   ];
+  if (order) {
+    const rank = (key: string) => (order.includes(key) ? order.indexOf(key) : order.length);
+    items.sort((a, b) => rank(a.key) - rank(b.key));
+  }
   // The viewer pages only through what has an image to show: one still loading, or one that failed, has none.
   const media = items.filter((item): item is typeof item & LightboxItem => !!item.kind && !!item.src);
   const failedRemote = (item: (typeof items)[number]) => remote && item.kind === "image" && !item.src && !!item.path && !!remoteFailed[item.path];
-  const close = useCallback(() => setOpen(null), []);
+  const found = openId === null ? -1 : media.findIndex((item) => item.id === openId);
+  const open = found < 0 ? null : found;
+  const close = useCallback(() => setOpenId(null), [setOpenId]);
+  const setOpen = (index: number) => setOpenId(media[index]?.id ?? null);
   const thumbFor = useCallback((id: string) => thumbs.current.get(id), []);
-  const showing = (id: string) => open !== null && media[open]?.id === id;
-  if (!items.length && !leading) return null;
+  const showing = (id: string) => openId === id;
+  if (!items.length && !uploads.length && !leading) return null;
   return (
     <div className="mb-2 flex flex-wrap items-start gap-2" aria-label="Attachments">
       {leading}
       {items.map((item) => (
-        <div key={item.id} className="relative max-w-full rounded-lg border border-line bg-inset p-1">
+        <div key={item.id} className="relative max-w-full rounded-control border border-line bg-inset p-1">
           {failedRemote(item) ? (
             <FileTile path={item.id} name={item.name} unavailable />
           ) : item.kind ? (
@@ -92,31 +128,54 @@ export function Attachments({
                     }
                   : undefined
               }
-              className="block rounded focus-visible:outline-2 focus-visible:outline-accent-ink"
+              className="block rounded-inline"
             >
               {item.kind === "image" && !item.src ? (
-                <span aria-hidden className="block size-20 animate-pulse rounded bg-hover" />
+                <Skeleton secondary className="size-20" />
               ) : item.kind === "image" ? (
-                <img src={item.src} alt={item.name} className={`size-20 rounded object-contain ${showing(item.id) ? "opacity-0" : ""}`} />
+                <img src={item.src} alt={item.name} className={`size-20 rounded-inline object-contain ${showing(item.id) ? "opacity-0" : ""}`} />
               ) : (
                 <span className={`relative block ${showing(item.id) ? "opacity-0" : ""}`}>
-                  <video src={item.src} muted preload="metadata" className="h-20 w-28 rounded object-contain" />
-                  <span className="absolute bottom-0 left-0 rounded bg-surface/90 px-1 text-[10px]">Play video</span>
+                  <video src={item.src} muted preload="metadata" className="h-20 w-28 rounded-inline object-contain" />
+                  <span className="absolute bottom-0 left-0 rounded-inline bg-surface px-1 text-10">Play video</span>
                 </span>
               )}
-              <span className="block max-w-28 truncate px-1 text-[10px] text-ink-2">{item.name}</span>
+              <span className="block max-w-28 truncate px-1 text-11 text-ink-2">{item.name}</span>
             </button>
           ) : (
             <FileTile path={item.id} name={item.name} file={localFiles?.get(item.id)} />
+          )}
+          {item.index !== undefined && (
+            <span
+              data-image-badge={item.index}
+              className="pointer-events-none absolute top-1.5 left-1.5 rounded-inline bg-surface px-1 py-px text-10 font-semibold text-ink shadow-card"
+            >
+              #{item.index}
+            </span>
           )}
           {item.remove && (
             <button
               type="button"
               aria-label={`Remove ${item.name}`}
               onClick={item.remove}
-              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink"
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-ink transition-colors duration-fast before:absolute before:-inset-0.5 hover:bg-hover"
             >
-              ×
+              <Icon icon={Cancel01Icon} size={12} />
+            </button>
+          )}
+        </div>
+      ))}
+      {uploads.map((upload) => (
+        <div key={upload.id} className="relative max-w-full rounded-control border border-line bg-inset p-1">
+          <UploadTile upload={upload} />
+          {cancelUpload && (
+            <button
+              type="button"
+              aria-label={`Cancel uploading ${upload.name}`}
+              onClick={() => cancelUpload(upload.id)}
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-ink transition-colors duration-fast before:absolute before:-inset-0.5 hover:bg-hover"
+            >
+              <Icon icon={Cancel01Icon} size={12} />
             </button>
           )}
         </div>
@@ -132,33 +191,62 @@ function FileTile({ path, name, file, unavailable }: { path: string; name: strin
   const extension = /\.([^./]+)$/.exec(name)?.[1];
   if (unavailable)
     return (
-      <span data-attachment-unavailable title={`${name} couldn't be loaded from its computer`} className="block rounded">
-        <span className="flex size-20 flex-col items-center justify-center gap-1 rounded bg-surface text-ink-3">
-          <HugeiconsIcon icon={File01Icon} size={22} strokeWidth={1.6} color="currentColor" aria-hidden />
-          <span className="text-[10px]">Unavailable</span>
+      <Tooltip label={`${name} couldn't be loaded from its computer`} wrap>
+        <span data-attachment-unavailable className="block rounded-inline">
+          <span className="flex size-20 flex-col items-center justify-center gap-1 rounded-inline bg-surface text-ink-3">
+            <Icon icon={File01Icon} size={18} />
+            <span className="text-11">Unavailable</span>
+          </span>
+          <span className="block max-w-20 truncate px-1 text-center text-11 text-ink-2">{name}</span>
         </span>
-        <span className="block max-w-20 truncate px-1 text-center text-[10px] text-ink-2">{name}</span>
-      </span>
+      </Tooltip>
     );
   return (
     <>
-      <button
-        type="button"
-        aria-label={`Preview ${name}`}
-        onClick={(event) => {
-          event.currentTarget.focus();
-          setOpen(true);
-        }}
-        title={path}
-        className="block rounded hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent-ink"
-      >
-        <span className="flex size-20 flex-col items-center justify-center gap-1 rounded bg-surface text-ink-2">
-          <HugeiconsIcon icon={File01Icon} size={22} strokeWidth={1.6} color="currentColor" aria-hidden />
-          {extension && <span className="max-w-16 truncate text-[10px] font-medium uppercase tracking-wide">{extension}</span>}
-        </span>
-        <span className="block max-w-20 truncate px-1 text-center text-[10px] text-ink-2">{name}</span>
-      </button>
+      <Tooltip label={path} wrap>
+        <button
+          type="button"
+          aria-label={`Preview ${name}`}
+          onClick={(event) => {
+            event.currentTarget.focus();
+            setOpen(true);
+          }}
+          className="block rounded-inline transition-colors duration-fast hover:bg-hover"
+        >
+          <span className="flex size-20 flex-col items-center justify-center gap-1 rounded-inline bg-surface text-ink-2">
+            <Icon icon={File01Icon} size={18} />
+            {extension && <span className="max-w-16 truncate text-11 font-medium">{extension}</span>}
+          </span>
+          <span className="block max-w-20 truncate px-1 text-center text-11 text-ink-2">{name}</span>
+        </button>
+      </Tooltip>
       {open && <AttachmentPreview file={file} path={path} name={name} close={() => setOpen(false)} />}
     </>
+  );
+}
+
+const MB = 1024 * 1024;
+// One decimal under 10 MB, so a small file's count still moves; the total sets it for both numbers.
+const megabytes = (bytes: number, total: number) => (bytes / MB).toFixed(total < 10 * MB ? 1 : 0);
+
+/** A file on its way to the Chat's computer: the file tile, its percentage, and a bar along the bottom that fills. */
+function UploadTile({ upload }: { upload: AttachmentUpload }) {
+  const percent = upload.totalBytes ? Math.min(100, Math.round((upload.sentBytes / upload.totalBytes) * 100)) : 0;
+  return (
+    <Tooltip
+      label={`Uploading ${upload.name}: ${megabytes(upload.sentBytes, upload.totalBytes)} of ${megabytes(upload.totalBytes, upload.totalBytes)} MB`}
+      wrap
+    >
+      <span data-attachment-upload className="block rounded-inline">
+        <span className="relative flex size-20 flex-col items-center justify-center gap-1 overflow-hidden rounded-inline bg-surface text-ink-3">
+          <Icon icon={File01Icon} size={18} />
+          <span className="text-11 font-medium tabular-nums">{percent}%</span>
+          <span className="absolute inset-x-2 bottom-2">
+            <ProgressBar label={`Uploading ${upload.name}`} value={percent / 100} />
+          </span>
+        </span>
+        <span className="block max-w-20 truncate px-1 text-center text-11 text-ink-2">{upload.name}</span>
+      </span>
+    </Tooltip>
   );
 }

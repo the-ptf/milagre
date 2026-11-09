@@ -4,13 +4,15 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { UpdateShell, useAppUpdates } from "/src/components/UpdateNotice";
+import { UpdateShell, useAppUpdates, UpdateSettingsBadge } from "/src/components/UpdateNotice";
 import { AboutSettings } from "/src/components/Settings";
 import { ChatComposer } from "/src/components/ChatComposer";
+import SidebarNav from "/src/components/SidebarNav";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 let listener;
@@ -21,9 +23,19 @@ window.__update = (state) => { window.__state = state; listener(state); };
 window.milagre = {
   getAppVersion: async () => "1.2.2", getReleaseChannel: async () => "stable",
   getUpdateState: async () => window.__state,
+  getUpdateReleaseNotes: async (version) => {
+    if (window.__notesFail) throw new Error("offline");
+    return window.__notesEmpty ? "" : "## Changes in v" + version + "\\n\\n- Keep downloading the latest update.\\n- Read release notes inside Milagre.";
+  },
   onUpdateState: (cb) => { listener = cb; return () => {}; },
   installUpdate: async () => { window.__installs++; window.__update({ ...window.__state, status: "installing" }); },
   checkForUpdates: async () => { window.__checks++; window.__update({ ...window.__state, status: "checking" }); },
+  readAutoUpdate: async () => ({ autoUpdate: window.__autoUpdate ?? false }),
+  saveAutoUpdate: async (value) => { window.__autoUpdate = value; window.__autoListener?.({ autoUpdate: value }); return { autoUpdate: value }; },
+  onAutoUpdate: (cb) => { window.__autoListener = cb; return () => {}; },
+  listRecentProjects: async () => [], listNamedLinks: async () => [], listProjects: async () => [],
+  getProjectImage: async () => null, listEditors: async () => [],
+  onProjectState: () => () => {}, onLinkState: () => () => {},
 };
 document.documentElement.classList.add("dark");
 function Settings() { return <AboutSettings update={useAppUpdates()} />; }
@@ -46,10 +58,24 @@ function Chat() {
 }
 function Fixture() {
   const [chat, setChat] = useState(false);
+  const [sidebar, setSidebar] = useState(false);
   window.__chat = setChat;
-  return chat ? <div style={{ height: "100vh" }}><Chat /></div> : <div style={{ maxWidth: 640, margin: "60px auto" }}><Settings /></div>;
+  window.__sidebar = setSidebar;
+  const settings = <div style={{ maxWidth: 640, margin: "60px auto" }}><Settings /></div>;
+  if (sidebar) return <div className="flex h-screen gap-3 p-3 pt-12">
+    <SidebarNav fill workspaceName="Milagre" projectPath="/fixture" recents={[]} onOpenSettings={() => setChat(false)} />
+    <div className="min-w-0 flex-1">{chat ? <Chat /> : settings}</div>
+  </div>;
+  // The app keeps the Chat mounted but hidden while Settings is open.
+  if (chat === "hidden") return <><div className="hidden" style={{ height: "100vh" }}><Chat /></div>{settings}</>;
+  return chat ? <div style={{ height: "100vh" }}><Chat /></div> : settings;
 }
-createRoot(document.getElementById("root")).render(<UpdateShell><Fixture /></UpdateShell>);
+function App() {
+  const [sidebar, setSidebar] = useState(false);
+  window.__showSidebar = () => { setSidebar(true); window.__sidebar(true); window.__chat(true); };
+  return <UpdateShell>{!sidebar && <button data-update-settings aria-label="Settings" className="fixed right-4 top-4" onClick={() => window.__chat(false)}>Settings<UpdateSettingsBadge /></button>}<Fixture /></UpdateShell>;
+}
+createRoot(document.getElementById("root")).render(<App />);
 `;
 
 async function browserChecks() {
@@ -80,6 +106,8 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor("document.body.innerText.includes('Downloading update')");
+    await screenshot("update-downloading-pill");
+    assert.equal(await evaluate(`!!document.querySelector('[data-face=pill] [aria-label="Dismiss update"]')`), false);
     await evaluate(`${button("Downloading update · 42%")}.click()`);
     await waitFor("!!document.querySelector('[role=progressbar]')");
     await screenshot("update-downloading");
@@ -87,13 +115,26 @@ async function browserChecks() {
     await waitFor("!!document.querySelector('[aria-label=\"Update available\"]')");
     assert.match(await evaluate("document.body.innerText"), /stop running agents/);
     assert.doesNotMatch(await evaluate("document.body.innerText"), /terminal/i);
-    assert.equal(await evaluate("document.querySelector('a').href"), "https://github.com/the-ptf/milagre-ade/releases/tag/v1.2.3");
+    await evaluate(`${button("What's new")}.click()`);
+    await waitFor("!!document.querySelector('dialog[open]') && document.body.innerText.includes('Changes in v1.2.3')");
+    await screenshot("update-release-notes");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor("!document.querySelector('dialog[open]')");
+    assert.equal(await evaluate("document.activeElement.textContent.trim()"), "What's new");
+    await evaluate("window.__notesFail = true");
+    await evaluate(`${button("What's new")}.click()`);
+    await waitFor("document.querySelector('dialog')?.innerText.includes('Could not load release notes')");
+    await evaluate("window.__notesFail = false; document.querySelector('dialog [role=alert] button').click()");
+    await waitFor("document.querySelector('dialog')?.innerText.includes('Changes in v1.2.3')");
+    await evaluate(`document.querySelector('[aria-label="Close release notes"]').click()`);
     await screenshot("update-ready-dark");
     await evaluate("document.documentElement.classList.remove('dark')");
     await screenshot("update-ready-light");
     await evaluate("document.documentElement.classList.add('dark'); document.querySelector('[aria-label=\"Dismiss update\"]').click()");
     await waitFor("!document.querySelector('[role=dialog]')");
-    assert.ok(await evaluate(`${button("Update available")}`));
+    assert.equal(await evaluate("!!document.querySelector('[data-update-notice]')"), false);
+    assert.ok(await evaluate(`document.querySelector('[data-update-settings] [aria-label="Update available"]')`));
+    assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Settings");
     // Repeated download events must not undo dismissal.
     await evaluate("window.__update({ status: 'downloaded', version: '1.2.3', progress: 100 })");
     await delay(100);
@@ -117,6 +158,22 @@ async function browserChecks() {
     await waitFor("window.__checks === 1");
     await evaluate("window.__update({ status: 'downloaded', version: '1.2.4', progress: 100 })");
     await waitFor("document.body.innerText.includes('v1.2.4 is ready')");
+    // Auto update: the switch in About saves on the host; with it on, the ready card says the update installs by itself.
+    const autoSwitch = `document.querySelector('[role=checkbox][aria-label="Auto update"]')`;
+    await waitFor(`${autoSwitch}?.getAttribute('aria-checked') === 'false'`);
+    assert.match(await evaluate("document.body.innerText"), /nobody has used the Mac for 5 minutes/);
+    await evaluate(`${autoSwitch}.click()`);
+    await waitFor(`window.__autoUpdate === true && ${autoSwitch}.getAttribute('aria-checked') === 'true'`);
+    await evaluate("window.__update({ status: 'downloaded', version: '1.2.4', progress: 100, auto: true })");
+    await waitFor("document.body.innerText.includes('Auto update is on')");
+    assert.doesNotMatch(await evaluate("document.body.innerText"), /stop running agents/);
+    assert.match(await evaluate("document.body.innerText"), /Auto update installs it once nothing is running/);
+    await screenshot("update-auto");
+    // Turned off from another device: the switch follows.
+    await evaluate("window.__autoListener({ autoUpdate: false })");
+    await waitFor(`${autoSwitch}.getAttribute('aria-checked') === 'false'`);
+    await evaluate("window.__update({ status: 'downloaded', version: '1.2.4', progress: 100, auto: false })");
+    await waitFor("document.body.innerText.includes('stop running agents')");
     // Escape returns keyboard focus to the persistent trigger.
     await evaluate("document.querySelector('[role=dialog] button').focus()");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
@@ -129,9 +186,9 @@ async function browserChecks() {
     await evaluate("window.__chat(true)");
     await waitFor("[...document.querySelectorAll('button')].some(n => n.textContent.includes('Subagents'))");
     const placement = await evaluate(`(() => {
-      const pill = ${button("Update available")}.getBoundingClientRect();
+      const pill = ${button("Update available")}.closest('[data-face=pill]').getBoundingClientRect();
       const chip = [...document.querySelectorAll('button')].find(n => n.textContent.includes('Subagents')).getBoundingClientRect();
-      const column = document.querySelector('textarea[aria-label="Prompt"]').closest('.max-w-3xl').getBoundingClientRect();
+      const column = document.querySelector('[data-prompt-editor]').closest('[data-composer-wrap]').getBoundingClientRect();
       return { pillCenter: (pill.left + pill.right) / 2, columnCenter: (column.left + column.right) / 2, pillBottom: pill.bottom, chipBottom: chip.bottom, fixed: getComputedStyle(${button("Update available")}.closest("[data-update-notice]")).position };
     })()`);
     assert.ok(Math.abs(placement.pillCenter - placement.columnCenter) < 1, `pill is centred: ${JSON.stringify(placement)}`);
@@ -141,7 +198,7 @@ async function browserChecks() {
     await evaluate(`${button("Update available")}.click()`);
     await waitFor("!!document.querySelector('[role=dialog]')");
     // The pill morphs into the card in its own spot instead of opening a card above it.
-    await waitFor(`getComputedStyle(${button("Update available")}).visibility === "hidden" && ${button("Update available")}.inert`);
+    await waitFor(`getComputedStyle(${button("Update available")}).visibility === "hidden" && ${button("Update available")}.closest('[data-face=pill]').inert`);
     await delay(600);
     const card = await evaluate(`(() => {
       const card = document.querySelector('[data-update-notice] > div').getBoundingClientRect();
@@ -151,14 +208,60 @@ async function browserChecks() {
     assert.ok(Math.abs(card.bottom - placement.pillBottom) < 1, `card grows from the pill's line: ${JSON.stringify(card)}`);
     assert.ok(Math.abs(card.width - 360) < 1, `card reaches full width: ${JSON.stringify(card)}`);
     await screenshot("update-pill-chat-open");
-    await evaluate("document.querySelector('[aria-label=\"Dismiss update\"]').click()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor("!document.querySelector('[role=dialog]')");
     assert.equal(await evaluate("document.activeElement.textContent.trim()"), "Update available");
     // Leaving the Chat returns the pill to the window's bottom left.
     await evaluate("window.__chat(false)");
     await waitFor(`getComputedStyle(${button("Update available")}.closest("[data-update-notice]")).position === 'fixed'`);
-    console.log("PASS: update pill above the chat composer morphs into the card in place, falling back to the bottom left without a Chat");
+    // A Chat hidden behind Settings gives the pill up, so Install & restart opens a card that is on screen.
+    await evaluate("window.__chat('hidden')");
+    await waitFor(`!!${button("Install & restart")}`);
+    await waitFor(`getComputedStyle(${button("Update available")}.closest("[data-update-notice]")).position === 'fixed'`);
+    await evaluate(`${button("Install & restart")}.click()`);
+    await waitFor("document.querySelector('[role=dialog]')?.getClientRects().length > 0");
+    await screenshot("update-settings-hidden-chat");
+    // showUpdateNotice moves focus on the next animation frame; Escape must reach the card.
+    await waitFor("document.querySelector('[role=dialog]')?.contains(document.activeElement)");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor("!document.querySelector('[role=dialog]')");
+    await waitFor("getComputedStyle(document.querySelector('[data-face=pill]')).visibility === 'visible'");
+    assert.equal(await evaluate(`!!document.querySelector('[data-face=pill] [aria-label="Dismiss update"]')`), false);
+    await evaluate(`${button("Update available")}.click()`);
+    await waitFor("getComputedStyle(document.querySelector('[data-face=card]')).visibility === 'visible'");
+    await evaluate(`document.querySelector('[role=dialog] [aria-label="Dismiss update"]').focus()`);
+    assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Dismiss update");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Space" });
+    await waitFor("!document.querySelector('[data-update-notice]')");
+    assert.ok(await evaluate(`document.querySelector('[data-update-settings] [aria-label="Update available"]')`));
+    assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Settings");
+    await evaluate("window.__showSidebar()");
+    await waitFor(`!!document.querySelector('aside [data-update-settings] [aria-label="Update available"]')`);
+    const badgeInsideSettings = `(() => {
+      const button = document.querySelector('aside [data-update-settings]');
+      const badge = button.querySelector('[aria-label="Update available"]');
+      const gear = button.getBoundingClientRect(), dot = badge.getBoundingClientRect();
+      return badge.checkVisibility() && dot.width > 0 && dot.height > 0 && dot.left >= gear.left && dot.right <= gear.right && dot.top >= gear.top && dot.bottom <= gear.bottom;
+    })()`;
+    assert.ok(await evaluate(badgeInsideSettings), "Update dot is visible inside the actual sidebar Settings gear");
+    if (await evaluate(`!!document.querySelector('[aria-label="Expand sidebar"]')`)) {
+      await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
+    }
+    const sidebarSettled = `(() => {
+      const sidebar = document.querySelector('aside[data-sidebar-collapsed]');
+      return Math.abs(sidebar.getBoundingClientRect().width - parseFloat(sidebar.style.width)) < 1;
+    })()`;
+    await waitFor(sidebarSettled);
+    await screenshot("update-sidebar-expanded");
+    await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
+    await waitFor(`!!document.querySelector('[aria-label="Expand sidebar"]')`);
+    await waitFor(sidebarSettled);
+    assert.ok(await evaluate(badgeInsideSettings), "Update dot remains on the collapsed sidebar Settings gear");
+    await screenshot("update-sidebar-collapsed");
+    console.log("PASS: update pill above the chat composer morphs into the card in place, falling back to the bottom left without a visible Chat");
     console.log("PASS: update progress, ready card, dismissal, settings warning, installation, retries and keyboard access");
+    console.log("PASS: Auto update switch in About saves, follows other devices, and changes the ready card's line");
     app.exit(0);
   } catch (error) {
     console.error(error);
@@ -181,7 +284,7 @@ async function main() {
           if (id === "/__update_flow_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__update_flow__") return next();
             const html = await server.transformIndexHtml(
               request.url,

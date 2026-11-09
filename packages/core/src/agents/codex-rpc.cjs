@@ -84,13 +84,17 @@ class CodexRpc extends EventEmitter {
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
+  // A null timeoutMs waits for the answer however long it takes; the request still fails when Codex exits.
   request(method, params = {}, { timeoutMs = 30_000 } = {}) {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Codex did not answer ${method} within ${Math.round(timeoutMs / 1000)} s.`));
-      }, timeoutMs);
+      const timer =
+        timeoutMs === null
+          ? null
+          : setTimeout(() => {
+              this.pending.delete(id);
+              reject(new Error(`Codex did not answer ${method} within ${Math.round(timeoutMs / 1000)} s.`));
+            }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer, method });
       try {
         this.write({ id, method, params });

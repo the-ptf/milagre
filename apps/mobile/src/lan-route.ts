@@ -1,7 +1,7 @@
 /** How a phone reaches its Mac on the same network: the Mac's relay id and box key, and its addresses there. */
 export type LanRoute = { hostId: string; key: string; endpoints: string[]; learnedAt: number };
 
-const PRIVATE_WS = /^ws:\/\/(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}:\d{1,5}$/;
+const PRIVATE_WS = /^ws:\/\/(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\.\d{1,3}\.\d{1,3}:\d{1,5}$/;
 const MAX_ENDPOINTS = 4;
 
 export function validLanRoute(value: unknown): LanRoute | undefined {

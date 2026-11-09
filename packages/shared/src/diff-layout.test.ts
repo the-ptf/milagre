@@ -81,3 +81,11 @@ test("pure insertion marks only the new side", () => {
   assert.deepEqual(old, []);
   assert.deepEqual(next, [[5, 8]]);
 });
+
+test("word changes handle an exhausted side and empty lines", () => {
+  assert.deepEqual(wordChanges("foo(a, b)", "foo(a)"), { old: [[5, 8]], new: [] });
+  assert.deepEqual(wordChanges("foo(a)", "foo(a) + b"), { old: [], new: [[6, 10]] });
+  assert.deepEqual(wordChanges("foo(a) + b", "foo(a)"), { old: [[6, 10]], new: [] });
+  assert.deepEqual(wordChanges("", "foo(a)"), { old: [], new: [] });
+  assert.deepEqual(wordChanges("foo(a)", ""), { old: [], new: [] });
+});

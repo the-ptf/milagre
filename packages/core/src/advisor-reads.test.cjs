@@ -32,7 +32,7 @@ async function fixture(t) {
 
 test("advisor reads files and explicitly allowed references with numbered lines", async (t) => {
   const { root, refs, call } = await fixture(t);
-  assert.deepEqual(await call("advisor_read_file", { root, path: "notes.txt", start: 2, end: 2 }), { text: "2\tfind this", isError: false });
+  assert.deepEqual(await call("advisor_read_file", { root, path: "notes.txt", start: 2, end: 2 }), { text: "2\tfind this", images: [], isError: false });
   assert.match((await call("advisor_read_file", { root: refs, path: "guide.md" })).text, /Product instructions/);
 });
 

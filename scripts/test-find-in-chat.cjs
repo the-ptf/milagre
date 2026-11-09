@@ -3,6 +3,10 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
+
+// Match the real desktop shortcuts: Command on macOS, Control on Linux and Windows.
+const COMMAND = process.platform === "darwin" ? "meta" : "control";
 
 const fixture = `
 window.milagre = Object.freeze({ listEditors: async () => [] });
@@ -23,6 +27,10 @@ const bodies = [
   "A phrase that runs across **bold text** and \`inline\` code boundaries.",
 ];
 const messages = bodies.map((body, index) => ({ id: index + 1, session_id: 1, context: null, role: index % 2 || index === bodies.length - 1 ? "assistant" : "user", body }));
+messages.push({ id: 100, session_id: 1, context: null, role: "assistant", body: "Activity reply.", steps: [
+  { id: "fold-a", kind: "shell", title: "foldedunique", status: "done", offset: 0 },
+  { id: "fold-b", kind: "shell", title: "Another command", status: "done", offset: 0 },
+] });
 function Fixture() {
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
@@ -52,9 +60,6 @@ createRoot(document.getElementById("root")).render(<Fixture />);
 `;
 
 const appFixture = `
-// This fixture exercises a device that has already accepted AI sharing.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";
@@ -111,7 +116,7 @@ async function browserChecks() {
     try {
       return await window.webContents.executeJavaScript(source);
     } catch (error) {
-      throw new Error(`${source}: ${error.message}`);
+      throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
   async function screenshot(name) {
@@ -133,7 +138,6 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
   };
   const count = () => evaluate('document.querySelector("[data-find-count]")?.textContent ?? null');
-  const activeTop = () => evaluate('(() => { const r = [...CSS.highlights.get("find-active")][0].getBoundingClientRect(); return Math.round(r.top); })()');
   const activeOffset = () =>
     evaluate(
       '(() => { const range = [...CSS.highlights.get("find-active")][0]; return range.startContainer.data.slice(0, range.startOffset).length + range.startContainer.data.length * 1000; })()',
@@ -148,12 +152,11 @@ async function browserChecks() {
     await window.loadURL(process.argv[3]);
     await waitFor('!!document.querySelector("[aria-label=\\"New chat\\"]") && !!document.querySelector("[aria-label=Conversation]")');
     const bar = '!!document.querySelector("[data-find-bar]")';
-    const text = () => evaluate('document.querySelector("[aria-label=Conversation]").textContent');
     // Open chat 1 (has messages).
     await evaluate('window.openChatWith("Chat one needle")');
     await waitFor('document.querySelector("[aria-label=Conversation]").textContent.includes("Chat one needle")');
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
-    key("F", ["meta"]);
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    key("F", [COMMAND]);
     await waitFor(bar);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     window.webContents.insertText("needle");
@@ -169,14 +172,14 @@ async function browserChecks() {
     // A new, empty chat has nothing to search.
     await evaluate('document.querySelector("[aria-label=\\"New chat\\"]").click()');
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await delay(300);
     assert.equal(await evaluate(bar), false);
 
     // The command palette lists Find in chat on a chat with messages, and running it opens the bar.
     await evaluate('window.openChatWith("Chat one needle")');
     await waitFor('document.querySelector("[aria-label=Conversation]").textContent.includes("Chat one needle")');
-    key("K", ["meta"]);
+    key("K", [COMMAND]);
     await waitFor('!!document.querySelector("dialog[open][aria-label=\\"Command palette\\"]")');
     window.webContents.insertText("search text");
     await waitFor('[...document.querySelectorAll("dialog [role=option]")].some(el => el.textContent.includes("Find in chat"))');
@@ -185,20 +188,20 @@ async function browserChecks() {
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     key("Escape");
     await waitFor(`!(${bar})`);
-    assert.equal(await evaluate('document.activeElement === document.querySelector("textarea[aria-label=Prompt]")'), true);
+    assert.equal(await evaluate('document.activeElement === document.querySelector("[data-prompt-editor]")'), true);
 
     // Escape closes the bar first; the stop-agent handler only gets the next one.
     await evaluate("window.interrupts.length = 0");
     await evaluate(
-      '(() => { const i = document.querySelector("textarea[aria-label=Prompt]"); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(i, "go"); i.dispatchEvent(new Event("input", { bubbles: true })); })()',
+      '(() => { const i = document.querySelector("[data-prompt-editor]"); i.value = "go"; i.dispatchEvent(new Event("input", { bubbles: true })); })()',
     );
     await waitFor('!document.querySelector("[aria-label=Send]").disabled');
     await evaluate('document.querySelector("[aria-label=Send]").click()');
     // The working indicator names the model only to screen readers.
     await waitFor("!!document.querySelector('[role=status][aria-label^=\"Working with\"]')");
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await waitFor(bar);
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     key("Escape");
     await waitFor(`!(${bar})`);
     await delay(200);
@@ -212,11 +215,11 @@ async function browserChecks() {
 
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor('!!document.querySelector("textarea[aria-label=Prompt]")');
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
+    await waitFor('!!document.querySelector("[data-prompt-editor]")');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     assert.equal(await evaluate('!!document.querySelector("[data-find-bar]")'), false);
 
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     assert.equal(await count(), "");
 
@@ -243,9 +246,9 @@ async function browserChecks() {
 
     key("Return", ["shift"]);
     await waitFor('document.querySelector("[data-find-count]").textContent === "2 of 5"');
-    key("G", ["meta"]);
+    key("G", [COMMAND]);
     await waitFor('document.querySelector("[data-find-count]").textContent === "3 of 5"');
-    key("G", ["meta", "shift"]);
+    key("G", [COMMAND, "shift"]);
     await waitFor('document.querySelector("[data-find-count]").textContent === "2 of 5"');
     // Previous from the first wraps to the last.
     key("Return", ["shift"]);
@@ -270,8 +273,8 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-find-count]").textContent === "5 of 5"');
 
     // Reopening with the bar open selects the field text.
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
-    key("F", ["meta"]);
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    key("F", [COMMAND]);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     assert.equal(
       await evaluate(
@@ -291,10 +294,23 @@ async function browserChecks() {
     window.webContents.insertText("needle");
     await waitFor('document.querySelector("[data-find-count]").textContent === "1 of 5"');
 
+    // Opening and closing a fold updates an already-open search, even after rows have mounted.
+    await evaluate('document.querySelector("[data-find-bar] input").select()');
+    window.webContents.insertText("foldedunique");
+    await waitFor('document.querySelector("[data-find-count]").textContent === "No results"');
+    const fold = 'document.querySelector("[data-slot=activity] > button")';
+    await evaluate(`${fold}.click()`);
+    await waitFor('document.querySelector("[data-find-count]").textContent === "1 of 1"');
+    await evaluate(`${fold}.click()`);
+    await waitFor('document.querySelector("[data-find-count]").textContent === "No results"');
+    await evaluate(`${fold}.click()`);
+    await waitFor('document.querySelector("[data-find-count]").textContent === "1 of 1"');
+    console.log("PASS: find counts folded step text only while expanded, updating live across reopen");
+
     key("Escape");
     await waitFor('!document.querySelector("[data-find-bar]")');
     assert.equal(await evaluate("CSS.highlights.size"), 0);
-    assert.equal(await evaluate('document.activeElement === document.querySelector("textarea[aria-label=Prompt]")'), true);
+    assert.equal(await evaluate('document.activeElement === document.querySelector("[data-prompt-editor]")'), true);
     console.log("PASS: opens with the shortcut, live count, Enter and Shift+Enter step and scroll, wrap, reopen selects, Esc clears and restores focus");
     await appPhase();
     app.exit(0);
@@ -320,7 +336,7 @@ async function main() {
           if (id === "/__find_app_fixture.tsx") return appFixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             const entry = { "/__find__": "/__find_fixture.tsx", "/__find_app__": "/__find_app_fixture.tsx" }[request.url];
             if (!entry) return next();
             const html = await server.transformIndexHtml(

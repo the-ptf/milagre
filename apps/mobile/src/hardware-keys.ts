@@ -1,0 +1,236 @@
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type RefObject } from "react";
+import { Platform, TextInput, findNodeHandle, type TextInputInstance, type TextInputProps } from "react-native";
+import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
+import { useKeyboardState } from "react-native-keyboard-controller";
+import {
+  evaluateWhen,
+  keybindingCommand,
+  parseKey,
+  parseWhen,
+  type KeybindingCommandId,
+  type KeybindingRule,
+  type WhenContext,
+} from "@milagre/shared/keybindings";
+import { undoHistory } from "./undo-history";
+
+// UIKeyCommand's inputs for the keys that aren't a character.
+const INPUTS: Record<string, string> = {
+  arrowleft: "UIKeyInputLeftArrow",
+  arrowright: "UIKeyInputRightArrow",
+  arrowup: "UIKeyInputUpArrow",
+  arrowdown: "UIKeyInputDownArrow",
+  escape: "UIKeyInputEscape",
+  enter: "\r",
+  tab: "\t",
+  space: " ",
+  backspace: "\b",
+  delete: "UIKeyInputDelete",
+  home: "UIKeyInputHome",
+  end: "UIKeyInputEnd",
+  pageup: "UIKeyInputPageUp",
+  pagedown: "UIKeyInputPageDown",
+};
+const IPAD: WhenContext = { isIpad: true };
+
+/**
+ * The hardware keyboard shortcuts: the rules of the Mac's keybindings.json for the commands an iPad has (`mobile` in
+ * the catalog), whose `when` holds on an iPad. Holding ⌘ lists them by title. An id is `<command>#<n>`.
+ */
+function hardwareShortcuts(rules: readonly KeybindingRule[]): Shortcut[] {
+  return rules.flatMap((rule, index) => {
+    const command = keybindingCommand(rule.command);
+    const shortcut = parseKey(rule.key);
+    if (!command?.mobile || !shortcut) return [];
+    if (rule.when) {
+      const tree = parseWhen(rule.when);
+      if (!tree || !evaluateWhen(tree, IPAD)) return [];
+    }
+    const input = INPUTS[shortcut.key] ?? (/^f([0-9]+)$/.test(shortcut.key) ? `UIKeyInputF${shortcut.key.slice(1)}` : shortcut.key);
+    const modifiers = [
+      ...(shortcut.mod || shortcut.meta ? ["command"] : []),
+      ...(shortcut.ctrl ? ["control"] : []),
+      ...(shortcut.alt ? ["alt"] : []),
+      ...(shortcut.shift ? ["shift"] : []),
+    ];
+    return [{ id: `${rule.command}#${index}`, input, modifiers, title: command.title }];
+  });
+}
+
+/** The command of a shortcut id. */
+const commandOf = (id: string) => id.split("#")[0] as KeybindingCommandId;
+
+type Shortcut = { id: string; input: string; modifiers: readonly string[]; title: string };
+type HardwareKeysModule = {
+  addListener(event: "returnKey", listener: (event: { target: number }) => void): EventSubscription;
+  addListener(event: "shortcut", listener: (event: { id: string }) => void): EventSubscription;
+  attachReturnAsync: (target: number) => Promise<boolean>;
+  detachReturnAsync: (target: number) => Promise<void>;
+  setShortcutsAsync: (shortcuts: Shortcut[]) => Promise<void>;
+};
+// Builds older than the iPad one have no module: Return keeps adding a line and there are no shortcuts.
+const native = Platform.OS === "ios" ? requireOptionalNativeModule<HardwareKeysModule>("MilagreHardwareKeys") : null;
+
+/** The Chat a `chat.jump.N` command opens, from 0, or null for the others. */
+export function chatShortcutIndex(command: KeybindingCommandId) {
+  const match = /^chat\.jump\.([1-9])$/.exec(command);
+  return match ? Number(match[1]) - 1 : null;
+}
+
+/**
+ * Offers `rules`' shortcuts while mounted, again each time they change, and hands each press's command to
+ * `onShortcut`; mount it once, at the root.
+ */
+export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcut: (command: KeybindingCommandId) => void) {
+  const latest = useRef(onShortcut);
+  const history = useUndoShortcuts();
+  const commentKeys = useSyncExternalStore(subscribeCommentKeys, commentKeysSnapshot);
+  useEffect(() => {
+    latest.current = onShortcut;
+  }, [onShortcut]);
+  useEffect(() => {
+    if (!native) return;
+    const subscription = native.addListener("shortcut", ({ id }) => {
+      if (commentShortcuts.some((shortcut) => shortcut.id === id)) commentSend?.();
+      else if (id === UNDO.id) undoHistory.undo();
+      else if (id === REDO.id) undoHistory.redo();
+      else if (keybindingCommand(commandOf(id))?.mobile) latest.current(commandOf(id));
+    });
+    return () => {
+      subscription.remove();
+      void native.setShortcutsAsync([]).catch(() => {});
+    };
+  }, []);
+  useEffect(() => {
+    if (native) void native.setShortcutsAsync([...hardwareShortcuts(rules), ...history, ...commentKeys]).catch(() => {});
+  }, [rules, history, commentKeys]);
+}
+
+const commentShortcuts: Shortcut[] = [
+  { id: "comment.send", input: "\r", modifiers: ["command"], title: "Send comments" },
+  { id: "comment.send.control", input: "\r", modifiers: ["control"], title: "Send comments" },
+];
+let commentSend: (() => void) | null = null;
+const commentKeyListeners = new Set<() => void>();
+const subscribeCommentKeys = (listener: () => void) => {
+  commentKeyListeners.add(listener);
+  return () => {
+    commentKeyListeners.delete(listener);
+  };
+};
+const commentKeysSnapshot = () => (commentSend ? commentShortcuts : NO_SHORTCUTS);
+
+/** Offer send only while a comment field owns the keyboard. Reuses the installed native shortcut module. */
+export function useCommentSendKey(active: boolean, onSend: () => void) {
+  const latest = useRef(onSend);
+  useEffect(() => {
+    latest.current = onSend;
+  }, [onSend]);
+  useEffect(() => {
+    if (!active) return;
+    const send = () => latest.current();
+    commentSend = send;
+    commentKeyListeners.forEach((listener) => listener());
+    return () => {
+      if (commentSend === send) commentSend = null;
+      commentKeyListeners.forEach((listener) => listener());
+    };
+  }, [active]);
+}
+
+const UNDO: Shortcut = { id: "history.undo", input: "z", modifiers: ["command"], title: "Undo" };
+const REDO: Shortcut = { id: "history.redo", input: "z", modifiers: ["command", "shift"], title: "Redo" };
+const NO_SHORTCUTS: Shortcut[] = [];
+
+/**
+ * ⌘Z / ⇧⌘Z for the undo history, offered only while its toast shows Undo or Redo and no text field has the keyboard: a
+ * hardware shortcut wins over the focused field's own key, so offering it for longer would take ⌘Z from the composer.
+ */
+function useUndoShortcuts(): Shortcut[] {
+  const toast = useSyncExternalStore(undoHistory.subscribe, undoHistory.toast);
+  const open = !!toast?.button && !TextInput.State.currentlyFocusedInput();
+  const undo = open && undoHistory.canUndo();
+  const redo = open && undoHistory.canRedo();
+  return useMemo(() => (undo || redo ? [...(undo ? [UNDO] : []), ...(redo ? [REDO] : [])] : NO_SHORTCUTS), [undo, redo]);
+}
+
+/**
+ * Return on a hardware keyboard calls `onReturn` instead of adding a line, as Enter sends on desktop. Shift+Return still
+ * adds one, and so does the on-screen keyboard's return key. Call `attach` on the field's layout and focus.
+ */
+export function useReturnKey(ref: RefObject<TextInputInstance | null>, onReturn?: () => void) {
+  const target = useRef<number | null>(null);
+  const latest = useRef(onReturn);
+  const revision = useRef(0);
+  const retryFrame = useRef<number | null>(null);
+  const enabled = Boolean(onReturn);
+  useEffect(() => {
+    latest.current = onReturn;
+  }, [onReturn]);
+  const attach = useCallback(() => {
+    if (!native || !enabled) return;
+    const current = ++revision.current;
+    if (retryFrame.current !== null) cancelAnimationFrame(retryFrame.current);
+    retryFrame.current = null;
+    const attempt = (remaining: number) => {
+      if (revision.current !== current) return;
+      const tag = findNodeHandle(ref.current) ?? null;
+      const retry = () => {
+        if (revision.current !== current) return;
+        target.current = null;
+        if (remaining > 0)
+          retryFrame.current = requestAnimationFrame(() => {
+            retryFrame.current = null;
+            attempt(remaining - 1);
+          });
+      };
+      if (tag === null) {
+        if (target.current !== null) void native.detachReturnAsync(target.current).catch(() => {});
+        retry();
+        return;
+      }
+      if (target.current !== null && target.current !== tag) void native.detachReturnAsync(target.current).catch(() => {});
+      target.current = tag;
+      // Fabric can replace the backing UITextView without replacing the React tag. Bind again on focus/layout instead
+      // of treating a cached tag as proof of attachment. A layout can also arrive before the native view is registered.
+      void native.attachReturnAsync(tag).then((attached) => {
+        if (!attached) retry();
+      }, retry);
+    };
+    attempt(2);
+  }, [ref, enabled]);
+  useEffect(() => {
+    if (!native || !enabled) return;
+    const subscription = native.addListener("returnKey", (event) => {
+      if (event.target === target.current) latest.current?.();
+    });
+    attach();
+    return () => {
+      revision.current++;
+      if (retryFrame.current !== null) cancelAnimationFrame(retryFrame.current);
+      retryFrame.current = null;
+      subscription.remove();
+      if (target.current !== null) void native.detachReturnAsync(target.current).catch(() => {});
+      target.current = null;
+    };
+  }, [enabled, attach]);
+  return { attach };
+}
+
+const IS_IPAD = Platform.OS === "ios" && Platform.isPad;
+/**
+ * Taller than the bar of shortcuts an iPad shows over a hardware keyboard (about 55-70pt), shorter than any on-screen
+ * keyboard: what tells the two apart.
+ */
+const ON_SCREEN_KEYBOARD_MIN = 150;
+
+/**
+ * The return key of an iPad's on-screen keyboard sends, as Enter does on desktop. That keyboard can't say whether Shift was
+ * down, so a new line comes from a hardware keyboard's Shift+Return (or a paste): while only the shortcut bar shows, the
+ * field keeps adding lines and useReturnKey sends on Return. An iPhone's return key adds a line, as before.
+ */
+export function useOnScreenReturn(onReturn?: () => void): Pick<TextInputProps, "returnKeyType" | "submitBehavior" | "onSubmitEditing"> {
+  const onScreen = useKeyboardState((state) => state.isVisible && state.height >= ON_SCREEN_KEYBOARD_MIN);
+  if (!IS_IPAD || !onReturn) return {};
+  // The key reads Send from the start: switching its label while the keyboard is up waits for the next focus.
+  return { returnKeyType: "send", submitBehavior: onScreen ? "submit" : "newline", ...(onScreen ? { onSubmitEditing: () => onReturn() } : {}) };
+}

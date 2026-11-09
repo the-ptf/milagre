@@ -2,10 +2,8 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
-// This fixture exercises a device that has already accepted AI sharing.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";
@@ -96,18 +94,22 @@ async function browserChecks() {
     // One row per model family; the thinking levels are efforts, not rows.
     const rows = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-picker-row]')].map(el => el.textContent))`));
     const families = rows.filter((text) => text.startsWith("Gemini"));
-    assert.equal(families.length, 4, rows.join(" | "));
+    assert.equal(families.length, 2, rows.join(" | "));
+    assert.ok(
+      families.some((text) => text.startsWith("Gemini 4 Argon")),
+      rows.join(" | "),
+    );
     assert.equal(
       families.some((text) => /\((High|Medium|Low)\)/.test(text)),
       false,
       rows.join(" | "),
     );
     await shot("composer-antigravity-models");
-    await click("Gemini 3.1 Pro");
-    await modelIs("Gemini 3.1 Pro");
-    // Effort sits beside the models: a two-step slider from Low to High, and the picker stays open after a pick.
+    await click("Gemini 4 Argon");
+    await modelIs("Gemini 4 Argon");
+    // Effort sits beside the models: a three-step slider from Low to High, and the picker stays open after a pick.
     await waitFor(`!!document.querySelector('[data-model-settings] [role="slider"]')`);
-    assert.equal(await evaluate(`document.querySelector('[data-model-settings] [role="slider"]').getAttribute('aria-valuemax')`), "1");
+    assert.equal(await evaluate(`document.querySelector('[data-model-settings] [role="slider"]').getAttribute('aria-valuemax')`), "2");
     assert.match(await evaluate(`document.querySelector('[data-model-settings]').textContent`), /Low.*High/);
     await shot("composer-antigravity-effort");
     await click("Claude");
@@ -118,8 +120,8 @@ async function browserChecks() {
     await click("Full");
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem('milagre-settings')).defaultPermissionMode`), "full");
     await click("main");
-    await waitFor(`!!document.querySelector('input[placeholder="Search worktrees"]')`);
-    await evaluate(`document.querySelector('input[placeholder="Search worktrees"]').focus()`);
+    await waitFor(`!!document.querySelector('input[placeholder="Search Worktrees"]')`);
+    await evaluate(`document.querySelector('input[placeholder="Search Worktrees"]').focus()`);
     const key = (name) =>
       evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(name)}, bubbles: true, cancelable: true }))`);
     await key("ArrowDown");
@@ -132,14 +134,14 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.activeElement.textContent.includes('develop')`), true, "Up wraps to the last worktree");
     async function searchWorktrees(query) {
       await evaluate(`(() => {
-        const input = document.querySelector('input[placeholder="Search worktrees"]');
+        const input = document.querySelector('input[placeholder="Search Worktrees"]');
         input.focus();
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(query)});
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
     }
     await searchWorktrees("no-matching-branch");
-    await waitFor(`document.body.textContent.includes('No worktrees found.')`);
+    await waitFor(`document.body.textContent.includes('No Worktrees found')`);
     await key("ArrowDown");
     await key("ArrowUp");
     await searchWorktrees("dev");
@@ -147,18 +149,18 @@ async function browserChecks() {
     await key("ArrowDown");
     assert.equal(await evaluate(`document.activeElement.textContent.includes('develop')`), true, "Navigation follows the filtered results");
     await key("Enter");
-    await waitFor(`!document.querySelector('input[placeholder="Search worktrees"]')`);
+    await waitFor(`!document.querySelector('input[placeholder="Search Worktrees"]')`);
     await newChat();
     await waitFor(`document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`);
     await click("Local");
-    await click("New worktree");
+    await click("New Worktree");
     await click("develop");
     await click("main");
     await click("main");
     await click("develop");
     await newChat();
     await waitFor(
-      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
+      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
     );
     await new Promise((resolve) => {
       window.webContents.once("did-finish-load", resolve);
@@ -168,12 +170,12 @@ async function browserChecks() {
     await newChat();
     await modelIs("Opus 5.5");
     await waitFor(
-      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
+      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
     );
     await waitFor(`document.querySelector('[aria-label="Agent permissions"]').textContent === "Full"`);
     await evaluate(`(() => {
-      const input = document.querySelector('textarea[aria-label="Prompt"]');
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'First prompt');
+      const input = document.querySelector('[data-prompt-editor]');
+      input.value = 'First prompt';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
     await waitFor(`!document.querySelector('[aria-label="Send"]').disabled`);
@@ -183,12 +185,12 @@ async function browserChecks() {
     await waitFor(`document.querySelector('[aria-label="Conversation"]')?.textContent.includes('First prompt')`);
     await evaluate(`window.failWorktree()`);
     await waitFor(`document.body.textContent.includes('Could not create the worktree')`);
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "First prompt");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "First prompt");
     await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
     await delay(50);
     await evaluate(`window.finishWorktree()`);
     await waitFor(`!document.querySelector('[data-new-chat-pickers]')`);
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "");
     assert.equal(await evaluate(`document.querySelector('[aria-label="Conversation"]').textContent.includes('First prompt')`), true);
     console.log("PASS: first send shows the message while preparing and preserves the draft on failure");
     console.log("PASS: new chats follow Settings, remember explicit selections, and restore them after reload");
@@ -214,7 +216,7 @@ async function main() {
           if (id === "/__chat_selections_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__chat_selections__") return next();
             const html = await server.transformIndexHtml(
               request.url,

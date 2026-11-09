@@ -32,7 +32,8 @@ async function fixture(t, options = {}) {
     git("commit", "-qm", "Initial");
     await registry.add(await resolveProject(folder));
   }
-  const projects = await registry.list();
+  // In the Link as api, then web: aliases and branch suffixes follow this order.
+  const projects = (await registry.list()).sort((a, b) => a.name.localeCompare(b.name));
   const link = await registry.createProjectGroup({ name: "Food", projectIds: projects.map((p) => p.id) });
   const dataDir = path.join(root, "profile");
   const store = createLinkStore({ dataDir });
@@ -41,66 +42,69 @@ async function fixture(t, options = {}) {
   const workspaces = createLinkWorkspaces({ store, registry, root: path.join(root, "worktrees"), ownProject: async (p) => owned.push(p), ...options });
   return { root, projects, link, store, dataDir, owned, workspaces, registry };
 }
-const member = (workspaces, link, chatId, project) => workspaces.prepareLinkMember({ linkId: link.id, chatId, project });
-test("a Chat makes no Worktree until a Project is changed, then reuses that one; a new Chat owns another set", async (t) => {
-  const { link, store, dataDir, workspaces, owned } = await fixture(t);
-  const request = { link, chatId: 1, prompt: "change both", operationId: randomUUID() };
-  const first = await workspaces.prepareLinkChat(request);
-  assert.deepEqual(first.worktrees, []);
-  assert.deepEqual(first.projects.map((project) => project.projectName).sort(), ["api", "web"]);
-  assert.deepEqual(owned, [], "reserving a Chat takes no repository");
-  assert.deepEqual(await workspaces.prepareLinkChat(request), first);
-  const api = await member(workspaces, link, 1, "API");
-  assert.equal(api.created, true);
-  assert.equal(api.member.projectName, "api");
-  assert.deepEqual(
-    api.worktrees.map((item) => item.projectName),
-    ["api"],
-  );
-  assert.equal(await fs.realpath(path.join(first.workspacePath, api.member.alias)), api.member.worktreePath);
-  await assert.rejects(
-    fs.lstat(path.join(first.workspacePath, first.projects.find((project) => project.projectName === "web").alias)),
-    { code: "ENOENT" },
-    "the untouched Project has no Worktree",
-  );
-  const again = await member(workspaces, link, 1, api.member.alias);
+// A new Chat's workspace, its session saved as link:send does, and both Projects given their Worktrees.
+async function readyChat(link, store, workspaces, request) {
+  const prepared = await workspaces.prepareLinkChat(request);
+  await store.update(link.id, (state) => ({
+    ...state,
+    sessions: { ...state.sessions, [request.chatId]: { id: request.chatId, workspacePath: prepared.workspacePath, worktrees: prepared.worktrees } },
+  }));
+  return prepared;
+}
+const addBoth = async (link, workspaces, chatId) => {
+  const members = [];
+  for (const project of ["api", "web"]) members.push((await workspaces.addLinkWorktree({ link, chatId, project })).member);
+  return members;
+};
+test("a new Chat gets its workspace without creating a Worktree in any Project", async (t) => {
+  const { link, store, workspaces, owned, projects } = await fixture(t);
+  const prepared = await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "change api", operationId: randomUUID() });
+  assert.deepEqual(prepared.worktrees, []);
+  assert.deepEqual(owned, []);
+  assert.ok((await fs.stat(prepared.workspacePath)).isDirectory());
+  for (const project of projects) assert.equal(execFileSync("git", ["-C", project.path, "worktree", "list"]).toString().trim().split("\n").length, 1);
+});
+test("a Project gets its Worktree when the Chat asks, once; the others stay untouched", async (t) => {
+  const { link, store, dataDir, workspaces, owned, projects } = await fixture(t);
+  const request = { link, chatId: 1, prompt: "change api", operationId: randomUUID() };
+  const prepared = await readyChat(link, store, workspaces, request);
+  const { member, created } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "API" });
+  assert.equal(created, true);
+  assert.equal(member.projectName, "api");
+  assert.equal(member.alias, "api-1");
+  assert.equal(await fs.realpath(path.join(prepared.workspacePath, member.alias)), member.worktreePath);
+  assert.deepEqual(owned, [projects[0].path]);
+  const again = await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" });
   assert.equal(again.created, false);
-  assert.equal(again.member.worktreePath, api.member.worktreePath);
-  await assert.rejects(member(workspaces, link, 1, "mobile"), /No Project "mobile" in this Chat\. Choose one of: (api, web|web, api)\./);
-  await workspaces.prepareLinkChat({ ...request, chatId: 2, operationId: randomUUID() });
-  const other = await member(workspaces, link, 2, "api");
-  assert.notEqual(other.member.worktreePath, api.member.worktreePath);
+  assert.equal(again.member.worktreePath, member.worktreePath);
   const saved = await store.get(link.id);
+  assert.deepEqual(
+    saved.sessions[1].worktrees.map((item) => item.worktreePath),
+    [member.worktreePath],
+  );
+  assert.equal(execFileSync("git", ["-C", projects[1].path, "worktree", "list"]).toString().trim().split("\n").length, 1);
+  assert.deepEqual(await workspaces.prepareLinkChat(request), { workspacePath: prepared.workspacePath, worktrees: saved.sessions[1].worktrees });
   await store.close();
   const reopened = createLinkStore({ dataDir });
   t.after(() => reopened.close());
-  assert.deepEqual(await reopened.get(link.id), saved);
-  assert.equal((await reopened.ownedWorktrees()).size, 2);
+  assert.deepEqual((await reopened.get(link.id)).sessions, saved.sessions);
+  assert.equal((await reopened.ownedWorktrees()).size, 1);
 });
-test("a Chat prepared before Worktrees were made on demand keeps every member it made", async (t) => {
+test("an unknown Project names the Link's Projects", async (t) => {
   const { link, store, workspaces } = await fixture(t);
-  const operationId = randomUUID();
-  const legacy = {
-    operationId,
-    chatId: 1,
-    prompt: "",
-    status: "ready",
-    workspacePath: "/old/workspace",
-    members: [
-      { projectId: "a", projectPath: "/a", projectName: "api", alias: "api-1", worktreePath: "/w/api" },
-      { projectId: "b", projectPath: "/b", projectName: "web", alias: "web-2", worktreePath: "/w/web" },
-    ],
-  };
-  await store.update(link.id, (state) => ({ ...state, preparations: { [operationId]: legacy } }));
-  const read = await workspaces.chatMembers(link.id, 1);
-  assert.deepEqual(
-    read.worktrees.map((item) => item.worktreePath),
-    ["/w/api", "/w/web"],
-  );
-  assert.equal(read.projects.length, 2);
-  assert.equal((await member(workspaces, link, 1, "web")).created, false);
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "", operationId: randomUUID() });
+  await assert.rejects(workspaces.addLinkWorktree({ link, chatId: 1, project: "mobile" }), /No Project "mobile" in this Link\. Its Projects: api, web/);
 });
-test("failed setup retains a changed Worktree and names the failed Project", async (t) => {
+test("each Chat gets its own Worktree in a Project", async (t) => {
+  const { link, store, workspaces } = await fixture(t);
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "change both", operationId: randomUUID() });
+  await readyChat(link, store, workspaces, { link, chatId: 2, prompt: "change both", operationId: randomUUID() });
+  const first = await workspaces.addLinkWorktree({ link, chatId: 1, project: "web" });
+  const second = await workspaces.addLinkWorktree({ link, chatId: 2, project: "web" });
+  assert.notEqual(first.member.worktreePath, second.member.worktreePath);
+  assert.equal(first.member.alias, "web-2");
+});
+test("failed setup retains a changed Worktree, names the Project and leaves it out of the Chat", async (t) => {
   const { root, link, store, workspaces } = await fixture(t, {
     getSettings: async () => ({ setupCommand: "setup" }),
     runSetup: async ({ cwd }) => {
@@ -109,16 +113,17 @@ test("failed setup retains a changed Worktree and names the failed Project", asy
     },
   });
   const operationId = randomUUID();
-  await workspaces.prepareLinkChat({ link, chatId: 1, prompt: "", operationId });
-  await assert.rejects(member(workspaces, link, 1, "api"), /Project api: Setup failed: setup broke/);
-  const failed = (await store.get(link.id)).preparations[operationId].members[0];
-  assert.equal(failed.status, "failed");
-  assert.equal(failed.retainedPaths.length, 1);
-  assert.equal(await fs.readFile(path.join(failed.retainedPaths[0], "changed.txt"), "utf8"), "retain");
-  assert.ok(failed.retainedPaths[0].startsWith(root));
-  await assert.rejects(member(workspaces, link, 1, "api"), /Retained Worktree/, "a retained Worktree is never replaced");
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "", operationId });
+  await assert.rejects(workspaces.addLinkWorktree({ link, chatId: 1, project: "api" }), /Project api: Setup failed: setup broke/);
+  const state = await store.get(link.id);
+  const [member] = state.preparations[operationId].members;
+  assert.equal(member.retained, true);
+  assert.ok(member.worktreePath.startsWith(root));
+  assert.equal(await fs.readFile(path.join(member.worktreePath, "changed.txt"), "utf8"), "retain");
+  assert.deepEqual(state.sessions[1].worktrees, []);
+  await assert.rejects(workspaces.addLinkWorktree({ link, chatId: 1, project: "api" }), /Retained Worktree/);
 });
-test("a member that fails to be made can be made again", async (t) => {
+test("a failed creation leaves nothing behind, and asking again starts over", async (t) => {
   let calls = 0;
   const { createWorktree } = require("./worktrees.cjs");
   const { link, store, workspaces } = await fixture(t, {
@@ -128,26 +133,30 @@ test("a member that fails to be made can be made again", async (t) => {
     },
   });
   const operationId = randomUUID();
-  await workspaces.prepareLinkChat({ link, chatId: 1, prompt: "", operationId });
-  await assert.rejects(member(workspaces, link, 1, "web"), /creation failed/);
-  const failed = (await store.get(link.id)).preparations[operationId].members[0];
-  assert.deepEqual(failed.retainedPaths, []);
-  const made = await member(workspaces, link, 1, "web");
-  assert.equal(made.created, true);
-  assert.equal(made.worktrees.length, 1);
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "", operationId });
+  await assert.rejects(workspaces.addLinkWorktree({ link, chatId: 1, project: "api" }), /creation failed/);
+  assert.deepEqual((await store.get(link.id)).preparations[operationId].members, []);
+  const { member } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" });
+  assert.ok((await fs.stat(member.worktreePath)).isDirectory());
 });
-test("crash recovery verifies a member that was being made", async (t) => {
+test("crash recovery verifies a created member before finishing it", async (t) => {
   const { link, store, workspaces } = await fixture(t);
   const request = { link, chatId: 1, prompt: "", operationId: randomUUID() };
-  await workspaces.prepareLinkChat(request);
-  const made = await member(workspaces, link, 1, "api");
+  await readyChat(link, store, workspaces, request);
+  const { member } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" });
+  // Interrupt after the creation record is durably saved, before its setup was marked done.
   await store.update(link.id, (state) => {
     const prep = state.preparations[request.operationId];
-    return { ...state, preparations: { ...state.preparations, [request.operationId]: { ...prep, members: [{ ...prep.members[0], status: "reserved" }] } } };
+    return { ...state, preparations: { ...state.preparations, [request.operationId]: { ...prep, members: [{ ...prep.members[0], setupDone: false }] } } };
   });
   await store.flush(link.id);
   await workspaces.recoverLinkPreparations(link.id);
-  assert.deepEqual((await workspaces.chatMembers(link.id, 1)).worktrees, made.worktrees);
+  const state = await store.get(link.id);
+  assert.equal(state.preparations[request.operationId].members[0].setupDone, true);
+  assert.deepEqual(
+    state.sessions[1].worktrees.map((item) => item.worktreePath),
+    [member.worktreePath],
+  );
 });
 test("Project reconciliation references a shared Chat without a local starter", () => {
   const owned = new Map([["/work/api", { linkId: randomUUID(), sessionId: 4 }]]);
@@ -158,36 +167,31 @@ test("Project reconciliation references a shared Chat without a local starter", 
 test("recovery retains an interrupted setup even when its changed files are ignored", async (t) => {
   const { link, store, workspaces } = await fixture(t);
   const request = { link, chatId: 1, prompt: "recover", operationId: randomUUID() };
-  await workspaces.prepareLinkChat(request);
-  const { member: made } = await member(workspaces, link, 1, "api");
-  await fs.writeFile(path.join(made.projectPath, ".git", "info", "exclude"), ".env\n");
-  await fs.writeFile(path.join(made.worktreePath, ".env"), "keep this setup output");
+  await readyChat(link, store, workspaces, request);
+  const { member } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" });
+  await fs.writeFile(path.join(member.projectPath, ".git", "info", "exclude"), ".env\n");
+  await fs.writeFile(path.join(member.worktreePath, ".env"), "keep this setup output");
   await store.update(link.id, (state) => {
     const prep = state.preparations[request.operationId];
     return {
       ...state,
       preparations: {
         ...state.preparations,
-        [request.operationId]: {
-          ...prep,
-          members: prep.members.map((item) => ({ ...item, status: "reserved", setupCommand: "setup", setupStarted: true, setupDone: false })),
-        },
+        [request.operationId]: { ...prep, members: [{ ...prep.members[0], setupCommand: "setup", setupStarted: true, setupDone: false }] },
       },
     };
   });
   await store.flush(link.id);
   await assert.rejects(workspaces.recoverLinkPreparations(link.id), /interrupted/);
-  const failed = (await store.get(link.id)).preparations[request.operationId].members[0];
-  assert.ok(failed.retainedPaths.includes(made.worktreePath));
-  assert.equal(await fs.readFile(path.join(made.worktreePath, ".env"), "utf8"), "keep this setup output");
+  const [failed] = (await store.get(link.id)).preparations[request.operationId].members;
+  assert.equal(failed.retained, true);
+  assert.equal(await fs.readFile(path.join(member.worktreePath, ".env"), "utf8"), "keep this setup output");
 });
 test("a linked Worktree stays available after its agent switches it to another branch", async (t) => {
   const { createChatScopes } = require("./chat-scopes.cjs");
   const { link, store, workspaces } = await fixture(t);
-  await workspaces.prepareLinkChat({ link, chatId: 1, prompt: "change both", operationId: randomUUID() });
-  await member(workspaces, link, 1, "api");
-  const ready = await member(workspaces, link, 1, "web");
-  await store.update(link.id, (state) => ({ ...state, sessions: { 1: { id: 1, workspacePath: ready.workspacePath, worktrees: ready.worktrees } } }));
+  const ready = await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "change both", operationId: randomUUID() });
+  ready.worktrees = await addBoth(link, workspaces, 1);
   const scopes = createChatScopes({ projects: null, links: store, validateLink: async () => {} });
   const key = scopeKey({ kind: "link", linkId: link.id });
   assert.equal((await scopes.executionContext(key, 1)).cwd, ready.workspacePath);
@@ -195,4 +199,109 @@ test("a linked Worktree stays available after its agent switches it to another b
   assert.equal((await scopes.executionContext(key, 1)).cwd, ready.workspacePath);
   await fs.rm(path.join(ready.workspacePath, ready.worktrees[1].alias));
   await assert.rejects(scopes.executionContext(key, 1), /its shared Worktree is unavailable/);
+});
+test("a Chat's agent reads the Projects it hasn't changed and owns the ones it has", async (t) => {
+  const { createChatScopes } = require("./chat-scopes.cjs");
+  const { link, store, workspaces, projects } = await fixture(t);
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "", operationId: randomUUID() });
+  const scopes = createChatScopes({ projects: null, links: store, validateLink: async () => projects });
+  const key = scopeKey({ kind: "link", linkId: link.id });
+  const before = await scopes.executionContext(key, 1);
+  assert.deepEqual(before.workspaceRoots, []);
+  assert.deepEqual(before.readOnlyRoots, [projects[0].path, projects[1].path]);
+  assert.match(before.workspaceInstructions, /No Project has a Worktree in this Chat yet/);
+  assert.match(before.workspaceInstructions, /link_worktree_create/);
+  const { member } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "web" });
+  const after = await scopes.executionContext(key, 1);
+  assert.deepEqual(after.workspaceRoots, [member.worktreePath]);
+  assert.deepEqual(after.readOnlyRoots, [projects[0].path]);
+  assert.match(after.workspaceInstructions, new RegExp(`web-2: ${member.worktreePath}`));
+});
+test("a deferred setup leaves its review for later and the Worktree is the Chat's at once", async (t) => {
+  const deferred = [];
+  const { link, store, workspaces } = await fixture(t, {
+    getSettings: async () => ({ setupCommand: "setup" }),
+    runSetup: async () => assert.fail("A deferred setup must not run here"),
+    deferSetup: async (request) => deferred.push(request),
+  });
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "", operationId: randomUUID() });
+  const { member } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" });
+  assert.equal(member.setupDeferred, true);
+  assert.deepEqual(
+    deferred.map((request) => [request.worktreePath, request.resolved.command, request.strict]),
+    [[member.worktreePath, "setup", true]],
+  );
+  assert.deepEqual(
+    (await store.get(link.id)).sessions[1].worktrees.map((item) => item.worktreePath),
+    [member.worktreePath],
+  );
+  assert.equal((await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" })).created, false);
+});
+
+test("a deleted Link's release keeps unpushed commits, edited copied files and cut-short setups, and makes nothing after", async (t) => {
+  const { link, store, workspaces, projects } = await fixture(t);
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "clean", operationId: randomUUID() });
+  const [cleanApi, committedWeb] = await addBoth(link, workspaces, 1);
+  await readyChat(link, store, workspaces, { link, chatId: 2, prompt: "copied", operationId: randomUUID() });
+  const [copiedApi, cutWeb] = await addBoth(link, workspaces, 2);
+  // A commit not pushed anywhere, in a Worktree whose base was reserved as "HEAD" (a repo with no main or master).
+  execFileSync("git", ["-C", committedWeb.worktreePath, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "Work"]);
+  // api's .env is a copied file git ignores: unchanged in one Worktree, edited in the other.
+  const api = projects.find((project) => project.name === "api");
+  await fs.appendFile(path.join(api.path, ".git", "info", "exclude"), "\n.env\n");
+  await fs.writeFile(path.join(api.path, ".env"), "TOKEN=original\n");
+  await fs.writeFile(path.join(cleanApi.worktreePath, ".env"), "TOKEN=original\n");
+  await fs.writeFile(path.join(copiedApi.worktreePath, ".env"), "TOKEN=edited\n");
+  const patch = (member) =>
+    member.worktreePath === committedWeb.worktreePath
+      ? { ...member, base: "HEAD" }
+      : member.worktreePath === cutWeb.worktreePath
+        ? { ...member, setupStarted: true, setupDone: false }
+        : member;
+  await store.update(link.id, (state) => ({
+    ...state,
+    preparations: Object.fromEntries(Object.entries(state.preparations).map(([id, prep]) => [id, { ...prep, members: prep.members.map(patch) }])),
+    sessions: Object.fromEntries(Object.entries(state.sessions).map(([id, session]) => [id, { ...session, worktrees: session.worktrees.map(patch) }])),
+  }));
+
+  const { removed, kept } = await workspaces.releaseLinkWorktrees(link.id);
+  assert.deepEqual(
+    removed.map((member) => member.worktreePath),
+    [cleanApi.worktreePath],
+  );
+  assert.deepEqual(kept.map((member) => member.worktreePath).sort(), [committedWeb.worktreePath, copiedApi.worktreePath, cutWeb.worktreePath].sort());
+  // The commits were counted against the commit the Worktree started from, which its Project checks against later too.
+  assert.equal(kept.find((member) => member.worktreePath === committedWeb.worktreePath).checkedBase, committedWeb.initialCommit);
+  for (const member of kept) assert.ok((await fs.stat(member.worktreePath)).isDirectory());
+  await assert.rejects(fs.stat(cleanApi.worktreePath), { code: "ENOENT" });
+  assert.equal(execFileSync("git", ["-C", api.path, "branch", "--list", cleanApi.branch]).toString().trim(), "");
+  // Nothing new is made for the Link once its Worktrees are released.
+  await assert.rejects(workspaces.addLinkWorktree({ link, chatId: 2, project: "web" }), /being deleted/);
+  await assert.rejects(workspaces.prepareLinkChat({ link, chatId: 3, prompt: "late", operationId: randomUUID() }), /being deleted/);
+});
+
+test("a Named Link applies each member Project's own Git rules and default base", async (t) => {
+  const { link, store, workspaces, projects } = await fixture(t);
+  for (const [index, project] of projects.entries()) {
+    execFileSync("git", ["-C", project.path, "branch", "release/example-app/v2"]);
+    await fs.mkdir(path.join(project.path, ".milagre"), { recursive: true });
+    await fs.writeFile(
+      path.join(project.path, ".milagre/worktree.json"),
+      JSON.stringify({
+        git: {
+          template: `${index ? "web" : "api"}-{ticket?}-{slug}`,
+          dashesOnly: true,
+          baseBranch: "release/example-app/v2",
+          trackBase: false,
+        },
+      }),
+    );
+  }
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "DEMO-123 fix login", operationId: randomUUID() });
+  const members = await addBoth(link, workspaces, 1);
+  for (const [index, member] of members.entries()) {
+    assert.match(member.branch, new RegExp(`^${index ? "web" : "api"}-demo-123-`));
+    assert.equal(member.base, "release/example-app/v2");
+    assert.equal(execFileSync("git", ["-C", member.worktreePath, "branch", "--show-current"], { encoding: "utf8" }).trim(), member.branch);
+  }
 });

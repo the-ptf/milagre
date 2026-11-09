@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const long = "fix/a-very-long-branch-name-with-a-common-prefix-but-a-different-ending";
 const fixture = `
 import React, { useState } from 'react';
@@ -17,7 +18,8 @@ function Fixture() {
   const [isolation, setIsolation] = useState('worktree');
   const [baseBranch, setBaseBranch] = useState('main');
   const [selectedWorktreeId, setWorktree] = useState(1);
-  return <div style={{ padding: 40 }}><NewChatHeader worktrees={worktrees} branches={branches} isolation={isolation} onIsolationChange={setIsolation} baseBranch={baseBranch} onBaseBranchChange={setBaseBranch} selectedWorktreeId={selectedWorktreeId} onWorktreeChange={setWorktree} /></div>;
+  // At the bottom, as above the composer, so the pickers open upward.
+  return <div style={{ position: 'fixed', left: 40, right: 40, bottom: 40 }}><NewChatHeader worktrees={worktrees} branches={branches} isolation={isolation} onIsolationChange={setIsolation} baseBranch={baseBranch} onBaseBranchChange={setBaseBranch} selectedWorktreeId={selectedWorktreeId} onWorktreeChange={setWorktree} /></div>;
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
 `;
@@ -76,11 +78,11 @@ async function checks() {
     await evaluate(`document.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
     await waitFor(`!document.querySelector('input')`);
     assert.equal(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('ending-two')`), true);
-    await click("New worktree");
+    await click("New Worktree");
     await waitFor(`document.querySelectorAll('[data-picker-row]').length === 2`);
     await evaluate(`[...document.querySelectorAll('[data-picker-row]')].find(row => row.textContent.includes('Local')).click()`);
     await click("main");
-    await waitFor(`!!document.querySelector('input[placeholder="Search worktrees"]')`);
+    await waitFor(`!!document.querySelector('input[placeholder="Search Worktrees"]')`);
     await type("ending-one");
     await waitFor(`document.querySelectorAll('[data-picker-row]').length === 1`);
     await screenshot("desktop-worktrees");
@@ -114,7 +116,7 @@ async function main() {
           if (id === "/__branch_picker_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__branch_picker__") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

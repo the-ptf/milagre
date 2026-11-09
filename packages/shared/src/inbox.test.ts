@@ -91,3 +91,28 @@ test("working preview follows the active step, then the streaming reply, with a 
   run.text = "a".repeat(500);
   assert.equal(attention.inboxSnapshot(scopes as any, { "/p#1": run } as any).agents[0].preview?.length, 240);
 });
+
+test("a hidden Run Chat stays out of the inbox unless it waits or failed", () => {
+  const routine = { routineId: "r", runId: "u", hidden: true };
+  const scopes = (extra: object, lastOutcome: string) => [
+    { path: "/p", name: "P", state: { sessions: { 1: { id: 1, routine, unread: true, summary: { lastOutcome, lastAt: 5 }, ...extra } }, messages: [] } },
+  ];
+  const statuses = (snapshot: any) => snapshot.items.map((item: any) => item.status);
+  assert.deepEqual(statuses((attention as any).inboxSnapshot(scopes({}, "completed"))), []);
+  assert.deepEqual(
+    statuses((attention as any).inboxSnapshot(scopes({}, "completed"), { "/p#1": { approvals: [{ requestId: "a", title: "Run tests" }], questions: [] } })),
+    ["approval"],
+  );
+  assert.deepEqual(
+    statuses(
+      (attention as any).inboxSnapshot(scopes({}, "completed"), {
+        "/p#1": { approvals: [], questions: [{ requestId: "q", questions: [{ id: "x", question: "Which?" }] }] },
+      }),
+    ),
+    ["question"],
+  );
+  assert.deepEqual(statuses((attention as any).inboxSnapshot(scopes({}, "failed"))), ["failed"]);
+  // A Chat made before hiding, or one that is not hidden, is listed as before.
+  const listed = scopes({ routine: { routineId: "r", runId: "u" } }, "completed");
+  assert.deepEqual(statuses((attention as any).inboxSnapshot(listed)), ["completed"]);
+});

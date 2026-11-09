@@ -53,6 +53,24 @@ test("steering an active turn preserves request deduplication", async (t) => {
   await push.settled();
   assert.equal(messages.length, 1);
 });
+test("a quiet chat sends approvals but no completion", async (t) => {
+  const { push, messages } = await fixture(t, { isQuietChat: (id) => id === chatId });
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  push.observe(chatId, { type: "permission-resolved", requestId: approval.requestId, decision: "allow" });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].body, /ls/);
+  // Another Chat still announces its end.
+  push.observe("/project#2", { type: "turn-started" });
+  push.observe("/project#2", { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 2);
+});
+
 async function fixture(t, options = {}) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-push-"));
   const messages = [];
@@ -161,6 +179,38 @@ test("focus suppresses only the viewing device and expires after 15 seconds", as
   assert.equal(messages.length, 5);
 });
 
+test("a phone's view counts as the Chat being open, until it expires", async (t) => {
+  let clock = 1000;
+  const { push } = await fixture(t, { now: () => clock });
+  await push.register(registration());
+  assert.equal(push.viewing(chatId), false);
+  push.focus({ deviceId, chatId });
+  assert.equal(push.viewing(chatId), true);
+  assert.equal(push.viewing("/project#2"), false);
+  clock += 16_000;
+  assert.equal(push.viewing(chatId), false);
+});
+
+test("a Chat open in a focused desktop window reaches no phone", async (t) => {
+  let viewed = chatId;
+  const { push, messages } = await fixture(t, { isChatFocused: (id) => id === viewed });
+  await push.register(registration());
+  push.observe(chatId, approval);
+  push.observe("/project#2", approval);
+  await push.settled();
+  assert.deepEqual(
+    messages.map((message) => message.data.sessionId),
+    [2],
+  );
+  viewed = null;
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.deepEqual(
+    messages.map((message) => message.data.sessionId),
+    [2, 1],
+  );
+});
+
 test("preferences, token rotation and unregister are private and survive restart", async (t) => {
   const { push, dataDir, messages } = await fixture(t);
   await push.register(registration({ notifyWhenWaiting: false }));
@@ -186,6 +236,34 @@ test("preferences, token rotation and unregister are private and survive restart
   await second.settled();
   assert.equal(messages.length, 1);
   assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")), []);
+  await second.close();
+});
+
+test("a phone's chime picks its push sound and Android channel, and survives a restart", async (t) => {
+  const { push, dataDir, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  assert.equal(messages[0].sound, "default");
+  assert.equal(messages[0].channelId, "chats");
+  await push.register(registration({ chime: "bombastic-side-eye" }));
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages[1].sound, "chime_bombastic_side_eye.wav");
+  assert.equal(messages[1].channelId, "chats-bombastic_side_eye");
+  const second = createMobilePush({ dataDir, send: async (message) => messages.push(message), context: async () => ({ projectName: "Project" }) });
+  await second.load();
+  second.observe(chatId, { type: "turn-started" });
+  second.observe(chatId, { type: "turn-completed" });
+  await second.settled();
+  assert.equal(messages.at(-1).sound, "chime_bombastic_side_eye.wav");
+  // A chime a newer phone added, unknown here, plays the system sound.
+  await second.register(registration({ chime: "air-horn" }));
+  second.observe(chatId, { type: "turn-started" });
+  second.observe(chatId, { type: "turn-completed" });
+  await second.settled();
+  assert.equal(messages.at(-1).sound, "default");
   await second.close();
 });
 
@@ -323,6 +401,33 @@ test("a turn that ends while a background subagent runs is held; the turn its re
   assert.equal(messages.length, 3);
 });
 
+test("a stopped turn announces nothing, even once its background subagent ends; a running advisor holds a completion too", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  const agent = (id, status, extra = { background: true }) => ({
+    type: "subagent-update",
+    agent: { id, title: "Review", status, ...extra, startedAt: 1, updatedAt: 1, transcript: [] },
+  });
+  push.observe(chatId, { type: "turn-started", turnId: "t1" });
+  push.observe(chatId, agent("a", "running"));
+  push.observe(chatId, { type: "turn-cancelled" });
+  push.observe(chatId, agent("a", "cancelled"));
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "t2" });
+  push.observe(chatId, agent("advisor", "running", { source: "milagre-advisor" }));
+  push.observe(chatId, { type: "text-delta", text: "Asked an advisor." });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, agent("advisor", "completed", { source: "milagre-advisor" }));
+  await push.settled();
+  assert.deepEqual(
+    messages.map((message) => message.body),
+    ["Asked an advisor."],
+  );
+});
+
 test("phone completion notifications summarize the latest reply without project or branch labels", async (t) => {
   const { push, messages } = await fixture(t);
   await push.register(registration());
@@ -368,4 +473,112 @@ test("phone previews preserve paragraphs and shell patterns in approvals", async
   push.observe(chatId, { type: "turn-completed" });
   await push.settled();
   assert.equal(messages[1].body, "Login fixed. Tests passed.");
+});
+
+// A heartbeat whose reply was a "(pass)" ends quiet: nothing to tell the phone about.
+test("a quiet turn sends no completion push; the same turn without quiet sends one", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started", turnId: "beat-1" });
+  push.observe(chatId, { type: "text-delta", text: "(pass) CI green" });
+  push.observe(chatId, { type: "turn-completed", quiet: true });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "beat-2" });
+  push.observe(chatId, { type: "text-delta", text: "CI failed, fixing." });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].body, "CI failed, fixing.");
+});
+
+// A heartbeat that fails again after a failed beat is marked quiet too: one push for a broken heartbeat, not one per beat.
+test("a quiet failed turn sends no push; a failed turn without quiet sends one", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started", turnId: "beat-1" });
+  push.observe(chatId, { type: "turn-failed", message: "Claude Code isn't installed.", quiet: true });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "beat-2" });
+  push.observe(chatId, { type: "turn-failed", message: "Claude Code isn't installed." });
+  await push.settled();
+  assert.equal(messages.length, 1);
+});
+
+test("a saved phone schedule suppresses quiet hours, permits work hours, and survives reload", async (t) => {
+  let clock = Date.parse("2026-10-21T12:59Z");
+  const { push, messages, dataDir } = await fixture(t, { now: () => clock });
+  const schedule = { days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone: "America/Toronto" };
+  assert.equal((await push.register(registration({ schedule }))).registered, true);
+  await push.load();
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dataDir, "mobile-push.json"), "utf8"))[0].schedule, schedule);
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  clock = Date.parse("2026-10-21T13:00Z");
+  await push.settled();
+  assert.equal(messages.length, 0, "quiet notifications are never replayed");
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 2);
+});
+
+test("a queued phone push rechecks the window before network delivery", async (t) => {
+  let clock = Date.parse("2026-10-21T20:59Z");
+  let eligible;
+  const { push } = await fixture(t, {
+    now: () => clock,
+    send: async (_message, current) => {
+      eligible = current;
+    },
+  });
+  await push.register(registration({ schedule: { days: [3], start: "09:00", end: "17:00", timeZone: "America/Toronto" } }));
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  assert.equal(eligible(), true);
+  clock = Date.parse("2026-10-21T21:00Z");
+  assert.equal(eligible(), false);
+  await assert.rejects(push.register(registration({ schedule: { days: [] } })), /Invalid notification schedule/);
+});
+
+test("quiet-hour events stay quiet if metadata resolves after the window opens", async (t) => {
+  let clock = Date.parse("2026-10-21T12:59Z");
+  let release;
+  const metadata = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { push, messages } = await fixture(t, { now: () => clock, context: () => metadata });
+  await push.register(registration({ schedule: { days: [3], start: "09:00", end: "17:00", timeZone: "America/Toronto" } }));
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  clock = Date.parse("2026-10-21T13:00Z");
+  release({ chatTitle: "Login", provider: "codex" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+});
+
+test("a Routine flow notice reaches devices that want waiting notices, never one viewing its Chat", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.notice(chatId, { title: "Issue to PR", body: "Issue to PR waits for you: Open pull request" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].title, "Issue to PR");
+  assert.equal(messages[0].data.sessionId, 1);
+  push.focus({ deviceId, chatId });
+  push.notice(chatId, { title: "Issue to PR", body: "again" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  await push.register(registration({ notifyWhenWaiting: false }));
+  push.notice("/project#2", { title: "x", body: "y" });
+  await push.settled();
+  assert.equal(messages.length, 1);
 });

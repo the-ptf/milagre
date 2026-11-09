@@ -1,38 +1,156 @@
-import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { useDictationShortcut } from "./dictation-shortcut";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import * as Font from "expo-font";
+import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
+import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { matchingMentionChats, matchingMentionComputers, type MentionChat, type MentionComputer, editImageMentions } from "@milagre/shared/prompt-mentions";
+import { withAlpha } from "@milagre/shared/themes";
+import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
 import type { Client } from "./client";
+import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
-import { Field, ListRow, PageScroll } from "./ui";
+import { Field, ListRow, PageScroll, SectionLabel, useAnnounce, useStyles } from "./ui";
+import { duration, easing, lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
+import { useOnScreenReturn, useReturnKey } from "./hardware-keys";
 import type { PastedImage } from "./attachment-picker";
+import {
+  NOTICE_SECONDS,
+  provisionalRange,
+  correctTake,
+  takeRange,
+  revertTake,
+  splitProvisional,
+  startTake,
+  writeTake,
+  type DictationTake,
+  type Selection as TextRange,
+} from "@milagre/shared/voice-dictation";
+import { useVoiceDictation } from "./voice-dictation-hook";
+import { useDictationAction } from "./chat-display-setting";
+import { CAPSULE_INSET, CAPSULE_WIDTH, DictationCapsule, MIC_INSET, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { DictationNotice } from "./dictation-notice";
 
-const OPEN_SKILLS = FadeInDown.duration(140)
-  .easing(Easing.bezier(0.23, 1, 0.32, 1))
-  .withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] })
-  .reduceMotion(ReduceMotion.System);
+const NO_CHATS: readonly MentionChat[] = [];
+const NO_COMPUTERS: readonly MentionComputer[] = [];
+const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
+// Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
+// nothing, so `[Image #1]` reads as an image chip in a field that can only style its own characters. Loaded at runtime,
+// so it ships over the air.
+const GLYPHS = "MilagreChipGlyphs";
+const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
+// The mic sits over the field's trailing edge; the text stops short of it, 8pt before the mic and 6pt before the capsule.
+const MIC_ROOM = MIC_INSET.right + MIC_SIZE + 8;
+const CAPSULE_ROOM = CAPSULE_INSET.right + CAPSULE_WIDTH + 6;
+
+function useChipGlyphs() {
+  const [ready, setReady] = useState(() => Font.isLoaded(GLYPHS));
+  useEffect(() => {
+    if (ready) return;
+    let live = true;
+    Font.loadAsync(GLYPH_FONT)
+      .then(() => live && setReady(true))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [ready]);
+  return ready;
+}
+
+/** A lookup answer versions the mutable known-file cache without changing the draft or its selection. */
+function readMarks(draft: string, options: Parameters<typeof promptParts>[1], lookups: number) {
+  return { lookups, parts: promptParts(draft, options) };
+}
+
+const openSkills = (scale: number) =>
+  scale <= 0
+    ? undefined
+    : FadeInDown.duration(Math.round(duration.fast * scale))
+        .easing(Easing.bezier(...easing.enter))
+        .withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] })
+        .reduceMotion(ReduceMotion.System);
 
 /** Native attributed text keeps skill colors in the editable input, including wrapped/scrolled lines. */
 export function PromptField({
   client,
+  chats = NO_CHATS,
+  computers = NO_COMPUTERS,
+  currentId,
   projectPath,
+  skillScope,
   draft,
   onChangeText,
   onImagePaste,
+  commands,
+  known,
+  images = 0,
+  onMention,
+  onSubmit,
+  onFocus,
+  onBlur,
+  placeholder = "Message the agent",
+  suggestion,
+  onAcceptSuggestion,
+  chatTitle,
+  provider,
+  focusRequest = 0,
+  onTouchStart,
 }: {
+  chats?: readonly MentionChat[];
+  /** The computers an `@` can name; offered only with more than this one. */
+  computers?: readonly MentionComputer[];
+  currentId?: number;
   client: Client;
   projectPath: string;
+  /** Where skills are read, when not `projectPath`: a Link's key, or a shared Chat's own folder. */
+  skillScope?: string;
   draft: string;
   onChangeText: (value: string) => void;
   onImagePaste?: (image: PastedImage) => void;
+  /** Milagre's own slash commands, offered with the skills: `/undo` in a saved Chat. */
+  commands?: { name: string; description: string }[];
+  /** Which typed `@path`s name a Project file (asked of the Mac as they are typed): those are tinted like skills. */
+  known?: KnownFiles;
+  /** Number of attached images, so `[Image #N]` tokens tint inline like file mentions. */
+  images?: number;
+  /** Called with a picked file's path relative to the Project; the screen attaches it. */
+  onMention?: (path: string) => void;
+  /** Return on a hardware keyboard; Shift+Return and the on-screen keyboard still add a line. */
+  onSubmit?: () => void;
+  /** The field took the keyboard (an iPad split gives the keyboard to this pane). */
+  onFocus?: () => void;
+  /** The field gave the keyboard up. */
+  onBlur?: () => void;
+  placeholder?: string;
+  suggestion?: string;
+  onAcceptSuggestion?: (text: string) => void;
+  /** The Chat's title and agent: dictation's fix-up asks that agent, with the title as context. */
+  chatTitle?: string;
+  provider?: string;
+  /** Each new value takes the keyboard with the caret at the end of the draft (Ask from a message selection). */
+  focusRequest?: number;
+  /** A finger came down on the field, before it focuses and the keyboard starts to open. */
+  onTouchStart?: () => void;
 }) {
-  const { colors } = useTheme();
+  const { colors, motionScale, typeScale } = useTheme();
+  const styles = useStyles();
+  // Text size scales the composer too; 16 stays 16 at the default step.
+  const inputSize = Math.round(16 * typeScale);
+  // The menus sit inside the translucent glass composer; an opaque surface keeps the transcript from showing through the rows.
+  const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
-  const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
-  const skills = data?.skills;
+  const enter = useReturnKey(paste.ref, onSubmit);
+  const onScreenReturn = useOnScreenReturn(onSubmit);
+  const glyphs = useChipGlyphs();
+  const { data, loading, error, refresh } = useRpc<SkillCatalog>((skillScope ?? projectPath) ? client : null, "skills:list", [skillScope ?? projectPath]);
+  const skillList = data?.skills;
+  const skills = useMemo(() => (commands?.length ? [...commands, ...(skillList ?? [])] : skillList), [commands, skillList]);
   const parts = useMemo(
     () =>
       promptSkillParts(
@@ -41,14 +159,208 @@ export function PromptField({
       ),
     [draft, skills],
   );
-  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [selection, setSelection] = useState({ start: draft.length, end: draft.length });
   const [focused, setFocused] = useState(false);
+  // This computer alone is no choice: computers join the @ menu once there is another one to name.
+  const nameable = computers.length > 1 ? computers : NO_COMPUTERS;
+  const typing = (onMention || chats.length || nameable.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
+  const lookups = useMentionLookups(client, projectPath, draft, known, typing);
+  const { parts: marks } = useMemo(
+    () =>
+      readMarks(
+        draft,
+        {
+          skills: (skills ?? []).map((item) => item.name),
+          files: (path) => !!known?.has(projectPath, path),
+          images,
+          chats: (id) => chats.some((chat) => chat.id === id && chat.available),
+          computers: (name) => computers.some((computer) => computer.name.toLowerCase() === name.toLowerCase()),
+        },
+        lookups,
+      ),
+    [draft, skills, known, projectPath, lookups, images, chats, computers],
+  );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
-  const [rendered, setRendered] = useState({ draft, parts, restore: undefined as typeof selection | undefined });
+  const focusDraft = useRef(draft);
+  useEffect(() => {
+    focusDraft.current = draft;
+  });
+  useEffect(() => {
+    if (!focusRequest) return;
+    const end = { start: focusDraft.current.length, end: focusDraft.current.length };
+    setRequested({ draft: focusDraft.current, selection: end });
+    setSelection(end);
+    paste.ref.current?.focus();
+  }, [focusRequest, paste.ref]);
+  // Until the field has reported a caret, dictation starts after the restored draft.
+  const placed = useRef(false);
+  const latestDraft = useRef(draft);
+  useEffect(() => {
+    latestDraft.current = draft;
+  }, [draft]);
+  useFocusEffect(
+    useCallback(() => {
+      // Screens can stay mounted while another Chat is open. Restore once on return, never on a keystroke.
+      const value = latestDraft.current;
+      const end = { start: value.length, end: value.length };
+      setSelection(end);
+      setRequested({ draft: value, selection: end });
+      placed.current = false;
+    }, []),
+  );
+  const [dictationAction] = useDictationAction();
+  const dictatedSend = useRef<{ value: string; projectPath: string; currentId: number | undefined } | null>(null);
+  // Submit from the next render so the screen's send action reads the transcript and its normal availability checks.
+  useEffect(() => {
+    const pending = dictatedSend.current;
+    if (!pending) return;
+    dictatedSend.current = null;
+    if (pending.value === draft && pending.projectPath === projectPath && pending.currentId === currentId && dictationAction === "send") onSubmit?.();
+  });
+  // The take's words live in the field itself, rewritten in place as the recognizer revises them.
+  const take = useRef<DictationTake | null>(null);
+  const [provisional, setProvisional] = useState<TextRange | null>(null);
+  const write = (text: string, settled: number) => {
+    const current = take.current;
+    if (!current) return null;
+    const written = writeTake(current, latestDraft.current, text, settled);
+    if (!written) return null;
+    take.current = written.take;
+    setProvisional(provisionalRange(written.take));
+    const caret = { start: written.caret, end: written.caret };
+    setRequested({ draft: written.value, selection: caret });
+    setSelection(caret);
+    onChangeText(written.value);
+    return written;
+  };
+  const writeLatest = useRef(write);
+  const discardLatest = useRef<() => void>(() => {});
+  // A finished take whose fix-up hasn't answered: its words stay tinted until it does, and it rewrites them only if the
+  // draft is still exactly what the take left.
+  const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
+  const corrections = useRef(0);
+  useEffect(
+    () => () => {
+      correcting.current = null;
+    },
+    [],
+  );
+  const [fixing, setFixing] = useState<string | null>(null);
+  const endCorrection = useCallback(() => {
+    correcting.current = null;
+    setFixing(null);
+    if (!take.current) setProvisional(null);
+  }, []);
+  useEffect(() => {
+    if (correcting.current) endCorrection();
+  }, [projectPath, currentId, endCorrection]);
+  useEffect(() => {
+    const pending = correcting.current;
+    if (!pending || draft === pending.take.produced) return;
+    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
+    endCorrection();
+  }, [draft, endCorrection]);
+  const dictation = useVoiceDictation(
+    (text, anchor, correction) => {
+      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
+      take.current ??= startTake(latestDraft.current, anchor.selection);
+      const written = writeLatest.current(text, text.length);
+      take.current = null;
+      const sendAfter = dictationAction === "send";
+      const sentFrom = { projectPath, currentId };
+      if (!written || !correction) {
+        setProvisional(null);
+        if (written && sendAfter) dictatedSend.current = { value: written.value, ...sentFrom };
+        return;
+      }
+      const id = (corrections.current += 1);
+      correcting.current = { id, take: written.take };
+      setProvisional(takeRange(written.take));
+      setFixing(correction.model);
+      void correction.text.then((fixed) => {
+        const pending = correcting.current;
+        if (pending?.id !== id) return;
+        endCorrection();
+        const corrected = correctTake(pending.take, latestDraft.current, fixed);
+        if (corrected) {
+          const caret = { start: corrected.caret, end: corrected.caret };
+          setRequested({ draft: corrected.value, selection: caret });
+          setSelection(caret);
+          onChangeText(corrected.value);
+        }
+        // Send now waits for the fix-up, so what goes out is the corrected message.
+        if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, ...sentFrom };
+      });
+    },
+    projectPath ? { client, cwd: projectPath, chatTitle, provider, chatId: currentId } : undefined,
+  );
+  const partialText = dictation.partial.text;
+  const partialSettled = dictation.partial.settled;
+  const discardDictation = () => {
+    const current = take.current;
+    void dictation.cancel();
+    take.current = null;
+    setProvisional(null);
+    if (!current) return;
+    const back = revertTake(current, latestDraft.current);
+    setRequested({ draft: back.value, selection: back.selection });
+    setSelection(back.selection);
+    onChangeText(back.value);
+  };
+  const dictating = dictation.phase !== "idle";
+  const startDictation = () => {
+    endCorrection();
+    const end = draft.length;
+    const anchor = placed.current ? selection : { start: end, end };
+    take.current = startTake(draft, anchor);
+    setProvisional(null);
+    void dictation.start({ draft, selection: anchor });
+  };
+  const finishWhenRecording = useRef(false);
+  const { phase: dictationPhase, stop: stopDictation } = dictation;
+  useEffect(() => {
+    if (dictationPhase === "idle") finishWhenRecording.current = false;
+    if (dictationPhase !== "recording" || !finishWhenRecording.current) return;
+    finishWhenRecording.current = false;
+    void stopDictation();
+  }, [dictationPhase, stopDictation]);
+  useDictationShortcut({
+    focused: () => focused,
+    dictating: () => dictating,
+    available: () => dictation.available,
+    toggle: () => {
+      if (!dictating) startDictation();
+      else if (dictationPhase === "recording") void stopDictation();
+      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
+      else if (dictationPhase === "downloading") discardDictation();
+    },
+  });
+
+  // While the model downloads the mic keeps its own size and place: the capsule only grows once the take records.
+  const capsule = dictating && dictation.phase !== "downloading";
+  useEffect(() => {
+    writeLatest.current = write;
+    discardLatest.current = discardDictation;
+  });
+  useEffect(() => {
+    if (take.current && partialText) writeLatest.current(partialText, partialSettled);
+  }, [partialText, partialSettled]);
+  // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
+  useEffect(() => {
+    if (!dictating && take.current) discardLatest.current();
+  }, [dictating]);
+  const { error: dictationError, dismiss: dismissDictationError } = dictation;
+  useEffect(() => {
+    // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
+    if (!dictationError || dictationError.kind === "permission") return;
+    const timer = setTimeout(dismissDictationError, NOTICE_SECONDS * 1000);
+    return () => clearTimeout(timer);
+  }, [dictationError, dismissDictationError]);
+  const [rendered, setRendered] = useState({ draft, parts: marks, restore: selection as typeof selection | undefined });
   // Recoloring after the catalog loads must preserve a selected range. Ordinary edits keep native caret control.
-  const changed = rendered.draft !== draft || rendered.parts !== parts;
+  const changed = rendered.draft !== draft || rendered.parts !== marks;
   const restore = requested?.draft === draft ? requested.selection : changed ? (rendered.draft === draft ? selection : undefined) : rendered.restore;
-  if (changed) setRendered({ draft, parts, restore });
+  if (changed) setRendered({ draft, parts: marks, restore });
   const name = focused ? promptSkillAtSelection(parts, selection) : null;
   const skill = name ? skills?.find((item) => item.name.toLowerCase() === name) : null;
   const query = focused
@@ -63,11 +375,27 @@ export function PromptField({
         .filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.query))
         .sort((a, b) => Number(b.name.toLowerCase().startsWith(query.query)) - Number(a.name.toLowerCase().startsWith(query.query)))
     : [];
+  const fileToken = focused && (onMention || chats.length || nameable.length) && !query ? fileQueryAt(draft, selection.start) : null;
+  const files = useFileSearch(client, projectPath, onMention ? (fileToken?.query ?? null) : null);
+  const chatRows = fileToken ? matchingMentionChats(chats, fileToken.query, currentId) : [];
+  const computerRows = fileToken ? matchingMentionComputers(nameable, fileToken.query) : [];
+  const chooseMention = (mention: string, path?: string) => {
+    if (!fileToken) return;
+    const suffix = draft.slice(fileToken.end);
+    const gap = suffix.startsWith(" ") ? "" : " ";
+    const next = `${draft.slice(0, fileToken.start)}${mention}${gap}${suffix}`;
+    const caret = fileToken.start + mention.length + 1;
+    const selection = { start: caret, end: caret };
+    setRequested({ draft: next, selection });
+    setSelection(selection);
+    if (path) onMention?.(path);
+    onChangeText(next);
+  };
   const choose = (name: string) => {
     if (!query) return;
     const command = `/${name}`;
     const suffix = draft.slice(query.end);
-    const [, punctuation, whitespace] = /^([.,!?;:()[\]{}]*)(\s?)/.exec(suffix)!;
+    const [, punctuation = "", whitespace = ""] = /^([.,!?;:()[\]{}]*)(\s?)/.exec(suffix) ?? [];
     const gap = whitespace || " ";
     const next = `${draft.slice(0, query.start)}${command}${punctuation}${gap}${suffix.slice(punctuation.length + whitespace.length)}`;
     const caret = query.start + command.length + punctuation.length + gap.length;
@@ -76,14 +404,44 @@ export function PromptField({
     setSelection(selection);
     onChangeText(next);
   };
+  // Read once as the download starts and as a skill is picked, on both platforms (a live region speaks only on Android).
+  useAnnounce(dictation.download !== null ? "Downloading the speech model" : null);
+  useAnnounce(skill && !query ? `/${skill.name}. ${skill.description}` : null);
 
   return (
-    <View>
+    <View onTouchStart={onTouchStart}>
+      {suggestion && !draft && !query && !fileToken && onAcceptSuggestion && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Use suggested prompt: ${suggestion}`}
+          accessibilityHint="Puts the suggestion in the message field without sending it"
+          onPress={() => {
+            const end = { start: suggestion.length, end: suggestion.length };
+            setRequested({ draft: suggestion, selection: end });
+            setSelection(end);
+            onAcceptSuggestion(suggestion);
+            paste.ref.current?.focus();
+          }}
+          style={({ pressed }) => ({
+            minHeight: 44,
+            justifyContent: "center",
+            paddingHorizontal: 12,
+            marginBottom: 4,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
+            backgroundColor: pressed ? colors.hover : colors.surface,
+          })}
+        >
+          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: inputSize }}>
+            {suggestion}
+          </Text>
+        </Pressable>
+      )}
       {query ? (
-        <Animated.View entering={OPEN_SKILLS}>
+        <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
             accessibilityLabel="Skills"
-            style={{ maxHeight: 180 }}
+            style={menuStyle}
             contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
             keyboardShouldPersistTaps="always"
           >
@@ -91,59 +449,248 @@ export function PromptField({
               <ListRow key={item.name} title={`/${item.name}`} subtitle={item.description} subtitleLines={3} onPress={() => choose(item.name)} />
             ))}
             {loading ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>Loading skills...</Text>
+              <Text style={[styles.muted, { padding: 12 }]}>Loading skills…</Text>
             ) : error ? (
               <ListRow title="Could not load skills" subtitle="Tap to retry" onPress={refresh} />
             ) : !suggestions.length ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>No matching skills</Text>
+              <Text style={[styles.muted, { padding: 12 }]}>No matching skills</Text>
             ) : null}
           </PageScroll>
         </Animated.View>
       ) : null}
+      {fileToken ? (
+        <Animated.View entering={openSkills(motionScale)}>
+          <PageScroll
+            accessibilityLabel={nameable.length ? "Files, Chats and computers" : "Files and Chats"}
+            style={menuStyle}
+            contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
+            keyboardShouldPersistTaps="always"
+          >
+            {(onMention ? files.items : []).slice(0, chatRows.length || computerRows.length ? 1 : 40).map((path) => (
+              <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
+            ))}
+            {chatRows.length > 0 && (
+              <SectionLabel flush style={{ paddingVertical: 6 }}>
+                Chats
+              </SectionLabel>
+            )}
+            {chatRows.map((chat) => (
+              <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
+            ))}
+            {computerRows.length > 0 && (
+              <SectionLabel flush style={{ paddingVertical: 6 }}>
+                Computers
+              </SectionLabel>
+            )}
+            {computerRows.map((computer) => (
+              <ListRow
+                key={`computer:${computer.id}`}
+                title={computer.name}
+                subtitle={computer.self ? "This computer" : computer.online ? "Online" : "Offline"}
+                onPress={() => chooseMention(formatComputerMention(computer.name))}
+              />
+            ))}
+            {!onMention && !chatRows.length && !computerRows.length && <Text style={[styles.muted, { padding: 12 }]}>No matches</Text>}
+            {onMention &&
+              (files.error ? (
+                isOldMacError(files.error) ? (
+                  <ListRow title={OLD_MAC_ROW} onPress={files.retry} />
+                ) : (
+                  <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
+                )
+              ) : files.loading && !files.items.length ? (
+                <Text style={[styles.muted, { padding: 12 }]}>Loading files...</Text>
+              ) : !files.items.length && !chatRows.length && !computerRows.length ? (
+                <Text style={[styles.muted, { padding: 12 }]}>No matching files or Chats</Text>
+              ) : null)}
+          </PageScroll>
+        </Animated.View>
+      ) : null}
       {/* TextInput cannot receive value and attributed children together. The children mirror every accepted edit. */}
-      <Field
-        {...paste}
-        label="Message"
-        hideLabel
-        placeholder="Message the agent"
-        multiline
-        autoCorrect
-        spellCheck
-        autoCapitalize="sentences"
-        onChangeText={(value) => {
-          setRequested(null);
-          onChangeText(value);
-        }}
-        onSelectionChange={(event) => {
-          setSelection(event.nativeEvent.selection);
-          setRequested(null);
-          setRendered((current) => (current.restore ? { ...current, restore: undefined } : current));
-        }}
-        selection={restore}
-        onFocus={() => {
-          paste.onFocus();
-          setFocused(true);
-        }}
-        onBlur={() => setFocused(false)}
-        style={{ backgroundColor: "transparent", minHeight: 44, maxHeight: 140, paddingHorizontal: 10, paddingVertical: 6 }}
-      >
-        <Text style={{ fontSize: 16, color: colors.ink }}>
-          {parts.map((part, index) => (
-            <Text key={index} style={{ color: part.skill ? colors.accentInk : colors.ink }}>
-              {part.text}
-            </Text>
-          ))}
-        </Text>
-      </Field>
+      <View>
+        <Field
+          bare
+          {...paste}
+          onLayout={() => {
+            paste.onLayout();
+            enter.attach();
+          }}
+          label="Message"
+          hideLabel
+          {...onScreenReturn}
+          placeholder={placeholder}
+          multiline
+          autoCorrect
+          spellCheck
+          autoCapitalize="sentences"
+          onChangeText={(value) => {
+            const edit = editImageMentions(draft, value, images, selection);
+            const caret = edit.caret === null ? null : { start: edit.caret, end: edit.caret };
+            setRequested(caret ? { draft: edit.value, selection: caret } : null);
+            if (caret) setSelection(caret);
+            onChangeText(edit.value);
+          }}
+          onSelectionChange={(event) => {
+            placed.current = true;
+            setSelection(event.nativeEvent.selection);
+            setRequested(null);
+            setRendered((current) => (current.restore ? { ...current, restore: undefined } : current));
+          }}
+          selection={restore}
+          onFocus={() => {
+            paste.onFocus();
+            enter.attach();
+            setFocused(true);
+            onFocus?.();
+          }}
+          onBlur={() => {
+            setFocused(false);
+            onBlur?.();
+          }}
+          style={{
+            fontSize: inputSize,
+            lineHeight: Math.round(inputSize * 1.375),
+            minHeight: 44,
+            maxHeight: 140,
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            ...(dictation.available ? { paddingRight: capsule ? CAPSULE_ROOM : MIC_ROOM } : null),
+          }}
+        >
+          <Text style={{ fontSize: inputSize, color: colors.ink }}>
+            {splitProvisional(marks, provisional).map(({ part, text, provisional: revising }, index) =>
+              part.kind === "text" ? (
+                // The dictated tail the recognizer may still rewrite: settled words are plain ink, like anything typed.
+                <Text key={index} style={revising ? { color: colors.ink2, backgroundColor: colors.hover } : { color: colors.ink }}>
+                  {text}
+                </Text>
+              ) : glyphs ? (
+                // Like desktop's chips: skills tinted with a wand, files and images on the hover gray with their icon.
+                <Text
+                  key={index}
+                  style={
+                    part.kind === "skill"
+                      ? { color: colors.accentInk, backgroundColor: colors.accentTint }
+                      : { color: colors.ink, backgroundColor: colors.hover }
+                  }
+                >
+                  <Text
+                    style={{
+                      fontFamily: GLYPHS,
+                      color: part.kind === "image" ? IMAGE_COLOR : part.kind === "file" ? fileKind(part.path).color : colors.accentInk,
+                    }}
+                  >
+                    {part.text[0]}
+                  </Text>
+                  {part.kind === "image" ? (
+                    <>
+                      {part.text.slice(1, -1)}
+                      <Text style={{ fontFamily: GLYPHS }}>{part.text.slice(-1)}</Text>
+                    </>
+                  ) : (
+                    part.text.slice(1)
+                  )}
+                </Text>
+              ) : (
+                <Text
+                  key={index}
+                  style={{
+                    color: colors.accentInk,
+                    backgroundColor: part.kind === "file" || part.kind === "image" ? withAlpha(colors.accent, 0.14) : colors.accentTint,
+                  }}
+                >
+                  {part.text}
+                </Text>
+              ),
+            )}
+          </Text>
+        </Field>
+        {dictation.available ? (
+          <View
+            style={{ position: "absolute", right: capsule ? CAPSULE_INSET.right : MIC_INSET.right, bottom: capsule ? CAPSULE_INSET.bottom : MIC_INSET.bottom }}
+          >
+            {dictationError ? (
+              <DictationNotice
+                error={dictationError}
+                micSize={MIC_SIZE}
+                onDismiss={dismissDictationError}
+                onOpenSettings={() => {
+                  dismissDictationError();
+                  void Linking.openSettings();
+                }}
+              />
+            ) : null}
+            {dictating ? (
+              <DictationCapsule
+                phase={dictation.phase}
+                level={dictation.level}
+                download={dictation.download}
+                onDiscard={discardDictation}
+                onStop={() => void dictation.stop()}
+              />
+            ) : (
+              <VoiceMicButton onPress={startDictation} processing={fixing} />
+            )}
+          </View>
+        ) : null}
+      </View>
       {skill && !query ? (
         <View
-          accessibilityLiveRegion="polite"
-          style={{ marginHorizontal: 10, marginBottom: 6, padding: 10, borderRadius: 10, backgroundColor: colors.accentTint, gap: 4 }}
+          style={{
+            marginHorizontal: 12,
+            marginBottom: 6,
+            padding: 12,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
+            backgroundColor: colors.accentTint,
+            gap: 4,
+          }}
         >
-          <Text style={{ color: colors.accentInk, fontSize: 13, fontWeight: "600" }}>/{skill.name}</Text>
-          <Text style={{ color: colors.ink2, fontSize: 13, lineHeight: 18 }}>{skill.description}</Text>
+          <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>/{skill.name}</Text>
+          <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{skill.description}</Text>
         </View>
       ) : null}
     </View>
   );
+}
+
+/** Asks the Mac whether each typed `@path` is a Project file (~150 ms after typing stops, three at a time); the count changes as answers arrive. */
+function useMentionLookups(client: Client, root: string, draft: string, known: KnownFiles | undefined, typing: string | undefined) {
+  const [answers, setAnswers] = useState(0);
+  useEffect(() => {
+    if (!known || !root) return;
+    const timer = setTimeout(() => {
+      // The token under the caret is still being typed; it is looked up once the caret leaves it.
+      for (const path of known.unchecked(
+        root,
+        mentionPaths(draft).filter((item) => item !== typing),
+      ))
+        void known.lookup(client, root, path).then(() => setAnswers((count) => count + 1));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [client, root, draft, known, typing]);
+  return answers;
+}
+
+/** Project files matching `query` (null: no search), kept while the next answer loads so the menu does not flash empty. */
+/** The @ menu's files under `root`: an answer for another root (the draft moved to another Project) is never shown. */
+function useFileSearch(client: Client, root: string, query: string | null) {
+  const [state, setState] = useState({ root: "", items: [] as string[], error: "", loading: true });
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (query === null || !root) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      client
+        .call<string[]>("project:files", [root, query])
+        .then((items) => !cancelled && setState({ root, items: items.slice(0, 40), error: "", loading: false }))
+        .catch((error: Error) => !cancelled && setState({ root, items: [], error: error.message || "failed", loading: false }));
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [client, root, query, revision]);
+  const retry = () => setRevision((value) => value + 1);
+  return state.root === root ? { items: state.items, error: state.error, loading: state.loading, retry } : { items: [], error: "", loading: true, retry };
 }

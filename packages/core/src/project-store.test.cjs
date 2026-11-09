@@ -263,3 +263,21 @@ test("a state that points at a missing chats.db fails to read instead of opening
   await fs.rm(path.join(projectPath, ".milagre", "chats.db"));
   await assert.rejects(readProjectState(projectPath), /chats\.db, which is missing/);
 });
+
+test("suggestions stay live but never persist or restore across a host restart", async (t) => {
+  const project = await tempProject(t);
+  const session = { id: 1, provider: "claude", native_session_id: "native", suggestion: { text: "Continue", turnId: "t" }, suggestionTurnId: "t" };
+  const state = { sessions: { 1: session }, messages: [], next_id: 2 };
+  await saveProjectState(project, state);
+  assert.equal(state.sessions[1].suggestion.text, "Continue", "saving does not erase live reconnect state");
+  const saved = JSON.parse(await fs.readFile(stateFile(project), "utf8"));
+  assert.equal(saved.sessions[1].suggestion, undefined);
+  assert.equal(saved.sessions[1].suggestionTurnId, undefined);
+  const { readProjectState } = require("./project-store.cjs");
+  assert.equal((await readProjectState(project)).sessions[1].native_session_id, "native");
+  // Also clean legacy snapshots containing fields written before this boundary was enforced.
+  await fs.writeFile(stateFile(project), JSON.stringify(state));
+  const restored = (await readProjectState(project)).sessions[1];
+  assert.equal(restored.suggestion, undefined);
+  assert.equal(restored.suggestionTurnId, undefined);
+});

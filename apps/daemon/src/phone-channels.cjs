@@ -13,6 +13,13 @@ const PENDING_REPEAT_MS = 20_000;
 const LIVE_ORIGIN = "milagre-app://phone";
 const MAX_LIVE = 8;
 const MAX_INFLIGHT = 16;
+// Requests past MAX_INFLIGHT wait for a free slot instead of failing: on a busy Mac slow answers fill the slots, and a
+// refusal only makes the phone ask again. Past these a flood is still refused (429).
+const MAX_QUEUED = 64;
+const MAX_QUEUED_BYTES = 16 * 1024 * 1024;
+// The phone can't cancel a relayed request and gives up after 30 s at the least, so one that waited this long is
+// refused (429: it never ran, the phone may send it again) rather than run late, like a Stop landing on a newer turn.
+const MAX_QUEUE_WAIT = 20_000;
 const MAX_UPLOAD = 8 * 1024 * 1024;
 // Longer than the phone's own deadline for the slowest call (worktree:create, 330 s), so the phone gives up first.
 const REQUEST_TIMEOUT = 340_000;
@@ -20,6 +27,35 @@ const REQUEST_TIMEOUT = 340_000;
 const BLOCKED_HEADERS = new Set(["host", "origin", "authorization", "connection", "content-length", "transfer-encoding", "upgrade", "cookie"]);
 const FORWARDED_HEADERS = ["content-type", "etag"];
 const encoder = new TextEncoder();
+// A device whose hello says it takes batches (`caps` has BATCH_CAP) hears the messages of one window as one frame,
+// `{ t: "batch", items }`, in order: a streaming turn's events or a live socket's output then cost the relay one frame
+// per window instead of one per message. A window closes after batchMs, early past BATCH_BYTES (a frame stays well
+// under the relay's 1 MiB), and at once on a message the device waits on (a response's last part, a stream's close).
+const BATCH_CAP = "batch";
+const BATCH_MS = 50;
+const BATCH_BYTES = 512 * 1024;
+const BATCH_HEAD = encoder.encode('{"t":"batch","items":[');
+const BATCH_TAIL = encoder.encode("]}");
+const COMMA = encoder.encode(",");
+
+/** One batch message's UTF-8 JSON from the messages' own (`items`, each UTF-8 JSON bytes). */
+function joinBatch(items) {
+  let size = BATCH_HEAD.length + BATCH_TAIL.length + COMMA.length * (items.length - 1);
+  for (const item of items) size += item.length;
+  const out = new Uint8Array(size);
+  let at = 0;
+  const put = (bytes) => {
+    out.set(bytes, at);
+    at += bytes.length;
+  };
+  put(BATCH_HEAD);
+  items.forEach((item, index) => {
+    if (index) put(COMMA);
+    put(item);
+  });
+  put(BATCH_TAIL);
+  return out;
+}
 const PENDING_NOTICE = new Uint8Array([PENDING_MARK, ...encoder.encode('{"t":"pending"}')]);
 // What a refused computer hears for each answer that isn't Allow; "expired" and "dropped" add nothing to unknown-phone.
 const NOT_ALLOWED = { denied: { reason: "denied" }, busy: { reason: "busy" } };
@@ -48,6 +84,9 @@ const routeOk = (path) => typeof path === "string" && path.startsWith("/") && !p
  * frames. Without `openPeer` desktops are turned away. `phones` is the devices store (`isKnown`, `kindOf`, `add`, `seen`).
  * A computer's first hello waits for `allowComputer({ key, name, signal, waiting })` (phone.cjs), which resolves
  * "allowed", "denied", "expired", "busy" or "dropped" and calls `waiting()` once it holds the request.
+ * `batchMs` is the batch window for devices that take batches (tests shorten or stretch it).
+ * `diagnostics` (optional, relay-host.cjs createTransportDiagnostics) counts message types, marks and odd frames; it
+ * only ever sees fixed names, never a conn id, key or payload. Without it nothing is counted and nothing is allocated.
  */
 function createPhoneChannels({
   identity,
@@ -63,11 +102,35 @@ function createPhoneChannels({
   openPeer,
   allowComputer,
   pendingRepeatMs = PENDING_REPEAT_MS,
+  queueWaitMs = MAX_QUEUE_WAIT,
+  batchMs = BATCH_MS,
+  diagnostics = null,
 }) {
   const sendFrame = (current, type, conn, payload) => current.send(frame(type, conn, payload));
   function sendMessage(current, conn, record, message) {
+    // A response's last part and a stream's end are waited on: they close the batch window at once.
+    const urgent = (message.t === "res" && message.more === false) || message.t === "live-close";
+    diagnostics?.message("out", message.t);
+    sendEncoded(current, conn, record, encoder.encode(JSON.stringify(message)), urgent);
+  }
+  /** Sends one message (`encoded`, its UTF-8 JSON bytes) sealed for the device: now, or with its window when it takes batches. */
+  function sendEncoded(current, conn, record, encoded, urgent = false) {
     if (current.conns.get(conn) !== record || !record.channel) return;
-    sendFrame(current, DATA, conn, record.channel.seal(message));
+    if (!record.batch) return sendFrame(current, DATA, conn, record.channel.sealEncoded(encoded));
+    if (record.batched.length && record.batchedBytes + encoded.length > BATCH_BYTES) flushBatch(current, conn, record);
+    record.batched.push(encoded);
+    record.batchedBytes += encoded.length;
+    if (urgent || record.batchedBytes >= BATCH_BYTES) return flushBatch(current, conn, record);
+    record.batchTimer ??= setTimeout(() => flushBatch(current, conn, record), batchMs);
+  }
+  /** Sends what the window holds: one message as itself, several as one batch message. */
+  function flushBatch(current, conn, record) {
+    clearTimeout(record.batchTimer);
+    record.batchTimer = null;
+    const items = record.batched.splice(0);
+    record.batchedBytes = 0;
+    if (!items.length || current.conns.get(conn) !== record || !record.channel) return;
+    sendFrame(current, DATA, conn, record.channel.sealEncoded(items.length === 1 ? items[0] : joinBatch(items)));
   }
 
   function closeLives(record) {
@@ -80,22 +143,42 @@ function createPhoneChannels({
     }
     record.lives.clear();
   }
-  /** Forgets one phone connection. `notify` tells the relay so the phone's socket closes too. */
-  function dropConn(current, conn, notify) {
-    const record = current.conns.get(conn);
-    if (!record) return;
-    current.conns.delete(conn);
+  /**
+   * Stops everything a record started: timers, a held Allow, live sockets, a desktop's daemon connection, waiting
+   * requests. The record must already be out of `conns`, so whatever this sets off (a daemon connection that ends on
+   * close) finds no record of its own to drop.
+   */
+  function release(record) {
     clearTimeout(record.helloTimer);
+    clearTimeout(record.batchTimer);
+    record.batched.length = 0;
     // A computer still waiting for Allow: its request goes with its channel, and the notices stop even if the owner never answers the abort.
     record.abort?.abort();
     clearInterval(record.pendingTimer);
     closeLives(record);
     // A desktop's daemon connection goes with its channel.
     record.peer?.close();
+    for (const queued of record.queue.splice(0)) clearTimeout(queued.expiry);
+    record.queuedBytes = 0;
+  }
+  /** Forgets one phone connection. `notify` tells the relay so the phone's socket closes too. */
+  function dropConn(current, conn, notify) {
+    const record = current.conns.get(conn);
+    if (!record) return;
+    current.conns.delete(conn);
+    release(record);
     if (notify) sendFrame(current, CLOSE, conn);
+  }
+  /**
+   * dropConn for a continuation that ran late: it drops `conn` only while `record` still holds it. A record a second
+   * OPEN for the same conn replaced must never close its successor's channel.
+   */
+  function dropOwn(current, conn, record, notify) {
+    if (current.conns.get(conn) === record) dropConn(current, conn, notify);
   }
 
   function refuse(current, conn, code, extra) {
+    diagnostics?.mark("error");
     sendFrame(current, DATA, conn, new Uint8Array([ERROR_MARK, ...encoder.encode(JSON.stringify({ t: "error", code, ...extra }))]));
     dropConn(current, conn, true);
   }
@@ -111,15 +194,20 @@ function createPhoneChannels({
     clearTimeout(record.helloTimer);
     const abort = new AbortController();
     record.abort = abort;
-    const notice = () => sendFrame(current, DATA, conn, PENDING_NOTICE);
+    // Only while this record holds the conn: a replaced record's notices would reach its successor's device.
+    const notice = () => {
+      if (current.conns.get(conn) !== record) return;
+      diagnostics?.mark("pending");
+      sendFrame(current, DATA, conn, PENDING_NOTICE);
+    };
     try {
       return await allowComputer({
         key: accepted.phoneKey,
         name: accepted.name,
         signal: abort.signal,
         waiting() {
-          // Once per request, and not after it is over.
-          if (record.pendingTimer || record.abort !== abort) return;
+          // Once per request, and not after it is over (an aborted one is, even before its answer comes back).
+          if (record.pendingTimer || record.abort !== abort || abort.signal.aborted) return;
           notice();
           record.pendingTimer = setInterval(notice, pendingRepeatMs);
         },
@@ -169,7 +257,7 @@ function createPhoneChannels({
       try {
         await phones.add(accepted.phoneKey, { kind, name: accepted.name });
       } catch {
-        return dropConn(current, conn, true);
+        return dropOwn(current, conn, record, true);
       }
     } else {
       // When it was last here, and its name if it changed. A failed write never closes a known device's channel.
@@ -180,21 +268,26 @@ function createPhoneChannels({
     record.state = "open";
     clearTimeout(record.helloTimer);
     record.kind = kind;
+    record.batch = accepted.caps.includes(BATCH_CAP);
+    diagnostics?.message("out", "hello");
     sendFrame(current, DATA, conn, accepted.reply);
     if (kind === "computer") {
       try {
         record.peer = openPeerChannel({
           openPeer,
-          channel: record.channel,
-          deliver: (sealed) => sendFrame(current, DATA, conn, sealed),
+          deliver: (encoded) => {
+            diagnostics?.message("out", "peer");
+            sendEncoded(current, conn, record, encoded);
+          },
           queued: () => current.queued?.(conn) ?? 0,
           budget: current.peerBudget,
           isOpen: () => current.conns.get(conn) === record,
-          drop: () => dropConn(current, conn, true),
+          // The daemon connection can end long after its record was replaced: it closes only its own channel.
+          drop: () => dropOwn(current, conn, record, true),
         });
       } catch {
         // A desktop with no daemon connection has nothing to talk to, and must never fall through to the bridge.
-        return dropConn(current, conn, true);
+        return dropOwn(current, conn, record, true);
       }
       // The connection ended while it was being built: dropConn found no peer to close.
       if (current.conns.get(conn) !== record) record.peer.close();
@@ -210,7 +303,7 @@ function createPhoneChannels({
 
   /** Closes every channel `key` has on this carrier, and tells the carrier to close their sockets. */
   function dropKey(current, key) {
-    for (const [conn, record] of [...current.conns]) if (record.key === key) dropConn(current, conn, true);
+    for (const [conn, record] of Array.from(current.conns)) if (record.key === key) dropConn(current, conn, true);
   }
 
   /** Sends a whole response as `res` parts. */
@@ -256,6 +349,12 @@ function createPhoneChannels({
       );
     } finally {
       record.inflight -= 1;
+      const next = record.queue.shift();
+      if (next) {
+        clearTimeout(next.expiry);
+        record.queuedBytes -= next.body.length;
+        if (current.conns.get(conn) === record) void forward(current, conn, record, next.meta, next.body);
+      }
     }
   }
 
@@ -272,7 +371,8 @@ function createPhoneChannels({
     }
     let upload = record.uploads.get(id);
     if (!upload) {
-      if (record.inflight + record.uploads.size >= MAX_INFLIGHT) return refuseRequest(current, conn, record, message, 429, tooManyRequests);
+      if (record.inflight + record.uploads.size + record.queue.length >= MAX_INFLIGHT + MAX_QUEUED)
+        return refuseRequest(current, conn, record, message, 429, tooManyRequests);
       if ((message.method !== "GET" && message.method !== "POST") || !routeOk(message.path))
         return refuseRequest(current, conn, record, message, 400, new Uint8Array());
       upload = { size: 0, meta: { id, method: message.method, path: message.path, headers: message.headers } };
@@ -294,7 +394,18 @@ function createPhoneChannels({
     }
     if (!result.done) return;
     record.uploads.delete(id);
-    void forward(current, conn, record, upload.meta, result.body);
+    if (record.inflight < MAX_INFLIGHT) return void forward(current, conn, record, upload.meta, result.body);
+    if (record.queuedBytes + result.body.length > MAX_QUEUED_BYTES) return respond(current, conn, record, id, 429, JSON_HEADERS, tooManyRequests);
+    const queued = { meta: upload.meta, body: result.body };
+    queued.expiry = setTimeout(() => {
+      const at = record.queue.indexOf(queued);
+      if (at < 0) return;
+      record.queue.splice(at, 1);
+      record.queuedBytes -= queued.body.length;
+      respond(current, conn, record, id, 429, JSON_HEADERS, tooManyRequests);
+    }, queueWaitMs);
+    record.queue.push(queued);
+    record.queuedBytes += result.body.length;
   }
 
   /** Answers a request without forwarding it; the rest of its parts are skipped. */
@@ -367,11 +478,21 @@ function createPhoneChannels({
     const conn = new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(1);
     const payload = bytes.subarray(9);
     if (type === OPEN) {
+      // The relay hands out each conn once per host socket, so a second OPEN means the old record is gone on its side:
+      // everything it started stops here. No CLOSE goes out, since the conn now belongs to the new record.
+      const superseded = current.conns.get(conn);
+      if (superseded) {
+        diagnostics?.anomaly("duplicateOpen");
+        current.conns.delete(conn);
+        release(superseded);
+      }
       const record = {
         state: "hello",
         channel: null,
         lives: new Map(),
         inflight: 0,
+        queue: [],
+        queuedBytes: 0,
         uploads: new Map(),
         rejected: new Set(),
         assembler: createAssembler(),
@@ -381,10 +502,14 @@ function createPhoneChannels({
         peer: null,
         abort: null,
         pendingTimer: null,
+        batch: false,
+        batched: [],
+        batchedBytes: 0,
+        batchTimer: null,
       };
       current.conns.set(conn, record);
       record.helloTimer = setTimeout(() => {
-        if (current.conns.get(conn) === record && record.state !== "open") dropConn(current, conn, true);
+        if (record.state !== "open") dropOwn(current, conn, record, true);
       }, helloMs);
       return;
     }
@@ -394,15 +519,28 @@ function createPhoneChannels({
     }
     if (type !== DATA) return;
     const record = current.conns.get(conn);
-    if (!record) return;
+    // Frames the phone sent before the relay heard our CLOSE, or for a conn this socket never opened.
+    if (!record) return void diagnostics?.anomaly("dataNoConn");
     if (record.state === "hello") {
+      diagnostics?.message("in", "hello");
       // Anything unexpected past the guarded steps drops this channel; it must never become an unhandled rejection.
-      void hello(current, conn, record, payload).catch(() => dropConn(current, conn, true));
+      void hello(current, conn, record, payload).catch(() => dropOwn(current, conn, record, true));
       return;
     }
-    if (record.state !== "open") return dropConn(current, conn, true);
+    if (record.state !== "open") {
+      diagnostics?.anomaly("dataNotOpen");
+      return dropConn(current, conn, true);
+    }
+    let message;
     try {
-      handleMessage(current, conn, record, record.channel.open(payload));
+      message = record.channel.open(payload);
+    } catch {
+      diagnostics?.anomaly("dataUndecryptable");
+      return dropConn(current, conn, true);
+    }
+    diagnostics?.message("in", record.kind === "computer" ? "peer" : message?.t);
+    try {
+      handleMessage(current, conn, record, message);
     } catch {
       dropConn(current, conn, true);
     }

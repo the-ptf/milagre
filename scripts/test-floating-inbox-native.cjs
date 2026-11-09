@@ -15,6 +15,17 @@ async function waitFor(read, label) {
   }
   throw new Error("Timed out: " + label);
 }
+/** Resolves once two reads 100 ms apart agree: a native window has stopped moving. */
+async function settled(read, label) {
+  let last = await read();
+  for (let i = 0; i < 100; i++) {
+    await delay(100);
+    const next = await read();
+    if (next === last) return;
+    last = next;
+  }
+  throw new Error("Never settled: " + label);
+}
 async function nativeChecks() {
   const { app, BrowserWindow, screen } = require("electron");
   const profile = process.argv[2],
@@ -29,6 +40,10 @@ async function nativeChecks() {
     main = BrowserWindow.getAllWindows().find((window) => window.webContents.getURL() === process.env.MILAGRE_DEV_SERVER_URL);
     return main && (await main.webContents.executeJavaScript('document.body?.textContent.includes("Saved chat")'));
   }, "main app loaded");
+  // A background macOS app cannot focus its panel until the app itself is active.
+  if (process.platform === "darwin") app.focus({ steal: true });
+  main.focus();
+  await waitFor(() => main.isFocused(), "main app focused");
   main.hide();
   await main.webContents.executeJavaScript("window.milagre.setFloatingInbox(true)");
   await waitFor(
@@ -47,7 +62,7 @@ async function nativeChecks() {
   await waitFor(() => inbox.isVisible(), "inbox visible");
   assert.equal(main.isVisible(), false, "opening the panel leaves the main window hidden");
   inbox.focus();
-  await delay(100);
+  await waitFor(() => inbox.isFocused(), "inbox focused");
   assert.equal(main.isVisible(), false, "focusing the panel leaves the main window hidden");
   if (process.platform === "darwin") {
     app.emit("activate");
@@ -146,12 +161,23 @@ async function nativeChecks() {
   assert.equal(await dock.webContents.executeJavaScript('document.querySelectorAll("[data-inbox-agent]").length'), 0);
   const overlay = view("drag");
   assert.equal(main.isVisible(), false);
-  const savedSettings = await dock.webContents.executeJavaScript('localStorage.getItem("milagre-settings")');
+  const savedSettings = await dock.webContents.executeJavaScript('window.milagrePreferences.get("milagre-settings").value ?? null');
   try {
     for (const theme of ["light", "dark"]) {
       await dock.webContents.executeJavaScript(
-        `localStorage.setItem('milagre-settings', JSON.stringify({...JSON.parse(localStorage.getItem('milagre-settings') || '{}'),theme:${JSON.stringify(theme)}})); window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}))`,
+        `(() => {
+          const preferences = window.milagrePreferences;
+          const result = preferences.set('milagre-settings', JSON.stringify({...JSON.parse(preferences.get('milagre-settings').value || '{}'),theme:${JSON.stringify(theme)}}));
+          if (result.error) throw new Error(result.error);
+          window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}));
+        })()`,
       );
+      await waitFor(
+        async () => (await main.webContents.executeJavaScript('document.documentElement.classList.contains("dark")')) === (theme === "dark"),
+        "native preference change reaches the main window",
+      );
+      const persisted = JSON.parse(await fs.readFile(path.join(profile, "preferences.json"), "utf8"));
+      assert.equal(JSON.parse(persisted["milagre-settings"]).theme, theme, "the floating window saves its theme in native preferences");
       for (const window of [dock, inbox, preview, overlay]) {
         if (window !== overlay)
           await waitFor(
@@ -169,7 +195,11 @@ async function nativeChecks() {
     }
   } finally {
     await dock.webContents.executeJavaScript(
-      `${savedSettings === null ? 'localStorage.removeItem("milagre-settings")' : `localStorage.setItem("milagre-settings",${JSON.stringify(savedSettings)})`}; window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}))`,
+      `(() => {
+        const result = window.milagrePreferences.set("milagre-settings",${JSON.stringify(savedSettings)});
+        if (result.error) throw new Error(result.error);
+        window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}));
+      })()`,
     );
   }
   if (process.env.MILAGRE_SCREENSHOT_DIR) {
@@ -212,8 +242,17 @@ async function nativeChecks() {
     await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-bottom.png"), (await dock.webContents.capturePage()).toPNG());
   }
   await dock.webContents.executeJavaScript("window.milagre.closeFloatingInbox()");
-  await dock.webContents.executeJavaScript('document.querySelector("[data-inbox-agent]").dispatchEvent(new MouseEvent("mouseover",{bubbles:true}))');
-  await waitFor(() => preview.isVisible(), "bottom hover preview");
+  // Closing collapses the bar over 180 ms. On a slow runner the hover used to land mid-collapse and the preview never
+  // showed (CI timed out here), so wait for the dock to come to rest, then hover again until the preview is up.
+  await settled(() => JSON.stringify(dock.getBounds()), "dock after closing the inbox");
+  const agentMouse = (type) =>
+    dock.webContents.executeJavaScript(`document.querySelector("[data-inbox-agent]").dispatchEvent(new MouseEvent(${JSON.stringify(type)},{bubbles:true}))`);
+  for (let attempt = 0; !preview.isVisible(); attempt++) {
+    if (attempt === 10) throw new Error("Timed out: bottom hover preview");
+    if (attempt) await agentMouse("mouseout");
+    await agentMouse("mouseover");
+    for (let i = 0; i < 40 && !preview.isVisible(); i++) await delay(50);
+  }
   assert.ok(preview.getBounds().y + preview.getBounds().height < bottom.y, "bottom tooltip opens above the bar");
   await dock.webContents.executeJavaScript('document.querySelector("[data-inbox-agent]").dispatchEvent(new MouseEvent("mouseout",{bubbles:true}))');
   await dock.webContents.executeJavaScript("window.milagre.toggleFloatingInbox()");
@@ -262,7 +301,7 @@ async function main() {
     }),
   );
   await fs.writeFile(path.join(profile, "recent-projects.json"), JSON.stringify([{ path: project, name: "project", openedAt: new Date().toISOString() }]));
-  const env = { ...process.env };
+  const env = { ...process.env, MILAGRE_CHATS_HOME: path.join(temporary, "chats-home") };
   delete env.ELECTRON_RUN_AS_NODE;
   try {
     const child = spawn(require("electron"), [__filename, profile, project], { cwd: project, env, stdio: "inherit" });

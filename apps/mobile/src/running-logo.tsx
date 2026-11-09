@@ -1,11 +1,20 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View, type EasingFunction, type TextStyle } from "react-native";
+import { memo, useEffect, useMemo, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { formatElapsed } from "@milagre/shared/display-clock";
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View, type EasingFunction, type TextStyle } from "react-native";
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { lineHeight, type } from "./design-tokens";
+import { Icon } from "./icons";
+import { pressStyle } from "./primitives/press-style";
 import Svg, { Path } from "react-native-svg";
-import MaskedView from "@react-native-masked-view/masked-view";
+import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
-import { useIsFocused } from "expo-router";
+import { useDisplayValue, useScreenActive } from "./display-clock";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
+import { backgroundLabel } from "@milagre/shared/chat-activity";
+
+// The library types its class on RN's NativeMethods, which RN 0.88 removed, so JSX rejects it; the props are unchanged.
+const MaskedView = RNCMaskedView as unknown as ComponentType<{ maskElement: ReactElement; children?: ReactNode }>;
 
 /** A CSS keyframe segment: move to keyframe `to` over `duration` ms with the segment's timing function. */
 type Segment = { to: number; duration: number; easing?: EasingFunction };
@@ -17,7 +26,7 @@ type Segment = { to: number; duration: number; easing?: EasingFunction };
 export function useKeyframes(segments: Segment[], delay = 0) {
   const [value] = useState(() => new Animated.Value(0));
   // Loops stop while another screen covers this one; Animated.delay segments wake JS even on the native driver.
-  const active = useIsFocused();
+  const active = useScreenActive();
   useEffect(() => {
     if (!active) return;
     let loop: Animated.CompositeAnimation | undefined;
@@ -107,15 +116,7 @@ const RunningLogo = memo(function RunningLogo({ size = 16 }: { size?: number }) 
 function useElapsed(startedAt?: number) {
   // Measured from the clock, so the time is still right after the ticks pause under another screen.
   const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
-  const active = useIsFocused();
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(timer);
-  }, [active]);
-  const total = Math.floor(Math.max(0, now - (startedAt ?? start)) / 100) / 10;
-  return total < 60 ? `${total.toFixed(1)}s` : `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
+  return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? start)));
 }
 
 /** Desktop's ThinkingIndicator: the running mark and the elapsed time; the label is for screen readers unless shown. */
@@ -126,11 +127,11 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
       accessible
       accessibilityRole="progressbar"
       accessibilityLabel={label}
-      style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4, paddingVertical: 4 }}
+      style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, paddingVertical: 4 }}
     >
       <RunningLogo />
       {showLabel && (
-        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12, flexShrink: 1 }}>
+        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}>
           {label}
         </Text>
       )}
@@ -139,66 +140,149 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
   );
 }
 
-/** Only this Text re-renders on each tick. */
-function Elapsed({ startedAt }: { startedAt?: number }) {
+/**
+ * Desktop's BackgroundIndicator: the Chat's turn ended, but background work goes on (chat-activity.mjs). How many
+ * tasks, and for how long the oldest has run; no running mark, since no turn runs.
+ */
+export function BackgroundIndicator({ count, startedAt, mark, onPress }: { count: number; startedAt?: number; mark: ReactNode; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Text style={{ color: colors.ink3, fontSize: 12, fontFamily: fonts.mono, fontVariant: ["tabular-nums"] }}>{useElapsed(startedAt)}</Text>;
+  const label = `${backgroundLabel(count)} running`;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. Show background tasks`}
+      // 36 tall in the transcript; the slop makes up the 44pt touch.
+      hitSlop={4}
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          minHeight: 36,
+          paddingHorizontal: 4,
+          paddingVertical: 4,
+        },
+        pressStyle({ pressed }),
+      ]}
+    >
+      {mark}
+      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}>
+        {label}
+      </Text>
+      <Elapsed startedAt={startedAt} color={colors.ink2} />
+      <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
+    </Pressable>
+  );
+}
+
+/** Only this Text re-renders on each tick. */
+function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
+  const { colors } = useTheme();
+  return (
+    <Text
+      style={{ color: color ?? colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono, fontVariant: ["tabular-nums"] }}
+    >
+      {useElapsed(startedAt)}
+    </Text>
+  );
 }
 
 // step-shimmer: a 320px tile (ink-3 to 110px, ink at 160px, ink-3 from 210px) slides one tile right every 1.2s.
 const TILE = 320;
+const SWEEP_PERIOD_MS = 1200;
 const TILES = 4;
 
-/** Desktop's step-shimmer: a light highlight sweeps across the text, left to right, until the step is done. */
-export function ShimmerText({ children, style, numberOfLines = 1 }: { children: ReactNode; style?: TextStyle; numberOfLines?: number }) {
-  const { colors } = useTheme();
-  const [shift] = useState(() => new Animated.Value(0));
-  const [reduced, setReduced] = useState(false);
-  const active = useIsFocused();
+/** Recheck on screen activation and listen while mounted; Reanimated's reduced-motion value is startup-only. */
+export function useShimmerReducedMotion(active: boolean) {
+  const [reduced, setReduced] = useState(true);
+  const { motionScale } = useTheme();
   useEffect(() => {
     if (!active) return;
-    let cancelled = false;
-    const loop = Animated.loop(Animated.timing(shift, { toValue: TILE, duration: 1200, easing: Easing.linear, useNativeDriver: true }));
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
-      if (cancelled) return;
-      setReduced(reduce);
-      if (!reduce) loop.start();
+    let live = true;
+    let changed = false;
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (value) => {
+      changed = true;
+      setReduced(value);
     });
+    void AccessibilityInfo.isReduceMotionEnabled().then(
+      (value) => {
+        if (live && !changed) setReduced(value);
+        return null;
+      },
+      () => null,
+    );
     return () => {
-      cancelled = true;
-      loop.stop();
+      live = false;
+      subscription.remove();
+      // Permission learned on a previous screen visit cannot authorize motion on the next one.
+      setReduced(true);
     };
-  }, [shift, active]);
+  }, [active]);
+  return reduced || motionScale === 0;
+}
+
+/** Sweeps while mounted; ActivityTitle mounts it only while its step runs, the screen is active and motion is allowed. */
+export function ShimmerText({
+  children,
+  settledChildren,
+  style,
+  numberOfLines = 1,
+}: {
+  children: ReactNode;
+  settledChildren: ReactNode;
+  style?: TextStyle;
+  numberOfLines?: number;
+}) {
+  const { colors } = useTheme();
+  const [shift] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    // One native loop: the tile slides one width per period and wraps without waking JS.
+    const animation = Animated.loop(
+      Animated.timing(shift, { toValue: TILE, duration: SWEEP_PERIOD_MS, easing: Easing.linear, useNativeDriver: true, isInteraction: false }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [shift]);
   const text = (
     <Text numberOfLines={numberOfLines} style={style}>
       {children}
     </Text>
   );
-  if (reduced)
-    return (
-      <Text numberOfLines={numberOfLines} style={[style, { color: colors.ink3 }]}>
-        {children}
-      </Text>
-    );
   return (
-    <MaskedView maskElement={text}>
-      <Text numberOfLines={numberOfLines} style={[style, { opacity: 0 }]}>
-        {children}
+    <View>
+      <Text numberOfLines={numberOfLines} style={[style, { color: colors.ink3 }]}>
+        {settledChildren}
       </Text>
-      <Animated.View
-        style={{ position: "absolute", top: 0, bottom: 0, left: -TILE, width: TILE * TILES, flexDirection: "row", transform: [{ translateX: shift }] }}
-      >
-        {Array.from({ length: TILES }, (_, index) => (
-          <LinearGradient
-            key={index}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            colors={[colors.ink3, colors.ink3, colors.ink, colors.ink3, colors.ink3]}
-            locations={[0, 110 / TILE, 160 / TILE, 210 / TILE, 1]}
-            style={{ width: TILE, height: "100%" }}
-          />
-        ))}
-      </Animated.View>
-    </MaskedView>
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <MaskedView maskElement={text}>
+          <Text numberOfLines={numberOfLines} style={[style, { opacity: 0 }]}>
+            {children}
+          </Text>
+          <Animated.View
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: -TILE,
+              width: TILE * TILES,
+              flexDirection: "row",
+              transform: [{ translateX: shift }],
+            }}
+          >
+            {Array.from({ length: TILES }, (_, index) => (
+              <LinearGradient
+                key={index}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                colors={[colors.ink3, colors.ink3, colors.ink, colors.ink3, colors.ink3]}
+                locations={[0, 110 / TILE, 160 / TILE, 210 / TILE, 1]}
+                style={{ width: TILE, height: "100%" }}
+              />
+            ))}
+          </Animated.View>
+        </MaskedView>
+      </View>
+    </View>
   );
 }

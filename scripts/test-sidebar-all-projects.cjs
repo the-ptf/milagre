@@ -1,11 +1,11 @@
-// Browser check: by default (Experimental "Use legacy sidebar" off), the sidebar lists each recent Project and
+// Browser check: the sidebar lists each recent Project and
 // Link with its chats, leaves out a hidden Project, shows and hides Projects from the chooser's checkboxes, marks exactly one open scope, shows each scope's ⋯ menu and New chat
-// label, pins and folds groups, opens another Project's chat and follows its live updates. Off, the project menu is
-// back on top. The group order survives a restart (a page reload). No agent calls.
+// label, pins and folds groups, opens another Project's chat and follows its live updates. The group order survives a restart (a page reload). No agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React from "react";
@@ -26,12 +26,18 @@ const restartRecent = JSON.parse(sessionStorage.getItem("restartRecent") ?? "nul
 let recent = restartRecent
   ? restartRecent.map((path) => ({ path, name: path.split("/").at(-1), hidden: path === "/work/api" }))
   : [
-      { path: "/work/arketa", name: "arketa" },
+      { path: "/work/atlas", name: "atlas" },
       { path: "/work/shop", name: "shop" },
       { path: "/work/api", name: "api", hidden: true },
     ];
 window.milagre = {
   listRecentProjects: async () => recent,
+  forgetProject: async (path) => {
+    window.forgetCalls = [...(window.forgetCalls ?? []), path];
+    if (window.failForget) throw new Error("Could not save Projects list");
+    recent = recent.filter((project) => project.path !== path);
+    return recent;
+  },
   setProjectHidden: async (path, hidden) => {
     window.hiddenCalls = [...(window.hiddenCalls ?? []), [path, hidden]];
     recent = recent.map((project) => (project.path === path ? { ...project, hidden } : project));
@@ -63,25 +69,43 @@ window.milagre = {
     if (scope === "/work/shop") window.pushShop({ ...chat(7, "Shop chat"), sessions: { 7: { id: 7, worktree_id: 1, agent_name: "Claude", status: "Idle", ...patch } } });
   },
 };
+window.addEventListener("milagre:project-removed", (event) => { window.removedProject = event.detail; });
 window.pushShop = (state) => listeners.forEach((callback) => callback({ path: "/work/shop", state }));
-window.showAll = (all) => updateSettings({ legacySidebar: !all });
 localStorage.removeItem("milagre.sidebarClosedScopes");
+// Pins are this Mac's own (chat-pins.ts), kept in the same storage: a page reload in the restart checks keeps them.
+if (!restartRecent) localStorage.removeItem("milagre.chatPins");
 // A restart keeps the saved group order; a first load starts clean.
 if (!restartRecent) localStorage.removeItem("milagre.sidebarScopeOrder");
-updateSettings({ legacySidebar: false, chatRowShow: DESKTOP_CHAT_ROW_SHOW });
-createRoot(document.getElementById("root")).render(
+updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: "grouped" });
+// Chats the App marks as archiving, set from the check.
+function Root() {
+  const [archivingChats, setArchivingChats] = React.useState(() => new Set());
+  window.setArchiving = (keys) => setArchivingChats(new Set(keys));
+  return (
   <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
-    <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow" }]} activeId="1"
-      runningKeys={"/work/shop#7\\nmilagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3"} waitingKeys="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3" attentionPaths={["/work/shop"]} onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }} />
-  </div>,
-);
+    <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow", details: { failed: true } }]} activeId="1"
+      runningKeys={"/work/shop#7\\nmilagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3"} waitingKeys="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3" attentionPaths={["/work/shop"]} onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }}
+      onScopeArchiveCheck={async (key, id) => { window.archiveChecked = [key, id]; return { milagreOwned: false, shared: false, status: null }; }}
+      onScopeArchive={async (key, id, mode) => { window.archived = [key, id, mode]; }} archivingChats={archivingChats}
+      onEditLink={(id) => { window.editedLink = id; }} onDeleteLink={(id) => { window.deletedLink = id; }} />
+  </div>
+  );
+}
+createRoot(document.getElementById("root")).render(<Root />);
 `;
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   await app.whenReady();
   const window = new BrowserWindow({ width: 1280, height: 640, show: false, webPreferences: { backgroundThrottling: false } });
-  const evaluate = (source) => window.webContents.executeJavaScript(source);
+  // A page error names the script that threw it, not only "Script failed to execute".
+  const evaluate = async (source) => {
+    try {
+      return await window.webContents.executeJavaScript(source);
+    } catch (error) {
+      throw new Error(`${error.message}\n  in: ${source.replace(/\s+/g, " ").slice(0, 220)}`, { cause: error });
+    }
+  };
   const errors = [];
   window.webContents.on("console-message", (details) => {
     if (details.level === "error") errors.push(details.message);
@@ -110,7 +134,7 @@ async function browserChecks() {
   // Other checks share this storage: leave the sidebar as they expect it.
   const reset = () =>
     evaluate(
-      `window.showAll?.(false); localStorage.removeItem("milagre.sidebarClosedScopes"); localStorage.removeItem("milagre.sidebarScopeOrder"); sessionStorage.removeItem("restartRecent")`,
+      `localStorage.removeItem("milagre.sidebarClosedScopes"); localStorage.removeItem("milagre.sidebarScopeOrder"); localStorage.removeItem("milagre.chatPins"); sessionStorage.removeItem("restartRecent")`,
     ).catch(() => {});
   const scopes = () => evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((node) => node.dataset.sidebarScope)`);
   // A folded group keeps its rows mounted (inert, zero height) so it can animate shut; they don't count as shown.
@@ -124,10 +148,23 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id]')`);
     assert.deepEqual(
       await scopes(),
-      ["/work/arketa", "/work/shop", "milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"],
+      ["/work/atlas", "/work/shop", "milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"],
       "Every Project and Link but the hidden one",
     );
-    assert.match((await chats("/work/arketa"))[0], /Fix the login flow/);
+    assert.match((await chats("/work/atlas"))[0], /Fix the login flow/);
+    assert.equal(
+      await evaluate(`(() => {
+      const dot = document.querySelector('[data-sidebar-scope="/work/atlas"] [data-chat-id="1"] [data-slot="chat-mark"]');
+      const expected = document.createElement('span');
+      expected.style.color = 'var(--red)';
+      document.body.append(expected);
+      const matches = dot?.getAttribute('aria-label') === 'Failed' && getComputedStyle(dot).backgroundColor === getComputedStyle(expected).color;
+      expected.remove();
+      return matches;
+    })()`),
+      true,
+      "Failed Chats have a red status with an accessible label, as on mobile",
+    );
     assert.match((await chats("/work/shop"))[0], /Shop chat/);
     assert.equal(
       await evaluate(`(() => {
@@ -174,17 +211,22 @@ async function browserChecks() {
     const toggle = await evaluate(
       `(() => { const r = document.querySelector('[data-sidebar-scope="/work/shop"] [data-scope-toggle]').getBoundingClientRect(); return { x: Math.round(r.x + 40), y: Math.round(r.y + r.height / 2) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseMove", ...toggle });
-    await delay(300);
+    // A slow runner coalesces moves and updates :hover late (CI failed here with the dot still at 12), so the move is
+    // sent again until the dot has slid over; the slide itself takes 150 ms.
+    for (let attempt = 0; (await dotGap()) !== 64; attempt++) {
+      if (attempt === 20) break;
+      window.webContents.sendInputEvent({ type: "mouseMove", ...toggle });
+      await delay(250);
+    }
     assert.equal(await dotGap(), 64, "On hover it moves left of the menu and New chat buttons");
     await screenshot("attention-hover");
     window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
     await delay(300);
 
-    // One open scope; the others offer New chat in <name>; only a Project's ⋯ menu on a non-current scope has Remove.
+    // Every Project offers removal, including the open one.
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope][data-current]").length`), 1, "Exactly one scope is open");
-    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"]')?.hasAttribute("data-current")`), true);
-    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-action]')?.getAttribute("aria-label")`), "New chat");
+    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"]')?.hasAttribute("data-current")`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-action]')?.getAttribute("aria-label")`), "New chat");
     assert.equal(
       await evaluate(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-scope-action]')?.getAttribute("aria-label")`),
       "New chat in shop",
@@ -201,15 +243,53 @@ async function browserChecks() {
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
 
-    await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-menu]').click()`);
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector("[data-scope-menu-panel]")`);
     assert.equal(
       await evaluate(`!!document.querySelector('[data-scope-menu-panel] [data-scope-menu-item="remove"]')`),
-      false,
-      "The open Project's menu has no Remove",
+      true,
+      "The open Project's menu offers Remove",
     );
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
+
+    // A Link's menu copies its name, edits it and, set apart in red, deletes it.
+    const linkScope = `[data-sidebar-scope="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]`;
+    await evaluate(`document.querySelector('${linkScope} [data-scope-menu]').click()`);
+    await waitFor(`!!document.querySelector("[data-scope-menu-panel]")`);
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-scope-menu-panel] [data-scope-menu-item]")].map((item) => item.textContent.trim())`),
+      ["Copy Link name", "Edit Link…", "Delete Link…"],
+    );
+    assert.equal(await evaluate(`document.querySelector('[data-scope-menu-item="delete"]').classList.contains("text-red-ink")`), true, "Delete is red");
+    assert.equal(await evaluate(`document.querySelector('[data-scope-menu-item="edit"]').classList.contains("text-red-ink")`), false);
+    await screenshot("link-scope-menu");
+    await evaluate(`document.querySelector('[data-scope-menu-item="delete"]').click()`);
+    await waitFor(`window.deletedLink === "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"`);
+    await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
+
+    // Confirmation is cancellable, and a failed save keeps the dialog open with a retry.
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-menu]').click()`);
+    await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
+    await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+    await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
+    assert.equal(await evaluate(`document.activeElement.textContent`), "Cancel");
+    await screenshot("remove-project-confirmation");
+    await evaluate(`document.activeElement.click()`);
+    await waitFor(`!document.querySelector('[data-project-remove-confirm]')`);
+    assert.equal(await evaluate(`(window.forgetCalls ?? []).length`), 0);
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/atlas"] [data-scope-menu]').click()`);
+    await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
+    await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+    await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
+    await evaluate(`window.failForget = true; document.querySelector('[data-project-remove-confirm]').click()`);
+    await waitFor(`!!document.querySelector('dialog [role="alert"]')`);
+    assert.match(await evaluate(`document.querySelector('dialog [role="alert"]').textContent`), /Could not save Projects list/);
+    assert.equal(await evaluate(`window.removedProject ?? null`), null);
+    await evaluate(`window.failForget = false; document.querySelector('[data-project-remove-confirm]').click()`);
+    await waitFor(`!document.querySelector('[data-project-remove-confirm]')`);
+    assert.equal(await evaluate(`window.removedProject`), "/work/atlas");
+    // The fixture keeps the current Project prop; App closes it in response to the removal event.
 
     // The project chooser lists every Project, the hidden one unchecked; checking it brings its group back, unchecking hides it again.
     await evaluate(`document.querySelector("[data-filters]").click()`);
@@ -220,7 +300,7 @@ async function browserChecks() {
       await evaluate(`[...document.querySelectorAll("[data-project-choice]")].map((row) => [row.dataset.projectChoice, row.getAttribute("aria-checked")])`),
       [
         ["/work/api", "false"],
-        ["/work/arketa", "true"],
+        ["/work/atlas", "true"],
         ["milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7", "true"],
         ["/work/shop", "true"],
       ],
@@ -263,11 +343,31 @@ async function browserChecks() {
     await click('[data-sidebar-scope="/work/shop"] [data-chat-id] [data-row]');
     assert.equal(await evaluate("window.opened"), "/work/shop#7", "Another Project's chat opens through onOpenScopeChat");
 
+    // Delete acts on one click against the row's Project, without a confirmation surface.
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"] [aria-label="Chat actions"]').click()`);
+    await waitFor(`!!document.querySelector("[data-chat-menu]")`);
+    const deleteRow = `[...document.querySelectorAll("[data-chat-menu] [data-menu-row]")].find((row) => row.textContent.trim() === "Delete")`;
+    await waitFor(`!!${deleteRow} && !${deleteRow}.disabled`);
+    assert.deepEqual(await evaluate("window.archiveChecked"), ["/work/shop", "7"]);
+    await evaluate(`${deleteRow}.click()`);
+    await waitFor(`!!window.archived`);
+    assert.deepEqual(await evaluate("window.archived"), ["/work/shop", "7", "hide"]);
+    await waitFor(`!document.querySelector("[data-chat-menu]")`);
+    assert.equal(await evaluate('!!document.querySelector("[data-archive-choice], [data-archive-reason]")'), false);
+    // While deletion is under way the row is gone; it comes back if deletion fails.
+    await evaluate(`window.setArchiving(["/work/shop#7"])`);
+    await waitFor(`!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"]')`);
+    await evaluate(`window.setArchiving([])`);
+    await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"]')`);
+
     // Another Project's chat pins from its row menu and moves to the Pinned section on top of every group.
     await evaluate(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"] [aria-label="Chat actions"]').click()`);
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
     await evaluate(`[...document.querySelectorAll("[data-chat-menu] [data-menu-row]")].find((row) => row.textContent.trim() === "Pin").click()`);
-    assert.deepEqual(await evaluate("window.patched"), ["/work/shop", 7, { pinned: true, pin_order: 0 }]);
+    // The pin stays on this Mac: the Chat's host is never told (only a hidden Run Chat's would hear it was kept).
+    await waitFor(`!!localStorage.getItem("milagre.chatPins")`);
+    assert.deepEqual(JSON.parse(await evaluate(`localStorage.getItem("milagre.chatPins")`)), { "/work/shop": { 7: 0 } });
+    assert.equal(await evaluate("window.patched ?? null"), null, "Pinning writes nothing to the Chat's computer");
     await waitFor(`!!document.querySelector('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]')`);
     assert.equal(
       await evaluate(
@@ -321,45 +421,86 @@ async function browserChecks() {
     await waitFor(`!document.querySelector("[data-filters-panel]")`);
 
     // Dragging another Project's chat from its group into Pinned pins it there: the group and its pinned rows are one list.
-    await click('[data-sidebar-scope="/work/shop"] [data-scope-toggle]');
-    await waitFor(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]')?.getBoundingClientRect().height > 0`);
-    await delay(250);
-    const centre = (selector) =>
+    const scopeToggle = '[data-sidebar-scope="/work/shop"] [data-scope-toggle]';
+    const row8 = '[data-sidebar-scope="/work/shop"] [data-chat-id="8"]';
+    const row7 = '[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]';
+    const expanded = () => evaluate(`document.querySelector(${JSON.stringify(scopeToggle)}).getAttribute("aria-expanded")`);
+    // Both rows' boxes, or "null" while either is missing: the pinned row comes and goes as the group unfolds.
+    const rects = () =>
       evaluate(
+        `JSON.stringify([${JSON.stringify(row8)}, ${JSON.stringify(row7)}].map((selector) => document.querySelector(selector)?.getBoundingClientRect() ?? null))`,
+      );
+    // Unfold the group, reading the toggle rather than assuming the fold above has landed, and press only once both
+    // rows have kept the same boxes for half a second: on the CI runner the row was there 100 ms after the unfold,
+    // gone again right after (the list mounts once more as the unfold ends), and back by 250 ms.
+    for (let attempt = 0; ; attempt++) {
+      if ((await expanded()) !== "true") await click(scopeToggle);
+      await waitFor(`document.querySelector(${JSON.stringify(row8)})?.getBoundingClientRect().height > 0`);
+      let last = await rects();
+      let unchanged = 0;
+      for (let i = 0; i < 40 && unchanged < 5; i++) {
+        await delay(100);
+        const next = await rects();
+        unchanged = next === last && !next.includes("null") ? unchanged + 1 : 0;
+        last = next;
+      }
+      if (unchanged === 5) break;
+      if (attempt === 3) throw new Error(`the unfolded group never settled: aria-expanded=${await expanded()} rows=${last}`);
+    }
+    // A row is away for a moment while the list mounts again (a press that ended as a click on it does that too), so a
+    // row is measured once it is back, not assumed.
+    const centre = async (selector) => {
+      await waitFor(`!!document.querySelector(${JSON.stringify(selector)})`);
+      return evaluate(
         `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + r.height / 2), bottom: r.bottom }; })()`,
       );
+    };
     const mouse = (type, x, y) => window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
-    const from = await centre('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]');
-    const to = await centre('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]');
-    mouse("mouseMove", from.x, from.y);
-    mouse("mouseDown", from.x, from.y);
-    for (let step = 1; step <= 10; step++) {
-      mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
-      await delay(16);
+    const target = () => centre(row7);
+    // On the CI runner the press sometimes never became a drag (its timeout dump showed no data-chat-drag with the
+    // pointer resting on the right row), so the press is repeated until the page marks the drag as begun.
+    const dragging = `document.documentElement.hasAttribute("data-chat-drag")`;
+    let from, to;
+    for (let attempt = 0; !(await evaluate(dragging)); attempt++) {
+      if (attempt === 5) throw new Error("Timed out: the drag never began");
+      if (attempt) mouse("mouseUp", from.x, from.y);
+      from = await centre(row8);
+      to = await target();
+      mouse("mouseMove", from.x, from.y);
+      mouse("mouseDown", from.x, from.y);
+      for (let step = 1; step <= 10; step++) {
+        mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
+        await delay(16);
+      }
+      // Wait for the drag's first render before judging the press lost: releasing a press whose drag begins a moment
+      // later drops it where it stands, which pins the chat and leaves the next attempt without its row.
+      for (let i = 0; i < 100 && !(await evaluate(dragging)); i++) await delay(50);
     }
-    await waitFor(`!!document.querySelector("[data-drop-line]")`);
+    // A slow runner can process those moves before the drag's first render, so none of them set a target. Nudge at the
+    // target, read live, until the drop line shows.
+    const dropLine = `!!document.querySelector("[data-drop-line]")`;
+    for (let attempt = 0; !(await evaluate(dropLine)); attempt++) {
+      if (attempt === 25) {
+        await screenshot("drag-timeout");
+        const state = await evaluate(`(() => {
+          const at = document.elementFromPoint(${from.x}, ${Math.round(to.bottom - 4)});
+          const rect = (selector) => { const r = document.querySelector(selector)?.getBoundingClientRect(); return r && [r.left, r.top, r.right, r.bottom].map(Math.round); };
+          return JSON.stringify({ dragging: document.documentElement.hasAttribute("data-chat-drag"), at: at?.outerHTML.slice(0, 160), row8: rect('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]'), row7: rect('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]'), pinned: rect("[data-all-pinned]") });
+        })()`);
+        throw new Error(`Timed out: ${dropLine} ${state}`);
+      }
+      const now = await target();
+      mouse("mouseMove", now.x + (attempt % 2), now.bottom - 4);
+      await delay(200);
+    }
     await screenshot("drag-into-pinned");
-    mouse("mouseUp", to.x, to.bottom - 4);
-    await waitFor(`window.patched?.[1] === 8`);
-    const [scope, id, patch] = await evaluate("window.patched");
-    assert.deepEqual([scope, id, patch.pinned], ["/work/shop", 8, true], "dropped below the pinned chat, another Project's chat is pinned");
-    assert.ok(patch.pin_order > 0, "after the pinned one");
+    const drop = await target();
+    mouse("mouseUp", drop.x, drop.bottom - 4);
+    await waitFor(`"8" in (JSON.parse(localStorage.getItem("milagre.chatPins") ?? "{}")["/work/shop"] ?? {})`);
+    const pins = JSON.parse(await evaluate(`localStorage.getItem("milagre.chatPins")`))["/work/shop"];
+    assert.ok(pins[8] > pins[7], "dropped below the pinned chat, another Project's chat is pinned after it");
+    assert.equal(await evaluate("window.patched ?? null"), null);
 
-    await evaluate("window.showAll(false)");
-    await waitFor(`!document.querySelector("[data-sidebar-scope]")`);
-    await screenshot("off");
-    assert.match(await evaluate(`document.querySelector("[data-chat-id]").textContent`), /Fix the login flow/, "Off, only the open Project's chats");
-    assert.equal(await evaluate(`!!document.querySelector("[data-workspace-trigger]")`), true, "Off, the project menu is back on top");
-    assert.equal(await evaluate(`!!document.querySelector("[data-link-projects]")`), false, "Off, Link projects stays in that menu");
-    await evaluate(`document.querySelector("[data-filters]").click()`);
-    await waitFor(`!!document.querySelector("[data-filters-panel]")`);
-    assert.deepEqual(
-      await evaluate(`[...document.querySelectorAll("[data-filters-panel] [data-sub]")].map((row) => row.dataset.sub)`),
-      ["show"],
-      "Off, Filters has no Projects",
-    );
-    await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
-    await waitFor(`!document.querySelector("[data-filters-panel]")`);
     // The group order survives a restart: the page reloads (module state gone, storage kept) with the recent list in a new order.
     const LINK = "milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
     const restart = async (recentPaths, expected, message) => {
@@ -370,33 +511,33 @@ async function browserChecks() {
       assert.deepEqual(await scopes(), expected, message);
     };
     const savedOrder = async () => JSON.parse(await evaluate(`localStorage.getItem("milagre.sidebarScopeOrder")`));
-    // Start from a known order: nothing saved, recent list arketa then shop.
+    // Start from a known order: nothing saved, recent list atlas then shop.
     await evaluate(`localStorage.removeItem("milagre.sidebarScopeOrder")`);
-    await restart(["/work/arketa", "/work/shop", "/work/api"], ["/work/arketa", "/work/shop", LINK], "With nothing saved, the groups follow the recent list");
-    assert.deepEqual(await savedOrder(), ["/work/arketa", "/work/shop"], "The order shown is saved");
+    await restart(["/work/atlas", "/work/shop", "/work/api"], ["/work/atlas", "/work/shop", LINK], "With nothing saved, the groups follow the recent list");
+    assert.deepEqual(await savedOrder(), ["/work/atlas", "/work/shop"], "The order shown is saved");
     await restart(
-      ["/work/shop", "/work/arketa", "/work/api"],
-      ["/work/arketa", "/work/shop", LINK],
+      ["/work/shop", "/work/atlas", "/work/api"],
+      ["/work/atlas", "/work/shop", LINK],
       "After a restart with shop most recent, the groups keep their saved order",
     );
     await screenshot("order-after-restart");
     await restart(
-      ["/work/docs", "/work/shop", "/work/arketa", "/work/api"],
-      ["/work/docs", "/work/arketa", "/work/shop", LINK],
+      ["/work/docs", "/work/shop", "/work/atlas", "/work/api"],
+      ["/work/docs", "/work/atlas", "/work/shop", LINK],
       "A Project new since the last run goes on top, the rest keep their order",
     );
-    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/arketa", "/work/shop"]);
-    await restart(["/work/docs", "/work/arketa"], ["/work/docs", "/work/arketa", LINK], "A Project that is gone drops out");
-    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/arketa"], "Its place is forgotten");
+    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/atlas", "/work/shop"]);
+    await restart(["/work/docs", "/work/atlas"], ["/work/docs", "/work/atlas", LINK], "A Project that is gone drops out");
+    assert.deepEqual(await savedOrder(), ["/work/docs", "/work/atlas"], "Its place is forgotten");
     await restart(
-      ["/work/shop", "/work/docs", "/work/arketa"],
-      ["/work/shop", "/work/docs", "/work/arketa", LINK],
+      ["/work/shop", "/work/docs", "/work/atlas"],
+      ["/work/shop", "/work/docs", "/work/atlas", LINK],
       "Back again, it counts as new and goes on top",
     );
 
     // Another window reorders the groups (same storage). This window's unrelated re-render must not put its old order back,
     // and it follows the other window's change when the storage event arrives.
-    const other = ["/work/arketa", "/work/docs", "/work/shop"];
+    const other = ["/work/atlas", "/work/docs", "/work/shop"];
     await evaluate(`localStorage.setItem("milagre.sidebarScopeOrder", ${JSON.stringify(JSON.stringify(other))})`);
     await click('[data-sidebar-scope="/work/docs"] [data-scope-toggle]');
     await delay(200);
@@ -404,14 +545,63 @@ async function browserChecks() {
     await evaluate(
       `window.dispatchEvent(new StorageEvent("storage", { key: "milagre.sidebarScopeOrder", newValue: localStorage.getItem("milagre.sidebarScopeOrder") }))`,
     );
-    await waitFor(`document.querySelector("[data-sidebar-scope]")?.dataset.sidebarScope === "/work/arketa"`);
+    await waitFor(`document.querySelector("[data-sidebar-scope]")?.dataset.sidebarScope === "/work/atlas"`);
     assert.deepEqual(await scopes(), [...other, LINK], "This window adopts the other window's order");
     assert.deepEqual(await savedOrder(), other);
+
+    // Dragging a Project header moves its group: shop's header is dragged above atlas and the new order is saved.
+    await waitFor(`document.querySelectorAll("[data-sidebar-scope]").length === 4`);
+    await screenshot("reorder-before");
+    const headerPoint = async (scope, dy = 0) =>
+      evaluate(
+        `(() => { const r = document.querySelector('[data-sidebar-scope="${scope}"] [data-scope-toggle]').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + r.height / 2 + ${dy}), top: Math.round(r.top) }; })()`,
+      );
+    const mouse2 = (type, x, y) => window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
+    const dragScope = `document.documentElement.querySelector("[data-scope-drop-line]")`;
+    let start, aim;
+    for (
+      let attempt = 0;
+      !(await evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((n) => n.dataset.sidebarScope)[0] === "/work/shop"`));
+      attempt++
+    ) {
+      if (attempt === 6) throw new Error("Timed out: the header drag never reordered");
+      if (attempt) mouse2("mouseUp", start.x, start.y);
+      start = await headerPoint("/work/shop");
+      aim = await headerPoint("/work/atlas");
+      mouse2("mouseMove", start.x, start.y);
+      mouse2("mouseDown", start.x, start.y);
+      // Past the threshold, then up onto atlas's top half so the drop lands before it.
+      for (let step = 1; step <= 10; step++) {
+        mouse2("mouseMove", start.x, Math.round(start.y + ((aim.top + 2 - start.y) * step) / 10));
+        await delay(16);
+      }
+      // Let the drop line show before releasing.
+      for (let i = 0; i < 40 && !(await evaluate(dragScope)); i++) await delay(50);
+      if (await evaluate(dragScope)) await screenshot("reorder-dragging");
+      const landing = await headerPoint("/work/atlas");
+      mouse2("mouseUp", landing.x, landing.top + 2);
+      await delay(200);
+    }
+    assert.deepEqual(await scopes(), ["/work/shop", "/work/atlas", "/work/docs", LINK], "shop moved to the top by its header");
+    assert.deepEqual(await savedOrder(), ["/work/shop", "/work/atlas", "/work/docs"], "the new group order is saved");
+    await screenshot("reorder-after");
+    // A press that drags a few pixels sideways and lets go inside its own header keeps the group where it was.
+    const own = await headerPoint("/work/atlas");
+    mouse2("mouseMove", own.x, own.y);
+    mouse2("mouseDown", own.x, own.y);
+    for (let step = 1; step <= 3; step++) {
+      mouse2("mouseMove", own.x + step * 2, own.y);
+      await delay(16);
+    }
+    mouse2("mouseUp", own.x + 6, own.y);
+    await delay(250);
+    assert.deepEqual(await scopes(), ["/work/shop", "/work/atlas", "/work/docs", LINK], "a drop inside the dragged group's own header leaves the order");
+    assert.deepEqual(await savedOrder(), ["/work/shop", "/work/atlas", "/work/docs"]);
 
     assert.deepEqual(errors, []);
     await reset();
     console.log(
-      "PASS: with the Experimental setting on, the sidebar lists each Project and Link with its chats, skips a hidden Project, chooses Projects with checkboxes, marks one open scope, offers New chat per scope and Remove only on other Projects, pins chats to one Pinned section on top, opens them, marks Link chats waiting on the user, follows live changes, folds groups, and keeps the group order across restarts; off, the old project menu returns",
+      "PASS: the sidebar lists each Project and Link with its chats, skips a hidden Project, chooses Projects with checkboxes, marks one open scope, offers New chat and confirmed removal for every Project, pins chats to one Pinned section on top, opens them, marks Link chats waiting on the user, follows live changes, folds groups, reorders groups by dragging a Project header, and keeps the group order across restarts",
     );
     app.exit(0);
   } catch (error) {
@@ -438,7 +628,7 @@ async function main() {
           if (id === "/__sidebar-all-projects.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__sidebar-all-projects") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

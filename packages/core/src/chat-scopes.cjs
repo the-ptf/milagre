@@ -1,20 +1,25 @@
 const { scopeFromKey, scopeKey, isLinkScopeKey } = require("@milagre/shared/chat-scopes");
-// What a shared Chat's agent is told about its Projects: the Worktrees it already has, and the Projects it has only read.
-function linkInstructions(worktrees, pending) {
-  return [
-    "This is one shared Chat in a named Project Link. Its Worktrees are made only in the Projects it changes.",
-    worktrees.length
-      ? `These Worktrees belong to this Chat and may be edited directly under its permission mode:\n${worktrees.map((member) => `${member.alias}: ${member.worktreePath}`).join("\n")}`
-      : "",
-    pending.length
-      ? `These Projects have no Worktree in this Chat yet. Read them in their main checkout, which you must never edit:\n${pending.map((project) => `${project.projectName ?? project.alias}: ${project.projectPath}`).join("\n")}\nBefore you change any file in one of them, call Milagre's link_worktree tool with its Project name. It makes this Chat's Worktree there and returns its path; make every change in that path. Don't call it for a Project you only read.`
-      : "",
-    "Read each member's AGENTS.md and provider instructions before editing it. Run Git commands in the chosen member Worktree. The workspace directory is not a repository. Main checkouts are outside the owned set. External canvas-linked Worktrees still follow the read-only and Delegation rules above.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+/**
+ * What a shared Link Chat's agent is told about its Projects. A Project gets its Worktree only when the agent is about
+ * to edit it (link_worktree_create), so a Chat that changes one Project leaves the others' branches and folders alone.
+ */
+function linkWorkspaceInstructions(worktrees, pending) {
+  const owned = worktrees.length
+    ? `The following Worktrees belong to this Chat and may be edited directly under its permission mode:\n${worktrees.map((member) => `${member.alias}: ${member.worktreePath}`).join("\n")}`
+    : "No Project has a Worktree in this Chat yet.";
+  const waiting = pending.length
+    ? `\nThese Projects have no Worktree in this Chat yet. Read them from their main checkout, and never edit, commit or run setup there:\n${pending.map((project) => `${project.name}: ${project.path}`).join("\n")}\nBefore the first change in one of them, call the milagre link_worktree_create tool with its name. It creates this Chat's Worktree and branch in that Project and returns the path; make every change there. Only create a Worktree in a Project you are going to change.`
+    : "";
+  return `This is one shared Chat in a named Project Link. ${owned}${waiting}\nRead each member's AGENTS.md and provider instructions before editing it. Run Git commands in the chosen member Worktree. The workspace directory is not a repository. Main checkouts are outside the owned set. External canvas-linked Worktrees still follow the read-only and Delegation rules above.`;
 }
+
 function createChatScopes({ projects, links, validateLink }) {
+  // The loaded Links' states, without those a delete marked.
+  const liveLinks = () =>
+    links
+      .ids()
+      .map((id) => links.cached(id))
+      .filter((state) => state && !state.deletedAt);
   const target = (key) => {
     const scope = scopeFromKey(key);
     return scope.kind === "link" ? [links, scope.linkId] : [projects, scope.projectPath];
@@ -25,13 +30,16 @@ function createChatScopes({ projects, links, validateLink }) {
       return store.has(id);
     },
     projects: () => [...projects.projects(), ...links.ids().map((linkId) => scopeKey({ kind: "link", linkId }))],
+    // A deleted Link's sessions name no folder any more: its kept Worktrees are their Projects' (link:delete).
     worktreePaths: () => [
       ...projects.worktreePaths(),
-      ...links
-        .ids()
-        .flatMap((id) => Object.values(links.cached(id)?.sessions ?? {}).flatMap((session) => session.worktrees.map((member) => member.worktreePath))),
+      ...liveLinks().flatMap((state) => Object.values(state.sessions ?? {}).flatMap((session) => session.worktrees.map((member) => member.worktreePath))),
     ],
-    workspacePaths: () => links.ids().flatMap((id) => Object.values(links.cached(id)?.sessions ?? {}).map((session) => session.workspacePath)),
+    workspacePaths: () => liveLinks().flatMap((state) => Object.values(state.sessions ?? {}).map((session) => session.workspacePath)),
+    withPersistence(key, state) {
+      const [store, id] = target(key);
+      return store.withPersistence(id, state);
+    },
     get(key) {
       const [store, id] = target(key);
       return store.get(id);
@@ -73,6 +81,10 @@ function createChatScopes({ projects, links, validateLink }) {
       const [store, id] = target(key);
       return store.findMessage(id, field, value);
     },
+    retry(key) {
+      const [store, id] = target(key);
+      return store.retry(id);
+    },
     flush(key) {
       if (key === undefined) return Promise.all([projects.flush(), links.flush()]);
       const [store, id] = target(key);
@@ -88,7 +100,8 @@ function createChatScopes({ projects, links, validateLink }) {
       const session = state.sessions[sessionId];
       if (!session) throw new Error("Chat no longer exists");
       if (!isLinkScopeKey(key)) return { cwd: state.worktrees[session.worktree_id]?.path };
-      await validateLink(id);
+      // The Link's Projects, each { id, name, path }: the ones without a Worktree in this Chat yet are read from their main checkout.
+      const projectsOfLink = (await validateLink(id)) ?? [];
       const fs = require("node:fs/promises");
       const path = require("node:path");
       const git = require("./git/client.cjs").createGit().read;
@@ -104,18 +117,16 @@ function createChatScopes({ projects, links, validateLink }) {
           throw new Error(`Project ${member.projectName || member.alias}: its shared Worktree is unavailable.`);
         }
       }
-      // A Chat from before Worktrees were made on demand has one in every Project, and no project list.
-      const projects = session.projects ?? session.worktrees;
-      const made = new Set(session.worktrees.map((member) => member.projectId));
-      const pending = projects.filter((project) => !made.has(project.projectId));
+      const pending = projectsOfLink.filter((project) => !session.worktrees.some((member) => member.projectId === project.id));
       return {
         cwd: session.workspacePath,
         workspaceRoots: session.worktrees.map((member) => member.worktreePath),
-        // Projects without a Worktree yet are read from their main checkout, which the agent reads without asking.
-        readRoots: pending.map((project) => project.projectPath),
-        workspaceInstructions: linkInstructions(session.worktrees, pending),
+        projectRoots: projectsOfLink.map((project) => project.path),
+        readOnlyRoots: pending.map((project) => project.path),
+        workspaceInstructions: linkWorkspaceInstructions(session.worktrees, pending),
+        sharedLink: true,
       };
     },
   };
 }
-module.exports = { createChatScopes };
+module.exports = { createChatScopes, linkWorkspaceInstructions };

@@ -1,12 +1,15 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon } from "@hugeicons/core-free-icons";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useShortcutLabel } from "../../lib/keybindings";
+import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon, HierarchySquare02Icon } from "@hugeicons/core-free-icons";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { chatMarkPresentation } from "@milagre/shared/chats";
 import Tooltip from "../primitives/Tooltip";
-import GlideMenu from "../primitives/GlideMenu";
-import { ScrollArea } from "../primitives/ScrollArea";
-import { useDismiss } from "../../lib/use-dismiss";
-import { EASE_OUT } from "../../lib/ease";
+import { Button, buttonClass, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { MenuRow, Popover } from "../primitives/Popover";
+import { DURATION, EASE_OUT } from "../../lib/ease";
+import { useControlsClearance, useWindowChrome } from "../../lib/window-chrome";
 
 /**
  * Over the open diff: Back to the chat on the left, the diff's toolbar on the right. It comes and goes with the diff.
@@ -14,41 +17,23 @@ import { EASE_OUT } from "../../lib/ease";
  * drag region from every element with an app-region in tree order (drag adds, no-drag subtracts), so only the button
  * groups opt out: the empty stretch between them keeps dragging the window.
  */
-// The traffic lights and the sidebar toggle (12px + 76px + 32px) end here; with the sidebar collapsed, <main> starts
-// left of it, so Back moves right to stay clear.
-const WINDOW_CONTROLS_END = 128;
-
-/** Left inset that keeps the bar clear of the window controls, from where <main> (the bar's offset parent) starts. */
-function useControlsClearance(open: boolean) {
-  const bar = useRef<HTMLDivElement>(null);
-  const [inset, setInset] = useState(0);
-  useLayoutEffect(() => {
-    const host = bar.current?.offsetParent;
-    if (!open || !(host instanceof HTMLElement)) return;
-    const update = () => setInset(Math.max(0, WINDOW_CONTROLS_END - host.getBoundingClientRect().left - 12));
-    update();
-    // Collapsing the sidebar resizes <main>, which is what moves its left edge.
-    const observer = new ResizeObserver(update);
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, [open]);
-  return { bar, inset };
-}
-
 /** `send` is the diff comments waiting to go to the chat; the button is there while any can. */
 export function DiffBar({
   open,
   onBack,
   send,
   trailing,
+  corner,
 }: {
   open: boolean;
   onBack: () => void;
   send?: { count: number; onSend: () => void };
   trailing?: React.ReactNode;
+  /** Width (px) of the corner toggles top right, which the trailing controls keep clear of. */
+  corner?: number;
 }) {
   const reduced = useReducedMotion();
-  const { bar, inset } = useControlsClearance(open);
+  const { bar, inset } = useControlsClearance<HTMLDivElement>(open, corner);
   return (
     <AnimatePresence initial={false}>
       {open && (
@@ -56,23 +41,18 @@ export function DiffBar({
           ref={bar}
           key="diff-bar"
           data-diff-bar
-          style={{ paddingLeft: inset }}
-          className="absolute inset-x-3 top-[14px] z-[55] flex h-8 items-center justify-between"
+          style={inset}
+          className="absolute inset-x-3 top-[var(--window-chrome-top)] z-[55] flex h-8 items-center justify-between"
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
-          transition={reduced ? { duration: 0 } : { duration: 0.2, ease: EASE_OUT }}
+          transition={reduced ? { duration: 0 } : { duration: DURATION.base, ease: EASE_OUT }}
         >
-          <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
-            <button
-              type="button"
-              data-diff-back
-              onClick={onBack}
-              className="flex h-8 items-center gap-1.5 rounded-control bg-surface pr-3 pl-2 text-[12.5px] font-medium text-ink-2 shadow-card transition-colors hover:text-ink"
-            >
-              <HugeiconsIcon icon={ArrowLeft02Icon} size={15} strokeWidth={1.8} color="currentColor" />
+          <div className="no-drag flex items-center gap-2">
+            <Button variant="secondary" data-diff-back onClick={onBack} className="pl-2">
+              <Icon icon={ArrowLeft02Icon} size={16} />
               Back
-            </button>
+            </Button>
             <AnimatePresence initial={false}>
               {send && send.count > 0 && (
                 <motion.button
@@ -83,8 +63,8 @@ export function DiffBar({
                   initial={{ opacity: 0, scale: 0.96 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.96 }}
-                  transition={reduced ? { duration: 0 } : { duration: 0.16, ease: EASE_OUT }}
-                  className="h-8 rounded-control bg-ink px-3 text-[12.5px] font-medium text-surface shadow-card transition-opacity hover:opacity-85"
+                  transition={reduced ? { duration: 0 } : { duration: DURATION.base, ease: EASE_OUT }}
+                  className={buttonClass()}
                 >
                   {send.count === 1 ? "Send 1 comment" : `Send ${send.count} comments`}
                 </motion.button>
@@ -100,19 +80,55 @@ export function DiffBar({
 
 /** Top-right window button; sits inside the drag strip, so it opts out of dragging. */
 export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const chrome = useWindowChrome();
+  const shortcut = useShortcutLabel("changes.toggle");
   return (
-    // Same line as the traffic lights and the sidebar toggle (top 14px, 32px tall).
-    <div className="fixed top-[14px] right-3 z-[60] [-webkit-app-region:no-drag]">
-      <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut="⌘⇧D" compactHint side="bottom" align="end">
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset }}>
+      <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut={shortcut} compactHint side="bottom" align="end">
+        <IconButton label="Toggle changes panel" icon={GitBranchIcon} size={32} aria-pressed={open} data-changes-toggle onClick={onToggle} />
+      </Tooltip>
+    </div>
+  );
+}
+
+/** Top right, left of the panel buttons: shows every active Chat as a grid, or the open one alone. `offset` as AttentionButton's. */
+export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset: number; onToggle: () => void }) {
+  const chrome = useWindowChrome();
+  const shortcut = useShortcutLabel("grid.toggle");
+  return (
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+      <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
+        <IconButton label="Show active Chats as a grid" icon={GridViewIcon} size={32} aria-pressed={grid} data-layout-toggle onClick={onToggle} />
+      </Tooltip>
+    </div>
+  );
+}
+
+/**
+ * Top right, left of the layout toggle, on a Chat with subchats (subchat-rows.ts): shows the parent and every subchat side
+ * by side, or the open Chat alone again. `offset` as AttentionButton's.
+ */
+export function SubchatsButton({ count, shown, offset, onToggle }: { count: number; shown: boolean; offset: number; onToggle: () => void }) {
+  const chrome = useWindowChrome();
+  const label = shown ? "Back to the open Chat" : `Show the ${count} subchat${count === 1 ? "" : "s"} side by side`;
+  return (
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+      <Tooltip label={label} compactHint side="bottom" align="end">
         <button
           type="button"
-          aria-label="Toggle changes panel"
-          aria-pressed={open}
-          data-changes-toggle
+          aria-label={label}
+          aria-pressed={shown}
+          data-subchats-toggle
           onClick={onToggle}
-          className={`flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-3"}`}
+          className={`relative flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${shown ? "bg-hover text-ink" : "text-ink-3"}`}
         >
-          <HugeiconsIcon icon={GitBranchIcon} size={18} strokeWidth={1.8} color="currentColor" />
+          <HugeiconsIcon icon={HierarchySquare02Icon} size={18} strokeWidth={1.8} color="currentColor" />
+          <span
+            aria-hidden
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-10 font-semibold tabular-nums text-white"
+          >
+            {count}
+          </span>
         </button>
       </Tooltip>
     </div>
@@ -126,16 +142,10 @@ export type AttentionItem = { key: string; project: string; title?: string; aski
  * that lists each, oldest first, so you pick where to go.
  */
 export function AttentionButton({ label, items, offset, onOpen }: { label: string; items: AttentionItem[]; offset: number; onOpen: (key: string) => void }) {
+  const chrome = useWindowChrome();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const many = items.length > 1;
-  // The button is fixed to the window's corner, so a scroll or resize never moves it: the menu stays open.
-  useDismiss(
-    open && many,
-    () => setOpen(false),
-    (target) => !!target.closest("[data-attention]"),
-    () => {},
-  );
   const go = (key: string) => {
     setOpen(false);
     onOpen(key);
@@ -143,64 +153,47 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
   return (
     <div
       data-attention
-      className="fixed top-[14px] z-[60] [-webkit-app-region:no-drag]"
+      className="no-drag fixed top-[var(--window-chrome-top)] z-[60]"
       // Left of the buttons in the corner: `offset` is how many there are, 40px each (PanelToggles' CORNER_PITCH).
-      style={{ right: 12 + offset * 40, animation: "fade-in 160ms ease-out" }}
+      style={{
+        right: 12 + chrome.rightInset + offset * 40,
+        maxWidth: `max(0px, calc(100vw - ${chrome.controlsEnd + 12 + chrome.rightInset + offset * 40}px))`,
+        animation: "fade-in var(--duration-fast) var(--ease-enter)",
+      }}
     >
-      <button
-        ref={trigger}
-        type="button"
-        data-attention-button
-        aria-haspopup={many ? "menu" : undefined}
-        aria-expanded={many ? open : undefined}
-        onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-        className={`flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] font-medium text-orange transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
-      >
-        <span className="max-w-80 truncate">{label}</span>
-        <HugeiconsIcon icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={15} strokeWidth={2} color="currentColor" />
-      </button>
-      {open && many && (
-        <div
-          role="menu"
-          aria-label="Chats waiting for you"
-          data-attention-menu
-          onKeyDown={(event) => {
-            const rows = [...event.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]")];
-            const index = rows.indexOf(document.activeElement as HTMLElement);
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setOpen(false);
-              trigger.current?.focus();
-            } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              rows[(index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]?.focus();
-            }
-          }}
-          className="absolute top-full right-0 mt-1.5 flex w-72 flex-col overflow-hidden rounded-[14px] bg-surface shadow-overlay"
-          style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top right" }}
+      <Tooltip label={label} side="bottom" align="end" asChild>
+        <button
+          ref={trigger}
+          type="button"
+          data-attention-button
+          aria-haspopup={many ? "menu" : undefined}
+          aria-expanded={many ? open : undefined}
+          onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
+          className="flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control bg-surface/90 px-3 text-13 font-medium text-orange-ink backdrop-blur-chip transition-colors hover:bg-surface aria-expanded:bg-surface-2"
         >
-          <ScrollArea className="max-h-80 p-1.5">
-            <GlideMenu className="flex flex-col gap-px" rowSelector="[role=menuitem]" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
-              {items.map((item, index) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  role="menuitem"
-                  data-attention-chat={item.key}
-                  autoFocus={index === 0}
-                  onClick={() => go(item.key)}
-                  className="relative z-10 flex min-h-11 w-full flex-col justify-center rounded-[8px] px-2.5 py-1.5 text-left outline-none focus-visible:bg-hover-2"
-                >
-                  <span className="w-full truncate text-[13.5px] text-ink">{item.title || item.waitingFor || "Chat"}</span>
-                  <span className="w-full truncate text-[11.5px] text-ink-3">
-                    {item.project} ·{" "}
-                    <span className={item.asking ? "text-accent-ink" : "text-orange"}>{item.asking ? "Asking you" : "Waiting for approval"}</span>
+          <span className="min-w-0 max-w-80 truncate">{label}</span>
+          <Icon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={14} />
+        </button>
+      </Tooltip>
+      {open && many && (
+        <Popover anchor={trigger} width={288} label="Chats waiting for you" onClose={() => setOpen(false)} data-attention-menu>
+          {items.map((item) => (
+            <MenuRow
+              key={item.key}
+              data-attention-chat={item.key}
+              onClick={() => go(item.key)}
+              title={item.title || item.waitingFor || "Chat"}
+              subtitle={
+                <>
+                  {item.project} ·{" "}
+                  <span className={item.asking ? "text-accent-ink" : "text-orange-ink"}>
+                    {chatMarkPresentation(item.asking ? "question" : "waiting").label}
                   </span>
-                </button>
-              ))}
-            </GlideMenu>
-          </ScrollArea>
-        </div>
+                </>
+              }
+            />
+          ))}
+        </Popover>
       )}
     </div>
   );

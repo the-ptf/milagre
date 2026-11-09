@@ -33,7 +33,7 @@ public final class MilagreImagePasteModule: Module {
   private func paste(_ image: UIImage?, tag: Int) {
     guard let image else {
       sendEvent("imagePaste", ["target": tag, "uri": "", "width": 0, "height": 0,
-                              "error": "Could not paste the image. Allow paste access and try again."])
+                              "error": "Could not paste the image. Allow paste access, or attach it from Photo Library or Files."])
       return
     }
     // Resize before PNG encoding so clipboard screenshots never cross the JS bridge as large byte arrays.

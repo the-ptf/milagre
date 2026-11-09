@@ -1,60 +1,62 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   ArrowRight01Icon,
   Clock01Icon,
-  FilterHorizontalIcon,
+  FilterIcon,
   Folder01Icon,
   GitBranchIcon,
   GitPullRequestIcon,
   LaptopIcon,
   PlusMinus01Icon,
-  Tick02Icon,
   ViewIcon,
 } from "@hugeicons/core-free-icons";
 import { CHAT_ROW_FIELDS, type ChatRowField, type ChatRowShow } from "@milagre/shared/chat-row";
-import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
+import { CheckboxBox } from "../primitives/Checkbox";
+import { Icon } from "../primitives/Icon";
+import { MenuLabel, MenuRow } from "../primitives/Popover";
+import { ProjectAvatar } from "../primitives/ProjectAvatar";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { LinearLogo } from "../ProviderLogo";
-import { WorkspaceIcon } from "../WorkspaceIcon";
 import { useDismiss } from "../../lib/use-dismiss";
+import { bySection, type ComputerSection } from "../../lib/computer-scopes";
+import { ThisComputer } from "../../lib/shortcut-hints";
+import { computerTone, useComputers, useHiddenComputers } from "../../lib/computers";
+import { useSettings } from "../../lib/settings";
+import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { ComputersMenu } from "./ComputersMenu";
 
-type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
-
-function HugeIcon({ icon, size = 16 }: { icon: HugeIconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
-
-/** One Project in the chooser. `computer` names another computer's Project, shown once there are two or more computers. */
-export type PickerProject = { path: string; name: string; initial: string; current: boolean; shown: boolean; listed: boolean; computer?: string };
+/** One Project in the chooser, under its computer's section once there are two or more computers. */
+export type PickerProject = { path: string; name: string; initial: string; current: boolean; shown: boolean; listed: boolean; computerId: string };
 
 const FIELD_ICONS: Record<ChatRowField, ReactNode> = {
-  computer: <HugeIcon icon={LaptopIcon} />,
-  pullRequests: <HugeIcon icon={GitPullRequestIcon} />,
+  computer: <Icon icon={LaptopIcon} />,
+  pullRequests: <Icon icon={GitPullRequestIcon} />,
   linearIssue: <LinearLogo size={14} />,
-  branch: <HugeIcon icon={GitBranchIcon} />,
-  diff: <HugeIcon icon={PlusMinus01Icon} />,
-  lastActivity: <HugeIcon icon={Clock01Icon} />,
+  branch: <Icon icon={GitBranchIcon} />,
+  diff: <Icon icon={PlusMinus01Icon} />,
+  lastActivity: <Icon icon={Clock01Icon} />,
 };
 
-// FilterHorizontalIcon with its two knobs filled: the button's look while a filter is on (the free set has no filled style).
-const FilterHorizontalFilledIcon: HugeIconData = FilterHorizontalIcon.map(([tag, attrs]) =>
-  attrs.key === "4" || attrs.key === "5" ? [tag, { ...attrs, fill: "currentColor" }] : [tag, attrs],
-) as HugeIconData;
-
-type Sub = "projects" | "show";
-const ROW = "relative z-10 flex h-9 w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40";
-const PANEL = "fixed z-50 flex flex-col overflow-hidden rounded-[14px] bg-surface shadow-overlay";
+type Sub = "computers" | "projects" | "show";
+const SUB_WIDTH: Record<Sub, number> = { computers: 272, projects: 256, show: 208 };
+// Wide enough for "Computers", its away dot and "2 hidden" on one line.
+const MAIN_WIDTH = 232;
+// Popover's panel (primitives/Popover), placed by hand: above the button, with its submenu beside it.
+const PANEL = "fixed z-50 flex flex-col overflow-hidden rounded-card bg-surface shadow-raised";
 const rowsOf = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
 
 /**
- * The sidebar's Filters: which Projects the all-Projects sidebar lists (each Project's own hidden flag, shared with the
- * phone) and what a chat row's second line shows (this Mac's setting). Projects › and Show › open beside the menu.
+ * The sidebar's Filters: which computers and Projects this Mac's sidebar lists and what a chat row's second line shows
+ * (all kept per Mac). Computers ›, Projects › and Show › open beside the menu. What the sidebar leaves out stays quiet
+ * here too: no notice, Dock badge, inbox row or attention button.
  */
 export function FiltersButton({
   projects,
+  computerMenu,
+  computers,
   imageOf,
   currentImage,
   onShowProject,
@@ -66,6 +68,10 @@ export function FiltersButton({
 }: {
   /** Null when the sidebar lists only the open Project, so there is nothing to choose. */
   projects: PickerProject[] | null;
+  /** Computers › (with Settings › Devices › Other computers on): Add computer and each computer's gear. */
+  computerMenu?: { onAddComputer: () => void; onOpenSettings: (id: string | null) => void } | null;
+  /** With other computers, the sections Projects are listed under; null with this Mac alone. A hidden computer's Projects aren't passed. */
+  computers: ComputerSection[] | null;
   imageOf: (path: string) => string | null | undefined;
   currentImage?: string | null;
   onShowProject: (path: string, show: boolean) => void;
@@ -80,16 +86,29 @@ export function FiltersButton({
   const panelRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState({ bottom: 0, left: 0 });
   const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
+  // The submenu's measured height, so a short one (a single computer, a few Projects) stays beside its row.
+  const [subHeight, setSubHeight] = useState(0);
   const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
+  const { otherComputers } = useSettings();
+  const { computers: paired } = useComputers();
+  const hiddenComputers = useHiddenComputers();
+  const offerComputers = otherComputers && !!computerMenu;
+  const hiddenComputerCount = offerComputers ? [LOCAL_COMPUTER, ...paired.map((computer) => computer.id)].filter((id) => hiddenComputers.has(id)).length : 0;
+  const anyAway = offerComputers && paired.some((computer) => computerTone(computer) !== "online");
+  const filtering = hiddenCount > 0 || hiddenComputerCount > 0;
+  // "seen 2h ago" in Computers › is read when the menu opens, not on every render.
+  const [now, setNow] = useState(0);
   const fields = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer" || offerComputer);
 
-  // Below the button, at the top of the sidebar; collapsed, beside the rail.
+  // Above the button, at the foot of the sidebar; collapsed, beside the rail.
   const place = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    setPosition(collapsed ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left });
+    setPosition(
+      collapsed ? { bottom: window.innerHeight - rect.bottom, left: rect.right + 8 } : { bottom: window.innerHeight - rect.top + 6, left: rect.left },
+    );
     return true;
   };
   const close = () => {
@@ -103,6 +122,18 @@ export function FiltersButton({
   useLayoutEffect(() => {
     if (sub?.focus) rowsOf(subRef.current)[0]?.focus();
   }, [sub]);
+  // Measures the submenu while it is mounted; React runs the returned cleanup when it unmounts.
+  const subPanelRef = useCallback((panel: HTMLDivElement | null) => {
+    subRef.current = panel;
+    if (!panel) return;
+    setSubHeight(panel.offsetHeight);
+    const observer = new ResizeObserver(() => setSubHeight(panel.offsetHeight));
+    observer.observe(panel);
+    return () => {
+      observer.disconnect();
+      subRef.current = null;
+    };
+  }, []);
 
   const openSub = (which: Sub, row: HTMLElement, focus: boolean) => {
     const top = row.getBoundingClientRect().top - 6;
@@ -140,30 +171,51 @@ export function FiltersButton({
     } else if (event.key === "Tab") event.preventDefault();
   };
 
-  const subRow = (which: Sub, icon: ReactNode, label: string, detail?: string) => (
-    <button
-      data-menu-row
+  const subRow = (which: Sub, icon: IconSvgElement, label: string, detail?: string, dot?: boolean) => (
+    <MenuRow
       data-sub={which}
-      type="button"
-      role="menuitem"
       aria-haspopup="menu"
       aria-expanded={sub?.which === which}
       onPointerEnter={(event) => openSub(which, event.currentTarget, false)}
       onClick={(event) => openSub(which, event.currentTarget, true)}
-      className={`${ROW} ${sub?.which === which ? "bg-hover-2" : ""}`}
-    >
-      <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">{label}</span>
-      {detail && <span className="shrink-0 text-[12px] text-ink-3">{detail}</span>}
-      <span className="flex shrink-0 text-ink-3">
-        <HugeIcon icon={ArrowRight01Icon} size={14} />
-      </span>
-    </button>
+      // The row whose submenu is open keeps the highlight.
+      className={sub?.which === which ? "bg-hover-2" : ""}
+      icon={icon}
+      title={label}
+      trailing={
+        <>
+          {dot && <span aria-hidden data-filters-away className="size-1.5 shrink-0 rounded-full bg-orange" />}
+          {detail && <span className="shrink-0 text-11 font-normal text-ink-3">{detail}</span>}
+          <Icon icon={ArrowRight01Icon} size={14} className="shrink-0 text-ink-3" />
+        </>
+      }
+    />
+  );
+
+  const projectRow = (project: PickerProject) => (
+    <Tooltip key={project.path} label={project.current && !project.shown ? "Shown while it's the open Project" : project.path} wrap asChild>
+      <MenuRow
+        data-project-choice={project.path}
+        role="menuitemcheckbox"
+        aria-checked={project.shown}
+        disabled={!project.listed}
+        onClick={() => onShowProject(project.path, !project.shown)}
+        // The row itself is the checkbox (CheckboxBox draws it), so a nested control would be one too many.
+        icon={<CheckboxBox checked={project.shown} />}
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            <ProjectAvatar name={project.name} initial={project.initial} src={project.current ? currentImage : imageOf(project.path)} />
+            <span className={`min-w-0 truncate ${project.shown ? "" : "text-ink-3"}`}>{project.name}</span>
+          </span>
+        }
+        trailing={project.current ? "Open" : undefined}
+      />
+    </Tooltip>
   );
 
   return (
     <>
-      <Tooltip label={hiddenCount ? `Filters (${hiddenCount} projects hidden)` : "Filters"} side="bottom">
+      <Tooltip label={filtersLabel(hiddenComputerCount, hiddenCount)} side="bottom" asChild>
         <button
           ref={buttonRef}
           type="button"
@@ -171,12 +223,24 @@ export function FiltersButton({
           aria-haspopup="menu"
           aria-expanded={open}
           data-filters
-          data-filters-active={hiddenCount > 0 || undefined}
-          onClick={() => (open ? close() : place() && setOpen(true))}
-          className={`${className} relative ${open ? "bg-hover-2 text-ink" : hiddenCount > 0 ? "text-ink" : ""}`}
+          data-filters-active={filtering || undefined}
+          data-computers-on={offerComputers || undefined}
+          onClick={() => {
+            if (open) return close();
+            setNow(Date.now());
+            if (place()) setOpen(true);
+          }}
+          className={`${className} relative ${open ? "bg-hover-2 text-ink" : filtering ? "text-ink" : ""}`}
         >
-          {/* A filter on fills the icon's knobs; off, they stay outlined. */}
-          <HugeIcon icon={hiddenCount > 0 ? FilterHorizontalFilledIcon : FilterHorizontalIcon} size={16} />
+          <Icon icon={FilterIcon} size={16} />
+          {/* One dot: orange while a computer is away, else the accent while a filter is on. */}
+          {(anyAway || filtering) && (
+            <span
+              aria-hidden
+              data-filters-dot={anyAway ? "away" : "filtering"}
+              className={`absolute top-1 right-1 size-1.5 rounded-full ${anyAway ? "bg-orange" : "bg-accent"}`}
+            />
+          )}
         </button>
       </Tooltip>
       {open &&
@@ -188,88 +252,74 @@ export function FiltersButton({
               aria-label="Filters"
               onKeyDown={mainKeys}
               data-filters-panel
-              className={`${PANEL} w-52 p-1.5`}
-              style={{ top: position.top, left: position.left, animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top left" }}
+              className={`${PANEL} p-1.5`}
+              style={{
+                width: MAIN_WIDTH,
+                bottom: position.bottom,
+                left: position.left,
+                animation: "pop-in var(--duration-base) var(--ease-enter) both",
+                transformOrigin: "bottom left",
+              }}
             >
-              <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
-                {projects && subRow("projects", <HugeIcon icon={Folder01Icon} />, "Projects", hiddenCount ? `${hiddenCount} hidden` : undefined)}
-                {subRow("show", <HugeIcon icon={ViewIcon} />, "Show")}
-              </GlideMenu>
+              <div className="flex flex-col gap-px">
+                {offerComputers && subRow("computers", LaptopIcon, "Computers", hiddenComputerCount ? `${hiddenComputerCount} hidden` : undefined, anyAway)}
+                {projects && subRow("projects", Folder01Icon, "Projects", hiddenCount ? `${hiddenCount} hidden` : undefined)}
+                {subRow("show", ViewIcon, "Show")}
+              </div>
             </div>
             {sub && (
               <div
-                ref={subRef}
+                ref={subPanelRef}
                 role="menu"
-                aria-label={sub.which === "projects" ? "Projects in the sidebar" : "Show on chats"}
+                aria-label={sub.which === "computers" ? "Computers in the sidebar" : sub.which === "projects" ? "Projects in the sidebar" : "Show on chats"}
                 onKeyDown={subKeys}
                 data-filters-panel
                 data-filters-sub={sub.which}
-                className={`${PANEL} max-h-[min(420px,calc(100vh-16px))] ${sub.which === "projects" ? "w-64" : "w-52"}`}
+                className={`${PANEL} max-h-[min(420px,calc(100vh-16px))]`}
                 style={{
-                  top: Math.max(8, Math.min(sub.top, window.innerHeight - 16 - (sub.which === "projects" ? 420 : 260))),
-                  left: position.left + 208 + 6,
-                  animation: "pop-in 140ms cubic-bezier(0.23,1,0.32,1) both",
+                  width: SUB_WIDTH[sub.which],
+                  top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - subHeight)),
+                  left: position.left + MAIN_WIDTH + 6,
+                  animation: "pop-in var(--duration-fast) var(--ease-enter) both",
                   transformOrigin: "top left",
                 }}
               >
                 <ScrollArea className="p-1.5">
-                  <GlideMenu
-                    className="flex flex-col gap-px"
-                    rowSelector="[data-menu-row]:not(:disabled)"
-                    highlightClassName="inset-x-0 rounded-[8px] bg-hover-2"
-                  >
-                    {sub.which === "projects"
-                      ? (projects ?? []).map((project) => (
-                          <button
-                            key={project.path}
-                            data-menu-row
-                            data-project-choice={project.path}
-                            role="menuitemcheckbox"
-                            aria-checked={project.shown}
-                            type="button"
-                            disabled={!project.listed}
-                            title={project.current && !project.shown ? "Shown while it's the open project" : project.path}
-                            onClick={() => onShowProject(project.path, !project.shown)}
-                            className={ROW}
-                          >
-                            <span
-                              aria-hidden
-                              className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] transition-colors duration-100 ${project.shown ? "bg-ink text-surface" : "border-[1.5px] border-ink-3"}`}
-                            >
-                              {project.shown && <HugeIcon icon={Tick02Icon} size={12} />}
-                            </span>
-                            <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-                              <WorkspaceIcon src={project.current ? currentImage : imageOf(project.path)} fallback={project.initial} />
-                            </span>
-                            <span className={`min-w-0 flex-1 truncate text-[13.5px] ${project.shown ? "text-ink" : "text-ink-3"}`}>{project.name}</span>
-                            {project.current ? (
-                              <span className="shrink-0 text-[11px] text-ink-3">Open</span>
-                            ) : (
-                              project.computer && <span className="max-w-20 shrink-0 truncate text-[11px] text-ink-3">{project.computer}</span>
-                            )}
-                          </button>
-                        ))
-                      : fields.map((field) => (
-                          <button
-                            key={field.id}
-                            data-menu-row
-                            data-show-field={field.id}
-                            role="menuitemcheckbox"
-                            aria-checked={show[field.id]}
-                            type="button"
-                            onClick={() => onShowField(field.id, !show[field.id])}
-                            className={ROW}
-                          >
-                            <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">{FIELD_ICONS[field.id]}</span>
-                            <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">{field.label}</span>
-                            {show[field.id] && (
-                              <span className="flex shrink-0 text-ink-2">
-                                <HugeIcon icon={Tick02Icon} size={14} />
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                  </GlideMenu>
+                  <div className="flex flex-col gap-px">
+                    {sub.which === "computers" && computerMenu ? (
+                      <ComputersMenu now={now} onAddComputer={computerMenu.onAddComputer} onOpenSettings={computerMenu.onOpenSettings} onPicked={close} />
+                    ) : sub.which === "projects" ? (
+                      (computers ? bySection(projects ?? [], computers) : [{ id: "", name: "", local: false, rows: projects ?? [] }]).map((section, index) => (
+                        <div
+                          key={section.id}
+                          role="group"
+                          aria-label={computers ? section.name : undefined}
+                          data-project-section={section.id || undefined}
+                          className="flex flex-col gap-px"
+                        >
+                          {computers && (
+                            <div data-project-section-header className={index > 0 ? "mt-1.5" : ""}>
+                              <MenuLabel>
+                                <span className="block truncate">{section.local ? `${section.name} · ${ThisComputer}` : section.name}</span>
+                              </MenuLabel>
+                            </div>
+                          )}
+                          {section.rows.map(projectRow)}
+                        </div>
+                      ))
+                    ) : (
+                      fields.map((field) => (
+                        <MenuRow
+                          key={field.id}
+                          data-show-field={field.id}
+                          checked={show[field.id]}
+                          onClick={() => onShowField(field.id, !show[field.id])}
+                          icon={FIELD_ICONS[field.id]}
+                          title={field.label}
+                        />
+                      ))
+                    )}
+                  </div>
                 </ScrollArea>
               </div>
             )}
@@ -278,4 +328,13 @@ export function FiltersButton({
         )}
     </>
   );
+}
+
+/** The button's tooltip: what Filters leaves out, if anything. */
+function filtersLabel(computers: number, projects: number): string {
+  const parts = [
+    computers ? `${computers} ${computers === 1 ? "computer" : "computers"} hidden` : "",
+    projects ? `${projects} ${projects === 1 ? "Project" : "Projects"} hidden` : "",
+  ].filter(Boolean);
+  return parts.length ? `Filters (${parts.join(", ")})` : "Filters";
 }

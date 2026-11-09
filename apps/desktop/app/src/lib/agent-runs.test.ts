@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, CoordinatorState, ModelOption, PermissionRequest, QuestionRequest } from "../model";
 import {
+  applyRunEvents,
   chatKey,
+  createCoalescer,
+  isUrgentRunEvent,
   chatsAskingUser,
+  chatsInBackground,
   chatsRunning,
   chatsWaitingForUser,
   clearAnswered,
@@ -17,7 +21,7 @@ import {
   sentDecision,
   sentReply,
 } from "./agent-runs.ts";
-import type { AgentRuns } from "./agent-runs.ts";
+import type { AgentRuns, FrameScheduler, QueuedRunEvent } from "./agent-runs.ts";
 // Runs are set up with the reducer the main process saves turns with.
 import { applyAgentEvent, startRun } from "@milagre/shared/agent-runs";
 
@@ -74,15 +78,6 @@ test("each open chat shows its own model", () => {
   assert.equal(modelForOpenChat(undefined, undefined, [], catalog, codex), codex);
 });
 
-const approval = (requestId: string): PermissionRequest => ({
-  requestId,
-  kind: "command",
-  tool: "Shell",
-  title: "Run this command?",
-  command: "ls",
-  allowForChat: true,
-});
-
 test("an answer is kept on its chat's run, and a second chat with the same request id is unaffected", () => {
   const runs: AgentRuns = { [key(1)]: startRun({}, key(1), "gpt-6-sol")[key(1)], [key(2)]: startRun({}, key(2), "claude-opus-5-5")[key(2)] };
   assert.deepEqual(runs[key(1)].answered, {});
@@ -137,12 +132,18 @@ test("chatsRunning lists only this project's chats with a run", () => {
   assert.deepEqual([...chatsRunning(runs, PROJECT)].sort(), [1, 4]);
 });
 
-test("chatsRunning counts a chat whose subagents outlive its turn", () => {
+test("chatsInBackground counts the background agents of chats whose turn ended; a failed turn or a run shows otherwise", () => {
   const sessions = base().sessions;
-  const agent = (id: string, status: string) => ({ id, status }) as unknown as NonNullable<CoordinatorState["sessions"][string]["subagents"]>[number];
-  sessions["1"] = { ...sessions["1"], subagents: [agent("a", "completed"), agent("b", "running")] };
-  sessions["2"] = { ...sessions["2"], subagents: [agent("c", "completed")] };
-  assert.deepEqual([...chatsRunning({}, PROJECT, sessions)], [1]);
+  const agent = (id: string, status: string, background = true) =>
+    ({ id, status, background }) as unknown as NonNullable<CoordinatorState["sessions"][string]["subagents"]>[number];
+  sessions["1"] = { ...sessions["1"], provider: "claude", subagents: [agent("a", "completed"), agent("b", "running"), agent("c", "running")] };
+  sessions["2"] = { ...sessions["2"], provider: "claude", subagents: [agent("d", "running", false)] };
+  const run = { text: "", model: "m", approvals: [], steps: [], questions: [], answered: {} };
+  assert.deepEqual([...chatsInBackground({}, PROJECT, sessions)], [[1, 2]]);
+  assert.equal(chatsRunning({}, PROJECT).size, 0);
+  assert.deepEqual([...chatsInBackground({ [key(1)]: run }, PROJECT, sessions)], []);
+  sessions["1"] = { ...sessions["1"], summary: { count: 2, lastOutcome: "failed" } };
+  assert.deepEqual([...chatsInBackground({}, PROJECT, sessions)], []);
 });
 
 const question = (requestId: string): QuestionRequest => ({
@@ -196,7 +197,7 @@ test("a computer's snapshot replaces only its own turns, and a removed computer 
   const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
   const OTHER = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
   const run = (text: string) => ({ text, model: "", startedAt: 0, steps: [], approvals: [], questions: [], answered: {} });
-  const runs = { "/p#1": run("mine"), [`${ID}|/p#1`]: run("studio old"), [`${OTHER}|/p#1`]: run("arketa") };
+  const runs = { "/p#1": run("mine"), [`${ID}|/p#1`]: run("studio old"), [`${OTHER}|/p#1`]: run("atlas") };
   const next = replaceComputerEntries(runs, ID, { [`${ID}|/p#2`]: run("studio new"), "/p#9": run("not studio's") });
   assert.deepEqual(Object.keys(next).sort(), ["/p#1", `${ID}|/p#2`, `${OTHER}|/p#1`].sort());
   assert.equal(next["/p#1"].text, "mine", "this Mac's chat at the same path is untouched");
@@ -226,4 +227,87 @@ test("keepComputers drops the entries of computers that are gone and keeps this 
   assert.deepEqual(Object.keys(keepComputers(record, new Set([OTHER]))).sort(), ["/p#1", `${OTHER}|/p#1`].sort());
   assert.deepEqual(Object.keys(keepComputers(record, new Set())), ["/p#1"]);
   assert.equal(keepComputers(record, new Set([ID, OTHER])), record, "nothing to drop leaves the same object");
+});
+
+/** A frame that only comes when the test says so; counts how often one was asked for. */
+function manualFrames() {
+  let pending: (() => void) | null = null;
+  let asked = 0;
+  const schedule: FrameScheduler = (flush) => {
+    asked++;
+    pending = flush;
+    return () => {
+      if (pending === flush) pending = null;
+    };
+  };
+  return {
+    schedule,
+    asked: () => asked,
+    waiting: () => pending !== null,
+    frame() {
+      const run = pending;
+      pending = null;
+      run?.();
+    },
+  };
+}
+
+test("streamed events in one frame land as one state, in arrival order", (t) => {
+  // A run's startedAt is stamped when its event is applied; the two applications below must see the same clock.
+  t.mock.timers.enable({ apis: ["Date"], now: 1_793_000_000_000 });
+  const frames = manualFrames();
+  let runs: AgentRuns = {};
+  let applied = 0;
+  const events = createCoalescer<QueuedRunEvent>((batch) => {
+    applied++;
+    runs = applyRunEvents(runs, batch);
+  }, frames.schedule);
+  events.push({ chatId: key(1), event: { type: "turn-started", turnId: "t1" }, model: "gpt-6-sol" }, true);
+  assert.equal(applied, 1, "a turn's start lands at once");
+  const before = runs;
+  for (const text of ["Hel", "lo, ", "wor", "ld"]) events.push({ chatId: key(1), event: { type: "text-delta", messageId: "m1", text }, model: "" });
+  // Another chat's stream in the same frame shares the flush.
+  events.push({ chatId: key(2), event: { type: "turn-started", turnId: "t2" }, model: "claude-opus-5-5" }, false);
+  events.push({ chatId: key(2), event: { type: "text-delta", messageId: "m2", text: "Other" }, model: "" });
+  assert.equal(applied, 1, "deltas wait for the frame");
+  assert.equal(runs, before);
+  assert.equal(frames.asked(), 1, "one frame for the whole batch");
+  frames.frame();
+  assert.equal(applied, 2, "one state for every event of the frame");
+  const expected = [
+    { chatId: key(1), event: { type: "turn-started", turnId: "t1" }, model: "gpt-6-sol" },
+    ...["Hel", "lo, ", "wor", "ld"].map((text) => ({ chatId: key(1), event: { type: "text-delta", messageId: "m1", text }, model: "" })),
+    { chatId: key(2), event: { type: "turn-started", turnId: "t2" }, model: "claude-opus-5-5" },
+    { chatId: key(2), event: { type: "text-delta", messageId: "m2", text: "Other" }, model: "" },
+  ] as QueuedRunEvent[];
+  assert.deepEqual(runs, applyRunEvents({}, expected), "same result as applying each event on its own");
+  frames.frame();
+  assert.equal(applied, 2, "an empty frame applies nothing");
+});
+
+test("an urgent event flushes what streamed before it, with it, in one state", () => {
+  const frames = manualFrames();
+  const batches: QueuedRunEvent[][] = [];
+  const events = createCoalescer<QueuedRunEvent>((batch) => batches.push(batch), frames.schedule);
+  const delta = (text: string): QueuedRunEvent => ({ chatId: key(1), event: { type: "text-delta", messageId: "m1", text }, model: "" });
+  const ended: QueuedRunEvent = { chatId: key(1), event: { type: "turn-completed" }, model: "" };
+  events.push(delta("a"));
+  events.push(delta("b"));
+  events.push(ended, isUrgentRunEvent(ended.event));
+  assert.deepEqual(batches, [[delta("a"), delta("b"), ended]]);
+  assert.equal(frames.waiting(), false, "the frame is cancelled once flushed");
+  events.push(delta("c"));
+  events.flush();
+  assert.deepEqual(batches.at(-1), [delta("c")], "flush() applies the queue before another write");
+  events.push(delta("d"));
+  events.dispose();
+  frames.frame();
+  assert.equal(batches.length, 2, "dispose drops the queue");
+});
+
+test("only events that change what the user must see now skip the frame", () => {
+  for (const type of ["turn-started", "turn-completed", "turn-cancelled", "turn-failed", "permission-request", "question-request", "message-sent"])
+    assert.equal(isUrgentRunEvent({ type } as Parameters<typeof isUrgentRunEvent>[0]), true, type);
+  for (const type of ["text-delta", "step-output", "step-draft", "context-usage", "subagent-update"])
+    assert.equal(isUrgentRunEvent({ type } as Parameters<typeof isUrgentRunEvent>[0]), false, type);
 });

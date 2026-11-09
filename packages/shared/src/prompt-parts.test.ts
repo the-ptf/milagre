@@ -1,0 +1,243 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  chatMentionTokens,
+  computerMentionTokens,
+  formatComputerMention,
+  formatChatMention,
+  promptParts,
+  promptImageBlocks,
+  formatFileMention,
+  formatImageMention,
+  imageLabel,
+  onlyImageMentions,
+  promptTitle,
+  composerQuote,
+  quoteKeys,
+  quoteMarkdown,
+  quoteSource,
+  quotedMessage,
+  skillLabel,
+  splitQuotes,
+} from "./prompt-parts.mjs";
+import { editImageMentions, mentionedImages, remapImageMentions, shiftImageMentions } from "./prompt-mentions.mjs";
+
+test("splits skills, files and images out of prose and keeps the text verbatim", () => {
+  const prompt = "Use /frontend-design to fix @src/surface.test.ts like [Image #1] and [Image #2] now";
+  const parts = promptParts(prompt, { skills: ["frontend-design"], files: (path) => path === "src/surface.test.ts", images: 2 });
+  assert.deepEqual(
+    parts.map((part) => part.kind),
+    ["text", "skill", "text", "file", "text", "image", "text", "image", "text"],
+  );
+  const file = parts[3];
+  assert.equal(file.kind === "file" && file.path, "src/surface.test.ts");
+  const img1 = parts[5];
+  assert.equal(img1.kind === "image" && img1.index, 1);
+  const img2 = parts[7];
+  assert.equal(img2.kind === "image" && img2.index, 2);
+  assert.equal(parts.map((part) => part.text).join(""), prompt);
+});
+
+test("out-of-range or code-fenced [Image #N] tokens stay plain text", () => {
+  const prompt = "See `[Image #1]` and [Image #3] while [Image #2] is attached";
+  const parts = promptParts(prompt, { skills: [], files: () => false, images: 2 });
+  assert.deepEqual(
+    parts.map((part) => (part.kind === "image" ? `image:${part.index}` : part.text)),
+    ["See `[Image #1]` and [Image #3] while ", "image:2", " is attached"],
+  );
+});
+
+test("promptImageBlocks interleaves text and images in reading order and appends unreferenced images", () => {
+  const images = ["img-1", "img-2", "img-3"];
+  const prompt = "[Image #1] first, then [Image #3] after";
+  const blocks = promptImageBlocks(prompt, images);
+  assert.deepEqual(blocks, [
+    { type: "image", index: 1, image: "img-1" },
+    { type: "text", text: " first, then " },
+    { type: "image", index: 3, image: "img-3" },
+    { type: "text", text: " after" },
+    { type: "image", index: 2, image: "img-2" },
+  ]);
+});
+
+test("promptImageBlocks falls back to text followed by all images when none are referenced inline", () => {
+  const blocks = promptImageBlocks("Compare these two screenshots", ["a", "b"]);
+  assert.deepEqual(blocks, [
+    { type: "text", text: "Compare these two screenshots" },
+    { type: "image", index: 1, image: "a" },
+    { type: "image", index: 2, image: "b" },
+  ]);
+});
+
+test("mentionedImages and shiftImageMentions track and renumber inline image tokens", () => {
+  const prompt = "[Image #1] before [Image #2] and `[Image #2]` then [Image #3]";
+  assert.deepEqual([...mentionedImages(prompt, 3)], [1, 2, 3]);
+  assert.equal(shiftImageMentions(prompt, 2), "[Image #1] before and `[Image #2]` then [Image #2]");
+  assert.equal(formatImageMention(1), "[Image #1]");
+  assert.equal(imageLabel(1), "Image #1");
+});
+
+test("quoted paths keep spaces and trailing punctuation stays text", () => {
+  const prompt = 'see @"my app/a b.ts".';
+  const parts = promptParts(prompt, { skills: [], files: () => true });
+  const file = parts.find((part) => part.kind === "file");
+  assert.equal(file?.kind === "file" && file.path, "my app/a b.ts");
+  assert.equal(parts.at(-1)?.text, ".");
+  assert.equal(parts.map((part) => part.text).join(""), prompt);
+});
+
+test("merging drafts remaps image references without changing code or unknown indices", () => {
+  assert.equal(remapImageMentions("[Image #1] and [Image #2], `[Image #1]`, [Image #3]", [2, 1]), "[Image #2] and [Image #1], `[Image #1]`, [Image #3]");
+});
+
+test("native edits remove whole image chips and preserve the surrounding draft", () => {
+  const draft = "see [Image #1] next";
+  assert.deepEqual(editImageMentions(draft, "see [Image #1 next", 1), { value: "see  next", caret: 4 });
+  assert.deepEqual(editImageMentions(draft, "see Image #1] next", 1), { value: "see  next", caret: 4 });
+  assert.deepEqual(editImageMentions(draft, "see [Inew1] next", 1), { value: "see new next", caret: 7 });
+  assert.deepEqual(editImageMentions(draft, "see [Image X#1] next", 1), { value: "see [Image #1]X next", caret: 15 });
+  assert.deepEqual(editImageMentions(draft, "see [Image #1] next!", 1), { value: "see [Image #1] next!", caret: null });
+  assert.deepEqual(editImageMentions("`[Image #1]`", "`[Image #1`", 1), { value: "`[Image #1`", caret: null });
+  assert.deepEqual(editImageMentions("[Image #1] [Image #2]", "[Image #2]", 2, { start: 0, end: 11 }), { value: "[Image #2]", caret: null });
+});
+
+test("mid-word @ and unknown files never parse", () => {
+  assert.ok(promptParts("email me@host.com and @team", { skills: [], files: () => true }).every((part) => part.kind === "text" || part.text === "@team"));
+  assert.ok(promptParts("email me@host.com and @team", { skills: [], files: (path) => path !== "team" }).every((part) => part.kind === "text"));
+});
+
+test("code spans are text", () => {
+  const parts = promptParts("`@src/a.ts`", { skills: [], files: () => true });
+  assert.ok(parts.every((part) => part.kind === "text"));
+});
+
+test("formatFileMention quotes paths with spaces", () => {
+  assert.equal(formatFileMention("a b.ts"), '@"a b.ts"');
+  assert.equal(formatFileMention("a.ts"), "@a.ts");
+});
+
+test("skillLabel title-cases the slug", () => {
+  assert.equal(skillLabel("frontend-design"), "Frontend Design");
+  assert.equal(skillLabel("plugin:review-code"), "Review Code");
+});
+
+test("onlyImageMentions is true only when the prompt is just its attached images", () => {
+  assert.equal(onlyImageMentions("[Image #1]", 1), true);
+  assert.equal(onlyImageMentions(" [Image #1]\n[Image #2] ", 2), true);
+  assert.equal(onlyImageMentions("[Image #1] look at this", 1), false);
+  assert.equal(onlyImageMentions("[Image #2]", 1), false);
+  assert.equal(onlyImageMentions("[Image #1]", 0), false);
+  assert.equal(onlyImageMentions("", 1), false);
+});
+
+test("promptTitle drops attached image tokens and names an image-only line", () => {
+  assert.equal(promptTitle("[Image #1]", 1), "Image");
+  assert.equal(promptTitle("[Image #1] [Image #2]", 2), "2 images");
+  assert.equal(promptTitle("[Image #1] [Image #1]", 2), "Image");
+  assert.equal(promptTitle("look at [Image #1]  please", 1), "look at please");
+  assert.equal(promptTitle("[Image #2] only", 1), "[Image #2] only");
+  assert.equal(promptTitle("[Image #2]", 1), "[Image #2]");
+  assert.equal(promptTitle("[Image #4]"), "Image");
+  assert.equal(promptTitle("Fix the login", 0), "Fix the login");
+  assert.equal(promptTitle("", 1), "");
+});
+
+test("Chat mentions preserve text, take precedence over files, and use complete safe tokens in prose", () => {
+  const prompt =
+    "Read @chat:12, then @chat:12 and @chat:7. `@chat:8` " +
+    "\n```\n@chat:9\n```\n" +
+    "@chat:0 @chat:01 @chat:9007199254740992 @chat:12/foo @chat:12-other @chat:12.5";
+  assert.deepEqual(
+    chatMentionTokens(prompt).map((token) => token.id),
+    [12, 12, 7],
+  );
+  const parts = promptParts(prompt, { skills: [], files: () => false, chats: (id) => id === 12 });
+  assert.deepEqual(
+    parts.filter((part) => part.kind === "chat").map((part) => part.id),
+    [12, 12],
+  );
+  assert.equal(parts.map((part) => part.text).join(""), prompt);
+  assert.equal(formatChatMention(12), "@chat:12");
+  assert.deepEqual(promptParts("@chat:12", { skills: [], files: () => true }), [{ kind: "text", text: "@chat:12" }]);
+  assert.deepEqual(promptParts('@"chat:12"', { skills: [], files: () => true, chats: () => true }), [{ kind: "file", text: '@"chat:12"', path: "chat:12" }]);
+  assert.equal(formatFileMention("chat:12"), '@"chat:12"');
+});
+
+test("Chat scanner shields complete filenames and quoted paths even when a Chat id exists", () => {
+  for (const token of ["@chat:12.txt", "@chat:12.5", "@chat:12-other", '@"notes @chat:12 plan.txt"']) {
+    assert.deepEqual(chatMentionTokens(token), []);
+    const parts = promptParts(token, { skills: [], files: () => true, chats: () => true });
+    assert.equal(parts[0]?.kind, "file");
+    assert.equal(parts.map((part) => part.text).join(""), token);
+  }
+  for (const path of ["chat:12", "chat:12!", "chat:12."]) {
+    assert.equal(formatFileMention(path), `@"${path}"`);
+    assert.deepEqual(chatMentionTokens(formatFileMention(path)), []);
+  }
+  assert.deepEqual(
+    chatMentionTokens("See @chat:12). Then @chat:5!").map((token) => token.id),
+    [12, 5],
+  );
+});
+
+test("computer mentions: plain and quoted names, trailing punctuation, never code or a file", () => {
+  const prompt = 'Run it on @computer:Santo, and @computer:"Victor MacBook". `@computer:Code` @computer:';
+  assert.deepEqual(
+    computerMentionTokens(prompt).map((token) => [token.name, prompt.slice(token.start, token.end)]),
+    [
+      ["Santo", "@computer:Santo"],
+      ["Victor MacBook", '@computer:"Victor MacBook"'],
+    ],
+  );
+  const parts = promptParts(prompt, { skills: [], files: () => true, computers: (name) => name === "Santo" });
+  assert.deepEqual(
+    parts.filter((part) => part.kind !== "text"),
+    [{ kind: "computer", text: "@computer:Santo", name: "Santo" }],
+  );
+  assert.equal(parts.map((part) => part.text).join(""), prompt);
+  assert.equal(formatComputerMention("Santo"), "@computer:Santo");
+  assert.equal(formatComputerMention('Victor "Big" MacBook'), '@computer:"Victor Big MacBook"');
+  // A file whose name starts with computer: is quoted, so it never reads as a computer.
+  assert.equal(formatFileMention("computer:notes"), '@"computer:notes"');
+});
+
+test("a quote is a blockquote on every line, with bare marks on blank lines", () => {
+  assert.equal(quoteMarkdown("Name: Nora\r\nURL  \n"), "> Name: Nora\n> URL");
+  assert.equal(quoteMarkdown("\na\n\n  b"), "> a\n>\n>   b");
+  assert.equal(quoteMarkdown("  \n"), "");
+});
+
+test("quotes go before the typed text, a blank line apart, and a quote-only message has no trailing text", () => {
+  assert.equal(quotedMessage([], "as typed  "), "as typed  ");
+  assert.equal(quotedMessage(["one", "two\n\nlines"], "Why?"), "> one\n\n> two\n>\n> lines\n\nWhy?");
+  assert.equal(quotedMessage([{ id: "q", text: "only" }], "  "), "> only");
+  assert.equal(quotedMessage(["  "], "text"), "text");
+});
+
+test("leading quotes split back out of a sent message", () => {
+  const body = quotedMessage(["one", "two\n\nlines"], "Why?\n> not a quote");
+  assert.deepEqual(splitQuotes(body), { quotes: ["one", "two\n\nlines"], text: "Why?\n> not a quote" });
+  assert.deepEqual(splitQuotes("> only\n>more"), { quotes: ["only\nmore"], text: "" });
+  assert.deepEqual(splitQuotes("> a\n\n\n> b\nquestion"), { quotes: ["a", "b"], text: "question" });
+  assert.deepEqual(splitQuotes("no quote\n> later"), { quotes: [], text: "no quote\n> later" });
+  assert.deepEqual(splitQuotes("\n> after a blank line"), { quotes: [], text: "\n> after a blank line" });
+  assert.deepEqual(splitQuotes(">\n\nempty quote"), { quotes: [], text: ">\n\nempty quote" });
+  assert.deepEqual(splitQuotes("    > code"), { quotes: [], text: "    > code" });
+});
+
+test("a quote chip keeps its passage and source, and an empty passage makes none", () => {
+  const first = composerQuote("\n  indented\nline  \n", "Claude reply");
+  const second = composerQuote("again");
+  assert.equal(first?.text, "  indented\nline");
+  assert.equal(first?.source, "Claude reply");
+  assert.equal(second?.source, undefined);
+  assert.notEqual(first?.id, second?.id);
+  assert.equal(composerQuote(" \n"), null);
+  assert.equal(quoteSource("user", "codex"), "Your message");
+  assert.equal(quoteSource("assistant", "codex"), "Codex reply");
+  assert.equal(quoteSource("assistant", undefined), "Claude reply");
+  assert.deepEqual(
+    quoteKeys(["a", "b", "a"]).map((quote) => quote.key),
+    ["1:a", "1:b", "2:a"],
+  );
+});

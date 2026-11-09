@@ -14,9 +14,16 @@ function pageSize(maxFrameBytes) {
   return Math.max(1, Math.min(1024 * 1024, Math.floor((maxFrameBytes - 512) / 6)));
 }
 
+// The start of an event frame as the daemon writes one (server.cjs eventFrame, and the events it sends a single
+// connection), so a client that takes no events can drop them unread.
+const EVENT_PREFIX = Buffer.from(`{"v":${VERSION},"event":`);
+/** @param {Buffer} frame */
+const isEventFrame = (frame) => frame.length > EVENT_PREFIX.length && frame.subarray(0, EVENT_PREFIX.length).equals(EVENT_PREFIX);
+
 // Each UTF-8 JSON frame ends in a newline. Bound both partial frames and queued
 // writes, so a stalled client cannot accumulate the daemon's event stream.
-function wire(socket, { onMessage, onInvalid, maxFrameBytes = MAX_FRAME_BYTES }) {
+// `skip(frame)`: frames dropped without parsing them.
+function wire(socket, { onMessage, onInvalid, maxFrameBytes = MAX_FRAME_BYTES, skip = /** @type {((frame: Buffer) => boolean) | null} */ (null) }) {
   // Partial frame as chunks, joined once when a newline arrives: concatenating per chunk is quadratic for multi-MB frames.
   let pending = [];
   let pendingBytes = 0;
@@ -49,6 +56,7 @@ function wire(socket, { onMessage, onInvalid, maxFrameBytes = MAX_FRAME_BYTES })
       }
       const frame = buffer.subarray(0, newline);
       buffer = buffer.subarray(newline + 1);
+      if (skip?.(frame)) continue;
       let message;
       try {
         message = JSON.parse(frame.toString("utf8"));
@@ -82,4 +90,4 @@ function wire(socket, { onMessage, onInvalid, maxFrameBytes = MAX_FRAME_BYTES })
   };
 }
 
-module.exports = { VERSION, MAX_FRAME_BYTES, MAX_PENDING, protocolError, pageSize, wire };
+module.exports = { VERSION, MAX_FRAME_BYTES, MAX_PENDING, protocolError, pageSize, wire, isEventFrame };

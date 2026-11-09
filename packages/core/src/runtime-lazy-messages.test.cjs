@@ -29,6 +29,7 @@ async function fixture(t) {
   const make = () => {
     const runtime = createRuntime({
       dataDir,
+      chatsHome: path.join(dir, "chats"),
       cwd: project,
       version: "9.8.7",
       environmentReady: Promise.resolve(),
@@ -43,7 +44,9 @@ async function fixture(t) {
           options,
           turnActive: false,
           closed: false,
-          startTurn: async () => {
+          requests: [],
+          startTurn: async (request) => {
+            session.requests.push(request);
             turn++;
             options.emit({ type: "turn-started", turnId: `t${turn}` });
             options.emit({ type: "session-started", nativeId: `${provider}-native` });
@@ -94,6 +97,26 @@ async function openChat(t) {
 }
 
 const shape = (messages) => messages.map((message) => [message.role, message.body]);
+
+test("deleting an unloaded Chat removes its saved conversation and survives restart while its files stay", async (t) => {
+  const { project, chat, send, unload, runtime, make } = await openChat(t);
+  await send("delete only this conversation");
+  await runtime.invoke("chat:patch", [project, chat.id, { title: "Delete me" }]);
+  const keptFile = path.join(project, "keep.txt");
+  await fs.writeFile(keptFile, "keep my work");
+  await unload();
+  await runtime.invoke("chat:delete", [project, chat.id]);
+  const saved = await readProjectState(project);
+  assert.equal(saved.sessions[chat.id], undefined);
+  assert.ok(!saved.messages.some((message) => message.session_id === chat.id));
+  assert.equal(await fs.readFile(keptFile, "utf8"), "keep my work");
+  assert.ok(Object.values(saved.worktrees).some((worktree) => worktree.path === project));
+  await runtime.close();
+  const restarted = make();
+  const opened = await restarted.openProject(project);
+  assert.equal(opened.state.sessions[chat.id], undefined);
+  assert.ok(!(await restarted.invoke("chat:all-messages", [project])).some((message) => message.session_id === chat.id));
+});
 
 test("inbox outcome previews survive idle unloading without reloading transcripts", async (t) => {
   const { project, chat, send, unload, inMemory, runtime } = await openChat(t);
@@ -196,4 +219,43 @@ test("archiving and restoring a Chat that left memory keeps every message, and a
     ["user", "Keep me"],
     ["assistant", "Reply 1 from claude"],
   ]);
+});
+
+test("a reference resolves an unloaded Chat without loading its messages", async (t) => {
+  const { runtime, project, chat, send, unload, inMemory, sessions } = await openChat(t);
+  await send("The decision was to use SQLite.");
+  await runtime.invoke("chat:patch", [project, chat.id, { title: "Storage decision" }]);
+  await unload();
+  const result = await runtime.invoke("chat:send", [
+    { projectPath: project, worktreeId: chat.worktree_id, body: `Read @chat:${chat.id} and explain the decision`, provider: "claude", model: "claude-model" },
+  ]);
+  assert.notEqual(result.sessionId, chat.id);
+  await until(() => sessions.some((s) => s.requests.some((r) => r.prompt.includes("<chat_mentions>"))));
+  const request = sessions.flatMap((s) => s.requests).find((r) => r.prompt.includes("<chat_mentions>"));
+  assert.ok(request.prompt.includes(`chatId: "${project}#${chat.id}"`));
+  assert.ok(request.prompt.includes('"Storage decision"'));
+  assert.equal(inMemory(), false, "resolving a reference reads only the unloaded Chat's summary");
+});
+
+test("a known Project's Chat reads from its chats.db before the Project opens, and the read doesn't open it", async (t) => {
+  const { runtime, project, chat, send, make } = await openChat(t);
+  await send("Read me early");
+  await runtime.flush();
+  await runtime.close();
+  const again = make();
+  const page = await again.invoke("chat:messages", [project, chat.id, { turns: 5 }]);
+  assert.deepEqual(shape(page.messages), [
+    ["user", "Read me early"],
+    ["assistant", "Reply 1 from claude"],
+  ]);
+  await assert.rejects(again.invoke("project:snapshot", [project]), /Open the project before reading its snapshot/, "the Project stays closed");
+  const elsewhere = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-unknown-")));
+  t.after(() => fs.rm(elsewhere, { recursive: true, force: true }));
+  await fs.mkdir(path.join(elsewhere, ".milagre"));
+  await fs.copyFile(path.join(project, ".milagre", "chats.db"), path.join(elsewhere, ".milagre", "chats.db"));
+  await assert.rejects(
+    again.invoke("chat:messages", [elsewhere, chat.id, {}]),
+    /Open the Project before reading its messages/,
+    "an unknown folder is never read",
+  );
 });

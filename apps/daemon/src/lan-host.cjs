@@ -7,9 +7,9 @@ const MAX_PHONES = 16;
 // One device on the LAN gets a few sockets (a reconnect overlapping its dying predecessor), not the whole table.
 const MAX_PER_ADDRESS = 4;
 // A phone that reads slower than the Mac writes is dropped rather than buffered without end. A response is written
-// all at once, base64 and sealed, so the cap holds the largest one (MAX_RESPONSE, 32 MiB, about 43 MiB on the wire)
+// all at once, base64 and sealed, so the cap holds the largest one (MAX_RESPONSE, 64 MiB, about 86 MiB on the wire)
 // with room for a few small ones beside it. A phone that stops reading altogether is caught by the ping.
-const MAX_BUFFERED = 64 * 1024 * 1024;
+const MAX_BUFFERED = 96 * 1024 * 1024;
 // A socket that answers neither a ping nor anything else for two intervals is half open: the phone left the network.
 const PING_MS = 30_000;
 // Larger than one sealed 256 KiB upload chunk, base64 and all.
@@ -37,8 +37,7 @@ function parseTarget(url) {
 /**
  * Phone and paired-desktop access on the local network: the relay's phone protocol, end to end encrypted, over a socket the phone
  * dials directly. `/v1/hello` lets a phone check, without credentials, that this address is still this Mac.
- * Pairing never happens here: a phone must already be known (paired over the relay, or registered through
- * `phone:routes` on a route it trusts).
+ * A pinned pairing link can authorize a new device during the owner's pairing window, including over Tailscale.
  */
 function startLanHost({
   port,
@@ -54,8 +53,11 @@ function startLanHost({
   pingMs = PING_MS,
   idleMs = IDLE_MS,
   openPeer,
+  canPair = () => false,
+  allowComputer,
+  batchMs,
 }) {
-  const channels = createPhoneChannels({ identity, phones, token, bridgeUrl, canPair: () => false, WebSocket, fetch, random, helloMs, openPeer });
+  const channels = createPhoneChannels({ identity, phones, token, bridgeUrl, canPair, WebSocket, fetch, random, helloMs, openPeer, allowComputer, batchMs });
   const sockets = new Map(); // conn id -> the phone's socket
   const perAddress = new Map(); // remote address -> open sockets
   const alive = new WeakSet(); // sockets that answered since the last ping

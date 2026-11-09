@@ -46,11 +46,11 @@ test("drop mid-body forgets the partial response", () => {
   assert.deepEqual(result.body, new Uint8Array([2]));
 });
 
-test("more than 32 MiB for one response is refused", () => {
+test("more than 64 MiB for one response is refused", () => {
   const assembler = createAssembler();
   const big = toBase64(new Uint8Array(1024 * 1024));
   assert.throws(() => {
-    for (let i = 0; i < 40; i++) assembler.add({ t: "res", id: 3, status: 200, headers: {}, chunk: big, more: true });
+    for (let i = 0; i < 65; i++) assembler.add({ t: "res", id: 3, status: 200, headers: {}, chunk: big, more: true });
   }, /too large/);
 });
 

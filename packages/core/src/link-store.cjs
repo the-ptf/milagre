@@ -5,13 +5,14 @@ const { ProjectStates } = require("./project-states.cjs");
 const { readProjectState, saveProjectState, compactProjectState } = require("./project-store.cjs");
 
 /** `active(id, chatId)` says whether a shared Chat's turn is busy, so its messages stay in memory (see ProjectStates). */
-function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
+function createLinkStore({ dataDir, active = () => true, lazyMessages = {}, persistenceChanged }) {
   const root = path.join(dataDir, "links");
   const directory = (id) => {
     if (!validLinkId(id)) throw new Error("Invalid Link ID");
     return path.join(root, id);
   };
   const states = new ProjectStates({
+    persistenceChanged,
     read: async (id) => {
       try {
         return await readProjectState(directory(id));
@@ -32,6 +33,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
     };
   return {
     directory,
+    withPersistence: (id, state) => states.withPersistence(id, state),
     cached: (id) => states.states.get(id),
     has: (id) => states.has(id),
     ids: () => states.projects(),
@@ -46,6 +48,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
     searchableMessages: checked((id, chats) => states.searchableMessages(id, chats)),
     findMessage: checked((id, field, value) => states.findMessage(id, field, value)),
     unloadIdle: () => states.unloadIdle(),
+    retry: checked((id) => states.retry(id)),
     flush: (id) => states.flush(id),
     close: () => states.close(),
     async ownedWorktrees() {
@@ -57,7 +60,11 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
       }
       const owned = new Map();
       for (const id of ids) {
-        const state = await states.get(id);
+        // A Link read already answers from memory, without waiting behind its queued changes (a member is saved before
+        // its Worktree is made); one not read yet this run is read from disk.
+        const state = states.states.get(id) ?? (await states.get(id));
+        // A deleted Link's kept Worktrees go back to their Projects, which list them like any other (link:delete).
+        if (state.deletedAt) continue;
         for (const session of Object.values(state.sessions))
           for (const member of session.worktrees ?? []) owned.set(member.worktreePath, { linkId: id, sessionId: session.id });
         for (const prep of Object.values(state.preparations))

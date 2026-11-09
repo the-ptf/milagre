@@ -1,8 +1,8 @@
 import { canCopyImage } from "../../lib/media";
-import { animate, AnimatePresence, motion, type MotionValue, type Transition, useMotionValue, useReducedMotion, useTransform } from "motion/react";
+import { animate, AnimatePresence, motion, type MotionValue, type Transition, useMotionValue, useTransform } from "motion/react";
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { containedRect, type Frame, panBy, type Rect, step, type View, zoomAt } from "../../lib/lightbox";
 
 // `file` is what an image's right-click menu copies or saves: its absolute path, or a pasted image's data URL.
@@ -60,7 +60,12 @@ function flip(figure: Figure, to: Rect) {
   return { x: to.left + to.width / 2 - left, y: to.top + to.height / 2 - top, scale: to.width / width };
 }
 function pose(figure: Figure, to: Pose, transition: Transition) {
-  return Promise.all((Object.keys(to) as (keyof Pose)[]).map((key) => animate(figure[key], to[key]!, transition)));
+  return Promise.all(
+    (Object.keys(to) as (keyof Pose)[]).flatMap((key) => {
+      const value = to[key];
+      return value === undefined ? [] : [animate(figure[key], value, transition)];
+    }),
+  );
 }
 
 const Icon = ({ d }: { d: string }) => (
@@ -68,8 +73,9 @@ const Icon = ({ d }: { d: string }) => (
     <path d={d} />
   </svg>
 );
+// Over media, in the on-media tokens (the phone viewer's): an on-media tint, brighter on hover.
 const control =
-  "flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 transition-colors hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-accent-ink";
+  "flex size-9 items-center justify-center rounded-full bg-on-media-tint text-on-media transition-[background-color,scale] duration-fast hover:bg-on-media/20 enabled:active:scale-press disabled:opacity-40 disabled:hover:bg-on-media-tint";
 
 export function MediaLightbox({
   items,
@@ -85,7 +91,8 @@ export function MediaLightbox({
   onIndexChange?: (index: number) => void;
   close: () => void;
 }) {
-  const reduce = useReducedMotion();
+  const speed = useMotionScale();
+  const reduce = speed === 0;
   const [index, setIndex] = useState(start);
   const [direction, setDirection] = useState(0);
   const [zoom, setZoom] = useState<Zoom>(FIT);
@@ -100,25 +107,28 @@ export function MediaLightbox({
   const dragged = useRef(false);
   const item = items[index];
   // Listeners attach once, so they read the latest render through this.
-  const latest = useRef({ index, zoom, closing, items, reduce, thumbFor, onIndexChange, close });
-  latest.current = { index, zoom, closing, items, reduce, thumbFor, onIndexChange, close };
+  const latest = useRef({ index, zoom, closing, items, reduce, speed, thumbFor, onIndexChange, close });
+  latest.current = { index, zoom, closing, items, reduce, speed, thumbFor, onIndexChange, close };
   const current = () => latest.current.items[latest.current.index];
 
   const frame = (): Frame | null => {
-    const media = elements.media.get(current().id);
+    const selected = current();
+    const media = selected ? elements.media.get(selected.id) : undefined;
     if (!media || !stage.current) return null;
     return { width: media.offsetWidth, height: media.offsetHeight, frameWidth: stage.current.clientWidth, frameHeight: stage.current.clientHeight };
   };
   // A point relative to the stage centre, where the media is centred.
   const fromCentre = (clientX: number, clientY: number) => {
-    const box = stage.current!.getBoundingClientRect();
+    const area = stage.current;
+    if (!area) return null;
+    const box = area.getBoundingClientRect();
     return { x: clientX - box.left - box.width / 2, y: clientY - box.top - box.height / 2 };
   };
 
   const go = (by: number) => {
     const { index, items, closing, onIndexChange } = latest.current;
     const next = step(index, by, items.length);
-    if (next === index || closing) return;
+    if (!items[index] || !items[next] || next === index || closing) return;
     setDirection(by);
     setIndex(next);
     setZoom(FIT);
@@ -126,19 +136,23 @@ export function MediaLightbox({
   };
 
   const requestClose = () => {
-    const { closing, reduce, thumbFor, close } = latest.current;
+    const { closing, reduce, speed, thumbFor, close } = latest.current;
     if (closing) return;
+    // Set now, not on the next render: the opening morph checks it as soon as the image decodes.
+    latest.current.closing = true;
     setClosing(true);
     setZoom(FIT);
-    const figure = elements.figures.get(current().id);
+    const selected = current();
+    if (!selected) return close();
+    const figure = elements.figures.get(selected.id);
     if (!figure) return close();
     // Morph back into the thumbnail when it is on screen; otherwise just fade out.
-    const thumb = thumbFor(current().id),
+    const thumb = thumbFor(selected.id),
       target = thumbRect(thumb);
     const run =
       !reduce && target
-        ? pose(figure, { ...flip(figure, target), corner: thumbCorner(thumb) }, SPRING_LAYOUT)
-        : pose(figure, { opacity: 0, scale: reduce ? 1 : 0.96 }, { duration: 0.18, ease: EASE_OUT });
+        ? pose(figure, { ...flip(figure, target), corner: thumbCorner(thumb) }, scaledSpring(SPRING_LAYOUT, speed))
+        : pose(figure, { opacity: 0, scale: reduce ? 1 : 0.96 }, { duration: scaled(DURATION.base, speed), ease: EASE_OUT });
     run.then(close);
   };
 
@@ -149,17 +163,20 @@ export function MediaLightbox({
   const ready = (figure: Figure) => {
     if (opened.current) return;
     opened.current = true;
-    const { reduce, thumbFor, items } = latest.current;
+    const { reduce, speed, thumbFor, items } = latest.current;
     // A cached image is ready before the dialog's ref and effect run, and a closed dialog has no size to morph from.
     openDialog(figure.el.closest("dialog"));
     // Decoding a large image at its full size takes a few frames; done first, the morph doesn't stall on it.
-    const media = elements.media.get(items[start].id);
+    const openingItem = items[start];
+    const media = openingItem ? elements.media.get(openingItem.id) : undefined;
     void (media instanceof HTMLImageElement ? media.decode().catch(() => {}) : Promise.resolve()).then(() => {
-      const thumb = thumbFor(items[start].id),
+      // Closed while decoding: the opening morph would cancel the closing one, and the viewer would never close.
+      if (latest.current.closing) return;
+      const thumb = openingItem ? thumbFor(openingItem.id) : undefined,
         source = thumbRect(thumb);
       if (reduce || !source) {
         figure.scale.jump(reduce ? 1 : 0.96);
-        pose(figure, { opacity: 1, scale: 1 }, { duration: 0.2, ease: EASE_OUT });
+        pose(figure, { opacity: 1, scale: 1 }, { duration: scaled(DURATION.base, speed), ease: EASE_OUT });
         return;
       }
       // jump(), not set(): set() reads the leap to the thumbnail as velocity, and the spring would fling the image past it.
@@ -169,7 +186,7 @@ export function MediaLightbox({
       figure.scale.jump(from.scale);
       figure.corner.jump(thumbCorner(thumb));
       figure.opacity.jump(1);
-      pose(figure, { x: 0, y: 0, scale: 1, corner: CORNER }, SPRING_LAYOUT);
+      pose(figure, { x: 0, y: 0, scale: 1, corner: CORNER }, scaledSpring(SPRING_LAYOUT, speed));
     });
   };
 
@@ -183,6 +200,7 @@ export function MediaLightbox({
       event.preventDefault();
       event.stopPropagation();
       if (event.key === "Escape") return requestClose();
+      if (!nudge) return;
       const zoom = latest.current.zoom,
         bounds = frame();
       if (zoom.scale > 1 && bounds) setZoom({ ...panBy(zoom, nudge[0], nudge[1], bounds), smooth: true });
@@ -193,8 +211,9 @@ export function MediaLightbox({
       event.preventDefault();
       const zoom = latest.current.zoom,
         bounds = frame();
-      if ((event.ctrlKey || event.metaKey) && bounds && current().kind === "image") {
-        setZoom(zoomAt(zoom, zoom.scale * Math.exp(-event.deltaY * 0.01), fromCentre(event.clientX, event.clientY), bounds));
+      if ((event.ctrlKey || event.metaKey) && bounds && current()?.kind === "image") {
+        const point = fromCentre(event.clientX, event.clientY);
+        if (point) setZoom(zoomAt(zoom, zoom.scale * Math.exp(-event.deltaY * 0.01), point, bounds));
         return;
       }
       if (zoom.scale > 1 && bounds) {
@@ -224,7 +243,9 @@ export function MediaLightbox({
       window.removeEventListener("keydown", keys, true);
       area?.removeEventListener("wheel", wheel);
       dialog.current?.close();
-      (latest.current.thumbFor(current().id) ?? previous)?.focus();
+      const selected = current();
+      const thumb = selected ? latest.current.thumbFor(selected.id) : undefined;
+      (thumb ?? previous)?.focus();
     };
   }, []);
 
@@ -266,11 +287,22 @@ export function MediaLightbox({
     if (target instanceof HTMLVideoElement) return;
     if (!(target instanceof HTMLImageElement)) return requestClose();
     const bounds = frame();
-    if (!bounds) return;
-    setZoom(zoom.scale > 1 ? { ...FIT, smooth: true } : { ...zoomAt(zoom, 2.5, fromCentre(event.clientX, event.clientY), bounds), smooth: true });
+    const point = fromCentre(event.clientX, event.clientY);
+    if (!bounds || !point) return;
+    setZoom(zoom.scale > 1 ? { ...FIT, smooth: true } : { ...zoomAt(zoom, 2.5, point, bounds), smooth: true });
   };
 
-  const chrome = { initial: { opacity: 0 }, animate: { opacity: closing ? 0 : 1 }, transition: { duration: closing ? 0.18 : 0.24, ease: EASE_OUT } };
+  useEffect(() => {
+    if (!item) close();
+  }, [item, close]);
+
+  if (!item) return null;
+
+  const chrome = {
+    initial: { opacity: 0 },
+    animate: { opacity: closing ? 0 : 1 },
+    transition: { duration: scaled(closing ? DURATION.base : DURATION.slow, speed), ease: EASE_OUT },
+  };
   return createPortal(
     <dialog
       ref={dialog}
@@ -279,11 +311,11 @@ export function MediaLightbox({
         event.preventDefault();
         requestClose();
       }}
-      className="m-0 h-dvh max-h-none w-dvw max-w-none overflow-hidden bg-transparent p-0 text-white backdrop:bg-transparent"
+      className="m-0 h-dvh max-h-none w-dvw max-w-none overflow-hidden bg-transparent p-0 text-on-media backdrop:bg-transparent"
     >
-      <motion.div {...chrome} className="absolute inset-0 bg-black/70 backdrop-blur-overlay" onClick={requestClose} />
+      <motion.div {...chrome} className="absolute inset-0 bg-media/70 backdrop-blur-overlay" onClick={requestClose} />
       <motion.header {...chrome} className="absolute inset-x-0 top-0 flex h-14 items-center justify-between px-4">
-        <span aria-live="polite" className="text-xs tabular-nums text-white/70">
+        <span aria-live="polite" className="text-12 tabular-nums text-on-media-2">
           {items.length > 1 ? `${index + 1} / ${items.length}` : ""}
         </span>
         <button autoFocus type="button" aria-label="Close preview" onClick={requestClose} className={control}>
@@ -313,7 +345,7 @@ export function MediaLightbox({
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.22, ease: EASE_OUT }}
+            transition={{ duration: scaled(DURATION.base, speed), ease: EASE_OUT }}
             className="absolute inset-0 flex items-center justify-center p-4"
           >
             <Slide item={item} intro={!opened.current} zoom={zoom} elements={elements} onReady={ready} />
@@ -326,7 +358,7 @@ export function MediaLightbox({
             <Icon d="M15 6l-6 6 6 6" />
           </button>
         )}
-        <span className="min-w-0 max-w-[60vw] truncate text-sm text-white/80" title={item.name}>
+        <span className="min-w-0 max-w-[60vw] truncate text-13 text-on-media-2" title={item.name}>
           {item.name}
         </span>
         {items.length > 1 && (
@@ -354,6 +386,7 @@ function Slide({
   onReady: (figure: Figure) => void;
 }) {
   const figure = useRef<Figure>(null);
+  const speed = useMotionScale();
   const x = useMotionValue(0),
     y = useMotionValue(0),
     scale = useMotionValue(1),
@@ -407,7 +440,7 @@ function Slide({
           }
           data-zoom={zoom.scale.toFixed(2)}
           animate={{ scale: zoom.scale, x: zoom.x, y: zoom.y }}
-          transition={zoom.smooth ? SPRING_LAYOUT : { duration: 0 }}
+          transition={zoom.smooth ? scaledSpring(SPRING_LAYOUT, speed) : { duration: 0 }}
           className={`${fit} select-none ${zoom.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in"}`}
         />
       )}

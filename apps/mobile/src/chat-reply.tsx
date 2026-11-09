@@ -1,58 +1,58 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Image, Pressable, Text, View, type ImageSourcePropType } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
+import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
+import { useDisplayValue } from "./display-clock";
+import { ActivitySources } from "./activity-source";
 import { router } from "expo-router";
-import { Alert02Icon, ArrowRight01Icon, CheckmarkCircle02Icon, CircleIcon, Maximize01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import type { ChatMessage, ChatStep } from "@milagre/shared/model";
+import type { ChatMessage, ChatStep, LinkedContext, LimitResume } from "@milagre/shared/model";
+import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
+import { reportMarker } from "@milagre/shared/subchat-states";
+import { SubchatMarker } from "./subchat-marker";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
+import { onlyImageMentions, promptParts, quoteKeys, splitQuotes } from "@milagre/shared/prompt-parts";
+import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
+import type { MentionChat } from "@milagre/shared/prompt-mentions";
+import { projectOfKey } from "@milagre/shared/agent-runs";
+import { ChatMentionChip, ComputerMentionChip, FileMentionChip, ImageMentionChip, SkillChip } from "./prompt-chip";
+import { promptAccessibilityLabel } from "./prompt-label";
+import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
+import { MessageActions, messageActionProps, selectableMessageText } from "./message-actions";
+import { SentQuote } from "./quote-chips";
 import { Icon } from "./icons";
 import { ActivityTitle } from "./activity-item";
 import { ToolRow } from "./tool-row";
 import { ArtifactCards, DesignFeedbackCard } from "./artifact";
-import { advisorResultLabel } from "@milagre/shared/advisor-result";
+import { AdvisorResultCard } from "./advisor-result-card";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
+import { parsePageComments } from "@milagre/shared/page-comments";
+import { PageCommentsCard } from "./page-comments-card";
 import { AnswerCard } from "./answer-card";
-import { useMuriloMode } from "./murilo-mode";
+import { useToolCallDisplay } from "./chat-display-setting";
 import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { ComputerUseCard } from "./computer-use-card";
+import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
-import { useStyles } from "./ui";
+import { useMedia } from "./media-source";
+import { ViewedImages } from "./viewed-images";
+import { hitSlopFor, lineHeight as typeLineHeight, radius, space, type } from "./design-tokens";
+import { InlineError, pressStyle, useStyles } from "./ui";
 import { showImages, type MediaValue, type ViewerImage } from "./viewer-store";
 
 /** Resolves a saved file on the computer to an authenticated image source, or a cached file once it is fetched. */
 export type MediaSource = (path: string) => MediaValue;
 
-/** The image to show now: a ready source as is, a loading one once it arrives (null until then, or if it fails). */
-export function useMedia(source: MediaValue | null): ImageSourcePropType | null {
-  const pending = typeof (source as Promise<ImageSourcePropType> | null)?.then === "function" ? (source as Promise<ImageSourcePropType>) : null;
-  const [loaded, setLoaded] = useState<{ from: Promise<ImageSourcePropType>; value: ImageSourcePropType | null } | null>(null);
-  useEffect(() => {
-    if (!pending) return;
-    let current = true;
-    pending.then(
-      (value) => {
-        if (current) setLoaded({ from: pending, value });
-      },
-      () => {
-        if (current) setLoaded({ from: pending, value: null });
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [pending]);
-  if (!pending) return source as ImageSourcePropType | null;
-  return loaded?.from === pending ? loaded.value : null;
-}
+export { useMedia } from "./media-source";
 /** Measures every thumbnail first, so the viewer morphs out of the tapped one and back into whichever is showing. */
-function open(images: ViewerImage[], index: number, thumbs: (View | null)[]) {
+function open(images: ViewerImage[], index: number, thumbs: (ViewInstance | null)[]) {
   void Promise.all(
     images.map(
       (image, i) =>
@@ -71,13 +71,18 @@ function open(images: ViewerImage[], index: number, thumbs: (View | null)[]) {
   });
 }
 
-/** Your photos above your bubble: one large, or tiles; tapping opens the full-screen viewer. */
-function Photos({ message, media }: { message: ChatMessage; media: MediaSource }) {
-  const photos: ViewerImage[] = (message.images || []).map((photo) => ({
+function viewerPhotos(message: ChatMessage, media: MediaSource): ViewerImage[] {
+  return (message.images || []).map((photo) => ({
     name: photo.name,
     source: photo.dataUrl ? { uri: photo.dataUrl } : photo.path ? media(photo.path) : { uri: "" },
   }));
-  const thumbs = useRef<(View | null)[]>([]);
+}
+
+/** Your photos above your bubble: one large, or tiles; tapping opens the full-screen viewer. */
+function Photos({ message, media }: { message: ChatMessage; media: MediaSource }) {
+  const { colors } = useTheme();
+  const photos = viewerPhotos(message, media);
+  const thumbs = useRef<(ViewInstance | null)[]>([]);
   if (!photos.length) return null;
   const single = photos.length === 1;
   return (
@@ -93,6 +98,22 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
           onPress={() => open(photos, index, thumbs.current)}
         >
           <Thumbnail source={photo.source} size={single ? 220 : 130} />
+          <View
+            style={{
+              position: "absolute",
+              left: 6,
+              top: 6,
+              borderRadius: radius.chip,
+              borderCurve: "continuous",
+              paddingHorizontal: space.sm,
+              paddingVertical: space.xxs,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.line,
+            }}
+          >
+            <Text style={{ fontSize: type.caption2, lineHeight: typeLineHeight.caption2, fontWeight: "600", color: colors.ink }}>#{index + 1}</Text>
+          </View>
         </Pressable>
       ))}
     </View>
@@ -102,14 +123,14 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
 function Thumbnail({ source, size }: { source: MediaValue; size: number }) {
   const { colors } = useTheme();
   const ready = useMedia(source);
-  const style = { width: size, height: size, borderRadius: 14, backgroundColor: colors.canvas };
+  const style = { width: size, height: size, borderRadius: radius.card, borderCurve: "continuous" as const, backgroundColor: colors.canvas };
   return ready ? <Image source={ready} resizeMode="cover" style={style} /> : <View style={style} />;
 }
-/** An image the agent generated, under its step, at most 240 wide; tap or expand for full screen. */
+/** An image the agent generated, under its step, at most 240 wide; tap for full screen. */
 function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource }) {
   const { colors } = useTheme();
   const [ratio, setRatio] = useState(4 / 5);
-  const thumb = useRef<View>(null);
+  const thumb = useRef<ViewInstance>(null);
   const shown = !!step.file && step.status === "done";
   const source = shown ? media(step.file!) : null;
   const ready = useMedia(source);
@@ -130,68 +151,130 @@ function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource })
             const { width, height } = nativeEvent.source;
             if (width && height) setRatio(width / height);
           }}
-          style={{ width: 240, aspectRatio: ratio, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.canvas }}
+          style={{
+            width: 240,
+            aspectRatio: ratio,
+            borderRadius: radius.card,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.canvas,
+          }}
         />
       ) : (
-        <View style={{ width: 240, aspectRatio: ratio, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.canvas }} />
+        <View
+          style={{
+            width: 240,
+            aspectRatio: ratio,
+            borderRadius: radius.card,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.canvas,
+          }}
+        />
       )}
-      <View
-        style={{
-          position: "absolute",
-          right: 8,
-          top: 8,
-          width: 30,
-          height: 30,
-          borderRadius: 10,
-          backgroundColor: "#ffffffcc",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Icon icon={Maximize01Icon} tone="ink" size={15} />
-      </View>
     </Pressable>
   );
 }
-const SPARKLE = "M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z";
-/** Desktop's ActivityBlock header: a sparkle, the running step's shimmering title or the summary, and failures. */
-function ActivityRow({ steps, live, waiting, onPress }: { steps: ChatStep[]; live: boolean; waiting: boolean; onPress: () => void }) {
+/** Desktop's activity header, with the pending call ahead of other parallel work. */
+function ActivityRow({
+  steps,
+  live,
+  waitingIds,
+  onPress,
+  credits,
+}: {
+  steps: ChatStep[];
+  live: boolean;
+  waitingIds: string[];
+  onPress: () => void;
+  /** What the turn cost (Kiro's credits), shown at the end of the summary. */
+  credits?: number;
+}) {
   const { colors } = useTheme();
-  const current = live ? [...steps].reverse().find((step) => step.status === "running") : undefined;
-  const summary = activitySummary(steps);
-  const label = current ? current.title : summary.text || "Activity";
+  const current = live
+    ? (steps.find((step) => step.status === "running" && waitingIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
+    : undefined;
+  const waiting = !!current && waitingIds.includes(current.id);
+  const summary = activitySummary(steps, { credits });
+  const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, live, now), live);
+  const runningCount = steps.filter((step) => step.status === "running").length;
+  const label = current ? stepDisplayTitle(current, !waiting) : live ? "Working" : summary.text || "Activity";
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${label.replace(/`/g, "")}${waiting ? ", waiting for approval" : ""}${!current && summary.failed ? `, ${summary.failed} failed` : ""}. Show activity`}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 36, opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 44 }, pressStyle({ pressed, kind: "row" })]}
     >
-      <Svg width={16} height={16} viewBox="0 0 24 24">
-        <Path d={SPARKLE} fill={current ? colors.ink2 : colors.ink3} />
-      </Svg>
+      <ActivitySources steps={steps} />
       <View style={{ flexShrink: 1 }}>
-        {current ? (
-          <ActivityTitle title={current.title} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
+        {current && (runningCount <= 1 || waiting) ? (
+          <ActivityTitle
+            key={current.id}
+            title={label}
+            shimmer={!waiting}
+            style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: typeLineHeight.subheadline }}
+          />
         ) : (
-          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 14 }}>
-            {label}
+          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: typeLineHeight.subheadline }}>
+            {current && runningCount > 1 ? `Running ${runningCount} calls` : label}
           </Text>
         )}
       </View>
-      {waiting && <Text style={{ color: colors.ink3, fontSize: 12.5 }}>Waiting for approval</Text>}
-      {!current && summary.failed > 0 && (
+      {waiting && <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: typeLineHeight.caption1 }}>Waiting for approval</Text>}
+      {summary.failed > 0 && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Icon icon={Alert02Icon} tone="red" size={13} />
-          <Text style={{ color: colors.red, fontSize: 12.5 }}>{summary.failed} failed</Text>
+          <Icon icon={Alert02Icon} tone="red" size={12} />
+          <Text style={{ color: colors.redInk, fontSize: type.caption1, lineHeight: typeLineHeight.caption1 }}>{summary.failed} failed</Text>
         </View>
       )}
       <View style={{ flex: 1 }} />
       <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
+      {!!elapsed && (
+        <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: typeLineHeight.caption1, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>
+      )}
     </Pressable>
   );
 }
+/** The sender line over a message another Chat sent, as on desktop: who it's from, and a tap to open that Chat. */
+function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenChat?: (chatKey: string) => void }) {
+  const { colors } = useTheme();
+  const { text, chat } = linkedHeading(context);
+  const open = chat && onOpenChat ? () => onOpenChat(chat) : undefined;
+  return (
+    <Pressable
+      accessibilityRole={open ? "link" : undefined}
+      accessibilityHint={open ? "Opens that Chat" : undefined}
+      disabled={!open}
+      onPress={open}
+      // The 16pt line still takes a 44pt touch.
+      hitSlop={open ? hitSlopFor(typeLineHeight.caption1) : undefined}
+      style={({ pressed }) => [
+        { flexDirection: "row", alignItems: "center", gap: space.sm, alignSelf: "flex-start", maxWidth: "100%" },
+        pressStyle({ pressed }),
+      ]}
+    >
+      <Icon icon={Link04Icon} color={open ? colors.accentInk : colors.ink3} size={12} />
+      <Text
+        numberOfLines={1}
+        style={{ flexShrink: 1, color: open ? colors.accentInk : colors.ink3, fontSize: type.caption1, lineHeight: typeLineHeight.caption1, fontWeight: "500" }}
+      >
+        {text}
+      </Text>
+    </Pressable>
+  );
+}
+
+function openMention(path: string, attached: string[], root: string) {
+  const file = mentionedFile(path, attached, root);
+  if (file) router.push({ pathname: "/file-preview", params: { path: file } });
+}
+
+const NO_MENTION_CHATS: readonly MentionChat[] = [];
 export const ChatReply = memo(function ChatReply({
+  chats = NO_MENTION_CHATS,
   message,
   run,
   onActivity,
@@ -201,10 +284,20 @@ export const ChatReply = memo(function ChatReply({
   designChoice,
   designsMoved,
   limitProjectPath,
+  limitPending,
+  limitResumeBlocked,
+  limitResumeAvailable,
+  highlighted = false,
+  onOpenChat,
 }: {
+  chats?: readonly MentionChat[];
   message?: ChatMessage;
+  /** Opens another Chat by its key, from the sender line of a message that Chat sent. */
+  onOpenChat?: (chatKey: string) => void;
+  /** The task in Undo changes' view: its message is outlined, as on desktop. */
+  highlighted?: boolean;
   run?: AgentRun;
-  onActivity: (message: string) => void;
+  onActivity: (message: string, stepId?: string) => void;
   media: MediaSource;
   basePath?: string;
   /** The Chat's key, to open the designs its replies showed. */
@@ -215,39 +308,103 @@ export const ChatReply = memo(function ChatReply({
   designsMoved?: number;
   /** Set when a usage-limit reply is the Chat's last message with no turn running: its card then offers other accounts for this Project. */
   limitProjectPath?: string;
+  limitPending?: LimitResume;
+  limitResumeBlocked?: boolean;
+  limitResumeAvailable?: boolean;
 }) {
-  const { colors } = useTheme();
+  const { colors, textPx } = useTheme();
   const styles = useStyles();
-  const [muriloMode] = useMuriloMode();
+  const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
+  // Passages quoted in the composer lead a user's message as blockquotes; they show as quotes over what was typed.
+  const userQuoted = useMemo(() => splitQuotes(message?.role === "user" ? (run?.text ?? message.body ?? "") : ""), [message?.role, run?.text, message?.body]);
+  const userText = userQuoted.text;
+  const userFiles = message?.files;
+  const userImages = message?.images?.length ?? 0;
+  const userParts = useMemo(
+    () =>
+      promptParts(userText, {
+        skills: skillNames,
+        files: isMentionOfFile(userFiles ?? [], basePath ?? ""),
+        images: userImages,
+        chats: (id) => chats.some((chat) => chat.id === id),
+        // A sent `@computer:` token was a chip when it was written: it stays one even once that computer is gone.
+        computers: () => true,
+      }),
+    [userText, skillNames, userFiles, basePath, userImages, chats],
+  );
+  const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
-  const openActivity = () => onActivity(message ? String(message.id) : "run");
+  const openActivity = (stepId?: string) => onActivity(message ? String(message.id) : "run", stepId);
   const text = run?.text ?? message?.body ?? "";
-  const steps = run?.steps ?? message?.steps ?? [];
-  const reply = replyActivity(text, steps);
-  const waiting = !!(run?.approvals.length || run?.questions.length);
+  const allSteps = run?.steps ?? message?.steps ?? [];
+  // A heartbeat_create step that set a Heartbeat shows as its card, not as one more activity row.
+  const reply = replyActivity(text, allSteps);
+  const heartbeats = reply.heartbeats;
+  const waitingIds = waitingStepIds(run?.approvals);
   // Feedback sent from the design sheet or canvas shows as a card, not as the text the agent reads.
   const feedback = message?.role === "user" ? parseDesignFeedback(text) : null;
+  // And comments left on a Browser panel page.
+  const pageComments = message?.role === "user" && !feedback ? parsePageComments(text) : null;
   // So does a PR-blocker pill's action, instead of the skill prompt the agent read.
   const prAction = message?.role === "user" && isPullRequestAction(message.context) ? message.context : null;
   // And a Chat's first message when it was started from a Linear issue.
   const issue = message?.role === "user" && isLinearIssueContext(message.context) ? message.context : null;
   // What the agent concluded only in thinking, once the turn ends or stops on a question.
-  const thought = !run || run.questions.length ? unspokenThought(text, steps) : "";
+  const thought = !run || run.questions.length ? unspokenThought(text, allSteps) : "";
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
+  // A message another Chat sent (a Delegation, its report, a Negotiation's agreement) carries its sender, never reads as
+  // the user's own.
+  const linked = linkedContext(message);
   if (advisor)
     return (
-      <View style={{ gap: 6, paddingVertical: 8 }}>
-        <Text style={styles.caption}>{advisorResultLabel(advisor)}</Text>
-        <Markdown text={text} />
+      <View style={{ paddingVertical: 8 }}>
+        <AdvisorResultCard context={advisor} body={text} highlighted={highlighted} media={savedMedia} basePath={basePath} />
       </View>
     );
-  if (message?.role === "user")
+  if (message?.role === "user" && linked)
+    return (
+      <View style={{ gap: 6, paddingVertical: 4 }}>
+        <LinkedHeader context={linked} onOpenChat={onOpenChat} />
+        <MessageActions text={text} from="user">
+          {(openActions, swap) => (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: colors.line,
+                borderRadius: radius.card,
+                borderCurve: "continuous",
+                paddingVertical: space.lg,
+                paddingHorizontal: space.xl,
+                ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+              }}
+            >
+              {swap(
+                <Text
+                  selectable={selectableMessageText}
+                  style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}
+                  {...messageActionProps(openActions)}
+                >
+                  {text}
+                </Text>,
+              )}
+            </View>
+          )}
+        </MessageActions>
+      </View>
+    );
+  if (message?.role === "user") {
+    const root = basePath ?? "";
+    const attached = message.files ?? [];
+    // A file the text names with @ shows as a chip in the text, so it gets no tile of its own.
+    const inline = mentionedFiles(text, attached, root);
+    const parts = userParts;
+    const lineHeight = Math.round(textPx * 1.4667);
     return (
       <View style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
         <Photos message={message} media={media} />
         {message.files
-          ?.filter((file) => !message.images?.some((image) => image.path === file || image.sourcePath === file))
+          ?.filter((file) => !inline.has(file) && !message.images?.some((image) => image.path === file || image.sourcePath === file))
           .map((file) => (
             <FileChip key={file} path={file} />
           ))}
@@ -257,76 +414,172 @@ export const ChatReply = memo(function ChatReply({
           <LinearIssueCard issue={issue} />
         ) : feedback ? (
           <DesignFeedbackCard feedback={feedback} chatId={chatId} moved={designsMoved} />
+        ) : pageComments ? (
+          <PageCommentsCard comments={pageComments} chatId={chatId} moved={designsMoved} />
         ) : message.answered?.length ? (
           <AnswerCard answered={message.answered} />
         ) : (
-          !!text && (
-            <View style={{ backgroundColor: colors.canvas, borderRadius: 18, borderCurve: "continuous", paddingVertical: 10, paddingHorizontal: 14 }}>
-              <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
-                {text}
-              </Text>
-            </View>
+          // A send that is only its images shows them above, without an "Image #1" bubble.
+          !!text &&
+          !onlyImageMentions(text, userImages) && (
+            <MessageActions text={userText} from="user">
+              {(openActions, swap) => (
+                <View
+                  style={{
+                    backgroundColor: colors.canvas,
+                    borderRadius: radius.sheet,
+                    borderCurve: "continuous",
+                    paddingVertical: space.lg,
+                    paddingHorizontal: space.xl,
+                    gap: space.sm,
+                    ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+                  }}
+                >
+                  {quoteKeys(userQuoted.quotes).map(({ key, text: quote }) => (
+                    <SentQuote key={key} text={quote} textPx={textPx} />
+                  ))}
+                  {!!userText.trim() &&
+                    swap(
+                      <Text
+                        selectable={selectableMessageText}
+                        accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
+                        style={{ color: colors.ink, fontSize: textPx, lineHeight }}
+                        {...messageActionProps(openActions)}
+                      >
+                        {parts.map((part, index) =>
+                          part.kind === "skill" ? (
+                            <SkillChip key={index} name={part.name} />
+                          ) : part.kind === "file" ? (
+                            <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                          ) : part.kind === "computer" ? (
+                            <ComputerMentionChip key={index} name={part.name} />
+                          ) : part.kind === "chat" ? (
+                            <ChatMentionChip
+                              key={`chat:${part.id}:${part.start}`}
+                              title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
+                              onOpen={
+                                chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
+                                  ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
+                                  : undefined
+                              }
+                            />
+                          ) : part.kind === "image" ? (
+                            <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
+                          ) : (
+                            part.text
+                          ),
+                        )}
+                      </Text>,
+                    )}
+                </View>
+              )}
+            </MessageActions>
           )
         )}
       </View>
     );
+  }
+  // A Subchat's report is one grey line that opens the report where it stands; a Negotiation round keeps its full text.
+  const marker = linked && message?.role === "assistant" && !run ? reportMarker(linked) : null;
+  if (marker && linked)
+    return <SubchatMarker marker={marker} chat={linkedHeading(linked).chat} body={text} onOpenChat={onOpenChat} media={savedMedia} basePath={basePath} />;
   return (
-    <View style={{ gap: 14, paddingVertical: 8 }}>
+    <View style={{ gap: space.xl, paddingVertical: space.md }}>
+      {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}
       {reply.setup.map((step) => (
-        <ToolRow key={step.id} step={step} live={!!run} waiting={waiting} onPress={openActivity} />
+        <ToolRow key={step.id} step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
       ))}
-      {/* Murilo mode (Settings > Experimental): every tool call is its own row, with the notes between them. */}
-      {muriloMode ? (
+      {/* Full detail (Settings › Chat › Tool call display): every tool call is its own row, with the notes between them. */}
+      {toolCallDisplay === "full" ? (
         reply.activity.map((entry, index) =>
           entry.type === "step" ? (
-            <ToolRow key={entry.step.id} step={entry.step} live={!!run} waiting={waiting} onPress={openActivity} />
+            <ToolRow
+              key={entry.step.id}
+              step={entry.step}
+              live={!!run}
+              waiting={waitingIds.includes(entry.step.id)}
+              onPress={() => openActivity(entry.step.id)}
+            />
           ) : (
-            <Markdown key={`text-${index}`} text={entry.text} media={savedMedia} basePath={basePath} />
+            <MessageActions key={`text-${index}`} text={entry.text} markdown>
+              {(openActions, swap) =>
+                swap(<Markdown text={entry.text} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)
+              }
+            </MessageActions>
           ),
         )
-      ) : reply.activity.length === 1 && reply.activity[0].type === "step" ? (
-        <ToolRow step={reply.activity[0].step} live={!!run} waiting={waiting} onPress={openActivity} />
+      ) : reply.activity.length === 1 && reply.activity[0]?.type === "step" ? (
+        <ToolRow
+          key={reply.activity[0].step.id}
+          step={reply.activity[0].step}
+          live={!!run}
+          waiting={waitingIds.includes(reply.activity[0].step.id)}
+          onPress={() => openActivity(reply.activity[0]!.type === "step" ? reply.activity[0]!.step.id : undefined)}
+        />
       ) : (
         reply.activity.length > 0 && (
           <ActivityRow
             steps={reply.activity.flatMap((entry) => (entry.type === "step" ? [entry.step] : []))}
             live={!!run}
-            waiting={waiting}
-            onPress={openActivity}
+            waitingIds={waitingIds}
+            onPress={() => openActivity()}
+            credits={message?.credits}
           />
         )
       )}
+      <ViewedImages steps={reply.viewedImages} media={savedMedia} open={open} />
       {reply.images.map((step) => (
         <View key={step.id} style={{ gap: 6 }}>
-          <ToolRow step={step} live={!!run} waiting={waiting} onPress={openActivity} />
+          <ToolRow step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
           <GeneratedImage step={step} media={savedMedia} />
         </View>
       ))}
+      {reply.desktop.length > 0 && <ComputerUseCard steps={reply.desktop} chatId={chatId} />}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
-      {!!reply.answer.trim() && <Markdown text={reply.answer} streaming={!!run} media={savedMedia} basePath={basePath} />}
+      {!!reply.answer.trim() && (
+        <MessageActions text={reply.answer} markdown>
+          {(openActions, swap) =>
+            swap(
+              <Markdown
+                text={reply.answer}
+                streaming={!!run}
+                media={savedMedia}
+                basePath={basePath}
+                selectable={selectableMessageText}
+                onMessageAction={openActions}
+              />,
+            )
+          }
+        </MessageActions>
+      )}
+      {/* The reply says what the Heartbeat is for; its card follows. */}
+      {heartbeats.map((step) => (
+        <HeartbeatCard key={step.id} step={step} />
+      ))}
       {!!thought && (
-        <View style={{ opacity: 0.75 }}>
-          <Markdown text={thought} media={savedMedia} basePath={basePath} />
-        </View>
+        <MessageActions text={thought} markdown>
+          {(openActions, swap) =>
+            // Thinking reads a step quieter, in ink2 at full strength: code, links and images keep their own colours.
+            swap(
+              <Markdown text={thought} tone="ink2" media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />,
+            )
+          }
+        </MessageActions>
       )}
-      {run?.tasks?.length ? (
-        <View style={[styles.card, { gap: 8 }]}>
-          {run.tasks.map((task) => (
-            <View key={task.id} style={[styles.row, { flexWrap: "nowrap" }]}>
-              <Icon icon={task.status === "completed" ? CheckmarkCircle02Icon : CircleIcon} tone={task.status === "completed" ? "green" : "ink3"} size={16} />
-              <Text style={[styles.muted, { flex: 1 }]}>{task.status === "in_progress" ? task.activeForm || task.content : task.content}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
-      {limit && message && <UsageLimitCard limit={limit} sessionId={message.session_id} projectPath={limitProjectPath} />}
-      {!run && !limit && message?.outcome === "failed" && (
-        <Text accessibilityRole="alert" style={{ color: colors.error }}>
-          The turn failed. Review the response before trying again.
-        </Text>
+      {limit && message && (
+        <UsageLimitCard
+          limit={limit}
+          sessionId={message.session_id}
+          projectPath={limitProjectPath}
+          pending={limitPending}
+          sourceMessageId={message.id}
+          resumeAvailable={limitResumeAvailable}
+          resumeBlocked={limitResumeBlocked}
+        />
       )}
-      {!run && !text && !steps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
+      {!run && !limit && message?.outcome === "failed" && <InlineError message="The turn failed. Review the response before trying again." />}
+      {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
   );
 });

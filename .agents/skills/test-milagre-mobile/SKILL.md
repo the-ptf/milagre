@@ -17,20 +17,13 @@ Reuse a compatible installed development client. Testing does not authorize a ne
 
 ## Start an isolated host
 
-Read the fixture source to choose the smallest one that covers the flow:
+For a scripted check of the general phone flow (Chats, diffs, send, approval, question and Stop), run `npm run mobile:demo` from the repository root. It creates a temporary Project and host profile with a scripted provider and accepts `approval`, `question` and `slow` messages. Scripted replies verify UI/host behavior, not live model behavior, and its screenshots never go in a PR: PR images come from the real app with real providers, as [AGENTS.md](../../../AGENTS.md) specifies.
 
-| Fixture            | Command from repository root               | Useful states                                                                   |
-| ------------------ | ------------------------------------------ | ------------------------------------------------------------------------------- |
-| General phone flow | `npm run mobile:demo`                      | Chats, diffs, send, approval, question and Stop                                 |
-| Advisor controls   | `node scripts/mobile-advisors-fixture.cjs` | Completed, failed, interrupted and active advisors; Stop/Retry and saved output |
+The demo currently defaults to bridge 8787 and Metro 8790. Check availability before starting and read the actual startup output. Reuse only a healthy fixture belonging to this task and checkout. Configure another available port where the script supports it, or adapt a task-owned fixture; never kill an unrelated listener.
 
-Both create temporary Projects and host profiles with scripted providers. The general demo accepts `approval`, `question` and `slow` messages. In the advisor fixture, type `finish` into its retained terminal to settle the active review. Scripted replies verify UI/host behavior, not live model behavior.
+The demo starts Metro with its disposable connection settings. Retain that terminal session. Do not start a second Metro with missing environment settings. Startup output or connection files can contain pairing credentials: consume them privately and keep them out of replies, screenshots and commits.
 
-The general demo currently defaults to bridge 8787 and Metro 8790; the advisor fixture uses 8788 and 8891. Check availability before starting and read the actual startup output. Reuse only a healthy fixture belonging to this task and checkout. Configure another available port where the script supports it, or adapt a task-owned fixture; never kill an unrelated listener.
-
-Each fixture starts Metro with its disposable connection settings. Retain that terminal session. Do not start a second Metro with missing environment settings. Startup output or connection files can contain pairing credentials: consume them privately and keep them out of replies, screenshots and commits.
-
-For real-provider testing, use a separate temporary Project and profile through the host workflow in [phone development](../../../docs/mobile-local.md). Do not use its desktop-profile sharing instructions for an isolated test. Never copy real provider credentials into fixtures or edit a live host's storage to seed state.
+For real-provider testing and every PR screenshot, use a separate temporary Project and profile through the host workflow in [phone development](../../../docs/mobile-local.md). Do not use its desktop-profile sharing instructions for an isolated test. Never copy real provider credentials into fixtures or edit a live host's storage to seed state.
 
 ## Pair, exercise and retain evidence
 

@@ -4,7 +4,7 @@ const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { createUsageStore } = require("./usage-cache.cjs");
+const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { readAntigravityUsage } = require("./antigravity-usage.cjs");
 
 const PROVIDER_TIMEOUT_MS = 10_000;
@@ -177,7 +177,8 @@ function bankedResetsOf(count) {
 }
 
 async function readCodexUsage(deps = {}) {
-  const { spawnImpl = spawn, now = Date.now, timeoutMs = PROVIDER_TIMEOUT_MS } = deps;
+  // spawnCommandImpl stands in for the whole launch, Windows job keeper included, so a test's fake Codex runs as is.
+  const { spawnImpl = spawn, spawnCommandImpl = spawnCommand, now = Date.now, timeoutMs = PROVIDER_TIMEOUT_MS } = deps;
   const done = (status, windows, message) => providerResult("codex", now, status, windows, message);
 
   const command = deps.command || (process.platform === "win32" ? await resolveExecutable("codex") : "codex");
@@ -185,7 +186,7 @@ async function readCodexUsage(deps = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawnCommand(command, ["app-server"], { stdio: ["pipe", "pipe", "ignore"], env: deps.env || process.env, windowsHide: true }, spawnImpl);
+      child = spawnCommandImpl(command, ["app-server"], { stdio: ["pipe", "pipe", "ignore"], env: deps.env || process.env, windowsHide: true }, spawnImpl);
     } catch {
       resolve(done("error", [], "Codex could not start."));
       return;
@@ -264,6 +265,8 @@ function createUsageReader(deps = {}) {
     readClaude = readClaudeUsage,
     readCodex = readCodexUsage,
     readAntigravity = () => readAntigravityUsage({ now }),
+    // The runtime reads Kiro's credits from kiro-cli (kiro-usage.cjs); without that reader the sidebar leaves Kiro out.
+    readKiro = () => providerResult("kiro", now, "unavailable", [], "Kiro credits aren't read here."),
     now = Date.now,
     store = createUsageStore(),
     ready = () => undefined,
@@ -282,18 +285,52 @@ function createUsageReader(deps = {}) {
     }
     return withLastGood(result, store.get(provider).last, now());
   };
-  let inFlight = null;
-  return function readUsage() {
-    inFlight ??= Promise.resolve()
+  const pending = new Map();
+  const latest = new Map();
+  const checked = new Map();
+  const readers = { claude: readClaude, codex: readCodex, antigravity: readAntigravity, kiro: readKiro };
+  let environment;
+  const waitReady = () =>
+    (environment ??= Promise.resolve()
       .then(ready)
-      .catch(() => {})
-      .then(() => Promise.all([readProvider("claude", readClaude), readProvider("codex", readCodex), readProvider("antigravity", readAntigravity)]))
+      .catch(() => {}));
+  function providerUsage(provider) {
+    if (!Object.hasOwn(readers, provider)) throw new Error("Unknown usage provider");
+    if (!pending.has(provider)) {
+      pending.set(
+        provider,
+        waitReady()
+          .then(() => readProvider(provider, readers[provider]))
+          .then((result) => {
+            latest.set(provider, result);
+            checked.set(provider, new Date(now()).toISOString());
+            return result;
+          })
+          .finally(() => pending.delete(provider)),
+      );
+    }
+    return pending.get(provider);
+  }
+  let inFlight = null;
+  function readUsage() {
+    inFlight ??= Promise.resolve()
+      .then(() => Promise.all([providerUsage("claude"), providerUsage("codex"), providerUsage("antigravity"), providerUsage("kiro")]))
       .then((providers) => ({ providers }))
       .finally(() => {
         inFlight = null;
       });
     return inFlight;
+  }
+  readUsage.provider = providerUsage;
+  // A failed check can retain old quota numbers; its check time must not overwrite their updatedAt.
+  readUsage.checkedAt = (provider) => checked.get(provider);
+  readUsage.cached = (provider) => {
+    const result = latest.get(provider);
+    return result
+      ? { ...result, windows: result.windows.filter((window) => !window.resetsAt || Date.parse(window.resetsAt) > now()) }
+      : cachedSnapshot(store, now()).providers.find((item) => item.provider === provider);
   };
+  return readUsage;
 }
 
 // The CLI owns the per-profile Keychain name and token refresh. Ask its control API without

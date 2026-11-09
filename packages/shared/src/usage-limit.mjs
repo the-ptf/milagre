@@ -51,3 +51,29 @@ export function limitChoices(snapshot, limit, now = new Date()) {
 export function switchedText({ continued, label }) {
   return continued ? `Switched to ${label}. Continuing…` : `Switched to ${label}. Send your message again to continue.`;
 }
+
+/** The line a Chat shows where it continued on another account after the limit (context kind "account-switch"). */
+export function isAccountSwitch(message) {
+  return message?.context?.kind === "account-switch";
+}
+
+/** The line as text: the message body, and the label screen readers and the transcript use. */
+export function accountSwitchText(context) {
+  return `Switched to ${context.label} after the usage limit`;
+}
+
+/** A continuation on the same Account after its plan's usage limit reset. */
+export function isLimitReset(message) {
+  return message?.context?.kind === "limit-reset";
+}
+
+export function limitResetText() {
+  return "Continued after the usage limit reset";
+}
+
+/** Pending schedules remain visible during the short allowance after the reported reset time. */
+export function limitResumeLabel(pending, limit, now = new Date()) {
+  if (pending) return resetTime(pending.at, now) ? `Continues at ${resetTime(pending.at, now)}` : "Continues shortly";
+  const time = resetTime(limit.resetsAt, now);
+  return time ? `Continue at ${time}` : null;
+}

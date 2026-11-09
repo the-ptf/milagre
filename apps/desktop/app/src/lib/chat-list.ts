@@ -1,29 +1,47 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
-import type { AgentSession, ChatMessage } from "../model";
-import { comparePins } from "@milagre/shared/chats";
+import type { AgentSession, ChatMessage, LinkChatSession } from "../model";
+import { comparePins, isListedChat } from "@milagre/shared/chats";
 export { chatTitle, pinOrderAt } from "@milagre/shared/chats";
 
-/** What the mark at the left of a chat row shows; the first that applies wins. */
-export type ChatMark = "question" | "waiting" | "delegated" | "running" | "unread" | "idle";
+/**
+ * Whether the sidebar lists a Chat: it has a message to show, and it isn't a hidden Run Chat, unless that one waits on
+ * an approval or a question (`waiting`), which it shows until it is answered.
+ */
+export function isChatListed(session: AgentSession | LinkChatSession, sessionMessages: readonly ChatMessage[], waiting: boolean): boolean {
+  return isListedChat(session, chatSummary(session, sessionMessages).count, waiting);
+}
 
-/** `delegated`: a Delegation from another Chat is queued or running here. */
+/** What the mark at the left of a chat row shows; the first that applies wins. */
+export type ChatMark = "question" | "waiting" | "delegated" | "running" | "interrupted" | "background" | "unread" | "idle";
+
+/**
+ * `delegated`: a Delegation from another Chat is queued or running here. `interrupted`: its turn stopped when the app
+ * quit and can resume (`resumeTurn`), as the phone marks it. `background`: the Chat's activity is
+ * background (chat-activity.mjs): its turn ended, but background agents still work and will wake it.
+ */
 export function chatMark({
   asking = false,
   waiting,
   delegated = false,
   running,
+  interrupted = false,
+  background = false,
   unread,
 }: {
   asking?: boolean;
   waiting: boolean;
   delegated?: boolean;
   running: boolean;
+  interrupted?: boolean;
+  background?: boolean;
   unread: boolean;
 }): ChatMark {
   if (asking) return "question";
   if (waiting) return "waiting";
   if (delegated) return "delegated";
   if (running) return "running";
+  if (interrupted) return "interrupted";
+  if (background) return "background";
   if (unread) return "unread";
   return "idle";
 }

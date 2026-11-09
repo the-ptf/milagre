@@ -1,10 +1,11 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { EASE_OUT } from "../../lib/ease";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { DURATION, EASE_OUT } from "../../lib/ease";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
-import type { SimulatorApi, SimulatorDevice, SimulatorList } from "@milagre/shared/simulator";
+import { SIMLOCK_DEVICE_PREFIX, type SimlockModel, type SimulatorApi, type SimulatorDevice, type SimulatorList } from "@milagre/shared/simulator";
+import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   createSimulatorBridge,
   createSimulatorReceiverHtml,
@@ -14,21 +15,30 @@ import {
 } from "@milagre/shared/simulator-receiver";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
+import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
+import { EmptyState } from "../primitives/EmptyState";
+import { InlineError } from "../primitives/InlineError";
+import { PillSlot, StatusPill } from "../primitives/StatusPill";
 import { useAnchoredPopover } from "./useAnchoredPopover";
 import { viewerTheme } from "./viewerTheme";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
-import { DockSlide } from "./DockSlide";
-import { useBridge } from "../../lib/computer-bridge";
-
-// Docked width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
-const DOCK_WIDTH = 400;
+import { ResizableDockSlide } from "./DockSlide";
+import { usePanelWidth } from "./panel-width";
+import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
+import { isTurnEnd } from "@milagre/shared/agent-runs";
+import { thisComputer } from "../../lib/shortcut-hints";
 
 /** The host owns persistent associations; discovery never attaches a device. */
 export function SimulatorTrack({ chatId }: { chatId: string }) {
   // Read once: the polling effect depends on it, and a bridge that hands out a new object per read would restart it every render.
   const bridge = useBridge();
   const [api] = useState(() => bridge?.simulators);
+  const [simlock] = useState(() => bridge?.simlock);
+  // Experimental: models the Simlock pool can lease, read when the attach list opens; null when it is off.
+  const [pool, setPool] = useState<{ models: SimlockModel[]; error?: string } | null>(null);
+  const [leasing, setLeasing] = useState<string | null>(null);
   const trigger = useRef<HTMLButtonElement>(null),
     panel = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -52,7 +62,9 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   const dock = useDockArea();
   const reduced = useReducedMotion();
   useCloseWhenDesignsExpand(close);
-  useSidePanelRoom("simulator", opened && docked, DOCK_WIDTH + 12, close);
+  // Docked, its width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
+  const resize = usePanelWidth("simulator");
+  useSidePanelRoom("simulator", opened && docked, resize.width + 12, close);
   const bounds = useAnchoredPopover({
     opened: opened && !docked,
     setOpened: (value) => {
@@ -63,6 +75,8 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     width: 390,
     height: 650,
   });
+  // The list read, for the poll below; a no-op while unmounted.
+  const refreshList = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     if (!api) return;
     let disposed = false,
@@ -73,7 +87,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
       const started = revision.current;
       try {
         const result = await api.list({ chatId });
-        if (result.chatId !== chatId) throw new Error("Update Milagre on this Mac to attach simulators to Chats.");
+        if (result.chatId !== chatId) throw new Error(`Update Milagre on ${thisComputer} to attach simulators to Chats.`);
         if (!disposed && started === revision.current) {
           setList(result);
           if (!result.attached?.length) close();
@@ -91,13 +105,26 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     const visibility = () => {
       if (!document.hidden) void refresh();
     };
+    refreshList.current = refresh;
     void refresh();
-    const timer = setInterval(refresh, 5000);
     document.addEventListener("visibilitychange", visibility);
+    // With nothing attached nothing is polled (the pill shows nothing then): a simulator joins the Chat when its agent
+    // attaches one with its tool, so that step finishing, and each turn's end, read the list again; so does coming back
+    // to the window, after one was attached from the phone or another window.
+    const focused = () => void refresh();
+    window.addEventListener("focus", focused);
+    const simulatorSteps = new Set<string>();
+    const offAgent = onAnyAgentEvent(({ chatId: from, event }) => {
+      if (from !== chatId) return;
+      if (event.type === "step-started" && /simulator/i.test(event.step.title ?? "")) simulatorSteps.add(event.step.id);
+      else if ((event.type === "step-completed" && simulatorSteps.delete(event.id)) || isTurnEnd(event)) void refresh();
+    });
     return () => {
       disposed = true;
-      clearInterval(timer);
+      refreshList.current = async () => {};
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", focused);
+      offAgent();
     };
   }, [api, close, chatId]);
   const mutate = async (method: "attach" | "detach", device: SimulatorDevice) => {
@@ -117,7 +144,62 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
       setBusy(false);
     }
   };
+  useEffect(() => {
+    if (!attaching || !simlock) return;
+    let live = true;
+    void (async () => {
+      try {
+        if (!(await simlock.readSettings()).enabled) return live && setPool(null);
+        const { models } = await simlock.models();
+        if (live) setPool({ models });
+      } catch (error) {
+        if (live) setPool({ models: [], error: ipcErrorMessage(error) });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [attaching, simlock]);
+  const lease = async (model: SimlockModel) => {
+    if (!simlock || busy) return;
+    setBusy(true);
+    setLeasing(`${model.platform}:${model.model}`);
+    revision.current++;
+    try {
+      const leased = await simlock.lease({ chatId, platform: model.platform, model: model.model });
+      setAttaching(false);
+      await refreshList.current();
+      setSelected({ id: leased.deviceId, name: `${leased.name} (Simlock)`, platform: leased.platform, version: leased.version });
+    } catch (error) {
+      setPool((current) => ({ models: current?.models ?? [], error: ipcErrorMessage(error) }));
+    } finally {
+      revision.current++;
+      setLeasing(null);
+      setBusy(false);
+    }
+  };
+  const release = async (device: SimulatorDevice) => {
+    if (!simlock || busy) return;
+    setBusy(true);
+    revision.current++;
+    try {
+      await simlock.release({ deviceId: device.id });
+    } catch {
+      // An ended lease only needs its attachment removed.
+    } finally {
+      revision.current++;
+      setBusy(false);
+    }
+    await mutate("detach", device);
+  };
   const attachedCount = list.attached?.length ?? 0;
+  // While a device is attached, or the panel is open to attach one, the list is polled: devices come and go on their own.
+  const polling = Boolean(api && (attachedCount > 0 || opened));
+  useEffect(() => {
+    if (!polling) return;
+    const timer = setInterval(() => void refreshList.current(), 5000);
+    return () => clearInterval(timer);
+  }, [polling]);
   const sole = list.devices.length === 1 ? list.devices[0] : null;
   const open = useCallback(() => {
     if (opened) {
@@ -129,78 +211,74 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   }, [opened, close, sole]);
   // The window's top-right corner offers the simulator too, while this Chat has one attached.
   useSidePanel("simulator", api && list.supported && attachedCount ? { open: opened, toggle: open } : null);
-  if (!api || !list.supported || !attachedCount) return null;
+  if (!api || !list.supported || !attachedCount) return <AnimatePresence initial={false} />;
   const panelContent = (
     <>
-      <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-        {attaching ? (
-          <Tooltip label="Back to devices">
-            <button
-              type="button"
-              aria-label="Back to devices"
-              onClick={() => {
-                setSelected(null);
-                setAttaching(false);
-              }}
-              className="rounded p-1 text-ink-2 hover:bg-hover"
-            >
-              <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
-            </button>
+      {!selected && (
+        <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+          {attaching ? (
+            <Tooltip label="Back to devices">
+              <IconButton
+                label="Back to devices"
+                icon={ArrowLeft01Icon}
+                size={24}
+                onClick={() => {
+                  setSelected(null);
+                  setAttaching(false);
+                }}
+              />
+            </Tooltip>
+          ) : (
+            <Icon icon={SmartphoneIcon} size={16} />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-13">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
+            {!selected && <div className="text-11 text-ink-3">{attaching ? `Other devices on ${thisComputer}` : "This Chat"}</div>}
+          </div>
+          <Tooltip label="Close simulator">
+            <IconButton label="Close simulator" icon={Cancel01Icon} size={24} onClick={close} />
           </Tooltip>
-        ) : (
-          <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px]">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
-          {!selected && <div className="text-[11px] text-ink-3">{attaching ? "Other devices on this Mac" : "This Chat"}</div>}
-        </div>
-        <Tooltip label="Close simulator">
-          <button type="button" aria-label="Close simulator" onClick={close} className="rounded p-1 text-ink-2 hover:bg-hover">
-            <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
-          </button>
-        </Tooltip>
-      </header>
+        </header>
+      )}
       {selected ? (
         <>
-          <div className="flex shrink-0 items-center justify-between gap-3 px-[18px] pb-1 pt-4">
+          <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-1 pt-4">
             <div className="min-w-0 flex-1">
               <button
                 type="button"
                 aria-label={`${selected.name}, choose simulator`}
                 onClick={() => setSelected(null)}
-                className="-ml-1 flex max-w-full items-center gap-1 rounded px-1 text-[13px] font-medium hover:bg-hover"
+                className="-ml-1 flex max-w-full items-center gap-1 rounded-chip px-1 text-13 font-medium transition-colors duration-fast hover:bg-hover"
               >
                 <span className="truncate">{selected.name}</span>
-                <HugeiconsIcon icon={ArrowDown01Icon} size={14} className="shrink-0 text-ink-3" aria-hidden />
+                <Icon icon={ArrowDown01Icon} size={14} className="shrink-0 text-ink-3" />
               </button>
-              <div className="mt-1 text-[11px] text-ink-3">
+              <div className="mt-1 text-11 text-ink-3">
                 {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
+                {selected.id.startsWith(SIMLOCK_DEVICE_PREFIX) && " · Leased from Simlock"}
               </div>
             </div>
-            <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-2">
+            <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-11 text-ink-2">
               <span
                 aria-hidden
-                className={`h-1.5 w-1.5 rounded-full ${connectionState === "live" ? "bg-green" : connectionState === "error" ? "bg-red" : "bg-ink-3"}`}
+                className={`size-1.5 rounded-full ${connectionState === "live" ? "bg-green" : connectionState === "error" ? "bg-red" : "bg-ink-4"}`}
               />
               {SIMULATOR_CONNECTION_LABELS[connectionState]}
             </div>
-          </div>
+            <Tooltip label="Close simulator">
+              <IconButton label="Close simulator" icon={Cancel01Icon} size={32} onClick={close} />
+            </Tooltip>
+          </header>
           <SimulatorFrame key={selected.id} api={api} device={selected} chatId={chatId} onClose={close} onConnection={setConnection} />
         </>
       ) : (
         <ScrollArea className="p-1">
-          {loading && (
-            <p role="status" className="p-3 text-[13px] text-ink-2">
-              Finding running simulators...
-            </p>
-          )}
-          {list.error && (
-            <p role="alert" className="p-3 text-[13px] text-red">
-              {list.error}
-            </p>
-          )}
+          {loading && <EmptyState size="compact" title="Finding running simulators…" />}
+          <InlineError size={12} className="p-3">
+            {list.error}
+          </InlineError>
           {!loading && !list.error && !(attaching ? list.available : list.attached)?.length && (
-            <p className="p-3 text-[13px] text-ink-2">{attaching ? "No other devices are running on this Mac." : "No simulators attached to this Chat."}</p>
+            <EmptyState size="compact" title={attaching ? `No other devices are running on ${thisComputer}` : "No simulators attached to this Chat"} />
           )}
           {(attaching ? (list.available ?? []) : (list.attached ?? [])).map((device) => {
             const running = attaching || list.devices.some((d) => d.id === device.id);
@@ -211,105 +289,154 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   disabled={busy || !running}
                   data-simulator-device={device.id}
                   onClick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50"
+                  className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
                 >
-                  <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-[13px]">{device.name}</span>
-                  <span className="text-[11px] text-ink-3">
-                    {running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}
-                  </span>
+                  <Icon icon={SmartphoneIcon} size={16} />
+                  <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
+                  <span className="text-11 text-ink-3">{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</span>
                 </button>
-                {!attaching && (
-                  <Tooltip label="Detach from Chat">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      aria-label={`Detach ${device.name} from Chat`}
-                      onClick={() => void mutate("detach", device)}
-                      className="rounded p-2 text-ink-3 hover:bg-hover"
-                    >
-                      <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
-                    </button>
-                  </Tooltip>
-                )}
+                {!attaching &&
+                  (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
+                    <Tooltip label="Return to the Simlock pool">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Return ${device.name} to the Simlock pool`}
+                        onClick={() => void release(device)}
+                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+                      </button>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip label="Detach from Chat">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Detach ${device.name} from Chat`}
+                        onClick={() => void mutate("detach", device)}
+                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+                      </button>
+                    </Tooltip>
+                  ))}
               </div>
             );
           })}
           {!attaching && (
-            <button type="button" onClick={() => setAttaching(true)} className="w-full rounded-md px-3 py-2 text-left text-[13px] text-ink-2 hover:bg-hover">
+            <button
+              type="button"
+              onClick={() => setAttaching(true)}
+              className="flex h-8 w-full items-center rounded-control px-3 text-left text-13 text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink active:bg-hover-2"
+            >
               Attach simulator
             </button>
+          )}
+          {attaching && pool && (
+            <section aria-label="Lease from Simlock" data-slot="simlock-models" className="mt-1 border-t border-line pt-1">
+              <div className="px-3 pb-1 pt-2 text-11 text-ink-3">Lease from Simlock: a fresh device of its own, returned wiped</div>
+              {pool.error && (
+                <p role="alert" className="px-3 py-2 text-13 text-red-ink">
+                  {pool.error}
+                </p>
+              )}
+              {leasing && (
+                <p role="status" className="px-3 py-2 text-13 text-ink-2">
+                  Leasing... Simlock boots the device and may queue behind other agents.
+                </p>
+              )}
+              {pool.models.map((model) => (
+                <button
+                  key={`${model.platform}:${model.model}`}
+                  type="button"
+                  disabled={busy}
+                  data-simlock-model={model.model}
+                  onClick={() => void lease(model)}
+                  className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-left hover:bg-hover disabled:opacity-50"
+                >
+                  <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
+                  <span className="min-w-0 flex-1 truncate text-13">{model.model}</span>
+                  <span className="text-11 text-ink-3">
+                    {model.platform === "android" ? "Android" : "iOS"} {model.version}
+                  </span>
+                </button>
+              ))}
+            </section>
           )}
         </ScrollArea>
       )}
     </>
   );
   return (
-    <div className="flex" data-slot="simulator-track">
-      <Tooltip label="Simulators attached to this Chat" align="end">
-        <button
-          ref={trigger}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={opened}
-          aria-controls={opened ? panelId : undefined}
-          aria-label={`Simulators, ${attachedCount} attached to this Chat`}
-          onClick={open}
-          className="flex h-6 items-center gap-1.5 rounded-full border border-line bg-surface px-2 text-[11px] text-ink-2 hover:bg-hover focus-visible:outline-2"
-        >
-          <HugeiconsIcon icon={SmartphoneIcon} size={12} aria-hidden />
-          Simulators <span className="tabular-nums">{attachedCount}</span>
-        </button>
-      </Tooltip>
-      {createPortal(
-        <AnimatePresence>
-          {opened &&
-            (docked ? (
-              <DockSlide
-                key="simulator-dock"
-                // Docked, it opens like the git changes panel, lines up with the sidebar's card, and sits left of the
-                // changes panel; the chat makes room through --simulator-dock.
-                width={DOCK_WIDTH}
-                reserve="--simulator-dock"
-                ref={panel}
-                id={panelId}
-                role="dialog"
-                aria-label="Simulator"
-                aria-modal="false"
-                tabIndex={-1}
-                data-slot="simulator-popover"
-                data-docked
-                style={{ top: dock?.top ?? 40, right: (dock?.right ?? 0) + 12, bottom: dock?.bottom ?? 12 }}
-                className="fixed z-[42] focus:outline-none"
-                panelClassName="overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised"
-              >
-                {panelContent}
-              </DockSlide>
-            ) : (
-              <motion.div
-                key="simulator"
-                // Anchored over its pill, the device list rises from it.
-                initial={reduced ? false : { opacity: 0, y: 6, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: 6, scale: 0.98 }}
-                transition={{ duration: 0.18, ease: EASE_OUT }}
-                ref={panel}
-                id={panelId}
-                role="dialog"
-                aria-label="Simulator"
-                aria-modal="false"
-                tabIndex={-1}
-                data-slot="simulator-popover"
-                style={{ ...bounds, height: selected ? 650 : undefined }}
-                className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised focus:outline-none"
-              >
-                {panelContent}
-              </motion.div>
-            ))}
-        </AnimatePresence>,
-        dockLayer(),
-      )}
-    </div>
+    <AnimatePresence initial={false}>
+      <PillSlot key="simulator-track" slot="simulator-track">
+        <Tooltip label="Simulators attached to this Chat" align="end">
+          <StatusPill
+            ref={trigger}
+            aria-haspopup="dialog"
+            aria-expanded={opened}
+            aria-controls={opened ? panelId : undefined}
+            aria-label={`Simulators, ${attachedCount} attached to this Chat`}
+            onClick={open}
+            icon={SmartphoneIcon}
+            label="Simulators"
+            count={attachedCount}
+          />
+        </Tooltip>
+        {createPortal(
+          <AnimatePresence>
+            {opened &&
+              (docked ? (
+                <ResizableDockSlide
+                  key="simulator-dock"
+                  // Docked, it opens like the git changes panel, lines up with the sidebar's card, and sits left of the
+                  // changes panel; the chat makes room through --simulator-dock. A drag on its edge doesn't render the
+                  // viewer again.
+                  panel="simulator"
+                  label="Resize simulator"
+                  width={resize.width}
+                  reserve="--simulator-dock"
+                  ref={panel}
+                  id={panelId}
+                  role="dialog"
+                  aria-label="Simulator"
+                  aria-modal="false"
+                  tabIndex={-1}
+                  data-slot="simulator-popover"
+                  data-docked
+                  style={{ top: dock?.top ?? 40, right: (dock?.right ?? 0) + 12, bottom: dock?.bottom ?? 12 }}
+                  className="fixed z-[42] focus:outline-none"
+                  panelClassName="overflow-hidden rounded-card bg-surface text-ink shadow-raised"
+                >
+                  {panelContent}
+                </ResizableDockSlide>
+              ) : (
+                <motion.div
+                  key="simulator"
+                  // Anchored over its pill, the device list rises from it.
+                  initial={reduced ? false : { opacity: 0, y: 6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: 6, scale: 0.98 }}
+                  transition={{ duration: DURATION.base, ease: EASE_OUT }}
+                  ref={panel}
+                  id={panelId}
+                  role="dialog"
+                  aria-label="Simulator"
+                  aria-modal="false"
+                  tabIndex={-1}
+                  data-slot="simulator-popover"
+                  style={{ ...bounds, height: selected ? 650 : undefined }}
+                  className="fixed z-50 flex flex-col overflow-hidden rounded-card bg-surface text-ink shadow-raised focus:outline-none"
+                >
+                  {panelContent}
+                </motion.div>
+              ))}
+          </AnimatePresence>,
+          dockLayer(),
+        )}
+      </PillSlot>
+    </AnimatePresence>
   );
 }
 

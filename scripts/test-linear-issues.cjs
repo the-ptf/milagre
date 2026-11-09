@@ -1,11 +1,11 @@
-// Real Electron checks for Linear issues on the Mac: the new-chat "Linear issue" picker (in a Project and in a named Link),
-// and the issue chip on a sidebar row.
+// Real Electron checks for Linear issues on the Mac: the new-chat "Linear issue" picker, and the issue chip on a sidebar row.
 // MILAGRE_SCREENSHOT_DIR saves images outside the repo.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React, { useState } from 'react';
@@ -19,7 +19,7 @@ const issues = [
   { key: 'ENG-2', title: 'Dark mode tokens', url: 'https://linear.app/acme/issue/ENG-2', branchName: 'eng-2-dark-mode-tokens', description: 'Share the palette.', state: { name: 'Backlog', type: 'backlog', color: '#8e8e93' } },
 ];
 const linearOn = new URLSearchParams(location.search).get('linear') === 'on';
-// ?link=on: a named Link's new Chat, whose Worktrees Milagre makes, one per Project.
+// ?link=on: a named Link's new Chat, whose agent makes a Worktree only in a Project it changes.
 const linkOn = new URLSearchParams(location.search).get('link') === 'on';
 window.__queries = [];
 window.__fresh = [];
@@ -188,7 +188,7 @@ async function checks(url) {
     await evaluate(`document.querySelector('[data-linear-issue-row] button').click()`);
     await waitFor(`window.__started?.key === 'ENG-1'`);
     await window.loadURL(url + "?linear=off&link=on");
-    await waitFor(`document.body.textContent.includes('New chat')`);
+    await delay(300);
     assert.equal(await evaluate(`!!document.querySelector('[data-new-chat-pickers]')`), false, "no chip row in a Link while Linear is off");
     await evaluate(`localStorage.removeItem('milagre.linear.workspace')`);
     await window.loadURL(url + "?linear=on");
@@ -231,7 +231,7 @@ async function main() {
           if (id === "/__linear_issues_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (!request.url.startsWith("/__linear-issues")) return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

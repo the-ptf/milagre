@@ -1,16 +1,14 @@
 // Run with npm test -- --only worktree-setup. Exercises the real App with an isolated project and mocked Electron IPC:
-// the Setup command field in Settings, and the setup step in the chat of a new worktree, which starts without asking.
+// the Setup command field in Settings, repository setup review, and setup progress in a new Worktree's Chat.
 // Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-// This fixture exercises a device that has already accepted AI sharing.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";
@@ -22,7 +20,7 @@ state.worktrees = { 1: { id: 1, name: "main", path: "/fixture", project_id: 1 } 
 state.sessions = { 2: { id: 2, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle" } };
 state.messages = [{ id: 3, session_id: 2, role: "user", body: "Previous chat", context: null }];
 state.next_id = 4;
-window.calls = { saved: [], turns: [] };
+window.calls = { saved: [], turns: [], permissions: [] };
 window.setupSettings = { setupCommand: "", source: "none", command: null };
 const listeners = new Set();
 let runs = {};
@@ -67,6 +65,11 @@ window.milagre = new Proxy({
     return { sessionId: request.sessionId };
   },
   onAgentEvent: (callback) => { listeners.add(callback); return () => listeners.delete(callback); },
+  respondToPermission: async (chatId, requestId, decision) => {
+    window.calls.permissions.push({ chatId, requestId, decision });
+    window.emitAgent({ chatId, event: { type: "permission-resolved", requestId } });
+    return true;
+  },
   listEditors: async () => [],
   listRecentProjects: async () => [{ path: "/fixture", name: "shop", openedAt: "" }, { path: "/blog", name: "blog", openedAt: "" }],
   getProjectImage: async (projectPath) => window.icons?.[projectPath] ?? null,
@@ -102,7 +105,7 @@ async function browserChecks() {
     try {
       return await window.webContents.executeJavaScript(source);
     } catch (error) {
-      throw new Error(`${source}: ${error.message}`);
+      throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
   async function waitFor(source) {
@@ -134,11 +137,13 @@ async function browserChecks() {
   async function sendInNewWorktree(prompt) {
     await evaluate(`document.querySelector('[aria-label="New chat"]').click()`);
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);
-    if (!(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('New worktree')`))) {
+    if (!(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree')`))) {
       await click("Local", { exact: false });
-      await click("New worktree", { exact: false });
+      await click("New Worktree", { exact: false });
     }
-    await type('textarea[aria-label="Prompt"]', prompt);
+    await waitFor(`!!document.querySelector('[data-prompt-editor]')`);
+    await evaluate(`document.querySelector('[data-prompt-editor]').focus()`);
+    await window.webContents.insertText(prompt);
     await waitFor(`!document.querySelector('[aria-label="Send"]').disabled`);
     await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
   }
@@ -152,12 +157,12 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
     // Every recent Project is listed; the open one is picked.
     const settingsProject = (name) =>
-      `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find(el => el.querySelector('.sidebar-copy')?.textContent.trim() === ${JSON.stringify(name)})`;
+      `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find(el => el.querySelector('[data-settings-nav-label]')?.textContent.trim() === ${JSON.stringify(name)})`;
     await waitFor(`!!(${settingsProject("blog")})`);
     await evaluate(`(${settingsProject("shop")}).click()`);
     await waitFor(`!!document.querySelector('#setup-command') && !document.querySelector('#setup-command').disabled`);
     assert.equal(await evaluate(`document.querySelector('#setup-command').placeholder`), "npm ci");
-    assert.equal(await evaluate(`document.body.textContent.includes('Runs once in each new worktree before the agent starts, e.g. npm ci.')`), true);
+    assert.equal(await evaluate(`document.body.textContent.includes('Runs once in each new Worktree before the agent starts, e.g. npm ci.')`), true);
     await type("#setup-command", "pnpm install --frozen-lockfile", "HTMLInputElement");
     await waitFor(`window.calls.saved.at(-1) === "pnpm install --frozen-lockfile"`);
     await evaluate(`document.activeElement.blur()`);
@@ -181,7 +186,7 @@ async function browserChecks() {
 
     // Another Project's settings, and its icon: the chosen image is scaled down and saved for that Project.
     await evaluate(`(${settingsProject("blog")}).click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === "blog" && !!document.querySelector('[data-project-icon-input]')`);
+    await waitFor(`document.querySelector('dialog[data-settings-modal] h1')?.textContent === "blog" && !!document.querySelector('[data-project-icon-input]')`);
     await evaluate(`(async () => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1024;
@@ -207,15 +212,43 @@ async function browserChecks() {
     await click("Reset");
     await waitFor(`window.calls.icons.length === 2 && window.calls.icons[1].icon === null && !document.querySelector('[data-project-icon-preview] img')`);
     console.log("PASS: every Project is listed in Settings, and its icon can be chosen and reset");
-    await click("Back");
+    await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
+    await waitFor(`!document.querySelector('dialog[data-settings-modal]')`);
 
-    // A new worktree's setup starts with the first message: no dialog, and the reply shows the setup running.
+    // Repository setup uses the same approval controls on desktop and phone, with explicit trust scope.
     await sendInNewWorktree("Add a checkout page");
     await waitFor(`window.calls.turns.length === 1`);
-    assert.equal(await evaluate(`document.body.textContent.includes('Run the setup command?')`), false);
-    console.log("PASS: the first message in a new worktree starts the turn without asking");
-
     const chatId = await evaluate(`window.calls.turns[0].chatId`);
+    for (const [index, [label, decision]] of [
+      ["Run once", "allow"],
+      ["Trust this version", "allow-for-chat"],
+      ["Skip setup", "deny"],
+    ].entries()) {
+      const requestId = `setup-review-fixture-${index}`;
+      await emit(chatId, {
+        type: "permission-request",
+        requestId,
+        kind: "setup",
+        tool: "Worktree setup",
+        title: "Run this setup command?",
+        command: "npm ci\nnpm run prepare",
+        cwd: "/worktrees/shop/chat-4",
+        allowForChat: true,
+        setup: { projectPath: "/fixture", source: "/fixture/.milagre/worktree.json", computer: "Test Mac" },
+        description: "Trust this version allows this exact command for this Project on this Computer. Skip setup continues the Chat without running it.",
+      });
+      await waitFor(`document.body.textContent.includes('Trust this version')`);
+      for (const text of ["npm ci", "npm run prepare", "/fixture/.milagre/worktree.json", "Test Mac", "Run once", "Trust this version", "Skip setup"]) {
+        assert.equal(await evaluate(`document.body.textContent.includes(${JSON.stringify(text)})`), true, text);
+      }
+      if (index === 0) await screenshot("setup-review");
+      await click(label);
+      await waitFor(`window.calls.permissions.length === ${index + 1}`);
+      assert.deepEqual(await evaluate(`window.calls.permissions.at(-1)`), { chatId, requestId, decision });
+      await waitFor(`!document.body.textContent.includes('Trust this version')`);
+    }
+    console.log("PASS: setup review shows the full command, source, Computer and all three decisions");
+
     await emit(chatId, { type: "step-started", step: { id: "setup-1", kind: "setup", title: "Running setup `npm ci`", detail: "$ npm ci\n" } });
     await emit(chatId, { type: "step-output", id: "setup-1", text: "npm warn deprecated inflight@1.0.6\n" });
     await waitFor(`document.querySelector('[data-slot="step"][data-status="running"]')?.textContent.includes('Running setup')`);
@@ -319,7 +352,7 @@ async function main() {
           if (id === "/__worktree_setup_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__worktree_setup__") return next();
             const html = await server.transformIndexHtml(
               request.url,

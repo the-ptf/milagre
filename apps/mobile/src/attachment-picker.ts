@@ -37,20 +37,50 @@ export async function pickAttachments(kind: "photos" | "camera" | "files" | "pas
     const result =
       kind === "camera"
         ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"] })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 4 });
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ["images", "videos"],
+            allowsMultipleSelection: true,
+            selectionLimit: 0,
+            // iOS exports 720p H.264 MP4. Android keeps the picked video's format.
+            videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
+          });
     if (result.canceled) return [];
-    return Promise.all(result.assets.map(preparePhoto));
+    return Promise.all(result.assets.map((asset, index) => (asset.type === "video" ? prepareVideo(asset, index) : preparePhoto(asset, index))));
   }
   const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
   if (result.canceled) return [];
-  if (result.assets.length > 4) throw new Error("Attach up to 4 photos or files per message.");
   return Promise.all(
     result.assets.map(async (asset, index) => {
       const file = new File(asset.uri);
-      if (file.size > MAX_FILE_BYTES) throw new Error(`${asset.name} is larger than 5 MiB.`);
+      if (file.size > MAX_FILE_BYTES) throw new Error(`${asset.name} is larger than 50 MiB.`);
       return { id: `${Date.now()}-${index}`, name: asset.name, uri: asset.uri, base64: await file.base64() };
     }),
   );
+}
+
+/** A picked video goes as a file: the agent gets its path on the computer. */
+async function prepareVideo(asset: ImagePicker.ImagePickerAsset, index: number): Promise<Attachment> {
+  const file = new File(asset.uri);
+  const name = videoName(asset.fileName, index, asset.uri);
+  if (file.size > MAX_FILE_BYTES) {
+    discardPicked(file);
+    throw new Error(`${name} is larger than 50 MiB. Trim it in Photos, then attach it again.`);
+  }
+  return { id: `${Date.now()}-${index}`, name, uri: asset.uri, base64: await file.base64(), video: true };
+}
+
+/** Keep the picked name but use the exported file's extension; Android does not transcode every format to MP4. */
+function videoName(fileName: string | null | undefined, index: number, uri = "") {
+  const extension = /\.([a-z\d]+)$/i.exec(uri.split(/[?#]/)[0] ?? "")?.[1] ?? /\.([a-z\d]+)$/i.exec(fileName ?? "")?.[1] ?? "mp4";
+  return `${(fileName || `Video ${index + 1}`).replace(/\.[^.]+$/, "")}.${extension}`;
+}
+
+function discardPicked(file: File) {
+  try {
+    file.delete();
+  } catch {
+    /* The cache may already have been cleaned. */
+  }
 }
 
 async function preparePhoto(asset: { uri: string; width: number; height: number; fileName?: string | null }, index: number): Promise<Attachment> {

@@ -161,7 +161,7 @@ async function readOldChats(worktreePath) {
  * Brings the chats of each linked worktree's old file into the main checkout's state. `state` is the main checkout's
  * stored state (or one to start from when it has none). The caller holds the project's runtime owner, so no other
  * load merges at the same time. One save covers every file, through the app's own atomic save (synced to disk); only
- * then is each merged file renamed to coordination.json.migrated-<ISO time>. A file that can't be read, parsed or
+ * then is each merged file renamed to coordination.json.migrated-<ISO time, with dashes for colons>. A file that can't be read, parsed or
  * merged, or a save that fails, leaves the files as they are and logs one line; the project still opens with the state
  * it had. Chats left behind because their worktree is gone are counted in a log line, and stay in the renamed file.
  * Returns the state to use and, per worktree, how many chats came back.
@@ -193,7 +193,8 @@ async function migrateWorktreeChats({ projectPath, state, linkedWorktrees, liste
       return { state, restored: [] };
     }
   }
-  const stamp = now().toISOString();
+  // Windows refuses a file name with a colon, and then the old file stays and is read on every open.
+  const stamp = now().toISOString().replaceAll(":", "-");
   for (const { file, gone } of done) {
     const renamed = `${file}.migrated-${stamp}`;
     try {

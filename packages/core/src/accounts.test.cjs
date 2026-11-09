@@ -65,7 +65,7 @@ test("new profiles isolate credentials, preserve connected CLI auth and resume h
   f.accounts.select("codex", added.id);
   assert.equal(f.accounts.environment("codex").CODEX_HOME, env.CODEX_HOME);
   assert.equal(createAccounts(f.options).selected("codex"), added.id);
-  assert.equal(fs.statSync(path.join(f.root, "profile/accounts/accounts.json")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(f.root, "profile/accounts/accounts.json")).mode & 0o777, 0o600);
   assert.doesNotMatch(JSON.stringify(await f.accounts.list()), /secret|accessToken|refreshToken|CODEX_HOME/);
 });
 
@@ -236,7 +236,7 @@ test("Antigravity's default is a Milagre-owned private profile that signs in fro
   assert.equal(env.AGY_ACP_FORCE_FILE_STORAGE, "1");
   assert.equal(env.GEMINI_API_KEY, undefined);
   assert.equal(f.env.GEMINI_API_KEY, "secret-gemini");
-  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  if (process.platform !== "win32") assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   assert.equal(fs.existsSync(path.join(f.home, ".gemini")), false);
   const before = group(await f.accounts.list(), "antigravity");
   assert.equal(before.accounts[0].label, "Default account");
@@ -257,7 +257,7 @@ test("an added Antigravity account gets its own profile, shares history and keep
   assert.equal((await settled(f.accounts, "antigravity", added.id)).state, "ready");
   const dir = f.accounts.environment("antigravity", added.id).GEMINI_HOME;
   assert.equal(dir, path.join(f.root, "profile", "accounts", added.id));
-  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  if (process.platform !== "win32") assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   const shared = path.join(f.root, "profile", "accounts", "antigravity-default", "antigravity-acp", "conversations");
   assert.equal(fs.realpathSync(path.join(dir, "antigravity-acp", "conversations")), fs.realpathSync(shared));
   f.accounts.select("antigravity", added.id);
@@ -298,7 +298,7 @@ test("accounts saved before Antigravity existed still load and default Antigravi
   assert.equal(accounts.selected("antigravity"), "default");
   assert.deepEqual(
     (await accounts.list()).providers.map((p) => p.provider),
-    ["codex", "claude", "antigravity"],
+    ["codex", "claude", "antigravity", "kiro"],
   );
 });
 
@@ -314,4 +314,83 @@ test("an added Claude account picks up the connected account's MCP servers when 
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, ".claude.json"), "utf8")).mcpServers, { pencil: { command: "/Applications/Pen.app/mcp" } });
   fs.writeFileSync(path.join(f.home, ".claude.json"), "{ not json");
   assert.equal(f.accounts.environment("claude", added.id).CLAUDE_CONFIG_DIR, dir, "an unreadable config never blocks the Chat");
+});
+
+test("uninstalled providers have no account controls or project choices, and installation restores saved accounts", async (t) => {
+  const f = fixture(t);
+  let installed = true;
+  const accounts = createAccounts({
+    ...f.options,
+    signInAntigravity: () => ({ cancel() {}, done: new Promise(() => {}) }),
+    cli: async (provider) => ({ command: provider === "antigravity" && !installed ? null : `/cli/${provider}` }),
+  });
+  t.after(() => accounts.close());
+  await accounts.list();
+  const added = group(await accounts.add("antigravity", "Work"), "antigravity").accounts[1];
+  accounts.cancel("antigravity", added.id);
+  installed = false;
+  assert.equal(group(await accounts.list(), "antigravity").installed, false);
+  assert.equal(
+    (await accounts.scope("/project")).providers.some((p) => p.provider === "antigravity"),
+    false,
+  );
+  assert.equal(group(await accounts.list(), "claude").accounts.length, 1);
+  installed = true;
+  const restored = group(await accounts.list(), "antigravity");
+  assert.equal(restored.installed, true);
+  assert.equal(restored.accounts.length, 2);
+  assert.equal(restored.accounts[1].id, added.id, "saved profiles survive an uninstall");
+  assert.equal(
+    (await accounts.scope("/project")).providers.some((p) => p.provider === "antigravity"),
+    true,
+  );
+});
+
+test("installation during an account check refreshes the newly available provider", async (t) => {
+  const f = fixture(t);
+  let installed = false;
+  let release, started;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const inspecting = new Promise((resolve) => {
+    started = resolve;
+  });
+  const accounts = createAccounts({
+    ...f.options,
+    cli: async (provider) => ({ command: provider === "antigravity" && !installed ? null : `/cli/${provider}` }),
+    inspect: async (provider) => {
+      if (provider === "claude") {
+        started();
+        await gate;
+      }
+      return { state: "ready" };
+    },
+  });
+  t.after(() => accounts.close());
+  const first = accounts.list();
+  await inspecting;
+  installed = true;
+  const afterInstall = accounts.list();
+  await tick();
+  release();
+  await first;
+  assert.equal(group(await afterInstall, "antigravity").accounts[0].state, "ready");
+});
+
+test("a connected CLI account that isn't signed in yet signs in where the terminal would", async (t) => {
+  const f = fixture(t);
+  let signedIn = false;
+  f.options.inspect = async (p) => (signedIn ? { state: "ready", email: `${p}@example.test` } : { state: "signed-out" });
+  const accounts = createAccounts(f.options);
+  t.after(() => accounts.close());
+  await accounts.list();
+  assert.equal(group(await accounts.login("claude", "default"), "claude").accounts[0].state, "signing-in");
+  assert.deepEqual(f.children[0].args, ["auth", "login", "--claudeai"]);
+  assert.equal(f.children[0].opts.env.CLAUDE_CONFIG_DIR, undefined, "The terminal's own profile signs in");
+  signedIn = true;
+  f.children[0].child.emit("close", 0);
+  await tick();
+  assert.equal(group(accounts.snapshot(), "claude").accounts[0].state, "ready");
+  await assert.rejects(accounts.login("claude", "default"), /Add account/);
 });

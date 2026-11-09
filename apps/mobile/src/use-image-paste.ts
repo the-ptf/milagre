@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { findNodeHandle, type TextInput } from "react-native";
+import { findNodeHandle, type TextInputInstance } from "react-native";
 import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
 import type { PastedImage } from "./attachment-picker";
 
@@ -12,7 +12,7 @@ type ImagePasteModule = {
 const nativePaste = requireOptionalNativeModule<ImagePasteModule>("MilagreImagePaste");
 
 export function useImagePaste(onPaste?: (image: PastedImage) => void) {
-  const ref = useRef<TextInput>(null);
+  const ref = useRef<TextInputInstance>(null);
   const target = useRef<number | null>(null);
   const latest = useRef(onPaste);
   const enabled = Boolean(onPaste);
@@ -32,7 +32,7 @@ export function useImagePaste(onPaste?: (image: PastedImage) => void) {
   }, [enabled]);
   const attach = () => {
     if (!nativePaste || !onPaste) return;
-    const tag = findNodeHandle(ref.current);
+    const tag = findNodeHandle(ref.current) ?? null;
     if (tag !== null && tag !== target.current) {
       if (target.current !== null) void nativePaste.detachAsync(target.current).catch(() => {});
       target.current = tag;

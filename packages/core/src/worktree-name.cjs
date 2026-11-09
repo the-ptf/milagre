@@ -21,7 +21,10 @@ function branchName(reply) {
 // A new chat's worktree is named for what it will do, by a one-shot Haiku call that sees only the
 // message. Without the Claude CLI, or when the call fails or runs past timeoutMs, the name is the
 // message's first words.
-async function suggestWorktreeName(prompt, { command, env, loadSdk = () => import("@anthropic-ai/claude-agent-sdk"), timeoutMs = 6000 } = {}) {
+async function suggestWorktreeName(
+  prompt,
+  { command, env, loadSdk = () => import("@anthropic-ai/claude-agent-sdk"), timeoutMs = 6000, instructions = "" } = {},
+) {
   const fallback = slugify(prompt);
   if (!command || !fallback) return fallback;
   const abortController = new AbortController();
@@ -32,7 +35,12 @@ async function suggestWorktreeName(prompt, { command, env, loadSdk = () => impor
       prompt: `<task>\n${prompt.slice(0, 4000)}\n</task>\n\nBranch name for this task:`,
       options: {
         model: "haiku",
-        systemPrompt: NAMING_INSTRUCTIONS,
+        systemPrompt: [
+          NAMING_INSTRUCTIONS,
+          instructions ? `Project naming guidance (return only the slug; Milagre applies the branch template):\n${instructions}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         tools: [],
         maxTurns: 1,
         // No hooks, CLAUDE.md or saved transcript for a call the user never sees.

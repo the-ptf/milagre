@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { clampMatch, findLabel, locateOffset, matchOffsets, stepMatch } from "../lib/find-in-chat";
 import { isMac } from "../lib/shortcut-hints";
 import Tooltip from "./primitives/Tooltip";
+import { IconButton } from "./primitives/Button";
 
 const MATCH = "find-match";
 const ACTIVE = "find-active";
@@ -18,7 +18,7 @@ function blockOf(element: Element, cache: Map<Element, Element>): Element {
   return block;
 }
 
-/** Text ranges for every match under `root`, including ones that cross inline markup. Hidden text (collapsed tool rows) isn't laid out, so it is skipped. */
+/** Text ranges for every match under `root`, including ones that cross inline markup. Hidden and inert text (collapsed tool rows) is skipped. */
 function collectRanges(root: Element, query: string): Range[] {
   const ranges: Range[] = [];
   const visible = new Map<Element, boolean>();
@@ -33,17 +33,20 @@ function collectRanges(root: Element, query: string): Range[] {
     for (const start of matchOffsets(nodes.map((node) => node.data).join(""), query)) {
       const from = locateOffset(lengths, start, "start");
       const to = locateOffset(lengths, start + query.length, "end");
+      const startNode = nodes[from.index];
+      const endNode = nodes[to.index];
+      if (!startNode || !endNode) continue;
       const range = document.createRange();
-      range.setStart(nodes[from.index], from.offset);
-      range.setEnd(nodes[to.index], to.offset);
+      range.setStart(startNode, from.offset);
+      range.setEnd(endNode, to.offset);
       ranges.push(range);
     }
   };
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
     const parent = node.parentElement;
-    if (!parent || parent.closest("script, style")) continue;
-    if (!visible.has(parent)) visible.set(parent, parent.checkVisibility?.() ?? true);
+    if (!parent) continue;
+    if (!visible.has(parent)) visible.set(parent, !parent.closest("script, style, [inert]") && (parent.checkVisibility?.() ?? true));
     if (!visible.get(parent)) continue;
     const block = blockOf(parent, blocks);
     if (block !== groupBlock) {
@@ -67,9 +70,6 @@ function clear() {
   CSS.highlights.delete(MATCH);
   CSS.highlights.delete(ACTIVE);
 }
-
-const iconButton =
-  "flex size-6 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 
 /** Find-in-page for the open chat, scoped to the message list under `rootRef` (highlights via the CSS Custom Highlight API). */
 export function FindBar({
@@ -114,7 +114,7 @@ export function FindBar({
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => search(false));
     });
-    observer.observe(column, { childList: true, characterData: true, subtree: true });
+    observer.observe(column, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["inert"] });
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
@@ -133,7 +133,7 @@ export function FindBar({
     () => () => {
       clear();
       const target = returnTo.current;
-      const prompt = rootRef.current?.querySelector<HTMLElement>('textarea[aria-label="Prompt"]');
+      const prompt = rootRef.current?.querySelector<HTMLElement>("[data-prompt-editor]");
       (target instanceof HTMLElement && target.isConnected && target !== document.body ? target : prompt)?.focus();
     },
     [],
@@ -167,8 +167,8 @@ export function FindBar({
     <div
       role="search"
       data-find-bar
-      className="absolute top-11 right-4 z-20 flex items-center gap-1 rounded-[10px] border border-line bg-surface py-1 pr-1 pl-2.5 shadow-raised [-webkit-app-region:no-drag]"
-      style={{ animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
+      className="absolute top-11 right-4 z-20 flex items-center gap-1 rounded-card bg-surface py-1 pr-1 pl-3 shadow-raised no-drag"
+      style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -190,25 +190,19 @@ export function FindBar({
         placeholder="Find in chat"
         spellCheck={false}
         autoComplete="off"
-        className="w-44 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-3"
+        className="w-44 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
       />
-      <span data-find-count aria-live="polite" className="min-w-[4.5rem] text-right text-[12px] whitespace-nowrap text-ink-3 tabular-nums">
+      <span data-find-count aria-live="polite" className="min-w-18 text-right text-12 whitespace-nowrap text-ink-3 tabular-nums">
         {findLabel(query, active, total)}
       </span>
       <Tooltip label="Previous match" side="bottom" align="end">
-        <button type="button" aria-label="Previous match" disabled={!total} onClick={() => step(-1)} className={iconButton}>
-          <HugeiconsIcon icon={ArrowUp01Icon} size={15} strokeWidth={1.8} />
-        </button>
+        <IconButton label="Previous match" icon={ArrowUp01Icon} size={24} disabled={!total} onClick={() => step(-1)} />
       </Tooltip>
       <Tooltip label="Next match" shortcut="⌘G" side="bottom" align="end">
-        <button type="button" aria-label="Next match" disabled={!total} onClick={() => step(1)} className={iconButton}>
-          <HugeiconsIcon icon={ArrowDown01Icon} size={15} strokeWidth={1.8} />
-        </button>
+        <IconButton label="Next match" icon={ArrowDown01Icon} size={24} disabled={!total} onClick={() => step(1)} />
       </Tooltip>
       <Tooltip label="Close" side="bottom" align="end">
-        <button type="button" aria-label="Close find" onClick={onClose} className={iconButton}>
-          <HugeiconsIcon icon={Cancel01Icon} size={15} strokeWidth={1.8} />
-        </button>
+        <IconButton label="Close find" icon={Cancel01Icon} size={24} onClick={onClose} />
       </Tooltip>
     </div>
   );

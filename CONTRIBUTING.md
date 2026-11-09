@@ -28,11 +28,11 @@ Use `npm run dev` for visual work. Keep the renderer and Electron process bounda
 - `packages/shared/` owns the model and pure Chat/state operations used by both sides. Import through `@milagre/shared` package exports.
 - `scripts/` contains root development, integration-test and release helpers.
 
-Install dependencies from the repository root with `npm ci`. Add package dependencies to their workspace. Root commands still work; `npm run build --workspace milagre` and `npm run test --workspace @milagre/shared` target individual packages. Electron packaging and semantic-release run at root, with installers in `release/`.
+Install dependencies from the repository root with `npm ci`. Add package dependencies to their workspace. Root commands still work; `npm run build --workspace milagre` and `npm run test --workspace @milagre/shared` target individual packages. Electron packaging runs at root, with installers in `release/`.
 
 Run `npm run format` before pushing; CI fails on unformatted files. After cloning, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` skips the repository-wide formatting commit.
 
-When changing the UI, include a short description of the interaction and, when practical, a screenshot or recording in the pull request.
+When changing the UI, include a short description of the interaction and a screenshot or recording taken from the real app (the dev app or a packaged build), not from a test harness, mockup or fake provider.
 
 ## Pull requests
 

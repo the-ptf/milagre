@@ -2,13 +2,21 @@ const { readToken, authenticationProof, authenticationNonce, validToken, validNo
 const net = require("node:net");
 const { once, EventEmitter } = require("node:events");
 const { socketPath } = require("./paths.cjs");
-const { VERSION, MAX_PENDING, wire } = require("./protocol.cjs");
+const { VERSION, MAX_PENDING, wire, isEventFrame } = require("./protocol.cjs");
 
+// Room for a Link with several Chats' Worktrees to go one after another; the phone waits as long (mobile client.ts).
+const LINK_DELETE_MS = 30 * 60 * 1000;
 // Commands core lets run longer than the default deadline (git/client.cjs LIMITS, gh, the CLI installers), plus a
 // margin. A shorter client deadline reported a slow pre-commit hook or push as failed while it was still running.
 const SLOW_METHODS = Object.freeze({
-  // Image preparation gets 30 s; an 8 MiB upload on a slow uplink can take up to 300 s.
-  "artifact:share-page": 360000,
+  // Scoped commands may wait on the same user approval cards as their MCP calls.
+  "command:run": 30 * 60 * 1000,
+  "desktop:invoke": 130000,
+  "computers:add": 12 * 60 * 1000,
+  "computers:invoke": 30 * 60 * 1000,
+  // Image preparation gets 30 s; an 8 MiB upload on a slow uplink can take up to 300 s; revoking the page's
+  // older links (in parallel) up to 45 s more.
+  "artifact:share-page": 420000,
   "artifact:revoke-page-share": 120000,
   "artifact:revoke-saved-page-share": 120000,
   "git:commit": 330000,
@@ -17,6 +25,11 @@ const SLOW_METHODS = Object.freeze({
   "git:generate": 180000,
   "worktree:create": 330000,
   "worktree:remove": 330000,
+  "storage:remove-worktree": 330000,
+  // Reads git status for each idle worktree, a few at a time.
+  "storage:worktrees": 120000,
+  // Deleting a Link removes each of its untouched Worktrees in turn, each with worktree:remove's 300 s git limit.
+  "link:delete": LINK_DELETE_MS,
   // Installing Antigravity downloads about 110 MB and unpacks it; a slow connection takes minutes.
   "agent:update-cli": 1200000,
   // A Linear sign-in waits up to five minutes for the browser, plus two 15 s requests.
@@ -24,10 +37,20 @@ const SLOW_METHODS = Object.freeze({
   // Settings › MCP: the server caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
   "mcp:accounts": 45000,
   "mcp:check": 45000,
+  "mcp:save": 45000,
+  "mcp:saveUrl": 45000,
+  "mcp:remove": 45000,
+  "mcp:signIn": 45000,
+  "mcp:definition": 45000,
 });
 const deadlineFor = (method, fallback) => Math.max(fallback, SLOW_METHODS[method] ?? 0);
 
-async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = process.platform === "win32" }) {
+/**
+ * A connection to this Mac's daemon. `events: false`: the daemon's events, which it sends every connection, are dropped
+ * unread (a connection kept for calls only).
+ * @param {{ dataDir: string; timeoutMs?: number; requireAuthentication?: boolean; events?: boolean }} options
+ */
+async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = process.platform === "win32", events = true }) {
   const authenticationToken = requireAuthentication ? readToken(dataDir) : null;
   const socket = net.createConnection(socketPath(dataDir));
   const connecting = once(socket, "connect");
@@ -39,15 +62,23 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
   }
   const client = /** @type {EventEmitter & { call: (method: string, args?: unknown[]) => Promise<any>; close: () => void }} */ (new EventEmitter());
   const pending = new Map();
+  // Calls past MAX_PENDING wait here for a free slot (the daemon drops a connection that sends more); a burst of
+  // reads on a busy Mac used to reject the next send with "Too many pending daemon requests".
+  const queued = [];
   let nextId = 0;
   function fail(error) {
-    for (const { reject, timeout } of pending.values()) {
+    for (const { reject, timeout } of [...pending.values(), ...queued]) {
       clearTimeout(timeout);
       reject(error);
     }
     pending.clear();
+    queued.length = 0;
+  }
+  function drain() {
+    while (queued.length > 0 && pending.size < MAX_PENDING) start(queued.shift());
   }
   const connection = wire(socket, {
+    skip: events ? null : isEventFrame,
     onInvalid(error) {
       fail(error);
       socket.destroy();
@@ -66,6 +97,7 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
       if (!request) return;
       pending.delete(message.id);
       clearTimeout(request.timeout);
+      drain();
       if (message.error) request.reject(Object.assign(new Error(message.error.message), { code: message.error.code }));
       else if (message.pages) request.resolve(readPages(message.pages));
       else request.resolve(message.result);
@@ -80,35 +112,42 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
   }
   socket.on("error", fail);
   socket.on("close", () => {
-    fail(new Error("Daemon connection closed"));
+    fail(Object.assign(new Error("Daemon connection closed"), { code: "DAEMON_CLOSED" }));
     client.emit("close");
   });
+  function start(request) {
+    const id = ++nextId;
+    request.id = id;
+    pending.set(id, request);
+    try {
+      if (!connection.send({ v: VERSION, id, method: request.method, args: request.args, pages: true })) throw new Error("Daemon connection closed");
+    } catch (error) {
+      pending.delete(id);
+      clearTimeout(request.timeout);
+      request.reject(error);
+    }
+  }
   client.call = (method, args = []) =>
     new Promise((resolve, reject) => {
       if (socket.destroyed) {
         reject(new Error("Daemon connection closed"));
         return;
       }
-      if (pending.size >= MAX_PENDING) {
-        reject(new Error("Too many pending daemon requests"));
-        return;
-      }
-      const id = ++nextId;
-      const timeout = setTimeout(
+      // The deadline counts time spent queued, so a call never waits longer than it would have unqueued.
+      /** @type {{ id: number; method: string; args: unknown[]; resolve: (value: any) => void; reject: (error: Error) => void; timeout?: ReturnType<typeof setTimeout> }} */
+      const request = { id: 0, method, args, resolve, reject };
+      request.timeout = setTimeout(
         () => {
-          pending.delete(id);
+          pending.delete(request.id);
+          const index = queued.indexOf(request);
+          if (index >= 0) queued.splice(index, 1);
           reject(new Error(`Timed out: ${method}. It may still be running; do not retry a mutation without checking state.`));
+          drain();
         },
         deadlineFor(method, timeoutMs),
       );
-      pending.set(id, { resolve, reject, timeout });
-      try {
-        if (!connection.send({ v: VERSION, id, method, args, pages: true })) throw new Error("Daemon connection closed");
-      } catch (error) {
-        pending.delete(id);
-        clearTimeout(timeout);
-        reject(error);
-      }
+      if (pending.size >= MAX_PENDING) queued.push(request);
+      else start(request);
     });
   client.close = () => socket.destroy();
   if (requireAuthentication) {

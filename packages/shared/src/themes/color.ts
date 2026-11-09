@@ -67,6 +67,13 @@ export function withAlpha(hex: string, alpha: number) {
   const base = hex.slice(0, 7).toLowerCase();
   return alpha >= 1 ? base : `${base}${byte(alpha)}`;
 }
+/** `color` painted over an opaque `background`, blended in sRGB as browsers do. An opaque `color` comes back as is. */
+export function over(color: string, background: string) {
+  const fg = parse(color);
+  const bg = parse(background);
+  const blend = (f: number, b: number) => byte(f * fg.alpha + b * (1 - fg.alpha));
+  return `#${blend(fg.r, bg.r)}${blend(fg.g, bg.g)}${blend(fg.b, bg.b)}`;
+}
 /** WCAG relative luminance; alpha is ignored. */
 export function luminance(hex: string) {
   const { r, g, b } = parse(hex);
@@ -78,6 +85,23 @@ export function contrastRatio(a: string, b: string) {
   const hi = Math.max(la, lb);
   const lo = Math.min(la, lb);
   return (hi + 0.05) / (lo + 0.05);
+}
+
+/** `color` with its OKLCH lightness moved toward `toward`'s only as far as it takes to reach `ratio` against every
+ * background. Hue and chroma stay, so an orange stays orange instead of going brown. */
+export function readableOn(color: string, toward: string, backgrounds: readonly string[], ratio = 4.5) {
+  const worst = (c: string) => Math.min(...backgrounds.map((bg) => contrastRatio(c, bg)));
+  if (worst(color) >= ratio) return color;
+  const from = hexToOklch(color.slice(0, 7));
+  const target = hexToOklch(toward.slice(0, 7)).l;
+  const at = (t: number) => oklchToHex({ ...from, l: from.l + (target - from.l) * t, alpha: 1 });
+  let [lo, hi] = [0, 1];
+  for (let i = 0; i < 16; i++) {
+    const t = (lo + hi) / 2;
+    if (worst(at(t)) >= ratio) hi = t;
+    else lo = t;
+  }
+  return worst(at(hi)) >= ratio ? at(hi) : toward;
 }
 
 /** The better of white and `page` as text on `background`. */

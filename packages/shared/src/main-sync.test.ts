@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { choiceOf, mainSyncChoices, mainSyncProjectTitle, mainSyncStatusLine, overrideOf } from "./main-sync.ts";
+import { choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "./main-sync.ts";
 
 const now = 1_760_000_000_000;
 const MINUTE = 60_000;
@@ -32,5 +32,4 @@ test("choices map to the stored override and back", () => {
     ["Default (Off)", "On", "Off"],
   );
   assert.equal(mainSyncChoices(true)[0].title, "Default (On)");
-  assert.equal(mainSyncProjectTitle("trunk"), "Sync trunk before new Worktrees");
 });

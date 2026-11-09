@@ -1,4 +1,4 @@
-import { designFontFamily, designSvg, type DesignDocument } from "@milagre/shared/design";
+import { designFontFamily, designSvg, loadDesignFonts, type DesignDocument } from "@milagre/shared/design";
 
 export type DesignExportFormat = "json" | "svg" | "png";
 export type DesignExportItem = { id: string; title: string; document: DesignDocument };
@@ -104,6 +104,8 @@ async function designExportBlob(document: DesignDocument, format: DesignExportFo
     return new Blob([JSON.stringify(document, null, 2)], {
       type: "application/json",
     });
+  // SVG and PNG embed the catalog families the design names.
+  await loadDesignFonts(document);
   if (format === "svg") return new Blob([designSvg(document)], { type: "image/svg+xml" });
   const svg = URL.createObjectURL(new Blob([await pngSvg(document)], { type: "image/svg+xml" }));
   try {
@@ -127,6 +129,7 @@ export async function designPageExportBlob(designs: DesignExportItem[], format: 
   if (!designs.length) throw new Error("There are no designs to export.");
   if (format === "json") return new Blob([JSON.stringify({ schemaVersion: 1, format: "milagre-design-page", designs }, null, 2)], { type: "application/json" });
   const size = designPageExportSize(designs);
+  await Promise.all(designs.map((item) => loadDesignFonts(item.document)));
   if (format === "svg") {
     const xml = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg"/>', "image/svg+xml");
     const root = xml.documentElement;
@@ -143,7 +146,8 @@ export async function designPageExportBlob(designs: DesignExportItem[], format: 
       // SVG fragment ids share a namespace even across nested SVG roots.
       const ids = new Map([...artboard.querySelectorAll("[id]")].map((element) => [element.id, `artboard${index}-${element.id}`]));
       for (const element of [artboard, ...artboard.querySelectorAll("*")]) {
-        for (const attribute of [...element.attributes]) {
+        // A copy: setAttributeNS can change this live attribute collection.
+        for (const attribute of Array.from(element.attributes)) {
           let value = attribute.value.replace(/url\(#([^)]+)\)/g, (match, id) => (ids.has(id) ? `url(#${ids.get(id)})` : match));
           if (attribute.localName === "id") value = ids.get(value) ?? value;
           if (attribute.localName === "href" && value.startsWith("#")) value = `#${ids.get(value.slice(1)) ?? value.slice(1)}`;

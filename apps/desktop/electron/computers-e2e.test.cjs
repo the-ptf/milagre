@@ -6,6 +6,7 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { startTestMac, until } = require("../../daemon/src/relay-test-kit.cjs");
 const { createComputers } = require("./computers.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const keychain = {
   isEncryptionAvailable: () => true,
@@ -60,6 +61,48 @@ const first = (computers) => computers.list()[0];
 const within = (promise, label, ms = 10_000) =>
   Promise.race([promise, delay(ms, undefined, { ref: false }).then(() => Promise.reject(new Error(`Timed out waiting for ${label}`)))]);
 
+test("a connected Mac previews a file shared outside the remote Worktree", async (t) => {
+  const { computers } = await desk(t);
+  const { demoRuntimeOptions } = require("../../daemon/src/demo-agent.cjs");
+  const demo = demoRuntimeOptions();
+  let file;
+  const mac = await startTestMac(t, {
+    lan: false,
+    runtime: {
+      ...demo,
+      createSession: (provider, context) => demoRuntimeOptions({ copy: { ack: "", reply: `[Report](${encodeURI(file)})` } }).createSession(provider, context),
+    },
+  });
+  file = path.join(mac.home, "shared report.md");
+  await fs.writeFile(file, "Report shared across computers");
+  const added = await computers.add(await linkOf(mac));
+  await until(() => first(computers)?.state === "online", "the paired Mac to come online");
+  const opened = await computers.invoke(added.id, "project:open", [mac.project]);
+  await assert.rejects(computers.invoke(added.id, "attachment:preview", [file]), /attached file|open Worktree/);
+  await computers.invoke(added.id, "chat:send", [
+    {
+      projectPath: mac.project,
+      sessionId: Number(Object.keys(opened.state.sessions)[0]),
+      body: "Share the report",
+      provider: "codex",
+      model: "demo",
+    },
+  ]);
+  await until(async () => {
+    const messages = await mac.client.call("chat:all-messages", [mac.project]);
+    return messages.some((message) => message.role === "assistant" && message.body.includes("[Report]"));
+  }, "the assistant to share its report");
+  assert.equal((await computers.invoke(added.id, "attachment:preview", [file])).text, "Report shared across computers");
+  const chunks = [];
+  await require("@milagre/shared/attachment-download").downloadAttachment(
+    (offset, version) => computers.invoke(added.id, "attachment:read", version === undefined ? [file, offset] : [file, offset, version]),
+    (bytes) => {
+      chunks.push(Buffer.from(bytes));
+    },
+  );
+  assert.equal(Buffer.concat(chunks).toString(), "Report shared across computers");
+});
+
 test("a new computer waits for Allow, then drives the Mac over the relay and moves to its LAN", async (t) => {
   const { computers, events, dataDir } = await desk(t);
   const mac = await startTestMac(t, { autoAllow: false });
@@ -89,6 +132,23 @@ test("a new computer waits for Allow, then drives the Mac over the relay and mov
   // The window opens the project on the computer, as it would; the Mac's own window opens it too.
   await within(computers.invoke(added.id, "project:open", [mac.project]), "project:open on the computer");
   const opened = await within(mac.client.call("project:open", [mac.project]), "project:open");
+  // A maximum-size image crosses the paired transport in bounded chunks, then comes back in result pages.
+  const { uploadAttachment } = require("@milagre/shared/attachment-upload");
+  const bytes = Buffer.alloc(50 * 1024 * 1024, 42);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
+  const uploadRequest = { projectPath: mac.project, name: "photo.png", base64: bytes.toString("base64") };
+  const upload = () =>
+    uploadAttachment(async (part) => {
+      const result = await computers.invoke(added.id, "attachment:upload", [part]);
+      if (result.error) throw new Error(result.error.message);
+      return result.file;
+    }, uploadRequest);
+  const uploaded = await within(upload(), "50 MiB attachment upload", 60000);
+  assert.ok(uploaded.path.startsWith(mac.dataDir));
+  assert.deepEqual(await fs.readFile(uploaded.path), bytes);
+  assert.equal((await within(upload(), "repeated upload", 60000)).path, uploaded.path);
+  const media = await within(computers.invoke(added.id, "media:read", [{ scope: mac.project, path: uploaded.path }]), "50 MiB image preview", 60000);
+  assert.equal(media.base64, uploadRequest.base64);
   const chatId = Object.values(opened.state.sessions)[0].id;
   // A host sends a scope's first state as `resync` (read it with project:snapshot) and every later change as a patch on
   // it, so one patch sets the baseline and the next one is the change that must arrive.
@@ -132,7 +192,7 @@ test("Deny, and a link whose window closed, turn the computer away and save noth
   adding.catch(() => {});
   const [request] = await until(() => heard.at(-1)?.length && heard.at(-1), "the request");
   await within(mac.client.call("devices:deny", [request.key]), "devices:deny");
-  await assert.rejects(within(adding, "Deny to turn the computer away"), { message: `${name} didn't allow this Mac.` });
+  await assert.rejects(within(adding, "Deny to turn the computer away"), { message: `${name} didn't allow ${thisComputer}.` });
   assert.deepEqual(computers.list(), []);
   assert.deepEqual(await within(mac.client.call("devices:list"), "devices:list"), []);
   mac.clock.now += 11 * 60_000;

@@ -62,14 +62,18 @@ function hookHost({ effects = false } = {}) {
       if (!effects) return;
       const index = cursor++;
       const previous = slots[index];
-      if (previous && deps.every((value, i) => value === previous.deps[i])) return;
+      // No dependency list runs every render, as in React.
+      if (previous && deps && deps.every((value, i) => value === previous.deps[i])) return;
       previous?.cleanup?.();
       slots[index] = { deps, cleanup: fn() };
     },
-    createContext() {
-      return {};
+    // Like React, a context read with no Provider above gives the context's default value.
+    createContext(defaultValue) {
+      return { defaultValue };
     },
-    useContext() {},
+    useContext(context) {
+      return context?.defaultValue;
+    },
     effect(fn, deps) {
       const index = cursor++;
       const previous = slots[index];
@@ -96,8 +100,37 @@ const themeHooks = {
   useTheme: () => ({ colors: fakePalette, scheme: "light", settings: {}, set() {} }),
   createStylesHook: (make) => () => make(fakePalette),
   fonts: { mono: "mono" },
+  inkFor: (colors, tone) => (tone === "ink" || tone === "ink2" || tone === "ink3" ? colors[tone] : colors[`${tone}Ink`]),
 };
-const uiHooks = { useStyles: () => fakeStyles, makeStyles: () => fakeStyles };
+// The ui barrel's pure helpers are real; screen-reader announcements, haptics and the home-indicator inset do nothing in a test.
+const uiHooks = {
+  useStyles: () => fakeStyles,
+  makeStyles: () => fakeStyles,
+  ...require("../apps/mobile/src/primitives/press-style.ts"),
+  announce() {},
+  useAnnounce() {},
+  tap() {},
+  useSheetBottomInset: () => 16,
+  // Shared components draw as named elements unless a test passes its own.
+  ...Object.fromEntries(
+    [
+      "SheetHeader",
+      "SheetBody",
+      "SectionLabel",
+      "TranscriptDivider",
+      "Chip",
+      "Tag",
+      "CheckboxBox",
+      "CheckRow",
+      "Group",
+      "Toast",
+      "ErrorNotice",
+      "InlineError",
+      "EmptyState",
+      "ProgressBar",
+    ].map((name) => [name, name]),
+  ),
+};
 const designsOn = {
   enabled: true,
   saving: false,
@@ -107,34 +140,353 @@ const designsOn = {
   save: async () => {},
   connectionChanged() {},
 };
-function load(file, modules, extra = "") {
+/** The split layout on a phone (split-context.tsx): the Chats list is a page or slides over, never pinned. */
+const phoneSplit = { widthClass: "compact", available: true, dockable: false, pinned: false, hidden: false, toggle() {} };
+/** A Chat with no listening ports (useChatPorts in ports.tsx). */
+const noPorts = { ports: [], error: "", refresh: () => {}, drop: () => {} };
+let undoHistoryLoaded;
+/** The phone's undo history, loaded once for every screen; its toast hook reads the store without a timer. */
+function undoHistoryModule() {
+  return (undoHistoryLoaded ??= load("undo-history.ts", {
+    react: { useSyncExternalStore: (_subscribe, read) => read(), useEffect() {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, name) => String(name) }),
+    "@milagre/shared/archive": require("@milagre/shared/archive"),
+    "@milagre/shared/undo-history": require("@milagre/shared/undo-history"),
+  }));
+}
+
+function load(file, modules, extra = "", cache = new Map(), reactCompiler = false) {
+  if (cache.has(file)) return cache.get(file);
   // These helpers stay private in production; the source harness exposes them only to tests.
   const locals = {
     "floating-inbox-button.tsx": ["landInboxButton"],
     "inbox.tsx": ["usePhoneInbox", "PhoneInboxPages"],
+    "html-reply.tsx": ["HtmlWebView"],
   };
-  const source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
+  let source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
+  if (reactCompiler)
+    source = require("@babel/core").transformSync(source, {
+      filename: file,
+      babelrc: false,
+      configFile: false,
+      parserOpts: { plugins: ["typescript", "jsx"] },
+      plugins: [[require.resolve("babel-plugin-react-compiler"), { target: "19" }]],
+    }).code;
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const exports = {};
+  cache.set(file, exports);
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      if (/^\.\.?\/offline-tray$/.test(id) && !(id in modules))
+        return { ComposerTray: ({ children }) => children, OfflineTray: "OfflineTray", WaitingLabel: () => null };
+      if (/^\.\.?\/outbox$/.test(id) && !(id in modules))
+        return {
+          hasQueuedChat: () => false,
+          outbox: {
+            ready: Promise.resolve(),
+            getSnapshot: () => ({ loaded: true }),
+            enqueue: async () => {
+              throw new Error("Unexpected offline enqueue");
+            },
+            flush: async () => {},
+          },
+          outboxAttachments: (items) => items,
+          useOutbox: () => ({ loaded: true, items: [], error: "" }),
+        };
+      // A question's photo picker opens the native library; a test attaches none.
+      if (/^\.\.?\/attachment-picker$/.test(id) && !(id in modules)) return { pickAttachments: async () => [] };
+      if (/^\.\.?\/attachments$/.test(id) && !(id in modules)) return require("../apps/mobile/src/attachments.ts");
+      if (id === "expo-haptics" && !(id in modules)) return { selectionAsync: async () => {} };
+      if (id === "@sbaiahmed1/react-native-blur" && !(id in modules)) return { LiquidGlassView: "LiquidGlassView", BlurView: "BlurView" };
+      if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
+      // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
+      const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
+      if (["media-source", "viewed-images"].includes(relative) && !(id in modules))
+        return load(`${relative}.${relative === "viewed-images" ? "tsx" : "ts"}`, modules, "", cache);
+      if (relative === "design-tokens") return require("../apps/mobile/src/design-tokens.ts");
+      // The undo history (undo-history.ts over the shared one) is one store, as on the phone; its toast reads it directly.
+      if (relative === "undo-history" && !(id in modules)) return undoHistoryModule();
+      if (relative === "design-font-cache")
+        return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
+      if (relative === "secret-question")
+        return load(
+          "secret-question.tsx",
+          {
+            "./display-clock": { useDisplayNow: () => Date.now(), useScreenActive: () => true },
+            "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+            ...modules,
+          },
+          "",
+          cache,
+        );
+      if (relative?.startsWith("primitives/") || relative === "persistence-notice") {
+        const target = [relative, `${relative}.tsx`, `${relative}.ts`].find((candidate) =>
+          fs.existsSync(path.join(__dirname, "../apps/mobile/src", candidate)),
+        );
+        assert.ok(target, `Missing primitive: ${relative}`);
+        return load(target, modules, "", cache);
+      }
+      // Pages of the Settings sheet sit one folder deeper (app/(settings)); a test fakes their imports under the names the
+      // pages had at app/, so these resolve to the same fake.
+      if (file.startsWith("app/(settings)/") && id.startsWith("../../")) id = id.slice(3);
+      // A pure helper (the draft clear after a send): tests get the real one.
+      // The toast pill (primitives/toast.tsx) draws its icon as a named element, under the screen's own fake when it has one.
+      if (file.startsWith("primitives/") && id === "../icons" && !(id in modules)) return modules["./icons"] ?? { Icon: "Icon" };
+      if (id === "react-native-safe-area-context" && !(id in modules)) return { useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) };
+      // Motion helpers at Normal speed with the system's reduced motion off; a test's own fake wins.
+      if (/^\.\.?\/motion$/.test(id) && !(id in modules))
+        return { useReducedMotion: () => false, useMotionScale: () => 1, scaledTiming: (config) => config, springTo: (target) => target };
+      if (/^\.\/use-skill-names$/.test(id) && !(id in modules)) return { useSkillNames: () => [] };
+      // The chips draw as named elements, like the other components these tests do not render.
+      if (/^\.\/prompt-chip$/.test(id) && !(id in modules))
+        return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip", ChatMentionChip: "ChatMentionChip" };
+      if (/^\.\.?\/quote-chips$/.test(id) && !(id in modules)) return { QuoteChips: "QuoteChips", SentQuote: "SentQuote" };
+      if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
+      if (
+        (id === "@milagre/shared/agent-runs" ||
+          id === "@milagre/shared/prompt-parts" ||
+          id === "@milagre/shared/appearance" ||
+          id === "@milagre/shared/prompt-mentions" ||
+          id === "@milagre/shared/themes" ||
+          id === "@milagre/shared/file-kinds" ||
+          id === "@milagre/shared/streaming-blocks" ||
+          id === "@milagre/shared/tool-activity" ||
+          id === "@milagre/shared/project-origin" ||
+          id === "@milagre/shared/chats-home") &&
+        !(id in modules)
+      )
+        return require(id);
+      if (relative && `./${relative}` in modules) id = `./${relative}`;
+      if (id === "react-native-gesture-handler") return { ScrollView: "GestureScrollView", ...modules[id] };
+      // Hairlines and the platform are read while styling; a test's fake that leaves them out gets an iPhone's.
+      if (id === "react-native" && modules[id]) {
+        const native = modules[id];
+        native.Platform ??= { OS: "ios", select: (choices) => choices.ios ?? choices.default };
+        native.StyleSheet ??= { create: (styles) => styles };
+        native.StyleSheet.hairlineWidth ??= 0.5;
+      }
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
+      // The Chats home helpers (project-surfaces.ts, chats-group.ts) are pure: tests get the real ones.
+      if (relative === "project-surfaces" && !(id in modules)) return load("project-surfaces.ts", modules, "", cache);
+      if (relative === "chats-group" && !(id in modules))
+        return load(
+          "chats-group.ts",
+          {
+            "@milagre/shared/chat-row": require("../packages/shared/src/chat-row.ts"),
+            "./chat-list-order.ts": load("chat-list-order.ts", { "@milagre/shared/chats": require("../packages/shared/src/chats.mjs") }),
+          },
+          "",
+          cache,
+        );
+      if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
+      if (id === "@milagre/shared/pull-request-review" && !(id in modules)) return require("../packages/shared/src/pull-request-review.ts");
       const base = id.replace(/^\.\.?\//, "");
+      // The phone's own pins (chat-pins-store.ts): none saved unless a test gives its own store.
+      if (base === "hosts-native" && id in modules && !modules[id].savedChatPins)
+        return {
+          savedChatPins: { subscribe: () => () => {}, version: () => 0, pins: () => ({}), load: async () => {}, set: async () => {} },
+          ...modules[id],
+        };
+      if (id === "@milagre/shared/chat-pins" && !(id in modules)) return require("../packages/shared/src/chat-pins.ts");
       if (base === "theme" || base === "ui") {
         // Themed code reads colors through hooks; a test's own fake wins over these defaults.
         const own = modules[id] ?? {};
         return { ...(base === "theme" ? themeHooks : uiHooks), ...own };
       }
+      // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
+      if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
+      if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
+      if (base === "browser-link" && !(id in modules)) return load("browser-link.ts", modules, "", cache);
+      if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
+      if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
+      // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
+      if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
+      if (
+        [
+          "@milagre/shared/archive",
+          "@milagre/shared/chat-history",
+          "@milagre/shared/chat-scopes",
+          "@milagre/shared/chat-window-cache",
+          "@milagre/shared/display-clock",
+          "@milagre/shared/refresh-loop",
+          "@milagre/shared/read-timeout",
+          "@milagre/shared/qa-personas",
+          "@milagre/shared/voice-dictation",
+          "@milagre/shared/undo-history",
+        ].includes(id) &&
+        !(id in modules)
+      )
+        return require(id);
+      if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
+      // The type, radius and spacing scale (design-tokens.ts) is plain numbers: tests get the real one.
+      if (relative === "design-tokens" && !(id in modules)) return load("design-tokens.ts", modules, "", cache);
+      // The diff's +N −M counts and status boxes draw from the test's own react-native.
+      if (relative === "diff-ui" && !(id in modules) && !(`./${relative}` in modules)) return load("diff-ui.tsx", modules, "", cache);
+      if (relative === "activity-source" && !(id in modules)) return { ActivitySources: "ActivitySources", ActivityIcon: "ActivityIcon" };
+      if (relative === "step-output" && !(id in modules))
+        return load("step-output.tsx", { ...modules, "expo-clipboard": { setStringAsync: async () => {} } }, "", cache);
+      // Long-press message actions are an iOS-only wrapper: tests see the message as it is without it, with its text selectable.
+      if (base === "message-actions" && !(id in modules))
+        return { MessageActions: messageActionsStub, messageActionProps: () => ({}), selectableMessageText: true };
+      // Fonts load at runtime; none is ready in a test, and loading one never fails.
+      if (id === "expo-font" && !(id in modules)) return { isLoaded: () => false, loadAsync: async () => {} };
+      if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
+      // Dictation is not available in a test: no microphone, no on-device transcriber.
+      if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
+      if (base === "dictation-shortcut" && !(id in modules)) return { useDictationShortcut() {}, toggleDictationShortcut() {} };
+      if (base === "voice-dictation-hook" && !(id in modules))
+        return {
+          useVoiceDictation: () => ({
+            available: false,
+            phase: "idle",
+            error: null,
+            partial: { text: "", settled: 0 },
+            download: null,
+            level: { value: 0 },
+            start() {},
+            stop() {},
+            cancel() {},
+            dismiss() {},
+          }),
+        };
+      if (base === "voice-mic-button" && !(id in modules))
+        return {
+          VoiceMicButton: "VoiceMicButton",
+          DictationCapsule: "DictationCapsule",
+          MIC_SIZE: 32,
+          CAPSULE_WIDTH: 72,
+          MIC_INSET: { right: -5, bottom: 6 },
+          CAPSULE_INSET: { right: -3, bottom: 4 },
+        };
+      // Icon data and the icon component are drawing; a test reads the icon's name.
+      if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
+      if (base === "icons" && !(id in modules)) return { Icon: "Icon", SpinnerRing: "SpinnerRing" };
+      if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
+      // Settings › Experimental's Device notes copy is plain text.
+      if (id === "@milagre/shared/device-notes" && !(id in modules)) return require("@milagre/shared/device-notes");
+      // Where this device's messages say they came from (sent-from.ts): a phone in a test.
+      if (base === "sent-from" && !(id in modules)) return { SENT_FROM: "phone" };
+      // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
+      // New Chat's Project choices come from the same store: none unless a test says so.
+      if (base === "all-computers" && !(id in modules))
+        return {
+          useArchivedCount: () => null,
+          useArchivedChats: () => ({ chats: [], loading: false }),
+          useNewChatProjects: () => [],
+          useNoProjectChoice: () => undefined,
+          // The computers an @ can name in a Chat's composer.
+          useComputerViews: () => [],
+          chatsHomePath: async (_client, _hostId, home) => home.path,
+          allComputers: { clientFor: () => null, hostFor: () => undefined, viewOf: () => undefined },
+        };
+      // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
+      if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
+      if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
+      // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
+      if (base === "split-context" && !(id in modules))
+        return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
+      if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
+      // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
+      if (base === "split-chats" && !(id in modules))
+        return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
+      // Subchats nest under their parent's row (subchats.ts, subchat-rows.ts); both are pure.
+      if (id === "@milagre/shared/subchats" && !(id in modules)) return require("../packages/shared/src/subchats.ts");
+      if (base === "subchat-rows" && !(id in modules))
+        return load("subchat-rows.ts", { "@milagre/shared/subchats": require("../packages/shared/src/subchats.ts") }, "", cache);
+      // The Subchats pill and panel read the session, the Mac's Routines and a clock: a test draws them as named elements, with no
+      // Subchat. A Delegation report's marker (subchat-marker.tsx) is one too; the states it reads (subchat-states.ts) are pure.
+      if (base === "subchat-pill" && !(id in modules))
+        return {
+          SubchatPill: "SubchatPill",
+          SubchatAsk: "SubchatAsk",
+          SubchatPanel: "SubchatPanel",
+          useSubchatPanel: () => ({ phase: "closed", keys: [], deeper: [] }),
+        };
+      if (base === "subchat-marker" && !(id in modules)) return { SubchatMarker: "SubchatMarker" };
+      // A Subchat's escalation notes: which message is which is pure (subchat-notes.ts, subchat-escalation.ts); the cards, the capsule over
+      // an open Subchat and the pill that asks are drawn as named elements. The family menu (subchat-family.ts) reads the real states.
+      if (id === "@milagre/shared/subchat-escalation" && !(id in modules)) return require("../packages/shared/src/subchat-escalation.mjs");
+      if (base === "subchat-notes" && !(id in modules))
+        return load("subchat-notes.ts", { "@milagre/shared/subchat-escalation": require("../packages/shared/src/subchat-escalation.mjs") }, "", cache);
+      if (base === "subchat-note" && !(id in modules)) return { SubchatNoteView: "SubchatNoteView", SubchatWaitingNote: "SubchatWaitingNote" };
+      if (base === "subchat-bookmark" && !(id in modules)) return { SubchatBookmarkHost: "SubchatBookmarkHost" };
+      if (base === "subchat-family" && !(id in modules)) {
+        const states = require("../packages/shared/src/subchat-states.ts");
+        const subchats = require("../packages/shared/src/subchats.ts");
+        const chats = require("../packages/shared/src/chats.mjs");
+        const view = load("subchat-view.ts", { "@milagre/shared/chats": chats, "@milagre/shared/subchat-states": states }, "", cache);
+        return load("subchat-family.ts", { "@milagre/shared/chats": chats, "@milagre/shared/subchats": subchats, "./subchat-view.ts": view }, "", cache);
+      }
+      if (id === "@milagre/shared/subchat-states" && !(id in modules)) return require("../packages/shared/src/subchat-states.ts");
+      // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
+      if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
+      // The iPad panel's dragged width, kept on the device; a test keeps the default.
+      if (base === "panel-width" && !(id in modules)) return { usePanelWidth: () => 420, setPanelWidth() {} };
+      // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
+      if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
+      if (base === "side-panels" && !(id in modules)) return { useChatPanelTabs: () => null };
+      if (base === "browser-setting" && !(id in modules)) return { useInternalBrowser: () => [globalThis.internalBrowser !== false, async () => {}] };
+      // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
+      if (base === "hardware-keys" && !(id in modules))
+        return {
+          useReturnKey: () => ({ attach() {} }),
+          useOnScreenReturn: () => ({}),
+          useHardwareShortcuts() {},
+          chatShortcutIndex: () => null,
+          SHORTCUTS: [],
+        };
+      // The PR sheet's bridge to the Chat is pure; opening the sheet is recorded on globalThis.openedPullRequests.
+      if (base === "pr-chat" && !(id in modules)) return (globalThis.prChat = load("pr-chat.ts", modules, "", cache));
+      // A PR badge's glyph by state (pr-look.ts): each icon by its name.
+      if (base === "pr-look" && !(id in modules))
+        return {
+          PR_ICONS: {
+            merged: "GitMergeIcon",
+            closed: "GitPullRequestClosedIcon",
+            draft: "GitPullRequestDraftIcon",
+            ready: "Tick02Icon",
+            checking: "CircleDotIcon",
+            open: "GitPullRequestIcon",
+          },
+        };
+      if (base === "pr-nav" && !(id in modules))
+        return {
+          openPullRequest: (route) => (globalThis.openedPullRequests ??= []).push(route),
+          openPrPage: (page, route, extra) => (globalThis.openedPrPages ??= []).push([page, route, extra]),
+          openPrFile: (route, path) => (globalThis.openedPrPages ??= []).push(["file", route, { path }]),
+        };
+      // A new Chat's glance cards (PRs, plan usage, today) read the host on their own; Chat tests render none.
+      if (base === "new-chat-glance" && !(id in modules)) return { NewChatGlance: () => null };
+      // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
+      if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };
+      // Settings search: a found row renders bare, and a Settings page's scroll is the PageScroll it wraps.
+      if (base === "settings-find" && !(id in modules)) return { Findable: ({ children }) => children, SettingsScroll: "PageScroll" };
+      if (id === "@milagre/shared/settings-search" && !(id in modules)) return require("../packages/shared/src/settings-search.ts");
+      if (base === "settings-index" && !(id in modules)) return require("../apps/mobile/src/settings-index.ts");
+      if (id === "@milagre/shared/routine-flows" && !(id in modules)) return require("@milagre/shared/routine-flows");
+      // Ordinary Routine tests don't render the flow page; flow tests supply its real component explicitly.
+      if (base === "flow-routine" && !(id in modules)) return { FlowRoutineScreen: "FlowRoutineScreen" };
+      if (base === "confirm-store" && !(id in modules))
+        return {
+          ...load("confirm-store.ts", modules, "", cache),
+          ...(modules["react-native"]?.Alert?.alert ? { confirmSheet: modules["react-native"].Alert.alert } : {}),
+        };
+      if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
+      // /storage's name and hint, which the Chat lists beside /undo.
+      if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
     process: { env: {} },
     // The host's Error, so `failure instanceof Error` holds for errors a test's fake client throws.
     Error,
+    Date,
     URL,
     TextDecoder,
+    // React Native provides it globally; downloads cancel through it.
+    AbortController,
     fetch: () => {
       throw new Error("Unexpected network request in mobile UI test");
     },
@@ -142,10 +494,602 @@ function load(file, modules, extra = "") {
     clearTimeout,
     setInterval,
     clearInterval,
+    queueMicrotask,
   });
   return exports;
 }
-const jsx = (type, props, key) => ({ type, props, key });
+// The long-press wrapper gives its children no `open`; elements built through `jsx` show them in its place, so a test reads the message.
+const messageActionsStub = ({ children }) => children(undefined, (formatted) => formatted);
+// A minimal react-native-gesture-handler Gesture for rendering: each recognizer chains (every builder returns itself),
+// and Exclusive just carries the recognizers it was given. The reorder behavior is the project-order-store's own test.
+function gestureStub() {
+  const recognizer = () => {
+    const self = new Proxy(() => self, { get: (_t, key) => (key === "then" ? undefined : () => self) });
+    return self;
+  };
+  return { Pan: recognizer, Tap: recognizer, Exclusive: (...gestures) => ({ gestures }) };
+}
+// The real phone primitives (primitives/*.tsx), loaded once over a minimal native layer: no hook state, announcements
+// recorded on primitiveAnnouncements. A screen's named Chip, CheckRow, SheetHeader, Group, ErrorNotice (any in DRAWN)
+// keeps its name and props (tests read them) and holds what the real primitive draws as its children, so the roles,
+// states and text a test finds come from the primitive itself. SectionLabel stays a name: tests read its text prop.
+const primitiveAnnouncements = [];
+const primitiveModules = {
+  react: {
+    useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
+    useEffect() {},
+    useRef: (current) => ({ current }),
+    Fragment: "Fragment",
+    isValidElement: (node) => !!node && typeof node === "object" && "type" in node && "props" in node,
+    Children: {
+      toArray: (children) => [children].flat(Infinity).filter((child) => child != null && typeof child !== "boolean" && child !== ""),
+      count: (children) => [children].flat(Infinity).filter((child) => child != null && typeof child !== "boolean").length,
+    },
+  },
+  "react/jsx-runtime": { jsx: (...args) => jsx(...args), jsxs: (...args) => jsx(...args), Fragment: "Fragment" },
+  "react-native": {
+    View: "View",
+    Text: "Text",
+    Pressable: "Pressable",
+    TextInput: "TextInput",
+    StyleSheet: { create: (styles) => styles, hairlineWidth: 0.5 },
+    Platform: { OS: "ios", select: (choices) => choices.ios ?? choices.default },
+    AccessibilityInfo: { announceForAccessibility: (message) => primitiveAnnouncements.push(message) },
+    useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1 }),
+  },
+  "expo-haptics": { selectionAsync: async () => {} },
+  "@expo/ui": { Host: "Host", Switch: "Switch" },
+  "@expo/ui/swift-ui/modifiers": new Proxy(
+    {},
+    {
+      get:
+        (_target, name) =>
+        (...args) => ({ [name]: args }),
+    },
+  ),
+  "@expo/ui/jetpack-compose/modifiers": new Proxy(
+    {},
+    {
+      get:
+        (_target, name) =>
+        (...args) => ({ [name]: args }),
+    },
+  ),
+};
+const DRAWN = {
+  Chip: "chip",
+  Tag: "tag",
+  CheckRow: "check-row",
+  CheckboxBox: "checkbox",
+  SheetHeader: "sheet",
+  Group: "group",
+  TranscriptDivider: "transcript-divider",
+  Toast: "toast",
+  ErrorNotice: "error-notice",
+  InlineError: "inline-error",
+  EmptyState: "empty-state",
+  ProgressBar: "progress-bar",
+};
+const realPrimitives = new Map();
+let primitiveCache;
+const primitive = (name, file) => {
+  primitiveCache ??= new Map();
+  const fn = load(`primitives/${file}.tsx`, primitiveModules, "", primitiveCache)[name];
+  realPrimitives.set(fn, name);
+  return fn;
+};
+const jsx = (type, props, key) => {
+  if (type === messageActionsStub) return messageActionsStub(props);
+  // A primitive drawing a sibling (Group's SectionLabel, CheckRow's CheckboxBox) reads as that sibling's name.
+  type = realPrimitives.get(type) ?? type;
+  if (typeof type === "string" && Object.hasOwn(DRAWN, type)) return { type, props: { ...props, children: primitive(type, DRAWN[type])(props) }, key };
+  return { type, props, key };
+};
+
+// The compiler's per-component cache uses a hook slot, just like a manual memo.
+const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
+
+test("phone Usage rows show and open Chats home and named Link Chats with their canonical owners", () => {
+  const { home, link, report } = require("./fixtures/token-usage.cjs");
+  const react = hookHost();
+  const { ProjectRows } = load(
+    "token-usage-section.tsx",
+    {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "react-native": { View: "View", Text: "Text", Pressable: "Pressable", AppState: {} },
+      "expo-router": { router: {} },
+      "@hugeicons/core-free-icons": {},
+      "@expo/ui": {},
+      "@expo/ui/swift-ui": {},
+      "@expo/ui/swift-ui/modifiers": {},
+      "./settings-find": { Findable: "Findable" },
+      "@milagre/shared/token-usage": require("../packages/shared/src/token-usage.ts"),
+      "@milagre/shared/providers": require("@milagre/shared/providers"),
+      "./theme": themeHooks,
+      "./ui": uiHooks,
+      "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+      "./primitives/segmented": { Segmented: "Segmented" },
+      "./primitives/error-notice": { ErrorNotice: "ErrorNotice" },
+      "./session": {},
+      "./usage-section": { UsageSection: "UsageSection" },
+    },
+    "\nexport { ProjectRows };",
+  );
+  const opened = [];
+  for (const owner of [home, link]) {
+    react.begin();
+    const project = report.projects.find((entry) => entry.path === owner);
+    const tree = ProjectRows({
+      project,
+      metric: "tokens",
+      largest: 220,
+      now: report.generatedAt,
+      open: true,
+      onToggle() {},
+      onOpenChat: (...args) => opened.push(args),
+    });
+    assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === (owner === home ? "Plan the release" : "Update both apps")));
+    assert.equal(
+      find(tree, (node) => node.type === "Text" && /Outside Milagre|Archived/.test(String(node.props.children))),
+      undefined,
+    );
+    const row = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button" && !node.props.accessibilityState);
+    assert.ok(row, "the Chat row is tappable");
+    row.props.onPress();
+  }
+  assert.deepEqual(opened, [
+    [home, 7],
+    [link, 7],
+  ]);
+});
+
+test("context settings stay safe and unavailable on both clients without a host response", async () => {
+  const shared = await import("../packages/shared/src/context-settings.mjs");
+  for (const response of [null, undefined]) {
+    const desktop = hookHost({ effects: true });
+    const bridge = { readContextSettings: async () => response };
+    const { useContextSettings } = load("../../desktop/app/src/lib/context-settings.ts", {
+      react: desktop,
+      "@milagre/shared/context-settings": shared,
+      "./computer-bridge": { useBridge: () => bridge },
+    });
+    desktop.begin();
+    useContextSettings();
+    await new Promise(setImmediate);
+    desktop.begin();
+    const value = useContextSettings();
+    assert.equal(value.settings.autoCompact, false, "the desktop composer can read defaults without crashing");
+    assert.equal(value.ready, false, "unavailable host settings cannot be edited");
+
+    const mobile = hookHost();
+    const phone = load("context-settings.ts", {
+      react: mobile,
+      "@milagre/shared/context-settings": shared,
+      "./session": { useSession: () => ({ client: {} }) },
+      "./use-rpc": { useRpc: () => ({ data: response, error: "" }) },
+    }).useContextSettings();
+    assert.deepEqual(value.settings, phone.settings);
+    assert.equal(value.ready, phone.ready);
+    desktop.unmount();
+  }
+});
+
+test("desktop context settings handle missing methods, read failures, events and switching computers", async () => {
+  const shared = await import("../packages/shared/src/context-settings.mjs");
+  const react = hookHost({ effects: true });
+  let bridge = {};
+  const { useContextSettings } = load("../../desktop/app/src/lib/context-settings.ts", {
+    react,
+    "@milagre/shared/context-settings": shared,
+    "./computer-bridge": { useBridge: () => bridge },
+  });
+  const render = () => {
+    react.begin();
+    return useContextSettings();
+  };
+  assert.equal(render().ready, false);
+  bridge = {
+    readContextSettings: async () => {
+      throw new Error("offline");
+    },
+  };
+  render();
+  await new Promise(setImmediate);
+  assert.equal(render().error, "Could not read context settings.");
+  assert.equal(render().settings.autoCompact, false);
+  assert.equal(render().ready, false);
+
+  const pending = deferred();
+  let onChange;
+  let removed = false;
+  bridge = {
+    readContextSettings: () => pending.promise,
+    onContextSettings: (fn) => {
+      onChange = fn;
+      return () => {
+        removed = true;
+      };
+    },
+  };
+  render();
+  const enabled = { ...shared.CONTEXT_DEFAULTS, autoCompact: true };
+  onChange(enabled);
+  assert.equal(render().settings.autoCompact, true);
+  assert.equal(render().ready, true);
+  pending.resolve(null);
+  await new Promise(setImmediate);
+  assert.equal(render().settings.autoCompact, true, "a stale initial read cannot replace the newer event");
+  onChange(null);
+  assert.equal(render().settings.autoCompact, false);
+  assert.equal(render().ready, false);
+  bridge = {};
+  assert.equal(render().ready, false);
+  assert.equal(removed, true);
+  onChange(enabled);
+  assert.equal(render().settings.autoCompact, false, "late events from the old computer are ignored");
+  react.unmount();
+});
+
+test("display clocks stop off-screen and in the background, then catch up from wall time", () => {
+  const host = hookHost({ effects: true });
+  let focused = true,
+    now = 1000;
+  const listeners = new Set(),
+    timers = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener(_event, fn) {
+      listeners.add(fn);
+      return { remove: () => listeners.delete(fn) };
+    },
+  };
+  const react = {
+    ...host,
+    useState: (initial) => host.useState(typeof initial === "function" ? () => now : initial),
+    useSyncExternalStore(subscribe, snapshot) {
+      host.useEffect(() => subscribe(() => {}), [subscribe]);
+      return snapshot();
+    },
+  };
+  const real = require("@milagre/shared/display-clock");
+  const clock = load("display-clock.ts", {
+    react,
+    "react-native": { AppState },
+    "expo-router": { useIsFocused: () => focused },
+    "@milagre/shared/display-clock": {
+      createDisplayClock(options) {
+        return real.createDisplayClock({
+          ...options,
+          now: () => now,
+          setInterval: (fn) => {
+            timers.add(fn);
+            return fn;
+          },
+          clearInterval: (fn) => timers.delete(fn),
+        });
+      },
+    },
+  });
+  const read = () => {
+    host.begin();
+    return clock.useDisplayNow(100);
+  };
+  try {
+    assert.equal(read(), 1000);
+    assert.equal(timers.size, 1);
+    AppState.currentState = "background";
+    for (const fn of Array.from(listeners)) fn();
+    read();
+    assert.equal(timers.size, 0);
+    now = 5000;
+    AppState.currentState = "active";
+    for (const fn of Array.from(listeners)) fn();
+    assert.equal(read(), 5000);
+    focused = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 9000;
+    focused = true;
+    assert.equal(read(), 9000);
+  } finally {
+    host.unmount();
+  }
+  assert.equal(timers.size, 0);
+  assert.equal(listeners.size, 0);
+});
+
+test("an inactive mobile clock reader starts at mount time even if the shared snapshot is old", () => {
+  const host = hookHost({ effects: true });
+  let subscriptions = 0;
+  const clock = load("display-clock.ts", {
+    react: {
+      ...host,
+      useSyncExternalStore(subscribe, snapshot) {
+        host.useEffect(() => subscribe(() => {}), [subscribe]);
+        return snapshot();
+      },
+    },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "expo-router": { useIsFocused: () => true },
+    "@milagre/shared/display-clock": {
+      createDisplayClock: () => ({
+        snapshot: () => 1000,
+        subscribe: () => {
+          subscriptions++;
+          return () => subscriptions--;
+        },
+      }),
+    },
+  });
+  const before = Date.now();
+  const value = clock.useDisplayNow(1000, false);
+  assert.ok(value >= before && value <= Date.now(), "a disabled reader uses a stable current mount time");
+  assert.equal(subscriptions, 0);
+  host.begin();
+  assert.equal(clock.useDisplayNow(1000, false), value, "the mount-time fallback stays stable across renders");
+  host.unmount();
+});
+
+test("formatted display clocks stop off-screen and in the background, then catch up from wall time", () => {
+  const host = hookHost({ effects: true });
+  let focused = true,
+    now = 1000;
+  const listeners = new Set(),
+    timers = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener(_event, fn) {
+      listeners.add(fn);
+      return { remove: () => listeners.delete(fn) };
+    },
+  };
+  const react = {
+    ...host,
+    useSyncExternalStore(subscribe, snapshot) {
+      host.useEffect(() => subscribe(() => {}), [subscribe]);
+      return snapshot();
+    },
+  };
+  const real = require("@milagre/shared/display-clock");
+  const clock = load("display-clock.ts", {
+    react,
+    "react-native": { AppState },
+    "expo-router": { useIsFocused: () => focused },
+    "@milagre/shared/display-clock": {
+      createDisplayClock(options) {
+        return real.createDisplayClock({
+          ...options,
+          now: () => now,
+          setInterval: (fn) => {
+            timers.add(fn);
+            return fn;
+          },
+          clearInterval: (fn) => timers.delete(fn),
+        });
+      },
+    },
+  });
+  let enabled = true;
+  const read = () => {
+    host.begin();
+    return clock.useDisplayValue(250, (value) => real.formatElapsed(value - 1000), enabled);
+  };
+  try {
+    assert.equal(read(), "0s");
+    assert.equal(timers.size, 1);
+    now = 1250;
+    for (const fn of timers) fn();
+    assert.equal(read(), "0s", "250 ms ticks keep the snapshot unchanged within a second");
+    now = 2000;
+    for (const fn of timers) fn();
+    assert.equal(read(), "1s");
+    AppState.currentState = "background";
+    for (const fn of Array.from(listeners)) fn();
+    read();
+    assert.equal(timers.size, 0);
+    now = 5000;
+    AppState.currentState = "active";
+    for (const fn of Array.from(listeners)) fn();
+    assert.equal(read(), "4s");
+    focused = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 9000;
+    focused = true;
+    assert.equal(read(), "8s");
+    enabled = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 12_000;
+    enabled = true;
+    assert.equal(read(), "11s");
+  } finally {
+    host.unmount();
+  }
+  assert.equal(timers.size, 0);
+  assert.equal(listeners.size, 0);
+});
+
+test("background tasks on the phone open command output and subagent details", () => {
+  const react = hookHost();
+  const session = {
+    snapshot: {
+      project: {
+        path: "/project",
+        state: {
+          sessions: {
+            7: {
+              provider: "claude",
+              backgroundTasks: [{ id: "watch", kind: "local_bash", title: "Publish watcher", startedAt: 1 }],
+              subagents: [{ id: "review", title: "Review changes", background: true, status: "running", startedAt: 2, transcript: [] }],
+            },
+          },
+        },
+      },
+    },
+    client: { call: async () => {} },
+  };
+  const { default: BackgroundSheet } = load("app/background.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { back() {} }, useLocalSearchParams: () => ({ id: "7" }) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "../session": { useSession: () => session },
+    "../subagent-glance": { WholeSubagentDetail: "WholeSubagentDetail" },
+    "../task-output": { TaskOutput: "TaskOutput" },
+    "../ui": { CircleButton: "CircleButton", ListRow: "ListRow", PageScroll: "PageScroll", SheetHeader: "SheetHeader" },
+    // No ports listening, so no background command moves to Ports.
+    "../ports": { useChatPorts: () => noPorts },
+  });
+  const render = () => {
+    react.begin();
+    return BackgroundSheet();
+  };
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Publish watcher").props.onPress();
+  assert.equal(find(render(), (node) => node.type === "TaskOutput").props.taskId, "watch");
+  assert.equal(find(render(), (node) => node.type === "TaskOutput").props.running, true);
+  session.snapshot.project.state.sessions[7].backgroundTasks = [];
+  const completed = find(render(), (node) => node.type === "TaskOutput");
+  assert.equal(completed.props.taskId, "watch", "Completion preserves the selected command");
+  assert.equal(completed.props.running, false, "Completion requests the final output without continued polling");
+  const back = find(render(), (node) => node.type === "SheetHeader").props.leading;
+  assert.equal(back.props.label, "Back to tasks");
+  back.props.onPress();
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Review changes").props.onPress();
+  const detail = find(render(), (node) => node.type === "WholeSubagentDetail" && node.props.agent?.id === "review");
+  assert.ok(detail, "Selecting a background subagent opens its existing detail view");
+});
+
+test("the phone's background line opens the numeric Chat in its tasks sheet", () => {
+  const host = chatHost();
+  host.params.id = "7";
+  host.session.snapshot.project.state.sessions[7] = {
+    id: 7,
+    provider: "claude",
+    worktree_id: 1,
+    backgroundTasks: [{ id: "watch", kind: "local_bash", title: "Publish watcher", startedAt: 1 }],
+  };
+  const line = find(host.render(), (node) => node.type === "BackgroundIndicator");
+  line.props.onPress();
+  const route = host.router.pushed.at(-1);
+  assert.equal(route.pathname, "/background");
+  assert.equal(route.params.id, "7");
+});
+
+test("the phone selects the computer's shell for new Terminals and keeps selection on save failure", async (t) => {
+  const react = hookHost();
+  t.after(() => react.cleanup());
+  const calls = [],
+    alerts = [];
+  let rejectSave = false;
+  let profiles = {
+    shells: [
+      { file: "/bin/zsh", label: "zsh" },
+      { file: "/bin/bash", label: "bash" },
+      { file: "/opt/homebrew/bin/bash", label: "bash" },
+    ],
+    defaultShell: "/bin/zsh",
+    selectedShell: null,
+  };
+  const terminal = { id: "one", chatId: "/p#1", title: "zsh", cwd: "/p", busy: false };
+  const client = {
+    url: "computer",
+    call: async (method, args) => {
+      calls.push({ method, args });
+      if (method === "terminal:list") return { terminals: [terminal] };
+      if (method === "terminal:profiles") return profiles;
+      if (method === "terminal:setShell") {
+        if (rejectSave) throw new Error("Disk full");
+        profiles = { ...profiles, selectedShell: args[0].shell };
+        return profiles;
+      }
+      if (method === "terminal:open") return { ...terminal, id: "two", title: "bash" };
+      throw new Error(`Unexpected method: ${method}`);
+    },
+  };
+  const { TerminalSheet } = load("terminal.tsx", {
+    react: { ...react, useEffect: (fn, deps) => react.effect(fn, deps), useImperativeHandle() {} },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Alert: { alert: (...args) => alerts.push(args) },
+      AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+      Pressable: "Pressable",
+      ScrollView: "ScrollView",
+      Text: "Text",
+      View: "View",
+    },
+    "expo-router": { router: {}, useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+    "react-native-keyboard-controller": {
+      KeyboardAvoidingView: "KeyboardAvoidingView",
+      KeyboardStickyView: "KeyboardStickyView",
+      useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
+    },
+    "react-native-gesture-handler": { Gesture: {}, GestureDetector: "GestureDetector" },
+    "react-native-reanimated": { default: { View: "AnimatedView" }, Easing: { bezier: () => () => 0 }, ReduceMotion: { System: "system" } },
+    "react-native-worklets": { scheduleOnRN() {} },
+    "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
+    "expo-clipboard": { getStringAsync: async () => "" },
+    "@expo/dom-webview": { DomWebView: "DomWebView" },
+    "expo-file-system": { File() {}, Paths: {} },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/terminal-client": { followTerminal() {} },
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "./theme": themeHooks,
+    "./status-pill": { StatusPill: "StatusPill" },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./ui": { CircleButton: "CircleButton", PillButton: "PillButton", PullDown: "PullDown" },
+    "./terminal-receiver": {},
+    "./confirm-store": { confirmSheet: (...args) => alerts.push(args) },
+  });
+  const render = () => {
+    react.begin();
+    const tree = TerminalSheet({ hostId: "computer", chatId: "/p#1" });
+    react.flush();
+    return tree;
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  render();
+  await settle();
+  let tree = render();
+  let picker = find(tree, (node) => node.type === "PullDown");
+  assert.equal(picker.props.label, "Shell for new Terminals");
+  assert.deepEqual(
+    Array.from(picker.props.sections[0].items, (item) => item.title),
+    ["Automatic (/bin/zsh)", "zsh (/bin/zsh)", "bash (/bin/bash)", "bash (/opt/homebrew/bin/bash)"],
+  );
+  picker.props.onSelect("/bin/bash");
+  await settle();
+  tree = render();
+  picker = find(tree, (node) => node.type === "PullDown");
+  assert.equal(picker.props.nativeTrigger.title, "bash");
+  assert.equal(calls.at(-1).args[0].shell, "/bin/bash");
+  picker.props.onSelect("/opt/homebrew/bin/bash");
+  await settle();
+  tree = render();
+  picker = find(tree, (node) => node.type === "PullDown");
+  assert.equal(calls.at(-1).args[0].shell, "/opt/homebrew/bin/bash");
+  assert.equal(picker.props.sections[0].items.find((item) => item.id === "/bin/bash").checked, false);
+  assert.equal(picker.props.sections[0].items.find((item) => item.id === "/opt/homebrew/bin/bash").checked, true);
+  assert.equal(calls.filter((call) => call.method === "terminal:open").length, 0, "changing the preference does not restart an existing Terminal");
+  find(tree, (node) => node.type === "CircleButton" && node.props.label === "New Terminal").props.onPress();
+  await settle();
+  assert.equal(calls.at(-1).method, "terminal:open");
+  assert.equal(calls.at(-1).args[0].chatId, "/p#1");
+  rejectSave = true;
+  picker.props.onSelect("/bin/zsh");
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "PullDown").props.nativeTrigger.title, "bash");
+  assert.equal(find(render(), (node) => node.type === "PullDown").props.sections[0].items.find((item) => item.id === "/opt/homebrew/bin/bash").checked, true);
+  assert.deepEqual(alerts[0], ["Couldn't select a shell", "Disk full"]);
+  rejectSave = false;
+  find(render(), (node) => node.type === "PullDown").props.onSelect("automatic");
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "PullDown").props.nativeTrigger.title, "Automatic");
+});
 
 test("the floating inbox defaults off and its switch updates and persists the phone preference", async () => {
   const hooks = hookHost();
@@ -281,11 +1225,268 @@ test("the mobile inbox button can move, flick to an edge, restore and open witho
   assert.equal(opened, 2);
 });
 
-test("inbox single-choice questions require Send and typed answers replace the choice", () => {
+function planPanelHost(initial) {
+  const react = hookHost({ effects: true });
+  const finishes = [];
+  const focused = [];
+  const backs = [];
+  const keyboard = { height: 0, listeners: [] };
+  const window = { width: 402, height: 874 };
+  const { usePlanPanel, PlanPill, PlanPanel, PillPanel } = load("plan-pill.tsx", {
+    react: { ...react, memo: (component) => component },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Pressable: "Pressable",
+      Text: "Text",
+      View: "View",
+      StyleSheet: { absoluteFill: { position: "absolute" } },
+      Platform: { OS: "ios" },
+      Keyboard: {
+        isVisible: () => keyboard.height > 0,
+        metrics: () => (keyboard.height ? { height: keyboard.height } : undefined),
+        addListener: (name, handler) => {
+          const listener = { name, handler };
+          keyboard.listeners.push(listener);
+          return { remove: () => keyboard.listeners.splice(keyboard.listeners.indexOf(listener), 1) };
+        },
+      },
+      Dimensions: { addEventListener: () => ({ remove() {} }) },
+      BackHandler: {
+        addEventListener: (_name, handler) => {
+          backs.push(handler);
+          return { remove: () => backs.splice(backs.indexOf(handler), 1) };
+        },
+      },
+      AccessibilityInfo: { sendAccessibilityEvent: (node, kind) => focused.push([node, kind]) },
+      useWindowDimensions: () => window,
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) },
+    "react-native-gesture-handler": { GestureDetector: "GestureDetector", usePanGesture: (config) => config },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      Easing: { bezier: () => "ease" },
+      ReduceMotion: { System: "system" },
+      cancelAnimation() {},
+      useReducedMotion: () => false,
+      useAnimatedStyle: (fn) => fn(),
+      withDelay: (_delay, animation) => animation,
+      // Animations land at once; the closing callback waits for the test to finish it.
+      withTiming: (to, _config, done) => {
+        if (done) finishes.push(done);
+        return to;
+      },
+      useSharedValue(value) {
+        const ref = react.useRef(null);
+        ref.current ??= { get: () => value, set: (next) => (value = next) };
+        return ref.current;
+      },
+    },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/chat-plan": require("@milagre/shared/chat-plan"),
+    "./icons": { Icon: "Icon" },
+    "./plan-label": require("../apps/mobile/src/plan-label.ts"),
+    "./plan-panel-frame": require("../apps/mobile/src/plan-panel-frame.ts"),
+    "./plan-view": { PlanTree: "PlanTree", PlanPhaseGraph: "PlanPhaseGraph" },
+    "./status-pill": { StatusPill: "StatusPill", StatusPillFace: "StatusPillFace", STATUS_PILL: { height: 24, paddingHorizontal: 8, gap: 6 } },
+    "./ui": { IconButton: "IconButton", PageScroll: "PageScroll", SectionLabel: "SectionLabel" },
+  });
+  // The pill sits in the status row above the composer at `pill` (a test moves it as the keyboard would). The overlay
+  // covers the window unless `overlay` moves it; `column`, when set, is the composer's column the Chat attaches.
+  const host = {
+    plan: initial,
+    finishes,
+    focused,
+    backs,
+    keyboard,
+    window,
+    pill: { x: 250, y: 790, width: 54, height: 24 },
+    overlay: { x: 0, y: 0, width: 402, height: 874 },
+    column: null,
+    heading: { heading: true },
+  };
+  host.render = () => {
+    react.begin();
+    const panel = usePlanPanel(host.plan, "c1");
+    if (host.column) panel.attachRoom({ measureInWindow: (done) => done(host.column.x, 700, host.column.width, 174) });
+    // The Tasks panel is the shared PillPanel around its tree; a test reads it expanded.
+    const planPanel = PlanPanel({ panel });
+    const tree = { pill: PlanPill({ panel }), overlay: planPanel?.type === PillPanel ? PillPanel(planPanel.props) : planPanel };
+    const chip = find(tree.pill, (node) => node.type === "StatusPill");
+    if (chip) chip.props.chipRef({ measureInWindow: (done) => done(host.pill.x, host.pill.y, host.pill.width, host.pill.height) });
+    const root = tree.overlay;
+    if (root) root.props.ref({ measureInWindow: (done) => done(host.overlay.x, host.overlay.y, host.overlay.width, host.overlay.height) });
+    const label = find(root, (node) => node.type === "SectionLabel" && node.props.ref);
+    if (label) label.props.ref.current = host.heading;
+    const surface = find(root, (node) => node.props?.testID === "plan-surface");
+    const box = surface && Object.assign({}, ...[surface.props.style].flat(Infinity).filter(Boolean));
+    return { ...tree, chip, root, box, face: find(root, (node) => node.props?.testID === "plan-panel") };
+  };
+  // Keyboard events reach the panel the way React Native sends them.
+  host.emit = (name) => {
+    for (const listener of keyboard.listeners.filter((entry) => entry.name === name)) listener.handler({});
+  };
+  return host;
+}
+
+test("the Tasks pill grows into its panel over the Chat and folds back into the pill", () => {
+  const plan = {
+    source: "milagre",
+    tasks: [
+      { id: "1", title: "Wire it", status: "completed" },
+      { id: "2", title: "Test it", status: "in_progress" },
+    ],
+    phases: [{ phase: "build", at: 1 }],
+    updatedAt: 0,
+  };
+  const host = planPanelHost(plan);
+  let screen = host.render();
+  assert.equal(screen.chip.props.accessibilityLabel, "Tasks, 1 of 2 done");
+  assert.deepEqual([screen.chip.props.count, screen.chip.props.total], [1, 2], "the pill reads done/total, as desktop's does");
+  assert.equal(screen.chip.props.hidden, false);
+  assert.equal(screen.root.props.pointerEvents, "none", "closed, the overlay lets every touch through");
+  assert.equal(screen.face.props.pointerEvents, "none");
+  assert.equal(screen.face.props.accessibilityElementsHidden, true, "the closed panel face is hidden from VoiceOver");
+
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  assert.equal(screen.chip.props.hidden, true, "the row's pill hands over to the surface, hidden from VoiceOver too");
+  assert.equal(screen.chip.props.expanded, true);
+  assert.equal(screen.root.props.pointerEvents, "box-none");
+  assert.notEqual(screen.face.props.pointerEvents, "none");
+  assert.ok(!screen.face.props.accessibilityElementsHidden);
+  assert.ok(
+    find(screen.face, (node) => node.type === "PlanTree"),
+    "the panel shows the task tree",
+  );
+  assert.ok(
+    find(screen.face, (node) => node.type === "PlanPhaseGraph"),
+    "and the phase graph below it",
+  );
+  const heading = find(screen.face, (node) => node.type === "SectionLabel");
+  assert.deepEqual([heading.props.children, heading.props.trailing], ["Tasks", 2], "under desktop's header: Tasks and the leaf total");
+  const surface = find(screen.root, (node) => node.props?.testID === "plan-surface");
+  const box = Object.assign({}, ...[surface.props.style].flat(Infinity).filter(Boolean));
+  assert.equal(box.left + box.width, 402 - 12, "the panel spans the Chat to its right padding");
+  assert.equal(box.top + box.height, 790 + 24, "and keeps the pill's bottom edge");
+  assert.equal(host.backs.length, 1, "Android back closes the panel while it is open");
+
+  find(screen.root, (node) => node.props?.testID === "plan-backdrop").props.onPress();
+  screen = host.render();
+  assert.equal(screen.face.props.pointerEvents, "none", "a closing panel is inert at once");
+  assert.equal(screen.chip.props.hidden, true, "the pill comes back when the surface lands");
+  host.finishes.pop()(true);
+  screen = host.render();
+  assert.equal(screen.chip.props.hidden, false);
+  assert.equal(screen.root.props.pointerEvents, "none");
+  assert.deepEqual(host.focused.at(-1)?.[1], "focus", "focus returns to the pill");
+  assert.equal(host.backs.length, 0);
+
+  // The collapse control in the header and a downward swipe on it close the panel too.
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  find(screen.face, (node) => node.type === "IconButton" && node.props.label === "Collapse tasks").props.onPress();
+  host.render();
+  host.finishes.pop()(true);
+  screen = host.render();
+  assert.equal(screen.root.props.pointerEvents, "none");
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  const { gesture } = find(screen.face, (node) => node.type === "GestureDetector").props;
+  gesture.onUpdate({ translationY: 30 });
+  gesture.onDeactivate({ translationY: 30, velocityY: 100, canceled: false });
+  screen = host.render();
+  assert.notEqual(screen.face.props.pointerEvents, "none", "a short drag springs back");
+  gesture.onDeactivate({ translationY: 120, velocityY: 100, canceled: false });
+  screen = host.render();
+  assert.equal(screen.face.props.pointerEvents, "none", "a long drag down closes it");
+
+  // The plan going away mid-way leaves nothing behind.
+  host.plan = undefined;
+  host.render();
+  screen = host.render();
+  assert.equal(screen.pill, null);
+  assert.equal(screen.overlay, null);
+});
+
+test("the open Tasks panel follows the pill when the keyboard or the row moves it, and keeps the screen reader inside", () => {
+  const plan = { source: "milagre", tasks: [{ id: "1", title: "Wire it", status: "pending" }], phases: [], updatedAt: 0 };
+  const host = planPanelHost(plan);
+  let screen = host.render();
+  assert.ok(!screen.root.props.accessibilityViewIsModal);
+  assert.equal(host.keyboard.listeners.length, 0, "closed, nothing listens to the keyboard");
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  assert.equal(screen.root.props.accessibilityViewIsModal, true, "VoiceOver stays in the overlay, backdrop and card");
+  assert.equal(screen.face.props.role, "dialog");
+  assert.equal(screen.face.props.accessibilityLabel, "Tasks");
+  assert.deepEqual(host.focused.at(-1), [host.heading, "focus"], "opening moves focus onto the panel's heading");
+  assert.ok(find(screen.root, (node) => node.props?.testID === "plan-backdrop").props.accessibilityLabel, "Close tasks stays reachable");
+  assert.equal(find(screen.face, (node) => node.type === "PageScroll").props.keyboardDismissMode, "none", "scrolling the panel keeps the keyboard");
+  assert.equal(screen.box.top + screen.box.height, 814);
+
+  // The keyboard comes up: the composer rides it and the card's bottom goes with the pill.
+  host.pill = { ...host.pill, y: 454 };
+  host.keyboard.height = 336;
+  host.emit("keyboardDidShow");
+  screen = host.render();
+  assert.equal(screen.box.top + screen.box.height, 454 + 24, "the card sits on the pill above the keyboard");
+  // iOS reports a frame change (another keyboard height) once it lands.
+  host.pill = { ...host.pill, y: 420 };
+  host.emit("keyboardDidChangeFrame");
+  screen = host.render();
+  assert.equal(screen.box.top + screen.box.height, 420 + 24);
+  host.pill = { ...host.pill, y: 790 };
+  host.keyboard.height = 0;
+  host.emit("keyboardDidHide");
+  screen = host.render();
+  assert.equal(screen.box.top + screen.box.height, 814, "and comes back down with it");
+
+  // A new label widens the pill; the face it folds back into is drawn at the new frame.
+  host.pill = { ...host.pill, x: 240, width: 64 };
+  screen.chip.props.onLayout();
+  screen = host.render();
+  const pillFace = find(screen.root, (node) => node.props?.children?.type === "StatusPillFace");
+  const pillBox = Object.assign({}, ...[pillFace.props.style].flat(Infinity).filter(Boolean));
+  assert.deepEqual([pillBox.left, pillBox.width], [240, 64]);
+
+  find(screen.face, (node) => node.type === "IconButton" && node.props.label === "Collapse tasks").props.onPress();
+  host.render();
+  assert.equal(host.keyboard.listeners.length, 0, "closing stops following the keyboard");
+});
+
+test("beside an iPad's sidebar the Tasks panel keeps to the composer's column", () => {
+  const plan = { source: "milagre", tasks: [{ id: "1", title: "Wire it", status: "pending" }], phases: [], updatedAt: 0 };
+  const host = planPanelHost(plan);
+  // A 1210 pt landscape window: the pinned sidebar takes 332 pt, the Chat the rest, its column centred at 760 pt.
+  Object.assign(host.window, { width: 1210, height: 834 });
+  host.overlay = { x: 332, y: 0, width: 878, height: 834 };
+  host.column = { x: 391, width: 760 };
+  host.pill = { x: 1080, y: 680, width: 54, height: 24 };
+  let screen = host.render();
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  assert.equal(screen.box.left, 391 + 12 - 332, "the panel starts inside the column, not under the sidebar");
+  assert.equal(screen.box.width, 760 - 2 * 12, "and is as wide as the composer");
+  // The sidebar sliding away moves the pill; the row's relayout measures the column again.
+  host.overlay = { x: 0, y: 0, width: 1210, height: 834 };
+  host.column = { x: 225, width: 760 };
+  host.pill = { x: 914, y: 680, width: 54, height: 24 };
+  screen.chip.props.onLayout();
+  screen = host.render();
+  assert.deepEqual([screen.box.left, screen.box.width], [225 + 12, 736]);
+});
+
+function questionHost(request, { confirmSingle = false } = {}) {
   const react = hookHost();
   const sent = [];
   const { Questions } = load("questions.tsx", {
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     react,
@@ -300,8 +1501,16 @@ test("inbox single-choice questions require Send and typed answers replace the c
     "@milagre/shared/limits": require("@milagre/shared/limits"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
+  const render = () => {
+    react.begin();
+    return Questions({ request, busy: false, confirmSingle, submit: (...args) => sent.push(args) });
+  };
+  return { render, sent };
+}
+
+test("inbox single-choice questions require Send and typed answers replace the choice", () => {
   const request = {
     requestId: "q",
     questions: [
@@ -313,15 +1522,7 @@ test("inbox single-choice questions require Send and typed answers replace the c
       },
     ],
   };
-  const render = () => {
-    react.begin();
-    return Questions({
-      request,
-      busy: false,
-      confirmSingle: true,
-      submit: (...args) => sent.push(args),
-    });
-  };
+  const { render, sent } = questionHost(request, { confirmSingle: true });
   let tree = render();
   assert.equal(
     find(tree, (n) => n.props?.label === "Dismiss questions"),
@@ -340,10 +1541,44 @@ test("inbox single-choice questions require Send and typed answers replace the c
   });
 });
 
+test("a Chat question batch waits for Send after the last pick, including repeated taps", () => {
+  const { render, sent } = questionHost({
+    requestId: "batch",
+    questions: [
+      { id: "complexity", header: "Complexidade", question: "Complexidade?", options: [{ label: "Baixa" }] },
+      { id: "validation", header: "Validação", question: "Validação?", options: [{ label: "Pendente" }] },
+    ],
+  });
+  let tree = render();
+  find(tree, (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  tree = render();
+  const lastPick = find(tree, (n) => n.props?.accessibilityRole === "radio");
+  lastPick.props.onPress();
+  lastPick.props.onPress();
+  tree = render();
+  assert.equal(sent.length, 0, "the final choice remains editable rather than sending the whole batch");
+  assert.equal(find(tree, (n) => n.type === "PillButton").props.title, "Send answers");
+  find(tree, (n) => n.props?.label === "Previous question").props.onPress();
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "radio").props.accessibilityState.checked, true);
+  find(tree, (n) => n.props?.label === "Next question").props.onPress();
+  tree = render();
+  find(tree, (n) => n.type === "PillButton").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { complexity: ["Baixa"], validation: ["Pendente"] });
+});
+
+test("a standalone single-choice Chat question still sends on its pick", () => {
+  const { render, sent } = questionHost({ requestId: "single", questions: [{ id: "choice", question: "Choice?", options: [{ label: "Read" }] }] });
+  find(render(), (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { choice: ["Read"] });
+});
+
 test("inbox approval shows the entire action inline, including folders, files and delegation", () => {
   const react = hookHost();
   const { Approval } = load("questions.tsx", {
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     react,
@@ -358,7 +1593,7 @@ test("inbox approval shows the entire action inline, including folders, files an
     "@milagre/shared/limits": require("@milagre/shared/limits"),
     "./activity-drafts": { takeActivityDraft() {} },
     "./icons": { Icon: "Icon" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
   });
   const command = "full command\n".repeat(60),
     decisions = [];
@@ -389,6 +1624,49 @@ test("inbox approval shows the entire action inline, including folders, files an
   );
   find(tree, (n) => n.props?.title === "Allow once").props.onPress();
   assert.deepEqual(decisions, ["allow"]);
+});
+
+test("setup approval shows full setup context and emits each setup decision", () => {
+  const react = hookHost();
+  const { Approval } = load("questions.tsx", {
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
+    "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
+    "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", TextInput: "TextInput", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_t, k) => k }),
+    "@milagre/shared/limits": require("@milagre/shared/limits"),
+    "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
+    "./activity-drafts": { takeActivityDraft() {} },
+    "./icons": { Icon: "Icon" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
+  });
+  const command = "prepare-project --flag='full value'\necho finished";
+  const decisions = [];
+  react.begin();
+  const tree = Approval({
+    approval: {
+      kind: "setup",
+      title: "Run setup?",
+      tool: "Setup",
+      command,
+      cwd: "/worktree",
+      setup: { projectPath: "/projects/sample", source: "package.json scripts.setup", computer: "MacBook Pro" },
+      allowForChat: true,
+    },
+    busy: false,
+    respond: (decision) => decisions.push(decision),
+  });
+  for (const value of [command, "/projects/sample", "package.json scripts.setup", "MacBook Pro"])
+    assert.ok(
+      find(tree, (node) => node.type === "Text" && node.props.children === value),
+      `missing setup approval value: ${value}`,
+    );
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Run once").props.onPress();
+  find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button").props.onPress();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Skip setup").props.onPress();
+  assert.deepEqual(decisions, ["allow", "allow-for-chat", "deny"]);
 });
 
 test("phone inbox pages keep one Chat visible and retain a draft when paging back", () => {
@@ -425,7 +1703,7 @@ test("phone inbox pages keep one Chat visible and retain a draft when paging bac
       useReducedMotion: () => false,
     },
     "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     "expo-router": {
@@ -516,7 +1794,7 @@ test("phone inbox refresh coalesces requests and drops results from an earlier h
     },
     "react-native-reanimated": { default: { View: "AnimatedView" } },
     "react-native-worklets": { scheduleOnRN: (fn) => fn() },
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     "expo-router": {
@@ -599,12 +1877,14 @@ test("mobile inbox position track jumps across long lists and keeps count and ac
       },
       "./ui": { IconButton: "IconButton" },
       "./theme": { useTheme: () => ({ colors: fakePalette, scheme }) },
+      // Reduced motion (the system's or Animations Off) is what this test flips.
+      "./motion": { useReducedMotion: () => reduced, useMotionScale: () => 1 },
     });
     let index = 0,
       count = 20;
     const render = () => InboxPager({ index, count, select: (next) => (index = next) });
     const track = () => find(render(), (node) => node.props?.testID === "inbox-position-track");
-    const counter = () => find(render(), (node) => node.props?.testID === "inbox-position-count").props.children.join("");
+    const counter = () => [find(render(), (node) => node.props?.testID === "inbox-position-count").props.children].flat().join("");
     assert.equal(counter(), "1 of 20");
     track().props.onPress({ nativeEvent: { locationX: 100 } });
     assert.equal(index, 19);
@@ -617,7 +1897,7 @@ test("mobile inbox position track jumps across long lists and keeps count and ac
     track().props.onAccessibilityAction({ nativeEvent: { actionName: "decrement" } });
     assert.equal(counter(), "10 of 20");
     const pill = find(track(), (node) => node.type === "AnimatedView");
-    assert.equal(pill.props.style.backgroundColor, scheme === "dark" ? "#fff" : "#000");
+    assert.equal(pill.props.style.backgroundColor, fakePalette.ink, "the pill is the theme's ink in either scheme");
     track().props.onPress({ nativeEvent: { locationX: -10 } });
     assert.equal(index, 0, "track jumps clamp at the beginning");
     reduced = true;
@@ -733,6 +2013,66 @@ test("mobile slash suggestions filter skills and insert at the caret while prese
   );
 });
 
+for (const reactCompiler of [false, true])
+  test(`returning to a mobile Chat restores the draft end without moving the caret during edits (compiler: ${reactCompiler})`, () => {
+    const react = hookHost({ effects: true });
+    let focus;
+    let draft = Array.from({ length: 24 }, (_, index) => `Line ${index + 1}`).join("\n");
+    const catalog = { skills: [] };
+    const { PromptField } = load(
+      "prompt-field.tsx",
+      {
+        react,
+        "react/jsx-runtime": { jsx, jsxs: jsx },
+        "expo-router": {
+          useFocusEffect: (callback) => {
+            focus = callback;
+          },
+        },
+        "react/compiler-runtime": compilerRuntime(react),
+        "react-native": { Text: "Text", View: "View" },
+        "react-native-reanimated": reanimatedStub,
+        "@milagre/shared/prompt-skills": require("../packages/shared/src/prompt-skills.mjs"),
+        "./use-rpc": { useRpc: () => ({ data: catalog }) },
+        "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+        "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+      },
+      "",
+      new Map(),
+      reactCompiler,
+    );
+    const field = () => {
+      react.begin();
+      return find(
+        PromptField({
+          client: {},
+          projectPath: "/project",
+          draft,
+          onChangeText: (value) => {
+            draft = value;
+          },
+        }),
+        (node) => node.type === "Field",
+      );
+    };
+    const end = () => ({ start: draft.length, end: draft.length });
+    assert.deepEqual({ ...field().props.selection }, end(), "a mounted draft opens at its end");
+    field().props.onSelectionChange({ nativeEvent: { selection: { start: 2, end: 2 } } });
+    assert.equal(field().props.selection, undefined, "native clicks can move the caret");
+    const firstFocus = focus;
+    field().props.onChangeText(draft.slice(0, 2) + " inserted" + draft.slice(2));
+    assert.equal(field().props.selection, undefined, "typing in the middle keeps native caret control");
+    assert.equal(focus, firstFocus, "typing must not re-run the route focus effect");
+    focus();
+    assert.deepEqual({ ...field().props.selection }, end(), "returning to the mounted screen restores the latest draft end");
+    field().props.onSelectionChange({ nativeEvent: { selection: end() } });
+    assert.equal(field().props.selection, undefined, "native selection resumes after restoration");
+    draft = "";
+    field();
+    focus();
+    assert.deepEqual({ ...field().props.selection }, { start: 0, end: 0 }, "empty drafts restore safely");
+  });
+
 test("mobile skill input preserves edits and clears its description when the caret or catalog changes", () => {
   const react = hookHost();
   let catalog = { skills: [{ name: "tldr", description: "Rewrite for a skimming reader." }] };
@@ -753,6 +2093,7 @@ test("mobile skill input preserves edits and clears its description when the car
       client: {},
       projectPath: "/project",
       draft,
+      images: 1,
       onChangeText: (value) => {
         draft = value;
       },
@@ -796,53 +2137,304 @@ test("mobile skill input preserves edits and clears its description when the car
   assert.deepEqual({ ...field().props.selection }, { start: 4, end: 9 }, "catalog recoloring preserves the native text selection");
   field().props.onChangeText("run /tldr please");
   assert.equal(field().props.selection, undefined, "ordinary typing keeps native caret control");
+  draft = "see [Image #1] next";
+  field().props.onChangeText("see [Image #1 next");
+  assert.equal(draft, "see  next", "Backspace removes the whole image reference");
 });
 
-function markdownHost({ media, basePath } = {}) {
-  const react = { ...hookHost({ effects: true }), memo: (fn) => fn };
+for (const reactCompiler of [false, true])
+  test(`file lookup recoloring preserves selection with an unchanged draft (compiler: ${reactCompiler})`, async () => {
+    const react = hookHost();
+    react.useEffect = react.effect;
+    const answer = deferred(),
+      started = deferred();
+    const client = {
+      call: () => {
+        started.resolve();
+        return answer.promise;
+      },
+    };
+    const known = require("../apps/mobile/src/file-mentions.ts").createKnownFiles();
+    const { PromptField } = load(
+      "prompt-field.tsx",
+      {
+        react,
+        "react/compiler-runtime": compilerRuntime(react),
+        "react/jsx-runtime": { jsx, jsxs: jsx },
+        "react-native": { Text: "Text", View: "View" },
+        "react-native-reanimated": reanimatedStub,
+        "@milagre/shared/prompt-skills": require("../packages/shared/src/prompt-skills.mjs"),
+        "./use-rpc": { useRpc: () => ({ data: null }) },
+        "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+        "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+      },
+      "",
+      new Map(),
+      reactCompiler,
+    );
+    const mention = "@notes.txt";
+    const props = { client, known, projectPath: "/p", draft: `see ${mention} next`, onChangeText() {} };
+    const render = () => {
+      react.begin();
+      const tree = PromptField(props);
+      react.flush();
+      return find(tree, (node) => node.type === "Field");
+    };
+    // The chip glyph font loads once the field mounts, so a known file draws as the chip: the hover gray behind its icon and name.
+    const fileMark = (field) => find(field, (node) => node.type === "Text" && node.props.style?.backgroundColor === "hover");
+    try {
+      const field = render();
+      assert.equal(fileMark(field), undefined);
+      field.props.onSelectionChange({ nativeEvent: { selection: { start: 0, end: 3 } } });
+      render();
+      await started.promise;
+      answer.resolve(["notes.txt"]);
+      await settle();
+      const colored = render();
+      assert.equal(fileMark(colored)?.props.style.color, "ink");
+      assert.deepEqual({ ...colored.props.selection }, { start: 0, end: 3 });
+      const children = colored.props.children;
+      assert.deepEqual(render().props.children, children, "recoloring settles with stable marks");
+      assert.deepEqual(render().props.children, children);
+    } finally {
+      react.cleanup();
+    }
+  });
+
+function markdownHost({
+  media,
+  remote,
+  basePath,
+  reachable = null,
+  openChatLink,
+  reactCompiler = false,
+  copy = async () => {},
+  haptic = () => {},
+  textPx = 15,
+  codeSize = 12,
+} = {}) {
+  const react = {
+    ...hookHost({ effects: true }),
+    memo: (fn) => fn,
+    useContext: (context) => (context === "ReachableHostContext" ? reachable : context === "ChatLinkContext" ? openChatLink : undefined),
+  };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
     links = [];
-  const { Markdown } = load("markdown.tsx", {
-    "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
-    "./genui/GenerativeUI": { GenerativeUI: "GenerativeUI", MarkdownStreamingContext: "MarkdownStreamingContext" },
-    react,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": {
-      Text: "Text",
-      View: "View",
-      Image: "Image",
-      Pressable: "Pressable",
-      Alert: {},
-      Linking: {
-        openURL: async (url) => {
-          links.push(url);
+  const { Markdown } = load(
+    "markdown.tsx",
+    {
+      "react/compiler-runtime": compilerRuntime(react),
+      "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
+      "@milagre/shared/diagram": require("../packages/shared/src/diagram.ts"),
+      "./diagram": { MermaidBlock: "MermaidBlock" },
+      "./genui/GenerativeUI": { GenerativeUI: "GenerativeUI", MarkdownStreamingContext: "MarkdownStreamingContext" },
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": {
+        Text: "Text",
+        View: "View",
+        Image: "Image",
+        Pressable: "Pressable",
+        StyleSheet: { hairlineWidth: 0.5 },
+        Platform: { OS: "ios" },
+        AccessibilityInfo: { announceForAccessibility: () => {} },
+        Alert: {},
+        Linking: {
+          openURL: async (url) => {
+            links.push(url);
+          },
         },
       },
+      "expo-router": { router: { push: (route) => routes.push(route) } },
+      "expo-clipboard": { setStringAsync: copy },
+      "@hugeicons/core-free-icons": { Copy01Icon: "copy", Tick02Icon: "tick" },
+      "./icons": { Icon: "Icon" },
+      "expo-haptics": { selectionAsync: async () => haptic() },
+      "./markdown-table": require("../apps/mobile/src/markdown-table.ts"),
+      "./theme": { useTheme: () => ({ ...themeHooks.useTheme(), textPx, codeSize }) },
+      "./viewer-store": viewer,
+      "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
+      "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
+      "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+      "./ui": { PageScroll: "PageScroll", colors: {}, styles: { muted: {}, code: {} } },
     },
-    "expo-router": { router: { push: (route) => routes.push(route) } },
-    "./viewer-store": viewer,
-    "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
-    "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "./ui": { PageScroll: "PageScroll", colors: {}, styles: { muted: {}, code: {} } },
-  });
+    "",
+    new Map(),
+    reactCompiler,
+  );
   function expand(node) {
     if (Array.isArray(node)) return node.flatMap(expand);
     if (!node || typeof node !== "object") return node;
     if (typeof node.type === "function") return expand(node.type(node.props));
+    if (node.type === "MermaidBlock" || node.type === "GenerativeUI") {
+      const prop = node.type === "MermaidBlock" ? "plain" : "fallback";
+      return { ...node, props: { ...node.props, [prop]: expand(node.props[prop]) } };
+    }
     return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
   }
   return {
     render(text, streaming = false) {
       react.begin();
-      return expand(Markdown({ text, streaming, media, basePath }));
+      return expand(Markdown({ text, streaming, media, remote, basePath }));
     },
     routes,
     links,
     viewer,
+    unmount: () => react.unmount(),
   };
 }
+
+test("Markdown code copies exact current content, replaces its feedback timer, and scales code", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const reactCompiler of [false, true]) {
+    const copies = [];
+    let taps = 0;
+    const screen = markdownHost({ reactCompiler, copy: async (code) => copies.push(code), haptic: () => taps++ });
+    const source = "```BASH\n  printf 'a  b'\n\n```";
+    const button = (tree) => find(tree, (node) => node.props?.accessibilityRole === "button");
+    let rendered = screen.render(source);
+    assert.ok(textOf(rendered).includes("bash"));
+    const codeText = find(rendered, (node) => node.type === "Text" && Array.isArray(node.props.style) && node.props.style[1]?.fontSize);
+    assert.equal(codeText.props.style[1].fontSize, 13);
+    assert.equal(codeText.props.style[1].lineHeight, 20);
+    assert.equal(button(rendered).props.accessibilityLabel, "Copy code");
+    const hit = Object.assign({}, ...[button(rendered).props.style({ pressed: false })].flat());
+    assert.ok(hit.minWidth >= 44 && hit.minHeight >= 44);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    rendered = screen.render(source);
+    assert.equal(button(rendered).props.accessibilityLabel, "Copied");
+    assert.equal(find(rendered, (node) => node.type === "Icon").props.icon, "tick");
+    t.mock.timers.tick(1000);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    t.mock.timers.tick(500);
+    assert.equal(button(screen.render(source)).props.accessibilityLabel, "Copied");
+    t.mock.timers.tick(1000);
+    assert.equal(button(screen.render(source)).props.accessibilityLabel, "Copy code");
+    assert.deepEqual(copies, ["  printf 'a  b'\n", "  printf 'a  b'\n"]);
+    assert.equal(taps, 2);
+    rendered = screen.render("```\nfirst", true);
+    assert.ok(textOf(rendered).includes("text"));
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    rendered = screen.render("```\nfirst\nsecond", true);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    assert.deepEqual(copies.slice(-2), ["first", "first\nsecond"]);
+    screen.unmount();
+    t.mock.timers.tick(1500);
+  }
+});
+
+test("a streaming Markdown reply renders at most every 50 ms, and its newest text always follows", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
+  const screen = markdownHost();
+  assert.equal(textOf(screen.render("First", true)), "First");
+  // Each render reads the hook's state as the last timer left it: this harness doesn't re-render on its own.
+  assert.equal(textOf(screen.render("First words", true)), "First", "a batch waits for the next frame");
+  t.mock.timers.tick(0);
+  assert.equal(textOf(screen.render("First words", true)), "First words", "the first batch after a pause shows at once");
+  assert.equal(textOf(screen.render("First words\n\nSecond", true)), "First words");
+  t.mock.timers.tick(49);
+  assert.equal(textOf(screen.render("First words\n\nSecond", true)), "First words", "inside 50 ms the reply holds");
+  t.mock.timers.tick(1);
+  assert.equal(
+    find(screen.render("First words\n\nSecond", true), (node) => node.type === "View" && node.props.style?.gap === 12).props.children.length,
+    2,
+    "the trailing batch shows, in its blocks",
+  );
+  assert.equal(textOf(screen.render("Another reply", true)), "Another reply", "a text that doesn't continue the shown one shows at once");
+  assert.equal(textOf(screen.render("First words\n\nSecond and the end", false)), "First wordsSecond and the end", "a finished reply shows whole");
+  screen.unmount();
+});
+
+test("Markdown code ignores stale clipboard completion, failure and resolution after unmount", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const requests = [];
+  let taps = 0;
+  const screen = markdownHost({
+    copy: () => {
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    },
+    haptic: () => taps++,
+  });
+  const source = "    indented code\n";
+  const button = () => find(screen.render(source), (node) => node.props?.accessibilityRole === "button");
+  assert.ok(textOf(screen.render(source)).includes("text"));
+  button().props.onPress();
+  button().props.onPress();
+  requests[1].resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(1000);
+  requests[0].resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(500);
+  assert.equal(button().props.accessibilityLabel, "Copy code");
+  assert.equal(taps, 1);
+  button().props.onPress();
+  requests[2].reject(new Error("clipboard unavailable"));
+  await Promise.resolve();
+  assert.equal(button().props.accessibilityLabel, "Copy code");
+  button().props.onPress();
+  screen.unmount();
+  requests[3].resolve();
+  await Promise.resolve();
+  assert.equal(taps, 1);
+});
+
+test("Markdown tables align header/body columns, fill short tables and preserve rich nested cells", async () => {
+  for (const prefix of ["", "> ", "  "]) {
+    const source =
+      (prefix === "  " ? "- Table\n\n" : "") +
+      ["| Name | Value |", "| --- | --- |", "| **bold** | [short](https://example.org) |", "| `code` | final |"].map((line) => prefix + line).join("\n");
+    const screen = markdownHost({ textPx: 20 });
+    let rendered = screen.render(source);
+    const outer = find(rendered, (node) => typeof node.props?.onLayout === "function");
+    outer.props.onLayout({ nativeEvent: { layout: { width: 341 } } });
+    rendered = screen.render(source);
+    const scroll = find(rendered, (node) => node.type === "PageScroll" && node.props.horizontal);
+    assert.deepEqual({ ...scroll.props.contentContainerStyle }, { padding: 0, paddingBottom: 0, gap: 0 });
+    const cells = [];
+    const collect = (node) => {
+      if (Array.isArray(node)) return node.forEach(collect);
+      if (!node || typeof node !== "object") return;
+      if (node.props?.style?.width) cells.push(node);
+      collect(node.props?.children);
+    };
+    collect(scroll);
+    assert.equal(cells.length, 6);
+    assert.ok(cells.every((cell) => cell.props.style.width === 170));
+    const headerText = find(cells[0], (node) => node.type === "Text");
+    assert.equal(headerText.props.style.fontWeight, "600");
+    assert.equal(headerText.props.style.fontSize, 20);
+    assert.ok(textOf(rendered).includes("bold") && textOf(rendered).includes("code"));
+    const link = find(rendered, (node) => node.props?.accessibilityRole === "link");
+    link.props.onPress();
+    await Promise.resolve();
+    assert.deepEqual(screen.links, ["https://example.org"]);
+    screen.unmount();
+  }
+});
+
+test("Markdown fences render native headings and links with nested code kept literal", async () => {
+  for (const streaming of [false, true]) {
+    const screen = markdownHost();
+    const rendered = screen.render("~~~~markdown\n## Description\n\n[Read more](https://example.org)\n\n```ts\nconst value = 1;\n```\n~~~~", streaming);
+    assert.ok(find(rendered, (node) => node.props?.accessibilityRole === "header"));
+    const link = find(rendered, (node) => node.props?.accessibilityRole === "link");
+    assert.ok(link);
+    await link.props.onPress();
+    assert.deepEqual(screen.links, ["https://example.org"]);
+    assert.ok(
+      find(rendered, (node) => node.type === "PageScroll"),
+      "Nested TypeScript stays a code block",
+    );
+  }
+});
 
 test("plain URLs in mobile replies render as links and open the exact address", async () => {
   for (const streaming of [false, true]) {
@@ -861,6 +2453,71 @@ test("plain URLs in mobile replies render as links and open the exact address", 
       assert.deepEqual(screen.links, [url]);
     }
   }
+});
+
+test("mobile reply links honor the Chat destination and retain an external fallback without one", async () => {
+  const { associatedPullRequest } = require("../packages/shared/src/chats.mjs");
+  const prs = [
+    { url: "https://github.com/team/first/pull/12", cwd: "/first" },
+    { url: "https://github.com/team/second/pull/12", cwd: "/second" },
+  ];
+  for (const streaming of [false, true]) {
+    const opened = [];
+    const screen = markdownHost({
+      openChatLink: (url) => {
+        const pr = associatedPullRequest(url, prs);
+        if (pr) opened.push(pr);
+        return !!pr;
+      },
+    });
+    await find(
+      screen.render("[PR](https://github.com/team/second/pull/12/files#diff-123)", streaming),
+      (node) => node.props?.accessibilityRole === "link",
+    ).props.onPress();
+    assert.deepEqual(opened, [prs[1]]);
+    assert.deepEqual(screen.links, []);
+    await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
+    assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
+  }
+});
+
+test("mobile reply links preserve localhost for the internal Browser instead of rewriting it to the phone's LAN route", async () => {
+  for (const streaming of [false, true]) {
+    const opened = [];
+    const screen = markdownHost({
+      reachable: { host: "100.69.206.111", loopbackOnly: new Set() },
+      openChatLink: (url) => {
+        opened.push(url);
+        return true;
+      },
+    });
+    find(screen.render("[App](http://localhost:5173/path?q=1)", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
+    assert.deepEqual(opened, ["http://localhost:5173/path?q=1"]);
+    assert.deepEqual(screen.links, []);
+  }
+});
+
+test("a localhost link opens at the computer's IP when the phone reaches it on the LAN, and stays as written otherwise or for a loopback-only server", async () => {
+  for (const [text, label, url] of [
+    ["Open http://localhost:5173 to see it.", "http://100.69.206.111:5173", "http://100.69.206.111:5173"],
+    ["[The app](http://127.0.0.1:3000/app?x=1)", "The app", "http://100.69.206.111:3000/app?x=1"],
+  ]) {
+    const screen = markdownHost({ reachable: { host: "100.69.206.111", loopbackOnly: new Set([5175]) } });
+    const tree = screen.render(text);
+    const link = find(tree, (node) => node.props?.accessibilityRole === "link");
+    assert.ok(link, `Missing link in ${text}`);
+    assert.ok(JSON.stringify(link.props.children).includes(label), `the link reads ${label}`);
+    await link.props.onPress();
+    assert.deepEqual(screen.links, [url]);
+  }
+  // A server the Chat's ports show on the computer's loopback only would not answer at its IP.
+  const loopback = markdownHost({ reachable: { host: "100.69.206.111", loopbackOnly: new Set([5175]) } });
+  await find(loopback.render("Running at http://127.0.0.1:5175."), (node) => node.props?.accessibilityRole === "link").props.onPress();
+  assert.deepEqual(loopback.links, ["http://127.0.0.1:5175"]);
+  const relay = markdownHost();
+  const link = find(relay.render("Open http://localhost:5173 to see it."), (node) => node.props?.accessibilityRole === "link");
+  await link.props.onPress();
+  assert.deepEqual(relay.links, ["http://localhost:5173"]);
 });
 
 test("links to files on the computer open the file preview", () => {
@@ -911,6 +2568,43 @@ test("Markdown screenshot links render image previews outside Text and open the 
   assert.equal(screen.viewer.viewerImages().images[0].source.uri, url);
 });
 
+test("private PR repository screenshots load through the computer in tables and open the viewer", async () => {
+  const react = { ...hookHost(), memo: (fn) => fn };
+  const { PrMarkdown } = load("pr-markdown.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/github-markdown": require("../packages/shared/src/github-markdown.ts"),
+    "@milagre/shared/github-image": require("../packages/shared/src/github-image.mjs"),
+    "./markdown": { Markdown: "Markdown" },
+  });
+  const url = "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true";
+  const requests = [];
+  const image = deferred();
+  const client = { call: (method, args) => (requests.push([method, args]), image.promise) };
+  const props = () => {
+    react.begin();
+    return PrMarkdown({ text: `| Screenshot |\n| --- |\n| <img src="${url}" alt="asset1.png"> |`, client, cwd: "/pr-image-test" }).props;
+  };
+  const initial = props();
+  const screen = markdownHost({ remote: initial.remote });
+  assert.equal(
+    find(screen.render(initial.text), (node) => node.type === "Image"),
+    undefined,
+  );
+  props();
+  screen.render(initial.text);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [["pr:image", [{ cwd: "/pr-image-test", url }]]], "refreshes share the authenticated read");
+  image.resolve({ ok: true, dataUrl: "data:image/png;base64,AQID" });
+  await settle();
+  const rendered = screen.render(initial.text);
+  assert.equal(find(rendered, (node) => node.type === "Image")?.props.source.uri, "data:image/png;base64,AQID");
+  find(rendered, (node) => node.props?.accessibilityRole === "imagebutton").props.onPress();
+  assert.equal(screen.routes.at(-1), "/viewer");
+  assert.equal(screen.viewer.viewerImages().images[0].source.uri, "data:image/png;base64,AQID");
+  assert.equal(initial.remote("https://example.org/screen.png"), null);
+  screen.unmount();
+});
+
 test("local Markdown images use the computer connection and keep authentication in the viewer", () => {
   const paths = [];
   const source = { uri: "https://mac/media?path=shot", headers: { Authorization: "Bearer paired-token" } };
@@ -942,6 +2636,102 @@ test("relay Markdown images wait for the cached file and render it when ready", 
   await settle();
   assert.equal(find(screen.render(text), (node) => node.type === "Image")?.props.source.uri, "file:///phone/cache/shot.png");
 });
+
+for (const reactCompiler of [false, true])
+  test(`image retry refetches once and ignores a late previous source (compiler: ${reactCompiler})`, async () => {
+    const requests = [];
+    const media = (path) => {
+      const request = deferred();
+      requests.push({ path, ...request });
+      return request.promise;
+    };
+    const screen = markdownHost({ media, reactCompiler });
+    const first = "![Preview](/tmp/first.png)",
+      second = "![Preview](/tmp/second.png)";
+    screen.render(first);
+    screen.render(first);
+    assert.equal(requests.length, 1, "unrelated renders reuse the image request");
+    requests[0].reject(new Error("Computer unavailable"));
+    await settle();
+    const retry = find(screen.render(first), (node) => node.props?.accessibilityLabel === "Retry Preview");
+    assert.ok(retry);
+    retry.props.onPress();
+    screen.render(first);
+    assert.equal(requests.length, 2, "retry reads again with unchanged target and media callback");
+    screen.render(second);
+    assert.equal(requests.length, 3);
+    requests[2].resolve({ uri: "file:///cache/second.png" });
+    await settle();
+    assert.equal(find(screen.render(second), (node) => node.type === "Image")?.props.source.uri, "file:///cache/second.png");
+    requests[1].resolve({ uri: "file:///cache/first.png" });
+    await settle();
+    assert.equal(find(screen.render(second), (node) => node.type === "Image")?.props.source.uri, "file:///cache/second.png");
+    assert.equal(requests.length, 3);
+  });
+
+for (const reactCompiler of [false, true])
+  test(`account usage source changes isolate pending reads and close the old connection (compiler: ${reactCompiler})`, async () => {
+    const host = hookHost({ effects: true });
+    const connections = [],
+      reads = [];
+    const source = () => ({
+      cached() {
+        const pending = deferred();
+        reads.push({ method: "cached", ...pending });
+        return pending.promise;
+      },
+      read() {
+        const pending = deferred();
+        reads.push({ method: "read", ...pending });
+        return pending.promise;
+      },
+      subscribe() {
+        const connection = {
+          closed: 0,
+          close() {
+            this.closed++;
+          },
+        };
+        connections.push(connection);
+        return () => connection.close();
+      },
+    });
+    const sources = [source(), source()];
+    const { useAccountUsage } = load(
+      "../../../packages/shared/src/use-account-usage.ts",
+      { react: host, "react/compiler-runtime": compilerRuntime(host), "./usage": require("@milagre/shared/usage") },
+      "",
+      new Map(),
+      reactCompiler,
+    );
+    const render = (revision) => {
+      host.begin();
+      return useAccountUsage(sources[revision]);
+    };
+    try {
+      const old = render(0);
+      const oldRead = old.refresh();
+      assert.equal(reads.length, 2);
+      assert.equal(render(0).refresh, old.refresh);
+      assert.equal(reads.length, 2, "the same source keeps its pending requests");
+      assert.equal(render(1).snapshot, null);
+      const newRead = render(1).refresh();
+      assert.equal(reads.length, 4, "the new computer gets its own cached and live reads");
+      assert.equal(connections[0].closed, 1);
+      for (const read of reads.slice(2)) read.resolve({ accountKey: "new-account", providers: [] });
+      await newRead;
+      await settle();
+      assert.equal(render(1).snapshot.accountKey, "new-account");
+      for (const read of reads.slice(0, 2)) read.resolve({ accountKey: "old-account", providers: [] });
+      await oldRead;
+      await settle();
+      assert.equal(render(1).snapshot.accountKey, "new-account");
+      assert.equal(connections.length, 2);
+    } finally {
+      host.unmount();
+    }
+    assert.equal(connections[1].closed, 1);
+  });
 
 test("images embedded in emphasis, links and tables keep their surrounding text", () => {
   const screen = markdownHost();
@@ -996,7 +2786,20 @@ const routesNative = ({ learned = [], forgotten = [] } = {}) => ({
 });
 function sessionHost(
   client,
-  { effects = false, AppState = {}, created = [], saved = [], learned = [], savedProjectOrder, chatDefaults, permission = "ask" } = {},
+  {
+    effects = false,
+    AppState = {},
+    created = [],
+    saved = [],
+    learned = [],
+    savedProjectOrder,
+    savedHiddenProjects,
+    chatDefaults,
+    clientFactory,
+    navigationStore,
+    permission = "ask",
+    refreshLinks = async () => {},
+  } = {},
 ) {
   client.recentScopes ??= () => client.call("project:recent");
   client.open ??= async (owner) => {
@@ -1004,18 +2807,21 @@ function sessionHost(
     return client.snapshot(owner);
   };
   const react = hookHost({ effects });
+  test.after(react.unmount);
   const { useSessionState, PendingChatsProvider, ComposerProvider } = load(
     "session.tsx",
     {
       react,
       "@milagre/shared/reconcile": require("@milagre/shared/reconcile"),
       "@milagre/shared/stable-order": require("@milagre/shared/stable-order"),
+      "@milagre/shared/chat-scopes": require("@milagre/shared/chat-scopes"),
+      "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
       "react/jsx-runtime": { jsx },
       "react-native": { AppState },
       "./client": {
         createClient: (...args) => {
           created.push(args);
-          return client;
+          return clientFactory ? clientFactory(...args) : client;
         },
       },
       "./relay-native": { relayRuntime },
@@ -1028,8 +2834,9 @@ function sessionHost(
           },
           list: async () => [],
         },
-        savedNavigation: { read: async () => null, save: async () => {} },
+        savedNavigation: navigationStore ?? { read: async () => null, save: async () => {}, forgetProject: async () => {} },
         savedProjectOrder: savedProjectOrder ?? { apply: async (_host, projects) => projects, save: async () => {} },
+        savedHiddenProjects: savedHiddenProjects ?? { hidden: () => new Set(), apply: async (_host, projects) => projects, setHidden: async () => {} },
         readPermission: async () => permission,
         savedChatDefaults:
           chatDefaults ?? require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
@@ -1037,10 +2844,13 @@ function sessionHost(
       },
       "./turn-options": require("../apps/mobile/src/turn-options.ts"),
       "@milagre/shared/chats": require("@milagre/shared/chats"),
+      "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
       "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
       "@milagre/shared/model": {},
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
-      "./use-links": { refreshLinks: async () => {} },
+      "./chat-pages": { prefetchChatPage: () => {}, noteChatProjectOpening: () => {} },
+      "./pr-status": { pullRequestsChanged: () => {} },
+      "./use-links": { refreshLinks },
       "./use-designs": { useDesigns: () => designsOn },
     },
     "\nexport { useSessionState, PendingChatsProvider, ComposerProvider };",
@@ -1124,13 +2934,174 @@ test("reloading Projects keeps their order when opening a Chat moves its Project
   );
 });
 
+/** A session with a Link open and its live socket up, whose snapshot reads answer from `link.read`. */
+async function openLinkSession(link) {
+  const sockets = [];
+  const forgotten = [];
+  const render = sessionHost(
+    {
+      url: "mac",
+      call: async (method, args) => {
+        if (method === "project:recent") return link.recent;
+        if (method === "link:delete") return link.deleting.promise;
+        return method === "project:open" ? { path: args[0] } : {};
+      },
+      snapshot: async (projectPath) => link.read(projectPath),
+      live: (projectPath, options) => {
+        const socket = { projectPath, options, close() {} };
+        sockets.push(socket);
+        return socket;
+      },
+    },
+    {
+      effects: true,
+      AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+      navigationStore: { read: async () => null, save: async () => {}, forgetProject: async (...args) => void forgotten.push(args) },
+    },
+  );
+  await render().connect({ address: "mac", token: "token" });
+  await render().open(link.scope);
+  render();
+  await settleAll();
+  render();
+  return { render, forgotten, signal: () => sockets.at(-1).options.onSignal("project") };
+}
+const linkOpen = (projectPath, extra = {}) => ({ project: { path: projectPath, name: "Food", state: { sessions: {}, ...extra } }, runs: { runs: {} } });
+
+for (const how of ["its state marked deleted", "a read refused with Link no longer exists"]) {
+  test(`the open Link deleted on another device leaves the phone, told by ${how}`, async () => {
+    const scope = "milagre-link:3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+    let deleted = false;
+    const link = {
+      scope,
+      recent: [{ path: "/p" }, { path: scope, name: "Food" }],
+      read: async (projectPath) => {
+        if (!deleted) return linkOpen(projectPath);
+        if (how.startsWith("its state")) return linkOpen(projectPath, { deletedAt: "2026-11-02T14:00:00.000Z" });
+        throw new Error("Link no longer exists");
+      },
+    };
+    const { render, forgotten, signal } = await openLinkSession(link);
+    assert.equal(render().snapshot.project.path, scope);
+    assert.equal(render().deletedLink, null);
+    deleted = true;
+    link.recent = [{ path: "/p" }];
+    signal();
+    await settleAll();
+    assert.equal(render().snapshot, null);
+    assert.equal(render().error, "", "a deleted Link is not a lost connection");
+    assert.equal(JSON.stringify(render().deletedLink), JSON.stringify({ hostId: "mac", path: scope, name: "Food" }));
+    assert.equal(JSON.stringify(render().recent.map((item) => item.path)), JSON.stringify(["/p"]));
+    assert.equal(JSON.stringify(forgotten), JSON.stringify([["mac", scope]]));
+  });
+}
+
+test("a Link this phone deletes is not taken for one deleted elsewhere while link:delete runs", async () => {
+  const scope = "milagre-link:3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+  let deleted = false;
+  const link = {
+    scope,
+    recent: [{ path: "/p" }, { path: scope, name: "Food" }],
+    deleting: deferred(),
+    read: async (projectPath) => {
+      if (deleted) throw new Error("Link no longer exists");
+      return linkOpen(projectPath);
+    },
+  };
+  const { render, signal } = await openLinkSession(link);
+  const deleting = render().deleteLink("3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01");
+  // The computer says the Link is gone before link:delete answers.
+  deleted = true;
+  signal();
+  await settleAll();
+  assert.equal(render().snapshot.project.path, scope, "the delete's own answer drops it");
+  assert.equal(render().error, "");
+  link.recent = [{ path: "/p" }];
+  link.deleting.resolve({ removed: [], kept: [] });
+  const { sameNavigation } = await deleting;
+  assert.equal(sameNavigation, true);
+  assert.equal(render().snapshot, null);
+  assert.equal(render().deletedLink, null, "not said to be deleted on another device");
+});
+
+test("removing the open Project clears its snapshot and list entry; a failed removal preserves both", async () => {
+  let recent = [{ path: "/p" }];
+  let fail = true;
+  const render = sessionHost({
+    url: "mac",
+    call: async (method) => {
+      if (method === "project:recent") return recent;
+      if (method === "project:forget") {
+        if (fail) throw new Error("disk full");
+        recent = [];
+      }
+      return {};
+    },
+    snapshot: async () => snapshot("/p"),
+  });
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/p");
+  await assert.rejects(render().forgetProject("/p"), /disk full/);
+  assert.equal(render().snapshot.project.path, "/p");
+  assert.equal(render().recent.length, 1);
+  fail = false;
+  await render().forgetProject("/p");
+  assert.equal(render().snapshot, null);
+  assert.equal(render().recent.length, 0);
+});
+
+for (const delay of ["acknowledgement", "saved location"]) {
+  test(`a removal waiting for its ${delay} cannot overwrite a newly connected computer`, async () => {
+    const pending = deferred();
+    const a = {
+      url: "a",
+      call: async (method) => (method === "project:forget" && delay === "acknowledgement" ? pending.promise : {}),
+      recentScopes: async () => [{ path: "/a" }],
+    };
+    const b = { url: "b", call: async () => ({}), recentScopes: async () => [{ path: "/b" }] };
+    const render = sessionHost(a, {
+      clientFactory: (host) => (host.address === "b" ? b : a),
+      navigationStore: { read: async () => null, save: async () => {}, forgetProject: async () => (delay === "saved location" ? pending.promise : undefined) },
+    });
+    await render().connect({ address: "a", token: "token" });
+    const removing = render().forgetProject("/a");
+    await settleAll();
+    await render().connect({ address: "b", token: "token" });
+    pending.resolve();
+    assert.equal(await removing, false, "The completion must not navigate away from the new computer");
+    await settleAll();
+    assert.equal(render().client, b);
+    assert.deepEqual(
+      render().recent.map((item) => item.path),
+      ["/b"],
+    );
+  });
+}
+
+test("a removal cannot close a newer Chat selection on the same computer", async () => {
+  const pending = deferred();
+  const render = sessionHost({
+    url: "a",
+    call: async (method) => (method === "project:forget" ? pending.promise : {}),
+    recentScopes: async () => [{ path: "/a" }, { path: "/b" }],
+    snapshot: async (path) => snapshot(path),
+  });
+  await render().connect({ address: "a", token: "token" });
+  await render().open("/a");
+  const removing = render().forgetProject("/a");
+  await render().open("/b");
+  pending.resolve();
+  assert.equal(await removing, false);
+  assert.equal(render().snapshot.project.path, "/b");
+});
+
 test("the Projects order survives a relaunch, per computer", async () => {
   const { createProjectOrderStore } = require("../apps/mobile/src/project-order-store.ts");
   const disk = new Map();
   const store = createProjectOrderStore({ getItemAsync: async (key) => disk.get(key) ?? null, setItemAsync: async (key, value) => void disk.set(key, value) });
   const launch = async (url, recent) => {
     const render = sessionHost(
-      { url, call: async (method) => (method === "project:recent" ? recent : {}) },
+      { url, call: async (method) => (method === "project:recent" ? recent : {}), live: () => ({ close() {} }) },
       {
         effects: true,
         AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
@@ -1180,6 +3151,79 @@ test("a poll from the previous Project cannot restore it after another Project o
   assert.equal(render().snapshot.project.path, "B");
   await oldSession.refresh();
   assert.equal(render().snapshot.project.path, "B");
+});
+
+test("Canvas opened from All Chats receives external Link changes without selecting a Project", async () => {
+  const { refreshLinks, linksOf } = require("../apps/mobile/src/links-store.ts");
+  let links = [];
+  const sockets = [];
+  const listeners = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener: (_event, listener) => {
+      listeners.add(listener);
+      return { remove: () => listeners.delete(listener) };
+    },
+  };
+  const setApp = (state) => {
+    AppState.currentState = state;
+    for (const listener of listeners) listener(state);
+  };
+  const client = {
+    url: "http://canvas-computer",
+    call: async (method) => (method === "canvas:links" ? links : []),
+    snapshot: async () => {
+      throw new Error("Canvas must not open a Project to receive Links");
+    },
+    runs: async () => {
+      throw new Error("No Project selected for runs");
+    },
+    live: (projectPath, options) => {
+      const socket = {
+        projectPath,
+        options,
+        closed: false,
+        close() {
+          this.closed = true;
+        },
+      };
+      sockets.push(socket);
+      return socket;
+    },
+  };
+  const render = sessionHost(client, { effects: true, AppState, refreshLinks });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  try {
+    await render().connect({ address: client.url, token: "token" });
+    assert.equal(render().snapshot, null, "All Chats has no selected Project");
+    assert.equal(sockets.length, 1, "computer-wide subscription starts before a Project is selected");
+    assert.equal(sockets[0].projectPath, "");
+    sockets[0].options.onStatus(true);
+    await settle();
+    assert.deepEqual(linksOf(client).links, []);
+    links = [{ id: "external", a: { project_id: "a" }, b: { project_id: "b" }, created_at: "" }];
+    sockets[0].options.onSignal("links");
+    await settle();
+    assert.deepEqual(linksOf(client).links, links, "addition reaches the Canvas store without remount or refresh");
+    links = [];
+    sockets[0].options.onSignal("links");
+    await settle();
+    assert.deepEqual(linksOf(client).links, [], "removal reaches the Canvas store without remount or refresh");
+    setApp("background");
+    assert.equal(sockets[0].closed, true);
+    links = [{ id: "missed", a: { project_id: "a" }, b: { project_id: "b" }, created_at: "" }];
+    setApp("active");
+    assert.equal(sockets[1].projectPath, "");
+    sockets[1].options.onStatus(true);
+    await settle();
+    assert.deepEqual(linksOf(client).links, links, "reconnection catches changes made while away");
+    render().disconnect();
+    assert.equal(render().client, null);
+    assert.equal(sockets[1].closed, true, "disconnect releases the computer-wide subscription");
+  } finally {
+    render.unmount();
+  }
+  assert.equal(listeners.size, 0);
 });
 
 test("the session fetches on live signals and polls only while the live socket is down", async (t) => {
@@ -1234,35 +3278,41 @@ test("the session fetches on live signals and polls only while the live socket i
   render();
   assert.deepEqual(
     sockets.map((socket) => socket.projectPath),
-    ["A"],
+    ["", "A"],
   );
+  assert.equal(sockets[0].closed, true, "selecting a Project closes the computer-wide socket");
   await snapshots(2, "opening fetches, then the sync fetches once");
   t.mock.timers.tick(4000);
   await snapshots(3, "it polls while the socket is not open (an older bridge)");
-  sockets[0].options.onStatus(true);
+  sockets[1].options.onStatus(true);
   await snapshots(4, "it catches up once the socket opens");
   t.mock.timers.tick(30000);
   await snapshots(4, "no polling while live");
-  sockets[0].options.onSignal("runs");
+  const before = render().snapshot;
+  sockets[1].options.onSignal("runs");
   await settle();
   assert.equal(fetched.runs, 1);
-  assert.equal(render().snapshot.runs.runs["A#1"].text, "streaming");
-  assert.equal(render().snapshot.project.path, "A");
-  sockets[0].options.onSignal("project");
+  const live = render();
+  assert.equal(live.snapshot, before, "a runs read leaves the snapshot every screen reads as it is");
+  const runsNow = () => render().runsStore.runsFor(`${render().client.url}|A`, render().snapshot);
+  assert.equal(runsNow().runs["A#1"].text, "streaming", "its runs show from the runs store");
+  assert.equal(live.snapshot.project.path, "A");
+  sockets[1].options.onSignal("project");
   await snapshots(5);
-  sockets[0].options.onStatus(false);
+  assert.deepEqual(runsNow().runs, {}, "a whole read after it is newer: its runs show");
+  sockets[1].options.onStatus(false);
   await snapshots(6, "losing the socket fetches at once");
   t.mock.timers.tick(4000);
   await snapshots(7, "and polls again");
   setApp("background");
-  assert.equal(sockets[0].closed, true, "the socket closes in the background");
+  assert.equal(sockets[1].closed, true, "the socket closes in the background");
   t.mock.timers.tick(30000);
   await snapshots(7, "and nothing polls");
   setApp("active");
-  assert.equal(sockets.length, 2, "it opens again in the foreground");
+  assert.equal(sockets.length, 3, "it opens again in the foreground");
   await snapshots(8);
   render.unmount();
-  assert.equal(sockets[1].closed, true);
+  assert.equal(sockets[2].closed, true);
 });
 
 test("disconnect cancels a connection that is still loading recent Projects", async () => {
@@ -1284,6 +3334,12 @@ function find(node, predicate) {
     if (found) return found;
   }
 }
+function findAll(node, predicate, found = []) {
+  if (!node || typeof node !== "object") return found;
+  if (predicate(node)) found.push(node);
+  for (const child of [node.props?.children].flat(Infinity)) findAll(child, predicate, found);
+  return found;
+}
 function chatHost({
   pickAttachments = async () => [],
   preparePastedImage = async () => {},
@@ -1291,11 +3347,39 @@ function chatHost({
   effects = false,
   alert = () => {},
   linear = { active: false },
+  browserShortcut = null,
+  routines = [],
+  routinesOn = true,
+  localOutbox,
+  computers,
+  screenWidth = 402,
+  split = phoneSplit,
+  contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" },
+  contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false },
+  now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
+  // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
+  pane: asPane,
 } = {}) {
   const sending = deferred();
   const calls = [];
   const choices = [];
+  // The Chat's Undo changes state: a stand-in for the shared hook, which has its own test.
+  const undo = {
+    view: "closed",
+    tasks: [],
+    preview: null,
+    opened: 0,
+    inspected: [],
+    async open() {
+      undo.opened++;
+      undo.view = "list";
+    },
+    async inspect(id) {
+      undo.inspected.push(id);
+      undo.view = "preview";
+    },
+  };
   const panels = {
     gesture: {},
     open: null,
@@ -1304,11 +3388,18 @@ function chatHost({
       this.open = side;
       this.shown.push(side);
     },
+    showChanges() {
+      this.show("right");
+    },
+    showPullRequest(key) {
+      this.show(key ? `right:pr:${key}` : "right:pr");
+    },
   };
   const params = { worktreeId: "1" };
   const session = {
     designs: designsOn,
     client: {
+      upload: async (_project, name) => ({ path: `/p/uploads/${name}` }),
       url: "mac",
       call: (method, args) => {
         calls.push({ method, args });
@@ -1331,6 +3422,11 @@ function chatHost({
     attachments: {},
     setAttachments(fn) {
       this.attachments = fn(this.attachments);
+    },
+    quotes: {},
+    // Called detached, as React's setter is.
+    setQuotes: (fn) => {
+      session.quotes = fn(session.quotes);
     },
     preferences: {},
     compactRequests: {},
@@ -1373,11 +3469,17 @@ function chatHost({
     Linking: {},
     StyleSheet: { absoluteFill: {} },
     useColorScheme: () => "light",
+    useWindowDimensions: () => ({ width: screenWidth, height: 874 }),
   };
   const icons = new Proxy({}, { get: (_, name) => String(name) });
   const router = {
-    setParams: (values) => Object.assign(params, values),
-    push() {},
+    setParams: (values) => {
+      if (router.deferParams) router.pendingParams = { ...router.pendingParams, ...values };
+      else Object.assign(params, values);
+    },
+    push(href) {
+      (router.pushed ??= []).push(href);
+    },
     replace(route) {
       router.replaced = route;
     },
@@ -1385,17 +3487,50 @@ function chatHost({
       router.backs = (router.backs ?? 0) + 1;
     },
   };
+  const beside = [];
   const { default: ChatScreen } = load("app/chat.tsx", {
+    "../split-context": { useSplit: () => split, useSplitLayout: () => split },
+    "../split-chats": {
+      ...load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }),
+      openBeside: (target) => beside.push(target),
+      // Every route to a Chat ends a split first (split-chats.ts): the beside Chat's state outlives the route.
+      closeBeside: () => (beside.closed = (beside.closed ?? 0) + 1),
+    },
+    "../chat-display-setting": {
+      useShowContextSize: () => [contextPreferences.showContextSize],
+      useCompactButtonDisplay: () => [contextPreferences.compactButtonDisplay],
+    },
+    "@milagre/shared/chat-display": require("@milagre/shared/chat-display"),
+    ...(localOutbox
+      ? {
+          "../outbox": {
+            outbox: localOutbox,
+            hasQueuedChat: (computerId, owner, sessionId) =>
+              localOutbox
+                .getSnapshot()
+                .items?.some(
+                  (item) => item.computerId === computerId && item.owner === owner && item.request.sessionId === sessionId && item.status !== "sent",
+                ) ?? false,
+            outboxAttachments: require("../apps/mobile/src/attachments.ts").outboxAttachments,
+          },
+        }
+      : {}),
+    ...(computers ? { "../all-computers": computers } : {}),
+    "react-native-reanimated": { default: { View: "AnimatedView" }, useAnimatedStyle: (style) => style() },
     "../hosts-native": { savedChatDefaults: chatDefaults },
     "../genui/GenerativeUI": { GenerativeUIProvider: "GenerativeUIProvider" },
     // A test can stand in for a host that keeps messages by Chat with globalThis.chatPage.
     "../chat-pages": {
-      useChatPage: (...args) => globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} },
+      useChatPage: (...args) => ({
+        trim() {},
+        ...(globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} }),
+      }),
     },
     "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
     "../archive-progress": archiveProgress,
     "../attention": { AttentionPill: () => null },
+    "../plan-pill": { PlanPill: () => null, PlanPanel: () => null, usePlanPanel: () => globalThis.planPanel ?? { phase: "closed" } },
     "../chat-actions": load("chat-actions.ts", {
       "react-native": { Alert: { alert } },
       "expo-clipboard": { setStringAsync: async () => {} },
@@ -1405,20 +3540,29 @@ function chatHost({
     }),
     "@milagre/shared/message-navigation": require("@milagre/shared/message-navigation"),
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+    "@milagre/shared/provider-capabilities": require("@milagre/shared/provider-capabilities"),
+    "@milagre/shared/queued-messages": require("@milagre/shared/queued-messages"),
     "../message-navigation": { MessageNavigation: "MessageNavigation" },
+    "../queued-messages": { QueuedMessages: "QueuedMessages" },
     "../prompt-field": { PromptField: "PromptField" },
     "../context-ring": { ContextRing: "ContextRing" },
+    "../context-settings": { useContextSettings: () => ({ settings: contextSettings }) },
+    "@milagre/shared/use-compaction-feedback": { useCompactionFeedback: () => null },
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
-    "../browser": { BrowserChip: "BrowserChip" },
-    "../ports": { PortsChip: "PortsChip" },
+    "../browser": { useBrowserShortcut: (options) => (typeof browserShortcut === "function" ? browserShortcut(options) : browserShortcut) },
+    "../ports": { PortsChip: "PortsChip", useChatPorts: () => noPorts },
     "../terminal": { TerminalChip: "TerminalChip", terminalPlaces: () => undefined },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": native,
     "expo-router": {
       Redirect: "Redirect",
-      Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Menu: "ToolbarMenu", MenuAction: "ToolbarMenuAction", Button: "ToolbarButton" }) },
+      Stack: {
+        Screen: "Screen",
+        Toolbar: Object.assign(() => null, { Menu: "ToolbarMenu", MenuAction: "ToolbarMenuAction", Button: "ToolbarButton", View: "ToolbarView" }),
+      },
       router,
       useNavigation: () => ({ setParams: (values) => Object.assign(params, values) }),
       useLocalSearchParams: () => params,
@@ -1431,7 +3575,8 @@ function chatHost({
     "../indicators": require("../apps/mobile/src/indicators.ts"),
     "../icons": { Icon: "Icon" },
     "../bottom-fade": { BottomFade: "BottomFade", EdgeFade: "EdgeFade" },
-    "../side-panels": { useSidePanels: () => panels, PanelSwipe: ({ children }) => children },
+    "../side-panels": { useSidePanels: () => panels, PanelSwipe: "PanelSwipe" },
+    "../read-open-chat": { useReadOpenChat() {} },
     "../loading-logo": { LoadingLogo: "LoadingLogo" },
     "../use-open-project": load("use-open-project.ts", {
       react,
@@ -1439,8 +3584,13 @@ function chatHost({
       "./session": { useSession: () => session },
     }),
     "../dot-background": { useDotBackground: () => ({}) },
-    "react-native-keyboard-controller": { KeyboardChatScrollView: "KeyboardChatScrollView", KeyboardStickyView: "KeyboardStickyView" },
-    "../running-logo": { ThinkingIndicator: "ThinkingIndicator" },
+    "react-native-keyboard-controller": {
+      KeyboardChatScrollView: "KeyboardChatScrollView",
+      KeyboardStickyView: "KeyboardStickyView",
+      useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
+      useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
+    },
+    "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/model": require("@milagre/shared/model"),
     "@milagre/shared/agent-runs": { ...require("@milagre/shared/agent-runs"), lastUserModel: () => "" },
@@ -1449,13 +3599,46 @@ function chatHost({
     "@milagre/shared/linear": require("@milagre/shared/linear"),
     "@milagre/shared/archive": require("@milagre/shared/archive"),
     "../use-linear": { useLinear: () => linear },
+    "../use-routines": {
+      useRoutines: () => ({ routines, enabled: routinesOn, unavailable: null, error: "", loading: false, refresh: async () => {}, update: async () => {} }),
+    },
+    "../chat-row-store": { useActivityClock: (on) => (on ? now : 0) },
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
-    "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "../session": {
+      useSession: () => session,
+      useMainSession: () => session,
+      useComposer: () => session,
+      usePendingChats: () => session,
+      // The Chat's streaming turn, read live from the test's snapshot as the session's runs store would hand it out.
+      useRun: (key) => (key ? session.snapshot?.runs?.runs[key] : undefined),
+      sameSession: (a, b) => a === b,
+    },
+    "../pending-chats": require("../apps/mobile/src/pending-chats.ts"),
+    "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
-    // A test can show the Chat's open PR with globalThis.chatPullRequest.
-    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip", usePullRequest: () => globalThis.chatPullRequest ?? null },
+    // A test can show the Worktree branch's PR with globalThis.chatPullRequest, and PRs the Chat named with globalThis.chatNamedPullRequests.
+    "../status-indicators": {
+      PullRequestAction: "PullRequestAction",
+      PullRequestMerge: "PullRequestMerge",
+      PullRequestReview: "PullRequestReview",
+      HeaderPullRequestChip: "HeaderPullRequestChip",
+      SubagentChip: "SubagentChip",
+      BackgroundRing: "BackgroundRing",
+    },
+    "../use-chat-pull-requests": {
+      useChatPullRequests: (_client, targets) =>
+        Object.fromEntries(
+          targets.map(({ path }) => [
+            path,
+            {
+              branch: globalThis.branchPullRequests ? globalThis.branchPullRequests[path] : globalThis.chatPullRequest,
+              found: globalThis.chatNamedPullRequests ?? {},
+            },
+          ]),
+        ),
+    },
     "../questions": { Approval: "Approval", Questions: "Questions" },
     "../chat-reply": { ChatReply: "ChatReply" },
     "../design-outbox": require("../apps/mobile/src/design-outbox.ts"),
@@ -1468,16 +3651,33 @@ function chatHost({
     "../handoff-divider": { HandoffDivider: "HandoffDivider" },
     "../worktree-link-divider": { WorktreeLinkDivider: "WorktreeLinkDivider" },
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
+    "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
+    "../chat-reload-divider": { ChatReloadDivider: "ChatReloadDivider" },
+    "../babysit-stopped-divider": { BabysitStoppedDivider: "BabysitStoppedDivider" },
+    "@milagre/shared/babysit": require("@milagre/shared/babysit"),
+    "../routine-run-divider": { RoutineRunDivider: "RoutineRunDivider" },
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
+    "../checkpoint-restore-divider": { CheckpointRestoreDivider: "CheckpointRestoreDivider" },
+    "@milagre/shared/checkpoint-restore": require("@milagre/shared/checkpoint-restore"),
+    "@milagre/shared/use-checkpoints": { useCheckpoints: (api, chatId) => Object.assign(undo, { api, chatId }) },
+    "../undo-panel": { UndoPanel: "UndoPanel" },
     "../handoff-brief-store": { showBrief() {} },
     "@milagre/shared/handoff": require("@milagre/shared/handoff"),
     "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
     "@milagre/shared/compaction": require("@milagre/shared/compaction"),
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "../archive": require("../apps/mobile/src/archive.ts"),
     "../confirm-store": { confirmSheet: (...args) => alert(...args) },
+    // keep-awake-ask.test.ts covers the question; here it records which Mac each opened Chat asks about.
+    "../keep-awake-ask": { askKeepAwake: async ({ hostId }) => void (globalThis.keepAwakeAsks ??= []).push(hostId) },
   });
   const render = () => {
     react.begin();
-    const tree = ChatScreen();
+    // The screen holds the routed Chat's pane, and on a wide iPad a second one beside it, which a phone never shows.
+    const screen = ChatScreen();
+    const pane = find(screen, (node) => typeof node.type === "function" && node.props.pane);
+    const tree = pane.type(asPane ? { ...pane.props, pane: asPane, onClose: () => (router.closed = (router.closed ?? 0) + 1) } : pane.props);
     react.flush();
     return tree;
   };
@@ -1485,8 +3685,9 @@ function chatHost({
     const props = find(render(), (node) => node.type === "PromptField").props;
     return { ...props, value: props.draft };
   };
-  const send = () => find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up"].includes(node.props.label)).props.onPress();
-  return { session, sending, params, field, send, render, router, calls, choices, panels };
+  const send = () =>
+    find(render(), (node) => node.type === "IconButton" && ["Send message", "Send now", "Queue message"].includes(node.props.label)).props.onPress();
+  return { session, sending, params, field, send, render, router, calls, choices, panels, undo, beside };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -1527,7 +3728,13 @@ function subagentsHost({ call = async () => {} } = {}) {
     "@milagre/shared/project-edits": require("@milagre/shared/project-edits"),
     "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
     "../session": { useSession: () => session },
-    "../subagent-item": { SubagentItem: "SubagentItem" },
+    "../subagent-glance": {
+      SubagentRow: "SubagentRow",
+      WholeSubagentDetail: "WholeSubagentDetail",
+      elapsed: () => "1s",
+      subagentRunning: (agent) => ["initializing", "running", "waiting"].includes(agent.status),
+      useClock: () => 0,
+    },
     "../icons": { Icon: "Icon" },
     "../ui": {
       CircleButton: "CircleButton",
@@ -1544,12 +3751,13 @@ function subagentsHost({ call = async () => {} } = {}) {
     return AgentsSheet();
   };
   const button = (title) => find(render(), (node) => node.props?.title === title || node.props?.label === title);
-  return { render, button, calls, state, session };
+  const open = (id) => find(render(), (node) => node.type === "SubagentRow" && node.props.agent.id === id).props.onPress();
+  return { render, button, open, calls, state, session };
 }
 
 test("mobile archives finished subagents without offering archived browsing", async () => {
   const host = subagentsHost();
-  const archive = host.button("Archive finished subagents");
+  const archive = host.button("Archive finished");
   assert.ok(archive, "the sheet must offer bulk archive");
   await archive.props.onPress();
   assert.deepEqual(host.calls[0], { method: "chat:archive-finished-subagents", args: ["/project", 7] });
@@ -1557,17 +3765,21 @@ test("mobile archives finished subagents without offering archived browsing", as
     host.state.sessions[7].subagents.filter((agent) => agent.archived).map((agent) => agent.id),
     ["completed", "failed", "cancelled"],
   );
-  assert.equal(host.button("Archive finished subagents").props.disabled, true);
+  assert.equal(host.button("Archive finished").props.disabled, true);
   assert.equal(host.button("Archived (3)"), undefined);
   assert.equal(host.button("Restore completed"), undefined);
   assert.equal(
-    find(host.render(), (node) => node.type === "SubagentItem" && node.props.agent.archived),
+    find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.archived),
     undefined,
   );
-  await host.button("Archive running").props.onPress();
+  // One subagent is archived from its detail, which closes back to the list.
+  host.open("running");
+  assert.ok(find(host.render(), (node) => node.type === "WholeSubagentDetail" && node.props.agent?.id === "running" && node.props.read));
+  host.button("Archive subagent").props.onPress();
+  await settle();
   assert.deepEqual(host.calls[1], { method: "chat:archive-subagent", args: ["/project", 7, "running", true] });
   assert.equal(
-    find(host.render(), (node) => node.type === "SubagentItem" && node.props.agent.id === "running"),
+    find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.id === "running"),
     undefined,
   );
 });
@@ -1575,12 +3787,12 @@ test("mobile archives finished subagents without offering archived browsing", as
 test("mobile blocks duplicate archive taps and reports a failed request without hiding entries", async () => {
   const pending = deferred();
   const host = subagentsHost({ call: () => pending.promise });
-  const archive = host.button("Archive finished subagents");
+  const archive = host.button("Archive finished");
   assert.ok(archive, "the sheet must offer bulk archive");
   const first = archive.props.onPress();
   await archive.props.onPress();
   assert.equal(host.calls.length, 1);
-  assert.equal(host.button("Archive finished subagents").props.disabled, true);
+  assert.equal(host.button("Archive finished").props.disabled, true);
   pending.reject(new Error("Computer disconnected"));
   await first;
   assert.match(find(host.render(), (node) => node.type === "ErrorNotice").props.message, /Computer disconnected/);
@@ -1588,21 +3800,64 @@ test("mobile blocks duplicate archive taps and reports a failed request without 
     host.state.sessions[7].subagents.some((agent) => agent.archived),
     false,
   );
-  assert.equal(host.button("Archive finished subagents").props.disabled, false);
+  assert.equal(host.button("Archive finished").props.disabled, false);
 });
 
 test("archived-only subagents hide the mobile Chat menu action and pill", () => {
   const chat = chatHost();
   chat.params.id = "7";
   chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, subagents: [{ id: "done", status: "completed", archived: true }] };
-  assert.equal(
-    find(chat.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Subagents"),
-    undefined,
-  );
+  assert.equal(chatMenuEntry(chat.render(), "Subagents"), undefined);
   assert.equal(
     find(chat.render(), (node) => node.type === "SubagentChip"),
     undefined,
   );
+});
+
+test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the list in the composer's place, and an undo line's Redo previews", async () => {
+  const chat = chatHost();
+  chat.params.id = "7";
+  const state = chat.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1 };
+  state.messages.push(
+    { id: 1, session_id: 7, role: "user", body: "Edit login", context: null },
+    {
+      id: 2,
+      session_id: 7,
+      role: "assistant",
+      body: "Undid 2 files",
+      context: { kind: "checkpoint-restore", checkpointId: "t", recoveryId: "r", restored: 2, kept: 0, redo: false },
+    },
+  );
+  chat.render();
+  assert.equal(chat.undo.chatId, "/p#7");
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [
+    { name: "undo", description: "Undo a task's file changes" },
+    { name: "storage", description: "Clean up old worktrees on this computer" },
+  ]);
+  chatMenuEntry(chat.render(), "Undo changes").props.onPress();
+  assert.equal(chat.undo.opened, 1);
+  let tree = chat.render();
+  assert.ok(find(tree, (node) => node.type === "UndoPanel"));
+  assert.equal(
+    find(tree, (node) => node.type === "PromptField"),
+    undefined,
+    "the panel takes the composer's place",
+  );
+  chat.undo.view = "closed";
+  chat.field().onChangeText("/undo");
+  assert.equal(await chat.send(), undefined);
+  assert.equal(chat.undo.opened, 2);
+  assert.equal(
+    chat.calls.some((call) => call.method === "chat:send"),
+    false,
+    "/undo never reaches the agent",
+  );
+  chat.undo.view = "closed";
+  tree = chat.render();
+  find(tree, (node) => node.type === "CheckpointRestoreDivider").props.onPreview("r", "Redo");
+  assert.deepEqual(chat.undo.inspected, ["r"]);
+  assert.equal(find(chat.render(), (node) => node.type === "UndoPanel").props.intent, "Redo");
 });
 
 test("the mobile composer loads skills from the selected Chat Worktree", () => {
@@ -1637,8 +3892,9 @@ test("a mobile Link draft sends through its canonical owner and retries the same
   });
   chat.params.worktreeId = "0";
   chat.session.drafts = { [`${owner}#new:0`]: "Update both Projects" };
+  assert.equal(chat.field().projectPath, "", "A new shared draft never selects a primary Project for files");
   // The Link's key reads every member Project's skills, never one primary Project's.
-  assert.equal(chat.field().projectPath, owner, "A new shared draft reads its skills through the Link");
+  assert.equal(chat.field().skillScope, owner, "A new shared draft reads its skills through the Link");
   await chat.send();
   await settle();
   assert.equal(chat.field().value, "Update both Projects", "Failure restores the draft");
@@ -1655,6 +3911,60 @@ test("a mobile Link draft sends through its canonical owner and retries the same
     false,
   );
   assert.equal(chat.params.id, "42");
+});
+
+test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Worktree", () => {
+  const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
+  const member = (projectId) => ({ projectId, projectPath: `/${projectId}`, worktreePath: `/wt/${projectId}`, branch: `milagre/${projectId}`, base: "main" });
+  const pr = (number, state) => ({ number, title: `Change ${number}`, url: `https://github.com/o/${number}/pull/${number}`, state, readyToMerge: false });
+  globalThis.branchPullRequests = {
+    "/wt/api": { ...pr(12, "MERGED"), url: "https://github.com/o/api/pull/12" },
+    "/wt/web": { ...pr(12, "OPEN"), url: "https://github.com/o/web/pull/12" },
+  };
+  globalThis.openedPullRequests = [];
+  try {
+    const chat = chatHost({ effects: true });
+    const link = {
+      link: { id, name: "Food", projectIds: ["api", "web"] },
+      projects: [
+        { id: "api", path: "/api", name: "API" },
+        { id: "web", path: "/web", name: "Web" },
+      ],
+      state: {
+        next_id: 43,
+        sessions: { 42: { id: 42, provider: "codex", workspacePath: "/links/food/42", worktrees: [member("api"), member("web")] } },
+        messages: [],
+        preparations: {},
+      },
+    };
+    chat.session.snapshot = require("../apps/mobile/src/chat-scope.ts").phoneSnapshot({ link, runs: { runs: {} } });
+    chat.params.id = "42";
+    const tree = chat.render();
+    const key = `${chat.session.snapshot.project.path}#42`;
+    // Both Projects opened a #12: the open one comes first, and each is read in its own Worktree.
+    const choices = globalThis.prChat.chatPullRequestChoices(key);
+    assert.equal(
+      JSON.stringify(choices.map(({ number, state, cwd, project, projectPath }) => [number, state, cwd, project, projectPath])),
+      JSON.stringify([
+        [12, "OPEN", "/wt/web", "Web", "/web"],
+        [12, "MERGED", "/wt/api", "API", "/api"],
+      ]),
+    );
+    // The header's PR chip opens the open one, in the web Project's Worktree.
+    const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
+    assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
+    const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
+    assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
+    assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
+    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), true);
+    assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
+    assert.equal(chat.router.pushed.at(-1).params.url, "https://github.com/o/unrelated/pull/12");
+    assert.equal(globalThis.openedPullRequests.length, 2);
+  } finally {
+    delete globalThis.branchPullRequests;
+    delete globalThis.openedPullRequests;
+  }
 });
 
 test("browsing another Project in the drawer leaves the current Chat selected", async () => {
@@ -1723,6 +4033,63 @@ test("cancelling a computer switch preserves the active Chat selection", async (
   assert.equal(before.isSelected(), true);
 });
 
+test("a draft's computer switch keeps its old client and Project until the destination is ready", async () => {
+  const loading = deferred();
+  const old = { url: "mac", call: async () => [], snapshot: async (path) => snapshot(path) };
+  const next = { url: "studio", call: async () => [], recentScopes: async () => [], open: () => loading.promise };
+  const render = sessionHost(old, { clientFactory: (host) => (host.address === "studio" ? next : old) });
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/current");
+  const commits = [];
+  const switching = render().connect({ address: "studio", token: "token" }, false, {
+    projectPath: "/other",
+    onOpen: (state) => commits.push(state.project.path),
+  });
+  await settle();
+  assert.equal(render().client, old);
+  assert.equal(render().snapshot.project.path, "/current");
+  assert.equal(render().isSelected(), true);
+  assert.deepEqual(commits, []);
+  loading.resolve(snapshot("/other"));
+  assert.equal(await switching, true);
+  assert.equal(render().client, next);
+  assert.equal(render().snapshot.project.path, "/other");
+  assert.equal(render().isSelected(), true);
+  assert.deepEqual(commits, ["/other"]);
+});
+
+test("failed or cancelled draft computer switches never commit a destination", async (t) => {
+  for (const cancel of [false, true])
+    await t.test(cancel ? "cancelled" : "failed", async () => {
+      const loading = deferred();
+      const old = { url: "mac", call: async () => [], snapshot: async (path) => snapshot(path) };
+      const next = { url: "studio", call: async () => [], recentScopes: async () => [], open: () => loading.promise };
+      const render = sessionHost(old, { clientFactory: (host) => (host.address === "studio" ? next : old) });
+      await render().connect({ address: "mac", token: "token" });
+      await render().open("/current");
+      let committed = false;
+      const switching = render().connect({ address: "studio", token: "token" }, false, {
+        projectPath: "/other",
+        onOpen: () => {
+          committed = true;
+        },
+      });
+      await settle();
+      if (cancel) {
+        render().cancelNavigation();
+        loading.resolve(snapshot("/other"));
+        assert.equal(await switching, false);
+      } else {
+        loading.reject(new Error("Computer unavailable"));
+        await assert.rejects(switching, /Computer unavailable/);
+      }
+      assert.equal(committed, false);
+      assert.equal(render().client, old);
+      assert.equal(render().snapshot.project.path, "/current");
+      assert.equal(render().isSelected(), true);
+    });
+});
+
 function resumeHost({ target = { hostId: "mac", projectPath: "/last", chatId: 3 }, state = snapshot("/last"), failure } = {}) {
   const react = hookHost();
   react.useEffect = react.effect;
@@ -1774,7 +4141,7 @@ test("launch restoration shows the splash animation while the saved Chat opens",
     find(tree, (node) => node.type === "SpinnerRing"),
     undefined,
   );
-  assert.ok(find(tree, (node) => node.props.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Reopening your Chat..."));
+  assert.ok(find(tree, (node) => node.props.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Reopening your Chat…"));
 });
 
 // The computer's Links as useLinks hands them out; none (an older Mac) unless a test gives some.
@@ -1788,9 +4155,71 @@ const linksState = ({ links = [], projects = [], available = projects.length > 0
 });
 const chatLinks = () => load("chat-links.ts", { "@milagre/shared/chat-links": require("@milagre/shared/chat-links") });
 
-function navigationHost(opening, { session: extra = {}, alert = () => {}, calls = [], activeChatId, effects = false, links = linksState() } = {}) {
+/**
+ * The sidebar's store as the tests see it: one computer built from the session (its Projects, its cached copies), or the
+ * `computers` a test lists, each `{ hostId, name, state, projects, copies }`.
+ */
+function allComputersFake(session, computers, storeCalls) {
+  const views = () =>
+    computers
+      ? computers.map((computer) => ({ loaded: true, errors: new Map(), lastSuccess: 1, ...computer, copies: new Map(Object.entries(computer.copies ?? {})) }))
+      : [
+          {
+            hostId: session.client.url,
+            name: "Mac",
+            state: "online",
+            loaded: true,
+            lastSuccess: 1,
+            projects: session.recent,
+            copies: new Map(session.recent.flatMap((item) => (session.cachedProject(item.path) ? [[item.path, session.cachedProject(item.path)]] : []))),
+            errors: new Map(),
+          },
+        ];
+  return {
+    useAllComputers: (options) => {
+      storeCalls.push(["use", options]);
+      return views();
+    },
+    useFoldedProjects: (ids) => new Map(ids.map((id) => [id, new Set()])),
+    allComputers: {
+      viewOf: (hostId) => views().find((view) => view.hostId === hostId),
+      // A computer of the test's may bring its own client (`computer.client`), to see what reached it.
+      clientFor: (hostId) =>
+        hostId === session.client.url
+          ? session.client
+          : (computers?.find((computer) => computer.hostId === hostId)?.client ?? { url: hostId, call: async () => {} }),
+      hostFor: (hostId) => ({ id: hostId, name: views().find((view) => view.hostId === hostId)?.name ?? "Mac", address: hostId, token: "token", lastUsed: 0 }),
+      refreshProject: async (hostId, path) => {
+        storeCalls.push(["refreshProject", hostId, path]);
+        return session.previewProject(path);
+      },
+      refreshAll: async () => {
+        storeCalls.push(["refreshAll"]);
+      },
+    },
+  };
+}
+
+function navigationHost(
+  opening,
+  {
+    session: extra = {},
+    alert = () => {},
+    calls = [],
+    activeChatId,
+    effects = false,
+    links = linksState(),
+    AppState = { currentState: "active", addEventListener: () => ({ remove() {} }) },
+    routinesAvailable = true,
+    chatList = "grouped",
+    computers,
+  } = {},
+) {
   const react = hookHost({ effects });
   const linkRequests = [];
+  const prRequests = [];
+  const choiceRequests = [];
+  const storeCalls = [];
   const routes = [];
   const secondaryRoutes = [];
   const opened = [];
@@ -1815,8 +4244,20 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
     reloadProjects: async () => {
       calls.push(["reload"]);
     },
+    forgetProject: async (path) => {
+      await session.client.call("project:forget", [path]);
+      await session.reloadProjects();
+      return true;
+    },
     cachedProject: () => undefined,
+    openCachedChat: () => null,
     previewProject: async () => state,
+    openNotificationTargetCalls: [],
+    openNotificationTarget: async (...args) => {
+      session.openNotificationTargetCalls.push(args);
+      return true;
+    },
+    connect: async () => true,
     ...extra,
   };
   const native = { Alert: { alert, prompt() {} } };
@@ -1845,10 +4286,26 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
   });
   // Groups folded by hand, as the phone's store keeps them; the tests start with none, so every group is open.
   const folded = new Set();
+  // Every Chat counts as listed here; the hidden Run Chat rule still applies (chat-list-filter.ts).
+  const chats = {
+    ...require("@milagre/shared/chats"),
+    isListedChat: (chat, count, waiting) => !require("@milagre/shared/chats").isHiddenRunChat(chat, waiting),
+  };
+  // A row renders apart (NavigationRow, memoized); renderItem hands the tests the row as drawn, as before.
+  const drawRows = (type, props, key) => (type?.name === "NavigationRow" ? type(props) : jsx(type, props, key));
+  // A route to a Chat ends any split first (split-chats.ts); `closedSplits` counts how often.
+  const closedSplits = [];
   const { ProjectNavigation } = load("project-navigation.tsx", {
-    react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
-    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "./split-chats": {
+      ...load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }),
+      closeBeside: () => closedSplits.push(1),
+    },
+    "./update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge" },
+    react: { ...react, useSyncExternalStore: (_subscribe, read) => read(), memo: (component) => component, useLayoutEffect: (fn) => fn() },
+    "react/jsx-runtime": { jsx: drawRows, jsxs: drawRows },
     "./hosts-native": {
+      // No new Chat has started on this phone yet, so New Chat opens in the open Project.
+      savedChatDefaults: { readLastProject: () => null },
       savedFoldedProjects: {
         subscribe: () => () => {},
         folded: () => folded,
@@ -1858,18 +4315,27 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
       },
     },
     "react-native": {
-      ...Object.fromEntries(["FlatList", "KeyboardAvoidingView", "Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
+      ...Object.fromEntries(["FlatList", "Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
       ...native,
+      AppState,
       Platform: { OS: "ios" },
       StyleSheet: { create: (styles) => styles },
     },
     "expo-clipboard": { setStringAsync: async () => {} },
     "@hugeicons/core-free-icons": {},
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
-    "@milagre/shared/chats": { ...require("@milagre/shared/chats"), isListedChat: () => true },
+    "@milagre/shared/chats": chats,
+    "./chat-swipe-row": { ChatSwipeRow: "ChatSwipeRow" },
+    // Every Mac keeps Done unless a test plays an older one (globalThis.olderMac): it answers no retention.
+    "./done-retention": { useDoneRetention: () => (globalThis.olderMac ? {} : new Proxy({}, { get: () => 24 })), retentionOf: () => 24 },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./chat-list-filter": load("chat-list-filter.ts", { "@milagre/shared/chats": chats }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
     "@milagre/shared/message-search": require("@milagre/shared/message-search"),
-    "./session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "./session": { useSession: () => session, useListSnapshot: () => session.snapshot ?? null, useComposer: () => session, usePendingChats: () => session },
+    "./live": require("../apps/mobile/src/live.ts"),
     "./use-links": { useLinks: () => links },
     "./chat-links": chatLinks(),
     "./link-actions": {
@@ -1879,8 +4345,9 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
     "./turn-options": require("../apps/mobile/src/turn-options.ts"),
     "./indicators": require("../apps/mobile/src/indicators.ts"),
     "./status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
-    "./use-chat-pull-requests": { useChatPullRequests: () => ({}) },
+    "./use-chat-pull-requests": { useComputerChatPullRequests: (targets) => (prRequests.push(targets), extra.prStatus ?? {}) },
     "./use-linear": { useLinear: () => ({ active: false }) },
+    "./use-routines": { useRoutinesAvailable: () => routinesAvailable },
     "./use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "@milagre/shared/chat-row": require("../packages/shared/src/chat-row.ts"),
     "./chat-row-store": {
@@ -1908,6 +4375,8 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
       "./confirm-store": confirmStore,
     }),
     "@milagre/shared/chat-scopes": require("@milagre/shared/chat-scopes"),
+    "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
+    "./link-delete": load("link-delete.ts", { "./confirm-store.ts": confirmStore, "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link") }),
     "./accounts-section": { AccountsSection: "AccountsSection" },
     "./confirm-store": confirmStore,
     "./app/settings": { SettingsView: "SettingsView" },
@@ -1915,6 +4384,33 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
     "./usage-section": { UsageSection: "UsageSection" },
     "./project-icon": { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" },
     "./project-search": { ProjectSearch: "ProjectSearch" },
+    "./chat-display-setting": { useChatList: () => [chatList, () => {}] },
+    "./chat-list-controls": {
+      ChatListControls: "ChatListControls",
+      CONTROLS_HEIGHT: 48,
+      useControlsVisibility: () => ({ hidden: {}, onScroll() {}, reveal() {} }),
+      useControlsBottomInset: () => 96,
+    },
+    "./choice-store": { showChoiceSheet: (request) => choiceRequests.push(request) },
+    "./chat-list-order": load("chat-list-order.ts", { "@milagre/shared/chats": chats }),
+    "./computer-actions": { isDesktopComputer: () => false },
+    "./new-chat-project": load("new-chat-project.ts", {}),
+    "./app-version": { appVersionLine: () => "1.2.3" },
+    "expo-haptics": { selectionAsync: async () => {} },
+    "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
+    // A Project header drags to reorder; the gesture and animation libs are stubbed so building the module here never
+    // touches the native layer (the reorder itself is the project-order-store's own unit test).
+    "react-native-gesture-handler": { Gesture: gestureStub(), GestureDetector: "GestureDetector" },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      useAnimatedStyle: (fn) => fn(),
+      useSharedValue: (value) => ({ get: () => value, set: () => {} }),
+    },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+    // Its moveProject computes the dragged Project's new order; the real pure module, since it has no native deps.
+    "./project-order-store": require("../apps/mobile/src/project-order-store.ts"),
+    // The store's polling is the store's own test; here each computer's views come from the test's session or `computers`.
+    "./all-computers": allComputersFake(session, computers, storeCalls),
   });
   const render = () => {
     react.begin();
@@ -1933,11 +4429,373 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
     return list.props.renderItem({ item: list.props.data.filter((item) => item.kind === kind)[index] });
   };
   // A row's tap target is the menu that also has onPress; its ⋯ is the menu without one.
-  const open = (node) => find(node, (child) => child.type === "PullDown" && child.props.onPress);
+  // The row's menu is its PullDown with the actions (onSelect). A Project header's menu is its ⋯ button (no onPress);
+  // the Chats and Done rows keep their menu on the row itself (onPress folds, long press opens).
+  const open = (node) => find(node, (child) => child.type === "PullDown" && child.props.onSelect);
   const more = (node) => find(node, (child) => child.type === "PullDown" && !child.props.onPress);
-  const filter = () => find(render(), (node) => node.type === "PullDown" && node.props.label === "Filter Chats");
-  return { state, session, routes, secondaryRoutes, opened, calls, external, render, rows, row, open, more, filter, linkRequests };
+  return {
+    state,
+    session,
+    routes,
+    secondaryRoutes,
+    opened,
+    calls,
+    external,
+    render,
+    rows,
+    row,
+    open,
+    more,
+    linkRequests,
+    prRequests,
+    choiceRequests,
+    storeCalls,
+    closedSplits,
+    unmount: react.unmount,
+  };
 }
+
+test("the Project icon count folds a family without opening its Chat in grouped and One list layouts", () => {
+  for (const chatList of ["grouped", "list"]) {
+    const nav = navigationHost(Promise.resolve(), { chatList });
+    nav.state.project.state.sessions[4] = { id: 4, worktree_id: 1, title: "Parent" };
+    nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, title: "Child", parent: 4 };
+    const family = () => {
+      const list = nav.rows();
+      const parent = list.props.data.find((item) => item.kind === "chat" && item.chat.id === 4);
+      assert.ok(parent, `${chatList} lists the parent`);
+      return list.props.renderItem({ item: parent });
+    };
+    const badge = (label) => find(family(), (node) => node.type === "Pressable" && node.props.accessibilityLabel === label);
+    const count = badge("Show 1 subchat");
+    assert.ok(count, `${chatList} has an independent count button`);
+    assert.equal(textOf(count), "1");
+    assert.equal(count.props.hitSlop, 12);
+    assert.ok(find(family(), (node) => node.type === "ProjectIcon"));
+    count.props.onPress();
+    assert.ok(nav.rows().props.data.some((item) => item.kind === "chat" && item.chat.id === 5));
+    assert.equal(badge("Hide 1 subchat").props.accessibilityState.expanded, true);
+    assert.equal(nav.opened.length, 0, "tapping the count does not open the parent");
+    assert.equal(nav.routes.length, 0);
+    badge("Hide 1 subchat").props.onPress();
+    assert.ok(!nav.rows().props.data.some((item) => item.kind === "chat" && item.chat.id === 5));
+    nav.unmount();
+  }
+});
+
+test("a subchat's row opens it alone, closing any split, and the open subchat's family is unfolded around it", () => {
+  const nav = navigationHost(Promise.resolve(), { activeChatId: 5, effects: true });
+  nav.state.project.state.sessions[4] = { id: 4, worktree_id: 1, title: "Parent" };
+  nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, title: "Child", parent: 4 };
+  nav.state.project.state.sessions[6] = { id: 6, worktree_id: 1, title: "Grandchild", parent: 5 };
+  nav.render();
+  const data = () => nav.rows().props.data.filter((item) => item.kind === "chat");
+  assert.deepEqual(
+    JSON.stringify(
+      data()
+        .filter((item) => item.chat.id >= 4)
+        .map((item) => [item.chat.id, item.depth ?? 0]),
+    ),
+    JSON.stringify([
+      [4, 0],
+      [5, 1],
+      [6, 2],
+    ]),
+    "the family shows without a tap, a grandchild one level deeper",
+  );
+  const child = data().find((item) => item.chat.id === 5);
+  const press = find(nav.rows().props.renderItem({ item: child }), (node) => node.type === "PullDown" && node.props.onPress).props.onPress;
+  press();
+  assert.equal(nav.routes.length, 1);
+  assert.equal(JSON.stringify(nav.routes[0]), JSON.stringify({ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", id: "5" } }));
+  assert.equal(nav.closedSplits.length, 1, "the split ended before the route changed");
+  nav.unmount();
+});
+
+// The Subchat surfaces draw from these (subchat-ask-card.tsx, subchat-bookmark.tsx, subchat-note.tsx): what a screen reader
+// reads, which target is 44pt, and what never truncates.
+// Draws the components a Subchat surface hands on (the capsule's host, a note's card) one level, as React would.
+const expand = (node) => {
+  for (let drawn = node; ; drawn = drawn.type(drawn.props)) if (!drawn || typeof drawn.type !== "function") return drawn;
+};
+const subchatUi = (file) => {
+  const react = { ...hookHost(), memo: (fn) => fn };
+  return load(file, {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", useWindowDimensions: () => ({ width: 402, height: 874 }) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "./icons": { Icon: "Icon" },
+    "./primitives/pill-button": { PillButton: "PillButton" },
+    "./primitives/tap": { tap() {} },
+    "./attention": { useAttention: () => [] },
+  });
+};
+
+test("the ask pill keeps 'needs you' whole, lets the title truncate, wraps the question and opens the one Subchat", () => {
+  const { SubchatAskCard } = subchatUi("subchat-ask-card.tsx");
+  let opened = 0;
+  const card = SubchatAskCard({ title: "Write pill tests", rest: "1 working", ask: "Which badge should Closed use?", onOpen: () => opened++ });
+  assert.equal(card.props.accessibilityRole, "button");
+  assert.equal(card.props.accessibilityLabel, "Write pill tests needs you. 1 working. Which badge should Closed use?");
+  assert.equal(card.props.style({ pressed: false })[0].minHeight, 44);
+  const title = find(card, (node) => node.type === "Text" && node.props.children === "Write pill tests");
+  const verdict = find(card, (node) => node.type === "Text" && node.props.children === " needs you");
+  assert.equal(title.props.numberOfLines, 1, "the title gives way");
+  assert.equal(verdict.props.numberOfLines, undefined, "needs you never truncates");
+  assert.equal(verdict.props.style.flexShrink, 0);
+  const question = find(card, (node) => node.type === "Text" && node.props.children === "Which badge should Closed use?");
+  assert.equal(question.props.numberOfLines, undefined, "the question wraps");
+  card.props.onPress();
+  assert.equal(opened, 1);
+});
+
+test("the capsule is 32 tall with a 44 target, tints orange when the parent needs you and never truncates 'Needs you'", () => {
+  const { SubchatBookmarkHost } = subchatUi("subchat-bookmark.tsx");
+  const sessions = { 1: { id: 1, title: "Redesign the PR panel" }, 2: { id: 2, title: "Audit", parent: 1 } };
+  // The host hands the capsule its Bookmark; the capsule is drawn here, where a screen would draw it.
+  const draw = (runs) =>
+    expand(SubchatBookmarkHost({ sessions, chatKey: "/p#2", runs, top: 60, onBack: (key) => (drawn.backs = [...(drawn.backs ?? []), key]) }));
+  const drawn = {};
+  const calm = draw(undefined);
+  assert.equal(calm.props.style.top, 60);
+  assert.equal(calm.props.style.left, 16);
+  const calmButton = find(calm, (node) => node.type === "Pressable");
+  assert.equal(calmButton.props.accessibilityLabel, "Back to Redesign the PR panel");
+  assert.equal(calmButton.props.style({ pressed: false })[0].height, 32);
+  assert.deepEqual(JSON.stringify(calmButton.props.hitSlop), JSON.stringify({ top: 6, bottom: 6, left: 6, right: 6 }));
+  assert.equal(
+    find(calm, (node) => node.type === "Text" && node.props.children === "Needs you"),
+    undefined,
+  );
+  const needy = draw({ "/p#1": { approvals: [], questions: [{ requestId: "q", questions: [] }] } });
+  const needyButton = find(needy, (node) => node.type === "Pressable");
+  assert.equal(needyButton.props.accessibilityLabel, "Back to Redesign the PR panel, needs you");
+  assert.equal(needyButton.props.style({ pressed: false })[0].backgroundColor, "orangeTint");
+  const verdict = find(needy, (node) => node.type === "Text" && node.props.children === "Needs you");
+  assert.equal(verdict.props.style.color, "orangeInk");
+  assert.equal(verdict.props.numberOfLines, undefined);
+  assert.equal(find(needy, (node) => node.type === "Text" && node.props.children === "Redesign the PR panel").props.numberOfLines, 1, "the title gives way");
+  needyButton.props.onPress();
+  assert.equal(JSON.stringify(drawn.backs), JSON.stringify(["/p#1"]), "back goes to the direct parent");
+  assert.equal(SubchatBookmarkHost({ sessions, chatKey: "/p#1", runs: undefined, top: 60, onBack() {} }), null, "a top Chat has none");
+});
+
+test("a suggestion is a card with Send answer, Open Subchat and Dismiss; an outcome collapses it to one line, a dismissal to nothing", async () => {
+  const { SubchatNoteView } = subchatUi("subchat-note.tsx");
+  const note = {
+    kind: "subchat-suggestion",
+    id: "s1",
+    from: "/p#2",
+    fromTitle: "Write pill tests",
+    requestId: "r1",
+    question: "Which badge should Closed use?",
+    answerLabel: "Grey, like Draft",
+    answers: { q: ["Grey, like Draft"] },
+  };
+  const sent = [],
+    dismissed = [],
+    opened = [];
+  const draw = (outcomes = new Map()) =>
+    expand(
+      SubchatNoteView({
+        note,
+        outcomes,
+        onOpenChat: (key) => opened.push(key),
+        onSend: async (value) => (sent.push(value.id), true),
+        onDismiss: async (id) => dismissed.push(id),
+      }),
+    );
+  const card = draw();
+  const text = (node) => [node.props.children].flat(Infinity).join("");
+  assert.ok(find(card, (node) => node.type === "Text" && text(node) === "Write pill tests · Which badge should Closed use?"));
+  assert.ok(find(card, (node) => node.type === "Text" && text(node) === 'Send "Grey, like Draft" as your answer?'));
+  // PillButton is the real primitive here: an element carrying its title, not yet drawn.
+  const button = (title) => find(card, (node) => node.props?.title === title);
+  button("Send answer").props.onPress();
+  button("Open Subchat").props.onPress();
+  assert.equal(JSON.stringify(sent), JSON.stringify(["s1"]));
+  assert.equal(JSON.stringify(opened), JSON.stringify(["/p#2"]));
+  assert.equal(button("Dismiss").props.accessibilityLabel, "Dismiss the suggested answer from Write pill tests");
+  const outcome = (kind, label) => new Map([["s1", { kind: "subchat-suggestion-outcome", id: "s1", fromTitle: "Write pill tests", outcome: kind, label }]]);
+  const line = draw(outcome("sent", "Grey, like Draft"));
+  assert.equal(
+    find(line, (node) => node.props?.title === "Send answer"),
+    undefined,
+  );
+  assert.ok(find(line, (node) => node.type === "Text" && text(node) === 'Sent "Grey, like Draft" to Write pill tests'));
+  assert.equal(draw(outcome("dismissed")), null);
+  const escalation = expand(
+    SubchatNoteView({
+      note: { kind: "subchat-escalation", from: "/p#2", fromTitle: "Write pill tests", requestId: "r1", waitedMs: 180_000 },
+      outcomes: new Map(),
+      onOpenChat: (key) => opened.push(key),
+      onSend: async () => true,
+      onDismiss: async () => true,
+    }),
+  );
+  assert.equal(escalation.props.accessibilityRole, "link");
+  assert.equal(escalation.props.accessibilityLabel, "Write pill tests has been waiting on you for 3 min");
+  escalation.props.onPress();
+  assert.equal(opened.at(-1), "/p#2", "the ↳ line opens the subchat");
+});
+
+test("the sidebar reads its computers only while shown, all Projects in One list and the unfolded ones when grouped", () => {
+  const list = navigationHost(Promise.resolve(), { chatList: "list" });
+  list.render();
+  same(list.storeCalls.at(-1), ["use", { visible: true, expandAll: true }]);
+  const grouped = navigationHost(Promise.resolve());
+  grouped.render();
+  same(grouped.storeCalls.at(-1), ["use", { visible: true, expandAll: false }]);
+  const search = find(grouped.render(), (node) => node.type === "ChatListControls");
+  search.props.onQuery("fix");
+  grouped.render();
+  same(grouped.storeCalls.at(-1), ["use", { visible: true, expandAll: true }]);
+  // Pull to refresh reads every computer, not just the open one.
+  const refresh = find(grouped.render(), (node) => node.type === "FlatList").props.refreshControl;
+  refresh.props.onRefresh();
+  assert.ok(grouped.storeCalls.some(([name]) => name === "refreshAll"));
+});
+
+test("One list shows Chats from every computer in one list, each row naming its Project and its computer", async () => {
+  const chat = (id, title, summary = {}) => ({ id, worktree_id: 1, title, summary: { count: 1, ...summary } });
+  const copy = (path, sessions) => ({
+    previewOnly: true,
+    project: { path, name: path.slice(1), state: { sessions, worktrees: { 1: { id: 1, path, name: "main" } }, messages: [] } },
+    runs: { runs: {} },
+  });
+  const nav = navigationHost(Promise.resolve(), {
+    chatList: "list",
+    computers: [
+      {
+        hostId: "mac",
+        name: "MacBook",
+        state: "online",
+        projects: [{ path: "/web" }],
+        copies: { "/web": copy("/web", { 1: chat(1, "Fix login", { firstAt: 100 }), 2: chat(2, "Docs", { firstAt: 300 }) }) },
+      },
+      {
+        hostId: "studio",
+        name: "Studio",
+        state: "offline",
+        projects: [{ path: "/web" }, { path: "/api" }],
+        // The same path and Chat id as the first computer: the rows are told apart by their computer.
+        copies: { "/web": copy("/web", { 1: chat(1, "Deploy", { firstAt: 200 }) }), "/api": copy("/api", { 7: chat(7, "Schema", { firstAt: 50 }) }) },
+      },
+    ],
+  });
+  const data = nav.rows().props.data.filter((item) => item.kind === "chat");
+  same(
+    data.map((item) => [item.hostId, item.path, item.chat.id, item.title]),
+    [
+      ["mac", "/web", 2, "Docs"],
+      ["studio", "/web", 1, "Deploy"],
+      ["mac", "/web", 1, "Fix login"],
+      ["studio", "/api", 7, "Schema"],
+    ],
+  );
+  assert.equal(new Set(data.map((item) => item.key)).size, 4, "the same path and Chat id on two computers make two rows");
+  const text = (node) => allNodes(node, (child) => child.type === "Text").map((child) => child.props.children);
+  const first = nav.rows().props.renderItem({ item: data[0] });
+  assert.ok(text(first).includes("Docs"), "line 1 is the title");
+  assert.ok(text(first).includes("web"), "line 2 names the Project");
+  assert.ok(
+    find(first, (node) => node.type === "ProjectIcon" && node.props.size === 32),
+    "the Project's icon leads the row",
+  );
+  assert.equal(find(first, (node) => node.type?.name === "ComputerTag").props.name, "MacBook", "each computer is named when the list spans multiple computers");
+  const offline = nav.rows().props.renderItem({ item: data[1] });
+  assert.equal(offline.props.children.props.style.opacity, 0.6, "an offline computer's rows are dimmed");
+  // Another computer is named on line 2, offline here.
+  same(find(offline, (node) => node.type?.name === "ComputerTag").props, { name: "Studio", offline: true, large: true });
+  // No ⋯ button: the long-press menu covers the whole row.
+  const menus = allNodes(offline, (node) => node.type === "PullDown");
+  assert.equal(menus.length, 1);
+  assert.ok(menus[0].props.onPress && menus[0].props.sections.length, "a tap opens the Chat, a long press its menu");
+  // A row on another computer opens through that computer's own client, never the session's.
+  const tap = find(nav.rows().props.renderItem({ item: data[1] }), (node) => node.type === "PullDown" && node.props.onPress);
+  tap.props.onPress();
+  await settleAll();
+  assert.equal(nav.session.openNotificationTargetCalls?.[0]?.[0].id, "studio");
+  assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/web", hostId: "studio", id: "1" } }]));
+  assert.deepEqual(nav.calls, [], "nothing went through the open computer's client");
+});
+
+test("the sidebar keeps every computer's PR chips and routes each row's lookups after a computer switch", () => {
+  const pr = (number) => ({ number, url: `https://github.com/x/y/pull/${number}`, state: "OPEN" });
+  const copy = (title) => ({
+    project: {
+      path: "/same",
+      state: {
+        sessions: { 1: { id: 1, worktree_id: 1, title, summary: { count: 1, firstAt: 100 } } },
+        worktrees: { 1: { id: 1, path: "/same/w" } },
+        messages: [],
+      },
+    },
+    runs: { runs: {} },
+  });
+  const mac = { url: "mac" },
+    studio = { url: "studio" };
+  const computers = [
+    { hostId: "mac", client: mac, name: "Mac", state: "online", projects: [{ path: "/same" }], copies: { "/same": copy("Mac Chat") } },
+    { hostId: "studio", client: studio, name: "Studio", state: "offline", projects: [{ path: "/same" }], copies: { "/same": copy("Studio Chat") } },
+  ];
+  const nav = navigationHost(Promise.resolve(), {
+    chatList: "list",
+    computers,
+    session: {
+      client: mac,
+      snapshot: copy("Mac Chat"),
+      prStatus: {
+        mac: { "/same/w": { branch: pr(101), found: {} } },
+        studio: { "/same/w": { branch: pr(202), found: {} } },
+      },
+    },
+  });
+  const chips = () =>
+    nav
+      .rows()
+      .props.data.filter((row) => row.kind === "chat")
+      .map((row) => [row.hostId, row.pullRequests.map((pr) => pr.number)]);
+  same(chips(), [
+    ["mac", [101]],
+    ["studio", [202]],
+  ]);
+  assert.equal(nav.prRequests.at(-1).find((target) => target.hostId === "studio").client, studio);
+  nav.session.client = studio;
+  nav.session.snapshot = copy("Studio Chat");
+  same(chips(), [
+    ["mac", [101]],
+    ["studio", [202]],
+  ]);
+  assert.equal(nav.prRequests.at(-1).find((target) => target.hostId === "mac").client, mac);
+});
+
+test("a cached Chat on another computer routes synchronously without the sidebar's loading state", () => {
+  const copy = snapshot("/web");
+  copy.project.state.worktrees = {};
+  copy.project.state.sessions[7] = { id: 7, title: "Cached remote Chat", agent_name: "main" };
+  const opened = [];
+  const nav = navigationHost(new Promise(() => {}), {
+    chatList: "list",
+    session: {
+      openCachedChat: (...args) => {
+        opened.push(args);
+        return { url: "studio" };
+      },
+    },
+    computers: [{ hostId: "studio", name: "Studio", state: "offline", projects: [{ path: "/web" }], copies: { "/web": copy } }],
+  });
+  nav.open(nav.row("chat")).props.onPress();
+  assert.equal(opened[0][2].id, "studio");
+  assert.equal(nav.routes.length, 1, "the route is issued before any promise settles");
+  assert.equal(nav.routes[0].params.id, "7");
+  assert.equal(nav.session.openNotificationTargetCalls.length, 0);
+  assert.equal(
+    find(nav.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+  );
+});
 
 test("mobile chat titles use summaries before transcripts load and switch to generated or renamed titles", () => {
   const nav = navigationHost(Promise.resolve());
@@ -1946,10 +4804,10 @@ test("mobile chat titles use summaries before transcripts load and switch to gen
   nav.state.project.state.messages = [];
   const title = () => find(nav.row("chat"), (node) => node.type === "Text" && node.props.numberOfLines === 2).props.children;
   assert.equal(title(), "Fix the login redirect");
-  const search = () => find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats");
-  search().props.onChangeText("login redirect");
+  const search = () => find(nav.render(), (node) => node.type === "ChatListControls");
+  search().props.onQuery("login redirect");
   assert.equal(nav.rows().props.data.filter((item) => item.kind === "chat").length, 1, "the summary title is searchable without message bodies");
-  search().props.onChangeText("");
+  search().props.onQuery("");
   nav.state.project.state.sessions = { 3: { ...chat, generatedTitle: "Repair login navigation" } };
   nav.session.snapshot = { ...nav.state };
   assert.equal(title(), "Repair login navigation");
@@ -1973,8 +4831,8 @@ test("mobile chat titles fall back to messages from an older host, including mes
     { id: 8, session_id: 3, role: "assistant", body: "Check the wrangler configuration" },
   ];
   assert.equal(find(nav.row("chat"), (node) => node.type === "Text" && node.props.numberOfLines === 2).props.children, "Fix login");
-  find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats").props.onChangeText("wrangler");
-  assert.equal(nav.row("message").props.accessibilityLabel, "Check the wrangler configuration, in Fix login");
+  find(nav.render(), (node) => node.type === "ChatListControls").props.onQuery("wrangler");
+  assert.equal(nav.row("message").props.accessibilityLabel, "Check the wrangler configuration, in Fix login, last");
 });
 
 test("mobile chat rows keep unread emphasis during a running turn and match desktop read title contrast", () => {
@@ -1993,12 +4851,19 @@ test("mobile chat status labels use the same tone as their status icons", () => 
   const nav = navigationHost(Promise.resolve());
   const list = nav.rows();
   const item = list.props.data.find((row) => row.kind === "chat");
+  for (const mark of ["running", "background"]) {
+    const row = list.props.renderItem({ item: { ...item, mark } });
+    assert.equal(
+      find(row, (node) => node.type === "Text" && /^(Running|In the background)$/.test(node.props.children)),
+      undefined,
+      `a ${mark} row shows no status word`,
+    );
+  }
   for (const [mark, label, color] of [
-    ["running", "Running", "accentInk"],
     ["question", "Needs reply", "accentInk"],
-    ["waiting", "Needs approval", "orange"],
-    ["interrupted", "Interrupted", "orange"],
-    ["failed", "Failed", "red"],
+    ["waiting", "Needs approval", "orangeInk"],
+    ["interrupted", "Interrupted", "orangeInk"],
+    ["failed", "Failed", "redInk"],
     ["unread", "Unread", "accentInk"],
   ]) {
     const row = list.props.renderItem({ item: { ...item, mark } });
@@ -2036,14 +4901,18 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
     );
     const chipsNode = find(row, (node) => typeof node.type === "function" && node.props.pullRequests);
     const chips = chipsNode?.type(chipsNode.props);
-    const chip = find(chips, (node) => node.type === "Pressable" && node.props.accessibilityRole === "link");
+    const chip = find(chips, (node) => node.type === "Pressable" && node.props.accessibilityLabel?.includes("pull request #246"));
     assert.ok(chip, "a PR has its own tap target outside the Chat tap target");
+    assert.equal(chip.props.accessibilityRole, "button", "a PR of this computer's Chat opens in the app, not on GitHub");
     assert.ok(find(chip, (node) => node.type === "Text" && node.props.children.includes(246)));
     assert.equal(find(chip, (node) => node.type === "Icon").props.tone, tone);
     if (label) assert.ok(find(chip, (node) => node.type === "Text" && node.props.children === label));
+    const before = nav.routes.length;
     await chip.props.onPress({ stopPropagation() {} });
-    assert.equal(nav.external.at(-1), pr.url);
-    assert.equal(nav.routes.length, 0, "opening a PR does not navigate to the Chat");
+    assert.equal(nav.routes.length, before + 1, "the PR opens its Chat, which then opens the PR sheet");
+    assert.equal(nav.routes.at(-1).pathname, "/chat");
+    assert.equal(nav.routes.at(-1).params.id, String(item.chat.id));
+    assert.equal(nav.external.length, 0, "the PR does not leave for GitHub");
   }
   const plain = list.props.renderItem({ item: { ...item, pullRequests: [] } });
   assert.ok(
@@ -2057,7 +4926,7 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
     state: "OPEN",
   }));
   const multi = list.props.renderItem({
-    item: { ...item, pullRequests: prs, mark: "running" },
+    item: { ...item, pullRequests: prs, mark: "waiting" },
   });
   const component = find(multi, (node) => typeof node.type === "function" && node.props.pullRequests);
   const chips = component.type(component.props);
@@ -2068,11 +4937,20 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
   );
   const more = find(chips, (node) => node.type === "PullDown");
   assert.ok(more, "extra PRs remain available in a menu");
+  const routesBefore = nav.routes.length;
   more.props.onSelect(prs[2].url);
-  assert.equal(nav.external.at(-1), prs[2].url);
+  await Promise.resolve();
+  assert.equal(nav.routes.length, routesBefore + 1, "a PR from the menu opens in its Chat too");
   assert.ok(
-    find(chips, (node) => node.type === "Text" && node.props.children === "Running"),
-    "PR rows keep the Chat status on their second line",
+    find(chips, (node) => node.type === "Text" && node.props.children === "Needs approval"),
+    "PR rows keep what the Chat waits on, on their second line",
+  );
+  const working = list.props.renderItem({ item: { ...item, pullRequests: prs, mark: "running" } });
+  const workingChips = find(working, (node) => typeof node.type === "function" && node.props.pullRequests);
+  assert.equal(
+    find(workingChips.type(workingChips.props), (node) => node.type === "Text" && node.props.children === "Running"),
+    undefined,
+    "a working Chat says so with its spinner alone, as on desktop",
   );
 });
 
@@ -2092,6 +4970,7 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   let listener;
   const called = [];
   const client = {
+    url: "mac",
     call: async (method, args) => {
       called.push([method, args]);
       const pr = { number: method === "worktree:pull-request" ? 248 : 246, state: method === "worktree:pull-request" ? "OPEN" : "MERGED" };
@@ -2099,7 +4978,7 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
     },
   };
   const { useChatPullRequests } = load("use-chat-pull-requests.ts", {
-    react,
+    react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
     "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
     "react-native": { AppState: app },
     "./pr-status": require("../apps/mobile/src/pr-status.ts"),
@@ -2131,6 +5010,190 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   react.cleanup();
 });
 
+test("unchanged PR answers and rebuilt targets leave the readers alone", async () => {
+  const react = hookHost();
+  const wait = () => new Promise((resolve) => setImmediate(resolve));
+  let notifies = 0;
+  let subscribed = false;
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      calls.push(method);
+      return method === "worktree:pull-request" ? { number: 7, state: "OPEN" } : [{ number: 8, state: "OPEN" }];
+    },
+  };
+  const status = require("../apps/mobile/src/pr-status.ts");
+  const hooks = load("use-chat-pull-requests.ts", {
+    react: {
+      useCallback: (...args) => react.useCallback(...args),
+      useMemo: (...args) => react.useMemo(...args),
+      useSyncExternalStore: (listen, read) => {
+        if (!subscribed) listen(() => notifies++);
+        subscribed = true;
+        return read();
+      },
+    },
+    "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "./pr-status": status,
+  });
+  // The drawer rebuilds this list on every row change: equal content is the same reads.
+  const targets = () => [{ hostId: "mac", client, targets: ["/a", "/b"].map((path) => ({ path, refs: ["8"] })) }];
+  const render = () => {
+    react.begin();
+    return hooks.useComputerChatPullRequests(targets());
+  };
+  render();
+  react.flush();
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(render().mac["/b"].found["8"].number, 8);
+  assert.equal(calls.length, 4);
+  assert.ok(notifies >= 1 && notifies < 4, `four answers re-render the readers fewer than four times (${notifies})`);
+  const settled = notifies;
+  render();
+  react.flush();
+  await wait();
+  assert.equal(calls.length, 4, "an equal target list does not restart the reads");
+  status.pullRequestsChanged(client);
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(calls.length, 8, "the Mac's change signal reads again");
+  assert.equal(notifies, settled, "the same answers do not re-render anyone");
+  react.cleanup();
+});
+
+test("PRs stay scoped to each computer through switches, delayed reads, offline failures and remounts", async () => {
+  let react = hookHost();
+  let offline = false;
+  const pending = deferred();
+  const calls = [];
+  const client = (url, number) => ({
+    url,
+    call: async (method, args) => {
+      calls.push([url, method, args]);
+      if (url === "two" && offline) throw new Error("Offline");
+      if (url === "two") return pending.promise;
+      return { number, state: "OPEN" };
+    },
+  });
+  const one = client("one", 101),
+    two = client("two", 202);
+  const modules = {
+    react: {
+      useCallback: (...args) => react.useCallback(...args),
+      useMemo: (...args) => react.useMemo(...args),
+      useSyncExternalStore: (_subscribe, read) => read(),
+    },
+    "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "./pr-status": require("../apps/mobile/src/pr-status.ts"),
+  };
+  const hooks = load("use-chat-pull-requests.ts", modules);
+  const targets = [{ path: "/same", refs: [] }];
+  let computers = [
+    { hostId: "one", client: one, targets },
+    { hostId: "two", client: two, targets },
+  ];
+  const render = () => {
+    react.begin();
+    return hooks.useComputerChatPullRequests(computers);
+  };
+  render();
+  react.flush();
+  await settle();
+  assert.equal(render().one["/same"].branch.number, 101);
+  assert.equal(render().two, undefined, "another Mac never borrows the PR from an identical path");
+  pending.resolve({ number: 202, state: "OPEN" });
+  await settle();
+  assert.equal(render().two["/same"].branch.number, 202);
+  computers = [
+    { hostId: "two", client: two, targets },
+    { hostId: "one", client: null, targets },
+  ];
+  assert.equal(render().one["/same"].branch.number, 101, "an offline computer keeps its chip immediately on a switch");
+  react.flush();
+  await settle();
+  offline = true;
+  require("../apps/mobile/src/pr-status.ts").pullRequestsChanged(two);
+  await settle();
+  assert.equal(render().two["/same"].branch.number, 202, "a failed refresh keeps the last answer");
+  react.cleanup();
+  react = hookHost();
+  // A new screen reads the same hook module, like the actual drawer and Chat.
+  const original = hooks.useChatPullRequests;
+  react.begin();
+  assert.equal(original(one, targets)["/same"].branch.number, 101);
+  react.cleanup();
+  assert.equal(calls.length, 3, "each request is routed through its own client's bounded pool");
+});
+
+test("the phone reads the Chat on screen: on opening, on coming back to it, and when a reply lands there", () => {
+  const react = hookHost({ effects: true });
+  let changed;
+  let focus;
+  const app = { currentState: "active", addEventListener: (_event, fn) => ((changed = fn), { remove() {} }) };
+  const patches = [];
+  // Arguments come from the module's own realm: compared as JSON.
+  const client = { call: async (method, args) => patches.push(JSON.parse(JSON.stringify([method, args]))) };
+  const { useReadOpenChat } = load("read-open-chat.ts", {
+    react,
+    "expo-router": { useFocusEffect: (fn) => (focus = fn) },
+    "react-native": { AppState: app },
+  });
+  const read = [["chat:patch", ["/p", 4, { unread: false }]]];
+  let chat = { id: 4, unread: true };
+  let covered = false;
+  const render = () => {
+    react.begin();
+    useReadOpenChat(client, "/p", chat, covered);
+  };
+  render();
+  assert.deepEqual(patches, [], "nothing is read before the screen has focus");
+  const blur = focus();
+  render();
+  assert.deepEqual(patches, read, "opening the Chat reads it");
+  chat = { id: 4, unread: false };
+  render();
+  // Mark as unread from the sidebar, which covers the Chat: it sticks until the Chat shows again.
+  covered = true;
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 1);
+  covered = false;
+  render();
+  assert.deepEqual(patches, [...read, ...read], "closing the sidebar over it reads it again");
+  chat = { id: 4, unread: false };
+  render();
+  // A turn that ends while the Chat shows sets the mark on the host; the phone clears it.
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 3);
+  chat = { id: 4, unread: false };
+  render();
+  // In the background, or with another screen on top, nothing is read until the Chat shows again.
+  app.currentState = "background";
+  changed("background");
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 3);
+  changed("active");
+  render();
+  assert.equal(patches.length, 4, "coming back to the foreground over the Chat reads it");
+  chat = { id: 4, unread: false };
+  render();
+  blur();
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 4);
+  focus();
+  render();
+  assert.equal(patches.length, 5);
+  react.cleanup();
+});
+
 test("a sidebar Chat opens at once, leaving its Project to load in the Chat", () => {
   const nav = navigationHost(deferred().promise);
   nav.open(nav.row("chat")).props.onPress();
@@ -2154,9 +5217,10 @@ test("a new Chat from the sidebar opens at once too", () => {
   );
 });
 
-test("Add project opens the computer search, and a pick opens its Chat at once", () => {
+test("Add project from the + menu opens the computer search, and a pick opens its Chat at once", async () => {
   const nav = navigationHost(deferred().promise);
-  find(nav.render(), (node) => node.props?.accessibilityLabel === "Add project").props.onPress();
+  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "More").props.onSelect("add");
+  await settleAll();
   const search = find(nav.render(), (node) => node.type === "ProjectSearch");
   assert.ok(search, "the search replaces the project list");
   search.props.onOpen("/Users/me/Code/app");
@@ -2169,11 +5233,11 @@ test("Add project opens the computer search, and a pick opens its Chat at once",
   );
 });
 
-test("Settings push onto the native stack from project navigation, preserving the screen to go back to", () => {
+test("Settings opens as a sheet over project navigation, which stays open under it", () => {
   const nav = navigationHost(deferred().promise);
-  find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Settings").props.onPress();
+  find(nav.render(), (node) => node.props?.label === "Settings").props.onPress();
   assert.deepEqual(nav.routes, ["/settings"]);
-  assert.deepEqual(nav.secondaryRoutes, [true], "push Settings rather than replacing the originating screen");
+  assert.deepEqual(nav.secondaryRoutes, ["sheet"], "the sidebar is not closed to open Settings");
   assert.equal(
     find(nav.render(), (node) => node.type === "SettingsView"),
     undefined,
@@ -2182,28 +5246,26 @@ test("Settings push onto the native stack from project navigation, preserving th
   assert.ok(find(nav.render(), (node) => node.type === "FlatList"));
 });
 
-test("the sidebar filter shows archived, running or waiting Chats across Projects", () => {
+test("the sidebar lists no archived Chats, a hidden Run Chat a sweep archived included", () => {
   const nav = navigationHost(deferred().promise);
   nav.state.project.state.sessions[4] = { id: 4, archived: true, title: "Old work" };
+  nav.state.project.state.sessions[5] = {
+    ...nav.state.project.state.sessions[4],
+    id: 5,
+    title: "Nightly triage",
+    routine: { routineId: "tr", runId: "u5", hidden: true },
+  };
   const ids = () =>
-    JSON.stringify(
-      nav
-        .rows()
-        .props.data.filter((item) => item.kind === "chat")
-        .map((item) => item.chat.id),
-    );
-  assert.equal(ids(), "[3]");
-  nav.filter().props.onSelect("archived");
-  assert.equal(ids(), "[4]");
-  assert.equal(
     nav
-      .filter()
-      .props.sections.flatMap((section) => section.items)
-      .find((item) => item.id === "archived").checked,
-    true,
+      .rows()
+      .props.data.filter((item) => item.kind === "chat")
+      .map((item) => item.chat.id);
+  same(ids(), [3]);
+  assert.equal(
+    find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Filter Chats"),
+    undefined,
+    "there is no Filter menu any more",
   );
-  nav.filter().props.onSelect("running");
-  assert.equal(ids(), "[]", "chatMark is idle in this host, so nothing is running");
 });
 
 /** Two Chats of web in their own Worktrees: Login (3) and Docs (4). */
@@ -2236,7 +5298,7 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
     find(nav.row("chat", 0), (node) => node.props?.accessibilityLabel?.startsWith?.("Linked to")),
     undefined,
   );
-  same(ids(login), [["copy-path", "copy-branch"], ["rename", "unread"], ["pin"], ["link-with", "link-remove"], ["archive"]]);
+  same(ids(login), [["copy-path", "copy-branch"], ["rename", "unread"], ["pin"], ["link-with", "link-remove"], ["done", "archive"]]);
   same(ids(nav.row("chat", 0))[3], ["link-with"]);
   nav.more(login).props.onSelect("link-with");
   const [action, request] = nav.linkRequests[0];
@@ -2266,23 +5328,58 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
   );
 });
 
+test("the phone list and its Link picker leave out a running hidden Run Chat, and show it while it waits on an approval", () => {
+  const links = linksState({ projects: [{ id: "w", path: "/last", name: "web" }], links: [] });
+  const setUp = (approvals) => {
+    const nav = withTwoWorktrees(navigationHost(deferred().promise, { links }));
+    nav.state.project.state.sessions[5] = { id: 5, title: "Nightly triage", worktree_id: 2, routine: { routineId: "tr", runId: "u5", hidden: true } };
+    nav.state.runs.runs["/last#5"] = { text: "", steps: [], approvals, questions: [], answered: {} };
+    return nav;
+  };
+  const chats = (nav) =>
+    nav
+      .rows()
+      .props.data.filter((row) => row.kind === "chat")
+      .map((row) => row.chat.id);
+  const picker = (nav) => {
+    nav.more(nav.row("chat", 0)).props.onSelect("link-with");
+    return nav.linkRequests.at(-1)[1].chats.map((chat) => chat.chatId);
+  };
+  const running = setUp([]);
+  same(chats(running), [4, 3]);
+  same(picker(running), [4, 3]);
+  const waiting = setUp([{ requestId: "a1" }]);
+  same(chats(waiting), [5, 4, 3]);
+  same(picker(waiting), [5, 4, 3]);
+});
+
+test("the header's Routines button says so while a hidden Run Chat is unread", () => {
+  const label = (unread) => {
+    const nav = navigationHost(deferred().promise);
+    nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, unread, routine: { routineId: "tr", runId: "u5", hidden: true } };
+    return find(nav.render(), (node) => typeof node.props?.label === "string" && node.props.label.startsWith("Routines")).props.label;
+  };
+  assert.equal(label(true), "Routines, unread Runs");
+  assert.equal(label(false), "Routines");
+});
+
 test("Choose projects opens as a sheet over the sidebar instead of closing it", () => {
   const nav = navigationHost(deferred().promise);
-  nav.filter().props.onSelect("choose-projects");
+  find(nav.render(), (node) => node.type === "ChatListControls").props.filters.onSelect("choose-projects");
   assert.deepEqual(nav.routes, ["/choose-projects"]);
   assert.deepEqual(nav.secondaryRoutes, ["sheet"]);
 });
 
-function chooseProjectsHost(call) {
+function chooseProjectsHost(setProjectHidden, call = async () => {}, { url, views = [], otherHidden = async () => {} } = {}) {
   const react = hookHost();
   const link = { id: "checkout", name: "Checkout", projectIds: ["shop", "api"] };
   const session = {
-    client: { call },
+    client: { call, url },
     recent: [
       { path: "/shop", name: "shop" },
       { path: "milagre-link:checkout", name: "Checkout", link, projects: [] },
     ],
-    reloadProjects: async () => {},
+    setProjectHidden,
   };
   const { default: ChooseProjects } = load("app/choose-projects.tsx", {
     react,
@@ -2290,8 +5387,20 @@ function chooseProjectsHost(call) {
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
     "expo-router": { router: { back() {} } },
     "../session": { useSession: () => session },
+    "../all-computers": {
+      allComputers: { clientFor: () => null },
+      setOtherComputerProjectHidden: otherHidden,
+      useComputerViews: () => views,
+    },
     "../project-icon": { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" },
-    "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../ui": {
+      CheckboxBox: "CheckboxBox",
+      CircleButton: "CircleButton",
+      ErrorNotice: "ErrorNotice",
+      PageScroll: "PageScroll",
+      SectionLabel: "SectionLabel",
+      SheetHeader: "SheetHeader",
+    },
   });
   const render = () => {
     react.begin();
@@ -2301,14 +5410,20 @@ function chooseProjectsHost(call) {
   return { render, row, session, link };
 }
 
-test("the phone chooser hides and restores a Link through the shared registry without removing it", async () => {
+test("the phone chooser hides and restores a Link on this phone without mutating the Mac's registry", async () => {
   const request = deferred();
-  const calls = [];
-  const host = chooseProjectsHost(async (method, args) => {
-    calls.push([method, args]);
-    await request.promise;
-    host.session.recent[1].hidden = args[0].hidden;
-  });
+  const saved = [];
+  const rpcCalls = [];
+  const host = chooseProjectsHost(
+    async (path, hidden) => {
+      saved.push([path, hidden]);
+      await request.promise;
+      host.session.recent[1].hidden = hidden;
+    },
+    async (method, args) => {
+      rpcCalls.push([method, args]);
+    },
+  );
   assert.ok(host.row(), "Links are included in the chooser");
   const hiding = host.row().props.onPress();
   assert.equal(host.row().props.accessibilityState.checked, false, "the pending choice appears immediately");
@@ -2318,43 +5433,81 @@ test("the phone chooser hides and restores a Link through the shared registry wi
   assert.equal(host.row().props.accessibilityState.checked, false);
   await host.row().props.onPress();
   assert.equal(host.row().props.accessibilityState.checked, true);
-  same(calls, [
-    ["link:update", [{ ...host.link, hidden: true }]],
-    ["link:update", [{ ...host.link, hidden: false }]],
+  same(saved, [
+    ["milagre-link:checkout", true],
+    ["milagre-link:checkout", false],
   ]);
+  same(rpcCalls, []);
   assert.equal(host.session.recent[1].link.id, "checkout");
 });
 
-test("a failed phone Link visibility change restores the checkbox and shows the error", async () => {
+test("a failed phone visibility change restores the checkbox and shows the error", async () => {
   const host = chooseProjectsHost(async () => {
-    throw new Error("Computer offline");
+    throw new Error("Could not save on device");
   });
   assert.ok(host.row());
   await host.row().props.onPress();
   assert.equal(host.row().props.accessibilityState.checked, true);
-  assert.equal(find(host.render(), (node) => node.type === "ErrorNotice").props.message, "Computer offline");
+  assert.equal(find(host.render(), (node) => node.type === "ErrorNotice").props.message, "Could not save on device");
+});
+
+const computerView = (hostId, name, projects, extra = {}) => ({ hostId, name, projects, loaded: true, state: "online", ...extra });
+
+test("Choose projects lists every computer under its name and saves a hide for the computer it belongs to", async () => {
+  const own = [];
+  const other = [];
+  const host = chooseProjectsHost(async (path, hidden) => own.push([path, hidden]), undefined, {
+    url: "https://studio",
+    views: [
+      computerView("https://studio", "Studio Mac", []),
+      computerView("https://air", "MacBook Air", [{ path: "/blog", name: "blog" }]),
+      computerView("https://old", "Old Mac", [], { loaded: false, state: "offline" }),
+    ],
+    otherHidden: async (hostId, path, hidden) => other.push([hostId, path, hidden]),
+  });
+  const tree = host.render();
+  const headers = [];
+  find(tree, (node) => {
+    if (node.type === "SectionLabel") headers.push(node.props.children);
+    return false;
+  });
+  same(headers, ["Studio Mac", "MacBook Air", "Old Mac"]);
+  assert.ok(
+    find(tree, (node) => node.props?.children === "Offline. Its Projects show here once it answers."),
+    "a computer that never answered says so",
+  );
+  const blog = () => find(host.render(), (node) => node.props?.accessibilityRole === "checkbox" && node.props.accessibilityLabel === "blog");
+  await blog().props.onPress();
+  await host.row().props.onPress();
+  same(other, [["https://air", "/blog", true]]);
+  same(own, [["milagre-link:checkout", true]]);
 });
 
 test("a chat search with no matching title lists matching messages, and a tap opens their Chat", () => {
   const nav = navigationHost(deferred().promise);
   nav.state.project.state.sessions[3] = { id: 3, title: "Relay work" };
   nav.state.project.state.messages = [{ id: 7, session_id: 3, body: "Deploy the relay with wrangler, then check /health" }];
-  const search = () => find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats");
-  search().props.onChangeText("wranglr");
+  const search = () => find(nav.render(), (node) => node.type === "ChatListControls");
+  search().props.onQuery("wranglr");
   const data = nav.rows().props.data;
   assert.equal(
     JSON.stringify(data.filter((item) => item.kind === "section" || item.kind === "message").map((item) => item.name ?? item.snippet)),
     JSON.stringify(["Messages", "Deploy the relay with wrangler, then check /health"]),
   );
   const message = nav.row("message");
-  assert.equal(message.props.accessibilityLabel, "Deploy the relay with wrangler, then check /health, in Relay work");
+  assert.equal(message.props.accessibilityLabel, "Deploy the relay with wrangler, then check /health, in Relay work, last");
   message.props.onPress();
   assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", id: "3" } }]));
-  search().props.onChangeText("relay");
+  search().props.onQuery("relay");
   assert.equal(
-    nav.rows().props.data.some((item) => item.kind === "message"),
-    false,
-    "a Chat title match keeps messages out",
+    JSON.stringify(
+      nav
+        .rows()
+        .props.data.filter((item) => item.kind === "section")
+        .map((item) => item.name),
+    ),
+    JSON.stringify(["Chats", "Messages"]),
+    "like ⌘K, a Chat title match lists the messages that match too",
   );
 });
 
@@ -2368,6 +5521,7 @@ test("a drawer search over Projects held without messages asks the host, which f
   const nav = navigationHost(deferred().promise, {
     effects: true,
     session: {
+      snapshot: null,
       cachedProject: () => preview,
       client: {
         url: "mac",
@@ -2379,8 +5533,8 @@ test("a drawer search over Projects held without messages asks the host, which f
       },
     },
   });
-  const search = () => find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats");
-  search().props.onChangeText("wranglr");
+  const search = () => find(nav.render(), (node) => node.type === "ChatListControls");
+  search().props.onQuery("wranglr");
   nav.render();
   // The host is asked after a short pause while typing.
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -2389,10 +5543,15 @@ test("a drawer search over Projects held without messages asks the host, which f
   assert.match(nav.row("message").props.accessibilityLabel, /^Deploy the relay with wrangler, in /);
 });
 
+test("the chooser keeps empty Projects available with the flat Chat list preference", () => {
+  const nav = navigationHost(deferred().promise, { chatList: "list", session: { snapshot: null } });
+  assert.ok(nav.row("project"));
+});
+
 test("a sidebar Project can be removed from the list after confirming", async () => {
   const alerts = [];
   const nav = navigationHost(deferred().promise, { alert: pressDanger(alerts) });
-  nav.more(nav.row("project")).props.onSelect("remove");
+  nav.open(nav.row("project")).props.onSelect("remove");
   await settleAll();
   assert.equal(alerts[0].title, "Remove last?");
   assert.equal(
@@ -2403,6 +5562,120 @@ test("a sidebar Project can be removed from the list after confirming", async ()
     ]),
   );
   assert.equal(JSON.stringify(nav.calls), JSON.stringify([["project:forget", ["/last"]], ["reload"]]));
+  assert.deepEqual(nav.routes, ["/projects"]);
+  assert.ok(nav.storeCalls.some(([name]) => name === "refreshAll"));
+});
+
+test("a sidebar Link is deleted after confirming its Chat count, and the open one leaves for the Projects list", async () => {
+  const alerts = [];
+  // A Link id is a UUID: the phone tells a Link row from a Project row by it (isLinkScopeKey).
+  const id = "3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+  const scope = `milagre-link:${id}`;
+  const link = { id, name: "Food", projectIds: ["api", "web"] };
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger(alerts),
+    session: {
+      recent: [{ path: "/last" }, { path: scope, name: "Food", link, projects: [] }],
+      deleteLink: async (linkId) => {
+        nav.calls.push(["deleteLink", linkId]);
+        return { result: { removed: ["/wt/api"], kept: ["/wt/web"] }, sameNavigation: true };
+      },
+    },
+  });
+  nav.session.client.call = async (...args) => {
+    nav.calls.push(args);
+    return args[0] === "link:delete-check" ? { chats: 2, running: [] } : undefined;
+  };
+  nav.session.snapshot = snapshot(scope);
+  const row = nav.rows().props.data.findIndex((item) => item.kind === "project" && item.path === scope);
+  assert.notEqual(row, -1);
+  const menu = nav.open(nav.rows().props.renderItem({ item: nav.rows().props.data[row] }));
+  assert.equal(
+    JSON.stringify(menu.props.sections.flatMap((section) => section.items.map((item) => [item.id, item.destructive === true]))),
+    JSON.stringify([
+      ["new", false],
+      ["copy", false],
+      ["edit", false],
+      ["delete", true],
+    ]),
+  );
+  menu.props.onSelect("delete");
+  await settleAll();
+  assert.equal(alerts[0].title, "Delete Food?");
+  assert.match(alerts[0].message, /^Its 2 Chats are archived/);
+  assert.equal(
+    JSON.stringify(alerts[0].buttons),
+    JSON.stringify([
+      ["Delete Link", "destructive"],
+      ["Cancel", "cancel"],
+    ]),
+  );
+  assert.equal(
+    JSON.stringify(nav.calls),
+    JSON.stringify([
+      ["link:delete-check", [id]],
+      ["deleteLink", id],
+    ]),
+  );
+  assert.deepEqual(nav.routes, ["/projects"]);
+  assert.ok(nav.storeCalls.some(([name]) => name === "refreshAll"));
+});
+
+test("a removal completed after newer navigation does not replace the visible screen", async () => {
+  const pending = deferred();
+  const nav = navigationHost(deferred().promise, { alert: pressDanger([]), session: { forgetProject: () => pending.promise } });
+  nav.open(nav.row("project")).props.onSelect("remove");
+  await settleAll();
+  pending.resolve(false);
+  await settleAll();
+  assert.deepEqual(nav.routes, []);
+});
+
+test("a Chat of a Link deleted on another device leaves for the Projects list and says so; a Chat elsewhere stays", () => {
+  const archive = require("../apps/mobile/src/archive.ts");
+  const scope = "milagre-link:3b2f6c1e-8d4a-4e2b-9f17-5a6c7d8e9f01";
+  archive.clearArchiveNotice();
+  // Another Project's Chat is on screen: the Link the session left is not this one.
+  const elsewhere = chatHost({ effects: true });
+  elsewhere.session.deletedLink = { hostId: "mac", path: scope, name: "Food" };
+  elsewhere.render();
+  assert.equal(elsewhere.router.replaced, undefined);
+  assert.equal(archive.archiveActivity().notice, "");
+  // The Link's own Chat: the session dropped its snapshot, and the Chat leaves instead of opening it again.
+  const host = chatHost({ effects: true });
+  Object.assign(host.params, { projectPath: scope, id: "3", hostId: "mac" });
+  host.session.snapshot = null;
+  host.session.open = () => new Promise(() => {});
+  host.session.deletedLink = { hostId: "mac", path: scope, name: "Food" };
+  host.render();
+  assert.equal(host.router.replaced, "/projects");
+  assert.equal(archive.archiveActivity().notice, "Food was deleted on another device.");
+  archive.clearArchiveNotice();
+});
+
+test("each Chat opened asks about keeping its own Mac awake once, the one beside too; a new Chat's draft doesn't", () => {
+  globalThis.keepAwakeAsks = [];
+  try {
+    const draft = chatHost({ effects: true });
+    draft.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, []);
+    const host = chatHost({ effects: true });
+    Object.assign(host.params, { id: "3", hostId: "mac" });
+    host.render();
+    host.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, ["mac"], "re-rendering the same Chat asks once");
+    host.params.id = "4";
+    host.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, ["mac", "mac"]);
+    // A Chat beside from another Mac reads that Mac's session, and asks about that Mac.
+    const beside = chatHost({ effects: true, pane: "secondary", split: { ...phoneSplit, widthClass: "wide" } });
+    beside.session.client.url = "studio";
+    Object.assign(beside.params, { id: "3", hostId: "studio" });
+    beside.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, ["mac", "mac", "studio"]);
+  } finally {
+    delete globalThis.keepAwakeAsks;
+  }
 });
 
 test("a new Chat reached without a Worktree starts in the Project checkout once it loads", () => {
@@ -2415,6 +5688,151 @@ test("a new Chat reached without a Worktree starts in the Project checkout once 
     find(host.render(), (node) => node.type === "LoadingLogo"),
     undefined,
   );
+});
+
+test("the new Chat computer picker keeps its composer and draft through slow and failed switches", async () => {
+  const projects = [
+    { hostId: "mac", hostName: "Mac", path: "/p", name: "P", origin: "github.com/test/p", offline: false },
+    { hostId: "studio", hostName: "Studio", path: "/other", name: "P", origin: "github.com/test/p", offline: false },
+  ];
+  const host = chatHost({
+    effects: true,
+    computers: {
+      useNewChatProjects: () => projects,
+      useNoProjectChoice: () => undefined,
+      useComputerViews: () => [],
+      allComputers: { hostFor: () => ({ address: "studio", token: "token" }) },
+    },
+  });
+  const loading = deferred();
+  host.session.connect = async (_host, remember, target) => {
+    assert.equal(remember, false);
+    assert.equal(target.projectPath, "/other");
+    const state = await loading.promise;
+    target.onOpen(state);
+    host.session.client = { ...host.session.client, url: "studio" };
+    host.session.snapshot = state;
+    return true;
+  };
+  const choose = () => find(host.render(), (node) => node.props?.label === "Choose computer");
+  const fieldKey = () => find(host.render(), (node) => node.type === "PromptField").key;
+  const beforeKey = fieldKey();
+  host.router.deferParams = true;
+  choose().props.onSelect("studio\n/other");
+  await settle();
+  assert.equal(host.field().value, "first message");
+  assert.equal(
+    find(host.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+  );
+  assert.equal(choose().props.nativeTrigger.disabled, true);
+  host.field().onChangeText("typed while connecting");
+  const state = structuredClone(host.session.snapshot);
+  state.project.path = "/other";
+  state.project.state.worktrees = { 9: { id: 9, name: "main", path: "/other" } };
+  loading.resolve(state);
+  await settle();
+  assert.equal(host.params.worktreeId, "1", "native navigation can publish the new params after the session commits");
+  assert.equal(host.field().value, "typed while connecting");
+  assert.equal(
+    find(host.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+    "a delayed route never replaces the composer with the splash",
+  );
+  Object.assign(host.params, host.router.pendingParams);
+  host.router.deferParams = false;
+  assert.equal(host.params.worktreeId, "9");
+  assert.equal(host.params.hostId, "studio");
+  assert.equal(host.field().value, "typed while connecting");
+  assert.equal(fieldKey(), beforeKey, "the native text input keeps its identity and keyboard focus");
+  assert.equal(host.session.drafts["/p#new:1"], undefined);
+  assert.equal(
+    find(host.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+  );
+  host.session.connect = async () => {
+    throw new Error("Computer unavailable");
+  };
+  choose().props.onSelect("mac\n/p");
+  await settle();
+  assert.equal(host.params.hostId, "studio");
+  assert.equal(host.field().value, "typed while connecting");
+  assert.ok(find(host.render(), (node) => node.type === "ErrorNotice" && node.props.message === "Computer unavailable"));
+});
+
+test("a superseded mobile Link open never commits the draft handoff, including when cached", async () => {
+  const path = "milagre-link:shop-api";
+  let loading;
+  const client = { url: "mac", call: async () => [], open: (target) => loading?.promise ?? Promise.resolve(snapshot(target)) };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open(path);
+  await render().open("/current");
+  loading = deferred();
+  let committed = false;
+  const switching = render().open(path, {
+    background: true,
+    onOpen: () => {
+      committed = true;
+    },
+  });
+  assert.equal(render().snapshot.project.path, "/current");
+  render().cancelNavigation();
+  loading.resolve(snapshot(path));
+  await switching;
+  assert.equal(committed, false);
+  assert.equal(render().snapshot.project.path, "/current");
+});
+
+test("the mobile Link picker preserves text and quotes on failure and transfers late edits on success", async () => {
+  const path = "milagre-link:shop-api";
+  const host = chatHost({
+    effects: true,
+    computers: {
+      useNewChatProjects: () => [],
+      useNoProjectChoice: () => undefined,
+      useComputerViews: () => [
+        { hostId: "mac", name: "Mac", state: "online", projects: [{ path, name: "Shop + API", link: { id: "shop-api" }, projects: [] }] },
+      ],
+      allComputers: { viewOf: () => undefined },
+    },
+  });
+  const quote = { id: "quote", text: "Keep this passage" };
+  host.session.quotes["/p#new:1"] = [quote];
+  let opening;
+  host.session.open = async (target, options) => {
+    assert.equal(target, path);
+    assert.equal(options.background, true);
+    opening = deferred();
+    const state = await opening.promise;
+    options.onOpen(state);
+    host.session.snapshot = state;
+  };
+  const pick = () => {
+    find(host.render(), (node) => node.props?.accessibilityLabel === "Start building in P. Change project").props.onPress();
+    host.choices.at(-1).onSelect("link:0");
+  };
+  pick();
+  await settle();
+  host.field().onChangeText("Edited while the Link opens");
+  opening.reject(new Error("Link unavailable"));
+  await settle();
+  assert.equal(host.field().value, "Edited while the Link opens");
+  assert.deepEqual(host.session.quotes["/p#new:1"], [quote]);
+  assert.equal(host.params.projectPath, undefined);
+  pick();
+  await settle();
+  host.field().onChangeText("Latest Link draft");
+  const state = structuredClone(host.session.snapshot);
+  state.project.path = path;
+  state.project.state.worktrees = { 9: { id: 9, name: "main", path } };
+  opening.resolve(state);
+  await settle();
+  assert.equal(host.params.projectPath, path);
+  assert.equal(host.field().value, "Latest Link draft");
+  assert.equal(host.session.drafts["/p#new:1"], undefined);
+  assert.equal(host.session.quotes["/p#new:1"], undefined);
+  assert.deepEqual(Array.from(host.session.quotes[`${path}#new:9`]), [quote]);
 });
 
 test("a Chat in another Project loads it behind the splash mark, and shows a failure with Retry", async () => {
@@ -2440,6 +5858,28 @@ test("a Chat in another Project loads it behind the splash mark, and shows a fai
   notice.props.retry();
   host.render();
   assert.equal(opening.length, 2, "Retry opens the Project again");
+});
+
+test("a Chat beside of another Project waits for it in its own pane, and never opens a Project or leaves the screen", () => {
+  const host = chatHost({ effects: true, pane: "secondary" });
+  const opened = [];
+  host.session.open = (path) => opened.push(path);
+  host.session.snapshot = null;
+  Object.assign(host.params, { id: "3", projectPath: "/other", hostId: "studio" });
+  delete host.params.worktreeId;
+  const waiting = host.render();
+  assert.ok(find(waiting, (node) => node.type === "LoadingLogo"));
+  assert.equal(
+    find(waiting, (node) => node.type === "Redirect"),
+    undefined,
+    "the routed Chat stays",
+  );
+  assert.deepEqual(opened, [], "the open Project stays the routed Chat's");
+  host.session.error = "Connection lost.";
+  const failed = host.render();
+  assert.match(find(failed, (node) => node.type === "ErrorNotice").props.message, /Connection lost/);
+  find(failed, (node) => node.type === "GlassIconButton" && node.props.label === "Close Chat").props.onPress();
+  assert.equal(host.router.closed, 1, "Close ends the pair while it waits");
 });
 
 test("launch restoration opens the saved computer/Project/Chat target directly", async () => {
@@ -2468,7 +5908,7 @@ test("missing, archived and unreachable last Chats leave the project list usable
   }
 });
 
-function pullDownHost() {
+function pullDownHost(react = { forwardRef: (fn) => fn }) {
   const sheets = [];
   const modifiers = new Proxy(
     {},
@@ -2476,8 +5916,8 @@ function pullDownHost() {
       get: (_, name) => (name === "shapes" ? { rectangle: () => "rectangle" } : (value) => ({ name, value })),
     },
   );
-  const { PullDown } = load("ui.tsx", {
-    react: { forwardRef: (fn) => fn },
+  const { PullDown, PageScroll } = load("ui.tsx", {
+    react,
     "react/jsx-runtime": {
       jsx: (type, props, key) => (typeof type === "function" && type.name === "NativeMenuSection" ? type(props) : jsx(type, props, key)),
       jsxs: (type, props, key) => (typeof type === "function" && type.name === "NativeMenuSection" ? type(props) : jsx(type, props, key)),
@@ -2490,14 +5930,18 @@ function pullDownHost() {
       },
       StyleSheet: { create: (value) => value },
       Pressable: "Pressable",
+      ScrollView: "ScrollView",
       View: "View",
     },
+    "@react-native-masked-view/masked-view": { default: "MaskedView" },
+    "expo-linear-gradient": { LinearGradient: "LinearGradient" },
     "@expo/ui": {},
     "@expo/ui/swift-ui": Object.fromEntries(
       ["Button", "Host", "Menu", "Picker", "Section", "Text", "Toggle", "HStack", "Image", "Label", "Rectangle"].map((name) => [name, `IOS${name}`]),
     ),
     "@expo/ui/swift-ui/modifiers": modifiers,
     "@expo/ui/community/menu": { MenuView: "MenuView" },
+    "@expo/ui/jetpack-compose/modifiers": { semantics: (value) => ({ name: "semantics", value }) },
     "expo-haptics": { selectionAsync: async () => {} },
     "@hugeicons/core-free-icons": {},
     "./theme": {
@@ -2509,8 +5953,60 @@ function pullDownHost() {
     "./choice-store": require("../apps/mobile/src/choice-store.ts"),
     "./native-picker-icon": { NativePickerIcon: "NativePickerIcon" },
   });
-  return { PullDown, sheets };
+  return { PullDown, PageScroll, sheets };
 }
+
+test("shared mobile scrolling fades only the edges with more content and keeps native callbacks and its ref", () => {
+  const react = hookHost();
+  react.forwardRef = (fn) => fn;
+  const { PageScroll } = pullDownHost(react);
+  const calls = [];
+  const ref = { current: null };
+  const props = {
+    fadeEdges: true,
+    style: { height: 120 },
+    children: "Result",
+    onScroll: (event) => calls.push(["scroll", event.nativeEvent.contentOffset.y]),
+    onLayout: (event) => calls.push(["layout", event.nativeEvent.layout.height]),
+    onContentSizeChange: (width, height) => calls.push(["content", width, height]),
+  };
+  const render = () => {
+    react.begin();
+    return PageScroll(props, ref);
+  };
+  const scroll = () => find(render(), (node) => node.type === "ScrollView");
+  const colors = () => render().props.maskElement.props.colors;
+  assert.equal(typeof scroll().props.onScroll, "function");
+  scroll().props.onLayout({ nativeEvent: { layout: { height: 120 } } });
+  scroll().props.onContentSizeChange(240, 360);
+  assert.ok(render().props.maskElement, "scrolling content needs an edge fade mask");
+  assert.equal(colors()[0], colors()[1], "the first line stays clear at the start");
+  assert.notEqual(colors().at(-1), colors()[1], "overflow fades at the bottom");
+  scroll().props.onScroll({ nativeEvent: { contentOffset: { y: 60 } } });
+  assert.notEqual(colors()[0], colors()[1], "scrolled text fades under the header");
+  scroll().props.onScroll({ nativeEvent: { contentOffset: { y: 240 } } });
+  assert.equal(colors().at(-1), colors()[1], "the last line stays clear at the end");
+  scroll().props.onScroll({ nativeEvent: { contentOffset: { y: 0 } } });
+  scroll().props.onContentSizeChange(240, 80);
+  assert.equal(colors()[0], colors()[1]);
+  assert.equal(colors().at(-1), colors()[1], "short results have no fades");
+  assert.equal(scroll().props.ref, ref, "the ref still controls the native scroll view");
+  assert.deepEqual(calls, [
+    ["layout", 120],
+    ["content", 240, 360],
+    ["scroll", 60],
+    ["scroll", 240],
+    ["scroll", 0],
+    ["content", 240, 80],
+  ]);
+  react.begin();
+  assert.equal(PageScroll({ children: "Plain" }, ref).type, "ScrollView", "other screens keep their existing native scroll");
+  react.begin();
+  const horizontal = PageScroll({ horizontal: true, children: "Wide", contentContainerStyle: { padding: 0 } }, ref);
+  assert.equal(horizontal.type, "GestureScrollView", "horizontal content owns its drag instead of opening a side panel");
+  assert.equal(horizontal.props.ref, ref);
+  assert.equal(horizontal.props.horizontal, true);
+});
 
 test("composer attachment choices stay in a native menu after the header action-sheet fix", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -2583,7 +6079,7 @@ test("isolation uses desktop artwork inside SwiftUI labels and preserves delayed
   });
   assert.deepEqual(
     Array.from(labels, (node) => node.props.title),
-    ["Local", "New worktree"],
+    ["Local", "New Worktree"],
   );
   assert.deepEqual(
     Array.from(labels, (node) => node.props.icon.props.name),
@@ -2600,7 +6096,7 @@ test("isolation uses desktop artwork inside SwiftUI labels and preserves delayed
   choices.props.onSelectionChange("worktree");
   assert.equal(find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.nativeTrigger.title, "Local");
   t.mock.timers.tick(250);
-  assert.equal(find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.nativeTrigger.title, "New worktree");
+  assert.equal(find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.nativeTrigger.title, "New Worktree");
 });
 
 test("the branch picker opens searchable choices while short action menus remain native", () => {
@@ -2608,7 +6104,7 @@ test("the branch picker opens searchable choices while short action menus remain
   const choices = require("../apps/mobile/src/choice-store.ts");
   const screen = chatHost();
   const trigger = find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose branch");
-  assert.equal(trigger.props.searchable.placeholder, "Search worktrees");
+  assert.equal(trigger.props.searchable.placeholder, "Search Worktrees");
   const rendered = PullDown(trigger.props);
   assert.equal(
     find(rendered, (node) => node.type === "IOSMenu"),
@@ -2616,7 +6112,7 @@ test("the branch picker opens searchable choices while short action menus remain
   );
   rendered.props.onPress();
   const entry = choices.currentChoice();
-  assert.equal(entry.title, "Choose a worktree");
+  assert.equal(entry.title, "Choose a Worktree");
   assert.equal(entry.items[0].title, "main");
   entry.choose(null);
 });
@@ -2688,13 +6184,14 @@ test("searching the choice sheet filters full names and selection applies only a
   field().props.onChangeText({ nativeEvent: { text: "  RESOLVE-PR-246  " } });
   assert.equal(list().props.data.length, 1);
   const row = list().props.renderItem({ item: list().props.data[0] });
-  assert.equal(row.props.accessibilityLabel, longName);
-  assert.equal(find(row, (node) => node.type === "Text").props.numberOfLines, undefined, "the full name can wrap");
-  assert.equal(find(row, (node) => node.type === "Text").props.style.fontFamily, undefined, "names use the body font");
+  // CheckRow draws the row (radio role, "title. subtitle" label, the body font); the sheet passes it the full name.
+  assert.equal(row.type, "CheckRow");
+  assert.equal(row.props.title, longName);
+  assert.ok(!row.props.titleLines, "the full name can wrap");
   assert.equal(find(render(), (node) => node.type === "EdgeFade").props.edge, "top", "rows blur under the title bar");
   field().props.onChangeText({ nativeEvent: { text: "missing" } });
   assert.equal(list().props.data.length, 0);
-  assert.equal(list().props.ListEmptyComponent.props.children, "No branches found.");
+  assert.equal(list().props.ListEmptyComponent.props.title, "No branches found.");
   field().props.onCancelButtonPress();
   assert.equal(list().props.data.length, 2, "native cancel restores the complete list");
   field().props.onChangeText({ nativeEvent: { text: "resolve" } });
@@ -2736,7 +6233,125 @@ async function settleAll() {
   for (let i = 0; i < 10; i++) await settle();
 }
 
-test("a sidebar Chat Archive asks with the worktree choice, then stops, hides and deletes the worktree", async () => {
+/** Lets a deletion's Undo time pass (the test's setTimeout is mocked), then the steps after it. */
+async function passUndo(t) {
+  await settleAll();
+  t.mock.timers.tick(require("@milagre/shared/archive").DELETE_UNDO_MS);
+  await settleAll();
+}
+
+test("Chat swipe directions mark Done or read status once and block unavailable rows", async () => {
+  const react = hookHost();
+  const calls = [];
+  let closes = 0;
+  const pending = deferred();
+  const { ChatSwipeRow } = load("chat-swipe-row.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
+    "react-native-gesture-handler/ReanimatedSwipeable": { default: "Swipeable" },
+    "react-native-reanimated": { ReduceMotion: { Always: "always", System: "system" }, useDerivedValue: (read) => ({ get: read }) },
+    "@hugeicons/core-free-icons": {},
+    "./icons": { Icon: "Icon" },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+  });
+  const render = (unread, disabled = false, done = false, doneable = true) => {
+    react.begin();
+    return ChatSwipeRow({
+      unread,
+      done,
+      doneable,
+      background: "page",
+      disabled,
+      children: "Chat",
+      onAction: (action) => {
+        calls.push(action);
+        return pending.promise;
+      },
+    });
+  };
+  let row = render(true);
+  row.props.ref.current = {
+    close: () => {
+      closes++;
+    },
+  };
+  row.props.onSwipeableOpen("right");
+  row.props.onSwipeableOpen("left");
+  assert.deepEqual(calls, ["read"], "another swipe cannot mark Done while a read is pending");
+  assert.equal(render(true).props.enabled.get(), false);
+  pending.resolve();
+  await settle();
+  row = render(false);
+  row.props.onSwipeableOpen("right");
+  await settle();
+  row = render(true);
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done"]);
+  row = render(false, true);
+  assert.equal(row.props.enabled.get(), false);
+  row.props.onSwipeableOpen("left");
+  assert.deepEqual(calls, ["read", "unread", "done"]);
+  // A Done row reopens with a swipe right and has nothing to swipe left to.
+  row = render(false, false, true);
+  assert.equal(row.props.renderRightActions, undefined);
+  row.props.onSwipeableOpen("right");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen"]);
+  // A Mac too old to keep Done archives on the left swipe, as before Done.
+  row = render(false, false, false, false);
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"]);
+  // The row draws on the list's own color, with no corners of its own, and keeps its gesture callbacks across renders.
+  assert.equal(row.props.childrenContainerStyle.backgroundColor, "page");
+  assert.equal(row.props.containerStyle, undefined);
+  assert.equal(render(false, false, false, false).props.onSwipeableOpen, row.props.onSwipeableOpen);
+  assert.ok(closes >= 3, "rows close after the action");
+  assert.equal(row.props.hitSlop, undefined, "outside the sidebar a row swipes across its whole width");
+
+  // In the slide-over sidebar a left swipe only reveals Done, which a tap commits; the row leaves its right edge to the
+  // sidebar's close, and takes no swipe while the sidebar slides.
+  let open = true;
+  react.useContext = () => ({ get: () => open });
+  row = render(true);
+  assert.equal(row.props.hitSlop.right, -32);
+  assert.equal(row.props.enabled.get(), true);
+  assert.equal(render(true).props.hitSlop, row.props.hitSlop, "the edge keeps its identity across renders");
+  open = false;
+  assert.equal(row.props.enabled.get(), false, "a sliding sidebar's rows take no swipe");
+  open = true;
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"], "a revealed Done waits for its tap");
+  const done = row.props.renderRightActions();
+  assert.equal(done.type, "Pressable");
+  done.props.onPress();
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive", "done"]);
+  row.props.onSwipeableOpen("right");
+  await settle();
+  assert.deepEqual(calls.at(-1), "read", "a right swipe still commits on release");
+});
+
+test("an older Mac's rows offer no Done, and their left swipe archives as before", () => {
+  globalThis.olderMac = true;
+  try {
+    const nav = navigationHost(deferred().promise);
+    const row = nav.row("chat");
+    const swipe = find(row, (node) => node.type === "ChatSwipeRow");
+    assert.equal(swipe.props.doneable, false, "the left swipe archives");
+    const items = new Set(nav.more(row).props.sections.flatMap((section) => section.items.map((item) => item.id)));
+    assert.equal(items.has("done"), false);
+    assert.equal(items.has("archive"), true);
+  } finally {
+    delete globalThis.olderMac;
+  }
+});
+
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -2752,38 +6367,31 @@ test("a sidebar Chat Archive asks with the worktree choice, then stops, hides an
     },
   });
   const more = nav.more(nav.row("chat"));
-  const archiveItem = more.props.sections.at(-1).items[0];
-  assert.equal(archiveItem.id, "archive");
+  const archiveItem = more.props.sections.at(-1).items.find((item) => item.id === "archive");
+  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Delete");
   assert.equal(archiveItem.disabled, undefined, "a running Chat can be archived: it is stopped first");
   more.props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(alerts, [
-    {
-      title: "Archive this Chat?",
-      message: "1 uncommitted file will be lost. Commit them first to keep them.",
-      buttons: [
-        ["Cancel", "cancel"],
-        ["Stop, archive and delete worktree", "destructive"],
-      ],
-    },
-  ]);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
+  assert.equal(listsChat(nav), false, "the row leaves the list at once");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete"),
+    false,
+    "the conversation stays while the toast's Undo can bring it back",
+  );
+  await passUndo(t);
   assert.deepEqual(
     project.calls.map(([method]) => method),
-    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "worktree:remove", "refresh"],
+    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
   );
-  assert.deepEqual(project.calls.find(([method]) => method === "worktree:remove").slice(1), [
-    "/wt/p/fix",
-    {
-      force: true,
-      base: "main",
-      projectPath: "/p",
-      chatId: "/p#5",
-      seen: { uncommitted: 1, unpushed: 0, branch: "milagre/fix", head: "h1", removable: false },
-    },
-  ]);
+  assert.equal(
+    project.calls.some(([method]) => method === "worktree:remove"),
+    false,
+  );
 });
 
-test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async () => {
+test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const screen = chatHost({
@@ -2797,22 +6405,13 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.params.id = "5";
   delete screen.params.worktreeId;
   screen.render();
-  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const archive = chatMenuEntry(screen.render(), "Delete");
   archive.props.onPress();
-  await settleAll();
-  assert.deepEqual(alerts, [
-    {
-      title: "Archive this Chat?",
-      message: undefined,
-      buttons: [
-        ["Cancel", "cancel"],
-        ["Archive", "destructive"],
-      ],
-    },
-  ]);
+  await passUndo(t);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     screen.calls.map((call) => call.method),
-    ["worktree:roots", "chat:patch"],
+    ["worktree:roots", "chat:patch", "chat:delete"],
   );
   assert.deepEqual(screen.calls[1].args, ["/p", 5, { archived: true, unread: false }]);
   assert.equal(screen.panels.open, "left");
@@ -2889,12 +6488,46 @@ test("New worktree creates from the chosen branch on first send and keeps the se
   assert.equal(screen.params.id, "7");
 });
 
+test("a busy Mac that can't list branches yet still takes a New worktree send from the checkout's branch", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let listed = 0;
+  const screen = chatHost({
+    effects: true,
+    call: async (method) => {
+      if (method === "project:branches") {
+        if (++listed < 3) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
+        return ["main", "release"];
+      }
+      if (method === "worktree:create") return { worktreeId: 9, project: { state: { sessions: { 7: { id: 7, worktree_id: 9 } } } } };
+      return { sessionId: 7 };
+    },
+  });
+  screen.session.snapshot.project.state.worktrees = { 1: { id: 1, name: "main" } };
+  find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.onSelect("worktree");
+  await settle();
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+    "a busy answer waits for the next try instead of showing",
+  );
+  screen.send();
+  await settle();
+  assert.equal(screen.calls.find((call) => call.method === "worktree:create").args[0].baseBranch, "main");
+  assert.equal(screen.params.id, "7");
+  t.mock.timers.tick(1000);
+  await settle();
+  t.mock.timers.tick(2000);
+  await settle();
+  assert.equal(listed, 3, "the branch list is read again until the Mac answers");
+});
+
 test("retrying a failed first send reuses the created worktree and keeps the draft", async () => {
   let sends = 0;
   const screen = chatHost({
     effects: true,
     call: async (method) => {
       if (method === "project:branches") return ["main"];
+      if (method === "project-git:read") return { effective: { baseBranch: "" } };
       if (method === "worktree:create") return { worktreeId: 9, project: { state: { sessions: { 7: { id: 7, worktree_id: 9 } } } } };
       if (++sends === 1) throw new Error("Connection lost");
       return { sessionId: 7 };
@@ -2932,7 +6565,9 @@ test("new-worktree preparation finishes its send in the background without navig
   assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
   assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].projectPath, "/p");
   assert.equal(screen.params.id, undefined);
-  assert.equal(screen.session.drafts["/p#new:1"], undefined);
+  // The sent text left the composer when it was sent; the composer is now the next New Chat's, so it stays put.
+  assert.equal(screen.session.drafts["/p#new:1"], "");
+  assert.equal(screen.session.drafts["/p#7"], undefined);
 });
 
 test("the attachment pull-down opens the selected picker and blocks a second pick", async () => {
@@ -2948,10 +6583,15 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
   assert.ok(menu(), "attachments must use a pull-down anchored to the +");
   menu().props.onSelect("photos");
   assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
+  assert.ok(find(screen.render(), (node) => node.props.accessibilityLabel === "Preparing attachment"));
   menu().props.onSelect("files");
   assert.deepEqual(kinds, ["photos"]);
   picking.resolve([]);
   await settle();
+  assert.equal(
+    find(screen.render(), (node) => node.props.accessibilityLabel === "Preparing attachment"),
+    undefined,
+  );
   menu().props.onSelect("camera");
   await settle();
   assert.deepEqual(kinds, ["photos", "camera"]);
@@ -2961,9 +6601,9 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
     uri: `file:///${i}.txt`,
     image: false,
   }));
-  assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
+  assert.ok(menu().props.sections[0].items.every((item) => !item.disabled));
   menu().props.onSelect("files");
-  assert.deepEqual(kinds, ["photos", "camera"], "four attachments block another picker");
+  assert.deepEqual(kinds, ["photos", "camera", "files"], "four attachments do not block another picker");
 });
 
 test("text typed during the first send follows the created Chat into its composer", async () => {
@@ -2975,6 +6615,27 @@ test("text typed during the first send follows the created Chat into its compose
   assert.equal(screen.params.id, "42");
   assert.equal(screen.field().value, "next message typed during send");
   assert.equal(screen.session.drafts["/p#new:1"], undefined);
+});
+
+test("while the Tasks panel is out, the Chat under it is hidden from the screen reader", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+  const covered = () => find(screen.render(), (node) => node.type === "PanelSwipe").props.covered;
+  assert.equal(covered(), false);
+  for (const phase of ["open", "closing"]) {
+    globalThis.planPanel = { phase };
+    try {
+      assert.equal(covered(), true, phase);
+    } finally {
+      delete globalThis.planPanel;
+    }
+  }
+  const tree = screen.render();
+  assert.ok(
+    find(tree, (node) => node.type === "PanelSwipe" && find(node, (child) => child.type === "KeyboardStickyView")),
+    "the composer is inside it",
+  );
 });
 
 test("the PR pill sends a PR action whose preview is already a card", async () => {
@@ -3015,6 +6676,176 @@ test("the PR pill sends a PR action whose preview is already a card", async () =
   }
 });
 
+test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the sheet's Fix in Chat sends in this Chat", async () => {
+  const url = "https://github.com/o/r/pull/90";
+  globalThis.chatPullRequest = { number: 90, title: "Fix it", url, state: "OPEN", readyToMerge: true };
+  globalThis.openedPullRequests = [];
+  try {
+    const screen = chatHost({ effects: true, call: async () => ({ sessionId: 42 }) });
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    const tree = screen.render();
+    const key = `${screen.session.snapshot.project.path}#42`;
+    assert.equal(
+      find(tree, (node) => node.type === "PullRequestAction"),
+      undefined,
+      "a ready PR has no blocker to send",
+    );
+    find(tree, (node) => node.type === "PullRequestMerge").props.onOpen();
+    assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "1", number: "90", chat: key }]));
+    // The header chip and PR shortcut open it in the app too, not on GitHub.
+    const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
+    find(tree, (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #90").props.onPress();
+    assert.equal(globalThis.openedPullRequests.length, 3);
+    assert.equal(screen.external?.length ?? 0, 0);
+    screen.render();
+    assert.equal(await globalThis.prChat.sendToChat(key, "Fix the failing lint check"), "sent");
+    await settle();
+    const sent = screen.calls.find((call) => call.method === "chat:send").args[0];
+    assert.equal(sent.body, "Fix the failing lint check");
+    assert.equal(globalThis.prChat.prefillChat(key, "About PR #90: "), true);
+    assert.equal(screen.session.drafts[key], "About PR #90: ");
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.openedPullRequests;
+  }
+});
+
+test("open review threads show a Review pill beside Merge, which opens the PR's threads", () => {
+  globalThis.chatPullRequest = { number: 92, title: "Fix it", url: "https://github.com/o/r/pull/92", state: "OPEN", readyToMerge: true };
+  const thread = (id, resolved, pending = false) => ({
+    id,
+    path: "a.ts",
+    line: 1,
+    side: "RIGHT",
+    resolved,
+    outdated: false,
+    comments: [{ id: `c${id}`, author: "jefo3", body: "?", createdAt: "x", ...(pending ? { pending: true } : {}) }],
+  });
+  // One open thread, one resolved, one that holds only the viewer's draft: only the first counts.
+  globalThis.prDetail = { number: 92, state: "OPEN", threads: [thread("1", false), thread("2", true), thread("3", false, true)] };
+  globalThis.openedPrPages = [];
+  try {
+    const screen = chatHost();
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    const tree = screen.render();
+    assert.ok(
+      find(tree, (node) => node.type === "PullRequestMerge"),
+      "Merge stays beside it",
+    );
+    const review = find(tree, (node) => node.type === "PullRequestReview");
+    assert.equal(review.props.count, 1);
+    review.props.onOpen();
+    const key = `${screen.session.snapshot.project.path}#42`;
+    assert.equal(JSON.stringify(globalThis.openedPrPages), JSON.stringify([["threads", { worktreeId: "1", number: "92", chat: key }, undefined]]));
+    globalThis.prDetail = { ...globalThis.prDetail, state: "MERGED" };
+    assert.equal(
+      find(screen.render(), (node) => node.type === "PullRequestReview"),
+      undefined,
+      "a merged PR has no review to answer",
+    );
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.prDetail;
+    delete globalThis.openedPrPages;
+  }
+});
+
+test("on an iPad the PR opens in the right panel, beside Changes", () => {
+  globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
+  globalThis.openedPullRequests = [];
+  try {
+    const screen = chatHost({ screenWidth: 1194 });
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    find(screen.render(), (node) => node.type === "PullRequestMerge").props.onOpen();
+    assert.deepEqual(screen.panels.shown, ["right:pr:#91"]);
+    assert.equal(globalThis.openedPullRequests.length, 0);
+    chatMenuEntry(screen.render(), "View changes").props.onPress();
+    assert.deepEqual(screen.panels.shown, ["right:pr:#91", "right"]);
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.openedPullRequests;
+  }
+});
+
+test("context size and the direct compact button are independent, follow the threshold and preserve the draft", async () => {
+  const contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" };
+  const screen = chatHost({ effects: true, contextPreferences, call: async () => ({ sessionId: 42 }) });
+  screen.params.id = "42";
+  const chat = { id: 42, provider: "claude", worktree_id: 1, contextUsage: { used: 69, size: 100 } };
+  screen.session.snapshot.project.state.sessions[42] = chat;
+  const compact = (tree) => find(tree, (node) => node.props?.accessibilityLabel === "Compact context");
+  const ring = (tree) => find(tree, (node) => node.type === "ContextRing");
+  let tree = screen.render();
+  assert.ok(ring(tree));
+  assert.ok(!compact(tree));
+  chat.contextUsage.used = 70;
+  tree = screen.render();
+  assert.ok(compact(tree));
+  assert.equal(compact(tree).props.disabled, false);
+  contextPreferences.showContextSize = false;
+  tree = screen.render();
+  assert.equal(ring(tree).props.showSize, false, "a chevron replaces the size");
+  assert.ok(compact(tree));
+  chat.contextUsage.used = 20;
+  assert.ok(!compact(screen.render()));
+  contextPreferences.compactButtonDisplay = "always";
+  const chatId = `${screen.session.snapshot.project.path}#42`;
+  screen.session.drafts[chatId] = "Keep this draft";
+  tree = screen.render();
+  compact(tree).props.onPress();
+  screen.render();
+  await settle();
+  assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
+  assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].compact, true);
+  assert.equal(screen.session.drafts[chatId], "Keep this draft");
+  chat.archived = true;
+  assert.equal(compact(screen.render()).props.disabled, true);
+  chat.archived = false;
+  screen.session.error = "Disconnected";
+  assert.equal(compact(screen.render()).props.disabled, true);
+  screen.session.error = "";
+  chat.provider = "codex";
+  assert.ok(!compact(screen.render()));
+});
+
+test("mobile compaction can be queued and cancelled during a turn, and quiet mode hides its controls", async () => {
+  const contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false };
+  const screen = chatHost({ effects: true, contextSettings, call: async () => ({ sessionId: 42 }) });
+  screen.session.refresh = async () => {};
+  screen.params.id = "42";
+  const chat = { id: 42, provider: "claude", worktree_id: 1, contextUsage: { used: 90, size: 100 } };
+  screen.session.snapshot.project.state.sessions[42] = chat;
+  const chatId = `${screen.session.snapshot.project.path}#42`;
+  screen.session.snapshot.runs.runs[chatId] = { text: "Working", steps: [], approvals: [], questions: [] };
+  screen.session.drafts[chatId] = "Keep this draft";
+  const button = (tree, label) => find(tree, (node) => node.props?.accessibilityLabel === label);
+  const compact = button(screen.render(), "Compact context");
+  assert.equal(compact.props.disabled, false);
+  compact.props.onPress();
+  screen.render();
+  await settle();
+  assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].compact, true);
+  chat.queued = [{ id: "compact-1", context: { kind: "compaction", status: "preparing" } }];
+  button(screen.render(), "Cancel queued compaction").props.onPress();
+  await settle();
+  assert.deepEqual(Array.from(screen.calls.find((call) => call.method === "chat:queue-remove").args), [chatId, "compact-1"]);
+  assert.equal(screen.session.drafts[chatId], "Keep this draft");
+  chat.queued = [];
+  contextSettings.autoCompact = true;
+  const quiet = screen.render();
+  assert.ok(!button(quiet, "Compact context"));
+  assert.ok(!find(quiet, (node) => node.type === "ContextRing"));
+  chat.provider = "codex";
+  assert.ok(
+    find(screen.render(), (node) => node.type === "ContextRing"),
+    "unsupported providers keep their usage display",
+  );
+});
+
 test("Compact now from the context sheet sends /compact to the open Chat with the compact flag and no preview", async () => {
   const screen = chatHost({ effects: true, call: async () => ({ sessionId: 42 }) });
   screen.params.id = "42";
@@ -3035,6 +6866,20 @@ test("Compact now from the context sheet sends /compact to the open Chat with th
   screen.render();
   await settle();
   assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
+});
+
+test("a PR the Chat opened from another branch gets the PR pill, as its row shows it", () => {
+  const url = "https://github.com/o/r/pull/81";
+  globalThis.chatNamedPullRequests = { [url]: { number: 81, url, state: "OPEN", changesRequested: true } };
+  try {
+    const screen = chatHost();
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1, summary: { count: 2, pullRequests: [url] } };
+    const pill = find(screen.render(), (node) => node.type === "PullRequestAction");
+    assert.equal(pill?.props.pr.number, 81);
+  } finally {
+    delete globalThis.chatNamedPullRequests;
+  }
 });
 
 test("a PR without a number yet shows no PR pill", () => {
@@ -3073,6 +6918,258 @@ test("a failed first send restores the sent text alongside the next draft and re
   const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
   assert.equal(button.props.disabled, false);
   assert.equal(find(screen.render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
+});
+
+test("quoted passages ride over the phone composer, go out as blockquotes before the text, and come back as quotes when the send fails", async () => {
+  const screen = chatHost({ effects: true });
+  const quote = (passage, from) => find(screen.render(), (node) => node.type === "ChatLinkProvider").props.ask(passage, from);
+  const chips = () => find(screen.render(), (node) => node.type === "QuoteChips").props;
+  quote("first passage", "assistant");
+  quote("  \n", "assistant");
+  quote("my own\nwords", "user");
+  quote("dropped", "assistant");
+  assert.deepEqual(
+    Array.from(chips().quotes, ({ text, source }) => [text, source]),
+    [
+      ["first passage", "Claude reply"],
+      ["my own\nwords", "Your message"],
+      ["dropped", "Claude reply"],
+    ],
+    "an empty selection adds nothing; the rest stack in order",
+  );
+  chips().onRemove(chips().quotes[2].id);
+  screen.send();
+  await settle();
+  const sent = screen.calls.find((call) => call.method === "chat:send").args[0];
+  assert.equal(sent.body, "> first passage\n\n> my own\n> words\n\nfirst message");
+  assert.equal(transcriptMessages(screen)[0]?.body, sent.body, "the pending bubble shows what went");
+  assert.equal(chips().quotes.length, 0, "the quotes leave with the message");
+  assert.equal(screen.field().value, "");
+  screen.sending.reject(new Error("Connection lost"));
+  await settle();
+  assert.deepEqual(
+    Array.from(chips().quotes, ({ text }) => text),
+    ["first passage", "my own\nwords"],
+  );
+  assert.equal(screen.field().value, "first message");
+});
+
+test("the phone sends a quote alone, with nothing typed", async () => {
+  const screen = chatHost({ effects: true });
+  screen.session.drafts["/p#new:1"] = "";
+  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, true);
+  find(screen.render(), (node) => node.type === "ChatLinkProvider").props.ask("Only this", "assistant");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false, "a quote alone is a message");
+  screen.send();
+  await settle();
+  const sent = screen.calls.find((call) => call.method === "chat:send").args[0];
+  assert.equal(sent.body, "> Only this");
+});
+
+test("a New Chat opened while another one is still sending starts empty and sends its own", async () => {
+  const first = chatHost();
+  first.send();
+  await settle();
+  assert.equal(transcriptMessages(first)[0]?.body, "first message");
+  // The drawer's New Chat: another screen for the same Worktree, with the same pending sends and composers.
+  const second = chatHost();
+  Object.defineProperty(second.session, "pendingChats", { get: () => first.session.pendingChats });
+  second.session.setPendingChats = first.session.setPendingChats;
+  second.session.drafts = first.session.drafts;
+  second.session.setDrafts = (fn) => {
+    first.session.drafts = second.session.drafts = fn(second.session.drafts);
+  };
+  assert.deepEqual(transcriptMessages(second), []);
+  assert.equal(second.field().value, "");
+  second.field().onChangeText("second message");
+  second.send();
+  await settle();
+  assert.deepEqual(
+    second.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].body),
+    ["second message"],
+  );
+  assert.equal(Object.keys(first.session.pendingChats).length, 2, "both sends are pending, each under its own screen");
+  // The first Mac answer reaches only the screen that sent it.
+  first.sending.resolve({ sessionId: 42 });
+  await settle();
+  assert.equal(first.params.id, "42");
+  assert.equal(second.params.id, undefined);
+  assert.equal(transcriptMessages(second)[0]?.body, "second message");
+});
+
+test("an accepted mobile send releases the composer before a slow refresh finishes", async () => {
+  const screen = chatHost();
+  const refresh = deferred();
+  screen.session.refresh = () => refresh.promise;
+  screen.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "Send this";
+  screen.send();
+  await settle();
+  screen.sending.resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next message");
+  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
+  refresh.resolve();
+});
+
+test("switching the mounted mobile composer between computers isolates concurrent sends", async () => {
+  const sends = [deferred(), deferred()];
+  let count = 0;
+  const screen = chatHost({ call: (method) => (method === "chat:send" ? sends[count++].promise : Promise.resolve([])) });
+  const state = screen.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "First computer";
+  screen.send();
+  await settle();
+  // The routed pane stays mounted, including when the other computer uses the same path and Chat id.
+  screen.session.client.url = "other-mac";
+  screen.field().onChangeText("Second computer");
+  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false, "the first computer's send does not lock the second");
+  screen.send();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(Object.keys(screen.session.pendingChats).length, 2);
+  // The first completion must not release the second computer's duplicate-send guard.
+  sends[0].resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Sending…");
+  button.props.onPress();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(button.props.disabled, true);
+  sends[1].reject(new Error("Second computer refused the send"));
+  await settle();
+  assert.equal(screen.field().value, "Second computer\n\nNext draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
+});
+
+test("the drawer reopens a New Chat that is still sending", async () => {
+  const first = chatHost();
+  first.send();
+  await settle();
+  const [pending] = Object.values(first.session.pendingChats);
+  assert.ok(pending.draft);
+  const reopened = chatHost();
+  reopened.session.pendingChats = first.session.pendingChats;
+  reopened.params.draft = pending.draft;
+  assert.equal(transcriptMessages(reopened)[0]?.body, "first message");
+});
+
+test("a busy Mac takes the first send on a later try, with no error and one message", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let tries = 0;
+  const screen = chatHost({
+    call: (method) => {
+      if (method === "project:branches") return Promise.resolve(["main"]);
+      if (method !== "chat:send") return Promise.resolve();
+      tries++;
+      return tries < 3
+        ? Promise.reject(Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 }))
+        : Promise.resolve({ sessionId: 42 });
+    },
+  });
+  screen.send();
+  await settle();
+  assert.equal(tries, 1);
+  assert.equal(transcriptMessages(screen)[0]?.body, "first message", "the message shows as sending meanwhile");
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  t.mock.timers.tick(1000);
+  await settle();
+  t.mock.timers.tick(2000);
+  await settle();
+  await settle();
+  const sends = screen.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].clientMessageId);
+  assert.equal(sends.length, 3);
+  assert.equal(new Set(sends).size, 1, "every try carries the same id, so the Mac saves it once");
+  assert.equal(screen.params.id, "42");
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+});
+
+test("a send that lands after its New Chat was left keeps out of the next New Chat's composer", async () => {
+  const screen = chatHost();
+  screen.send();
+  await settle();
+  screen.session.isSelected = () => false;
+  screen.session.drafts = { ...screen.session.drafts, "/p#new:1": "the next chat" };
+  screen.sending.resolve({ sessionId: 42 });
+  await settle();
+  assert.equal(screen.session.drafts["/p#new:1"], "the next chat");
+  assert.equal(screen.session.drafts["/p#42"], undefined);
+});
+
+test("an open Chat whose page already holds the sent follow-up shows it once", async (t) => {
+  const screen = chatHost({ effects: true });
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.messagesInChats = true;
+  state.sessions[42] = { id: 42, worktree_id: 1, provider: "codex", status: "Created", summary: { count: 1 } };
+  screen.session.drafts["/p#42"] = "follow up";
+  let page = [{ id: 3, session_id: 42, role: "user", body: "start" }];
+  globalThis.chatPage = (client, _path, id) =>
+    client && id === 42 ? { messages: page, hasMore: false, total: page.length, loading: false, loadEarlier: async () => {} } : undefined;
+  t.after(() => delete globalThis.chatPage);
+  screen.send();
+  await settle();
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.body),
+    ["start", "follow up"],
+  );
+  // A runs update read the page again before the snapshot's summary named the send.
+  const request = screen.calls.find((call) => call.method === "chat:send").args[0];
+  page = [...page, { id: 4, session_id: 42, role: "user", body: "follow up", clientMessageId: request.clientMessageId }];
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [3, 4],
+  );
+});
+
+test("a Chat followed at its bottom lets go of its history as new messages arrive, not while scrolled up", async (t) => {
+  const screen = chatHost({ effects: true });
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.messagesInChats = true;
+  state.sessions[42] = { id: 42, worktree_id: 1, provider: "codex", status: "Created", summary: { count: 1 } };
+  let page = [{ id: 1, session_id: 42, role: "user", body: "start" }];
+  let trims = 0;
+  globalThis.chatPage = (client, _path, id) =>
+    client && id === 42
+      ? {
+          messages: page,
+          hasMore: false,
+          total: page.length,
+          loading: false,
+          loadEarlier: async () => {},
+          trim: () => trims++,
+        }
+      : undefined;
+  t.after(() => delete globalThis.chatPage);
+  const view = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  view();
+  await settle();
+  assert.equal(trims, 0, "opening a Chat trims nothing");
+  page = [...page, { id: 2, session_id: 42, role: "assistant", body: "reply" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a new message at the bottom trims the window");
+  view().props.onScroll({ nativeEvent: { contentOffset: { y: 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 600 } } });
+  page = [...page, { id: 3, session_id: 42, role: "assistant", body: "more" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a reader scrolled up keeps the history they are reading");
 });
 
 test("the transcript follows new content, also after the agent settings sheet opens", () => {
@@ -3209,6 +7306,144 @@ test("first send stays visible while the saved Chat's first page is still loadin
   loading = false;
   assert.equal(input()?.id, 8);
   assert.equal(transcriptMessages(screen).length, 1);
+});
+
+test("the message that continued a Chat on another account is a line, not a reply", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const context = { kind: "account-switch", provider: "claude", label: "me@work.com" };
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Fix the api" },
+    { id: 2, session_id: 42, role: "user", body: "Switched to me@work.com after the usage limit", context },
+  ];
+  const tree = screen.render();
+  assert.deepEqual(find(tree, (node) => node.type === "AccountSwitchDivider").props.context, context);
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [1],
+  );
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.equal(rail.props.items.at(-1).label, "Go to Switched to me@work.com after the usage limit, 2 of 2.");
+});
+
+test("a Chat whose babysit Heartbeat ended shows the line saying why, and the rail names it", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const context = { kind: "babysit-stopped", routineId: "r1", pr: 7, reason: "merged" };
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Open a PR" },
+    { id: 2, session_id: 42, role: "assistant", body: "Stopped babysitting PR #7: merged.", context },
+  ];
+  const tree = screen.render();
+  const dividers = [];
+  find(tree, (node) => {
+    if (node.type === "BabysitStoppedDivider") dividers.push(node.props.context);
+    return false;
+  });
+  assert.deepEqual(dividers, [context]);
+  // Not drawn as a reply too.
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [1],
+  );
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.equal(rail.props.items.at(-1).label, "Go to Stopped babysitting PR #7: merged, 2 of 2.");
+});
+
+test("quiet heartbeats collapse into one line and their replies are hidden", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const run = (id, minute, summary) => ({
+    id,
+    session_id: 42,
+    role: "user",
+    body: "Heartbeat",
+    context: { kind: "routine-run", routineId: "r1", runId: `run${id}`, name: "Babysit", at: Date.UTC(2026, 9, 16, 10, minute), quiet: true, summary },
+  });
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Watch CI" },
+    run(2, 15, "waiting"),
+    { id: 3, session_id: 42, role: "assistant", body: "(pass) waiting" },
+    run(4, 30, "CI green"),
+    { id: 5, session_id: 42, role: "assistant", body: "(pass) CI green" },
+  ];
+  const tree = screen.render();
+  const dividers = [];
+  find(tree, (node) => {
+    if (node.type === "RoutineRunDivider") dividers.push(node.props);
+    return false;
+  });
+  assert.equal(dividers.length, 1);
+  assert.equal(dividers[0].merged.count, 2);
+  assert.equal(dividers[0].merged.last.summary, "CI green");
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [1],
+  );
+});
+
+test("a Linear Run's first message shows the routine divider, then its issue card", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const routine = { routineId: "r1", runId: "run1", name: "Triage", at: Date.UTC(2026, 9, 16, 10, 15), label: "Routine · Triage" };
+  state.messages = [
+    {
+      id: 1,
+      session_id: 42,
+      role: "user",
+      body: "Look at MIL-1",
+      context: { kind: "linear-issue", key: "MIL-1", title: "Paste", url: "u", state: { name: "Todo", type: "unstarted", color: "#aaa" }, routine },
+    },
+    { id: 2, session_id: 42, role: "assistant", body: "On it." },
+  ];
+  const tree = screen.render();
+  const order = [];
+  find(tree, (node) => {
+    if (node.type === "RoutineRunDivider") order.push(["divider", node.props.context]);
+    if (node.type === "ChatReply" && node.props.message) order.push(["reply", node.props.message.id]);
+    return false;
+  });
+  assert.deepEqual(order[0], ["divider", { kind: "routine-run", ...routine }]);
+  assert.deepEqual(order.slice(1), [
+    ["reply", 1],
+    ["reply", 2],
+  ]);
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.match(rail.props.items[0].label, /^Go to Routine · Triage · \d\d:\d\d, 1 of 2\.$/);
+});
+
+test("the navigation rail skips hidden heartbeat replies and counts what the transcript shows", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const run = (id, minute, summary) => ({
+    id,
+    session_id: 42,
+    role: "user",
+    body: "Heartbeat",
+    context: { kind: "routine-run", routineId: "r1", runId: `run${id}`, name: "Babysit", at: Date.UTC(2026, 9, 16, 10, minute), quiet: true, summary },
+  });
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Watch CI" },
+    run(2, 15, "waiting"),
+    { id: 3, session_id: 42, role: "assistant", body: "(pass) waiting" },
+    run(4, 30, "CI green"),
+    { id: 5, session_id: 42, role: "assistant", body: "(pass) CI green" },
+  ];
+  const rail = find(screen.render(), (node) => node.type === "MessageNavigation");
+  assert.equal(rail.props.items.length, 2);
+  assert.match(rail.props.items[0].label, /^Go to user message 1 of 2\. Watch CI$/);
+  assert.match(rail.props.items[1].label, /^Go to 2 quiet checks · last \d\d:\d\d: CI green, 2 of 2\.$/);
+  assert.ok(rail.props.items.every((item) => !item.label.includes("(pass)")));
 });
 
 test("mobile navigation spans a long Chat with at most 15 lines and loads older targets before scrolling", () => {
@@ -3380,6 +7615,7 @@ test("late Chat rename cannot pop another screen after its form loses focus", as
   };
   const { default: Form } = load("app/chat-details.tsx", {
     "../archive-progress": archiveProgress,
+    "../chat-actions": { runChatAction: async () => {} },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Text: "Text" },
@@ -3397,11 +7633,11 @@ test("late Chat rename cannot pop another screen after its form loses focus", as
     "../attachment-picker": { pickAttachments: async () => [] },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
     "../status-indicators": { ChatStatus: "ChatStatus", AgentStatus: "AgentStatus", WorktreeStatus: "WorktreeStatus" },
-    "../ui": { ...Object.fromEntries(["Button", "ErrorNotice", "Field", "PageScroll"].map((name) => [name, name])), styles: {} },
+    "../ui": { ...Object.fromEntries(["PillButton", "ErrorNotice", "Field", "PageScroll"].map((name) => [name, name])), styles: {} },
   });
   react.begin();
   const tree = Form();
-  find(tree, (n) => n.type === "Button" && n.props.title === "Save name").props.onPress();
+  find(tree, (n) => n.type === "PillButton" && n.props.title === "Save name").props.onPress();
   cleanup?.();
   saving.resolve({});
   await settle();
@@ -3427,6 +7663,7 @@ test("attachment drafts survive a failed send and move only after a successful f
   const photo = { id: "photo", name: "photo.jpg", uri: "file:///photo", image: { id: "photo", name: "photo.jpg", dataUrl: "data:image/jpeg;base64,/9j/" } };
   screen.session.attachments["/p#new:1"] = [photo];
   screen.send();
+  await settle();
   screen.sending.reject(new Error("Connection lost"));
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"][0].id, "photo");
@@ -3455,6 +7692,211 @@ test("reusing an empty Chat preserves its existing text and attachment drafts", 
   assert.equal(screen.session.attachments["/p#42"].length, 1);
   assert.equal(screen.session.attachments["/p#42"][0], photo);
   assert.equal(screen.field().value, "unsent in existing Chat");
+});
+
+test("cached Chat switches commit before the network, survive route handoff and refresh in place", async () => {
+  const update = deferred();
+  let waiting = false;
+  const copy = (path, title) => ({ ...snapshot(path), project: { path, state: { sessions: { 7: { id: 7, title } } } } });
+  const client = { url: "mac", call: async () => [], snapshot: async (path) => (waiting ? update.promise : copy(path, "Cached")) };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  await render().open("/b");
+  waiting = true;
+  assert.equal(render().openCachedChat("/a", 7), client);
+  assert.equal(render().snapshot.project.path, "/a", "the target is ready synchronously, before routing");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Cached");
+  assert.equal(render().isSelected(), true);
+  render().cancelNavigation(); // The drawer's route handoff cancels unfinished navigation, not this committed selection.
+  update.resolve(copy("/a", "Updated"));
+  await settle();
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Updated");
+});
+
+test("returning to the visible cached Chat cancels a cold open and restores its active selection", async () => {
+  const cold = deferred();
+  const client = {
+    url: "mac",
+    call: async () => [],
+    snapshot: async (path) =>
+      path === "/cold"
+        ? cold.promise
+        : {
+            project: { path, state: { sessions: { 7: { id: 7 } } } },
+            runs: { runs: {} },
+          },
+  };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  const opening = render().open("/cold");
+  assert.equal(render().isSelected(), false);
+  assert.equal(render().openCachedChat("/a", 7), client);
+  assert.equal(render().isSelected(), true);
+  assert.equal(render().opening, null);
+  cold.resolve(snapshot("/cold"));
+  await opening;
+  assert.equal(render().snapshot.project.path, "/a");
+});
+
+test("a cached Chat on another computer opens offline without borrowing the other computer's state", async () => {
+  const update = deferred();
+  let waiting = false;
+  const clients = Object.fromEntries(
+    ["one", "two"].map((url) => [
+      url,
+      {
+        url,
+        call: async () => [],
+        recentScopes: async () => [],
+        open: async (path) => (waiting ? update.promise : { project: { path, state: { sessions: { 7: { id: 7, title: url } } } }, runs: { runs: {} } }),
+      },
+    ]),
+  );
+  const render = sessionHost(clients.one, { clientFactory: (host) => clients[host.address] });
+  const host = (address) => ({ address, token: "token", name: address });
+  await render().connect(host("one"));
+  await render().open("/same");
+  await render().connect(host("two"));
+  await render().open("/same");
+  waiting = true;
+  assert.equal(render().openCachedChat("/same", 7, host("one")), clients.one);
+  assert.equal(render().client.url, "one");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "one");
+  update.reject(new Error("Offline"));
+  await settle();
+  assert.equal(render().error, "Offline");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "one");
+  assert.equal(render().isSelected(), true);
+});
+
+test("a cached computer switch keeps sidebar rows while its Project list is pending or fails", async () => {
+  const { createAllComputersStore } = require("../apps/mobile/src/all-computers-store.ts");
+  const lists = deferred();
+  let switching = false;
+  const projects = [{ path: "/same", name: "Project" }];
+  const clients = Object.fromEntries(
+    ["one", "two"].map((url) => [
+      url,
+      {
+        url,
+        call: async () => [],
+        recentScopes: async () => (switching ? lists.promise : projects),
+        open: async (path) => ({ project: { path, state: { sessions: { 7: { id: 7, title: url } } } }, runs: { runs: {} } }),
+      },
+    ]),
+  );
+  const render = sessionHost(clients.one, { clientFactory: (host) => clients[host.address] });
+  const hosts = ["one", "two"].map((id) => ({ id, address: id, token: "token", name: id, lastUsed: 0 }));
+  const store = createAllComputersStore({
+    createClient: (host) => clients[host.id],
+    applyProjects: async (_id, value) => value,
+    now: () => 1,
+    random: () => 0.5,
+    setTimer: () => null,
+    clearTimer() {},
+  });
+  const sync = () => {
+    const session = render();
+    store.sync(hosts, {
+      hostId: session.client.url,
+      client: session.client,
+      projects: session.recentLoaded ? session.recent : undefined,
+      reload: session.reloadProjects,
+    });
+    return session;
+  };
+  await render().connect(hosts[0]);
+  await render().open("/same");
+  assert.equal(sync().recentLoaded, true);
+  await render().connect(hosts[1]);
+  await render().open("/same");
+  sync();
+  switching = true;
+  render().openCachedChat("/same", 7, hosts[0]);
+  assert.equal(sync().recentLoaded, false, "the new session has not fetched its Project list yet");
+  assert.deepEqual(
+    Array.from(store.viewOf("one").projects, (project) => project.path),
+    ["/same"],
+  );
+  lists.reject(new Error("Offline"));
+  await settle();
+  assert.equal(sync().recentLoaded, false);
+  assert.deepEqual(
+    Array.from(store.viewOf("one").projects, (project) => project.path),
+    ["/same"],
+  );
+  clients.one.recentScopes = async () => [];
+  await render().reloadProjects();
+  assert.equal(sync().recentLoaded, true, "an authoritative empty answer is loaded");
+  assert.equal(store.viewOf("one").projects.length, 0);
+});
+
+test("cached Chat revalidation cannot overwrite a later selection or a newer live snapshot", async () => {
+  const update = deferred();
+  let waiting = false;
+  const copy = (path, title) => ({ project: { path, state: { sessions: { 7: { id: 7, title } } } }, runs: { runs: {} } });
+  const client = { url: "mac", call: async () => [], snapshot: async (path) => copy(path, "Cached") };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  await render().open("/b");
+  client.open = async (path) => (waiting ? update.promise : copy(path, "Later selection"));
+  waiting = true;
+  render().openCachedChat("/a", 7);
+  client.snapshot = async (path) => copy(path, "Live update");
+  await render().refresh();
+  update.resolve(copy("/a", "Old response"));
+  await settle();
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Live update");
+  const late = deferred();
+  client.open = (path) => (path === "/b" ? late.promise : Promise.resolve(copy(path, "Live update")));
+  render().openCachedChat("/b", 7);
+  render().openCachedChat("/a", 7);
+  late.reject(new Error("Old failure"));
+  await settle();
+  assert.equal(render().snapshot.project.path, "/a");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Live update");
+  assert.equal(render().error, "", "an old selection's failure cannot become the current Chat's error");
+});
+
+test("cached Chat revalidation drops a Chat removed on its computer", async () => {
+  const update = deferred();
+  let waiting = false;
+  const render = sessionHost({
+    url: "mac",
+    call: async () => [],
+    snapshot: async (path) =>
+      waiting
+        ? update.promise
+        : {
+            project: { path, state: { sessions: { 7: { id: 7 } } } },
+            runs: { runs: {} },
+          },
+  });
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  await render().open("/b");
+  waiting = true;
+  render().openCachedChat("/a", 7);
+  update.resolve(snapshot("/a"));
+  await settle();
+  assert.equal(render().snapshot.project.state.sessions[7], undefined);
+  assert.match(render().error, /no longer available/);
+  assert.equal(render().openCachedChat("/a", 7), null);
+});
+
+test("summary-only, missing and other-computer Chats do not qualify for cached navigation", async () => {
+  const client = { url: "one", call: async () => [], snapshot: async (path) => snapshot(path) };
+  const render = sessionHost(client, { clientFactory: (host) => (host.address === "one" ? client : { ...client, url: "two" }) });
+  await render().connect({ address: "one", token: "token" });
+  await render().open("/a");
+  render().seedPreview(client, "/summary", { project: { path: "/summary", state: { sessions: { 7: { id: 7 } } } }, previewOnly: true });
+  assert.equal(render().openCachedChat("/summary", 7), null);
+  assert.equal(render().openCachedChat("/a", 7), null);
+  assert.equal(render().openCachedChat("/a", 7, { address: "two", token: "token", name: "Two" }), null);
+  assert.equal(render().snapshot.project.path, "/a");
 });
 
 test("notification navigation reconnects and opens the target Chat only after loading current state", async () => {
@@ -3506,20 +7948,30 @@ test("a cancelled notification target ignores a later network failure", async ()
   assert.equal(await opening, false);
 });
 
+// Router 58's stack reducer, the one the app's navigators run.
+function expoRouters() {
+  return require(require.resolve("expo-router/build/react-navigation/routers/index", { paths: [path.join(__dirname, "../apps/mobile")] }));
+}
+
+// Router 58 has no initial-state helper and rejects partial states, so tests seed a complete one.
+function stackState(routeNames, routes) {
+  return { stale: false, type: "stack", key: "root", index: routes.length - 1, routeKeySeq: 0, routeNames, routes, preloadedRoutes: [] };
+}
+
 function pushHost(t, initial = "index") {
   const react = hookHost();
   react.useEffect = react.effect;
   react.useLayoutEffect = react.effect;
-  const { StackRouter, StackActions } = require(
-    require.resolve("expo-router/build/react-navigation/routers", { paths: [path.join(__dirname, "../apps/mobile")] }),
-  );
+  const { StackRouter, StackActions } = expoRouters();
   const stack = StackRouter({ initialRouteName: initial });
   const options = { routeNames: ["index", "projects", "project", "chat"], routeParamList: {}, routeGetIdList: {} };
-  let navigation = stack.getInitialState(options);
+  let navigation = stackState(options.routeNames, [{ key: `${initial}-root`, name: initial }]);
   let pathname = initial === "index" ? "/" : "/chat";
   let params = initial === "chat" ? { id: "1" } : {};
   const apply = (action) => {
-    navigation = stack.getStateForAction(navigation, action, options) || navigation;
+    const result = stack.getStateForAction(navigation, action, options);
+    // An unhandled action, like popping the last route, leaves the stack as it was.
+    if (typeof result === "object") navigation = result.state;
   };
   const router = {
     dismissAll: () => apply(StackActions.popToTop()),
@@ -3688,8 +8140,10 @@ test("a notification target clears an older Project loading state", async () => 
 });
 
 // Render the real activity adapters, disclosure and shimmer against native leaves.
-function activityItemHost() {
+function activityItemHost({ expandReasoning = false, effects = false, active = true, reduced = false, permissionQuery } = {}) {
   const hosts = new Map();
+  const animations = [];
+  let motionListener;
   let current;
   const react = Object.fromEntries(["useState", "useRef", "useMemo", "useEffect"].map((name) => [name, (...args) => current[name](...args)]));
   react.memo = (fn) => fn;
@@ -3706,13 +8160,43 @@ function activityItemHost() {
     View: "View",
     Pressable: "Pressable",
     useColorScheme: () => "dark",
-    AccessibilityInfo: {},
+    AccessibilityInfo: {
+      isReduceMotionEnabled: permissionQuery ?? (async () => reduced),
+      addEventListener: (_name, listener) => {
+        motionListener = listener;
+        return {
+          remove: () => {
+            motionListener = null;
+          },
+        };
+      },
+    },
     StyleSheet: { create: (value) => value, absoluteFill: {} },
     Animated: {
       Value: class {
-        interpolate() {}
+        setValue(value) {
+          this.value = value;
+        }
+        interpolate(config) {
+          return { ...config, value: this };
+        }
       },
       View: "AnimatedView",
+      modulo: (value, divisor) => ({ value, divisor }),
+      loop: (animation) => Object.assign(animation, { looped: true }),
+      timing: (value, config) => {
+        const animation = {
+          value,
+          config,
+          start() {},
+          stopped: false,
+          stop() {
+            this.stopped = true;
+          },
+        };
+        animations.push(animation);
+        return animation;
+      },
     },
     Easing: { bezier: () => () => {}, linear() {} },
   };
@@ -3723,6 +8207,7 @@ function activityItemHost() {
     "react-native": native,
     "@hugeicons/core-free-icons": icons,
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./display-clock": { useScreenActive: () => active, useDisplayValue: (_interval, compute) => compute(Date.now()) },
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./ui": {
       colors: palette,
@@ -3740,28 +8225,24 @@ function activityItemHost() {
     "expo-linear-gradient": { LinearGradient: "LinearGradient" },
     "expo-router": { useIsFocused: () => false },
     "./logo": { LEFT: "", RIGHT: "", STAR: "", STAR_BOX: {} },
-    "./theme": { colors: palette, fonts: { mono: "mono" }, hex: () => palette },
+    "./theme": { useTheme: () => ({ colors: palette, motionScale: 1 }), fonts: { mono: "mono" } },
   });
   const shared = load("activity-item.tsx", {
     ...common,
     "./running-logo": running,
-    "./theme": { fonts: { mono: "mono" } },
+    "./theme": { useTheme: () => ({ colors: palette, motionScale: 1 }), fonts: { mono: "mono" } },
   });
-  const SubagentItem = load("subagent-item.tsx", {
-    ...common,
-    "./activity-item": shared,
-    "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
-  }).SubagentItem;
   const ToolRow = load("tool-row.tsx", {
     ...common,
     "./activity-item": shared,
+    "./chat-display-setting": { useExpandReasoning: () => [expandReasoning, () => {}] },
     "./markdown": { Markdown: ({ text }) => jsx("Text", { children: text }) },
   }).ToolRow;
   function visit(node, key) {
     if (Array.isArray(node)) return node.map((child, index) => visit(child, `${key}.${child?.props?.id || index}`));
     if (!node || typeof node !== "object" || !node.type) return node;
     if (typeof node.type === "function") {
-      current = hosts.get(key) || hookHost();
+      current = hosts.get(key) || hookHost({ effects });
       hosts.set(key, current);
       current.begin();
       return visit(node.type(node.props), `${key}.render`);
@@ -3775,51 +8256,120 @@ function activityItemHost() {
     };
   }
   return {
-    subagent: (agent) => visit(jsx(SubagentItem, { agent }), "agent"),
     tool: (props) => visit(jsx(ToolRow, props), "tool"),
+    title: (props) => visit(jsx(shared.ActivityTitle, props), "title"),
+    animations,
+    reduce(value) {
+      reduced = value;
+      motionListener?.(value);
+    },
+    activate(value) {
+      active = value;
+    },
+    unmount() {
+      for (const host of hosts.values()) host.unmount();
+    },
   };
 }
-const sampleSubagent = {
-  id: "a",
-  title: "Check the phone connection",
-  status: "running",
-  startedAt: 1,
-  updatedAt: 1,
-  latestActivity: "Checking pairing",
-  transcript: [{ id: "t", kind: "message", text: "Connection verified." }],
-};
 
-test("subagent execution shimmers, while waiting, failure and completion stop it", () => {
-  const item = activityItemHost();
-  for (const status of ["initializing", "running"])
-    assert.ok(
-      find(item.subagent({ ...sampleSubagent, status }), (node) => node.type === "MaskedView"),
-      status,
-    );
-  for (const status of ["waiting", "failed", "completed", "cancelled"])
-    assert.equal(
-      find(item.subagent({ ...sampleSubagent, status }), (node) => node.type === "MaskedView"),
-      undefined,
-      status,
-    );
+test("phone titles sweep in one native loop for the whole run and finish with normal chips", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true };
+  host.title(props);
+  await Promise.resolve();
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+  const animation = host.animations.at(-1);
+  assert.equal(animation.looped, true);
+  assert.equal(animation.config.toValue, 320);
+  assert.equal(animation.config.duration, 1200);
+  assert.equal(animation.config.useNativeDriver, true);
+  assert.equal(animation.config.isInteraction, false);
+  t.mock.timers.tick(60_000);
+  assert.ok(
+    find(host.title(props), (node) => node.type === "MaskedView"),
+    "a long call keeps sweeping",
+  );
+  assert.equal(host.animations.length, 1, "renders do not restart the loop");
+  const finished = host.title({ ...props, shimmer: false });
+  assert.equal(
+    find(finished, (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  assert.equal(find(finished, (node) => node.type === "Text" && node.props.children === "check").props.style.color, "#fff");
 });
 
-test("subagent details stay expanded across live updates and collapse through the disclosure", () => {
-  const item = activityItemHost();
-  let tree = item.subagent(sampleSubagent);
+test("phone reduced motion and inactive screens keep running titles static with running ink", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true };
+  host.title(props);
+  await Promise.resolve();
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+  host.reduce(true);
+  const reduced = host.title(props);
   assert.equal(
-    find(tree, (node) => node.type === "Text" && node.props.children === "Connection verified."),
+    find(reduced, (node) => node.type === "MaskedView"),
     undefined,
   );
-  find(tree, (node) => node.props?.accessibilityRole === "button").props.onPress();
-  tree = item.subagent({ ...sampleSubagent, status: "completed", transcript: [{ id: "t", kind: "message", text: "New live output" }] });
-  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "New live output"));
-  assert.equal(find(tree, (node) => node.props?.accessibilityRole === "button").props.accessibilityState.expanded, true);
-  find(tree, (node) => node.props?.accessibilityRole === "button").props.onPress();
+  const chip = find(reduced, (node) => node.type === "Text" && node.props.children === "check");
+  assert.equal(chip.props.style.color, "#666");
+  assert.equal(chip.props.style.backgroundColor, "#222");
+  host.reduce(false);
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+  host.activate(false);
   assert.equal(
-    find(item.subagent(sampleSubagent), (node) => node.type === "Text" && node.props.children === "Connection verified."),
+    find(host.title(props), (node) => node.type === "MaskedView"),
     undefined,
   );
+});
+test("phone reactivation waits for fresh reduced-motion permission, including a failed query", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  for (const reject of [false, true]) {
+    const pending = deferred();
+    let calls = 0;
+    const host = activityItemHost({ effects: true, permissionQuery: () => (++calls === 1 ? Promise.resolve(false) : pending.promise) });
+    const props = { title: "Ran `check`", shimmer: true };
+    host.title(props);
+    await Promise.resolve();
+    assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+    host.activate(false);
+    host.title(props);
+    host.activate(true);
+    assert.equal(
+      find(host.title(props), (node) => node.type === "MaskedView"),
+      undefined,
+      "pending permission is conservative on every activation",
+    );
+    if (reject) pending.reject(new Error("Unavailable"));
+    else pending.resolve(true);
+    await Promise.resolve();
+    assert.equal(
+      find(host.title(props), (node) => node.type === "MaskedView"),
+      undefined,
+    );
+    assert.equal(host.animations.length, 1, "reactivation did not start another native animation");
+    host.unmount();
+  }
+});
+
+test("Always expand reasoning opens thinking rows in Activity until tapped, and leaves other tools folded", () => {
+  const thinking = {
+    step: { id: "t", kind: "thinking", title: "Thought for 4s", status: "done", detail: "Weighing the two fixes." },
+    live: false,
+    waiting: false,
+  };
+  const shell = { step: { id: "s", kind: "shell", title: "Ran `npm test`", status: "done", detail: "51 tests passed" }, live: false, waiting: false };
+  const shows = (tree, text) => !!find(tree, (node) => node.type === "Text" && node.props.children === text);
+  assert.equal(shows(activityItemHost().tool(thinking), "Weighing the two fixes."), false, "off: thinking starts folded");
+  const item = activityItemHost({ expandReasoning: true });
+  let tree = item.tool(thinking);
+  assert.ok(shows(tree, "Weighing the two fixes."), "on: thinking starts open");
+  find(tree, (node) => node.props?.accessibilityRole === "button").props.onPress();
+  assert.equal(shows(item.tool(thinking), "Weighing the two fixes."), false, "a tap still folds it");
+  assert.equal(shows(activityItemHost({ expandReasoning: true }).tool(shell), "51 tests passed"), false, "other tools stay folded");
 });
 
 test("tool disclosure reveals late output, while its chat action opens Activity without expanding", () => {
@@ -3863,19 +8413,22 @@ function updatesHost() {
     },
   };
   let reloads = 0,
-    retries = 0;
-  const { UpdateSheet, useUpdatePresentation } = load("update-sheet.tsx", {
-    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_, get) => get() },
+    retries = 0,
+    notes = 0;
+  const { UpdateSheet, useUpdatePresentation, UpdateSettingsBadge } = load("update-sheet.tsx", {
+    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_, get) => get(), useContext: () => ({ state }) },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { View: "View", Text: "Text", Modal: "Modal", ActivityIndicator: "ActivityIndicator", useColorScheme: () => "dark", AppState: appState },
     "expo-router": {},
     "expo-updates": {},
+    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
     "./update-controller": {},
     "./theme": { colors: {}, hex: () => ({ page: "#17181a" }) },
-    "./ui": { PillButton: "PillButton" },
+    "./ui": { PillButton: "PillButton", CircleButton: "CircleButton" },
   });
   return {
-    set(status, error = "") {
+    set(status, error = "", updateId = state.updateId) {
+      state.updateId = updateId;
       state.status = status;
       state.error = error;
     },
@@ -3896,8 +8449,11 @@ function updatesHost() {
           retries++;
         },
         onDismiss: presentation.dismiss,
+        onNotes: () => {
+          notes++;
+        },
       });
-      return { ...presentation, content };
+      return { ...presentation, content, badge: UpdateSettingsBadge() };
     },
     foreground() {
       appState.currentState = "active";
@@ -3911,10 +8467,11 @@ function updatesHost() {
     listeners,
     reloads: () => reloads,
     retries: () => retries,
+    notes: () => notes,
   };
 }
 
-test("the update sheet opens only for an actionable update and Later lasts until foreground entry", () => {
+test("the update sheet opens only for an actionable update and dismissal survives foreground entry", () => {
   const host = updatesHost();
   for (const status of ["idle", "checking", "downloading", "up-to-date", "disabled"]) {
     host.set(status);
@@ -3923,17 +8480,36 @@ test("the update sheet opens only for an actionable update and Later lasts until
   host.set("ready");
   const ready = host.render();
   assert.equal(ready.presented, true);
-  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "Later").props.onPress();
+  find(ready.content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
   assert.equal(host.render().presented, false);
   host.background();
   assert.equal(host.render().presented, false);
   host.foreground();
-  assert.equal(host.render().presented, true);
+  assert.equal(host.render().presented, false);
   host.render().dismiss();
-  assert.equal(host.render().presented, false, "swipe dismissal behaves like Later");
+  assert.equal(host.render().presented, false, "swipe dismissal behaves like the close button");
   assert.equal(host.reloads(), 0);
   host.cleanup();
   assert.equal(host.listeners.size, 0);
+});
+
+test("closing the update keeps a Settings dot and only a newer update prompts again", () => {
+  const host = updatesHost();
+  host.set("ready", "", "first");
+  const ready = host.render();
+  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "What's new").props.onPress();
+  assert.equal(host.notes(), 1);
+  find(ready.content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
+  assert.equal(host.render().presented, false);
+  assert.ok(host.render().badge);
+  host.set("downloading");
+  host.set("ready", "", "first");
+  assert.equal(host.render().presented, false);
+  host.set("ready", "", "second");
+  assert.equal(host.render().presented, true);
+  host.set("up-to-date");
+  assert.equal(host.render().badge, null);
+  host.cleanup();
 });
 
 test("an update downloaded in the background waits until foreground entry to present", () => {
@@ -3947,17 +8523,17 @@ test("an update downloaded in the background waits until foreground entry to pre
   host.cleanup();
 });
 
-test("Later during retry stays dismissed when the download finishes or polling fails", () => {
+test("Closing during retry stays dismissed when the download finishes or polling fails", () => {
   for (const final of ["ready", "error"]) {
     const host = updatesHost();
     host.set("error");
     host.render();
     host.set("downloading");
-    find(host.render().content, (node) => node.type === "PillButton" && node.props.title === "Later").props.onPress();
+    find(host.render().content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
     host.set(final);
     assert.equal(host.render().presented, false);
     host.foreground();
-    assert.equal(host.render().presented, true);
+    assert.equal(host.render().presented, false);
     host.cleanup();
   }
 });
@@ -3972,7 +8548,7 @@ test("sheet actions apply or retry, keep progress visible, and recover from relo
     host.set(status);
     const progress = host.render();
     assert.equal(progress.presented, true);
-    assert.ok(find(progress.content, (node) => node.type === "ActivityIndicator"));
+    assert.ok(find(progress.content, (node) => node.type === "SpinnerRing"));
     assert.equal(
       find(progress.content, (node) => node.type === "PillButton" && node.props.title === "Try again"),
       undefined,
@@ -3982,7 +8558,7 @@ test("sheet actions apply or retry, keep progress visible, and recover from relo
   find(host.render().content, (node) => node.type === "PillButton" && node.props.title === "Update now").props.onPress();
   assert.equal(host.reloads(), 1);
   host.set("restarting");
-  assert.ok(find(host.render().content, (node) => node.type === "ActivityIndicator"));
+  assert.ok(find(host.render().content, (node) => node.type === "SpinnerRing"));
   assert.equal(
     find(host.render().content, (node) => node.type === "PillButton"),
     undefined,
@@ -4014,10 +8590,13 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
     },
     dispatch: (action) => {
       assert.equal(action.target, "root");
+      const result = stack.getStateForAction(navigation, action, { routeNames: navigation.routeNames, routeParamList: {}, routeGetIdList: {} });
+      assert.equal(typeof result, "object", "Router accepts the reset as a complete navigation state");
       resets.push(action.payload);
-      navigation = action.payload;
+      navigation = result.state;
     },
   };
+  const stack = expoRouters().StackRouter({ initialRouteName: "index" });
   const state = { status: "ready", error: "" };
   const shell = load(
     "update-sheet.tsx",
@@ -4031,6 +8610,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
         useNavigationContainerRef: () => navigationRef,
       },
       "expo-updates": { isEnabled: true, useUpdates: () => ({}) },
+      "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
       "./update-controller": {
         watchUpdates: () => () => {},
         createUpdateController: () => {
@@ -4052,7 +8632,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
     react.flush();
     if (!navigation) {
       assert.deepEqual(routes, []);
-      navigation = { key: "root", routeNames: ["index", "update-sheet", "projects"], index: 0, routes: [{ key: "computers", name: "index" }] };
+      navigation = stackState(["index", "update-sheet", "projects"], [{ key: "computers", name: "index" }]);
       navigationListener();
     }
   }
@@ -4067,8 +8647,10 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   react.flush();
   assert.equal(resets.length, 1);
   assert.equal(navigation.index, 2);
-  assert.equal(navigation.routes[1], destination, "late navigation retains the destination and its params");
+  assert.equal(navigation.routes[1].key, destination.key, "late navigation retains the destination");
+  assert.deepEqual(navigation.routes[1].params, destination.params, "and its params");
   assert.equal(navigation.routes[2].name, "update-sheet");
+  assert.ok(navigation.routes[2].key, "Router keys the moved prompt");
   assert.equal(navigation.routes.filter((route) => route.name === "update-sheet").length, 1, "late navigation retains one prompt");
   react.begin();
   shell({ children: jsx("Stack", {}) });
@@ -4085,19 +8667,21 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   assert.equal(navigationListener, undefined);
 });
 
-test("Later, swipe and Android back defer; notification reset and route replacement do not", () => {
+test("Close, swipe and Android back defer; notification reset and route replacement do not", async () => {
   const react = hookHost();
   let dismissals = 0,
     backs = 0,
-    beforeRemove;
+    event,
+    removed;
   const dismiss = () => {
     dismissals++;
   };
   const navigation = {
-    addListener: (_, listener) => {
-      beforeRemove = listener;
+    addListener: (name, listener) => {
+      event = name;
+      removed = listener;
       return () => {
-        beforeRemove = undefined;
+        removed = undefined;
       };
     },
   };
@@ -4118,13 +8702,14 @@ test("Later, swipe and Android back defer; notification reset and route replacem
   react.begin();
   const tree = route();
   react.flush();
-  for (const type of ["RESET", "POP_TO"]) beforeRemove({ data: { action: { type } } });
+  assert.equal(event, "removed");
+  for (const type of ["RESET", "POP_TO"]) removed({ data: { action: { type } } });
   assert.equal(dismissals, 0, "programmatic navigation keeps the prompt pending");
-  for (const type of ["GO_BACK", "POP"]) beforeRemove({ data: { action: { type } } });
+  for (const type of ["GO_BACK", "POP"]) removed({ data: { action: { type } } });
   assert.equal(dismissals, 2);
   tree.props.onDismiss();
   assert.equal(backs, 1);
-  assert.equal(dismissals, 3, "Later defers before removing its route");
+  assert.equal(dismissals, 3, "Close defers before removing its route");
   state.status = "restarting";
   react.begin();
   route();
@@ -4132,7 +8717,11 @@ test("Later, swipe and Android back defer; notification reset and route replacem
   assert.equal(dismissals, 3);
   react.cleanup();
   assert.equal(dismissals, 3, "replacing a native sheet route does not defer the prompt");
-  assert.equal(beforeRemove, undefined);
+  // Router 58 reports the removal after the screen's effect cleanup, so the listener outlives it by a microtask.
+  removed({ data: { action: { type: "POP" } } });
+  assert.equal(dismissals, 4, "a swipe reported after unmount still defers");
+  await Promise.resolve();
+  assert.equal(removed, undefined);
 });
 
 test("a live turn's step whose output the phone left out does not expand, while saved and clipped steps do", () => {
@@ -4177,7 +8766,7 @@ test("relay transports: one per Mac, replaced by a new code, closed in the backg
   const identity = { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) };
   const phoneRandom = (n) => new Uint8Array(n);
   const { relayRuntime } = load("relay-native.ts", {
-    "./ai-consent": { beforeAiCall: async () => {} },
+    "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
     "react-native": {
       AppState: {
         addEventListener: (_event, listener) => {
@@ -4259,6 +8848,7 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
     navigationVersion: () => 0,
   };
   const { default: Screen } = load("app/index.tsx", {
+    "../update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge", useAppUpdates: () => ({ state: { status: "idle" } }) },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
@@ -4285,12 +8875,8 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
       useSafeAreaFrame: () => ({ height: 844 }),
     },
     "../session": { useSession: () => session },
-    "../live-activity-native": { nativeActivity: null },
     "../push": { usePush: () => ({}) },
-    "../hosts-native": { savedHosts: {} },
-    "../confirm-store": { confirmSheet() {} },
-    "../client": {},
-    "../relay-native": {},
+    "../computer-actions": { forgetComputer() {}, renameComputer() {}, pingComputer: async () => "online", isDesktopComputer: () => false },
     "../routes-native": routesNative(),
     "../icons": { Icon: "Icon" },
     "../ui": {
@@ -4430,7 +9016,7 @@ test("an accepted preview cannot assign its Chat id to a different requested Pro
   assert.equal(screen.session.pendingChats["mac|/p#new:1"].promoted, undefined);
 });
 
-function simulatorHost(client, file = "simulator.tsx") {
+function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: nativeExtra = {} } = {}) {
   const react = hookHost({ effects: true }),
     files = new Map(),
     listeners = new Set();
@@ -4440,6 +9026,9 @@ function simulatorHost(client, file = "simulator.tsx") {
     Text: "Text",
     View: "View",
     Pressable: "Pressable",
+    ActivityIndicator: "ActivityIndicator",
+    Alert: { alert() {} },
+    Linking: { openURL: async () => {} },
     AppState: {
       currentState: "active",
       addEventListener(_name, fn) {
@@ -4451,12 +9040,13 @@ function simulatorHost(client, file = "simulator.tsx") {
         };
       },
     },
+    ...nativeExtra,
   };
   class File {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value) {
+    writeSync(value) {
       if (writeError) throw writeError;
       files.set(this.uri, value);
     }
@@ -4485,8 +9075,11 @@ function simulatorHost(client, file = "simulator.tsx") {
       "expo-clipboard": { setStringAsync: async () => {} },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/simulator-receiver": require("../packages/shared/src/simulator-receiver.mjs"),
+      "@milagre/shared/simulator": { SIMLOCK_DEVICE_PREFIX: "simlock:" },
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
+      "./status-pill": { StatusPill: "StatusPill" },
+      "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
       "./theme": {
         hex: () => ({
           page: "#fafafb",
@@ -4506,8 +9099,14 @@ function simulatorHost(client, file = "simulator.tsx") {
         colors: {},
         styles: {},
       },
+      ...modules,
     },
-    file === "simulator.tsx" ? "\nexports.TestSimulatorWebView = SimulatorWebView;" : "",
+    file === "simulator.tsx"
+      ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
+      : file === "ports.tsx"
+        ? // The Chat screen reads the ports once and hands them to the pill (app/chat.tsx).
+          "\nexports.TestChatPorts = ({ chatId }) => PortsChip({ chatId, ports: useChatPorts(useSession().client, chatId).ports });"
+        : "",
   );
   return {
     source,
@@ -4566,6 +9165,33 @@ test("mobile simulator receiver is an OTA JS string cached locally; backgroundin
   assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([method]) => method === "simulator:close"))), ["simulator:close", [{ viewerId: "late-viewer" }]]);
   h.cleanup();
   assert.equal(h.files.size, 0);
+});
+
+test("mobile simulator forwards Duo pose and angle actions through its scoped viewer bridge", async () => {
+  const calls = [],
+    client = {
+      call: async (method, args) => {
+        calls.push([method, args]);
+        return method === "simulator:open" ? { viewerId: "duo-viewer", iceServers: [] } : { accepted: true };
+      },
+    };
+  const h = simulatorHost(client);
+  h.render("TestSimulatorWebView", { client, deviceId: "duo", chatId: "/p#7" });
+  await settle();
+  const view = h.render("TestSimulatorWebView", { client, deviceId: "duo", chatId: "/p#7" });
+  const receive = (id, method, args) => view.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: "milagre-simulator", id, method, args }) } });
+  receive(1, "open", { deviceId: "duo" });
+  await settle();
+  for (const [index, event] of [
+    { kind: "pose", pose: "book" },
+    { kind: "hinge", angle: 123 },
+  ].entries()) {
+    const args = { viewerId: "duo-viewer", sequence: index + 1, generation: 4, event };
+    receive(index + 2, "input", args);
+    await settle();
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["simulator:input", [args]]);
+  }
+  h.cleanup();
 });
 
 test("mobile simulator chooses the sole running device, but a list never starts capture", async () => {
@@ -4725,7 +9351,7 @@ test("mobile simulator cache failures report disconnected, and Retry starts a fr
   h.render("TestSimulatorWebView", props);
   await settle();
   const failure = h.render("TestSimulatorWebView", props);
-  assert.ok(find(failure, (node) => node.props?.accessibilityRole === "alert"));
+  assert.equal(find(failure, (node) => node.type === "ErrorNotice")?.props.message, "Cache is unavailable");
   assert.equal(updates.at(-1)?.state, "error");
   h.failWrites(null);
   find(failure, (node) => node.props?.title === "Retry").props.onPress();
@@ -4765,6 +9391,8 @@ test("simulator sheet preserves its native header and bounds chooser/viewer cont
 });
 
 function browserHost(client) {
+  const sheets = [];
+  const snapshot = { project: { state: { sessions: {} } }, runs: { runs: {} } };
   const react = hookHost({ effects: true }),
     files = new Map(),
     listeners = new Set(),
@@ -4791,7 +9419,7 @@ function browserHost(client) {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value, options) {
+    writeSync(value, options) {
       files.set(this.uri, value);
       writes.push([this.uri, options?.encoding ?? "utf8"]);
     }
@@ -4805,7 +9433,9 @@ function browserHost(client) {
   const source = load(
     "browser.tsx",
     {
+      "./confirm-store": { confirmSheet: (...args) => sheets.push(args) },
       react,
+      "./comment-activity": require("../apps/mobile/src/comment-activity.ts"),
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": native,
       "expo-router": {
@@ -4818,12 +9448,20 @@ function browserHost(client) {
         useFocusEffect: (fn) => react.effect(fn, [fn]),
       },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+      "react-native-keyboard-controller": { KeyboardStickyView: "KeyboardStickyView" },
+      "./viewer-chrome": viewerChrome(react),
+      "expo-clipboard": { setStringAsync: async () => {} },
+      "@milagre/shared/page-comments": require("../packages/shared/src/page-comments.mjs"),
+      "@milagre/shared/loopback-url": require("../packages/shared/src/loopback-url.ts"),
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "@hugeicons/core-free-icons": {},
-      "@milagre/shared/browser-receiver": require("../packages/shared/src/browser-receiver.mjs"),
-      "./session": { useSession: () => ({ client }) },
+      "@milagre/shared/page-picker": require("../packages/shared/src/page-picker.mjs"),
+      "./browser-page-url": require("../apps/mobile/src/browser-page-url.ts"),
+      "./session": { useSession: () => ({ client, snapshot }) },
       "./icons": { Icon: "Icon" },
+      "./status-pill": { StatusPill: "StatusPill" },
+      "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
       "./theme": {
         hex: () => ({ page: "#fafafb", surface: "#ffffff", ink: "#1f2124", ink2: "#62656b", line: "#ecedef", hover: "#f4f5f6", accent: "#0285ff" }),
       },
@@ -4833,6 +9471,8 @@ function browserHost(client) {
   );
   return {
     source,
+    sheets,
+    snapshot,
     files,
     writes,
     pushed,
@@ -4851,9 +9491,29 @@ function browserHost(client) {
     },
   };
 }
+const WEBVIEW_PROPS = { loopbackOnly: new Set(), onControls() {}, onLoaded() {}, onPin() {}, onPositions() {}, picking: false, pins: [] };
 const BROWSER_PAGE = { id: "browser-1:" + "A".repeat(32), title: "Login", url: "https://example.com/login", browser: "Chrome 141", source: "agent" };
 
-test("mobile browser pill lists only this Chat and hides until the Chat has a page", async (t) => {
+test("mobile browser link loads on the device without opening a desktop page", async (t) => {
+  const calls = [];
+  const h = browserHost({
+    url: "mac",
+    call: async (method, args) => {
+      calls.push([method, args]);
+      return { supported: true, targets: [BROWSER_PAGE], others: [] };
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1", url: "http://localhost:5173" });
+  render();
+  await settle();
+  assert.ok(find(render(), (node) => node.props?.url === "http://localhost:5173"));
+  const methods = new Set(calls.map(([method]) => method));
+  assert.ok(methods.has("browser:list"));
+  for (const method of methods) assert.ok(["browser:list", "chat:ports", "browser-comments:list"].includes(method), `${method} opens nothing on the desktop`);
+});
+
+test("mobile browser shortcut lists only this Chat and hides until the Chat has a page", async (t) => {
   for (const [list, visible] of [
     [{ supported: true, targets: [], others: [] }, false],
     [{ supported: true, targets: [BROWSER_PAGE], others: [] }, true],
@@ -4869,13 +9529,13 @@ test("mobile browser pill lists only this Chat and hides until the Chat has a pa
       },
     });
     t.after(() => h.cleanup());
-    h.render("BrowserChip", { chatId: "/p#1" });
+    h.render("useBrowserShortcut", { chatId: "/p#1" });
     await settle();
-    const tree = h.render("BrowserChip", { chatId: "/p#1" });
+    const tree = h.render("useBrowserShortcut", { chatId: "/p#1" });
     assert.equal(!!tree, visible);
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["browser:list", [{ chatId: "/p#1" }]]]);
     if (visible) {
-      tree.props.onPress();
+      tree.onPress();
       assert.deepEqual(JSON.parse(JSON.stringify(h.pushed[0])), { pathname: "/browser-sheet", params: { hostId: "mac", chatId: "/p#1" } });
     }
     h.cleanup();
@@ -4886,11 +9546,26 @@ test("mobile browser pill lists only this Chat and hides until the Chat has a pa
       throw new Error("unexpected");
     },
   });
-  assert.equal(h.render("BrowserChip", {}), null, "a new Chat has no agent yet");
+  assert.equal(h.render("useBrowserShortcut", {}), null, "a new Chat has no agent yet");
   h.cleanup();
 });
 
-test("mobile browser sheet opens a sole page directly, lists several, and attaches explicitly", async (t) => {
+test("mobile browser shortcut opens in the Chat's iPad panel when available", async (t) => {
+  const tabs = [];
+  const h = browserHost({
+    url: "mac",
+    call: async () => ({ supported: true, targets: [BROWSER_PAGE], others: [] }),
+  });
+  t.after(() => h.cleanup());
+  const props = { chatId: "/p#1", openInPanel: (tab) => tabs.push(tab) };
+  h.render("useBrowserShortcut", props);
+  await settle();
+  h.render("useBrowserShortcut", props).onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(tabs)), [{ kind: "browser", target: { hostId: "mac", chatId: "/p#1" } }]);
+  assert.deepEqual(h.pushed, [], "a docked Browser does not also open a phone sheet");
+});
+
+test("mobile browser sheet opens a sole page directly and lists several, with no Attach or Detach", async (t) => {
   const other = { id: "b", browser: "Chrome 141", pages: 2, title: "Mine" };
   for (const [list, direct] of [
     [{ supported: true, targets: [BROWSER_PAGE], others: [] }, true],
@@ -4901,81 +9576,197 @@ test("mobile browser sheet opens a sole page directly, lists several, and attach
       url: "mac",
       call: async (method, args) => {
         calls.push([method, args]);
-        return method === "browser:attach"
-          ? { ...list, targets: [...list.targets, { ...BROWSER_PAGE, id: "b:" + "C".repeat(32), source: "attached" }], others: [] }
-          : list;
+        return method === "browser:list" ? list : method === "browser-comments:list" ? [] : { chatId: "/p#1", ports: [] };
       },
     });
     t.after(() => h.cleanup());
     h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
     await settle();
     const tree = h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
-    assert.equal(tree.props.style.paddingBottom, 34, "controls clear the phone home indicator");
     const [header, body] = tree.props.children;
     assert.equal(header.props.collapsable, false);
     assert.equal(body.props.collapsable, false);
-    assert.equal(!!find(body, (node) => node.props?.targetId === BROWSER_PAGE.id), direct);
-    assert.deepEqual(
-      calls.map(([method]) => method),
-      ["browser:list"],
-      "listing starts no capture",
+    assert.equal(!!find(body, (node) => node.props?.url === BROWSER_PAGE.url), direct);
+    assert.ok(!calls.some(([method]) => /^browser:(open|attach|detach|page-url)$/.test(method)), "listing starts no capture and attaches nothing");
+    assert.equal(
+      find(tree, (node) => node.type === "PillButton" && /^(Attach|Detach)$/.test(node.props.title)),
+      undefined,
+      "the Browser lists this Chat's pages only",
     );
-    if (!direct) {
-      const attach = find(body, (node) => node.type === "PillButton" && node.props.title === "Attach");
-      attach.props.onPress();
-      await settle();
-      assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["browser:attach", [{ chatId: "/p#1", browserId: "b" }]]);
-      // Only attached pages offer Detach, and it names the browser, not the page.
-      const after = h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
-      const detaches = [];
-      find(after, (node) => {
-        if (node.type === "PillButton" && node.props.title === "Detach") detaches.push(node);
+    if (direct) {
+      list.targets = [{ ...BROWSER_PAGE, url: "https://example.com/agent-next" }];
+      const refreshed = h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
+      assert.ok(
+        find(refreshed, (node) => node.props?.url === BROWSER_PAGE.url),
+        "host polling preserves the selected page snapshot",
+      );
+    } else {
+      const rows = [];
+      find(body, (node) => {
+        if (node.type === "Pressable" && node.props.accessibilityRole === "button" && /example\.com/.test(node.props.accessibilityLabel ?? "")) rows.push(node);
         return false;
       });
-      assert.equal(detaches.length, 1);
-      detaches[0].props.onPress();
-      await settle();
-      assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["browser:detach", [{ chatId: "/p#1", browserId: "b" }]]);
+      assert.equal(rows.length, 2, "both of the Chat's pages are listed");
     }
     h.cleanup();
   }
 });
 
-test("mobile browser frames are written to local files; only their address enters the WebView", async () => {
-  const injected = [];
+test("mobile Browser leaves closing a docked panel to the panel and closes the phone sheet from its header", (t) => {
+  const h = browserHost(null);
+  t.after(() => h.cleanup());
+  const docked = h.render("BrowserSheet", { visible: false, onClose: () => {} });
+  assert.equal(
+    find(docked, (node) => node.type === "SheetHeader"),
+    undefined,
+    "the iPad panel uses its one-row toolbar",
+  );
+  assert.equal(
+    find(docked, (node) => node.type === "CircleButton" && node.props.label === "Close browser"),
+    undefined,
+    "the panel's own tab strip closes it",
+  );
+  const sheet = h.render("BrowserSheet", { visible: false });
+  const header = find(sheet, (node) => node.type === "SheetHeader");
+  assert.ok(header.props.leading.some((node) => node.type === "CircleButton" && node.props.label === "Close browser"));
+});
+
+test("an open phone or iPad Browser refreshes pins when the agent resolves a comment", async () => {
+  for (const docked of [false, true]) {
+    const comment = { id: "12345678", url: BROWSER_PAGE.url, title: "Login", selector: "h1", label: "Heading", text: "Shorter", createdAt: 1 };
+    const h = browserHost({
+      url: "mac",
+      call: async (method) =>
+        method === "browser:list"
+          ? { supported: true, targets: [BROWSER_PAGE], others: [] }
+          : method === "browser-comments:list"
+            ? [structuredClone(comment)]
+            : { ports: [] },
+    });
+    const props = { hostId: "mac", chatId: "/p#1", ...(docked ? { onClose() {} } : {}) };
+    h.render("BrowserSheet", props);
+    await settle();
+    const page = () => find(h.render("BrowserSheet", props), (node) => node.type?.name === "BrowserWebView");
+    assert.equal(page().props.pins[0].state, "open");
+    comment.resolved = { note: "Shortened", at: 2 };
+    h.snapshot.runs.runs[props.chatId] = { steps: [{ id: "resolve", title: "Resolved a page comment", status: "done" }] };
+    h.render("BrowserSheet", props);
+    await settle();
+    const { pagePinsScript } = require("../packages/shared/src/page-picker.mjs");
+    const shown = [];
+    vm.runInNewContext(pagePinsScript(page().props.pins), { window: { __milagrePins: { set: (pins) => shown.push(...pins) } } });
+    assert.deepEqual(shown, [], "the refreshed pins disappear without reopening the panel");
+    page().props.onLoaded(true);
+    const commentButton = () => find(h.render("BrowserSheet", props), (node) => node.props?.onLongPress);
+    commentButton().props.onLongPress();
+    assert.equal(h.sheets.at(-1)[2][0].text, "Show resolved comments");
+    h.sheets.at(-1)[2][0].onPress();
+    assert.equal(page().props.pins[0].state, "resolved", "long-press options restore resolved pins");
+    commentButton().props.onLongPress();
+    h.sheets.at(-1)[2][0].onPress();
+    assert.equal(page().props.pins.length, 0, "long-press options hide resolved pins again");
+    delete comment.resolved;
+    h.snapshot.runs.runs = {};
+    h.snapshot.project.state.sessions["1"] = { summary: { lastAt: 5 } };
+    h.render("BrowserSheet", props);
+    await settle();
+    assert.equal(page().props.pins[0].state, "open", "a fast reply refreshes comments even when no live run was observed");
+    h.cleanup();
+  }
+});
+
+test("mobile browser loads public URLs directly and ignores web content RPCs", async (t) => {
+  const calls = [],
+    pages = [];
   const client = {
-    call: async (method) =>
-      method === "browser:open"
-        ? { viewerId: "viewer", target: BROWSER_PAGE }
-        : method === "browser:frame"
-          ? { sequence: 7, data: "anBlZw==", viewport: { width: 800, height: 600 }, generation: 1 }
-          : null,
+    call: async (...args) => {
+      calls.push(args);
+    },
   };
   const h = browserHost(client);
-  h.render("TestBrowserWebView", { client, chatId: "/p#1", targetId: BROWSER_PAGE.id, onPage() {} });
+  t.after(() => h.cleanup());
+  const props = {
+    client,
+    chatId: "/p#1",
+    url: BROWSER_PAGE.url,
+    host: null,
+    onPage: (page) => pages.push(page),
+    onExternalUrl() {},
+    onPick() {},
+    ...WEBVIEW_PROPS,
+  };
+  h.render("TestBrowserWebView", props);
   await settle();
-  const tree = h.render("TestBrowserWebView", { client, chatId: "/p#1", targetId: BROWSER_PAGE.id, onPage() {} });
+  const tree = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");
   assert.equal(tree.type, "DomWebView");
+  assert.equal(tree.props.source.uri, BROWSER_PAGE.url);
+  const events = {},
+    destinations = [];
+  const popupWindow = {};
+  require("node:vm").runInNewContext(tree.props.injectedJavaScriptBeforeContentLoaded, {
+    window: popupWindow,
+    URL,
+    location: { href: BROWSER_PAGE.url, assign: (url) => destinations.push(url) },
+    document: {
+      addEventListener: (name, callback) => {
+        events[name] = callback;
+      },
+    },
+  });
+  const link = { target: "_blank" };
+  events.click({ target: { closest: () => link } });
+  assert.equal(link.target, "_self");
+  const form = { target: "payment" };
+  events.submit({ target: form });
+  assert.equal(form.target, "_self");
+  assert.equal(popupWindow.open("/login-popup"), popupWindow);
+  popupWindow.open("javascript:alert(1)");
+  assert.deepEqual(destinations, ["https://example.com/login-popup"]);
   assert.equal(tree.props.useExpoModulesBridge, false);
-  assert.match(h.files.get(tree.props.source.uri), /milagre-browser/);
-  tree.props.ref.current = { injectJavaScript: (value) => injected.push(value) };
-  tree.props.onMessage({
-    nativeEvent: { data: JSON.stringify({ channel: "milagre-browser", id: 1, method: "open", args: { chatId: "/p#1", targetId: BROWSER_PAGE.id } }) },
-  });
+  assert.notEqual(tree.props.scrollEnabled, false);
+  tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ method: "open", args: { chatId: "/p#1" } }) } });
+  tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ kind: "page", url: BROWSER_PAGE.url, title: "Native page" }) } });
+  assert.equal(pages[0].title, "Native page");
+  assert.deepEqual(calls, []);
+  assert.equal(h.files.size, 0, "no frame files are written");
+});
+
+test("mobile browser requests an authenticated proxy off the LAN and releases it on close", async (t) => {
+  const calls = [],
+    pages = [];
+  const client = {
+    call: async (method, args) => {
+      calls.push([method, args]);
+      return { id: "lease", url: "https://proxy.example/auth", origin: "https://proxy.example" };
+    },
+  };
+  const h = browserHost(client);
+  t.after(() => h.cleanup());
+  const props = {
+    client,
+    chatId: "/p#1",
+    url: "http://localhost:5173/page",
+    host: null,
+    onPage: (page) => pages.push(page),
+    onExternalUrl() {},
+    onPick() {},
+    ...WEBVIEW_PROPS,
+  };
+  h.render("TestBrowserWebView", props);
   await settle();
-  tree.props.onMessage({
-    nativeEvent: { data: JSON.stringify({ channel: "milagre-browser", id: 2, method: "frame", args: { viewerId: "viewer", after: 0 } }) },
-  });
-  await settle();
-  const reply = injected.find((script) => script.includes('"id":2'));
-  assert.ok(reply.includes("file:///cache/browser-"), "the WebView gets a file address");
-  assert.ok(!reply.includes("anBlZw=="), "frame bytes stay out of injected script");
-  assert.deepEqual(h.writes.at(-1)[1], "base64");
-  h.background();
-  await settle();
-  assert.ok(injected.some((script) => script.includes("browserDispose")));
+  const tree = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");
+  assert.equal(tree.props.source.uri, "https://proxy.example/auth");
+  tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ kind: "page", url: "https://proxy.example/next?q=1", title: "Next" }) } });
+  assert.equal(pages[0].url, "http://localhost:5173/next?q=1");
+  const navigated = find(h.render("TestBrowserWebView", props), (node) => node.type === "DomWebView");
+  assert.equal(navigated.key, tree.key, "navigation keeps the native page mounted");
+  assert.equal(navigated.props.source.uri, "https://proxy.example/next?q=1", "a later prop update cannot reload the bootstrap URL");
   h.cleanup();
-  assert.equal(h.files.size, 0, "the viewer page and frames are deleted");
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ["browser:page-url", [{ url: props.url }]],
+    ["browser:release-page-url", [{ id: "lease" }]],
+  ]);
 });
 
 for (const provider of ["claude", "codex"])
@@ -4984,6 +9775,7 @@ for (const provider of ["claude", "codex"])
     const calls = [];
     const accounts = {
       providers: [
+        { provider: "antigravity", installed: false, selectedId: "default", accounts: [{ id: "default", label: "Default account", state: "unknown" }] },
         {
           provider,
           selectedId: "default",
@@ -5014,7 +9806,7 @@ for (const provider of ["claude", "codex"])
       client: {
         call: async (method, args = []) => {
           calls.push([method, ...args]);
-          const group = accounts.providers[0];
+          const group = accounts.providers.find((group) => group.provider === provider);
           if (method === "accounts:select") group.selectedId = args[1];
           if (method === "accounts:login") group.accounts.find((a) => a.id === args[1]).state = "signing-in";
           if (method === "accounts:cancel") group.accounts.find((a) => a.id === args[1]).state = "signed-out";
@@ -5052,6 +9844,11 @@ for (const provider of ["claude", "codex"])
     try {
       render();
       await settle();
+      assert.equal(
+        find(render(), (n) => n.type === "ProviderLogo" && n.props.provider === "antigravity"),
+        undefined,
+        "Uninstalled providers have no account group",
+      );
       const row = find(render(), (n) => n.type === "Pressable" && n.props.accessibilityRole === "radio" && n.props.accessibilityLabel === "work@example.test");
       assert.ok(row, "The account row is a directly selectable control");
       assert.match(row.props.accessibilityHint, /^Business account\./);
@@ -5104,6 +9901,29 @@ function ongoingChatHost(options = {}) {
   ];
   screen.session.drafts["/p#7"] = "Follow-up message";
   return screen;
+}
+
+for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+  for (const followUps of ["now", "queue"]) {
+    test(`mobile ${provider} follows the ${followUps} follow-up setting`, async () => {
+      const screen = ongoingChatHost({ contextSettings: { buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps } });
+      screen.session.snapshot.project.state.sessions[7].provider = provider;
+      screen.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
+      assert.equal(
+        find(screen.render(), (node) => node.props?.label === "Follow-up delivery"),
+        undefined,
+        "no delivery picker in the composer",
+      );
+      const label = followUps === "now" && ["claude", "codex"].includes(provider) ? "Send now" : "Queue message";
+      const send = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === label);
+      assert.ok(send);
+      void send.props.onPress();
+      await settle();
+      assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].delivery, followUps === "queue" ? "queue" : undefined);
+      screen.sending.resolve({ sessionId: 7 });
+      await settle();
+    });
+  }
 }
 
 function transcriptMessages(screen) {
@@ -5195,6 +10015,25 @@ test("a mobile follow-up keeps the existing Chat in its drawer position", () => 
   state.next_id = 30;
   state.sessions[20] = { id: 20, worktree_id: 1, agent_name: "main", title: "Newer Chat", status: "Idle" };
   state.messages.push({ id: 21, session_id: 20, role: "user", body: "Newer question", context: null });
+  screen.send();
+  const nav = navigationHost(Promise.resolve(), { session: { ...screen.session, recent: [{ path: "/p" }] } });
+  assert.deepEqual(
+    Array.from(
+      nav.rows().props.data.filter((row) => row.kind === "chat"),
+      (row) => row.chat.id,
+    ),
+    [20, 7],
+  );
+});
+
+test("a mobile follow-up keeps its drawer position when the host sends summaries without messages", () => {
+  const screen = ongoingChatHost();
+  const state = screen.session.snapshot.project.state;
+  state.next_id = 30;
+  state.sessions[7].summary = { count: 20, firstId: 8, lastId: 19 };
+  state.sessions[20] = { id: 20, worktree_id: 1, agent_name: "main", title: "Newer Chat", status: "Idle", summary: { count: 1, firstId: 21, lastId: 21 } };
+  state.messages = [];
+  state.messagesInChats = true;
   screen.send();
   const nav = navigationHost(Promise.resolve(), { session: { ...screen.session, recent: [{ path: "/p" }] } });
   assert.deepEqual(
@@ -5364,10 +10203,10 @@ test("the mobile paste action adds a clipboard screenshot to the draft", async (
   menu.props.onSelect("paste");
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"][0].image.dataUrl, "data:image/jpeg;base64,YQ==");
-  assert.equal(screen.field().value, "first message");
+  assert.equal(screen.field().value, "first message [Image #1] ");
 });
 
-test("native image paste adds a screenshot without changing the message text", async () => {
+test("native image paste adds a screenshot and its inline reference", async () => {
   const source = { uri: "file:///native.png", width: 1170, height: 2532 };
   const image = {
     id: "paste",
@@ -5389,7 +10228,7 @@ test("native image paste adds a screenshot without changing the message text", a
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"].length, 1);
   assert.equal(screen.session.attachments["/p#new:1"][0].image.dataUrl, "data:image/jpeg;base64,YQ==");
-  assert.equal(screen.field().value, "first message");
+  assert.equal(screen.field().value, "first message [Image #1] ");
 });
 
 test("the Ultracode announcer plays once and pauses when its overlay closes", async () => {
@@ -5528,6 +10367,65 @@ test("clipboard screenshots use the same compressed image payload as picked phot
   assert.equal(photo.uri, "file:///compressed.jpg");
 });
 
+test("photo library includes videos, keeps their exported format and rejects oversized bytes before reading them", async () => {
+  let options,
+    cancelled = false,
+    oversized = false,
+    reads = 0;
+  const deleted = [];
+  const { pickAttachments } = load("attachment-picker.ts", {
+    "expo-document-picker": {},
+    "expo-image-picker": {
+      VideoExportPreset: { H264_1280x720: 6 },
+      launchImageLibraryAsync: async (value) => {
+        options = value;
+        return {
+          canceled: cancelled,
+          assets: [
+            { type: "video", uri: "file:///export.mp4", fileName: "Original.MOV" },
+            { type: "video", uri: "file:///android.webm", fileName: "Android.webm" },
+          ],
+        };
+      },
+    },
+    "expo-file-system": {
+      File: class {
+        constructor(uri) {
+          this.uri = uri;
+          this.size = oversized ? 51 * 1024 * 1024 : 1000;
+        }
+        async base64() {
+          reads++;
+          return "dmlkZW8=";
+        }
+        delete() {
+          deleted.push(this.uri);
+        }
+      },
+    },
+    "expo-image-manipulator": {},
+    "expo-clipboard": {},
+    "./attachments": require("../apps/mobile/src/attachments.ts"),
+  });
+  const files = await pickAttachments("photos");
+  assert.deepEqual([...options.mediaTypes], ["images", "videos"]);
+  assert.equal(options.videoExportPreset, 6);
+  assert.equal(options.allowsMultipleSelection, true);
+  assert.deepEqual(
+    Array.from(files, (file) => file.name),
+    ["Original.mp4", "Android.webm"],
+  );
+  assert.ok(files.every((file) => file.video && file.base64 && !file.image));
+  cancelled = true;
+  assert.equal((await pickAttachments("photos")).length, 0);
+  assert.equal(reads, 2);
+  cancelled = false;
+  oversized = true;
+  await assert.rejects(pickAttachments("photos"), /larger than 50 MiB.*Trim/);
+  assert.equal(reads, 2);
+  assert.equal(deleted.length, 2);
+});
+
 test("an empty or denied clipboard gives a useful error without adding an attachment", async () => {
   const { pickAttachments } = load("attachment-picker.ts", {
     "expo-document-picker": { getDocumentAsync: async () => ({ canceled: true }) },
@@ -5538,6 +10436,95 @@ test("an empty or denied clipboard gives a useful error without adding an attach
     "./attachments": require("../apps/mobile/src/attachments.ts"),
   });
   await assert.rejects(pickAttachments("paste"), /Copy an image.*paste access/);
+});
+
+test("revisited mobile transcripts render their cached messages before refresh, including offline", async () => {
+  const react = hookHost();
+  const { useChatPage, prefetchChatPage } = load("chat-pages.ts", {
+    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_subscribe, read) => read() },
+  });
+  let requests = 0;
+  let offline = false;
+  const pending = deferred();
+  const client = {
+    url: "cached-transcripts",
+    chatMessages: async (_path, id) => {
+      requests++;
+      if (offline) return pending.promise;
+      return { messages: [{ id, session_id: id, role: "user", body: `Chat ${id}` }], total: 1, hasMore: false };
+    },
+  };
+  const render = (id, host = client) => {
+    react.begin();
+    const value = useChatPage(host, "/p", id);
+    react.flush();
+    return value;
+  };
+  prefetchChatPage(client, "/p", 7);
+  prefetchChatPage(client, "/p", 7);
+  assert.equal(requests, 1, "navigation prefetches share the first read");
+  await settle();
+  render(8);
+  await settle();
+  offline = true;
+  const count = requests;
+  prefetchChatPage(client, "/p", 7);
+  assert.equal(requests, count, "a cached prefetch needs no network");
+  const cached = render(7);
+  assert.equal(cached.loading, false);
+  assert.equal(cached.messages[0].body, "Chat 7");
+  pending.reject(new Error("Offline"));
+  await settle();
+  assert.equal(render(7).messages[0].body, "Chat 7");
+  assert.equal(render(7, { ...client, url: "another-computer" }).messages.length, 0);
+  await settle();
+});
+
+test("mobile message prefetch waits for a restarted computer's Project to open before retrying", async () => {
+  const react = hookHost();
+  const { useChatPage, prefetchChatPage, noteChatProjectOpening } = load("chat-pages.ts", {
+    react: { ...react, useEffect: () => {}, useSyncExternalStore: (_subscribe, read) => read() },
+  });
+  let reads = 0;
+  const opened = deferred();
+  const client = {
+    url: "restarted",
+    chatMessages: async () => {
+      if (++reads === 1) throw new Error("Open the Project before reading its messages.");
+      return { messages: [{ id: 1, session_id: 7, body: "Reconnected" }], hasMore: false, total: 1 };
+    },
+  };
+  const render = () => {
+    react.begin();
+    return useChatPage(client, "/p", 7);
+  };
+  noteChatProjectOpening(client, "/p", opened.promise);
+  prefetchChatPage(client, "/p", 7);
+  await settle();
+  assert.equal(reads, 1);
+  assert.equal(render().error, undefined);
+  opened.resolve({});
+  await settle();
+  assert.equal(reads, 2);
+  assert.equal(render().messages[0].body, "Reconnected");
+});
+
+test("a route handoff never reads the new Chat id from the previous computer or Project", (t) => {
+  const screen = ongoingChatHost();
+  screen.session.open = () => new Promise(() => {});
+  screen.session.snapshot.project.state.messagesInChats = true;
+  const reads = [];
+  globalThis.chatPage = (client, path, id) => {
+    if (client) reads.push([client.url, path, id]);
+  };
+  t.after(() => delete globalThis.chatPage);
+  screen.params.projectPath = "/destination";
+  screen.render();
+  assert.equal(reads.length, 0);
+  screen.params.projectPath = "/p";
+  screen.params.hostId = "other-computer";
+  screen.render();
+  assert.equal(reads.length, 0);
 });
 
 test("a mobile tail refresh retains history loaded while it was in flight", async () => {
@@ -5705,11 +10692,37 @@ test("pending snapshot acknowledgement does not disable mobile Stop", async () =
   screen.sending.resolve({ sessionId: 7 });
   await settle();
   assert.ok(Object.keys(screen.session.pendingChats).length);
-  const stop = find(screen.render(), (node) => node.props?.label === "Stop");
+  const stop = find(screen.render(), (node) => node.props?.label === "Stop agent");
   assert.equal(stop.props.disabled, false);
   stop.props.onPress();
   await settle();
   assert.ok(screen.calls.some((call) => call.method === "agent:interrupt"));
+});
+
+test("a phone Chat on a provider that can't steer shows its queue over the composer, with Send now and Remove", async () => {
+  const screen = ongoingChatHost();
+  const state = screen.session.snapshot.project.state;
+  state.sessions[7] = {
+    ...state.sessions[7],
+    provider: "antigravity",
+    queued: [{ id: "q1", body: "then add tests", model: "gemini-3-pro", provider: "antigravity", queuedAt: 1 }],
+  };
+  screen.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
+  const tree = screen.render();
+  const queue = find(tree, (node) => node.type === "QueuedMessages");
+  assert.deepEqual([queue.props.items.map((item) => item.body), queue.props.held, queue.props.running], [["then add tests"], false, true]);
+  assert.equal(find(tree, (node) => node.type === "PromptField").props.placeholder, "Queue a message for the next turn");
+  queue.props.onSendNow("q1");
+  await settle();
+  queue.props.onRemove("q1");
+  await settle();
+  assert.deepEqual(
+    screen.calls.filter((call) => call.method.startsWith("chat:queue")).map((call) => [call.method, [...call.args]]),
+    [
+      ["chat:queue-send", ["/p#7", "q1"]],
+      ["chat:queue-remove", ["/p#7", "q1"]],
+    ],
+  );
 });
 
 test("mobile file attachment chips open their contents", () => {
@@ -5749,10 +10762,12 @@ test("mobile file preview renders text and reports unreadable, empty, and trunca
         return result;
       },
     },
+    "../save-attachment": { saveAttachment: async () => true },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "../ui": { colors: {}, styles: {}, ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   const render = () => {
     react.begin();
@@ -5787,10 +10802,12 @@ test("mobile file preview shows Markdown formatted, with the source a tap away",
     },
     "../session": { useSession: () => ({ client: {} }) },
     "../use-rpc": { useRpc: () => result },
+    "../save-attachment": { saveAttachment: async () => true },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "../ui": { colors: {}, styles: {}, ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   const render = () => {
     react.begin();
@@ -5827,7 +10844,7 @@ test("mobile picked files preview locally before sending", async () => {
         open(mode) {
           assert.equal(mode, "readOnly");
           return {
-            readBytes(length) {
+            readBytesSync(length) {
               assert.equal(length, bytes.length);
               return bytes;
             },
@@ -5847,10 +10864,12 @@ test("mobile picked files preview locally before sending", async () => {
         return {};
       },
     },
+    "../save-attachment": { saveAttachment: async () => true },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "../ui": { colors: {}, styles: {}, ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   react.begin();
   FilePreview();
@@ -5858,6 +10877,117 @@ test("mobile picked files preview locally before sending", async () => {
   react.begin();
   assert.ok(find(FilePreview(), (node) => node.type === "FileCode" && node.props.text === "export const draft = true;" && node.props.name === "ui.tsx"));
   assert.equal(closed, true);
+});
+
+test("mobile file downloads write binary bytes, cancel quietly, and remove partial files on failure", async () => {
+  let canceled = false;
+  let failed = false;
+  let created = 0;
+  let removed = 0;
+  let closed = 0;
+  const written = [];
+  const { saveAttachment } = load("save-attachment.ts", {
+    "@milagre/shared/attachment-download": require("@milagre/shared/attachment-download"),
+    "expo-file-system": {
+      // oxlint-disable-next-line typescript/no-extraneous-class -- constructor stub; this test downloads from the Mac
+      File: class {},
+      FileMode: { WriteOnly: "w" },
+      Directory: {
+        pickDirectoryAsync: async () => {
+          if (canceled) throw new Error("File picking was cancelled by the user");
+          return {
+            createFile: (name, type) => {
+              assert.equal(name, "archive.zip");
+              assert.equal(type, "application/zip");
+              created++;
+              return {
+                delete: () => removed++,
+                open: () => ({
+                  close: () => closed++,
+                  writeBytes: async (bytes) => {
+                    if (failed) throw new Error("Disk full");
+                    written.push(Buffer.from(bytes));
+                  },
+                }),
+              };
+            },
+          };
+        },
+      },
+    },
+  });
+  const request = { name: "archive.zip", read: async () => ({ size: 4, version: "v1", base64: "UEsA/w==" }), progress() {} };
+  assert.equal(await saveAttachment(request), true);
+  assert.deepEqual(Buffer.concat(written), Buffer.from([80, 75, 0, 255]));
+  assert.equal(closed, 1);
+  canceled = true;
+  assert.equal(await saveAttachment(request), false);
+  assert.equal(created, 1, "canceling the picker creates no file");
+  canceled = false;
+  failed = true;
+  await assert.rejects(saveAttachment(request), /Disk full/);
+  assert.equal(closed, 2);
+  assert.equal(removed, 1, "a failed download removes its partial file");
+});
+
+test("mobile ZIP preview offers Download, progress, success and retryable errors", async () => {
+  const react = hookHost();
+  const gate = deferred();
+  let failure = false;
+  const { default: FilePreview } = load("app/file-preview.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    // oxlint-disable-next-line typescript/no-extraneous-class -- constructor stub; this test downloads from the Mac
+    "expo-file-system": { File: class {}, FileMode: {} },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { Stack: { Screen: "Screen" }, useLocalSearchParams: () => ({ path: "/remote/archive.zip" }) },
+    "../session": {
+      useSession: () => ({
+        client: {
+          call: async (method, args) => {
+            assert.equal(method, "attachment:read");
+            assert.deepEqual(Array.from(args), ["/remote/archive.zip", 0], "the first chunk omits the optional version over JSON RPC");
+            return {};
+          },
+        },
+      }),
+    },
+    "../use-rpc": { useRpc: () => ({ data: { binary: true }, refresh() {} }) },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+    "../file-code": { FileCode: "FileCode" },
+    "../markdown": { Markdown: "Markdown" },
+    "@milagre/shared/file-link": require("@milagre/shared/file-link"),
+    "../ui": { PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../save-attachment": {
+      saveAttachment: async (options) => {
+        if (failure) throw new Error("Connection lost");
+        options.progress(50, 100);
+        await options.read(0);
+        await gate.promise;
+        return true;
+      },
+    },
+  });
+  const render = () => {
+    react.begin();
+    return FilePreview();
+  };
+  find(render(), (node) => node.type === "PillButton").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "PillButton").props.title, "Downloading… 50%");
+  gate.resolve();
+  await settle();
+  assert.ok(find(render(), (node) => node.type?.name === "Toast" && node.props.text === "File saved."));
+  assert.equal(
+    find(render(), (node) => node.type === "Text" && node.props.children === "File saved."),
+    undefined,
+    "success is not left in the preview content",
+  );
+  failure = true;
+  find(render(), (node) => node.type === "PillButton").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
+  assert.equal(find(render(), (node) => node.type === "PillButton").props.loading, false);
 });
 
 test("mobile TSX preview colors native text in both themes and preserves selection", () => {
@@ -6107,35 +11237,24 @@ test("mobile provider discovery uses the selected scope and ignores late respons
   }
 });
 
-test("mobile Project Accounts opens from Settings as a native stack screen", () => {
+test("mobile Accounts lists each Project's accounts under its saved accounts, with no link back to itself", () => {
   const opened = [];
-  const { SettingsView } = load("app/settings.tsx", {
-    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
-    "react-native": { View: "View" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect() {} },
-    "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client: null }) },
-    "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
-    "../murilo-mode": { useMuriloMode: () => [false, () => {}] },
-  });
-  find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Project Accounts").props.onPress();
-  assert.deepEqual(opened, ["project-accounts"]);
-  const { default: Screen } = load("app/project-accounts.tsx", {
+  const { SettingsView } = loadSettings({ client: { url: "http://mac", call: async () => null } });
+  find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Accounts").props.onPress();
+  assert.deepEqual(opened, ["accounts"]);
+  const { default: Screen } = load("app/(settings)/accounts.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
+    "react-native": { View: "View" },
+    "../ui": { PageScroll: "PageScroll", SectionLabel: "SectionLabel" },
+    "../accounts-section": { AccountsSection: "AccountsSection" },
+    "../limit-switch-section": { LimitAutoSwitchSection: "LimitAutoSwitchSection" },
     "../project-accounts-section": { ProjectAccountsSection: "ProjectAccountsSection" },
   });
-  assert.equal(find(Screen(), (n) => n.type === "Screen").props.options.title, "Project Accounts");
-  assert.ok(find(Screen(), (n) => n.type === "ProjectAccountsSection"));
+  const rendered = Screen();
+  assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, "Accounts");
+  assert.ok(find(rendered, (n) => n.type === "SectionLabel" && n.props.children === "Per Project"));
+  assert.equal(find(rendered, (n) => n.type === "ProjectAccountsSection").props.onAccountsPage, true);
 });
 
 test("new mobile Chat has no simulator pill; an existing Chat carries its identity", () => {
@@ -6190,6 +11309,94 @@ test("mobile simulator pill disappears after the last attachment is removed", as
   assert.equal(render(), null);
 });
 
+test("mobile picker leases a model from the Simlock pool and returns it from the list", async () => {
+  const a = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
+  const leased = { id: "simlock:l1", name: "iPhone 17 (Simlock)", platform: "ios", version: "27.0" };
+  let attached = [a];
+  const calls = [];
+  const h = simulatorHost({
+    url: "mac",
+    call: async (method, args) => {
+      calls.push([method, args]);
+      if (method === "simlock:settings:read") return { enabled: true };
+      if (method === "simlock:models") return { models: [{ platform: "ios", model: "iPhone 17", version: "27.0", kind: "phone" }], leases: [] };
+      if (method === "simlock:lease") {
+        attached = [...attached, leased];
+        return { deviceId: leased.id, leaseId: "l1", platform: "ios", name: "iPhone 17", version: "27.0", chatId: "/p#7" };
+      }
+      if (method === "simulator:detach") attached = attached.filter((d) => d.id !== args[0].deviceId);
+      return { chatId: "/p#7", supported: true, devices: attached, attached, available: [] };
+    },
+  });
+  const render = () => h.render("SimulatorSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (n) => n.props.accessibilityLabel === "My iPhone, choose simulator").props.onPress();
+  find(render(), (n) => n.props.title === "Attach simulator").props.onPress();
+  render();
+  await settle();
+  find(render(), (n) => n.props.accessibilityLabel === "Lease iPhone 17").props.onPress();
+  await settle();
+  // The sheet runs in the harness's own realm: compare plain values.
+  assert.equal(
+    JSON.stringify(calls.find(([method]) => method === "simlock:lease")[1]),
+    JSON.stringify([{ chatId: "/p#7", platform: "ios", model: "iPhone 17" }]),
+  );
+  assert.ok(
+    find(render(), (n) => n.props.deviceId === "simlock:l1"),
+    "the leased device opens",
+  );
+  find(render(), (n) => n.props.accessibilityLabel === "iPhone 17 (Simlock), choose simulator").props.onPress();
+  find(render(), (n) => n.props.label === "Return iPhone 17 (Simlock) to the Simlock pool").props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["simulator:detach", [{ chatId: "/p#7", deviceId: "simlock:l1" }]]));
+  h.cleanup();
+});
+
+test("mobile picker says why an enabled Simlock pool can't be reached, and shows nothing for a Mac without one", async () => {
+  const a = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
+  for (const [settings, models, expected] of [
+    [
+      async () => ({ enabled: true }),
+      async () => Promise.reject(new Error("The Simlock gateway refused the agent token.")),
+      "The Simlock gateway refused the agent token.",
+    ],
+    [
+      async () => ({ enabled: true }),
+      async () => Promise.reject(new Error("Could not reach the Simlock gateway at http://pool:4700.")),
+      "Could not reach the Simlock gateway at http://pool:4700.",
+    ],
+    [async () => Promise.reject(new Error("Unknown command: simlock:settings:read")), async () => ({ models: [] }), null],
+  ]) {
+    const h = simulatorHost({
+      url: "mac",
+      call: async (method) => {
+        if (method === "simlock:settings:read") return settings();
+        if (method === "simlock:models") return models();
+        return { chatId: "/p#7", supported: true, devices: [a], attached: [a], available: [] };
+      },
+    });
+    const render = () => h.render("SimulatorSheet", { hostId: "mac", chatId: "/p#7" });
+    render();
+    await settle();
+    find(render(), (n) => n.props.accessibilityLabel === "My iPhone, choose simulator").props.onPress();
+    find(render(), (n) => n.props.title === "Attach simulator").props.onPress();
+    render();
+    await settle();
+    await settle();
+    const alert = find(render(), (n) => n.props.accessibilityRole === "alert" && String(n.props.children).includes("Simlock"));
+    if (expected) assert.equal(String(alert?.props.children), expected);
+    else {
+      assert.equal(alert, undefined);
+      assert.equal(
+        find(render(), (n) => n.props.accessibilityLabel === "Lease from Simlock"),
+        undefined,
+      );
+    }
+    h.cleanup();
+  }
+});
+
 test("mobile picker exposes other devices only in Attach and detach updates this Chat", async () => {
   const a = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
   const b = { id: "b", name: "Other device", platform: "android", version: "16" };
@@ -6228,9 +11435,24 @@ test("mobile picker exposes other devices only in Attach and detach updates this
     find(render(), (n) => n.props.label === "Detach Other device from Chat"),
     undefined,
   );
-  for (const [, args] of calls) assert.equal(args[0].chatId, "/p#7");
+  // Simulator calls are this Chat's; the attach list also reads the Mac's Simlock pool, which isn't per Chat.
+  for (const [method, args] of calls) if (method.startsWith("simulator:")) assert.equal(args[0].chatId, "/p#7");
+  assert.ok(
+    calls.some(([method]) => method === "simlock:settings:read"),
+    "Attach looks for a Simlock pool",
+  );
   h.cleanup();
 });
+
+/** The toast pill (primitives/toast.tsx) saying `text`; the trees here don't draw a component's own children. */
+function toastPill(tree, text) {
+  return find(tree, (node) => node.type?.name === "ToastPill" && node.props.text === text);
+}
+
+/** Whether the list has a Chat row. */
+function listsChat(nav) {
+  return nav.rows().props.data.some((item) => item.kind === "chat");
+}
 
 // The progress drawn over an archiving Chat's row.
 function archiveIndicator(tree) {
@@ -6238,7 +11460,7 @@ function archiveIndicator(tree) {
   return component && find(component.type(component.props), (node) => node.props.accessibilityRole === "progressbar");
 }
 
-test("sidebar archive shows progress over the Chat's row and clears it on failure", async () => {
+test("a sidebar deletion takes the Chat's row out of the list and brings it back on failure", async () => {
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -6253,31 +11475,125 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.equal(
-    find(nav.render(), (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Archiving Chat"),
-    undefined,
-  );
-  const row = nav.row("chat");
-  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Archiving Fix", "archive feedback sits on the row and survives closing the action sheet");
-  assert.ok(
-    find(archiveIndicator(row), (node) => node.type === "SpinnerRing"),
-    "the row's pill spins desktop's ring",
-  );
-  assert.equal(nav.more(row), undefined, "an archiving row offers no menu");
-  assert.equal(row.props.pointerEvents, "none");
-  // Hidden on the Mac while the worktree is still going: the row stays, under the progress.
-  project.snapshot.project.state.sessions[5].archived = true;
-  assert.ok(archiveIndicator(nav.row("chat")));
-  project.snapshot.project.state.sessions[5].archived = false;
+  assert.equal(listsChat(nav), false, "the row goes at once, with the toast's Undo");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
   patch.reject(new Error("disk full"));
   await settleAll();
+  assert.ok(nav.row("chat"), "a failed deletion brings the row back");
   assert.equal(archiveIndicator(nav.row("chat")), undefined);
+  assert.equal(archiveStore.archiveActivity().deleted, "", "and its toast goes");
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
-  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not archive Chat: disk full");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
 });
 
-test("archiving the open Chat from the sidebar stays in place through confirmation and completion", async () => {
+/** Two Computers, each with Chat /p#5 ("Fix"); `fail` makes one Computer's hide fail. */
+function twoComputerArchive({ fail } = {}) {
+  const mac = archiveProject();
+  const studio = archiveProject();
+  const studioCall = (method, args) => (fail === "studio" && method === "chat:patch" ? Promise.reject(new Error("disk full")) : studio.call(method, args));
+  // A deleted Chat leaves its Computer's Project, as the Mac's state does.
+  const macCall = (method, args) => {
+    if (method === "chat:delete") delete mac.snapshot.project.state.sessions[args[1]];
+    return mac.call(method, args);
+  };
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: {
+      client: { ...mac.client, call: macCall, url: "mac" },
+      recent: [{ path: "/p" }],
+      snapshot: mac.snapshot,
+      expectActivity() {},
+      refresh: async () => {},
+    },
+    computers: [
+      { hostId: "mac", name: "MacBook", state: "online", projects: [{ path: "/p" }], copies: { "/p": mac.snapshot } },
+      {
+        hostId: "studio",
+        name: "Studio",
+        state: "online",
+        projects: [{ path: "/p" }],
+        copies: { "/p": studio.snapshot },
+        client: { url: "studio", call: studioCall, snapshot: studio.client.snapshot },
+      },
+    ],
+  });
+  const hosts = () =>
+    nav
+      .rows()
+      .props.data.filter((item) => item.kind === "chat")
+      .map((item) => item.hostId);
+  const remove = (hostId) => {
+    const at = hosts().indexOf(hostId);
+    nav.more(nav.row("chat", at)).props.onSelect("archive");
+  };
+  return { nav, mac, studio, hosts, remove };
+}
+
+test("deleting a Chat hides and undoes only its own Computer's row when another Computer has the same path and id", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive();
+  same(hosts().sort(), ["mac", "studio"]);
+  remove("mac");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's Chat stays listed while the Mac's is deleted");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
+  toastPill(nav.render(), "Chat deleted").props.action.onPress();
+  await settleAll();
+  same(hosts().sort(), ["mac", "studio"]);
+  assert.equal(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  assert.equal(studio.calls.length, 0, "nothing reached Studio");
+});
+
+test("deletions of the same Chat on two Computers run apart, and one's failure brings back only its own row", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive({ fail: "studio" });
+  remove("mac");
+  await settleAll();
+  remove("studio");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's failed deletion brings back only Studio's row");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
+  archiveStore.clearArchiveNotice();
+  assert.equal(archiveStore.archiveActivity().hidden.has("mac|/p#5"), true, "the Mac's deletion is still waiting out its Undo");
+  await passUndo(t);
+  assert.ok(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    "the Mac's Chat is deleted after its Undo time",
+  );
+  assert.equal(
+    studio.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  same(hosts(), ["studio"]);
+});
+
+test("an Undo on the list's toast brings the deleted Chat back without deleting it", async () => {
+  const project = archiveProject();
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: { client: { ...project.client, url: "mac" }, recent: [{ path: "/p" }], snapshot: project.snapshot, expectActivity() {}, refresh: async () => {} },
+  });
+  nav.more(nav.row("chat")).props.onSelect("archive");
+  await settleAll();
+  toastPill(nav.render(), "Chat deleted").props.action.onPress();
+  await settleAll();
+  assert.ok(nav.row("chat"), "the row is back");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete" || method === "worktree:remove"),
+    false,
+  );
+  assert.deepEqual(
+    project.calls.filter(([method]) => method === "chat:patch").map((call) => call[3]),
+    [{ archived: true, unread: false }, { archived: false }],
+  );
+});
+
+test("deleting the open Chat from the sidebar stays in place through the deletion", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -6293,14 +11609,15 @@ test("archiving the open Chat from the sidebar stays in place through confirmati
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(nav.routes, [], "confirming an archive must not close or replace the sidebar");
-  assert.ok(archiveIndicator(nav.row("chat")), "progress stays on the same sidebar row");
+  assert.deepEqual(nav.routes, [], "deleting must not close or replace the sidebar");
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.deepEqual(nav.routes, []);
+  assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
 });
 
-test("the Chat screen opens its sidebar once on confirm without replacing the screen", async () => {
+test("the Chat screen opens its sidebar once on archive without replacing the screen", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const screen = chatHost({ alert: pressDanger([]), call: (method, args) => (method === "chat:patch" ? patch.promise : project.call(method, args)) });
@@ -6308,7 +11625,7 @@ test("the Chat screen opens its sidebar once on confirm without replacing the sc
   screen.session.client.snapshot = async () => project.snapshot;
   screen.params.id = "5";
   delete screen.params.worktreeId;
-  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const menuAction = () => chatMenuEntry(screen.render(), "Delete");
   menuAction().props.onPress();
   await settleAll();
   assert.equal(screen.panels.open, "left", "shows the sidebar before the archive ends");
@@ -6318,7 +11635,7 @@ test("the Chat screen opens its sidebar once on confirm without replacing the sc
   // The phone moves on to another Chat while the archive runs.
   screen.router.replaced = "/chat?id=9";
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.equal(screen.router.replaced, "/chat?id=9", "the end of the archive does not pull the phone back to the list");
   assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
   assert.deepEqual(screen.panels.shown, ["left"], "completion must not reopen the sidebar");
@@ -6342,7 +11659,7 @@ test("mobile Ports pill requests only its Chat and hides empty or mismatched res
       "ports.tsx",
     );
     t.after(() => h.cleanup());
-    const render = () => h.render("PortsChip", { chatId: "/p#7" });
+    const render = () => h.render("TestChatPorts", { chatId: "/p#7" });
     assert.equal(render(), null);
     await settle();
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["chat:ports", ["/p#7"]]]);
@@ -6385,19 +11702,138 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   assert.deepEqual(calls, []);
 });
 
-function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn) {
+test("mobile Ports sheet opens both LAN and loopback servers internally and copies a reachable address", async (t) => {
+  const opened = [],
+    copied = [];
+  const ports = [
+    { port: 5173, pid: 22, command: "node", address: "*" },
+    { port: 3000, pid: 23, command: "node", address: "127.0.0.1" },
+  ];
+  const client = { url: "mac", call: async () => ({ chatId: "/p#7", ports }) };
+  const h = simulatorHost(client, "ports.tsx", {
+    native: { Linking: { openURL: async (url) => opened.push(url) } },
+    modules: {
+      "./browser-link": { openBrowserLink: (...args) => opened.push(args) },
+      "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
+      "./routes-native": { useReachableHost: (id) => (id === "mac" ? "100.69.206.111" : null) },
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://localhost:5173").props.onPress();
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://localhost:3000").props.onPress();
+  assert.deepEqual(opened, [
+    ["mac", "/p#7", "http://localhost:5173", null],
+    ["mac", "/p#7", "http://localhost:3000", null],
+  ]);
+  assert.match(JSON.stringify(render()), /localhost only/);
+  await find(render(), (n) => n.props.accessibilityLabel === "Copy address for port 5173").props.onPress();
+  assert.deepEqual(copied, ["http://100.69.206.111:5173"]);
+});
+
+test("mobile Ports sheet drops a server Stop ended before the host's list comes back", async (t) => {
+  let refetch = null;
+  let stopped = false;
+  const ports = [
+    { port: 3000, pid: 22, command: "node", address: "127.0.0.1" },
+    { port: 8081, pid: 23, command: "node", address: "*" },
+  ];
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      if (method === "agent:stop-port") {
+        stopped = true;
+        return true;
+      }
+      // The list after Stop hasn't come back yet.
+      if (stopped) return new Promise((resolve) => (refetch = resolve));
+      return { chatId: "/p#7", ports };
+    },
+  };
+  const h = simulatorHost(client, "ports.tsx");
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  void find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000").props.onPress();
+  await settle();
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000"),
+    undefined,
+    "the stopped row leaves at once",
+  );
+  assert.ok(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 8081"),
+    "the other server stays",
+  );
+  assert.equal(typeof refetch, "function", "the list is read again right after Stop");
+  // The host's list has the last word.
+  refetch({ chatId: "/p#7", ports: [ports[1]] });
+  await settle();
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000"),
+    undefined,
+  );
+});
+
+/** The viewers' chrome (viewer-chrome.tsx) as it runs, its native pieces faked. */
+function viewerChrome(react, keyboard = { isVisible: false, height: 0 }) {
+  return load("viewer-chrome.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View", Pressable: "Pressable", TextInput: "TextInput", useWindowDimensions: () => ({ width: 820, height: 1000 }) },
+    "react-native-keyboard-controller": { useKeyboardState: (select) => select(keyboard) },
+    "./hardware-keys": { useReturnKey: () => ({ attach() {} }), useCommentSendKey() {}, useOnScreenReturn: () => ({}) },
+    "@hugeicons/core-free-icons": {},
+    "./icons": { Icon: "Icon" },
+    "./ui": { tap() {} },
+  });
+}
+
+function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn, openTab = null) {
+  const snapshot = { project: { state: { sessions: {} } }, runs: { runs: {} } };
   const react = hookHost({ effects: true }),
-    files = new Map();
+    files = new Map(),
+    share = load("share-availability.ts", {});
   const appListeners = new Set();
-  class File {
+  // The cache, as expo-file-system's File and Directory see it: a file is its bytes (or the text written to it).
+  class Directory {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value) {
+    get exists() {
+      return true;
+    }
+    create() {}
+  }
+  class File {
+    constructor(parent, name) {
+      this.uri = (parent instanceof Directory ? parent.uri + "/" : "file:///cache/") + name;
+    }
+    writeSync(value) {
       files.set(this.uri, value);
     }
     get exists() {
       return files.has(this.uri);
+    }
+    get size() {
+      return files.get(this.uri)?.length ?? 0;
+    }
+    create() {
+      files.set(this.uri, new Uint8Array());
+    }
+    open() {
+      return {
+        writeBytes: (bytes) => files.set(this.uri, new Uint8Array([...files.get(this.uri), ...bytes])),
+        close() {},
+      };
+    }
+    move(target) {
+      if (files.has(target.uri)) throw new Error("exists");
+      files.set(target.uri, files.get(this.uri));
+      files.delete(this.uri);
     }
     delete() {
       files.delete(this.uri);
@@ -6407,12 +11843,14 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
     "artifact.tsx",
     {
       react,
+      "./comment-activity": require("../apps/mobile/src/comment-activity.ts"),
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": {
         Text: "Text",
         View: "View",
         Pressable: "Pressable",
         TextInput: "TextInput",
+        StyleSheet: { absoluteFill: {} },
         AppState: {
           addEventListener: (_event, listener) => {
             appListeners.add(listener);
@@ -6422,25 +11860,39 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
       },
       "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
-      "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView" },
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+      "./html-reply": { HtmlReply: "HtmlReply" },
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
       "./design-page-share": { DesignPageShareSheet: "DesignPageShareSheet" },
-      "./session": { useSession: () => ({ client, designs: feature }) },
+      "./panel-tabs": { usePanelTabs: () => openTab },
+      // A page's files come into the cache (artifact-files.ts); a page without files shows at once.
+      "./artifact-files": load("artifact-files.ts", {
+        react,
+        "expo-file-system": { Directory, File, FileMode: {}, Paths: { cache: "/cache" } },
+        "@milagre/shared/attachment-download": require("../packages/shared/src/attachment-download.mjs"),
+        "@milagre/shared/artifact-assets": require("../packages/shared/src/artifact-assets.mjs"),
+      }),
+      "./session": { useSession: () => ({ client, snapshot, designs: feature }) },
       "./use-design-catalog": load("use-design-catalog.ts", {
         react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
         "./design-catalog": require("../apps/mobile/src/design-catalog.ts"),
       }),
       "./icons": { Icon: "Icon" },
-      "./ui": { CircleButton: "CircleButton", PillButton: "PillButton", colors: {}, styles: {} },
+      "./ui": { PillButton: "PillButton", PullDown: "PullDown", CircleButton: "CircleButton", tap() {}, colors: {}, styles: {} },
+      "./pele-script": { PELE_SCRIPT: "var pele={};" },
+      "./share-availability": share,
+      "./viewer-chrome": viewerChrome(react),
     },
     "\nexports.TestArtifactWebView = ArtifactWebView;\nexports.ArtifactCard = ArtifactCard;",
   );
-  return {
+  const injected = [];
+  const host = {
+    snapshot,
     files,
+    share,
     setClient(next) {
       client = next;
     },
@@ -6453,13 +11905,157 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
       react.flush();
       return tree;
     },
+    /** What the sheet told the page's helper, as commands. */
+    commands() {
+      return injected.map((script) => JSON.parse(/run\((.*)\);true;$/s.exec(script)[1]));
+    },
+    /** The page's helper saying something to the sheet, through the shell. */
+    say(tree, message) {
+      find(tree, (node) => node.type?.name === "ArtifactWebView").props.onMessage(JSON.stringify(message));
+    },
+    /** The sheet with its page loaded and its helper ready. */
+    async open(props) {
+      host.render("ArtifactSheet", props);
+      await settle();
+      host.render("ArtifactSheet", props);
+      await settle();
+      let tree = host.render("ArtifactSheet", props);
+      const page = find(tree, (node) => node.type?.name === "ArtifactWebView");
+      assert.ok(page, "the page opens");
+      page.props.ref.current = { injectJavaScript: (script) => injected.push(script) };
+      host.say(tree, { t: "ready" });
+      tree = host.render("ArtifactSheet", props);
+      return tree;
+    },
     cleanup() {
       react.cleanup();
     },
   };
+  return host;
 }
 
-test("structured designs on mobile support review and version browsing without edit controls", async () => {
+/** DesignsSheet with its native pieces faked; `open` walks it to a loaded design on a canvas page that said ready. */
+function designsHost(client, router = { back() {} }, feature = designsOn, pushes = []) {
+  const snapshot = { project: { state: { sessions: {} } }, runs: { runs: {} } };
+  let reconnects = 0;
+  const react = hookHost({ effects: true }),
+    files = new Map(),
+    injected = [],
+    share = load("share-availability.ts", {});
+  const appListeners = new Set();
+  class File {
+    constructor(_cache, name) {
+      this.uri = "file:///cache/" + name;
+    }
+    writeSync(value) {
+      files.set(this.uri, value);
+    }
+    get exists() {
+      return files.has(this.uri);
+    }
+    delete() {
+      files.delete(this.uri);
+    }
+  }
+  const source = load(
+    "designs-sheet.tsx",
+    {
+      react,
+      "./comment-activity": require("../apps/mobile/src/comment-activity.ts"),
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": {
+        Alert: { alert() {} },
+        Text: "Text",
+        View: "View",
+        Pressable: "Pressable",
+        TextInput: "TextInput",
+        StyleSheet: { absoluteFill: {} },
+        AppState: {
+          addEventListener: (_event, listener) => {
+            appListeners.add(listener);
+            return { remove: () => appListeners.delete(listener) };
+          },
+        },
+      },
+      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
+      "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
+      "react-native-reanimated": {
+        __esModule: true,
+        default: { View: "Animated.View", createAnimatedComponent: (component) => component },
+        FadeOut: { duration: () => ({}) },
+        Easing: { inOut: () => () => 0, quad: () => 0 },
+        useAnimatedProps: (fn) => fn,
+        useAnimatedStyle: (fn) => fn,
+        useReducedMotion: () => true,
+        useSharedValue: (value) => ({ value, set() {} }),
+        withRepeat: (value) => value,
+        withTiming: (value) => value,
+      },
+      "react-native-svg": { __esModule: true, default: "Svg", Circle: "Circle", Path: "Path" },
+      "@expo/dom-webview": { DomWebView: "DomWebView" },
+      "expo-file-system": { File, Paths: { cache: "/cache" } },
+      "@hugeicons/core-free-icons": {},
+      "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+      "./html-reply": { HtmlReply: "HtmlReply" },
+      "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
+      "./session": { useSession: () => ({ client, snapshot, designs: feature, reconnects }) },
+      "./use-design-catalog": { markDesignDeleted() {} },
+      "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+      "./ui": { PillButton: "PillButton", PullDown: "PullDown", CircleButton: "CircleButton", tap() {} },
+      "./share-availability": share,
+      "./viewer-chrome": viewerChrome(react),
+    },
+    "\nexports.TestDesignsCanvas = DesignsCanvas;",
+  );
+  const host = {
+    snapshot,
+    files,
+    shareAvailabilityChanged: (...args) => share.shareAvailabilityChanged(...args),
+    setClient(next) {
+      client = next;
+    },
+    reconnect() {
+      reconnects++;
+    },
+    appState(status) {
+      for (const listener of appListeners) listener(status);
+    },
+    render(name, props) {
+      react.begin();
+      const tree = source[name](props);
+      react.flush();
+      return tree;
+    },
+    /** What the sheet told the canvas page, as commands. */
+    commands() {
+      return injected.map((script) => JSON.parse(/run\((.*)\);true;$/s.exec(script)[1]));
+    },
+    /** The canvas page saying something to the sheet. */
+    say(tree, message) {
+      find(tree, (node) => node.type?.name === "DesignsCanvas").props.onMessage(JSON.stringify(message));
+    },
+    async open(props) {
+      host.render("DesignsSheet", props);
+      await settle();
+      host.render("DesignsSheet", props);
+      await settle();
+      let tree = host.render("DesignsSheet", props);
+      const canvas = find(tree, (node) => node.type?.name === "DesignsCanvas");
+      assert.ok(canvas, "the designs open on their canvas");
+      canvas.props.ref.current = { injectJavaScript: (script) => injected.push(script) };
+      host.say(tree, { t: "ready" });
+      tree = host.render("DesignsSheet", props);
+      return tree;
+    },
+    cleanup() {
+      react.cleanup();
+    },
+  };
+  return host;
+}
+const menuItems = (tree) => find(tree, (node) => node.type === "PullDown")?.props.sections.flatMap((section) => section.items) ?? [];
+
+test("structured designs on mobile open on their canvas, with versions in the menu and no edit controls", async () => {
   const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
   const latest = {
@@ -6481,43 +12077,132 @@ test("structured designs on mobile support review and version browsing without e
       calls.push([method, request]);
       if (method === "artifact:list") return [latest];
       if (method === "artifact:get") return { ...latest, version: request.version ?? 2 };
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
       throw new Error(`Unexpected request: ${method}`);
     },
   };
-  const h = artifactHost(client);
-  const props = {
-    hostId: "mac",
-    chatId: "/p#7",
-    id: "fieldnotes",
-    version: "2",
-  };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  assert.ok(
-    find(tree, (node) => node.props.html === latest.html),
-    "the structured design renders for review",
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "fieldnotes", version: "2" };
+  let tree = await h.open(props);
+  const commands = h.commands();
+  assert.deepEqual(commands.find((command) => command.t === "set").rows, [{ group: "", designs: [{ id: "fieldnotes", w: 390, h: 844 }] }]);
+  assert.equal(commands.find((command) => command.t === "set").focus, "fieldnotes");
+  assert.equal(
+    commands.find((command) => command.t === "html" && command.id === "fieldnotes").doc,
+    require("../packages/shared/src/artifact.ts").artifactDocument(latest.html),
+    "the design goes on the canvas",
   );
   assert.equal(
-    find(tree, (node) => /^Edit|^Save$|^Layers$|^Inspect$/.test(node.props.title ?? "")),
+    find(tree, (node) => /^Edit|^Save$|^Layers$|^Inspect$/.test(node.props?.title ?? "")),
     undefined,
   );
-  assert.ok(find(tree, (node) => node.props.title === "Choose"));
-  assert.ok(find(tree, (node) => node.props.title === "Comment"));
-  find(tree, (node) => node.props.label === "Previous version of Fieldnotes").props.onPress();
-  h.render("ArtifactSheet", props);
+  assert.deepEqual(JSON.parse(JSON.stringify(menuItems(tree).map((item) => item.id))), ["resolved", "choose", "version:2", "version:1", "delete"]);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("version:1");
+  h.render("DesignsSheet", props);
   await settle();
-  tree = h.render("ArtifactSheet", props);
+  tree = h.render("DesignsSheet", props);
   assert.equal(calls.at(-1)[1].version, 1);
-  assert.equal(
-    find(tree, (node) => (node.props.title ?? "").startsWith("Edit")),
-    undefined,
-  );
-  find(tree, (node) => node.props.label === "Next version of Fieldnotes").props.onPress();
-  h.render("ArtifactSheet", props);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("version:2");
+  h.render("DesignsSheet", props);
   await settle();
   assert.equal(calls.at(-1)[0], "artifact:get");
-  assert.equal(calls.at(-1)[1].version, undefined, "returning to the latest version reads the latest saved design");
+  assert.equal(calls.at(-1)[1].version, 2, "returning to the latest version pins the current summary's saved design");
+  h.cleanup();
+});
+
+test("canvas fonts are injected once per page and replayed before documents after reload", async () => {
+  const { createExampleDesign } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const designs = ["one", "two", "three", "four"].map((id) => ({
+    id,
+    version: 1,
+    latest: 1,
+    versions: 1,
+    title: id,
+    format: "design",
+    width: 390,
+    height: 844,
+    document,
+    html: "<html><head></head><body></body></html>",
+  }));
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      if (method === "artifact:list") return designs;
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      calls.push(request);
+      return {
+        ...designs.find((item) => item.id === request.id),
+        fontKey: "shared",
+        ...(request.fonts.have.includes("shared") ? {} : { fontCss: "@font-face{test:yes}" }),
+      };
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  let tree = await h.open(props);
+  await settle();
+  tree = h.render("DesignsSheet", props);
+  const first = h.commands();
+  assert.equal(first.filter((command) => command.t === "fonts").length, 1);
+  assert.equal(first.filter((command) => command.t === "html").length, 4);
+  assert.ok(first.findIndex((command) => command.t === "fonts") < first.findIndex((command) => command.t === "html"));
+  assert.ok(
+    calls.slice(1).every((request) => request.fonts.have.includes("shared")),
+    "the opened design warms all lanes",
+  );
+  h.say(tree, { t: "ready" });
+  h.render("DesignsSheet", props);
+  const replay = h.commands().slice(first.length);
+  assert.equal(replay.filter((command) => command.t === "fonts").length, 1);
+  assert.equal(replay.filter((command) => command.t === "html").length, 4);
+  assert.ok(replay.findIndex((command) => command.t === "fonts") < replay.findIndex((command) => command.t === "html"));
+  h.cleanup();
+});
+
+test("a superseding canvas effect reuses an outstanding design read", async () => {
+  const { createExampleDesign } = require("../packages/shared/src/design.mjs");
+  const design = {
+    id: "one",
+    version: 1,
+    latest: 1,
+    versions: 1,
+    title: "One",
+    format: "design",
+    width: 390,
+    height: 844,
+    document: createExampleDesign(),
+    html: "<html><head></head></html>",
+  };
+  let finish;
+  let gets = 0;
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      if (method === "artifact:list") return [design];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      gets++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  await h.open(props);
+  assert.equal(gets, 1);
+  h.reconnect();
+  h.render("DesignsSheet", props);
+  await settle();
+  assert.equal(gets, 1, "the new effect subscribes to the original read");
+  finish(design);
+  await settle();
+  h.render("DesignsSheet", props);
+  assert.equal(h.commands().filter((command) => command.t === "html").length, 1);
   h.cleanup();
 });
 
@@ -6531,7 +12216,7 @@ test("a design card opens its Chat's design full screen; a new Chat's card can't
   assert.equal(h.render("ArtifactCard", { step, chatId: "/p#new:1" }).props.disabled, true);
 });
 
-test("the design sheet loads the version it opened under the design policy, framed in a page of its own", async () => {
+test("the designs sheet loads the version it opened, on a canvas page that runs only its own script", async () => {
   const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
   const calls = [];
@@ -6540,6 +12225,8 @@ test("the design sheet loads the version it opened under the design policy, fram
     call: async (method, args) => {
       calls.push([method, args]);
       if (method === "artifact:list") return [{ id: "login", format: "design", version: 2, title: "Login", versions: 2, width: 390, height: 844 }];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
       return {
         id: "login",
         format: "design",
@@ -6554,36 +12241,33 @@ test("the design sheet loads the version it opened under the design policy, fram
       };
     },
   };
-  const h = artifactHost(client);
-  h.render("ArtifactSheet", { hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
-  await settle();
-  const tree = h.render("ArtifactSheet", { hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    ["artifact:sharing-status", []],
-    ["artifact:list", [{ chatId: "/p#7" }]],
-    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1 }]],
+  const h = designsHost(client);
+  await h.open({ hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(([method]) => method === "artifact:get"))), [
+    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1, fonts: { have: [] } }]],
   ]);
-  const view = find(tree, (node) => node.props?.html);
-  assert.ok(view, "the design shows once loaded");
-  const web = artifactHost(client);
-  web.render("TestArtifactWebView", { html: view.props.html });
-  const frame = find(web.render("TestArtifactWebView", { html: view.props.html }), (node) => node.type === "DomWebView");
+  for (const method of ["artifact:sharing-status", "artifact:list", "artifact:comments"])
+    assert.ok(
+      calls.some(([called]) => called === method),
+      method,
+    );
+  const web = designsHost(client);
+  web.render("TestDesignsCanvas", { ref: { current: null }, onMessage() {} });
+  const frame = find(web.render("TestDesignsCanvas", { ref: { current: null }, onMessage() {} }), (node) => node.type === "DomWebView");
   assert.ok(frame);
   assert.equal(frame.props.useExpoModulesBridge, false);
-  // A page with no script of its own, framing the design in a sandbox that can't navigate away; removed when done.
+  assert.equal(typeof frame.props.onMessage, "function", "the canvas script reports holds, pins and the view");
+  // The page runs only the canvas script, by its hash; each design's frame is made sandboxed with no scripts.
   const page = web.files.get(frame.props.source.uri);
+  assert.match(page, /script-src 'sha256-/);
+  assert.doesNotMatch(page, /script-src 'unsafe-inline'/);
   assert.match(page, /frame-src 'none'/);
-  assert.match(
-    page,
-    /<iframe sandbox="allow-scripts"[^>]* srcdoc="<!doctype html><meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src 'none'/,
-  );
-  assert.doesNotMatch(page.replace(/srcdoc="[^"]*"/, ""), /<script/);
   web.cleanup();
   assert.equal(web.files.size, 0);
   h.cleanup();
 });
 
-test("on the design sheet, choosing and commenting wait for Send, which hands one message to the Chat", async () => {
+test("on the designs sheet, a held spot's comment and the choice wait for Send, which hands one message to the Chat", async () => {
   const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
   const outbox = require("../apps/mobile/src/design-outbox.ts");
@@ -6593,42 +12277,59 @@ test("on the design sheet, choosing and commenting wait for Send, which hands on
     url: "mac",
     call: async (method, args) => {
       if (method === "artifact:add-comments") recorded.push(...args[0].comments);
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
       return method === "artifact:list"
         ? [{ id: "home", format: "design", version: 1, title: "Home", versions: 1, width: 390, height: 844 }]
         : { id: "home", format: "design", document, version: 1, latest: 1, versions: 1, title: "Home", width: 390, height: 844, html: designHtml(document) };
     },
   };
-  const h = artifactHost(client, [], { back: () => backs++ });
+  const h = designsHost(client, { back: () => backs++ });
   const props = { hostId: "mac", chatId: "/p#7", id: "home", version: "1" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  assert.ok(!find(tree, (node) => (node.props?.title ?? "").startsWith("Send")), "nothing to send yet");
-  find(tree, (node) => node.props?.title === "Choose").props.onPress();
-  tree = h.render("ArtifactSheet", props);
+  let tree = await h.open(props);
+  const sendButton = (node) => node.type === "CircleButton" && node.props.filled;
+  assert.equal(find(tree, sendButton), undefined, "nothing to send yet");
+  find(tree, (node) => node.type === "PullDown").props.onSelect("choose");
+  tree = h.render("DesignsSheet", props);
   assert.equal(outbox.peekDesignMessage("mac|/p#7"), null, "choosing alone sends nothing");
-  assert.ok(find(tree, (node) => node.props?.title === "Chosen ✓"));
-  find(tree, (node) => node.props?.title === "Comment").props.onPress();
-  tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.type === "TextInput").props.onChangeText("Bigger title");
-  tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.props?.title === "Done").props.onPress();
-  tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.props?.title === "Send 2").props.onPress();
+  assert.equal(menuItems(tree).find((item) => item.id === "choose").checked, true);
+  // Holding the design opens a comment at that spot once the canvas has brought it into view.
+  h.say(tree, { t: "press", id: "home", x: 0.5, y: 0.25 });
+  tree = h.render("DesignsSheet", props);
+  assert.deepEqual(
+    h.commands().find((command) => command.t === "reveal"),
+    { t: "reveal", id: "home", x: 0.5, y: 0.25 },
+  );
+  h.say(tree, { t: "anchor", sx: 40, sy: 120 });
+  tree = h.render("DesignsSheet", props);
+  const box = find(tree, (node) => node.type?.name === "CommentBox");
+  assert.deepEqual(JSON.parse(JSON.stringify(box.props.at)), { x: 40, y: 120 });
+  box.props.onChange("Bigger title");
+  box.props.onDone();
+  tree = h.render("DesignsSheet", props);
+  assert.equal(
+    find(tree, (node) => node.type?.name === "CommentBox"),
+    undefined,
+  );
+  const pins = h.commands().findLast((command) => command.t === "pins").pins;
+  assert.deepEqual(
+    pins.map(({ id, x, y, n }) => ({ id, x, y, n })),
+    [{ id: "home", x: 0.5, y: 0.25, n: 1 }],
+  );
+  find(tree, sendButton).props.onPress();
   await settle();
   const message = outbox.peekDesignMessage("mac|/p#7");
   const id = /\(comment ([a-f0-9]{8})\)/.exec(message.text)?.[1];
   assert.equal(
     message.text,
-    `I chose the design "Home" (home, version 1). Continue from this one.\n\nA comment on the designs:\n\n1. (comment ${id}) On the design "Home" (home, version 1): Bigger title\n\nRead the latest design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.`,
+    `I chose the design "Home" (home, version 1). Continue from this one.\n\nA comment on the designs:\n\n1. (comment ${id}) On the design "Home" (home, version 1), 50% across and 25% down: Bigger title\n\nRead the latest design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.`,
   );
   assert.equal(recorded.length, 0, "the comments are recorded only once the message went");
-  assert.ok(outbox.peekDesignMessage("mac|/p#7"), "it waits until it is sent");
   outbox.designMessageSent("mac|/p#7", message);
   await settle();
   assert.deepEqual(
-    recorded.map((comment) => [comment.id, comment.text]),
-    [[id, "Bigger title"]],
+    recorded.map((comment) => [comment.id, comment.text, comment.x, comment.y]),
+    [[id, "Bigger title", 0.5, 0.25]],
   );
   assert.equal(outbox.peekDesignMessage("mac|/p#7"), null, "a message is sent once");
   assert.equal(backs, 1);
@@ -6660,8 +12361,10 @@ test("feedback from the designs shows as a card of the choice and each comment",
 test("a reply shows the thinking it wrote nothing after, once it waits on a question or ends, not while working", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
-    react,
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+    react: { ...react, useMemo: (compute) => compute() },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
     "react-native-svg": { default: "Svg", Path: "Path" },
@@ -6674,10 +12377,14 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./activity-item": { ActivityTitle: "ActivityTitle" },
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -6762,12 +12469,14 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
   );
 });
 
-test("mobile Murilo mode shows each tool call and the notes between them in the Chat, with no activity fold", () => {
+test("mobile Full detail shows each tool call and the notes between them in the Chat, with no activity fold", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
-  const reply = (murilo) =>
+  const reply = (display) =>
     load("chat-reply.tsx", {
+      "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
-      react,
+      "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+      react: { ...react, useMemo: (compute) => compute() },
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
       "react-native-svg": { default: "Svg", Path: "Path" },
@@ -6780,10 +12489,14 @@ test("mobile Murilo mode shows each tool call and the notes between them in the 
       "./activity-item": { ActivityTitle: "ActivityTitle" },
       "./tool-row": { ToolRow: "ToolRow" },
       "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+      "@milagre/shared/page-comments": { parsePageComments: () => null },
+      "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
       "./answer-card": { AnswerCard: "AnswerCard" },
-      "./murilo-mode": { useMuriloMode: () => [murilo, () => {}] },
+      "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+      "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+      "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
       "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
       "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -6813,68 +12526,849 @@ test("mobile Murilo mode shows each tool call and the notes between them in the 
     walk(tree);
     return rows;
   };
-  assert.deepEqual(shown(reply(false)(props)), ["fold", "Done."], "off: the activity folds into one row");
+  assert.deepEqual(shown(reply("compact")(props)), ["fold", "Done."], "Compact: the activity folds into one row");
   assert.deepEqual(
-    shown(reply(true)(props)),
+    shown(reply("full")(props)),
     ["Running the tests.", "a", "Tests pass, reading the config.", "b", "c", "Done."],
-    "on: every step and note, in order",
+    "Full detail: every step and note, in order",
+  );
+  const opened = [];
+  const live = { text: "", steps: steps.map((step) => ({ ...step, offset: 0, status: "running" })), approvals: [{ stepId: "b" }], questions: [] };
+  const tree = reply("full")({ ...props, message: undefined, run: live, onActivity: (...args) => opened.push(args) });
+  find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.onPress();
+  assert.deepEqual(opened, [["run", "b"]], "tapping a call opens that exact call in the sheet");
+  assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "a").props.waiting, false);
+  assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.waiting, true);
+});
+
+test("mobile activity sheet opens the selected call without paging and keeps approval asks in Chat", () => {
+  const react = hookHost();
+  let params = { id: "1", message: "run", stepId: "b" };
+  const steps = ["a", "b", "c"].map((id) => ({ id, kind: "shell", title: `Ran ${id}`, status: "running" }));
+  const run = { text: "", steps, approvals: [{ requestId: "approval-b", stepId: "b" }], questions: [] };
+  const { default: ActivitySheet } = load("app/activity.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { useLocalSearchParams: () => params, router: { back() {} } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "cancel" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "../tool-row": { ToolRow: "ToolRow" },
+    "../markdown": { Markdown: "Markdown" },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
+    "../questions": { Approval: "Approval" },
+    "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
+    "../session": {
+      useSession: () => ({
+        snapshot: { project: { path: "/project", state: { messages: [] } }, runs: { runs: { "/project#1": run } } },
+        client: null,
+      }),
+    },
+  });
+  const render = () => {
+    react.begin();
+    return ActivitySheet();
+  };
+  let tree = render();
+  assert.equal(find(tree, (node) => node.type === "SheetHeader").props.title, "Tool call");
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.expanded, true);
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "the selected call has no paging controls",
+  );
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.waiting, true);
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "selected call details never contain an approval ask",
+  );
+  params = { ...params, stepId: "c" };
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "another call never inherits this approval",
+  );
+  params = { id: "1", message: "run" };
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "the all-calls view keeps asks in Chat too",
   );
 });
 
-test("mobile usage identifies the account by email, falls back to its label, and accepts older hosts", () => {
-  const { ProviderRows } = load(
+test("mobile Chat shows linked and unlinked approval asks once in its normal approval area", async () => {
+  const screen = ongoingChatHost();
+  const answers = [];
+  const original = screen.session.client.call;
+  screen.session.client.call = (method, args) => {
+    if (method !== "agent:respond-permission") return original(method, args);
+    answers.push(args[0]);
+    return Promise.resolve(true);
+  };
+  screen.session.snapshot.runs.runs["/p#7"] = {
+    text: "Checking.",
+    startedAt: Date.now(),
+    questions: [],
+    answered: {},
+    steps: [{ id: "shell", kind: "shell", title: "Ran tests", status: "running" }],
+    approvals: [{ requestId: "linked", stepId: "shell" }, { requestId: "unlinked" }],
+  };
+  const approvals = [];
+  find(screen.render(), (node) => {
+    if (node.type === "Approval") approvals.push(node);
+    return false;
+  });
+  assert.deepEqual(
+    approvals.map((node) => node.props.approval.requestId),
+    ["linked", "unlinked"],
+  );
+  approvals[0].props.respond("allow");
+  await settle();
+  assert.equal(JSON.stringify(answers), JSON.stringify([{ chatId: "/p#7", requestId: "linked", decision: "allow" }]));
+});
+
+test("mobile tool output retries after reconnect and clears the failed-read controls after success", async () => {
+  const react = hookHost({ effects: true });
+  const requests = [];
+  const saved = {
+    id: 9,
+    session_id: 1,
+    role: "assistant",
+    body: "Checked.",
+    steps: [{ id: "call", kind: "shell", title: "Ran tests", status: "done", hasDetail: true }],
+  };
+  const session = {
+    reconnects: 0,
+    snapshot: { project: { path: "/project", state: { messages: [saved] } }, runs: { runs: {} } },
+    client: {
+      message: () => {
+        const request = deferred();
+        requests.push(request);
+        return request.promise;
+      },
+    },
+  };
+  const { default: ActivitySheet } = load("app/activity.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { useLocalSearchParams: () => ({ id: "1", message: "9", stepId: "call" }), router: { back() {} } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "cancel" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "../tool-row": { ToolRow: "ToolRow" },
+    "../markdown": { Markdown: "Markdown" },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
+    "../questions": { Approval: "Approval" },
+    "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
+    "../session": { useSession: () => session },
+  });
+  const render = () => {
+    react.begin();
+    return ActivitySheet();
+  };
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  render();
+  requests[0].reject(new Error("Connection lost"));
+  await settle();
+  let tree = render();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Try again").props.onPress();
+  render();
+  assert.equal(requests.length, 2, "manual retry starts a fresh read");
+  requests[1].reject(new Error("Still offline"));
+  await settle();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === "PillButton" && node.props.title === "Try again"));
+  session.reconnects++;
+  tree = render();
+  assert.equal(requests.length, 3, "the same client automatically retries on reconnect");
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "a new connection leaves the stale error state",
+  );
+  requests[2].resolve({ ...saved, steps: [{ ...saved.steps[0], detail: "$ tests\n38 passed" }] });
+  await settle();
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.step.detail, "$ tests\n38 passed");
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "success removes the old retry button",
+  );
+  react.unmount();
+});
+
+test("phone Usage tabs replace the route and keep the current tab selected", () => {
+  const replaced = [];
+  const { UsageTabs } = load("usage-tabs.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "expo-router": { router: { replace: (path) => replaced.push(path) } },
+    "./theme": themeHooks,
+  });
+  for (const value of ["plan", "analytics"]) {
+    const tabs = allNodes(UsageTabs({ value }), (node) => node.props?.accessibilityRole === "tab");
+    assert.deepEqual(
+      tabs.map((tab) => tab.props.accessibilityState.selected),
+      value === "plan" ? [true, false] : [false, true],
+    );
+    tabs.find((tab) => tab.props.accessibilityState.selected).props.onPress();
+    assert.equal(replaced.length, value === "plan" ? 0 : 1, "the active tab does not navigate again");
+    tabs.find((tab) => !tab.props.accessibilityState.selected).props.onPress();
+  }
+  assert.deepEqual(replaced, ["/(settings)/token-usage", "/(settings)/usage"]);
+});
+
+test("phone Analytics menus preserve metric and period choices beside navigation", () => {
+  const react = hookHost();
+  const { TokenUsageSection } = load("token-usage-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", AppState: {} },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/token-usage": require("@milagre/shared/token-usage"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "./theme": themeHooks,
+    "./ui": { ...uiHooks, PullDown: "PullDown" },
+    "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+    "./primitives/error-notice": { ErrorNotice: "ErrorNotice" },
+    "./settings-find": { Findable: "Findable" },
+    "./session": { useSession: () => ({ client: {} }) },
+  });
+  const render = () => {
+    react.begin();
+    return TokenUsageSection({ navigation: jsx("UsageTabs", { value: "analytics" }) });
+  };
+  const menu = (tree, label) => find(tree, (node) => node.type === "PullDown" && node.props.label === label);
+  let tree = render();
+  assert.ok(find(tree, (node) => node.type === "UsageTabs"));
+  assert.equal(menu(tree, "Show").props.children.props.style.minHeight, 44);
+  assert.equal(menu(tree, "Period").props.children.props.style.minHeight, 44);
+  menu(tree, "Show").props.onSelect("tokens");
+  menu(tree, "Period").props.onSelect("30d");
+  tree = render();
+  assert.equal(menu(tree, "Show").props.sections[0].items.find((item) => item.checked).id, "tokens");
+  assert.equal(menu(tree, "Period").props.sections[0].items.find((item) => item.checked).id, "30d");
+});
+
+function planUsageHost() {
+  const react = hookHost();
+  let snapshot = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  let display = "used";
+  let syncs = 0;
+  let providerRefreshes = 0;
+  const requests = [];
+  let events, usageSource;
+  const client = {
+    call: async (method, args) => {
+      requests.push([method, args && JSON.parse(JSON.stringify(args))]);
+      return snapshot;
+    },
+    live: (_scope, options) => {
+      events = options;
+      return { close() {} };
+    },
+  };
+  const { UsageSection, ProviderRows, WindowRow } = load(
     "usage-section.tsx",
     {
+      react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
-      react: {},
-      "react-native": { Text: "Text", View: "View" },
+      "react-native": { Text: "Text", View: "View", AppState: {} },
+      "expo-router": { Stack: { Screen: "Screen" } },
       "@hugeicons/core-free-icons": {},
-      "@milagre/shared/providers": { providerName: () => "Codex" },
-      "@milagre/shared/usage": { formatUpdatedAgo: () => "Updated just now" },
-      "./icons": {},
-      "./ui": { colors: {}, styles: {} },
-      "./session": {},
-      "./use-usage": {},
+      "@milagre/shared/providers": require("@milagre/shared/providers"),
+      "@milagre/shared/usage": require("@milagre/shared/usage"),
+      "@milagre/shared/use-account-usage": {
+        useAccountUsage: (source) => {
+          usageSource = source;
+          return {
+            snapshot,
+            loading: false,
+            error: "",
+            refresh: source.read,
+            refreshAccounts: async () => {
+              syncs++;
+            },
+          };
+        },
+      },
+      "./icons": { ProviderLogo: "ProviderLogo", Icon: "Icon" },
+      "./ui": { IconButton: "IconButton", PullDown: "PullDown", useStyles: () => fakeStyles },
+      "./usage-display-setting": {
+        useUsageDisplay: () => [
+          display,
+          (next) => {
+            display = next;
+          },
+        ],
+      },
+      "./session": {
+        useSession: () => ({
+          client,
+          hostName: "Santo",
+          refreshProviders: async () => {
+            providerRefreshes++;
+          },
+        }),
+      },
+      "./theme": themeHooks,
     },
-    "\nexport { ProviderRows };\n",
+    "\nexport { ProviderRows, WindowRow };\n",
   );
+  const draw = (node) => {
+    if (Array.isArray(node)) return node.map(draw);
+    if (!node || typeof node !== "object" || !node.type) return node;
+    if (node.type === ProviderRows || node.type === WindowRow) return draw(node.type(node.props));
+    return { ...node, props: { ...node.props, children: draw(node.props?.children) } };
+  };
+  const render = (props = {}) => {
+    react.begin();
+    return draw(UsageSection(props));
+  };
+  return {
+    render,
+    requests,
+    source: () => usageSource,
+    events: () => events,
+    snapshot,
+    setSnapshot: (next) => {
+      snapshot = next;
+    },
+    syncs: () => syncs,
+    providerRefreshes: () => providerRefreshes,
+    ProviderRows,
+  };
+}
+
+test("mobile usage keeps account name and email separate and accepts older hosts", () => {
+  const { ProviderRows } = planUsageHost();
   const provider = { provider: "codex", status: "ok", windows: [], updatedAt: new Date().toISOString() };
   for (const account of [
     { id: "work", label: "Work", email: "work@example.test" },
     { id: "work", label: "Work" },
   ]) {
     const tree = ProviderRows({ provider: { ...provider, account }, now: Date.now() });
-    const label = find(tree, (node) => node.type === "Text" && node.props.children === (account.email || account.label));
-    assert.ok(label, "The account identity is visible");
-    assert.equal(label.props.selectable, true);
+    assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Work"));
+    if (account.email) assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === account.email));
     assert.equal(
-      find(tree, (node) => node.type === "Text" && node.props.children === "Codex"),
+      find(tree, (node) => node.type === "PullDown"),
       undefined,
+      "unknown readiness never offers an action",
     );
   }
   assert.doesNotThrow(() => ProviderRows({ provider, now: Date.now() }));
 });
 
-test("mobile subagent rows show current activity and preserve terminal states", () => {
-  const { SubagentItem } = load("subagent-item.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text" },
-    "@hugeicons/core-free-icons": { AiBrainIcon: "brain" },
-    "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
-    "./activity-item": { ActivityItem: "ActivityItem" },
-    "./ui": { colors: {}, styles: {} },
+test("phone Plan usage shows every window, consistent remaining bars and screen-reader values", () => {
+  const screen = planUsageHost();
+  let tree = screen.render();
+  for (const account of screen.snapshot.providers) assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === account.account.email));
+  const bars = allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar");
+  assert.equal(bars.length, 11, "model pools are not hidden");
+  assert.deepEqual(
+    bars.map((bar) => bar.props.accessibilityValue.now),
+    [42, 42, 42, 21, 21, 21, 76, 76, 76, 76, 76],
+  );
+  for (const bar of bars) assert.match(bar.props.accessibilityValue.text, /% used/);
+  find(tree, (node) => node.type === "PullDown" && node.props.label === "Plan usage display").props.onSelect("remaining");
+  tree = screen.render();
+  const remaining = allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar");
+  assert.deepEqual(
+    remaining.map((bar) => bar.props.accessibilityValue.now),
+    [58, 58, 58, 79, 79, 79, 24, 24, 24, 24, 24],
+  );
+  for (const bar of remaining) {
+    assert.match(bar.props.accessibilityValue.text, /% left/);
+    assert.equal(bar.props.children.props.style.width, `${bar.props.accessibilityValue.now}%`);
+  }
+  assert.equal(
+    find(tree, (node) => node.type === "Segmented"),
+    undefined,
+  );
+  assert.equal(
+    find(tree, (node) => node.type === "Text" && node.props.children === "Retry"),
+    undefined,
+  );
+  find(tree, (node) => node.type === "IconButton" && node.props.label === "Refresh plan usage").props.onPress();
+  assert.equal(screen.requests[0][0], "usage:accounts:read");
+});
+
+test("phone default menu is only on ready non-default accounts and reuses account selection", async () => {
+  const screen = planUsageHost();
+  let tree = screen.render();
+  const actions = allNodes(tree, (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for"));
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].props.label, "Actions for Work");
+  assert.equal(actions[0].props.style.width, 44);
+  assert.equal(actions[0].props.style.height, 44);
+  assert.match(actions[0].props.sections[0].items[0].subtitle, /Computer default; Project and Link choices stay/);
+  actions[0].props.onSelect("default");
+  tree = screen.render();
+  assert.equal(find(tree, (node) => node.type === "PullDown" && node.props.label === "Actions for Work").props.nativeTrigger.disabled, true);
+  await new Promise(setImmediate);
+  assert.deepEqual(screen.requests, [["accounts:select", ["claude", "work"]]]);
+  assert.equal(screen.providerRefreshes(), 1);
+  assert.equal(screen.syncs(), 1);
+  screen.snapshot.providers.find((entry) => entry.account.id === "work").account.state = "signed-out";
+  assert.equal(
+    find(screen.render(), (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for")),
+    undefined,
+  );
+});
+
+test("phone unavailable accounts have no fabricated progress bars and keep explicit default labels", () => {
+  const screen = planUsageHost();
+  screen.setSnapshot({
+    providers: [
+      {
+        provider: "antigravity",
+        account: { id: "only", label: "Work", email: "work@example.test", state: "error", default: true },
+        status: "unavailable",
+        windows: [],
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   });
-  const agent = { title: "Review authentication", status: "running", latestActivity: "Reading auth.ts", transcript: [] };
-  assert.equal(SubagentItem({ agent }).props.status, "Reading files");
-  assert.equal(SubagentItem({ agent: { ...agent, latestActivity: "Running auth tests" } }).props.status, "Running tests");
-  const failed = SubagentItem({ agent: { ...agent, status: "failed" } });
-  assert.equal(failed.props.status, "Needs attention");
-  assert.equal(failed.props.state, "failed");
+  const tree = screen.render();
+  assert.equal(allNodes(tree, (node) => node.props?.accessibilityRole === "progressbar").length, 0);
+  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Default"));
+  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "Usage unavailable"));
+  assert.equal(
+    find(tree, (node) => node.type === "PullDown" && node.props.label.startsWith("Actions for")),
+    undefined,
+  );
+});
+
+function overviewHook(t, source) {
+  const react = hookHost({ effects: true });
+  const { useAccountUsage } = load("../../../packages/shared/src/use-account-usage.ts", { react, "./usage": require("@milagre/shared/usage") });
+  t.after(() => react.unmount());
+  return () => {
+    react.begin();
+    return useAccountUsage(source);
+  };
+}
+
+test("account overview ignores a late mount cache and invalidated provider reads", async (t) => {
+  const { accountUsage } = require("./fixtures/token-usage.cjs");
+  const first = deferred(),
+    late = deferred(),
+    mountCache = deferred();
+  let cache = mountCache.promise;
+  let reads = 0,
+    accountsChanged;
+  const render = overviewHook(t, {
+    read: () => (++reads === 1 ? first.promise : reads === 2 ? late.promise : Promise.resolve({ accountKey: "removed", providers: [] })),
+    cached: () => cache,
+    subscribe: (_usage, accounts) => {
+      accountsChanged = accounts;
+      return () => {};
+    },
+  });
+  render();
+  const manual = render().refresh();
+  first.resolve(accountUsage);
+  await manual;
+  mountCache.resolve({ accountKey: "stale", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, accountUsage.accountKey);
+  const pending = render().refresh();
+  cache = Promise.resolve({ accountKey: "removed", providers: [] });
+  accountsChanged();
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "removed");
+  late.resolve(accountUsage);
+  await pending;
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "removed", "response from the removed account is discarded");
+});
+
+test("fresh account cache skips reads and default changes keep windows without querying providers", async (t) => {
+  let cached = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  cached.providers.forEach((entry) => {
+    entry.updatedAt = new Date().toISOString();
+  });
+  let reads = 0,
+    accountsChanged;
+  const render = overviewHook(t, {
+    read: async () => {
+      reads++;
+      return cached;
+    },
+    cached: async () => cached,
+    subscribe: (_usage, accounts) => {
+      accountsChanged = accounts;
+      return () => {};
+    },
+  });
+  render();
+  await new Promise(setImmediate);
+  assert.equal(reads, 0);
+  cached = {
+    ...cached,
+    providers: cached.providers.map((entry) => ({ ...entry, account: { ...entry.account, default: entry.account.id === "work" || undefined } })),
+  };
+  accountsChanged();
+  assert.equal(render().snapshot.providers.length, 3, "no blank list while default metadata updates");
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.providers.find((entry) => entry.account.id === "work").account.default, true);
+  assert.equal(render().snapshot.providers.find((entry) => entry.account.id === "work").windows.length, 5);
+  assert.equal(reads, 0);
+  await render().refresh();
+  assert.equal(reads, 1, "manual Refresh always forces a provider read");
+});
+
+test("a transport failure marks last-known usage and drops windows that have reset", async (t) => {
+  const cached = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  const now = Date.now();
+  cached.providers.forEach((entry) => {
+    entry.updatedAt = new Date(now).toISOString();
+    entry.windows.forEach((window, index) => {
+      window.resetsAt = new Date(now + (index ? 3600000 : -1000)).toISOString();
+    });
+  });
+  const render = overviewHook(t, {
+    read: async () => {
+      throw new Error("Disconnected");
+    },
+    cached: async () => cached,
+    subscribe: () => () => {},
+  });
+  render();
+  await new Promise(setImmediate);
+  await render().refresh();
+  const result = render();
+  assert.match(result.error, /Couldn't refresh/);
+  assert.equal(
+    result.snapshot.providers.every((entry) => entry.status === "error"),
+    true,
+  );
+  assert.deepEqual(
+    result.snapshot.providers.map((entry) => entry.windows.length),
+    [2, 4, 2],
+  );
+  assert.equal(result.snapshot.providers[0].updatedAt, cached.providers[0].updatedAt);
+});
+
+test("recent unavailable and failed checks are fresh despite old quotas or phone clock skew", async (t) => {
+  const hostNow = Date.now() - 10 * 60000;
+  const providers = ["unavailable", "error", "ok"].map((status, index) => ({
+    provider: "claude",
+    account: { id: String(index), label: "Account", state: "ready" },
+    status,
+    updatedAt: new Date(hostNow - 3600000).toISOString(),
+    checkedAt: new Date(hostNow - 15000).toISOString(),
+    windows: [],
+  }));
+  const cached = { accountKey: "checked", generatedAt: new Date(hostNow).toISOString(), providers };
+  let reads = 0;
+  const render = overviewHook(t, {
+    cached: async () => cached,
+    read: async () => {
+      reads++;
+      return cached;
+    },
+    subscribe: () => () => {},
+  });
+  render();
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "freshness uses the host's last-check time, regardless of result or available windows");
+  assert.equal(render().snapshot.generatedAt, cached.generatedAt);
+  await render().refresh();
+  assert.equal(reads, 1, "manual Refresh still forces a live read");
+});
+
+test("unchecked placeholders and expired checks still refresh on open", async (t) => {
+  for (const checkedAt of [undefined, new Date(Date.now() - 61000).toISOString()]) {
+    const cached = {
+      accountKey: "stale",
+      generatedAt: new Date().toISOString(),
+      providers: [
+        {
+          provider: "claude",
+          account: { id: "work", label: "Work", state: "ready" },
+          status: "unavailable",
+          windows: [],
+          updatedAt: new Date().toISOString(),
+          ...(checkedAt ? { checkedAt } : {}),
+        },
+      ],
+    };
+    let reads = 0;
+    const render = overviewHook(t, {
+      cached: async () => cached,
+      read: async () => {
+        reads++;
+        return cached;
+      },
+      subscribe: () => () => {},
+    });
+    render();
+    await new Promise(setImmediate);
+    assert.equal(reads, 1, "a recent placeholder timestamp cannot suppress the first real provider read");
+  }
+});
+
+test("a socket cache read overtaking the mount cache preserves freshness and pending refreshes", async (t) => {
+  const fresh = structuredClone(require("./fixtures/token-usage.cjs").accountUsage);
+  fresh.providers.forEach((entry) => {
+    entry.checkedAt = new Date().toISOString();
+  });
+  const mount = deferred(),
+    socket = deferred(),
+    manual = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? mount.promise : caches === 2 ? socket.promise : Promise.resolve(fresh)),
+    read: () => {
+      reads++;
+      return manual.promise;
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  socket.resolve(fresh);
+  await new Promise(setImmediate);
+  assert.equal(reads, 0, "socket open does not turn a fresh cache into an account mutation");
+  mount.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, fresh.accountKey);
+  const pending = render().refresh();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(render().loading, true, "a socket cache update never cancels the in-flight live read");
+  manual.resolve({ ...fresh, accountKey: "live" });
+  await pending;
+  assert.equal(render().snapshot.accountKey, "live");
+});
+
+test("phone socket status reads usage cache while account signals invalidate account metadata", () => {
+  const screen = planUsageHost();
+  screen.render();
+  let cacheReads = 0,
+    accountChanges = 0;
+  const off = screen.source().subscribe(
+    () => {
+      cacheReads++;
+    },
+    () => {
+      accountChanges++;
+    },
+  );
+  screen.events().onStatus(true);
+  assert.equal(cacheReads, 1);
+  assert.equal(accountChanges, 0);
+  screen.events().onSignal("accounts");
+  assert.equal(accountChanges, 1);
+  const header = find(screen.render(), (node) => node.props?.accessibilityLabel === "Codex, 1 account");
+  assert.equal(header.props.accessible, true);
+  off();
+});
+
+test("a failed socket cache read that overtakes mount still settles the initial load", async (t) => {
+  const initial = deferred();
+  let usageChanged,
+    caches = 0,
+    reads = 0;
+  const render = overviewHook(t, {
+    cached: () => (++caches === 1 ? initial.promise : Promise.reject(new Error("Cache unavailable"))),
+    read: async () => {
+      reads++;
+      return { accountKey: "live", providers: [] };
+    },
+    subscribe: (usage) => {
+      usageChanged = usage;
+      return () => {};
+    },
+  });
+  render();
+  usageChanged();
+  await new Promise(setImmediate);
+  assert.equal(reads, 1);
+  assert.equal(render().loading, false);
+  assert.equal(render().snapshot.accountKey, "live");
+  initial.resolve({ accountKey: "old", providers: [] });
+  await new Promise(setImmediate);
+  assert.equal(render().snapshot.accountKey, "live");
+});
+
+function subagentGlance() {
+  const react = hookHost();
+  const glance = load("subagent-glance.tsx", {
+    "./display-clock": { useDisplayNow: () => 0 },
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
+    "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
+    "./theme": { fonts: { mono: "mono" } },
+    "react-native-svg": { default: "Svg", Circle: "Circle", Ellipse: "Ellipse", Polygon: "Polygon", Rect: "Rect" },
+  });
+  // Function components render in place, so the tree shows what they draw.
+  const draw = (node) => {
+    if (Array.isArray(node)) return node.map(draw);
+    if (!node || typeof node !== "object" || !node.type) return node;
+    if (typeof node.type === "function") return draw(node.type(node.props));
+    return { ...node, props: { ...node.props, children: draw(node.props?.children) } };
+  };
+  const render = (Component, props) => {
+    react.begin();
+    return draw(jsx(Component, props));
+  };
+  return { ...glance, render };
+}
+// The text a tree shows: each element's text on its own, its pieces joined as React joins them.
+const texts = (tree) => {
+  const walk = (node) => {
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(walk).join("");
+    return node?.props ? ` ${walk(node.props.children)} ` : "";
+  };
+  return walk(tree).replace(/\s+/g, " ");
+};
+const glanceAgent = {
+  id: "auth",
+  title: "Review authentication",
+  status: "running",
+  startedAt: 1000,
+  updatedAt: 2000,
+  latestActivity: "Ran `npm test -- auth`",
+  progress: { steps: 2, said: "Now running the auth suite.", tools: { reads: 3, commands: 1 } },
+  transcript: [
+    { id: "m1", kind: "message", text: "The refresh path skips the expiry check. I will confirm it." },
+    { id: "t1", kind: "tool", tool: "read", text: "Read `auth.ts`" },
+    { id: "m2", kind: "message", text: "Now running the auth suite." },
+    { id: "t2", kind: "tool", tool: "shell", text: "Ran `npm test -- auth`" },
+  ],
+};
+
+test("mobile subagent rows say what it does now and how far it got, and a finished one its outcome", () => {
+  const { SubagentRow, render } = subagentGlance();
+  const row = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {} });
+  const shown = texts(row);
+  for (const text of ["Review authentication", "1m 05s", "Now running the auth suite.", "Step 2 · 3 files read · 1 command"])
+    assert.ok(shown.includes(text), text);
+  const planned = texts(
+    render(SubagentRow, {
+      agent: {
+        ...glanceAgent,
+        tasks: [
+          { id: "0", content: "Read", status: "completed" },
+          { id: "1", content: "Test", status: "in_progress" },
+        ],
+      },
+      provider: "claude",
+      now: 66000,
+      onPress() {},
+    }),
+  );
+  assert.ok(planned.includes("1 of 2 · 3 files read · 1 command"));
+  const done = {
+    ...glanceAgent,
+    status: "completed",
+    endedAt: 11000,
+    transcript: [...glanceAgent.transcript, { id: "result", kind: "message", text: "Expiry is skipped on refresh. Patch attached." }],
+  };
+  const finished = texts(render(SubagentRow, { agent: done, provider: "claude", now: 66000, onPress() {} }));
+  assert.ok(finished.includes("Expiry is skipped on refresh."));
+  assert.ok(finished.includes("10s"), "a finished subagent's time stops at its end");
+});
+
+test("mobile draws a QA persona subagent with its name, QA tag and persona card", () => {
+  const { SubagentRow, WholeSubagentDetail, render } = subagentGlance();
+  const agent = { ...glanceAgent, agentType: "qa-mobile", title: "Checkout on a phone" };
+  const row = texts(render(SubagentRow, { agent, provider: "claude", now: 66000, onPress() {} }));
+  for (const text of ["Mobile", "QA", "Now running the auth suite."]) assert.ok(row.includes(text), text);
+  assert.ok(!row.includes("Checkout on a phone"), "the persona's name stands in for the title");
+  const detail = texts(render(WholeSubagentDetail, { agent, read: async () => agent }));
+  for (const text of ["The mobile user", "Does everything on a small phone over slow 3G", "375 × 812", "Slow 3G"]) assert.ok(detail.includes(text), text);
+});
+
+test("mobile subagent detail shows its plan with what it does now, else its steps; the log waits behind Full log", () => {
+  const { WholeSubagentDetail, render } = subagentGlance();
+  const tasks = [
+    { id: "0", content: "Read the refresh code", status: "completed" },
+    { id: "1", content: "Run the auth tests", activeForm: "Running the auth tests", status: "in_progress" },
+    { id: "2", content: "Write it up", status: "pending" },
+  ];
+  const plan = texts(render(WholeSubagentDetail, { agent: { ...glanceAgent, tasks } }));
+  for (const text of [
+    "Plan",
+    "1 of 3 done",
+    "Running the auth tests",
+    "Now running the auth suite.",
+    "Ran npm test -- auth · 3 files read · 1 command so far",
+    "Write it up",
+  ])
+    assert.ok(plan.includes(text), text);
+  assert.equal(plan.includes("Read `auth.ts`"), false, "tool calls stay in the log");
+  const steps = render(WholeSubagentDetail, { agent: glanceAgent });
+  const shown = texts(steps);
+  for (const text of [
+    "Now · step 2",
+    "Now running the auth suite.",
+    "Earlier",
+    "The refresh path skips the expiry check.",
+    "1 file read",
+    "Full log (4 entries)",
+  ])
+    assert.ok(shown.includes(text), text);
+  find(steps, (node) => node.props?.accessibilityState?.expanded === false).props.onPress();
+  assert.ok(texts(render(WholeSubagentDetail, { agent: glanceAgent })).includes("Read `auth.ts`"), "Full log shows the calls");
+});
+
+test("mobile subagent detail reads the whole transcript when the host sent only its end", async () => {
+  const react = hookHost({ effects: true });
+  const { WholeSubagentDetail } = load("subagent-glance.tsx", {
+    "./display-clock": { useDisplayNow: () => 0 },
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
+    "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
+    "./theme": { fonts: { mono: "mono" } },
+    "react-native-svg": { default: "Svg", Circle: "Circle", Ellipse: "Ellipse", Polygon: "Polygon", Rect: "Rect" },
+  });
+  const tail = { ...glanceAgent, transcript: glanceAgent.transcript.slice(-2), transcriptLength: 4 };
+  let reads = 0;
+  const read = async () => (reads++, glanceAgent);
+  const use = () => {
+    react.begin();
+    const agent = WholeSubagentDetail({ agent: tail, read }).props.agent;
+    react.flush();
+    return agent;
+  };
+  assert.equal(use().transcript.length, 2, "the end shows until the read lands");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(reads, 1);
+  assert.equal(use().transcript.length, 4);
+  const short = { ...glanceAgent, transcriptLength: undefined };
+  react.begin();
+  assert.equal(WholeSubagentDetail({ agent: short, read }).props.agent, short, "a whole transcript isn't read again");
 });
 
 test("mobile main sync switch re-reads the Mac's default on focus and shows a refused save", async () => {
   const react = hookHost();
   const focused = [];
+  const pushed = [];
   let saved = false;
   const client = {
     async call(method) {
@@ -6882,92 +13376,626 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
       throw new Error("This demo computer only opens its demo project.");
     },
   };
-  const { SettingsView } = load("app/settings.tsx", {
+  const { MainSyncSection } = load("mac-settings-sections.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "expo-router": { router: { push: (path) => pushed.push(path) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client }) },
-    "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
-    "../murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./session": { useSession: () => ({ client, hosts: [] }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { InlineError: "InlineError", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
   const render = () => {
     react.begin();
-    return SettingsView({ onOpen() {} });
+    return MainSyncSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
-  const toggle = () => find(render(), (n) => n.props?.title === "Sync main branch before new Worktrees");
+  const toggle = () => find(render(), (n) => n.props?.title === "Sync source branch before new Worktrees");
   render();
   focused.at(-1)();
   await settle();
-  assert.equal(toggle().props.selected, false);
+  assert.equal(toggle().props.toggle.value, false);
   // Turned on from the Mac while the phone was elsewhere: coming back to the screen shows it.
   saved = true;
   focused.at(-1)();
   await settle();
-  assert.equal(toggle().props.selected, true);
-  toggle().props.onPress();
+  assert.equal(toggle().props.toggle.value, true);
+  toggle().props.toggle.onChange(!toggle().props.toggle.value);
   await settle();
-  assert.equal(toggle().props.selected, true, "a refused save puts the switch back");
-  assert.equal(find(render(), (n) => n.type === "ErrorNotice").props.message, "This demo computer only opens its demo project.");
+  assert.equal(toggle().props.toggle.value, true, "a refused save puts the switch back");
+  assert.equal(find(render(), (n) => n.type === "InlineError").props.message, "This demo computer only opens its demo project.");
 });
 
-test("mobile Settings opens Experimental as its own page, like desktop's section", () => {
-  const opened = [];
-  const { SettingsView } = load("app/settings.tsx", {
-    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
+test("mobile Auto update switch shows the Mac's setting, saves a change and hides for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  let saved = false;
+  let older = false;
+  const client = {
+    async call(method, args) {
+      calls.push([method, ...args]);
+      if (method === "app-update:auto:read") {
+        if (older) throw new Error("Unknown method");
+        return { autoUpdate: saved };
+      }
+      if (method === "app-update:auto:save") {
+        saved = args[0];
+        return { autoUpdate: saved };
+      }
+      if (method === "main-sync:default:read") return { syncMain: false };
+      throw new Error("Unknown method");
+    },
+  };
+  const { MacUpdatesSection } = load("mac-settings-sections.tsx", {
+    react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect() {} },
+    "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client: null }) },
-    "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client, hosts: [] }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
-  const tree = SettingsView({ onOpen: (page) => opened.push(page) });
-  assert.equal(
-    find(tree, (n) => n.props?.title === "Linear"),
-    undefined,
-    "the Linear switch lives on the Experimental page",
-  );
-  find(tree, (n) => n.type === "ListRow" && n.props.title === "Experimental").props.onPress();
-  find(tree, (n) => n.type === "ListRow" && n.props.title === "Milagre MCP").props.onPress();
-  assert.deepEqual(opened, ["experimental", "local-mcp"]);
-  const { default: LocalScreen } = load("app/local-mcp.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
-    "../local-mcp-section": { LocalMcpSection: "LocalMcpSection" },
-  });
-  const localPage = LocalScreen();
-  assert.equal(find(localPage, (n) => n.type === "Screen").props.options.title, "Milagre MCP");
-  assert.ok(find(localPage, (n) => n.type === "LocalMcpSection"));
-  const { default: Screen } = load("app/experimental.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
-    "../experimental-section": { ExperimentalSection: "ExperimentalSection" },
-  });
-  const page = Screen();
-  assert.equal(find(page, (n) => n.type === "Screen").props.options.title, "Experimental");
-  assert.ok(find(page, (n) => n.type === "ExperimentalSection"));
+  const render = () => {
+    react.begin();
+    return MacUpdatesSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const toggle = () => find(render(), (n) => n.props?.title === "Auto update");
+  assert.equal(toggle(), undefined, "nothing shows before the Mac answers");
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  assert.equal(toggle().props.toggle.value, false);
+  toggle().props.toggle.onChange(!toggle().props.toggle.value);
+  await settle();
+  assert.deepEqual(calls.at(-1), ["app-update:auto:save", true]);
+  assert.equal(toggle().props.toggle.value, true);
+  older = true;
+  render();
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  assert.equal(toggle(), undefined, "an older Mac has no Auto update to show");
 });
 
-test("mobile Experimental page shows the Mac's Linear switch and status, re-read on focus", async () => {
+test("mobile General lists the Mac's Done retention, saves a pick there and hides for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  let older = false;
+  let hours = 24;
+  const client = {
+    async call(method, args) {
+      calls.push([method, ...args]);
+      if (older) throw new Error("Command is not available from mobile");
+      if (method === "done:settings:read") return { retentionHours: hours };
+      if (method === "done:settings:save") return { retentionHours: (hours = args[0].retentionHours) };
+      throw new Error("Unknown method");
+    },
+  };
+  const { DoneRetention } = load("mac-settings-sections.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ client, hosts: [] }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // The list is its own component inside General: render it as React would.
+  const section = () => {
+    react.begin();
+    return DoneRetention();
+  };
+  const rows = () => {
+    const tree = section();
+    return tree ? allNodes(tree, (node) => node.type === "CheckRow") : [];
+  };
+  assert.equal(rows().length, 0, "nothing shows before the Mac answers");
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  same(
+    rows().map((row) => [row.props.title, row.props.checked]),
+    [
+      ["1 hour", false],
+      ["8 hours", false],
+      ["24 hours", true],
+      ["3 days", false],
+      ["1 week", false],
+      ["Never", false],
+    ],
+  );
+  rows()[0].props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["done:settings:save", { retentionHours: 1 }]));
+  assert.equal(rows()[0].props.checked, true);
+  older = true;
+  section();
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  assert.equal(rows().length, 0, "an older Mac has no Done retention to show");
+});
+
+test("mobile General shows the Mac's Milagre update, checks, installs after asking, and hides on an older Mac", async (t) => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  const asked = [];
+  let answer = true;
+  // What the Mac answers: its desktop app's update (app-update:state), null with no desktop app open, or an older Mac's 403.
+  let state = { status: "downloaded", version: "0.233.0", progress: 100, current: "0.232.0" };
+  let older = false;
+  const client = {
+    url: "https://santo",
+    async call(method, args) {
+      calls.push([method, ...args]);
+      if (method.startsWith("app-update:") && method !== "app-update:auto:read" && older)
+        throw Object.assign(new Error("Command is not available from mobile"), { status: 403 });
+      if (method === "app-update:state") return state;
+      if (method === "app-update:check") return (state = { ...state, status: "checking" });
+      if (method === "app-update:install") return (state = { ...state, status: "installing" });
+      if (method === "app-update:auto:read") return { autoUpdate: false };
+      throw new Error("Unknown method");
+    },
+  };
+  const ui = { Button: "Button", ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", useStyles: () => fakeStyles };
+  const modules = {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "@milagre/shared/app-update": require("@milagre/shared/app-update"),
+    "./confirm-store": { confirm: async (...question) => (asked.push(question), answer) },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./ui": ui,
+    "./theme": themeHooks,
+  };
+  const { MacUpdatesSection } = load("mac-settings-sections.tsx", {
+    ...modules,
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ client, hosts: [{ id: "https://santo", name: "Santo" }] }) },
+    "./icons": { Icon: "Icon" },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": load("mac-update.tsx", modules),
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // The update's rows are their own component inside General: render them as React would.
+  const rows = () => {
+    react.begin();
+    const element = find(MacUpdatesSection(), (node) => typeof node.type === "function" && node.type.name === "MacUpdateRows");
+    return element?.type(element.props) ?? null;
+  };
+  const texts = () => allNodes(rows(), (node) => node.type === "Text").map((node) => [node.props.children].flat().join(""));
+  const button = (title) => find(rows(), (node) => node.type === "Button" && node.props.title === title);
+  // One visit to the screen: the last visit's effects (and the update's follow timer) end first.
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const focus = async () => {
+    for (const cleanup of cleanups.splice(0)) cleanup?.();
+    focused.length = 0;
+    rows();
+    for (const fn of focused.splice(0)) cleanups.push(fn());
+    await settle();
+  };
+  assert.equal(rows(), null, "nothing shows before the Mac answers");
+  await focus();
+  assert.deepEqual(texts(), ["Milagre on Santo", "0.232.0", "Update available: v0.233.0", "Milagre 0.233.0 is ready to install."]);
+  // Installing asks first: it restarts Milagre on the Mac. Cancel starts nothing.
+  answer = false;
+  await button("Install & restart").props.onPress();
+  await settle();
+  assert.deepEqual(asked, [["Restart Milagre on Santo to install v0.233.0?", "Running Chats are saved and resume after the restart.", "Install & restart"]]);
+  assert.equal(
+    calls.some(([method]) => method === "app-update:install"),
+    false,
+  );
+  answer = true;
+  button("Install & restart").props.onPress();
+  await settle();
+  assert.deepEqual(calls.at(-1), ["app-update:install"]);
+  assert.equal(button("Install & restart"), undefined);
+  assert.equal(button("Restarting…").props.disabled, true);
+  assert.ok(texts().includes("Saving your work and restarting Milagre."));
+  // Back after the restart, on the new version: Check for updates again.
+  state = { status: "up-to-date", version: null, progress: 0, current: "0.233.0" };
+  await focus();
+  assert.deepEqual(texts(), ["Milagre on Santo", "0.233.0", "Milagre is up to date."]);
+  button("Check for updates").props.onPress();
+  await settle();
+  assert.deepEqual(calls.at(-1), ["app-update:check"]);
+  assert.equal(button("Restarting…"), undefined);
+  assert.equal(button("Check for updates").props.disabled, true, "a check under way waits");
+  // A download shows its progress.
+  state = { status: "downloading", version: "0.234.0", progress: 42, current: "0.233.0" };
+  await focus();
+  assert.ok(texts().includes("Downloading Milagre 0.234.0… 42%"));
+  assert.equal(find(rows(), (node) => node.props?.accessibilityRole === "progressbar").props.accessibilityValue.now, 42);
+  // No desktop app open on the Mac: one line saying where to open it.
+  state = null;
+  await focus();
+  assert.deepEqual(texts(), ["Open Milagre on Santo to check for updates."]);
+  // An older Mac has none of this; its Auto update still shows.
+  older = true;
+  await focus();
+  assert.equal(rows(), null);
+  react.begin();
+  assert.ok(find(MacUpdatesSection(), (node) => node.props?.title === "Auto update"));
+});
+
+function settingsCardHost(pages, width = 820, isPad = true) {
+  // Exercise the rendered handlers with the installed router, including a nested Settings stack over a Chat.
+  const { StackRouter } = require("../node_modules/expo-router/build/react-navigation/routers/StackRouter.js");
+  const stack = StackRouter({});
+  const options = { routeNames: ["index", "chat", "(settings)", "routines"], routeParamList: {}, routeGetIdList: {} };
+  const nested = {
+    type: "stack",
+    stale: false,
+    routeKeySeq: 10,
+    routeNames: pages,
+    key: "settings-stack",
+    index: pages.length - 1,
+    routes: pages.map((name) => ({ name, key: name })),
+  };
+  const chat = { name: "chat", key: "chat-42", params: { id: "42" } };
+  let rootState = {
+    type: "stack",
+    stale: false,
+    routeKeySeq: 10,
+    routeNames: options.routeNames,
+    key: "root-stack",
+    index: 2,
+    routes: [{ name: "index", key: "home" }, chat, { name: "(settings)", key: "modal", state: nested }],
+  };
+  const applyRoot = (action) => {
+    assert.equal(action.target, rootState.key, "dismissal must target the modal's containing navigator");
+    const result = stack.getStateForAction(rootState, action, options);
+    assert.ok(result.state, "the installed StackRouter must handle the action");
+    rootState = result.state;
+  };
+  const { SettingsSplit } = load("settings-split.tsx", {
+    react: hookHost(),
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      View: "View",
+      Text: "Text",
+      Pressable: "Pressable",
+      ScrollView: "ScrollView",
+      Platform: { OS: "ios", isPad },
+      StyleSheet: { hairlineWidth: 1, absoluteFill: {} },
+      useWindowDimensions: () => ({ width, height: 1180 }),
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 20 }) },
+    "react-native-keyboard-controller": { useKeyboardState: (select) => select({ isVisible: false, height: 0 }) },
+    "expo-router": {
+      useNavigation: (path) => {
+        assert.equal(path, "/");
+        return { getState: () => rootState, dispatch: applyRoot };
+      },
+      router: {
+        back: () => {
+          throw new Error("Untargeted Back pops the child page instead of closing Settings");
+        },
+        push: () => {
+          throw new Error("Routines must replace the containing Settings modal");
+        },
+      },
+    },
+    "@hugeicons/core-free-icons": {},
+    "./ui": { HeaderButton: "HeaderButton" },
+    "./app/(settings)/settings": { SettingsView: "SettingsView", SettingsResults: "SettingsResults" },
+    "./primitives/field": { Field: "Field" },
+    "./icons": { Icon: "Icon" },
+    "./theme": { useTheme: () => ({ colors: {} }) },
+    "./design-tokens": { radius: {}, type: {}, lineHeight: {} },
+    "./settings-split-routes": require("../apps/mobile/src/settings-split-routes.ts"),
+  });
+  const split = SettingsSplit({ state: nested, navigation: { reset() {} }, children: jsx("Pages", {}) });
+  const card = typeof split.type === "function" ? split.type(split.props) : split;
+  const sidebarElement = find(card, (node) => node.type?.name === "SettingsSidebar");
+  const sidebar = sidebarElement?.type(sidebarElement.props);
+  return { card, sidebar, state: () => rootState, chat, nested, stack, options };
+}
+
+test("iPad Settings Close and scrim dismiss the containing modal from nested Voice and Computer pages", () => {
+  for (const pages of [
+    ["voice", "dictation-model"],
+    ["computers", "computer", "computer-usage"],
+  ]) {
+    for (const width of [820, 600]) {
+      for (const control of width >= 748 ? ["close", "scrim"] : ["scrim"]) {
+        const host = settingsCardHost(width >= 748 ? pages : ["settings", ...pages], width);
+        const button =
+          control === "close"
+            ? find(host.sidebar, (node) => node.props?.label === "Close Settings")
+            : find(host.card, (node) => node.props?.accessibilityLabel === "Close Settings");
+        button.props.onPress();
+        assert.deepEqual(
+          host.state().routes.map((route) => route.name),
+          ["index", "chat"],
+        );
+        assert.equal(host.state().routes[1], host.chat, "the underlying Chat and its params survive");
+        // Back within Settings retains its separate meaning: pop only the current child.
+        const back = host.stack.getStateForAction(host.nested, { type: "GO_BACK" }, host.options);
+        assert.equal(back.state.index, host.nested.index - 1);
+      }
+    }
+  }
+});
+
+test("iPad Routines replaces Settings at any child depth, so Back returns directly to the Chat", () => {
+  for (const pages of [["appearance"], ["voice", "dictation-model"], ["computers", "computer", "computer-cleanup"]]) {
+    const host = settingsCardHost(pages);
+    find(host.sidebar, (node) => node.type === "SettingsView").props.onOpen("routines");
+    assert.deepEqual(
+      host.state().routes.map((route) => route.name),
+      ["index", "chat", "routines"],
+    );
+    const back = host.stack.getStateForAction(host.state(), { type: "GO_BACK" }, host.options);
+    assert.equal(back.state.routes[back.state.index], host.chat);
+  }
+});
+
+test("phones keep the native Settings stack without an iPad dismissal surface", () => {
+  const host = settingsCardHost(["settings", "voice", "dictation-model"], 390, false);
+  assert.equal(host.sidebar, undefined);
+  assert.ok(find(host.card, (node) => node.type === "Pages"));
+  assert.equal(
+    find(host.card, (node) => node.props?.accessibilityLabel === "Close Settings"),
+    undefined,
+  );
+});
+
+// Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
+function loadSettings(state) {
+  return load("app/(settings)/settings.tsx", {
+    react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      View: "View",
+      Text: "Text",
+      Pressable: "Pressable",
+      Platform: { OS: "ios" },
+      Linking: { openURL: async (url) => (state.urls ??= []).push(url) },
+      Alert: { alert() {} },
+    },
+    "expo-router": {
+      Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "Button", View: "View" }) },
+      router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
+      useFocusEffect: (fn) => (state.focus ??= []).push(fn),
+    },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/chat-display": { chatListLabel: (value) => (value === "list" ? "One list" : "Grouped by Project") },
+    "@milagre/shared/site-links": require("@milagre/shared/site-links"),
+    "../session": {
+      useSession: () => ({
+        recent: state.recent ?? [],
+        client: state.client ?? null,
+        hosts: state.client ? [{ id: state.client.url, name: "Studio", address: "http://192.168.0.2:8797" }] : (state.hosts ?? []),
+        hostName: "Studio",
+      }),
+    },
+    "../project-icon": { ProjectIcon: "ProjectIcon" },
+    "../push": { usePush: () => ({ state: { enabled: true } }) },
+    "../update-sheet": { useAppUpdates: () => ({ state: { status: "up-to-date" }, check: async () => {} }) },
+    "../icons": { Icon: "Icon" },
+    "../milagre-mark": { MilagreMark: "MilagreMark" },
+    // Group and Row are drawn by settings-list; the test reads their props.
+    "../settings-list": { Group: function Group() {}, Row: "Row" },
+    "../use-computer-status": { useComputerStatus: () => state.reachability ?? {} },
+    "../use-routines": {
+      useRoutinesAvailable: () => state.routinesAvailable ?? false,
+      useRoutines: () => ({ routines: state.routines ?? [], loading: false }),
+    },
+    "../chat-display-setting": { useChatList: () => ["list"] },
+    "../app-version": { appVersionLine: () => "0.1.0 · 31 · d3dac403 · 5f83390" },
+    "../theme": { useTheme: () => ({ colors: { green: "green", ink4: "gray" }, settings: { mode: "system" } }) },
+    "../ui": { HeaderButton: "HeaderButton", PageScroll: "PageScroll", useStyles: () => ({ card: {}, separator: {} }) },
+  });
+}
+
+// The groups Settings renders, each with its rows' titles and values.
+function settingsGroups(tree) {
+  const groups = [];
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (typeof node.type === "function" && node.type.name === "Group") {
+      const rows = [node.props.children].flat(Infinity).filter((row) => row && typeof row === "object");
+      groups.push({ title: node.props.title, rows: rows.map((row) => [row.props.title, row.props.value ?? ""]), elements: rows });
+      return;
+    }
+    for (const child of [node.props?.children].flat(Infinity)) visit(child);
+  };
+  visit(tree);
+  return groups;
+}
+
+test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code and own pages as desktop does, and ends with the version", async () => {
+  const state = {};
+  const { SettingsView } = loadSettings(state);
+  // No Mac: the phone's own settings and About only; Routines waits for a computer and Computers says none is paired.
+  const alone = SettingsView({ onOpen() {} });
+  assert.deepEqual(
+    settingsGroups(alone).map((group) => group.title),
+    ["On this iPhone", undefined],
+  );
+  const tile = (tree, title) => find(tree, (n) => typeof n.type === "function" && n.type.name === "Tile" && n.props.title === title);
+  assert.equal(tile(alone, "Computers").props.value, "None paired");
+  assert.equal(tile(alone, "Routines").props.disabled, true);
+  assert.equal(tile(alone, "Routines").props.value, "No computer connected");
+  // Integrations shows Linear for a Mac that answers for it; an older Mac that answers null shows no value.
+  state.client = { url: "http://studio", call: async () => ({ enabled: false }) };
+  state.focus = [];
+  SettingsView({ onOpen() {} });
+  state.focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(state.set.at(-1).client, state.client);
+  assert.equal(state.set.at(-1).enabled, false);
+  state.client = { url: "http://studio", call: async () => null };
+  SettingsView({ onOpen() {} });
+  state.focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(state.set.at(-1), null);
+  assert.ok(settingsGroups(SettingsView({ onOpen() {} })).some((group) => group.rows.some(([title, value]) => title === "Integrations" && value === "")));
+  state.client = { url: "http://studio", call: async () => ({ enabled: true }) };
+  state.linear = { client: state.client, enabled: true };
+  state.recent = [{ path: "/work/milagre", name: "milagre" }];
+  const opened = [];
+  const tree = SettingsView({ onOpen: (page) => opened.push(page) });
+  const groups = settingsGroups(tree);
+  assert.deepEqual(
+    groups.map(({ title, rows }) => [title, rows]),
+    [
+      [
+        "On this iPhone",
+        [
+          ["Appearance", "System"],
+          ["Chat", "One list"],
+          ["Voice", ""],
+          ["Notifications", "On"],
+          ["Browser", "Milagre"],
+          ["Archived Chats", ""],
+        ],
+      ],
+      [
+        "Agents on Studio",
+        [
+          ["Models", ""],
+          ["Accounts", ""],
+          ["Usage", ""],
+          ["Skills", ""],
+          ["MCP servers", ""],
+        ],
+      ],
+      [
+        "Code on Studio",
+        [
+          ["Worktrees", ""],
+          ["Integrations", "Linear"],
+        ],
+      ],
+      [
+        "Studio",
+        [
+          ["Phone & sharing", ""],
+          ["This Mac", ""],
+        ],
+      ],
+      ["Projects", [["milagre", ""]]],
+      [
+        undefined,
+        [
+          ["Church", ""],
+          ["Privacy policy", ""],
+          ["Support", ""],
+          ["App update", "Up to date"],
+        ],
+      ],
+    ],
+  );
+  for (const row of groups.slice(0, 4).flatMap((group) => group.elements)) row.props.onPress();
+  groups[5].elements[0].props.onPress();
+  assert.deepEqual(opened, [
+    "appearance",
+    "chat-display",
+    "voice",
+    "notifications",
+    "browser-settings",
+    "archived",
+    "models",
+    "accounts",
+    "usage",
+    "skills",
+    "mcp",
+    "worktrees",
+    "connections",
+    "phone-sharing",
+    "this-mac",
+    "experimental",
+  ]);
+  // Privacy policy and Support open Milagre's site in the browser.
+  groups[5].elements[1].props.onPress();
+  groups[5].elements[2].props.onPress();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(state.urls, ["https://milagre.cloud/privacy", "https://milagre.cloud/support"]);
+  // The tiles: the green dot and counts follow the computers' answers; Routines counts what is on once the Mac has them.
+  state.reachability = { a: "online", b: "online", c: "offline" };
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "2 online · 1 offline");
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.dot, "green");
+  state.reachability = { a: "offline" };
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "Offline");
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.dot, "gray");
+  state.reachability = { a: "checking" };
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "Checking…");
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Routines").props.value, "Update your Mac");
+  state.routinesAvailable = true;
+  state.routines = [{ enabled: true }, { enabled: false }, { enabled: true }];
+  const available = tile(SettingsView({ onOpen() {} }), "Routines");
+  assert.equal(available.props.value, "2 on");
+  assert.equal(available.props.disabled, false);
+  const routed = [];
+  tile(SettingsView({ onOpen: (page) => routed.push(page) }), "Routines").props.onPress();
+  tile(SettingsView({ onOpen: (page) => routed.push(page) }), "Computers").props.onPress();
+  assert.deepEqual(routed, ["routines", "computers"]);
+  // The version line closes the page.
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "0.1.0 · 31 · d3dac403 · 5f83390"));
+  const page = (file, title, section, name, extra = {}) => {
+    const { default: Screen } = load(file, {
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "expo-router": { Stack: { Screen: "Screen" } },
+      "react-native": { Text: "Text", View: "View" },
+      "../ui": { PageScroll: "PageScroll", SectionLabel: "SectionLabel", useStyles: () => ({}) },
+      [`../${section}`]: { [name]: name },
+      ...extra,
+    });
+    const rendered = Screen();
+    assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, title);
+    assert.ok(find(rendered, (n) => n.type === name));
+    return rendered;
+  };
+  page("app/(settings)/worktrees.tsx", "Worktrees", "mac-settings-sections", "MainSyncSection");
+  page("app/(settings)/models.tsx", "Models", "context-settings-section", "ContextSettingsSection");
+  page("app/(settings)/voice.tsx", "Voice", "voice-section", "VoiceSection");
+  // Integrations: Linear, then the Babysit PRs row.
+  const integrations = page("app/(settings)/connections.tsx", "Integrations", "linear-section", "LinearSection", {
+    "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
+  });
+  assert.equal(find(integrations, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
+  // Phone & sharing: Simlock devices, then Designs and artifacts.
+  const sharing = page("app/(settings)/phone-sharing.tsx", "Phone & sharing", "published-pages-section", "PublishedPagesSection", {
+    "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
+  });
+  assert.equal(find(sharing, (n) => n.type === "MacFeatureRow").props.href, "/simlock");
+  assert.ok(find(sharing, (n) => n.type === "SectionLabel" && n.props.children === "Designs and artifacts"));
+  page("app/(settings)/experimental.tsx", "Church", "experimental-section", "ExperimentalSection");
+  page("app/(settings)/babysit-prs.tsx", "Babysit PRs", "babysit-section", "BabysitSection");
+});
+
+test("mobile Linear page shows the Mac's Linear switch and status, re-read on focus", async () => {
   const react = hookHost();
   const focused = [];
   let status = { connected: false };
@@ -6989,23 +14017,13 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
     "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
-    "@milagre/shared/themes": {
-      DEFAULT_THEME_ID: "milagre-blue",
-      seedsFrom: (id) => ({ from: id }),
-    },
-    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
-    "./ultracode-fatality-setting": {
-      useUltracodeFatality: () => [false, () => {}],
-    },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./session": { useSession: () => ({ designs: designsOn, ...session }) },
+    "./session": { useSession: () => session },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
-  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const { LinearSection } = load("linear-section.tsx", modules({ client }));
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return LinearSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const text = (tree, value) => find(tree, (n) => n.type === "Text" && n.props.children === value);
@@ -7042,27 +14060,51 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
   assert.deepEqual(saves, [false]);
   assert.equal(text(render(), "Connected to Acme, as Victor"), undefined, "the status hides while the switch is off");
 
-  const offline = load("experimental-section.tsx", modules({ client: null })).ExperimentalSection;
+  const offline = load("linear-section.tsx", modules({ client: null })).LinearSection;
   react.begin();
   const empty = offline();
-  assert.ok(text(empty, "Connect to a Mac to change its experimental features."));
-  assert.ok(
-    find(empty, (n) => n.props?.title === "Murilo mode"),
-    "Murilo mode is this phone's own switch and shows without a Mac",
-  );
+  assert.ok(text(empty, "Connect to a Mac to change its Linear connection."));
   assert.equal(
     find(empty, (n) => n.props?.title === "Linear"),
     undefined,
   );
+  // The Linear switch no longer lives on the Experimental page.
+  const experimental = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ designs: designsOn, client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+  }).ExperimentalSection;
+  react.begin();
+  const experimentalTree = experimental();
+  assert.ok(find(experimentalTree, (n) => n.props?.title === "Ultracode Fatality"));
+  assert.equal(
+    find(experimentalTree, (n) => n.props?.title === "Linear"),
+    undefined,
+  );
 });
 
-test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
+test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
   const react = hookHost();
   const focused = [];
   const saves = [];
+  const resumeSaves = [];
   let refuse = false;
   const client = {
     async call(method, args) {
+      if (method === "limits:resume-at-reset:read") return { resumeAtReset: true };
+      if (method === "limits:resume-at-reset:save") {
+        resumeSaves.push(args[0]);
+        if (refuse) throw new Error("This computer does not allow changing this setting from a phone.");
+        return { resumeAtReset: args[0] };
+      }
       if (method === "limits:auto-switch:read") return { autoSwitch: false };
       if (method === "limits:auto-switch:save") {
         saves.push(args[0]);
@@ -7075,21 +14117,15 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
   const modules = (session) => ({
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
-    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
-    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
-    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "./session": { useSession: () => session },
+    "./ui": { InlineError: "InlineError", Toggle: "Toggle", styles: {} },
   });
-  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const { LimitAutoSwitchSection } = load("limit-switch-section.tsx", modules({ client }));
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return LimitAutoSwitchSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const title = "Switch accounts at usage limits";
@@ -7107,14 +14143,29 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
   await settle();
   assert.deepEqual(saves, [true]);
   assert.equal(find(render(), (n) => n.props?.title === title).props.selected, true);
+  const resumeTitle = "Continue when the limit resets";
+  const resumeControl = () => find(render(), (n) => n.props?.title === resumeTitle);
+  assert.equal(resumeControl().props.selected, true);
+  resumeControl().props.onPress();
+  assert.equal(resumeControl().props.disabled, true, "the checkbox cannot submit twice while saving");
+  await settle();
+  assert.equal(resumeControl().props.selected, false);
+  resumeControl().props.onPress();
+  await settle();
+  assert.equal(resumeControl().props.selected, true);
+  assert.deepEqual(resumeSaves, [false, true]);
   refuse = true;
+  resumeControl().props.onPress();
+  await settle();
+  assert.equal(resumeControl().props.selected, true, "a refused save preserves the checked value");
+  assert.equal(resumeControl().props.disabled, false);
   find(render(), (n) => n.props?.title === title).props.onPress();
   await settle();
   tree = render();
   assert.deepEqual(saves, [true, false]);
   assert.equal(find(tree, (n) => n.props?.title === title).props.selected, true, "a refused save puts the switch back");
-  assert.match(find(tree, (n) => n.type === "ErrorNotice").props.message, /does not allow/);
-  const older = load("experimental-section.tsx", modules({ client: { call: async () => null } })).ExperimentalSection;
+  assert.match(find(tree, (n) => n.type === "InlineError").props.message, /does not allow/);
+  const older = load("limit-switch-section.tsx", modules({ client: { call: async () => null } })).LimitAutoSwitchSection;
   react.begin();
   older();
   for (const effect of focused.splice(0)) effect();
@@ -7125,13 +14176,469 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
     undefined,
     "an older Mac answers null: no switch",
   );
+  react.begin();
+  assert.equal(
+    find(older(), (n) => n.props?.title === resumeTitle),
+    undefined,
+    "an older Mac hides continuation too",
+  );
+});
+
+test("mobile Experimental page has no Routines switch (Routines left Experimental)", async () => {
+  const react = hookHost();
+  const focused = [];
+  const saves = [];
+  let refuse = false;
+  const client = {
+    async call(method, args) {
+      if (method === "routines:enabled:read") return { enabled: false };
+      if (method === "routines:enabled:save") {
+        saves.push(args[0]);
+        if (refuse) throw new Error("This computer does not allow changing this setting from a phone.");
+        return { enabled: args[0] };
+      }
+      return null;
+    },
+  };
+  const modules = (session) => ({
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
+    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./push": { usePush: () => ({ state: null }) },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
+    "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
+  });
+  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(
+    find(render(), (n) => n.props?.title === "Routines"),
+    undefined,
+  );
+});
+
+test("mobile Experimental shows the Mac's Device notes switch with its token warning, off by default, and saves a tap", async () => {
+  const react = hookHost({ effects: true });
+  const focused = [];
+  const calls = [];
+  let saved = { enabled: false };
+  let failSave = false;
+  let olderHost = false;
+  const client = {
+    async call(method, args) {
+      calls.push([method, args]);
+      if (method === "device-notes:read") {
+        if (olderHost) throw new Error("Unknown command: device-notes:read");
+        return saved;
+      }
+      if (method === "device-notes:save") {
+        if (failSave) throw new Error("Device notes save failed");
+        return (saved = { enabled: args[0] });
+      }
+      return null;
+    },
+  };
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  assert.equal(toggle(), undefined, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.type === "Text" && n.props.children === "Adds about 100 tokens to every message you send from another device."));
+  toggle().props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["device-notes:save", [true]]));
+  assert.equal(toggle().props.selected, true);
+  failSave = true;
+  toggle().props.onPress();
+  await settle();
+  assert.equal(toggle().props.selected, true, "failed save restores the daemon's value");
+  assert.ok(find(render(), (n) => n.type === "Text" && n.props.children === "Device notes save failed"));
+  failSave = false;
+  toggle().props.onPress();
+  await settle();
+  assert.equal(toggle().props.selected, false, "retry saves successfully");
+  assert.equal(
+    find(render(), (n) => n.type === "Text" && n.props.children === "Device notes save failed"),
+    undefined,
+  );
+  saved = { enabled: true };
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle().props.selected, true, "returning to the screen reads changes made on desktop");
+  olderHost = true;
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle(), undefined, "an older host hides the unsupported setting");
+});
+
+test("desktop Device notes guards same-render saves and ignores stale initial reads", async () => {
+  const react = hookHost({ effects: true });
+  const initialRead = deferred();
+  const requests = [];
+  let changed;
+  const bridge = {
+    readDeviceNotesEnabled: () => initialRead.promise,
+    onDeviceNotesEnabledChanged: (fn) => {
+      changed = fn;
+      return () => {};
+    },
+    saveDeviceNotesEnabled: (enabled) => {
+      const reply = deferred();
+      requests.push({ enabled, ...reply });
+      return reply.promise;
+    },
+  };
+  const { useDeviceNotesEnabled } = load(
+    "../../desktop/app/src/lib/device-notes.ts",
+    { react, "test-bridge": bridge },
+    '\nconst window = { milagre: require("test-bridge") };',
+  );
+  const render = () => {
+    react.begin();
+    return useDeviceNotesEnabled();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  render();
+  changed({ enabled: true });
+  const setting = render();
+  const pending = setting.save(false);
+  await setting.save(true);
+  assert.equal(requests.length, 1, "same-render calls cannot overlap before the checkbox disables");
+  assert.equal(render().saving, true);
+  assert.equal(render().enabled, true);
+  requests[0].reject(new Error("Device notes save failed"));
+  await pending;
+  assert.equal(render().enabled, true);
+  assert.equal(render().error, "Device notes save failed");
+  const retry = render().save(false);
+  requests[1].resolve({ enabled: false });
+  await retry;
+  initialRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(render().enabled, false, "a delayed initial read cannot replace a later event/save");
+  assert.equal(render().saving, false);
+  assert.equal(render().error, "");
+  const final = render().save(true);
+  const beforeUnmount = render();
+  react.unmount();
+  requests[2].resolve({ enabled: true });
+  await final;
+  assert.equal(render().enabled, beforeUnmount.enabled, "late save reply is ignored after unmount");
+});
+
+test("mobile Device notes serializes taps, retains confirmed values and ignores replies from a previous Mac", async () => {
+  const react = hookHost({ effects: true });
+  let focus;
+  let blur;
+  const requests = [];
+  const makeClient = (name) => ({
+    call(method, args) {
+      if (!method.startsWith("device-notes:")) return Promise.resolve(null);
+      const reply = deferred();
+      requests.push({ name, method, args, ...reply });
+      return reply.promise;
+    },
+  });
+  let client = makeClient("A");
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": {
+      useFocusEffect: (fn) => {
+        focus = fn;
+      },
+      router: { push() {} },
+    },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const refocus = () => {
+    blur?.();
+    render();
+    blur = focus();
+  };
+  refocus();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  const first = toggle();
+  first.props.onPress();
+  first.props.onPress(); // Same render: a state-only guard is too late.
+  toggle().props.onPress();
+  assert.equal(requests.filter((r) => r.method === "device-notes:save").length, 1, "only one write may be pending");
+  assert.equal(toggle().props.disabled, true);
+  assert.equal(toggle().props.selected, false, "pending save retains the confirmed value, like desktop");
+  const firstSave = requests.at(-1);
+  refocus();
+  assert.equal(requests.at(-1), firstSave, "focus cannot race a pending write with an older read");
+  firstSave.reject(new Error("Device notes save failed"));
+  await settle();
+  assert.equal(toggle().props.disabled, false);
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.props?.children === "Device notes save failed"));
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, true, "retry confirms the saved value");
+
+  refocus();
+  const delayedRead = requests.at(-1);
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  delayedRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, false, "a read started before a save cannot overwrite its acknowledgement");
+
+  for (const fail of [false, true]) {
+    toggle().props.onPress();
+    const oldSave = requests.at(-1);
+    client = makeClient(fail ? "C" : "B");
+    refocus();
+    assert.equal(toggle(), undefined, "a new Mac does not display the previous Mac's value");
+    requests.at(-1).resolve({ enabled: false });
+    await settle();
+    toggle().props.onPress();
+    const newSave = requests.at(-1);
+    if (fail) oldSave.reject(new Error("Previous Mac failed"));
+    else oldSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, false);
+    assert.equal(toggle().props.disabled, true, "old replies cannot unlock the new Mac's pending save");
+    assert.equal(
+      find(render(), (n) => n.props?.children === "Previous Mac failed"),
+      undefined,
+    );
+    newSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, true);
+    assert.equal(toggle().props.disabled, false);
+  }
+  toggle().props.onPress();
+  const finalSave = requests.at(-1);
+  blur?.();
+  react.unmount();
+  finalSave.reject(new Error("Unmounted save"));
+  await settle();
+});
+
+test("mobile Integrations shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const pushed = [];
+  let answer = { enabled: true };
+  const client = {
+    async call(method) {
+      if (method === "babysit:settings:read") return answer;
+      return null;
+    },
+  };
+  const { MacFeatureRow } = load("mac-feature-row.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push: (path) => pushed.push(path) } },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { useStyles: () => ({}) },
+  });
+  const render = () => {
+    react.begin();
+    return MacFeatureRow({
+      read: "babysit:settings:read",
+      title: "Babysit PRs",
+      description: "Watch every PR a Chat opens and fix review comments, failed checks and conflicts.",
+      href: "/babysit-prs",
+    });
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const row = () => find(render(), (n) => n.type === "Row" && n.props.title === "Babysit PRs");
+  assert.equal(row(), undefined, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row().props.value, "On");
+  assert.ok(
+    find(render(), (n) => n.type === "Text" && n.props.children === "Watch every PR a Chat opens and fix review comments, failed checks and conflicts."),
+  );
+  row().props.onPress();
+  assert.deepEqual(pushed, ["/babysit-prs"]);
+  // Turned off on the Mac while the phone was on the page: coming back shows it.
+  answer = { enabled: false };
+  render();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row().props.value, "Off");
+  answer = null;
+  render();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row(), undefined, "an older Mac answers null: no row");
+});
+
+test("mobile Babysit PRs page shows the four groups and saves each change to the Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const babysit = require("@milagre/shared/babysit");
+  let stored = { ...babysit.BABYSIT_DEFAULTS, wake: [...babysit.BABYSIT_DEFAULTS.wake] };
+  const saves = [];
+  const client = {
+    async call(method, args) {
+      if (method === "babysit:settings:read") return stored;
+      if (method === "babysit:settings:save") {
+        // The page runs in its own realm; a plain copy compares by value.
+        saves.push(JSON.parse(JSON.stringify(args[0])));
+        stored = { ...stored, ...args[0] };
+        return stored;
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const store = load("babysit-settings.ts", {});
+  const { BabysitSection } = load("babysit-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/babysit": babysit,
+    "./babysit-settings": store,
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Group: "Group", Row: "Row" },
+    "./ui": { Chip: "Chip", ErrorNotice: "ErrorNotice", Field: "Field", Segmented: "Segmented", Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return BabysitSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const node = (predicate) => find(render(), predicate);
+  const toggle = (title) => node((n) => n.type === "Toggle" && n.props.title === title);
+  assert.equal(render(), null, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  const tree = render();
+  const groups = [];
+  (function walk(n) {
+    if (!n || typeof n !== "object") return;
+    if (n.type === "Group" && n.props.title) groups.push(n.props.title);
+    for (const child of [n.props?.children].flat(Infinity)) walk(child);
+  })(tree);
+  assert.deepEqual(groups, ["Babysit PRs", "When something needs fixing", "Stop babysitting when", "Your instructions"]);
+  assert.equal(toggle("Babysit new PRs").props.selected, false);
+  assert.ok(
+    node(
+      (n) =>
+        n.type === "Text" &&
+        n.props.children === "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.",
+    ),
+  );
+  toggle("Babysit new PRs").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { enabled: true });
+  assert.equal(toggle("Babysit new PRs").props.selected, true);
+  // Each level is a radio card; Fix and push is the default and starts selected.
+  const level = (title) => node((n) => n.props?.accessibilityRole === "radio" && String(n.props.accessibilityLabel).startsWith(title));
+  assert.equal(level("Fix and push.").props.accessibilityState.checked, true);
+  level("Fix, push, reply and re-request review.").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { level: 5 });
+  assert.equal(level("Fix, push, reply and re-request review.").props.accessibilityState.checked, true);
+  // Wake chips toggle and keep the settings' order.
+  node((n) => n.type === "Chip" && n.props.label === "Branch behind base").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { wake: ["comments", "checks", "conflicts", "behind"] });
+  // A number rule always sends its whole object.
+  node((n) => n.type === "Segmented" && n.props.label === "Watch the PR for").props.onChange("14");
+  await settle();
+  assert.deepEqual(saves.at(-1), { stopAfterDays: { on: true, days: 14 } });
+  toggle("It failed to fix the same problem").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { stopAfterFailures: { on: true, times: 3 } });
+  node((n) => n.type === "Segmented" && n.props.label === "Check every").props.onChange("5");
+  await settle();
+  assert.deepEqual(saves.at(-1), { intervalMinutes: 5 });
+  // Instructions save when the field loses focus, with only a Saved mark under it.
+  const field = () => node((n) => n.type === "Field" && n.props.label === "Your instructions");
+  assert.equal(
+    node((n) => n.type === "Text" && n.props.children === "Saved"),
+    undefined,
+  );
+  field().props.onFocus();
+  field().props.onChangeText("Never force-push.");
+  render();
+  field().props.onBlur();
+  await settle();
+  assert.deepEqual(saves.at(-1), { instructions: "Never force-push." });
+  assert.ok(node((n) => n.type === "Text" && n.props.children === "Saved"));
+  assert.equal(field().props.value, "Never force-push.");
+  // Reset puts every value back, even with a field focused and half typed: the typed text is dropped.
+  field().props.onFocus();
+  field().props.onChangeText("Half typed");
+  render();
+  const savesBeforeReset = saves.length;
+  node((n) => n.type === "Row" && n.props.title === "Reset all to defaults").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { ...babysit.BABYSIT_DEFAULTS });
+  assert.equal(toggle("Babysit new PRs").props.selected, false);
+  assert.equal(field().props.value, "");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(saves.length, savesBeforeReset + 1, "only the reset saves, not the half-typed text");
+  assert.equal(field().props.value, "");
+  // Each PR keeps its settings.
+  assert.equal(
+    node((n) => n.type === "Group" && n.props.title === "When something needs fixing").props.footer,
+    "Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.",
+  );
 });
 
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
-    react,
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+    react: { ...react, useMemo: (compute) => compute() },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
     "react-native-svg": { default: "Svg", Path: "Path" },
@@ -7144,10 +14651,14 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./activity-item": { ActivityTitle: "ActivityTitle" },
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -7179,6 +14690,93 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
   assert.ok(find(failed, (n) => n.type === "Text" && n.props.children === "The turn failed. Review the response before trying again."));
 });
 
+test("mobile ChatReply marks a Delegation and its report with their sender, never as the user's own message", () => {
+  const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
+  const { ChatReply } = load("chat-reply.tsx", {
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
+    "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+    react: { ...react, useMemo: (compute) => compute() },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./file-chip": { FileChip: "FileChip" },
+    "./markdown": { Markdown: "Markdown" },
+    "./icons": { Icon: "Icon" },
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./tool-row": { ToolRow: "ToolRow" },
+    "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
+    "./answer-card": { AnswerCard: "AnswerCard" },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
+    "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
+    "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
+    "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./theme": { hex: () => "#000" },
+    "./viewer-store": { showImages() {} },
+    "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
+  });
+  const header = (tree) => find(tree, (n) => typeof n.type === "function" && n.type.name === "LinkedHeader");
+  const opened = [];
+  const delegation = { kind: "delegation", delegationId: "d", from: "/api#2", fromLabel: "api / main / Plan" };
+  const sent = ChatReply({
+    message: { id: 3, session_id: 4, role: "user", body: "Rename the route", context: delegation },
+    media: () => null,
+    onActivity() {},
+    onOpenChat: (key) => opened.push(key),
+  });
+  assert.deepEqual(header(sent).props.context, delegation);
+  assert.equal(find(sent, (n) => n.type === "Text" && n.props.children === "Rename the route").type, "Text");
+  assert.equal(sent.props.style.alignSelf, undefined, "left-aligned, not the user's right-hand bubble");
+  // The header's text and tap are the shared ones: tapping opens the sending Chat.
+  const line = header(sent).type(header(sent).props);
+  assert.equal(find(line, (n) => n.type === "Text").props.children, "Delegation from api / main / Plan");
+  line.props.onPress();
+  assert.deepEqual(opened, ["/api#2"]);
+  const report = { kind: "delegation-report", delegationId: "d", from: "/web#3", fromLabel: "web / main / Fix", status: "done" };
+  // A Subchat's report is one marker line over its body, the sender's key opening that Chat.
+  const back = ChatReply({
+    message: { id: 5, session_id: 2, role: "assistant", body: "Renamed it.", context: report },
+    media: () => null,
+    onActivity() {},
+    onOpenChat: (key) => opened.push(key),
+  });
+  assert.equal(back.type, "SubchatMarker");
+  assert.deepEqual(back.props.marker, { text: "Fix finished", kind: "done" });
+  assert.equal(back.props.chat, "/web#3");
+  assert.equal(back.props.body, "Renamed it.");
+  assert.equal(header(back), undefined, "no sender line over the marker");
+  const failed = ChatReply({
+    message: { id: 7, session_id: 2, role: "assistant", body: "Tests broke.", context: { ...report, status: "failed" } },
+    media: () => null,
+    onActivity() {},
+  });
+  assert.deepEqual(failed.props.marker, { text: "Fix failed", kind: "failed" });
+  // A Negotiation round keeps its sender line and full text.
+  const round = { ...report, negotiation: { round: 2 } };
+  const negotiation = ChatReply({
+    message: { id: 8, session_id: 2, role: "assistant", body: "My position.", context: round },
+    media: () => null,
+    onActivity() {},
+  });
+  assert.deepEqual(header(negotiation).props.context, round);
+  // An ordinary message has no sender line.
+  assert.equal(
+    header(ChatReply({ message: { id: 6, session_id: 2, role: "user", body: "Hi", context: null }, media: () => null, onActivity() {} })),
+    undefined,
+  );
+});
+
 test("mobile usage-limit card lists the other accounts, switches on tap, and offers Add or Manage accounts when none can be used", async () => {
   const react = hookHost({ effects: true });
   const pushed = [];
@@ -7188,6 +14786,8 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   const client = {
     async call(method, args) {
       calls.push([method, args]);
+      if (method === "limits:resume-at-reset:read") return { resumeAtReset: true };
+      if (method === "chat:limit-resume" || method === "chat:limit-resume:cancel") return true;
       if (method === "accounts:scope") return snapshot;
       if (method === "chat:limit-switch") {
         if (failSwitch) throw new Error(failSwitch);
@@ -7204,9 +14804,9 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
     "expo-router": { router: { push: (href) => pushed.push(href) } },
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
-    "./icons": { Icon: "Icon" },
+    "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./session": { useSession: () => session },
-    "./ui": { ErrorNotice: "ErrorNotice", PillButton: "PillButton" },
+    "./ui": { InlineError: "InlineError", PillButton: "PillButton" },
   });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const render = (props) => {
@@ -7239,7 +14839,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   react.unmount();
   let tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   await settle();
-  assert.equal(JSON.stringify(calls[0]), JSON.stringify(["accounts:scope", ["/work/app", false]]));
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "accounts:scope")), JSON.stringify(["accounts:scope", ["/work/app", false]]));
   tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   const choices = rows(tree);
   assert.equal(choices.length, 2);
@@ -7257,12 +14857,12 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   choices[0].props.onPress();
   tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   assert.ok(
-    find(tree, (n) => n.type === "ActivityIndicator"),
+    find(tree, (n) => n.type === "SpinnerRing"),
     "a spinner marks the tapped row",
   );
   await settle();
   tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
-  assert.equal(find(tree, (n) => n.type === "ErrorNotice").props.message, failSwitch);
+  assert.equal(find(tree, (n) => n.type === "InlineError").props.message, failSwitch);
   assert.equal(rows(tree).length, 2);
 
   failSwitch = null;
@@ -7291,9 +14891,34 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
     button.props.onPress();
     assert.equal(pushed.at(-1), "/accounts");
   }
+  react.unmount();
+  Object.assign(react, hookHost({ effects: true }));
+  const props = { limit, sessionId: 4, projectPath: "/work/app", sourceMessageId: 9, resumeAvailable: true };
+  render(props);
+  await settle();
+  let card = render(props);
+  let resume = find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at"));
+  assert.ok(resume);
+  await resume.props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "chat:limit-resume")), JSON.stringify(["chat:limit-resume", ["/work/app", 4, 9]]));
+  const pending = { at: limit.resetsAt, sourceMessageId: 9, sendId: "schedule-9" };
+  card = render({ ...props, pending });
+  assert.ok(texts(card).some((text) => text.startsWith("Continues at")));
+  await find(card, (n) => n.type === "PillButton" && n.props.title === "Cancel").props.onPress();
+  await settle();
+  assert.equal(
+    JSON.stringify(calls.find(([method]) => method === "chat:limit-resume:cancel")),
+    JSON.stringify(["chat:limit-resume:cancel", ["/work/app", 4, "schedule-9"]]),
+  );
+  card = render({ ...props, resumeBlocked: true });
+  assert.equal(
+    find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at")),
+    undefined,
+  );
 });
 
-test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
+test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
   const react = hookHost();
   const saved = [];
   let settings = {
@@ -7301,27 +14926,18 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
     customThemeEnabled: false,
     customTheme: null,
   };
-  const { ExperimentalSection } = load("experimental-section.tsx", {
+  const { AppearanceSection } = load("appearance-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": {
-      LINEAR_TITLE: "Linear",
-      LINEAR_HINT: "hint",
-      linearStatusLine: () => "",
-    },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Platform: { OS: "ios" } },
+    "expo-haptics": {},
     "@milagre/shared/themes": {
       DEFAULT_THEME_ID: "milagre-blue",
       seedsFrom: (id) => ({ from: id }),
+      themes: [],
+      themeSwatch: () => ({}),
     },
-    "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect() {} },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
-    "./ultracode-fatality-setting": {
-      useUltracodeFatality: () => [false, () => {}],
-    },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./session": { useSession: () => ({ client: null }) },
     "./theme": {
       useTheme: () => ({
         colors: fakePalette,
@@ -7333,11 +14949,11 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
         },
       }),
     },
-    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+    "./ui": { PullDown: "PullDown", Segmented: "Segmented", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return AppearanceSection();
   };
   let tree = render();
   assert.equal(
@@ -7361,6 +14977,27 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
   assert.equal(
     find(render(), (n) => n.type === "CustomThemeSection"),
     undefined,
+  );
+  // Text and motion rows are pull-down choices, not segmented controls; picking one saves it.
+  const textSize = find(render(), (n) => n.props?.label === "Text size");
+  assert.ok(textSize && typeof textSize.type === "function", "Text size is a Choice row");
+  assert.deepEqual(
+    textSize.props.options.map((option) => option.value),
+    ["small", "default", "large", "larger"],
+  );
+  textSize.props.onChange("large");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { textSize: "large" });
+  const providerIcons = find(render(), (n) => n.props?.label === "Provider icons");
+  assert.deepEqual(
+    providerIcons.props.options.map((option) => option.value),
+    ["original", "simplified"],
+  );
+  providerIcons.props.onChange("simplified");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { providerIcons: "simplified" });
+  assert.equal(
+    find(render(), (n) => n.type === "Segmented" && n.props?.label !== "Mode"),
+    undefined,
+    "only Mode stays segmented",
   );
 });
 
@@ -7389,6 +15026,27 @@ const linearIssue = {
   branchName: "eng-12-fix-login",
   state: { name: "In Progress", type: "started", color: "#f2c94c" },
 };
+
+test("a new Chat presents setup, prompt and action controls in focus order", () => {
+  const screen = chatHost({ linear: { active: true } });
+  const order = [];
+  find(screen.render(), (node) => {
+    const label = node.props?.label ?? node.props?.accessibilityLabel;
+    if (["Choose isolation", "Choose branch", "Start from a Linear issue", "Add photos or files", "Send message"].includes(label)) order.push(label);
+    if (["PromptField", "AgentControls", "PermissionChip"].includes(node.type)) order.push(node.type);
+    return false;
+  });
+  assert.deepEqual(order, [
+    "Choose isolation",
+    "Choose branch",
+    "Start from a Linear issue",
+    "PromptField",
+    "Add photos or files",
+    "AgentControls",
+    "PermissionChip",
+    "Send message",
+  ]);
+});
 
 test("a new Chat offers a Linear issue chip only while Linear is on and connected", () => {
   const chip = (screen) => find(screen.render(), (node) => node.props?.accessibilityLabel === "Start from a Linear issue");
@@ -7504,10 +15162,7 @@ test("with two Linear workspaces the issue sheet has a tab each, and the picked 
   // The sheet's tab reads the other workspace; the same key in two workspaces never collides.
   const beta = await request.load("beta", false);
   assert.equal(JSON.stringify(beta.map((item) => item.id)), JSON.stringify(["beta:OPS-7"]));
-  assert.equal(
-    JSON.stringify(screen.calls.filter((call) => call.method === "linear:issues").at(-1).args),
-    JSON.stringify([{ fresh: false, workspace: "beta" }]),
-  );
+  assert.equal(JSON.stringify(screen.calls.findLast((call) => call.method === "linear:issues").args), JSON.stringify([{ fresh: false, workspace: "beta" }]));
   screen.render();
   request.onSelect("beta:OPS-7");
   await settle();
@@ -7558,7 +15213,16 @@ function linkableChat({ linear = { active: true }, worktree = { path: "/p/wt", n
   delete screen.params.worktreeId;
   return screen;
 }
-const menuEntry = (screen, label) => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === label);
+function chatMenuEntries(tree) {
+  const menu = find(tree, (node) => node.type === "PullDown" && node.props.label === "Chat actions");
+  return (menu?.props.sections ?? [])
+    .flatMap((section) => section.items)
+    .map((item) => ({
+      props: { ...item, children: item.title, onPress: () => menu.props.onSelect(item.id) },
+    }));
+}
+const chatMenuEntry = (tree, label) => chatMenuEntries(tree).find((entry) => entry.props.children === label);
+const menuEntry = (screen, label) => chatMenuEntry(screen.render(), label);
 
 test("a Chat's own Worktree offers Link issue only while Linear is on", () => {
   assert.ok(menuEntry(linkableChat({ linear: { active: true } }), "Link issue…"), "on shows Link");
@@ -7587,10 +15251,7 @@ test("picking a Linear issue links it to the Chat's Worktree and toasts the PR h
   assert.equal(screen.calls.at(-1).method, "worktree:link-issue");
   // The stored result toasts the PR hint, which names the key the branch doesn't; no alert to dismiss.
   assert.equal(shown.length, 0, "no alert");
-  assert.ok(
-    find(screen.render(), (n) => n.type === "Text" && n.props.children === `Issue linked. ${LINK_PR_HINT("ENG-12")}`),
-    "the toast shows the hint",
-  );
+  assert.ok(toastPill(screen.render(), `Issue linked. ${LINK_PR_HINT("ENG-12")}`), "the toast shows the hint");
 });
 
 test("a stored Linear issue is hidden everywhere while Linear is off", () => {
@@ -7600,22 +15261,19 @@ test("a stored Linear issue is hidden everywhere while Linear is off", () => {
   assert.ok(!menuEntry(screen, LINK_PR_HINT("ENG-12")), "no hint");
 });
 
-test("a Worktree another Chat shares offers no Link, and Unlink uses the minus.circle symbol", () => {
+test("a Worktree another Chat shares offers no Link, and Unlink has a native link icon", () => {
   const shared = linkableChat();
   shared.session.snapshot.project.state.sessions[8] = { id: 8, worktree_id: 1, title: "Other", archived: false, subagents: [] };
   assert.ok(!menuEntry(shared, "Link issue…"), "a shared Worktree offers no Link");
   const stored = linkableChat({ worktree: { path: "/p/wt", name: "feature", linearIssue: "ENG-12" } });
-  assert.equal(menuEntry(stored, "Unlink issue").props.iconRenderingMode, "template", "Unlink shows Linear's mark, tinted like the SF Symbols");
+  assert.equal(menuEntry(stored, "Unlink issue").props.systemImage, "link");
 });
 
 test("a stored Linear issue shows Unlink, which calls worktree:unlink-issue, and the hint while the branch lacks the key", async () => {
   const { LINK_PR_HINT } = require("@milagre/shared/linear");
   const screen = linkableChat({ worktree: { path: "/p/wt", name: "feature", linearIssue: "ENG-12" } });
   assert.ok(!menuEntry(screen, "Link issue…"), "a stored issue hides Link");
-  assert.ok(
-    find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === LINK_PR_HINT("ENG-12")),
-    "hint shows",
-  );
+  assert.ok(chatMenuEntry(screen.render(), LINK_PR_HINT("ENG-12")), "hint shows");
   menuEntry(screen, "Unlink issue").props.onPress();
   await settle();
   const unlink = screen.calls.find((call) => call.method === "worktree:unlink-issue");
@@ -7625,7 +15283,7 @@ test("a stored Linear issue shows Unlink, which calls worktree:unlink-issue, and
 test("no PR hint when the branch already names the stored issue", () => {
   const { LINK_PR_HINT } = require("@milagre/shared/linear");
   const screen = linkableChat({ worktree: { path: "/p/wt", name: "eng-12-fix-login", linearIssue: "ENG-12" } });
-  assert.ok(!find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === LINK_PR_HINT("ENG-12")));
+  assert.ok(!chatMenuEntry(screen.render(), LINK_PR_HINT("ENG-12")));
 });
 
 function activityProviderHost({ enabled = true, enabledRead } = {}) {
@@ -7846,7 +15504,7 @@ test("the phone library binds a renderer to every component of the contract and 
       useIsStreaming: () => false,
     },
     "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
-    "../ui": { Button: "Button", PageScroll: "PageScroll" },
+    "../ui": { PillButton: "PillButton", PageScroll: "PageScroll" },
     "./charts": load("genui/charts.tsx", {
       "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
       react: hookHost(),
@@ -7858,7 +15516,7 @@ test("the phone library binds a renderer to every component of the contract and 
   assert.deepEqual(Object.keys(components.renderers), Object.keys(GENUI_COMPONENTS));
   const action = { steps: [{ type: "continue_conversation", message: "Go" }] };
   const button = components.renderers.Button({ props: { label: "Go", action }, renderNode: () => null });
-  find(button, (node) => node.type === "Button").props.onPress();
+  find(button, (node) => node.type === "PillButton").props.onPress();
   assert.deepEqual(triggered, [["Go", undefined, action]]);
   const table = components.renderers.Table({ props: { columns: ["a", "b"], rows: [["1"]] }, renderNode: () => null });
   assert.match(JSON.stringify(table), /"1"/);
@@ -7900,101 +15558,18 @@ test("mobile markdown routes openui fences and passes streaming state", () => {
   );
 });
 
-test("AI consent: native alert cancellation, persistence, reset and headless replies fail closed", async () => {
-  const shared = await import("../packages/shared/src/ai-consent.mjs");
-  let saved = null,
-    alert,
-    prompts = 0;
-  const appState = { currentState: "active" };
-  const { aiConsent, beforeAiCall } = load("ai-consent.ts", {
-    "@milagre/shared/ai-consent": shared,
-    "react-native": {
-      AppState: appState,
-      Linking: { openURL: async () => {} },
-      Alert: {
-        alert: (title, body, buttons, options) => {
-          prompts++;
-          alert = { title, body, buttons, options };
-        },
-      },
-    },
-    "expo-secure-store": {
-      getItemAsync: async () => saved,
-      setItemAsync: async (_key, value) => {
-        saved = value;
-      },
-      deleteItemAsync: async () => {
-        saved = null;
-      },
-      WHEN_UNLOCKED_THIS_DEVICE_ONLY: "device-only",
-    },
-  });
-  const cancelled = beforeAiCall("chat:send", []);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.match(alert.body, /Anthropic.*OpenAI.*Google/);
-  alert.buttons.find((button) => button.text === "Not now").onPress();
-  await assert.rejects(cancelled, /not sent/);
-  assert.equal(saved, null);
-  const accepted = beforeAiCall("link:send", []);
-  await new Promise((resolve) => setImmediate(resolve));
-  alert.buttons.find((button) => button.text === "Allow sharing").onPress();
-  await accepted;
-  await beforeAiCall("chat:resume", []);
-  assert.equal(prompts, 2);
-  await aiConsent.reset();
-  await assert.rejects(beforeAiCall("live-activity:answer", []), /permission/);
-  appState.currentState = "background";
-  await assert.rejects(beforeAiCall("chat:send", []), /permission/);
-  await beforeAiCall("agent:interrupt", []);
-  assert.equal(prompts, 2);
-});
-
-test("Privacy settings reset consent and expose policies without a paired computer", async () => {
-  const shared = await import("../packages/shared/src/ai-consent.mjs");
-  const host = hookHost({ effects: true });
-  let resets = 0;
-  const urls = [];
-  const { PrivacyView } = load("app/privacy.tsx", {
-    react: host,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": {
-      Text: "Text",
-      View: "View",
-      Linking: {
-        openURL: async (url) => {
-          urls.push(url);
-        },
-      },
-    },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "@milagre/shared/ai-consent": shared,
-    "../ai-consent": {
-      aiConsent: {
-        allowed: async () => true,
-        reset: async () => {
-          resets++;
-        },
-      },
-    },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", PillButton: "PillButton" },
-  });
-  const render = () => {
-    host.begin();
-    return PrivacyView();
-  };
-  render();
-  await new Promise((resolve) => setImmediate(resolve));
-  let tree = render();
-  const reset = find(tree, (n) => n.props.title === "Reset AI sharing permission");
-  assert.equal(reset.props.disabled, false);
-  reset.props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
-  tree = render();
-  assert.equal(resets, 1);
-  assert.equal(find(tree, (n) => n.props.title === "Reset AI sharing permission").props.disabled, true);
-  find(tree, (n) => n.props.title === "Milagre privacy policy").props.onPress();
-  find(tree, (n) => n.props.title === "Support").props.onPress();
-  assert.deepEqual(urls, [shared.PRIVACY_URL, shared.SUPPORT_URL]);
+test("mobile markdown routes mermaid fences to the diagram, with the code as its fallback", () => {
+  const h = markdownHost();
+  const block = find(h.render("```mermaid\nflowchart LR\n  A --> B\n```"), (node) => node.type === "MermaidBlock");
+  assert.equal(block.props.code, "flowchart LR\n  A --> B");
+  assert.ok(
+    find(block.props.plain, (node) => node.props?.children === "flowchart LR\n  A --> B"),
+    "the plain code block rides along",
+  );
+  assert.equal(
+    find(h.render("```ts\nconst x = 1\n```"), (node) => node.type === "MermaidBlock"),
+    undefined,
+  );
 });
 
 test("new Chat restores worktree choices on reopen, falls back from a removed branch and never starts a Linear issue", async () => {
@@ -8011,7 +15586,7 @@ test("new Chat restores worktree choices on reopen, falls back from a removed br
   const reopened = chatHost({ effects: true, chatDefaults: create(), linear: { active: true }, call: async () => ["main", "release"] });
   reopened.render();
   await settle();
-  assert.equal(menu(reopened, "Choose isolation").props.nativeTrigger.title, "New worktree");
+  assert.equal(menu(reopened, "Choose isolation").props.nativeTrigger.title, "New Worktree");
   assert.equal(menu(reopened, "Choose branch").props.nativeTrigger.title, "release");
   assert.equal(
     reopened.calls.some((call) => call.method === "worktree:create"),
@@ -8043,30 +15618,23 @@ test("Composer restores model and permission defaults after relaunch without a p
   assert.equal(defaults.pickedOn, undefined);
 });
 
-test("the phone Designs setting keeps the last confirmed value through refresh, failed saves and reconnects", async () => {
+test("the phone Designs setting keeps the last confirmed value through refresh and reconnects", async () => {
   const { createDesignsSetting } = require("../apps/mobile/src/designs-setting.ts");
-  let read = deferred(),
-    save = deferred();
+  let read = deferred();
   const calls = [];
   const setting = createDesignsSetting({
     call(method, args) {
       calls.push([method, args]);
-      return method.endsWith(":read") ? read.promise : save.promise;
+      return read.promise;
     },
   });
+  // An older Mac can still report Designs off.
   const first = setting.refresh();
   assert.equal(setting.getSnapshot().enabled, null);
   read.resolve({ enabled: false });
   await first;
   assert.equal(setting.getSnapshot().stale, false);
-  const pending = setting.save(true);
-  assert.equal(setting.getSnapshot().enabled, false, "enabling waits for the host's acknowledgement");
-  assert.equal(setting.getSnapshot().saving, true);
-  save.reject(new Error("Mac disconnected"));
-  await pending;
-  assert.equal(setting.getSnapshot().enabled, false, "a failed enable keeps the last confirmed OFF value");
-  assert.equal(setting.getSnapshot().stale, true);
-  assert.equal(setting.getSnapshot().error, "Mac disconnected");
+  assert.equal(setting.getSnapshot().enabled, false);
   read = deferred();
   const retry = setting.refresh();
   read.resolve({ enabled: true });
@@ -8080,11 +15648,6 @@ test("the phone Designs setting keeps the last confirmed value through refresh, 
   await checking;
   assert.equal(setting.getSnapshot().enabled, true);
   assert.equal(setting.getSnapshot().error, "Offline");
-  save = deferred();
-  const failedDisable = setting.save(false);
-  save.reject(new Error("Not permitted"));
-  await failedDisable;
-  assert.equal(setting.getSnapshot().enabled, true, "a failed disable also keeps the last confirmed value");
   read = deferred();
   const stale = setting.refresh();
   setting.unavailable("Reconnect");
@@ -8099,7 +15662,10 @@ test("the phone Designs setting keeps the last confirmed value through refresh, 
   await reconnected;
   assert.equal(setting.getSnapshot().enabled, false, "confirmed remote OFF applies while the last value was ON");
   assert.equal(setting.getSnapshot().stale, false);
-  assert.deepEqual(calls[1], ["designs:enabled:save", [true]]);
+  assert.ok(
+    calls.every(([method]) => method === "designs:enabled:read"),
+    "the phone only reads the setting",
+  );
   setting.dispose();
   const unsupported = createDesignsSetting({ call: async () => null });
   await unsupported.refresh();
@@ -8299,24 +15865,27 @@ test("turning Designs off closes an open phone review and preserves plain feedba
     url: "off-host",
     call: async (method) => {
       calls.push(method);
-      return method === "artifact:list" ? [artifact] : artifact;
+      return method === "artifact:list"
+        ? [artifact]
+        : method === "artifact:comments"
+          ? []
+          : method === "artifact:sharing-status"
+            ? { available: false }
+            : artifact;
     },
   };
   const feature = { ...designsOn };
   let backs = 0;
-  const h = artifactHost(client, [], { back: () => backs++ }, feature);
+  const h = designsHost(client, { back: () => backs++ }, feature);
   const props = { hostId: client.url, chatId: "/p#7", id: "sample" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  assert.ok(find(tree, (node) => node.props.children === "Experimental"));
-  assert.ok(find(tree, (node) => node.props.title === "Choose"));
+  let tree = await h.open(props);
+  assert.ok(find(tree, (node) => node.type === "PullDown"));
   feature.enabled = false;
   calls.length = 0;
-  tree = h.render("ArtifactSheet", props);
+  tree = h.render("DesignsSheet", props);
   assert.equal(backs, 1);
   assert.equal(
-    find(tree, (node) => node.props.title === "Choose" || node.props.children === "Experimental" || node.props.html),
+    find(tree, (node) => node.type === "PullDown" || node.type?.name === "DesignsCanvas"),
     undefined,
   );
   assert.deepEqual(calls, []);
@@ -8362,6 +15931,7 @@ test("phone cards preserve unmarked structured designs while excluding unverifie
       calls++;
       return [
         { id: "structured", format: "design", version: 2 },
+        { id: "fresh", format: "design", version: 1 },
         { id: "retired", version: 1 },
       ];
     },
@@ -8386,7 +15956,7 @@ test("phone cards preserve unmarked structured designs while excluding unverifie
   assert.equal(calls, 1);
   assert.deepEqual(
     catalog.designCatalog(client, "/p#7").map((design) => design.id),
-    ["structured"],
+    ["structured", "fresh"],
   );
   steps[0].artifact.version = 2;
   h.render("ArtifactCards", { steps, chatId: "/p#7" });
@@ -8394,6 +15964,28 @@ test("phone cards preserve unmarked structured designs while excluding unverifie
   assert.equal(calls, 2, "a completed new version refreshes the catalog");
   h.cleanup();
   other.cleanup();
+});
+
+test("phone cards drop a design the host no longer lists, and one deleted on the phone", async () => {
+  const catalog = require("../apps/mobile/src/design-catalog.ts");
+  const client = {
+    url: "deleted-host",
+    call: async (method) => {
+      if (method !== "artifact:list") throw Error("Unknown artifact");
+      return [
+        { id: "kept", format: "design", version: 1 },
+        { id: "other", format: "design", version: 1 },
+      ];
+    },
+  };
+  const steps = ["kept", "other", "gone"].map((id) => ({ id, artifact: { id, format: "design", version: 1, title: id[0].toUpperCase() + id.slice(1) } }));
+  const h = artifactHost(client);
+  h.render("ArtifactCards", { steps, chatId: "/p#8" });
+  await settle();
+  assert.equal(h.render("ArtifactCards", { steps, chatId: "/p#8" }).props.accessibilityLabel, "2 designs: Kept, Other. Open full screen");
+  catalog.markDesignDeleted(client, "/p#8", "other");
+  assert.equal(h.render("ArtifactCards", { steps, chatId: "/p#8" }).props.step.artifact.id, "kept");
+  h.cleanup();
 });
 
 test("the phone refuses a retired HTML design response even while Designs is enabled", async () => {
@@ -8413,60 +16005,49 @@ test("the phone refuses a retired HTML design response even while Designs is ena
     find(tree, (node) => node.props.title === "Choose"),
     undefined,
   );
-  assert.ok(find(tree, (node) => node.props.children === "This page is no longer available."));
+  assert.ok(find(tree, (node) => node.type === "ErrorNotice" && node.props.message === "This page is no longer available."));
   h.cleanup();
 });
 
-test("mobile page sharing uses the Chat scope, regardless of the selected design or version", async () => {
-  const design = {
-    id: "one",
-    version: 1,
-    latest: 2,
-    versions: 2,
-    title: "One",
-    format: "design",
-    document: {},
-    html: "<main>One</main>",
-  };
+test("mobile page sharing opens the Chat's Share sheet over the designs, regardless of the selected design or version", async () => {
+  const design = { id: "one", version: 1, latest: 2, versions: 2, title: "One", format: "design", document: {}, html: "<main>One</main>" };
   const feature = { ...designsOn };
   const client = {
     url: "mac",
     call: async (method) =>
       method === "artifact:sharing-status" ? { available: true } : method === "artifact:list" ? [design, { ...design, id: "two" }] : design,
   };
-  const h = artifactHost(client, [], { back() {} }, feature);
+  const pushes = [];
+  const h = designsHost(client, { back() {} }, feature, pushes);
   const props = { hostId: "mac", chatId: "/p#7", id: "one", version: "1" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.props.accessibilityLabel === "Share Designs page").props.onPress();
-  tree = h.render("ArtifactSheet", props);
-  const sheet = find(tree, (node) => node.type === "DesignPageShareSheet");
-  assert.equal(sheet.props.chatId, "/p#7");
-  assert.equal(sheet.props.id, undefined, "sharing must not take an individual design ID");
-  assert.equal(sheet.props.version, undefined, "sharing always captures the latest saved page");
-  sheet.props.onAvailabilityChange(false);
-  tree = h.render("ArtifactSheet", props);
+  let tree = await h.open(props);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("share");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pushes)),
+    [{ pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7" } }],
+    "no design id or version: sharing captures the whole page",
+  );
+  // The sheet's own health check reaches the designs it opened from.
+  h.shareAvailabilityChanged("mac", "/p#7", false);
+  tree = h.render("DesignsSheet", props);
+  assert.equal(
+    menuItems(tree).find((item) => item.id === "share"),
+    undefined,
+    "a failed health check in the sheet hides the entry point",
+  );
+  h.shareAvailabilityChanged("mac", "/p#7", true);
+  tree = h.render("DesignsSheet", props);
+  assert.ok(menuItems(tree).find((item) => item.id === "share"));
+  h.shareAvailabilityChanged("mac", "/p#8", false);
+  tree = h.render("DesignsSheet", props);
   assert.ok(
-    find(tree, (node) => node.type === "DesignPageShareSheet"),
-    "an unavailable result keeps the open dialog available for recovery",
+    menuItems(tree).find((item) => item.id === "share"),
+    "another Chat's sheet changes nothing here",
   );
-  sheet.props.onClose();
-  tree = h.render("ArtifactSheet", props);
-  assert.equal(
-    find(tree, (node) => node.props.accessibilityLabel === "Share Designs page"),
-    undefined,
-    "a failed dialog health check also hides the entry point",
-  );
-
   feature.enabled = false;
-  tree = h.render("ArtifactSheet", props);
+  tree = h.render("DesignsSheet", props);
   assert.equal(
-    find(tree, (node) => node.type === "DesignPageShareSheet"),
-    undefined,
-  );
-  assert.equal(
-    find(tree, (node) => node.props.accessibilityLabel === "Share Designs page"),
+    menuItems(tree).find((item) => item.id === "share"),
     undefined,
   );
   h.cleanup();
@@ -8478,16 +16059,16 @@ test("mobile Share stays hidden until the current host is healthy and refreshes 
   const makeClient = (url) => ({
     url,
     call(method) {
-      if (method !== "artifact:sharing-status") return Promise.resolve(method === "artifact:list" ? [design] : design);
+      if (method !== "artifact:sharing-status") return Promise.resolve(method === "artifact:list" ? [design] : method === "artifact:comments" ? [] : design);
       const request = deferred();
       requests.push(request);
       return request.promise;
     },
   });
-  const h = artifactHost(makeClient("first"));
+  const h = designsHost(makeClient("first"));
   const props = { hostId: "first", chatId: "/p#7", id: "one" };
-  const render = () => h.render("ArtifactSheet", props);
-  const share = () => find(render(), (node) => node.props.accessibilityLabel === "Share Designs page");
+  const render = () => h.render("DesignsSheet", props);
+  const share = () => menuItems(render()).find((item) => item.id === "share");
   render();
   await settle();
   assert.equal(share(), undefined, "initial health request has no Share flash");
@@ -8559,7 +16140,12 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     },
     async publish(title) {
       calls.push(["publish", title]);
-      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1 }] };
+      const updated = state.shares.length ? { updatedAt: 2 } : {};
+      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1, ...updated }] };
+    },
+    async revoke(id) {
+      calls.push(["revoke", id]);
+      state = { ...state, shares: state.shares.filter((share) => share.id !== id) };
     },
     dispose() {},
   };
@@ -8589,52 +16175,71 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     react.begin();
     return DesignPageShareSheet({ client: {}, chatId, onClose() {}, onAvailabilityChange });
   };
+  const text = (tree, value) => find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes(value));
   let tree = render("chat");
   assert.equal(availability.at(-1), null);
-  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
-  assert.ok(find(tree, (n) => n.props?.children === "Checking publishing availability..."));
+  assert.ok(find(tree, (n) => n.type === "SheetHeader" && n.props.title === "Share"));
+  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
+  assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service…"));
+  assert.ok(text(tree, "Anyone with the link can view it."));
   state = {
     ...state,
     checking: false,
     availability: { available: false, reason: "Not deployed" },
   };
   tree = render("chat");
-  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
+  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Not deployed"));
   assert.equal(availability.at(-1), false, "dialog health failure updates the entry gate");
   find(tree, (n) => n.props?.title === "Retry check").props.onPress();
   assert.equal(calls.at(-1), "status");
   state = { ...state, availability: { available: true } };
-  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.disabled, false);
+  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish").props.disabled, false);
   assert.equal(availability.at(-1), true);
-  find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.onPress();
+  find(render("chat"), (n) => n.props?.title === "Publish").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Snapshot shared"));
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "publishing copies the link right away");
+  assert.ok(toastPill(tree, "Published. Link copied."), "a toast says what happened");
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    find(tree, (n) => n.props?.title === "Publish"),
     undefined,
+    "a shared page offers an update instead",
   );
+  assert.ok(find(tree, (n) => n.props?.title === "Update snapshot"));
   assert.ok(find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"));
-  const copy = find(tree, (n) => n.props?.title === "Copy link");
-  assert.equal(copy.props.secondary, false, "confirmed snapshots make Copy link the primary action");
-  copy.props.onPress();
+  assert.ok(text(tree, "Published "));
+  assert.equal(text(tree, "Published snapshots"), undefined, "no history list under the link");
+  find(tree, (n) => n.props?.title === "Copy link").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
-  assert.ok(find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes("Shared files can include content clipped by frames")));
-  find(tree, (n) => n.props?.title === "Publish another snapshot").props.onPress();
+  find(render("chat"), (n) => n.props?.title === "Update snapshot").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Share a snapshot"));
+  assert.deepEqual(calls.at(-2), ["publish", "Designs"], "only an older host needs the title");
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
+  assert.equal(state.shares.length, 1, "the update keeps one link");
+  assert.ok(toastPill(tree, "Snapshot updated. Link copied."));
+  assert.ok(text(tree, "Updated "));
+  find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.props?.children === "Remove this page? Copies may remain online."));
+  find(tree, (n) => n.props?.title === "Revoke link" && !n.props.secondary).props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = render("chat");
+  assert.deepEqual(calls.at(-1), ["revoke", "snapshot"]);
+  assert.ok(
+    find(tree, (n) => n.props?.title === "Publish"),
+    "after revoking, Publish creates a new link",
+  );
   assert.equal(
     find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
     undefined,
-    "older links start collapsed",
   );
-  find(tree, (n) => n.props?.title === "Show published snapshots (1)").props.onPress();
-  assert.ok(find(render("chat"), (n) => n.props?.accessibilityLabel === "Snapshot link"));
+  assert.ok(toastPill(tree, "Link revoked. Copies may remain online."));
   tree = render(undefined);
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    find(tree, (n) => n.props?.title === "Publish"),
     undefined,
   );
   assert.equal(
@@ -8644,7 +16249,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   assert.ok(find(tree, (n) => n.props?.children === "Published pages"));
 });
 
-test("mobile Published pages entry requires owner access and remains available when Designs is off", async () => {
+test("mobile Published pages entry requires owner access", async () => {
   for (const allowed of [true, false]) {
     const react = hookHost();
     const focuses = [];
@@ -8659,48 +16264,34 @@ test("mobile Published pages entry requires owner access and remains available w
           return null;
         },
       },
-      designs: { ...designsOn },
     };
-    const { ExperimentalSection } = load("experimental-section.tsx", {
+    const { PublishedPagesSection } = load("published-pages-section.tsx", {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": { View: "View", Text: "Text" },
-      "@milagre/shared/linear": {},
-      "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue" },
       "expo-router": {
         useFocusEffect: (fn) => focuses.push(fn),
         router: { push: (path) => pushed.push(path) },
       },
-      "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-      "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
-      "./floating-inbox-setting": {
-        useFloatingInbox: () => [false, () => {}],
-        useFloatingInboxActivity: () => [true, () => {}],
-      },
-      "./ultracode-fatality-setting": {
-        useUltracodeFatality: () => [false, () => {}],
-      },
       "./session": { useSession: () => session },
-      "./ui": { Toggle: "Toggle", ListRow: "ListRow" },
+      "./ui": { ListRow: "ListRow", useStyles: () => ({}) },
     });
     const render = () => {
       react.begin();
-      return ExperimentalSection();
+      return PublishedPagesSection();
     };
-    render();
+    // Nothing shows while the Mac is asked, so a refused owner check never flashes the row.
+    assert.equal(render(), null);
     focuses[0]();
-    await new Promise((resolve) => setImmediate(resolve));
-    const row = find(render(), (n) => n.props?.title === "Published pages");
+    await settle();
+    const tree = render();
+    const row = find(tree, (n) => n.props?.title === "Published pages");
     assert.equal(!!row, allowed);
+    assert.equal(!!find(tree, (n) => n.type === "Toggle"), false, "Designs can't be turned off");
     if (allowed) {
       row.props.onPress();
       assert.deepEqual(pushed, ["/published-pages"]);
-    }
-    session.designs.enabled = false;
-    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
-    focuses.at(-1)();
-    await settle();
-    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
+    } else assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Only the Mac's owner can manage its published pages."));
   }
 });
 
@@ -8754,7 +16345,7 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     "./session": { useSession: () => ({ client }) },
     "./icons": { Icon: "Icon" },
     "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
-    "./ui": { Button: "Button", Field: "Field", Toggle: "Toggle" },
+    "./ui": { PillButton: "PillButton", Field: "Field", Toggle: "Toggle" },
   });
   const render = () => {
     hooks.begin();
@@ -8769,24 +16360,43 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
   find(
     render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
+  ).props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Enable Codex CLI").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
+  assert.ok(find(render(), (node) => node.type === "Text" && node.props.children === "All Projects · Read only"));
+  assert.equal(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants.projects.projectPaths, "*");
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "button" && node.props.accessibilityLabel === "Set up Codex CLI",
+  ).props.onPress();
+  find(
+    render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
   ).props.onPress();
   find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
-  find(render(), (node) => node.type === "Button" && node.props.title === "Enable Codex CLI").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Save access").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
-  assert.deepEqual(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants, {
+  assert.deepEqual(calls.findLast((call) => call.method === "local-mcp:enableClient").args[1].grants, {
     designs: { chatId: "/project#2", designIds: "*", capabilities: ["read"] },
   });
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, false);
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Create MCP config"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Create MCP config"),
     undefined,
   );
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
+  ).props.onPress();
+  assert.equal(find(render(), (node) => node.type === "PillButton" && node.props.title === "Create configuration").props.disabled, true);
   find(render(), (node) => node.type === "Field" && node.props.label === "Connection name").props.onChangeText("Designs phone");
+  assert.equal(find(render(), (node) => node.type === "PillButton" && node.props.title === "Create configuration").props.disabled, false);
   find(
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
@@ -8797,30 +16407,30 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "checkbox" && node.props.accessibilityLabel === "Allow design edits",
   ).props.onPress();
-  find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Create configuration").props.onPress();
   await settle();
   assert.deepEqual(calls.find((call) => call.method === "local-mcp:create").args[0].grants, {
     designs: { chatId: "/project#2", designIds: ["one", "two"], capabilities: ["read", "write"] },
   });
-  find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Copy MCP config").props.onPress();
   await settle();
   assert.equal(JSON.parse(copied).mcpServers.milagre.headers.Authorization, "Bearer phone-fixture");
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Manage custom connections (1)"),
     undefined,
   );
   assert.equal(records[0].revokedAt, undefined);
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Copy MCP config"),
     undefined,
   );
-  find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)").props.onPress();
-  find(render(), (node) => node.type === "Button" && node.props.title === "Revoke").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Manage custom connections (1)").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Revoke").props.onPress();
   await settle();
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Revoke"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Revoke"),
     undefined,
   );
 });
@@ -8858,6 +16468,104 @@ test("local MCP shared state refreshes a failed revoke and ignores an older stat
   assert.match(render().error, /Could not confirm access was revoked/);
 });
 
+test("an Artifact page's files download into the phone's cache once, and the page shows them from there", async () => {
+  const bytes = Buffer.alloc(300 * 1024, 5);
+  const hash = require("node:crypto").createHash("sha256").update(bytes).digest("hex");
+  const asset = { name: "clip.mp4", hash, size: bytes.length, type: "video/mp4" };
+  const page = { id: "current", format: "html", title: "Demo", version: 1, latest: 1, html: '<video src="assets/clip.mp4"></video>', assets: [asset] };
+  const reads = [];
+  const client = {
+    url: "artifact-host",
+    call: async (method, args) => {
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "artifact:asset") {
+        reads.push(args[0]);
+        const offset = args[0].offset;
+        return { ...asset, offset, base64: bytes.subarray(offset, offset + 256 * 1024).toString("base64") };
+      }
+      return page;
+    },
+  };
+  const h = artifactHost(client);
+  const tree = await h.open({ hostId: client.url, chatId: "/p#7", id: "current" });
+  const view = find(tree, (node) => node.type?.name === "ArtifactWebView");
+  assert.equal(view.props.html, `<video src="file:///cache/artifact-files/${hash}"></video>`);
+  assert.equal(view.props.files, true, "the page's policy lets it load files from the cache");
+  assert.deepEqual(
+    reads.map((read) => read.offset),
+    [0, 256 * 1024],
+  );
+  assert.deepEqual(Buffer.from(h.files.get(`file:///cache/artifact-files/${hash}`)), bytes);
+  // Opened again, the phone has the file already.
+  h.cleanup();
+  const again = artifactHost(client);
+  for (const [key, value] of h.files) again.files.set(key, value);
+  await again.open({ hostId: client.url, chatId: "/p#7", id: "current" });
+  assert.equal(reads.length, 2, "nothing downloads twice");
+  again.cleanup();
+});
+
+test("phone and iPad artifact/design canvases clear resolved pins while retaining unresolved comments", async () => {
+  for (const format of ["html", "design"]) {
+    for (const docked of [false, true]) {
+      const page = {
+        id: "page",
+        format,
+        title: "Review",
+        version: 1,
+        latest: 1,
+        versions: 1,
+        width: 390,
+        height: 844,
+        html: "<h1>Review</h1>",
+        ...(format === "design" ? { document: require("../packages/shared/src/design.mjs").createExampleDesign() } : {}),
+      };
+      const comments = [
+        { id: "11111111", design: page, x: 0.2, y: 0.3, text: "Open", createdAt: 1 },
+        { id: "22222222", design: page, x: 0.4, y: 0.5, text: "Done", createdAt: 2, resolved: { note: "Fixed", at: 3 } },
+      ];
+      const client = {
+        url: `pins-${format}-${docked}`,
+        call: async (method) =>
+          method === "artifact:comments"
+            ? structuredClone(comments)
+            : method === "artifact:list"
+              ? [page]
+              : method === "artifact:sharing-status"
+                ? { available: false }
+                : page,
+      };
+      const h = format === "html" ? artifactHost(client) : designsHost(client);
+      const name = format === "html" ? "ArtifactSheet" : "DesignsSheet";
+      const props = { hostId: client.url, chatId: "/pins#1", id: page.id, ...(docked ? { onClose() {} } : {}) };
+      await h.open(props);
+      const pins = () => h.commands().findLast((command) => command.t === "pins").pins;
+      assert.deepEqual(
+        pins().map((pin) => pin.k),
+        ["sent:11111111"],
+        `${format}, docked=${docked}: history is hidden by default`,
+      );
+      const options = () =>
+        find(h.render(name, props), (node) => node.props?.sections?.some((section) => section.items.some((item) => item.id === "resolved")));
+      options().props.onSelect("resolved");
+      h.render(name, props);
+      assert.equal(pins().length, 2, "the actions menu reveals resolved history");
+      options().props.onSelect("resolved");
+      h.render(name, props);
+      assert.equal(pins().length, 1, "the actions menu hides resolved history again");
+      comments[0].resolved = { note: "Fixed too", at: 4 };
+      h.snapshot.project.state.sessions["1"] = { summary: { lastAt: 4 } };
+      h.render(name, props);
+      await settle();
+      h.render(name, props);
+      assert.deepEqual(pins(), [], "a resolution refresh removes the last pin");
+      assert.equal(comments.length, 2, "saved history is intact");
+      h.cleanup();
+    }
+  }
+});
+
 test("HTML artifact opens the current single page with Designs off, without versions or Choose", async () => {
   const page = { id: "current", format: "html", title: "How it works", version: 1, latest: 1, html: "<h1>Current explanation</h1>" };
   const calls = [];
@@ -8867,36 +16575,136 @@ test("HTML artifact opens the current single page with Designs off, without vers
       calls.push([method, args]);
       if (method === "artifact:list") return [page];
       if (method === "artifact:sharing-status") return { available: true };
+      if (method === "artifact:comments") return [];
       return page;
     },
   };
   const feature = { ...designsOn, enabled: false };
   let backs = 0;
-  const h = artifactHost(client, [], { back: () => backs++ }, feature);
+  const pushes = [];
+  const h = artifactHost(client, pushes, { back: () => backs++ }, feature);
   const props = { hostId: client.url, chatId: "/p#7", id: "historical-id", version: "3" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  h.render("ArtifactSheet", props);
-  await settle();
-  const tree = h.render("ArtifactSheet", props);
+  let tree = await h.open(props);
   assert.equal(backs, 0);
-  assert.ok(find(tree, (n) => n.props.html === page.html));
-  assert.ok(find(tree, (n) => n.props.label === "Close artifact"));
-  assert.ok(find(tree, (n) => n.props.title === "Comment"));
+  assert.ok(find(tree, (n) => n.props?.html === page.html));
+  assert.ok(find(tree, (n) => n.props?.label === "Close artifact"));
+  assert.ok(
+    find(tree, (n) => n.props?.children === "How it works"),
+    "the header names the page",
+  );
   assert.equal(
-    find(tree, (n) => n.props.title === "Choose" || n.props.children === "Experimental" || /version|Previous design|Next design/.test(n.props.label ?? "")),
+    find(tree, (n) => n.type === "CircleButton" && n.props.filled),
     undefined,
+    "nothing to send yet",
+  );
+  assert.equal(
+    find(
+      tree,
+      (n) =>
+        n.props?.title === "Choose" ||
+        n.props?.title === "Comment" ||
+        n.props?.children === "Experimental" ||
+        /version|Previous design|Next design/.test(n.props?.label ?? ""),
+    ),
+    undefined,
+  );
+  assert.deepEqual(
+    h.commands().find((command) => command.t === "mode"),
+    { t: "mode", input: "touch", comment: false },
   );
   page.html = "<h1>Updated in the same page</h1>";
   h.appState("active");
   h.render("ArtifactSheet", props);
   await settle();
-  const refreshed = h.render("ArtifactSheet", props);
-  assert.ok(find(refreshed, (n) => n.props.html === page.html));
-  find(refreshed, (n) => n.props.accessibilityLabel === "Share artifact").props.onPress();
-  const sharing = find(h.render("ArtifactSheet", props), (n) => n.type === "DesignPageShareSheet");
-  assert.equal(sharing.props.kind, "artifacts");
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(find(tree, (n) => n.props?.html === page.html));
+  // Share is in ⋯, and opens the Chat's Share sheet for its Artifact page.
+  const menu = find(tree, (n) => n.type === "PullDown");
+  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), ["resolved", "share"]);
+  menu.props.onSelect("share");
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    pathname: "/design-share-sheet",
+    params: { hostId: client.url, chatId: "/p#7", kind: "artifacts" },
+  });
   assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "artifacts"));
+  h.share.shareAvailabilityChanged(client.url, "/p#7", false, "artifacts");
+  assert.equal(
+    find(h.render("ArtifactSheet", props), (n) => n.type === "PullDown")
+      .props.sections.flatMap((section) => section.items)
+      .some((item) => item.id === "share"),
+    false,
+    "the Share sheet says sharing went away",
+  );
+  h.cleanup();
+});
+
+test("on the Artifact page, a held spot's comment waits for Send, which hands one message to the Chat with the text near it", async () => {
+  const outbox = require("../apps/mobile/src/design-outbox.ts");
+  const page = { id: "explainer", format: "html", title: "Routes", version: 4, latest: 4, html: "<main><h2>Why requests queue</h2></main>" };
+  const recorded = [];
+  let backs = 0;
+  const client = {
+    url: "mac",
+    call: async (method, args) => {
+      if (method === "artifact:add-comments") recorded.push(...args[0].comments);
+      if (method === "artifact:comments")
+        return [
+          { id: "11111111", design: { id: "explainer", version: 4, title: "Routes" }, x: 0.1, y: 0.2, anchor: "main:1@0,0", text: "Earlier", createdAt: 5 },
+          { id: "22222222", design: { id: "explainer", version: 3, title: "Routes" }, x: 0.1, y: 0.2, text: "On an older page", createdAt: 4 },
+        ];
+      if (method === "artifact:sharing-status") return { available: false };
+      return page;
+    },
+  };
+  const h = artifactHost(client, [], { back: () => backs++ });
+  const props = { hostId: "mac", chatId: "/p#9", id: "explainer", kind: "html" };
+  let tree = await h.open(props);
+  const pinsSent = () => h.commands().findLast((command) => command.t === "pins");
+  assert.deepEqual(
+    pinsSent().pins.map(({ k, a, n }) => ({ k, a, n })),
+    [{ k: "sent:11111111", a: "main:1@0,0", n: 1 }],
+    "the page shows what was sent on it as it is now",
+  );
+  // Holding the page pins a comment there; the page scrolls it into view and says where it landed.
+  h.say(tree, { t: "press", x: 0.4, y: 0.6, a: "main:1/h2:1@0.5,0.5", near: "Why requests queue", sx: 120, sy: 640 });
+  tree = h.render("ArtifactSheet", props);
+  const reveal = h.commands().find((command) => command.t === "reveal");
+  assert.ok(reveal, "the new pin is brought into view");
+  const waiting = pinsSent().pins.find((pin) => pin.k === reveal.k);
+  assert.deepEqual(
+    { x: waiting.x, y: waiting.y, a: waiting.a, n: waiting.n, hide: waiting.hide },
+    { x: 0.4, y: 0.6, a: "main:1/h2:1@0.5,0.5", n: 1, hide: true },
+  );
+  assert.equal(pinsSent().watch, reveal.k, "the page reports where the open pin is");
+  find(tree, (node) => node.props?.onLayout).props.onLayout({ nativeEvent: { layout: { width: 390, height: 700 } } });
+  h.say(tree, { t: "anchor", k: reveal.k, sx: 60, sy: 110, shown: true });
+  tree = h.render("ArtifactSheet", props);
+  const box = find(tree, (node) => node.type?.name === "CommentBox");
+  assert.deepEqual(JSON.parse(JSON.stringify(box.props.at)).y, 110);
+  box.props.onChange("Add the retry timing");
+  box.props.onDone();
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(
+    find(tree, (node) => node.type?.name === "CommentBox"),
+    undefined,
+  );
+  find(tree, (node) => node.type === "CircleButton" && node.props.filled).props.onPress();
+  await settle();
+  const message = outbox.peekDesignMessage("mac|/p#9");
+  const id = /\(comment ([a-f0-9]{8})\)/.exec(message.text)?.[1];
+  assert.match(
+    message.text,
+    new RegExp(
+      `^A comment on the artifact:\\n\\n1\\. \\(comment ${id}\\) On the artifact "Routes" \\(explainer\\), 40% across and 60% down, near "Why requests queue": Add the retry timing\\n\\n`,
+    ),
+  );
+  outbox.designMessageSent("mac|/p#9", message);
+  await settle();
+  assert.deepEqual(
+    recorded.map(({ id: commentId, anchor, near, design }) => ({ commentId, anchor, near, version: design.version })),
+    [{ commentId: id, anchor: "main:1/h2:1@0.5,0.5", near: "Why requests queue", version: 4 }],
+  );
+  assert.equal(backs, 1);
   h.cleanup();
 });
 
@@ -8937,6 +16745,26 @@ test("Artifact feedback sends from the Chat while Designs is off", async () => {
   );
   assert.equal(recorded, 1);
   assert.equal(outbox.peekDesignMessage("mac|/p#7"), null);
+});
+
+test("two feedback batches handed over before the Chat sends both reach the agent in order, each recorded once", async () => {
+  const outbox = require("../apps/mobile/src/design-outbox.ts");
+  const recorded = [];
+  const first = { kind: "artifacts", text: "Make the title bigger.", onSent: () => recorded.push("first") };
+  const second = { kind: "artifacts", text: "Use the brand color.", onSent: () => recorded.push("second") };
+  // The docked designs on an iPad take a second batch while the first still waits for the Chat.
+  outbox.postDesignMessage("mac|/p#8", first);
+  outbox.postDesignMessage("mac|/p#8", second);
+  assert.equal(outbox.peekDesignMessage("mac|/p#8"), first, "the oldest batch goes first");
+  const h = chatHost({ effects: true, call: async () => ({}) });
+  h.params.id = "8";
+  h.session.snapshot.project.state.sessions[8] = { id: 8, worktree_id: 1, provider: "codex" };
+  h.render();
+  for (let i = 0; i < 4; i++) await settle();
+  const sent = h.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].body);
+  assert.deepEqual(sent, ["Make the title bigger.", "Use the brand color."]);
+  assert.deepEqual(recorded, ["first", "second"]);
+  assert.equal(outbox.peekDesignMessage("mac|/p#8"), null);
 });
 
 test("mobile catalog verifies historical HTML aliases without guessing disabled structured refs", async () => {
@@ -8989,4 +16817,5406 @@ test("unmarked design cards reload their catalog after Designs is turned on", as
   await settle();
   assert.equal(h.render("ArtifactCards", props).props.step.artifact.id, "structured", "seen revisions are invalidated on a second enable");
   h.cleanup();
+});
+
+function canvasHost() {
+  const react = hookHost();
+  react.useSyncExternalStore = (_subscribe, read) => read();
+  const routes = [];
+  const now = Date.now();
+  const chat = (id, worktree_id, title, extra = {}) => ({
+    id,
+    worktree_id,
+    agent_name: "Claude",
+    status: "Stopped",
+    title,
+    provider: "claude",
+    summary: { count: 2, lastAt: now - 25 * 60000 },
+    ...extra,
+  });
+  const tree = (id, path, name, diff) => ({ id, project_id: 1, path, name, diff });
+  const copy = (path, worktrees, sessions, runs = {}) => ({
+    project: {
+      path,
+      state: {
+        next_id: 50,
+        projects: {},
+        worktrees: Object.fromEntries(worktrees.map((item) => [item.id, item])),
+        sessions: Object.fromEntries(sessions.map((item) => [item.id, item])),
+        messages: [],
+        tasks: {},
+      },
+    },
+    runs: { runs },
+  });
+  const copies = {
+    "/a": copy(
+      "/a",
+      [tree(1, "/a", "main", { added: 212, removed: 148 }), tree(4, "/a-done", "finished-work"), tree(8, "/a-filters", "sidebar-filters")],
+      [chat(2, 1, "Build UI"), chat(5, 4, "Archived", { archived: true }), chat(9, 8, "Sidebar filters"), chat(10, 8, "Review filters", { provider: "codex" })],
+      { "/a#2": { approvals: [{ id: "x" }], questions: [] }, "/a#10": { approvals: [], questions: [{ id: "q" }] } },
+    ),
+    "/b": copy("/b", [tree(1, "/b", "main")], [chat(2, 1, "Add API", { provider: "codex" })], { "/b#2": { approvals: [], questions: [] } }),
+    "/old": copy("/old", [tree(1, "/old", "main")], [chat(2, 1, "Old work", { archived: true })]),
+  };
+  const session = {
+    client: { url: "ws://mac" },
+    snapshot: null,
+    recent: [
+      { path: "/a", name: "Frontend" },
+      { path: "/b", name: "Backend" },
+      { path: "/old", name: "Old" },
+      { path: "/hidden", name: "Hidden", hidden: true },
+    ],
+    cachedProject: (path) => copies[path],
+    previewProject: async () => {},
+    reloadProjects: async () => {},
+  };
+  const projects = [
+    { id: "pa", path: "/a", name: "Frontend" },
+    { id: "pb", path: "/b", name: "Backend" },
+  ];
+  const links = {
+    available: true,
+    links: [
+      { id: "l1", a: { project_id: "pa", worktree_path: "/a" }, b: { project_id: "pb", worktree_path: "/b" }, created_at: "" },
+      { id: "l2", a: { project_id: "pa" }, b: { project_id: "pb" }, created_at: "" },
+    ],
+    projects,
+    projectIdOf: (path) => projects.find((project) => project.path === path)?.id,
+    refresh: async () => {},
+  };
+  const { default: CanvasScreen } = load("app/canvas.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
+      AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+    },
+    "expo-router": {
+      useIsFocused: () => true,
+      Redirect: "Redirect",
+      Stack: { Screen: "StackScreen" },
+      router: { canDismiss: () => false, dismissAll() {}, replace: (href) => routes.push(href) },
+    },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/chat-links": require("@milagre/shared/chat-links"),
+    "@milagre/shared/canvas": require("../packages/shared/src/canvas.ts"),
+    "../session": { useSession: () => session },
+    "../use-links": { useLinks: () => links },
+    "../attention": { useAttention: () => [] },
+    "../chat-links": chatLinks(),
+    "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
+    "../icons": { Icon: "Icon", ProviderLogo: "ProviderLogo" },
+    "../project-icon": { ProjectIcon: "ProjectIcon" },
+    "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+  });
+  const render = () => {
+    react.begin();
+    return CanvasScreen();
+  };
+  return { render, routes };
+}
+const allNodes = (node, keep, found = []) => {
+  if (!node || typeof node !== "object") return found;
+  if (keep(node)) found.push(node);
+  for (const child of [node.props?.children].flat(Infinity)) allNodes(child, keep, found);
+  return found;
+};
+const textOf = (node) =>
+  [node?.props?.children]
+    .flat(Infinity)
+    .map((child) => (child && typeof child === "object" ? textOf(child) : (child ?? "")))
+    .join("");
+
+test("the phone canvas lists the sidebar's chats by Project and Worktree, with live states and Links", () => {
+  const host = canvasHost();
+  const tree = host.render();
+  const headers = allNodes(tree, (node) => node.props?.accessibilityRole === "header").map(textOf);
+  assert.deepEqual(headers, ["Frontend", "Backend"], "a Project with only archived chats and a hidden Project stay off");
+  const cards = allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "Card");
+  assert.deepEqual(
+    cards.map((card) => card.props.worktree.branch),
+    ["main", "sidebar-filters", "main"],
+  );
+  const rendered = cards.map((card) => card.type(card.props));
+  const labels = (card) => allNodes(card, (node) => node.props?.accessibilityRole === "button").map((node) => node.props.accessibilityLabel);
+  assert.deepEqual(labels(rendered[0]), ["Build UI, Waiting for you, main"]);
+  assert.deepEqual(labels(rendered[1]), ["Sidebar filters, Idle · 25m ago", "Review filters, Asking you"]);
+  assert.deepEqual(labels(rendered[2]), ["Add API, Running, main"]);
+  assert.equal(rendered[0].props.style.borderColor, "orange", "a chat waiting for you outlines its card");
+  assert.equal(rendered[1].props.style.borderColor, "accent");
+  // The Worktree Link reads on both cards; the Project Link on the section headers.
+  assert.deepEqual(cards[0].props.worktree.linked, ["Backend / main"]);
+  assert.deepEqual(cards[2].props.worktree.linked, ["Frontend / main"]);
+  const chips = allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "LinkChip").map((chip) => chip.props.label);
+  assert.deepEqual(chips, ["All of Backend", "All of Frontend"]);
+  // A chat opens like the sidebar opens one.
+  allNodes(rendered[2], (node) => node.props?.accessibilityRole === "button")[0].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/b", hostId: "ws://mac", id: "2" } }]);
+});
+
+test("the phone canvas filter keeps the cards that need you, and counts each choice", () => {
+  const host = canvasHost();
+  // Each filter is a Chip: the real primitive draws a radio in the "Show chats" group.
+  const radios = allNodes(host.render(), (node) => node.props?.accessibilityRole === "radio");
+  assert.deepEqual(
+    radios.map((radio) => radio.props.accessibilityLabel),
+    ["All, 4", "Needs you, 2", "Running, 1"],
+  );
+  radios[1].props.onPress();
+  const tree = host.render();
+  const cards = allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "Card");
+  assert.deepEqual(
+    cards.map((card) => card.props.worktree.branch),
+    ["main", "sidebar-filters"],
+  );
+  assert.deepEqual(allNodes(tree, (node) => node.props?.accessibilityRole === "header").map(textOf), ["Frontend"]);
+});
+
+test("mobile notification chime sheet: a tap plays the chime and saves it with the push registration; the row shows it", () => {
+  const played = [];
+  const saved = [];
+  const push = { state: { enabled: true, chime: undefined }, preferences: async (value) => saved.push(value) };
+  const sheet = () =>
+    load("app/chime-sheet.tsx", {
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": { View: "View", Text: "Text", Pressable: "Pressable", StyleSheet: { hairlineWidth: 1 } },
+      "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 0 }) },
+      "@hugeicons/core-free-icons": {},
+      "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
+      "../icons": { Icon: "Icon" },
+      "../notification-chime-audio": { playNotificationChime: (chime) => played.push(chime) },
+      "../push": { usePush: () => push },
+    }).default;
+  const ChimeSheet = sheet();
+  const radio = (tree, label) => find(tree, (n) => n.type === "Pressable" && n.props.accessibilityLabel === label);
+  let tree = ChimeSheet();
+  assert.equal(radio(tree, "System default").props.accessibilityState.checked, true, "an older saved state has no chime: the system sound");
+  assert.equal(radio(tree, "Miracle").props.accessibilityState.checked, false);
+  radio(tree, "Miracle").props.onPress();
+  assert.deepEqual(played, ["miracle"]);
+  assert.equal(JSON.stringify(saved), '[{"chime":"miracle"}]');
+  push.state = { enabled: true, chime: "miracle" };
+  tree = ChimeSheet();
+  assert.equal(radio(tree, "Miracle").props.accessibilityState.checked, true);
+  // Tapping the chosen one again only plays it.
+  radio(tree, "Miracle").props.onPress();
+  assert.deepEqual(played, ["miracle", "miracle"]);
+  assert.equal(saved.length, 1);
+  assert.ok(find(tree, (n) => n.type === "Text" && String(n.props.children).includes("Tap one to hear it")));
+  push.state = { enabled: false, chime: "miracle" };
+  assert.ok(
+    find(ChimeSheet(), (n) => n.type === "Text" && String(n.props.children).includes("Turn on notifications")),
+    "says why nothing will ring",
+  );
+  const labels = [];
+  const all = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "Pressable") labels.push(node.props.accessibilityLabel);
+    const children = node.props?.children;
+    for (const child of Array.isArray(children) ? children.flat(Infinity) : [children]) all(child);
+  };
+  all(ChimeSheet());
+  assert.deepEqual(labels, ["System default", "Miracle", "FAAAH", "Bombastic side eye", "Vine boom", "Metal pipe", "Bruh", "Emotional damage"]);
+});
+
+test("undo changes on the phone: task list, conflict-only choice, stale preview refresh, restore and the Redo line", async (t) => {
+  const react = hookHost({ effects: true });
+  t.after(() => react.cleanup());
+  const checkpoints = load("../../../packages/shared/src/checkpoints.ts", {});
+  const hook = load("../../../packages/shared/src/use-checkpoints.ts", { react, "./checkpoints": checkpoints });
+  const redirect = {
+    id: "task-2",
+    kind: "task",
+    createdAt: Date.now(),
+    completedAt: Date.now(),
+    excluded: 0,
+    permissionMode: "ask",
+    messageId: 13,
+    prompt: "After login, open the account page",
+    changed: 3,
+  };
+  const settings = { ...redirect, id: "task-1", messageId: 11, prompt: "Add an account settings page", changed: 4 };
+  const files = [
+    { key: "0:src/login.ts", path: "src/login.ts", worktree: "/p", action: "replace", conflict: true },
+    { key: "0:src/redirect.ts", path: "src/redirect.ts", worktree: "/p", action: "delete", conflict: false },
+    { key: "0:src/login.test.ts", path: "src/login.test.ts", worktree: "/p", action: "replace", conflict: false },
+  ];
+  const calls = [];
+  let stale = true;
+  const api = {
+    list: async (request) => (calls.push(["list", request]), [redirect, settings]),
+    preview: async (request) => (calls.push(["preview", request]), { ...redirect, token: `preview-${calls.length}`, files }),
+    restore: async (request) => {
+      calls.push(["restore", request]);
+      if (stale) {
+        stale = false;
+        throw new Error("Files changed. Preview again before restoring");
+      }
+      return { restored: 2, kept: 1, recoveryId: "recovery", checkpointId: "task-2", redo: false };
+    },
+  };
+  const panel = load("undo-panel.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", StyleSheet: { absoluteFill: {}, hairlineWidth: 1 }, Text: "Text", View: "View" },
+    "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/checkpoints": checkpoints,
+    "./icons": { Icon: "Icon" },
+    "./ui": { IconButton: "IconButton", PageScroll: "PageScroll", PillButton: "PillButton", Segmented: "Segmented" },
+  });
+  const opened = [];
+  // Function components render in place, so the tree holds only host elements.
+  const expand = (node) =>
+    !node || typeof node !== "object"
+      ? node
+      : Array.isArray(node)
+        ? node.map(expand)
+        : typeof node.type === "function"
+          ? expand(node.type(node.props))
+          : { ...node, props: { ...node.props, children: expand(node.props?.children) } };
+  const nodes = (node) => (!node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)]);
+  const strings = (node) =>
+    typeof node === "string" ? [node] : !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(strings) : strings(node.props?.children);
+  let review;
+  const render = () => {
+    react.begin();
+    review = hook.useCheckpoints(api, "/p#1");
+    return review.view === "closed" ? [] : nodes(expand(panel.UndoPanel({ review, intent: "Undo", onOpenFile: (file) => opened.push(file.path) })));
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const primary = () => render().find((node) => node.type === "PillButton");
+  render();
+  void review.open();
+  await settle();
+  let tree = render();
+  assert.deepEqual(
+    tree.filter((node) => node.props?.testID?.startsWith("undo-task-")).map((node) => node.props.testID),
+    ["undo-task-task-2", "undo-task-task-1"],
+  );
+  assert.ok(strings(tree).includes("After login, open the account page"));
+  tree.find((node) => node.props?.testID === "undo-task-task-2").props.onPress();
+  await settle();
+  tree = render();
+  assert.equal(tree.filter((node) => node.props?.testID === "undo-file").length, 3);
+  assert.ok(strings(tree).includes("Edited after this task"));
+  assert.deepEqual(primary().props.title, "Undo 3 files");
+  assert.equal(primary().props.disabled, true);
+  tree.find((node) => node.props?.accessibilityLabel === "src/redirect.ts. Delete").props.onPress();
+  assert.deepEqual(opened, ["src/redirect.ts"]);
+  // Only the file edited after the task asks; the others are undone.
+  render()
+    .find((node) => node.type === "Segmented")
+    .props.onChange("keep");
+  assert.equal(primary().props.title, "Undo 2 files");
+  assert.equal(primary().props.disabled, false);
+  primary().props.onPress();
+  await settle();
+  tree = render();
+  assert.ok(strings(tree).includes("Files changed. Review again."));
+  const sent = calls.find(([method]) => method === "restore")[1];
+  assert.equal(sent.approved, true);
+  assert.equal(sent.chatId, "/p#1");
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.decisions)), { "0:src/redirect.ts": "restore", "0:src/login.test.ts": "restore", "0:src/login.ts": "keep" });
+  assert.equal(primary().props.disabled, true, "a fresh preview asks again");
+  render()
+    .find((node) => node.type === "Segmented")
+    .props.onChange("keep");
+  primary().props.onPress();
+  await settle();
+  render();
+  assert.equal(review.error, "");
+  assert.equal(review.view, "closed", JSON.stringify(calls));
+  assert.equal(calls.filter(([method]) => method === "restore").length, 2);
+
+  const divider = load("checkpoint-restore-divider.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/checkpoint-restore": await import("../packages/shared/src/checkpoint-restore.mjs"),
+    "./icons": { Icon: "Icon" },
+  });
+  const previews = [];
+  const line = nodes(
+    expand(
+      divider.CheckpointRestoreDivider({
+        context: { kind: "checkpoint-restore", checkpointId: "task-2", recoveryId: "recovery", restored: 2, kept: 1, redo: false },
+        onPreview: (...args) => previews.push(args),
+      }),
+    ),
+  );
+  assert.ok(strings(line).includes("Undid 2 files"));
+  const redo = line.find((node) => node.type === "Pressable");
+  assert.ok(strings(redo).includes("Redo"));
+  redo.props.onPress();
+  assert.deepEqual(previews, [["recovery", "Redo"]]);
+});
+
+test("the header opens Settings over the sidebar and Routines as a page, and its ⋯ holds Add Project, Link Projects, Canvas and Triage", () => {
+  const nav = navigationHost(deferred().promise);
+  const tree = nav.render();
+  find(tree, (node) => node.props?.label === "Settings").props.onPress();
+  find(tree, (node) => node.props?.label === "Routines").props.onPress();
+  assert.deepEqual(nav.routes, ["/settings", "/routines"]);
+  assert.deepEqual(nav.secondaryRoutes, ["sheet", true], "Settings opens over the sidebar; Routines is a page, pushed after the sidebar closes");
+  assert.equal(
+    find(tree, (node) => node.props?.label === "Close navigation"),
+    undefined,
+    "no close button",
+  );
+  const menu = find(tree, (node) => node.type === "PullDown" && node.props.label === "More");
+  same(
+    menu.props.sections.flatMap((section) => section.items.map((item) => item.title)),
+    ["Add Project", "Link Projects", "Canvas", "Triage an issue"],
+  );
+  menu.props.onSelect("canvas");
+  menu.props.onSelect("link");
+  assert.deepEqual(nav.routes.slice(2), ["/canvas", "/link-projects"]);
+});
+
+test("Triage an issue asks the computer New Chat picks for a triage session and opens a new Chat with its draft", async () => {
+  const calls = [];
+  const nav = navigationHost(deferred().promise, {
+    session: {
+      client: {
+        url: "mac",
+        call: async (...args) => {
+          calls.push(args);
+          return { prompt: "Read /p/PLAYBOOK.md and follow it. What went wrong: " };
+        },
+      },
+    },
+  });
+  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "More").props.onSelect("triage");
+  await new Promise((resolve) => setImmediate(resolve));
+  same(
+    calls.filter(([method]) => method === "triage:prepare"),
+    [["triage:prepare", ["Milagre for iPhone 1.2.3"]]],
+  );
+  assert.equal(
+    JSON.stringify(nav.routes),
+    JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", prefill: "Read /p/PLAYBOOK.md and follow it. What went wrong: " } }]),
+  );
+});
+
+test("the header leaves Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {
+  const nav = navigationHost(deferred().promise, { routinesAvailable: false });
+  assert.equal(
+    find(nav.render(), (node) => node.props?.label === "Routines"),
+    undefined,
+  );
+  assert.ok(find(nav.render(), (node) => node.props?.label === "Settings"));
+});
+
+test("the floating controls hold the Filters menu and New Chat, which opens in the open Project", () => {
+  const nav = navigationHost(deferred().promise);
+  const controls = find(nav.render(), (node) => node.type === "ChatListControls");
+  same(
+    controls.props.filters.sections.map((section) => section.title ?? ""),
+    ["", "Show", "On Chats"],
+  );
+  same(
+    controls.props.filters.sections[1].items.map((item) => [item.title, item.checked]),
+    [
+      ["All Chats", true],
+      ["Needs me", false],
+      ["Running", false],
+      ["Archived", false],
+    ],
+  );
+  assert.equal(controls.props.filters.active, false);
+  controls.props.onNewChat();
+  assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac" } }]));
+});
+
+test("a search that finds nothing offers a new Chat with the search as its draft", () => {
+  const nav = navigationHost(deferred().promise);
+  find(nav.render(), (node) => node.type === "ChatListControls").props.onQuery("dark canvas");
+  same(
+    nav.rows().props.data.map((item) => item.kind),
+    ["start"],
+  );
+  const empty = find(nav.row("start"), (node) => node.type === "EmptyState");
+  assert.equal(empty.props.title, "No Chat matches “dark canvas”");
+  assert.equal(empty.props.action.title, "Start a new Chat with your search");
+  empty.props.action.onPress();
+  assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", prefill: "dark canvas" } }]));
+});
+
+const routineFixtures = () => [
+  {
+    id: "hb",
+    name: "Babysit PR #473",
+    prompt: "Check CI",
+    trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+    target: { kind: "chat", chatId: "/p#4" },
+    enabled: true,
+    createdBy: { kind: "agent", chatId: "/p#4" },
+    nextRunAt: Date.UTC(2026, 9, 17, 10, 45),
+    maxRuns: 10,
+    runCount: 7,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+  },
+  {
+    id: "tr",
+    name: "Issues labelled agent",
+    prompt: "Work on {{issue.key}}",
+    trigger: { kind: "linear", workspace: "w", event: "label-added", label: "agent" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    enabled: false,
+    pausedReason: "3 failed runs in a row: no worktree",
+    createdBy: { kind: "user" },
+    runCount: 3,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [{ id: "r1", routineId: "tr", startedAt: 5, status: "failed", chatId: "/p#9" }],
+  },
+];
+
+function routinesHost({
+  routines = routineFixtures(),
+  enabled = true,
+  refuse = false,
+  confined = false,
+  slowUpdates = false,
+  states = {},
+  confirmed = [],
+} = {}) {
+  const react = hookHost();
+  const effects = [];
+  const focused = [];
+  const calls = [];
+  const routes = [];
+  let list = routines;
+  const sockets = [];
+  const updates = [];
+  const client = {
+    url: "ws://mac",
+    live: (path) => (sockets.push(path), { close() {} }),
+    async call(method, args) {
+      calls.push([method, args]);
+      if (refuse && method.startsWith("routines:")) throw new Error(`${method} is not available from mobile`);
+      if (confined && (method === "routines:enabled:read" || method === "routines:list")) return [];
+      if (method === "routines:enabled:read") return { enabled };
+      if (method === "routines:enabled:save") return { enabled: (enabled = args[0] === true) };
+      if (method === "routines:list") return { routines: list };
+      if (method === "routines:update" && slowUpdates) {
+        const gate = deferred();
+        updates.push(gate);
+        await gate.promise;
+      }
+      if (method === "routines:update") {
+        list = list.map((routine) => (routine.id === args[0] ? { ...routine, ...args[1] } : routine));
+        return list.find((routine) => routine.id === args[0]);
+      }
+      return null;
+    },
+  };
+  const reactModule = { ...react, useSyncExternalStore: (_subscribe, read) => read(), useEffect: (fn, deps) => effects.push([fn, deps]) };
+  const useRoutines = load("use-routines.ts", {
+    react: reactModule,
+    "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+  });
+  const { default: RoutinesScreen } = load("app/routines.tsx", {
+    react: reactModule,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "Text", "View"].map((name) => [name, name])),
+      Platform: { OS: "ios" },
+      StyleSheet: { hairlineWidth: 1 },
+    },
+    "expo-router": {
+      Stack: Object.assign(() => null, { Toolbar: Object.assign(() => null, { Button: "ToolbarButton", View: "ToolbarView" }) }),
+      router: { push: (href) => routes.push(href) },
+    },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "../session": { useSession: () => ({ client }) },
+    "../use-routines": useRoutines,
+    "../use-project-states": { useProjectStates: () => states },
+    "../routine-rows": load("routine-rows.ts", {
+      "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+      "@milagre/shared/routines": require("@milagre/shared/routines"),
+      "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+    }),
+    "../confirm-store": { confirm: async (...args) => (confirmed.push(args), true) },
+    "../chat-row-store": { useActivityClock: () => Date.UTC(2026, 9, 17, 10, 30) },
+    "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PillButton", "PullDown", "RowCheckbox"].map((name) => [name, name])),
+  });
+  const render = () => {
+    react.begin();
+    return RoutinesScreen();
+  };
+  const settle = async () => {
+    for (const [fn] of effects.splice(0)) fn();
+    for (const fn of focused.splice(0)) fn();
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  };
+  // The rows are components of their own; render each to read what it shows.
+  const rows = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "RoutineRow").map((row) => row.type(row.props));
+  const groups = (tree) => allNodes(tree, (node) => node.type === "Group").map((group) => group.props.title);
+  return { render, settle, calls, routes, rows, groups, sockets, updates };
+}
+
+test("the phone Routines screen groups heartbeats and triggers, says why a trigger paused, and opens a row's actions", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  assert.deepEqual(host.groups(tree), ["Heartbeats", "Triggers"]);
+  // The filters are Chips, radios in their group.
+  assert.deepEqual(
+    allNodes(tree, (node) => node.props?.accessibilityRole === "radio").map((node) => node.props.accessibilityLabel),
+    ["All, 2", "Heartbeats, 1", "Triggers, 1", "Paused, 1"],
+  );
+  const [heartbeat, trigger] = host.rows(tree);
+  assert.match(textOf(heartbeat), /Babysit PR #473/);
+  assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 Runs left/);
+  assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
+  assert.equal(find(trigger, (node) => node.type === "RowCheckbox").props.selected, false);
+  const menu = find(trigger, (node) => node.type === "PullDown");
+  // A Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
+  // Copy VM-owned arrays into this realm for deepStrictEqual.
+  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Edit", "Open last Chat", "Delete"]);
+  const heartbeatMenu = find(heartbeat, (node) => node.type === "PullDown");
+  assert.deepEqual(Array.from(heartbeatMenu.props.sections.flatMap((section) => section.items.map((item) => item.title))), [
+    "Edit",
+    "Run now",
+    "Open Chat",
+    "Delete",
+  ]);
+  // A tap opens the Routine's page; the actions stay on the long press.
+  menu.props.onPress();
+  menu.props.onSelect("open");
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [
+    { pathname: "/routine", params: { id: "tr" } },
+    { pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "9" } },
+  ]);
+  assert.ok(
+    allNodes(tree, (node) => node.type === "Text").some(
+      (node) => textOf(node) === "Routines run while this Mac is awake. Closing the lid on battery pauses them.",
+    ),
+  );
+  // The Paused chip keeps only the paused trigger.
+  allNodes(tree, (node) => node.props?.accessibilityRole === "radio")[3].props.onPress();
+  assert.deepEqual(host.groups(host.render()), ["Triggers"]);
+});
+
+test("a phone Routine row shows the unread dot while one of its hidden Run Chats is unread", async () => {
+  const runChat = (id, routineId, extra) => ({ id, routine: { routineId, runId: `u${id}`, hidden: true }, ...extra });
+  // Two of the trigger's Run Chats are unread: the row reads "unread Runs", as the dock's Routines button does.
+  const host = routinesHost({
+    states: { "/p": { sessions: { 9: runChat(9, "tr", { unread: true }), 10: runChat(10, "hb"), 11: runChat(11, "tr", { unread: true }) } } },
+  });
+  host.render();
+  await host.settle();
+  const [heartbeat, trigger] = host.rows(host.render());
+  assert.ok(find(trigger, (node) => node.type === "ChatMarkIcon" && node.props.mark === "unread"));
+  assert.match(find(trigger, (node) => node.type === "PullDown").props.label, /^Issues labelled agent, unread Runs\. /);
+  assert.equal(
+    find(heartbeat, (node) => node.type === "ChatMarkIcon"),
+    undefined,
+  );
+});
+
+test("deleting a Routine on the phone says a Heartbeat's Chat stays and a trigger's unkept Run Chats are archived", async () => {
+  const confirmed = [];
+  const host = routinesHost({ confirmed });
+  host.render();
+  await host.settle();
+  const [heartbeat, trigger] = host.rows(host.render());
+  find(heartbeat, (node) => node.type === "PullDown").props.onSelect("delete");
+  find(trigger, (node) => node.type === "PullDown").props.onSelect("delete");
+  await host.settle();
+  assert.deepEqual(confirmed, [
+    ["Delete Babysit PR #473?", "Its Chats stay.", "Delete"],
+    ["Delete Issues labelled agent?", "Its Runs stop, and its Run Chats you haven't kept are archived.", "Delete"],
+  ]);
+  assert.deepEqual(
+    host.calls.filter(([method]) => method === "routines:delete").map(([, args]) => args[0]),
+    ["hb", "tr"],
+  );
+});
+
+test("flipping a Routine's switch on the phone writes routines:update with the new value and reads the list again", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  const [heartbeat] = host.rows(host.render());
+  host.calls.length = 0;
+  find(heartbeat, (node) => node.type === "RowCheckbox").props.onPress();
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false, "the switch moves at once");
+  await host.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls[0])), ["routines:update", ["hb", { enabled: false }]]);
+  assert.ok(host.calls.some(([method]) => method === "routines:list"));
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false);
+});
+
+test("an older Mac that says its Routines are off still lists them, with nothing to allow", async () => {
+  const [heartbeat] = routineFixtures();
+  const host = routinesHost({ routines: [heartbeat], enabled: false });
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  assert.equal(host.rows(tree).length, 1, "its Routines are listed");
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton" && node.props.title === "Allow"),
+    undefined,
+  );
+});
+
+// Local times, so "Today" holds in any time zone.
+const routineNow = new Date(2026, 9, 17, 10, 30).getTime();
+const at = (hour, minute = 0) => new Date(2026, 9, 17, hour, minute).getTime();
+
+function routineHost({ id = "tr", routines = routineFixtures(), states = {}, enabled = true, loading = false, error = "", canGoBack = true } = {}) {
+  const react = hookHost();
+  const routes = [];
+  const calls = [];
+  const replaced = [];
+  let current = routines;
+  let backs = 0;
+  const client = {
+    url: "ws://mac",
+    async call(method, args) {
+      calls.push([method, args]);
+      return null;
+    },
+  };
+  const icons = new Proxy({}, { get: (_, key) => key });
+  const shared = require("@milagre/shared/routines");
+  const { RunList } = load("run-list.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": icons,
+    "@milagre/shared/routines": shared,
+    "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+    "./status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
+    "./ui": { Button: "Button" },
+  });
+  const { default: RoutineScreen } = load("app/routine.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Platform: { OS: "ios" }, ScrollView: "ScrollView", Text: "Text", View: "View" },
+    "expo-router": {
+      Stack: Object.assign(() => null, { Screen: "StackScreen", Toolbar: Object.assign(() => null, { Button: "ToolbarButton", View: "ToolbarView" }) }),
+      router: { push: (href) => routes.push(href), back: () => backs++, replace: (href) => replaced.push(href), canGoBack: () => canGoBack },
+      // Runs when the screen comes into focus or its callback changes: queued here, and run by flush().
+      useFocusEffect: (fn) => react.effect(fn, [fn]),
+      useLocalSearchParams: () => ({ id }),
+    },
+    "@hugeicons/core-free-icons": icons,
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/routines": shared,
+    "../session": { useSession: () => ({ client }) },
+    "../use-routines": {
+      useRoutines: () => ({ routines: current, enabled, unavailable: null, error, loading, refresh: async () => {}, update: async () => {} }),
+    },
+    "../use-project-states": { useProjectStates: () => states },
+    "../use-rpc": { useRpc: (caller) => ({ data: caller ? { projects: [{ path: "/p", chats: [{ chatId: "/p#4", title: "Babysit" }] }] } : null }) },
+    "../turn-options": { modelsFor: (provider) => (provider === "claude" ? [{ id: "claude-opus-5-5", name: "Opus 5.5", provider }] : []) },
+    "../chat-row-store": { useActivityClock: () => routineNow },
+    "../routine-rows": load("routine-rows.ts", {
+      "@hugeicons/core-free-icons": icons,
+      "@milagre/shared/routines": shared,
+      "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+    }),
+    "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
+    "../run-list": { RunList },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "RowCheckbox", "Segmented"].map((name) => [name, name])),
+  });
+  const render = () => {
+    react.begin();
+    return RoutineScreen();
+  };
+  // The Runs list is a component of its own; render it to read its rows.
+  const runList = (tree) => {
+    const node = find(tree, (child) => child.type === RunList);
+    return node && node.type(node.props);
+  };
+  const rows = (list) => allNodes(list, (node) => node.type === "Pressable");
+  return {
+    render,
+    runList,
+    rows,
+    routes,
+    calls,
+    replaced,
+    backs: () => backs,
+    flush: () => react.flush(),
+    setRoutines: (next) => (current = next),
+  };
+}
+
+const runsFixture = () => [
+  { id: "r6", routineId: "tr", startedAt: at(10, 15), status: "running", chatId: "/p#16" },
+  { id: "r5", routineId: "tr", startedAt: at(9), status: "acted", chatId: "/p#15", title: "Fixed the flaky login test" },
+  { id: "r4", routineId: "tr", startedAt: at(8), status: "quiet", chatId: "/p#14", summary: "CI green" },
+  { id: "r3", routineId: "tr", startedAt: at(7), status: "skipped-busy" },
+  { id: "r2", routineId: "tr", startedAt: at(6), status: "failed", chatId: "/p#12", error: "No worktree\nat git" },
+  { id: "r1", routineId: "tr", startedAt: at(5), status: "missed" },
+];
+
+test("the phone Routine screen lists its Runs by day: acted and failed rows, quiet stretches folded, and opens a Run's Chat while it is there", () => {
+  const [, trigger] = routineFixtures();
+  const host = routineHost({
+    routines: [{ ...trigger, runs: runsFixture() }],
+    states: {
+      "/p": {
+        sessions: { 15: { id: 15, unread: true, routine: { routineId: "tr", runId: "r5", hidden: true } }, 14: { id: 14, archived: true }, 16: { id: 16 } },
+      },
+    },
+  });
+  const tree = host.render();
+  assert.equal(find(tree, (node) => node.type === "StackScreen").props.options.title, "Issues labelled agent");
+  find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Edit").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/routine-form", params: { id: "tr" } }]);
+  host.routes.length = 0;
+  // A Linear trigger has no Run now.
+  assert.equal(
+    find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Run now"),
+    undefined,
+  );
+
+  const list = host.runList(tree);
+  assert.ok(allNodes(list, (node) => node.type === "SectionLabel").some((node) => textOf(node) === "Today"));
+  assert.deepEqual(
+    host.rows(list).map((row) => [row.props.accessibilityLabel, !row.props.disabled]),
+    [
+      ["Issues labelled agent. 10:15", true],
+      ["Fixed the flaky login test. Unread. 09:00", true],
+      ["1 quiet · 1 skipped, its Chat was busy. 07:00–08:00", true],
+      ["Failed: No worktree. 06:00", false],
+      ["1 missed. 05:00", true],
+    ],
+  );
+  const [, acted, fold] = host.rows(list);
+  assert.ok(find(acted, (node) => node.type === "ChatMarkIcon" && node.props.mark === "unread"));
+  acted.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "15" } }]);
+
+  // A fold expands in place: a quiet Run whose Chat is left (archived) opens it; a skipped one says its Chat was busy.
+  fold.props.onPress();
+  const open = host.rows(host.runList(host.render()));
+  assert.deepEqual(
+    open.slice(2, 5).map((row) => [row.props.accessibilityLabel, !row.props.disabled]),
+    [
+      ["1 quiet · 1 skipped, its Chat was busy. 07:00–08:00", true],
+      ["CI green. 08:00", true],
+      ["Its Chat was busy. 07:00", false],
+    ],
+  );
+  open[3].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes.at(-1))), { pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "14" } });
+});
+
+test("the phone Routine screen shows On with its switch, its settings as chips, its times, and filters its Runs", () => {
+  const [, trigger] = routineFixtures();
+  const runs = runsFixture();
+  const host = routineHost({
+    routines: [{ ...trigger, enabled: true, pausedReason: undefined, model: "claude-opus-5-5", provider: "claude", permissionMode: "auto", runs }],
+    states: { "/p": { sessions: { 15: { id: 15, unread: true, routine: { routineId: "tr", runId: "r5", hidden: true } }, 16: { id: 16 } } } },
+  });
+  const tree = host.render();
+  assert.equal(find(tree, (node) => typeof node.type === "function" && node.type.name === "StatePill").props.on, true);
+  assert.equal(find(tree, (node) => node.type === "RowCheckbox").props.selected, true);
+  const chips = find(tree, (node) => node.type === "ScrollView" && node.props.horizontal);
+  assert.deepEqual(
+    allNodes(chips, (node) => typeof node.type === "function" && node.type.name === "SettingChip").map((node) => node.props.text),
+    ["Linear · label agent added", "New Worktree in p", "Opus 5.5", "Retry on another provider", "Auto mode"],
+  );
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Last Run 10:15"));
+  const filter = find(tree, (node) => node.type === "Segmented");
+  assert.deepEqual(Array.from(filter.props.options.map((option) => option.title)), ["All 6", "Acted 1", "Failed 1", "Unread 1"]);
+  filter.props.onChange("failed");
+  assert.deepEqual(
+    host.rows(host.runList(host.render())).map((row) => row.props.accessibilityLabel),
+    ["Failed: No worktree. 06:00"],
+  );
+  // No Delete on the screen: it is in Edit.
+  assert.equal(
+    find(host.render(), (node) => String(node.props?.title ?? node.props?.label ?? node.props?.accessibilityLabel ?? "").startsWith("Delete")),
+    undefined,
+  );
+});
+
+test("a phone Run retried on its fallback names the model it retried on and lists the failed first try, which opens its own Chat", () => {
+  const [, trigger] = routineFixtures();
+  const retried = {
+    id: "r7",
+    routineId: "tr",
+    startedAt: at(10, 15),
+    status: "acted",
+    chatId: "/p#18",
+    title: "Sorted the inbox",
+    fallback: { provider: "claude", model: "claude-opus-5-5" },
+    attempts: [
+      { chatId: "/p#17", provider: "codex", model: "gpt-6.1-sol", startedAt: at(10, 15), endedAt: at(10, 16), error: "Selected model is at capacity." },
+    ],
+  };
+  const host = routineHost({ routines: [{ ...trigger, runs: [retried] }], states: { "/p": { sessions: { 17: { id: 17 }, 18: { id: 18 } } } } });
+  const rows = host.rows(host.runList(host.render()));
+  assert.deepEqual(
+    rows.map((row) => row.props.accessibilityLabel),
+    ["Sorted the inbox · retried on claude-opus-5-5. 10:15", "First try on gpt-6.1-sol failed: Selected model is at capacity."],
+  );
+  rows[1].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes.at(-1))).params.id, "17");
+});
+
+// A babysit Heartbeat runs only on what changed on its PR and follows the Babysit PRs settings: no Run now, no Edit.
+const babysitRoutine = (heartbeat) => ({
+  ...heartbeat,
+  id: "pr",
+  name: "Babysit PR #7",
+  trigger: { kind: "pull-request", url: "https://github.com/o/r/pull/7", repo: "github.com/o/r", number: 7, settings: {} },
+  maxRuns: undefined,
+  expiresAt: Date.UTC(2026, 9, 24),
+  runs: [],
+});
+
+test("a phone babysit Heartbeat has no Run now or Edit, on its row or its screen, and its row still deletes it", async () => {
+  const [heartbeat] = routineFixtures();
+  const list = routinesHost({ routines: [babysitRoutine(heartbeat)] });
+  list.render();
+  await list.settle();
+  const [row] = list.rows(list.render());
+  const menu = find(row, (node) => node.type === "PullDown");
+  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Open Chat", "Delete"]);
+  const screen = routineHost({ id: "pr", routines: [babysitRoutine(heartbeat)] });
+  const toolbar = allNodes(screen.render(), (node) => node.type === "ToolbarButton").map((node) => node.props.accessibilityLabel);
+  assert.deepEqual(toolbar, []);
+  const other = routineHost({ id: "hb", routines: [{ ...heartbeat, runs: [] }] });
+  assert.deepEqual(
+    allNodes(other.render(), (node) => node.type === "ToolbarButton").map((node) => node.props.accessibilityLabel),
+    ["Run now", "Edit"],
+  );
+});
+
+test("a phone Run row gives its words all the room: flex 1 with no minimum, the dot's padding taken back, and the time never squeezed", () => {
+  const [, trigger] = routineFixtures();
+  const title = "Add exponential backoff retries to payments webhook";
+  const host = routineHost({
+    routines: [{ ...trigger, runs: [{ id: "r5", routineId: "tr", startedAt: at(9), status: "acted", chatId: "/p#15", title }] }],
+    states: { "/p": { sessions: { 15: { id: 15, unread: true, routine: { routineId: "tr", runId: "r5", hidden: true } } } } },
+  });
+  const [row] = host.rows(host.runList(host.render()));
+  const text = find(row, (node) => node.type === "Text" && textOf(node) === title);
+  assert.equal(text.props.numberOfLines, 1);
+  assert.ok([text.props.style].flat().some((entry) => entry && entry.flex === 1 && entry.minWidth === 0));
+  // The unread mark is a 20 pt box round an 8 pt dot; its slack goes back to the words.
+  const mark = find(row, (node) => node.type === "ChatMarkIcon");
+  const slot = find(row, (node) => node.type === "View" && [node.props.children].flat(Infinity).includes(mark));
+  assert.deepEqual([slot.props.style.marginHorizontal], [-6]);
+  const time = find(row, (node) => node.type === "Text" && textOf(node) === "09:00");
+  assert.equal(
+    time.props.style.some((entry) => entry.flexShrink === 0),
+    true,
+  );
+  // A fold's range ("13:29–13:30", 11 tabular characters at 13 pt) stays on one line.
+  assert.equal(time.props.numberOfLines, 1);
+  assert.ok(time.props.style.some((entry) => entry.width >= 92));
+});
+
+test("the phone Routine screen opens a Run's Chat in a Project it holds no state for, and the Chat screen loads it", () => {
+  const [, trigger] = routineFixtures();
+  const host = routineHost({ routines: [{ ...trigger, runs: [{ id: "r9", routineId: "tr", startedAt: at(9), status: "acted", chatId: "/q#3" }] }] });
+  const [row] = host.rows(host.runList(host.render()));
+  assert.equal(row.props.disabled, false);
+  row.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/q", hostId: "ws://mac", id: "3" } }]);
+});
+
+test("the phone Routine screen says No Runs yet with the next Run", async () => {
+  const [heartbeat] = routineFixtures();
+  const empty = routineHost({ id: "hb", routines: [{ ...heartbeat, nextRunAt: at(10, 45) }] });
+  const texts = new Set(allNodes(empty.render(), (node) => node.type === "Text").map(textOf));
+  assert.ok(texts.has("No Runs yet"));
+  assert.ok(texts.has("Next Run 10:45"));
+  // Run now is a play button in the toolbar, beside Edit.
+  const play = find(empty.render(), (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Run now");
+  assert.ok(play, "a Heartbeat runs now");
+  assert.equal(play.props.icon, "play.fill");
+  assert.equal(
+    find(empty.render(), (node) => node.type === "PillButton" && node.props.title === "Run now"),
+    undefined,
+  );
+
+  const gone = routineHost({ id: "nope" });
+  assert.ok(allNodes(gone.render(), (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on this Mac."));
+});
+
+test("the phone Routine screen goes back once the Mac's list has been read and no longer holds its Routine", () => {
+  const host = routineHost({ id: "nope" });
+  const tree = host.render();
+  host.flush();
+  assert.equal(host.backs(), 1);
+  assert.deepEqual(host.replaced, []);
+  // Still on screen while it leaves, with Edit unavailable.
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on this Mac."));
+  assert.equal(find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Edit").props.disabled, true);
+  // A later render, or a later focus, doesn't go back again.
+  host.render();
+  host.flush();
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 1);
+});
+
+test("the phone Routine screen opened with nothing behind it goes to the Routines list instead", () => {
+  const host = routineHost({ id: "nope", canGoBack: false });
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 0);
+  assert.deepEqual(host.replaced, ["/routines"]);
+});
+
+test("the phone Routine screen stays while its Routine is listed, the list is loading, or a read failed", () => {
+  const cases = {
+    "the Routine is listed": routineHost(),
+    "the list is loading": routineHost({ id: "nope", loading: true }),
+    "the Mac's switch is not read yet": routineHost({ id: "nope", enabled: null }),
+    "the last read failed": routineHost({ id: "nope", error: "Could not read Routines." }),
+  };
+  for (const [name, host] of Object.entries(cases)) {
+    host.render();
+    host.flush();
+    assert.deepEqual([host.backs(), host.replaced], [0, []], name);
+  }
+});
+
+test("the phone Routine screen goes back once when its Routine is deleted from the Edit sheet or anywhere else", () => {
+  const [, trigger] = routineFixtures();
+  const host = routineHost({ routines: [trigger] });
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 0);
+  // The Mac's list drops the Routine: the page goes when it is back in view, once.
+  host.setRoutines([]);
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 1);
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 1);
+});
+
+function routineFormHost({ params = {}, routines = [], answers = {}, created } = {}) {
+  const react = hookHost();
+  const calls = [];
+  const routes = [];
+  const responses = {
+    "routines:targets": { projects: [{ path: "/p", name: "milagre-ade", chats: [{ chatId: "/p#4", title: "Babysit", lastAt: 1 }] }] },
+    "routines:linear-options": {
+      workspaces: [{ id: "w1", name: "Milagre" }],
+      teams: [{ key: "MIL", name: "Milagre" }],
+      labels: ["agent", "bug"],
+      states: [{ name: "Todo", type: "unstarted" }],
+    },
+    ...answers,
+  };
+  const client = {
+    url: "ws://mac",
+    async call(method, args) {
+      calls.push([method, JSON.parse(JSON.stringify(args))]);
+      if (method === "routines:create") {
+        const routine = { id: "new", enabled: true, runCount: 0, createdAt: 1, updatedAt: 1, runs: [], ...args[0], ...created?.routine };
+        routines.push(routine);
+        return { routine, ...(created?.hookUrl ? { hookUrl: created.hookUrl } : {}) };
+      }
+      if (method === "routines:rotate-hook") return { url: "https://relay.milagre.cloud/hook/rotated" };
+      if (method === "routines:update") return { id: args[0] };
+      return responses[method] ?? null;
+    },
+  };
+  const icons = new Proxy({}, { get: (_, key) => key });
+  // The discard guard: whether leaving is held back now, and the alert it shows when it is.
+  const guard = { on: false, ask: null, alerts: [] };
+  const { default: RoutineForm } = load("app/routine-form.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "Text", "View"].map((name) => [name, name])),
+      Alert: { alert: (...args) => guard.alerts.push(args) },
+      Platform: { OS: "ios" },
+      StyleSheet: { hairlineWidth: 1 },
+    },
+    "expo-router/react-navigation": {
+      usePreventRemove: (on, ask) => {
+        guard.on = on;
+        guard.ask = ask;
+      },
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+    "expo-router": {
+      Stack: { Screen: "StackScreen" },
+      router: { back: () => routes.push("back"), push: (href) => routes.push(href) },
+      useLocalSearchParams: () => params,
+    },
+    "expo-clipboard": { setStringAsync: async () => {} },
+    "@hugeicons/core-free-icons": icons,
+    "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+    "@milagre/shared/routine-prompt": require("@milagre/shared/routine-prompt"),
+    "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "../session": { useSession: () => ({ client, models: null, cliStatus: null, snapshot: { project: { path: "/p" } } }) },
+    "../use-routines": { useRoutines: () => ({ routines, enabled: true, error: "", loading: false, refresh: async () => {}, update: async () => {} }) },
+    "../use-rpc": { useRpc: (caller, method) => ({ data: caller ? (responses[method] ?? null) : null, error: "", loading: false, refresh() {} }) },
+    "../turn-options": { modelsFor: (provider) => (provider === "claude" ? [{ id: "claude-opus-5-5", name: "Opus 5.5", provider }] : []) },
+    "../placeholder-field": { PlaceholderField: "PlaceholderField" },
+    "../confirm-store": { confirm: async () => true },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(
+      ["Button", "CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowCheckbox"].map((name) => [name, name]),
+    ),
+  });
+  const render = () => {
+    react.begin();
+    return RoutineForm();
+  };
+  const rowLabels = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "FormRow").map((node) => node.props.label);
+  const pick = (tree, label) => find(tree, (node) => node.type === "PullDown" && node.props.label === label);
+  return { render, calls, routes, rowLabels, pick, guard };
+}
+
+test("the phone routine form in Linear mode shows the When, Label and Team rows and offers Linear placeholders", () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  assert.ok(find(tree, (node) => node.type === "CircleButton" && node.props.label === "Close"));
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "New Routine"));
+  assert.ok(host.rowLabels(tree).includes("Repeats"), "a new Routine starts on a schedule");
+  find(tree, (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio").props.onPress();
+  tree = host.render();
+  const labels = host.rowLabels(tree);
+  for (const label of ["When", "Label", "Team", "Project", "Works in", "Model", "Stop after"]) assert.ok(labels.includes(label), label);
+  assert.equal(
+    allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "FormRow" && node.props.label === "Works in")[0].props.value,
+    "New Worktree",
+    "Worktree is a product noun",
+  );
+  const linear = find(tree, (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio");
+  assert.equal(linear.props.accessibilityState.checked, true);
+  const names = Array.from(find(tree, (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name));
+  assert.ok(names.includes("issue.key"));
+  assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Create Routine");
+});
+
+test("a new phone Heartbeat can pick a Project, change it, and save its selected Chat", async () => {
+  const host = routineFormHost({
+    answers: {
+      "routines:targets": {
+        projects: [
+          { path: "/p", name: "First", chats: [{ chatId: "/p#4", title: "Babysit", lastAt: 1 }] },
+          { path: "/q", name: "Second", chats: [{ chatId: "/q#9", title: "Watch CI", lastAt: 2 }] },
+        ],
+      },
+    },
+  });
+  host.pick(host.render(), "Works in").props.onSelect("chat");
+  host.pick(host.render(), "Project").props.onSelect("/p");
+  assert.deepEqual(
+    host.pick(host.render(), "Chat").props.sections[0].items.map((item) => item.id),
+    ["/p#4"],
+  );
+  host.pick(host.render(), "Chat").props.onSelect("/p#4");
+  host.pick(host.render(), "Project").props.onSelect("/q");
+  assert.deepEqual(
+    host.pick(host.render(), "Chat").props.sections[0].items.map((item) => item.id),
+    ["/q#9"],
+  );
+  host.pick(host.render(), "Chat").props.onSelect("/q#9");
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Watch CI");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Check this PR");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create?.[1][0].target, { kind: "chat", chatId: "/q#9" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("the phone offers comment placeholders only for a Linear comment Routine", () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "When").props.onSelect("comment");
+  const names = () => find(host.render(), (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name);
+  assert.ok(names().includes("comment.body"));
+  assert.ok(names().includes("comment.author"));
+  host.pick(host.render(), "When").props.onSelect("assigned");
+  assert.ok(!names().includes("comment.body"));
+  assert.ok(!names().includes("comment.author"));
+});
+
+test("the phone prompt field suggests {{issue.key}} while typing {{iss, and choosing it inserts the placeholder", () => {
+  const react = hookHost();
+  const changes = [];
+  const { PlaceholderField } = load("placeholder-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "@milagre/shared/routine-prompt": require("@milagre/shared/routine-prompt"),
+    "./ui": { Field: "Field", ListRow: "ListRow" },
+  });
+  const placeholders = require("@milagre/shared/routine-prompt").placeholdersFor({ kind: "linear", workspace: "w", event: "label-added" });
+  let value = "Work on {{iss";
+  const render = () => {
+    react.begin();
+    return PlaceholderField({ value, onChangeText: (next) => changes.push((value = next)), placeholders });
+  };
+  const field = find(render(), (node) => node.type === "Field");
+  field.props.onFocus();
+  field.props.onSelectionChange({ nativeEvent: { selection: { start: value.length, end: value.length } } });
+  const suggestion = find(render(), (node) => node.type === "ListRow" && node.props.title === "{{issue.key}}");
+  assert.ok(suggestion, "issue.key is suggested");
+  suggestion.props.onPress();
+  assert.deepEqual(changes, ["Work on {{issue.key}}"]);
+  const after = find(render(), (node) => node.type === "Field");
+  assert.deepEqual(JSON.parse(JSON.stringify(after.props.selection)), { start: 21, end: 21 }, "the caret goes after the }}");
+});
+
+test("Create on the phone routine form sends routines:create the formToInput output and closes", async () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Take issues labelled agent");
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "Label").props.onSelect("agent");
+  host.pick(host.render(), "Project").props.onSelect("/p");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Work on {{issue.key}}");
+  tree = host.render();
+  find(tree, (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create[1], [
+    {
+      name: "Take issues labelled agent",
+      prompt: "Work on {{issue.key}}",
+      trigger: { kind: "linear", workspace: "w1", event: "label-added", label: "agent" },
+      target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("the phone routine form shows a refused field's problem and sends nothing", async () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio").props.onPress();
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Labels");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    host.calls.find(([method]) => method === "routines:create"),
+    undefined,
+  );
+  const problems = allNodes(host.render(), (node) => typeof node.type === "function" && node.type.name === "Problem").map((node) => node.props.text);
+  assert.ok(problems.includes("Pick the label to watch"), "the problem shows under the Linear card");
+});
+
+test("opening the phone Routines screen reads once and opens one live socket", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  assert.equal(host.calls.filter(([method]) => method === "routines:list").length, 1);
+  assert.deepEqual(host.sockets, [""]);
+});
+
+test("on a Mac without Routines the phone screen asks to update Milagre there, with no raw error and no socket", async () => {
+  const host = routinesHost({ refuse: true });
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  const texts = new Set(allNodes(tree, (node) => node.type === "Text").map(textOf));
+  assert.ok(texts.has("Update Milagre on this Mac to use Routines."));
+  assert.ok(!texts.has("Routines are off on this Mac"));
+  assert.equal(
+    find(tree, (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  assert.deepEqual(host.sockets, []);
+});
+
+test("a confined phone is never told Routines are off, and opens no Project-less socket", async () => {
+  const host = routinesHost({ confined: true });
+  host.render();
+  await host.settle();
+  const texts = new Set(allNodes(host.render(), (node) => node.type === "Text").map(textOf));
+  assert.ok(!texts.has("Routines are off on this Mac"));
+  assert.ok(texts.has("Routines aren't available on this connection."));
+  assert.deepEqual(host.sockets, []);
+});
+
+test("two quick flips of one Routine on the phone keep the second value until its own write settles", async () => {
+  const host = routinesHost({ slowUpdates: true });
+  host.render();
+  await host.settle();
+  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox");
+  switchOf().props.onPress();
+  assert.equal(switchOf().props.selected, false);
+  switchOf().props.onPress();
+  assert.equal(switchOf().props.selected, true);
+  await host.settle();
+  host.updates[0].resolve();
+  await host.settle();
+  assert.equal(switchOf().props.selected, true, "the first write's end doesn't drop the second flip");
+  host.updates[1].resolve();
+  await host.settle();
+});
+
+test("useRoutinesAvailable is true on a Mac with Routines, switched off or on, and false on an older Mac or a confined phone", async () => {
+  const check = async (answer) => {
+    const react = hookHost();
+    const focused = [];
+    const { useRoutinesAvailable } = load("use-routines.ts", {
+      react,
+      "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
+      "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    });
+    const client = { call: async () => (answer instanceof Error ? Promise.reject(answer) : answer) };
+    react.begin();
+    useRoutinesAvailable(client);
+    for (const fn of focused.splice(0)) fn();
+    await new Promise((resolve) => setImmediate(resolve));
+    react.begin();
+    return useRoutinesAvailable(client);
+  };
+  assert.equal(await check({ enabled: false }), true);
+  assert.equal(await check({ enabled: true }), true);
+  assert.equal(await check(new Error("routines:enabled:read is not available from mobile")), false);
+  assert.equal(await check([]), false);
+});
+
+const heartbeatFor = (chatId, extra = {}) => ({
+  id: "hb1",
+  name: "Babysit PR #473",
+  prompt: "Check CI",
+  trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+  target: { kind: "chat", chatId },
+  enabled: true,
+  createdBy: { kind: "agent", chatId },
+  nextRunAt: new Date(2026, 9, 17, 10, 45).getTime(),
+  // A year far ahead: the card reads "ends 09:00" instead of "ends Oct 24" on the day a Heartbeat ends, and the
+  // runner's clock crossed that day (UTC) before the Mac's did.
+  expiresAt: new Date(2036, 9, 24, 9, 0).getTime(),
+  runCount: 2,
+  createdAt: 1,
+  updatedAt: 1,
+  runs: [],
+  ...extra,
+});
+
+test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button and Next check; without one, neither", () => {
+  const chat = chatHost({ routines: [heartbeatFor("/p#7"), heartbeatFor("/p#8", { id: "other" })] });
+  chat.params.id = "7";
+  chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  const tree = chat.render();
+  const button = chatMenuEntry(tree, "Heartbeat");
+  assert.ok(button, "the header shows the Heartbeat button");
+  assert.equal(button.props.systemImage, "waveform.path.ecg");
+  button.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine", params: { id: "hb1" } }], "it opens the Heartbeat's page");
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Next check 10:45"));
+
+  const paused = chatHost({ routines: [heartbeatFor("/p#7", { enabled: false })] });
+  paused.params.id = "7";
+  paused.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  const off = paused.render();
+  assert.equal(chatMenuEntry(off, "Heartbeat"), undefined);
+  assert.ok(!allNodes(off, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check")));
+});
+
+test("a phone Run Chat, hidden or kept, shows a Routine header button that opens its Routine's page", () => {
+  const trigger = { ...routineFixtures()[1], enabled: false };
+  for (const hidden of [true, false]) {
+    const chat = chatHost({ routines: [trigger, heartbeatFor("/p#8")] });
+    chat.params.id = "9";
+    chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden } };
+    const button = chatMenuEntry(chat.render(), "Routine");
+    assert.ok(button, "a paused Routine's Run Chat still names it");
+    assert.equal(button.props.systemImage, "repeat");
+    button.props.onPress();
+    assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine", params: { id: "tr" } }]);
+  }
+  // A Run Chat whose Routine is gone has no button.
+  const gone = chatHost({ routines: [heartbeatFor("/p#8")] });
+  gone.params.id = "9";
+  gone.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden: true } };
+  const tree = gone.render();
+  assert.equal(
+    chatMenuEntries(tree).find((node) => ["Routine", "Heartbeat"].includes(node.props.children)),
+    undefined,
+  );
+});
+
+test("the phone Chat header keeps its title on one line with an ellipsis, clear of the toolbar group, as Browser and PR shortcuts appear", () => {
+  const title = "Rotate staging API key before Friday";
+  const header = (screenWidth, { routines = [], routine, browserShortcut = null } = {}) => {
+    const chat = chatHost({ routines, screenWidth, browserShortcut });
+    chat.params.id = "9";
+    chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, title, ...(routine ? { routine } : {}) };
+    const tree = chat.render();
+    const screen = find(tree, (node) => node.type === "Screen");
+    const element = screen.props.options.headerTitle();
+    // The box reads whether the sidebar is pinned itself, so the Chat doesn't render again as it shows or hides.
+    const titleBox = find(element, (node) => typeof node.type === "function" && "actionCount" in node.props);
+    const box = titleBox.type(titleBox.props);
+    const text = find(element, (node) => node.type === "Text" && textOf(node) === title);
+    assert.ok(text, "the title is in the header");
+    assert.equal(text.props.numberOfLines, 1);
+    assert.equal(text.props.ellipsizeMode, "tail");
+    assert.equal(text.props.style.flexShrink, 1, "the text gives way before the frame does");
+    return box.props.style.maxWidth;
+  };
+  const runChat = { routines: [{ ...routineFixtures()[1], enabled: false }], routine: { routineId: "tr", runId: "r1", hidden: true } };
+  const heartbeat = { routines: [heartbeatFor("/p#9")] };
+  // Routine actions stay inside the menu and do not take title space.
+  assert.equal(header(402, runChat), 230, "a Run Chat keeps Routine inside ⋯");
+  assert.equal(header(402, heartbeat), 230, "a Heartbeat Chat also keeps its title room");
+  assert.equal(header(402), 230, "a normal Chat keeps its room: only ⋯ on the right");
+  // Narrower screens narrow the title; every case ends 12 pt clear of the pill.
+  assert.equal(header(375, runChat), 230);
+  assert.equal(header(375), 230);
+  assert.equal(header(340), 196);
+  const browserShortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress() {} };
+  assert.equal(header(402, { browserShortcut }), 214);
+  globalThis.chatPullRequest = { number: 90, state: "OPEN", url: "https://github.com/o/r/pull/90" };
+  try {
+    assert.equal(header(402), 214, "PR alone reserves one extra button");
+    assert.equal(header(402, { browserShortcut }), 170, "both shortcuts leave room for the title");
+    assert.equal(header(320, { browserShortcut }), 88, "narrow phone title stays clear of all three controls");
+  } finally {
+    delete globalThis.chatPullRequest;
+  }
+  for (const width of [320, 375, 402, 430]) {
+    for (const own of [runChat, heartbeat]) assert.ok(header(width, own) + 72 + 72 <= width, `${width} pt`);
+  }
+});
+
+test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card, out of the activity rows", () => {
+  const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
+  const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+    react: { ...react, useMemo: (compute) => compute() },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./file-chip": { FileChip: "FileChip" },
+    "./markdown": { Markdown: "Markdown" },
+    "./icons": { Icon: "Icon" },
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./tool-row": { ToolRow: "ToolRow" },
+    "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
+    "./answer-card": { AnswerCard: "AnswerCard" },
+    "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
+    "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
+    "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
+    "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./theme": { hex: () => "#000" },
+    "./viewer-store": { showImages() {} },
+    "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
+  });
+  const steps = [
+    { id: "s1", kind: "shell", title: "Ran `gh pr view`", status: "done" },
+    { id: "s2", kind: "other", title: 'Set Heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
+  ];
+  const message = { id: 9, session_id: 7, role: "assistant", body: "Opened #473. I'll check every 15 minutes.", steps };
+  const tree = ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" });
+  const card = find(tree, (node) => node.type === "HeartbeatCard");
+  assert.ok(card, "the card shows");
+  assert.equal(card.props.step.routine.id, "hb1");
+  const rows = new Set(allNodes(tree, (node) => node.type === "ToolRow").map((node) => node.props.step.id));
+  assert.ok(!rows.has("s2"), "the heartbeat step isn't an activity row too");
+  const order = allNodes(tree, (node) => node.type === "HeartbeatCard" || node.type === "Markdown").map((node) => node.type);
+  assert.deepEqual(order.slice(-2), ["Markdown", "HeartbeatCard"], "the reply text comes first, then the card");
+  assert.ok(rows.has("s1"));
+});
+
+function heartbeatCardHost(routines, { fail, now } = {}) {
+  const react = hookHost();
+  const calls = [];
+  let refreshed = 0;
+  const client = {
+    async call(method, args) {
+      calls.push([method, JSON.parse(JSON.stringify(args))]);
+      if (fail) throw new Error(fail);
+      return { removed: true };
+    },
+  };
+  const { HeartbeatCard } = load(
+    "heartbeat-card.tsx",
+    {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
+      "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+      "./session": { useSession: () => ({ client }) },
+      "./use-routines": {
+        useRoutines: () => ({
+          routines,
+          enabled: true,
+          unavailable: null,
+          error: "",
+          loading: false,
+          refresh: async () => void refreshed++,
+          update: async () => {},
+        }),
+      },
+      "./routine-rows": load("routine-rows.ts", {
+        "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+        "@milagre/shared/routines": require("@milagre/shared/routines"),
+        "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+      }),
+      "@milagre/shared/routines": require("@milagre/shared/routines"),
+      "./icons": { Icon: "Icon" },
+      "./ui": { tap() {}, InlineError: "InlineError" },
+    },
+    now === undefined ? "" : `\nDate.now = () => ${now};`,
+  );
+  const step = { id: "s2", kind: "other", title: "Set Heartbeat", status: "done", routine: { id: "hb1", name: "Babysit PR #473" } };
+  const render = () => {
+    react.begin();
+    return HeartbeatCard({ step });
+  };
+  return { render, calls, refreshed: () => refreshed };
+}
+
+test("the phone Heartbeat set card names the Heartbeat, its cadence and end, and Stop deletes it", async () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7")], { now: new Date(2026, 9, 17, 10, 0).getTime() });
+  const tree = host.render();
+  const texts = allNodes(tree, (node) => node.type === "Text").map(textOf);
+  assert.ok(texts.includes("Heartbeat set: Babysit PR #473"));
+  assert.ok(texts.includes("Every 15 min · ends Oct 24"), texts.join(" | "));
+  const stop = find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473");
+  stop.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(host.calls, [["routines:delete", ["hb1"]]]);
+  assert.equal(host.refreshed(), 1);
+});
+
+test("the phone Heartbeat set card says Stopped once its Heartbeat is gone, with no Stop button", () => {
+  const host = heartbeatCardHost([]);
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Stopped"));
+  assert.equal(
+    find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
+    undefined,
+  );
+});
+
+test("editing a Routine on the phone starts from it and saves the formToUpdate patch", async () => {
+  const stored = {
+    id: "tr",
+    name: "Issues labelled agent",
+    prompt: "Work on {{issue.key}}",
+    trigger: { kind: "linear", workspace: "w1", event: "label-added", label: "agent" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    enabled: true,
+    createdBy: { kind: "user" },
+    runCount: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+  };
+  const host = routineFormHost({ params: { id: "tr" }, routines: [stored] });
+  host.render();
+  let tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Edit Routine"));
+  assert.equal(find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.value, "Issues labelled agent");
+  assert.equal(find(tree, (node) => node.props?.accessibilityLabel === "On a schedule" && node.props.accessibilityRole === "radio").props.disabled, true);
+  // Edit shows no Starts choice: a Routine's trigger kind can't change.
+  assert.ok(!allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Starts"));
+  assert.equal(host.pick(tree, "Label").props.nativeTrigger.title, "agent", "VoiceOver reads the row as Label: agent");
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Agent issues");
+  tree = host.render();
+  const save = find(tree, (node) => node.type === "PillButton" && node.props.title === "Save");
+  assert.ok(save, "Edit saves with Save");
+  save.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const update = host.calls.find(([method]) => method === "routines:update");
+  const { formFromRoutine, formToUpdate } = require("@milagre/shared/routine-form");
+  const expected = formToUpdate({ ...formFromRoutine(stored, "UTC"), name: "Agent issues" }, stored).patch;
+  assert.deepEqual(update[1], ["tr", JSON.parse(JSON.stringify(expected))]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("the phone New Routine sheet uses desktop's copy, and Create waits for a name and a prompt", () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  const texts = () => allNodes(tree, (node) => node.type === "Text" || node.type === "SectionLabel").map(textOf);
+  assert.ok(texts().includes("Starts"));
+  assert.deepEqual(
+    allNodes(tree, (node) => node.props?.accessibilityRole === "radio").map((node) => node.props.accessibilityLabel),
+    ["Single prompt. One turn on a prompt", "Flow. Steps, checks and approvals", "On a schedule", "Linear event", "Webhook"],
+  );
+  assert.equal(find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.placeholder, "Name this Routine");
+  assert.equal(
+    find(tree, (node) => node.type === "PlaceholderField").props.placeholder,
+    "What should the agent do on each Run? End with (pass) when there's nothing to do.",
+  );
+  assert.ok(texts().includes("Type {{ for the Run's fields"));
+  assert.ok(texts().includes("Stop after"));
+  assert.equal(host.pick(tree, "Repeats") !== undefined, true);
+  assert.equal(find(tree, (node) => node.type === "PillButton").props.disabled, true);
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton" && node.props.title === "Delete Routine"),
+    undefined,
+    "a new Routine has nothing to delete",
+  );
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Nightly triage");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Triage new issues");
+  tree = host.render();
+  assert.equal(find(tree, (node) => node.type === "PillButton").props.disabled, false);
+});
+
+test("closing the phone Routine sheet with changes asks to discard them first; Linear says its issue text is data", () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  assert.equal(host.guard.on, false, "an untouched sheet closes at once");
+  find(tree, (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio").props.onPress();
+  tree = host.render();
+  assert.ok(
+    allNodes(tree, (node) => node.type === "Text")
+      .map(textOf)
+      .includes("Type {{ for the Run's fields. Issue text is passed as data, not instructions."),
+  );
+  assert.equal(host.guard.on, true);
+  let repeated = 0;
+  host.guard.ask({ repeat: () => (repeated += 1) });
+  const [title, , buttons] = host.guard.alerts[0];
+  assert.equal(title, "Discard changes?");
+  assert.deepEqual(JSON.parse(JSON.stringify(buttons.map((button) => button.text))), ["Keep editing", "Discard"]);
+  buttons[1].onPress();
+  assert.equal(repeated, 1);
+  host.render();
+  assert.equal(host.guard.on, false, "once discarded the sheet leaves without asking again");
+});
+
+test("Delete Routine sits at the bottom of the phone Edit sheet, says what deleting does, and asks first", async () => {
+  const heartbeat = {
+    id: "hb",
+    name: "Babysit PR #473",
+    prompt: "Check CI",
+    trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+    target: { kind: "chat", chatId: "/p#4" },
+    enabled: true,
+    createdBy: { kind: "user" },
+    runCount: 0,
+    expiresAt: Date.now() + 864e5,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+  };
+  const host = routineFormHost({ params: { id: "hb" }, routines: [heartbeat] });
+  host.render();
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Its Chats stay."));
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Delete Routine").props.onPress();
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    host.calls.filter(([method]) => method === "routines:delete"),
+    [["routines:delete", ["hb"]]],
+  );
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("creating a webhook Routine on the phone keeps the sheet open on its URL, with Copy and Rotate", async () => {
+  const host = routineFormHost({ created: { routine: { id: "wh" }, hookUrl: "https://relay.milagre.cloud/hook/abc" } });
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Sentry crashes");
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Webhook" && node.props.accessibilityRole === "radio").props.onPress();
+  let tree = host.render();
+  assert.ok(host.rowLabels(tree).includes("URL"));
+  assert.ok(host.rowLabels(tree).includes("Check signature"));
+  assert.ok(!host.rowLabels(tree).includes("Signing secret"), "signing fields wait for the switch");
+  host.pick(tree, "Project").props.onSelect("/p");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Look at {{body}}");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create[1][0].trigger, { kind: "webhook", signed: false });
+  assert.deepEqual(host.routes, [], "the sheet stays open");
+  tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "https://relay.milagre.cloud/hook/abc"));
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Webhook Routine"));
+  const buttons = new Set(allNodes(tree, (node) => node.type === "PillButton").map((node) => node.props.title));
+  assert.ok(buttons.has("Copy") && buttons.has("Rotate"));
+  assert.equal(find(tree, (node) => node.type === "PillButton" && node.props.title === "Save").props.title, "Save");
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Rotate").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    host.calls.find(([method]) => method === "routines:rotate-hook"),
+    ["routines:rotate-hook", ["wh"]],
+  );
+  assert.ok(allNodes(host.render(), (node) => node.type === "Text").some((node) => textOf(node) === "https://relay.milagre.cloud/hook/rotated"));
+});
+
+test("a phone Chat shows no Heartbeat button or Next check while the Mac's Routines switch is off, a turn runs, or the check is past", () => {
+  const setUp = (options, run) => {
+    const chat = chatHost({ routines: [heartbeatFor("/p#7")], ...options });
+    chat.params.id = "7";
+    chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+    if (run) chat.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
+    return chat.render();
+  };
+  const button = (tree) => chatMenuEntry(tree, "Heartbeat");
+  const nextCheck = (tree) => allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check"));
+  const off = setUp({ routinesOn: false });
+  assert.equal(button(off), undefined, "switch off: no button");
+  assert.equal(nextCheck(off), false, "switch off: no Next check");
+  const running = setUp({}, true);
+  assert.ok(button(running), "the button stays while a turn runs");
+  assert.equal(nextCheck(running), false, "no Next check while a turn runs");
+  const late = setUp({ now: new Date(2026, 9, 17, 10, 50).getTime() });
+  assert.equal(nextCheck(late), false, "a check time already past isn't promised");
+});
+
+test("the phone Heartbeat set card shows a refused Stop as an error and keeps the button", async () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7")], { fail: "This computer does not allow changing this setting from a phone." });
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const tree = host.render();
+  assert.match(find(tree, (node) => node.type === "InlineError").props.message, /does not allow/);
+  assert.ok(find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"));
+  assert.equal(host.refreshed(), 0);
+});
+
+test("the phone Heartbeat set card says Ended for a Heartbeat that ran out on its own", () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7", { enabled: false, completedAt: 5 })]);
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Ended"));
+  assert.equal(
+    find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
+    undefined,
+  );
+});
+
+test("a Linear comment Routine on the phone form drops the Each Run rows: comments go into the issue's linked Chat", async () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "When").props.onSelect("comment");
+  const tree = host.render();
+  const labels = host.rowLabels(tree);
+  assert.ok(!labels.includes("Project") && !labels.includes("Works in"), labels.join(", "));
+  assert.ok(labels.includes("Model") && labels.includes("Stop after"), "the agent's settings stay");
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Comments go into the Chat linked to the issue."));
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Answer comments");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Reply to {{comment.body}}");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.ok(create, "a comment Routine saves without the user picking a Project");
+  assert.equal(create[1][0].trigger.event, "comment");
+  assert.deepEqual(create[1][0].target, { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, "it carries the Project open on the phone");
+});
+
+test("provider update cards on the phone install the advertised release on the connected computer", async () => {
+  const react = hookHost();
+  const calls = [];
+  let transport;
+  let refreshed = 0;
+  const state = { current: { provider: "codex", version: "0.163.0", installedVersion: "0.160.0" }, working: false, error: "", dismiss() {}, install() {} };
+  const { ProviderUpdateNotice } = load("provider-update-notice.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { push: (path) => calls.push(path) } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "@milagre/shared/use-provider-updates": {
+      useProviderUpdates: (value) => {
+        transport = value;
+        return state;
+      },
+    },
+    "./hosts-native": {
+      savedProviderUpdateDismissals: {
+        load: async (hostId) => (calls.push(["load", hostId]), []),
+        add: async (hostId, key) => void calls.push(["add", hostId, key]),
+      },
+    },
+    "./session": {
+      useSession: () => ({
+        client: {
+          url: "https://studio.local:7788",
+          call: async (...args) => {
+            calls.push(args);
+            return { ok: true };
+          },
+        },
+        hostName: "Studio Mac",
+        refreshProviders: () => refreshed++,
+      }),
+    },
+    "./icons": { ProviderLogo: "ProviderLogo" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
+  });
+  react.begin();
+  const tree = ProviderUpdateNotice();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Settings").props.onPress();
+  assert.equal(calls[0], "/accounts");
+  await transport.install(state.current);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ["agent:update-cli", ["codex", "0.163.0"]]);
+  assert.equal(refreshed, 1);
+  state.working = true;
+  react.begin();
+  const pending = ProviderUpdateNotice();
+  assert.equal(find(pending, (node) => node.type === "PillButton" && node.props.title === "Updating…").props.disabled, true);
+  assert.equal(find(pending, (node) => node.type === "IconButton").props.disabled, true);
+  state.error = "Permission denied";
+  state.working = false;
+  react.begin();
+  const failed = ProviderUpdateNotice();
+  assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
+  assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+  await transport.dismissals.add("codex:0.163.0");
+  await transport.dismissals.load();
+  assert.deepEqual(
+    calls.slice(-2),
+    [
+      ["add", "https://studio.local:7788", "codex:0.163.0"],
+      ["load", "https://studio.local:7788"],
+    ],
+    "dismissals are saved on the phone for the connected computer",
+  );
+});
+
+test("a provider update dismissed on the phone stays dismissed when the connection is rebuilt", async () => {
+  const react = hookHost({ effects: true });
+  const source = fs.readFileSync(path.join(__dirname, "../packages/shared/src/use-provider-updates.ts"), "utf8");
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const exports = {};
+  vm.runInNewContext(compiled, { exports, require: (id) => (id === "react" ? react : require(id)), setInterval, clearInterval });
+  const saved = new Set();
+  const transport = () => ({
+    read: async () => [
+      { provider: "codex", version: "0.165.0", installedVersion: "0.163.0" },
+      { provider: "claude", version: "2.1.312", installedVersion: "2.1.300" },
+    ],
+    install: async () => ({ ok: true }),
+    dismissals: { load: async () => [...saved], add: async (key) => void saved.add(key) },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  let current = transport();
+  const render = () => {
+    react.begin();
+    return exports.useProviderUpdates(current);
+  };
+  assert.equal(render().current, undefined, "nothing shows before the saved dismissals are read");
+  await settle();
+  const first = render();
+  assert.equal(first.current.provider, "codex");
+  first.dismiss();
+  assert.equal(render().current.provider, "claude");
+  assert.deepEqual([...saved], ["codex:0.165.0"]);
+  current = transport(); // a reconnect builds a new client and so a new transport
+  assert.equal(render().current, undefined);
+  await settle();
+  assert.equal(render().current.provider, "claude", "the dismissed Codex release does not come back");
+  react.unmount();
+});
+
+test("provider logos preserve their shapes and use white or black in Simplified mode", () => {
+  const react = hookHost();
+  let scheme = "dark";
+  let style = "simplified";
+  const shapes = require("../packages/shared/src/provider-logos.ts");
+  const svg = Object.fromEntries(
+    ["default", "Circle", "Defs", "FeGaussianBlur", "Filter", "G", "LinearGradient", "Mask", "Path", "Stop"].map((name) => [
+      name,
+      name === "default" ? "Svg" : name,
+    ]),
+  );
+  const { ProviderLogo } = load("icons.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {},
+    "react-native-svg": { ...svg, __esModule: true },
+    "@milagre/shared/provider-logos": shapes,
+    "@hugeicons/react-native": {},
+    // Ink is white in dark mode and black in light; onInk is its opposite.
+    "./theme": {
+      useTheme: () => ({
+        scheme,
+        colors: scheme === "dark" ? { ink: "#fff", onInk: "#000" } : { ink: "#000", onInk: "#fff" },
+        settings: { providerIcons: style },
+      }),
+    },
+  });
+  const render = (provider, inverted = false) => {
+    react.begin();
+    return ProviderLogo({ provider, inverted });
+  };
+  for (const provider of ["claude", "codex", "antigravity"]) {
+    let tree = render(provider);
+    const path = find(tree, (node) => node.type === "Path");
+    assert.equal(path.props.d, shapes.providerLogoPath(provider));
+    assert.equal(path.props.fill, "#fff");
+    assert.equal(
+      find(tree, (node) => node.type === "Defs"),
+      undefined,
+    );
+    scheme = "light";
+    assert.equal(find(render(provider), (node) => node.type === "Path").props.fill, "#000");
+    assert.equal(find(render(provider, true), (node) => node.type === "Path").props.fill, "#fff", "selected chips keep contrast in light mode");
+    scheme = "dark";
+    assert.equal(find(render(provider, true), (node) => node.type === "Path").props.fill, "#000", "selected chips keep contrast in dark mode");
+  }
+  style = "original";
+  assert.equal(find(render("claude"), (node) => node.type === "Path").props.fill, shapes.CLAUDE_LOGO.fill);
+  assert.ok(find(render("codex"), (node) => node.type === "LinearGradient"));
+  assert.ok(find(render("antigravity"), (node) => node.type === "Mask"));
+});
+
+test("phone notification schedule controls save days, overnight hours, timezone and anytime", () => {
+  const state = { schedule: null };
+  const saved = [];
+  const { NotificationScheduleSetting } = load("notification-schedule-setting.tsx", {
+    "react-native": { Text: "Text", View: "View" },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/notification-schedule": require("@milagre/shared/notification-schedule"),
+    "./push": {
+      usePush: () => ({
+        state,
+        busy: false,
+        preferences: (value) => {
+          saved.push(value);
+          Object.assign(state, value);
+        },
+      }),
+    },
+    "./ui": { ...uiHooks, PillButton: "PillButton", PullDown: "PullDown", Toggle: "Toggle" },
+  });
+  const render = () => NotificationScheduleSetting();
+  const toggle = (title) => find(render(), (node) => node.type === "Toggle" && node.props.title === title);
+  toggle("Notification schedule").props.onPress();
+  assert.deepEqual([...state.schedule.days], [1, 2, 3, 4, 5]);
+  toggle("Sat").props.onPress();
+  assert.deepEqual([...state.schedule.days], [1, 2, 3, 4, 5, 6]);
+  const pick = (label, value) => find(render(), (node) => node.type === "PullDown" && node.props.label === label).props.onSelect(value);
+  pick("Start time", "22:00");
+  pick("End time", "06:00");
+  pick("Timezone", "UTC");
+  assert.equal(state.schedule.start, "22:00");
+  assert.equal(state.schedule.end, "06:00");
+  assert.equal(state.schedule.timeZone, "UTC");
+  assert.match(textOf(render()), /Ends the next day/);
+  toggle("Notification schedule").props.onPress();
+  assert.equal(saved.at(-1).schedule, null);
+});
+
+test("Git polling on the phone keeps the current list during reads and pauses off-screen", async () => {
+  const react = hookHost({ effects: true });
+  const timers = new Map();
+  let next = 0,
+    calls = 0,
+    finish;
+  const client = {
+    call: () => {
+      calls++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const { startRefreshLoop } = require("@milagre/shared/refresh-loop");
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) =>
+        startRefreshLoop({
+          ...options,
+          schedule(fn) {
+            timers.set(++next, fn);
+            return next;
+          },
+          cancel(timer) {
+            timers.delete(timer);
+          },
+        }),
+    },
+  });
+  let active = true;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:diff-files", [{ cwd: "/project", mode: "uncommitted" }], active);
+    react.flush();
+    return result;
+  };
+  assert.equal(render().loading, true);
+  finish({ files: ["edited.ts"] });
+  await settle();
+  assert.deepEqual(render().data.files, ["edited.ts"]);
+  const [id, tick] = timers.entries().next().value;
+  timers.delete(id);
+  const reading = tick();
+  assert.deepEqual(render().data.files, ["edited.ts"], "the list stays visible during a background read");
+  finish({ files: [] });
+  await reading;
+  assert.deepEqual(render().data.files, [], "an external commit clears the list without a user action");
+  active = false;
+  render();
+  assert.equal(timers.size, 0);
+  const before = calls;
+  active = true;
+  render();
+  assert.equal(calls, before + 1, "returning to the screen reads immediately");
+  react.unmount();
+  finish({ files: ["late.ts"] });
+  await settle();
+  assert.equal(timers.size, 0);
+});
+
+function splitShellHost() {
+  const split = { pinned: true, dockable: true, available: true, hidden: false, widthClass: "wide", toggle() {} };
+  const calls = [];
+  const screen = { pathname: "/chat", pagePushed: false };
+  const router = {
+    canDismiss: () => screen.pagePushed,
+    dismissAll: () => {
+      calls.push("dismissAll");
+      screen.pagePushed = false;
+    },
+    replace: (href) => calls.push(["replace", href]),
+    push: (href) => calls.push(["push", href]),
+  };
+  // Effects on: the slide's end (withTiming's callback) is what wakes and sleeps the list.
+  const shell = hookHost({ effects: true });
+  const sidebar = hookHost();
+  const { SplitShell } = load("split-layout.tsx", {
+    react: shell,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", StyleSheet: { create: (styles) => styles, hairlineWidth: 1 } },
+    "expo-router": { router, usePathname: () => screen.pathname },
+    "react-native-safe-area-context": {
+      SafeAreaInsetsContext: { Provider: "InsetsProvider" },
+      useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }),
+    },
+    "./project-navigation": { ProjectNavigation: "ProjectNavigation" },
+    "./side-panels": { usePanelScreen: () => ({ attached: true, chatId: 4, open: null, show() {} }) },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      Easing: { bezier: () => (t) => t },
+      ReduceMotion: { System: "system" },
+      useSharedValue: (value) => ({ get: () => value, set() {} }),
+      useAnimatedStyle: (style) => style(),
+      withTiming: (value, _config, done) => {
+        done?.(true);
+        return value;
+      },
+    },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+    "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
+    "./split-context": { useSplit: () => split, useCardTop: () => ({ top: 24, controls: 0, content: {} }) },
+    "./session": { useSession: () => ({ client: { url: "http://mac" }, snapshot: { project: { path: "/p" } } }) },
+    "./keybindings-store": { useHostKeybindings: () => ({ state: null, error: "", store: null }), rulesOf: () => [] },
+  });
+  const render = () => {
+    shell.begin();
+    return SplitShell({ children: "Screen" });
+  };
+  // The sidebar is drawn as an element; run it with its own hooks to reach the list inside.
+  const sidebarOf = (tree) => {
+    const element = find(tree, (node) => typeof node.type === "function" && "shown" in node.props);
+    if (!element) return null;
+    sidebar.begin();
+    return { element, tree: element.type(element.props) };
+  };
+  return { split, calls, screen, render, sidebarOf };
+}
+
+test("iPad panel drags preview the divider without reflowing content and commit only on release", () => {
+  const saved = [];
+  const ticks = [];
+  const knocks = [];
+  const gesture = () => {
+    const handlers = {};
+    const chain = { handlers };
+    for (const name of ["activeOffsetX", "numberOfTaps", "onStart", "onUpdate", "onEnd", "onFinalize"])
+      chain[name] = (value) => ((handlers[name] = value), chain);
+    return chain;
+  };
+  const { resizeGesture } = load(
+    "split-layout.tsx",
+    {
+      react: hookHost(),
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": { StyleSheet: { create: (styles) => styles } },
+      "expo-router": {},
+      "./project-navigation": {},
+      "./keybindings-store": {},
+      "./session": {},
+      "react-native-reanimated": { Easing: { bezier() {} }, ReduceMotion: { System: "system" } },
+      "react-native-gesture-handler": { Gesture: { Pan: gesture, Tap: gesture, Race: (...gestures) => gestures } },
+      "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+      "./panel-width": { setPanelWidth: (width) => saved.push(width) },
+      "expo-haptics": {
+        selectionAsync: () => (ticks.push(preview.get()), Promise.resolve()),
+        impactAsync: (style) => (knocks.push(style), Promise.resolve()),
+        ImpactFeedbackStyle: { Light: "light" },
+      },
+    },
+    "\nexport { resizeGesture };",
+  );
+  const shared = (value) => ({
+    get: () => value,
+    set: (next) => {
+      value = next;
+    },
+  });
+  const width = shared(420),
+    preview = shared(420),
+    start = shared(420),
+    dragging = shared(false);
+  const [drag, reset] = resizeGesture(width, preview, start, dragging, 800, [420, 640]);
+  drag.handlers.onStart();
+  for (const translationX of [-1, -20, -80, -160]) drag.handlers.onUpdate({ translationX });
+  assert.equal(width.get(), 420, "neither the Chat nor the panel reflows during the drag");
+  assert.equal(preview.get(), 580);
+  assert.equal(dragging.get(), true);
+  assert.deepEqual(saved, []);
+  drag.handlers.onEnd();
+  drag.handlers.onFinalize();
+  assert.equal(width.get(), 580);
+  assert.deepEqual(saved, [580]);
+  assert.equal(dragging.get(), false);
+  drag.handlers.onStart();
+  drag.handlers.onUpdate({ translationX: -1000 });
+  assert.equal(preview.get(), 800);
+  drag.handlers.onUpdate({ translationX: 1000 });
+  assert.equal(preview.get(), 320);
+  drag.handlers.onUpdate({ translationX: -48 });
+  assert.equal(preview.get(), 640, "a drag within reach of a detent settles on it");
+  drag.handlers.onUpdate({ translationX: -52 });
+  assert.equal(preview.get(), 640, "and stays there without ticking again");
+  drag.handlers.onUpdate({ translationX: -100 });
+  assert.equal(preview.get(), 680);
+  assert.equal(ticks.length, 3, "a tick at the maximum, the minimum and the detent");
+  drag.handlers.onFinalize();
+  assert.equal(width.get(), 580, "a cancelled drag keeps the committed width");
+  assert.equal(preview.get(), 580);
+  assert.deepEqual(saved, [580]);
+  reset.handlers.onEnd();
+  assert.deepEqual(saved, [580, 420]);
+  assert.deepEqual(knocks, ["light", "light", "light"], "a knock on each pick-up and on the reset");
+});
+
+test("iOS messages select ranges inside the Chat and freeze streaming text until Done", async () => {
+  const react = hookHost({ effects: true });
+  const copied = [];
+  const platform = { OS: "ios" };
+  const { MessageActions, messageActionProps } = load("message-actions.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Platform: platform,
+      Pressable: "Pressable",
+      TextInput: "TextInput",
+      View: "View",
+      processColor: (value) => value,
+      useWindowDimensions: () => ({ fontScale: 1 }),
+    },
+    "./theme": { fonts: { mono: "Menlo" }, useTheme: () => ({ colors: fakePalette, textPx: 15, codeSize: 12 }) },
+    "expo-modules-core": { requireOptionalNativeModule: () => null },
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
+    "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
+    "./plain-text": { markdownPlainText: (value) => value.replaceAll("**", "") },
+    "./ui": { PillButton: "PillButton" },
+    "./primitives/tap": { tap() {} },
+  });
+  let text = "Some **selected** words";
+  const render = () => {
+    react.begin();
+    const tree = MessageActions({ text, markdown: true, children: (open, swap) => swap(jsx("Message", { ...messageActionProps(open), text })) });
+    const expand = (node) => {
+      if (!node || typeof node !== "object") return node;
+      if (Array.isArray(node)) return node.map(expand);
+      if (typeof node.type === "function") return expand(node.type(node.props));
+      return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
+    };
+    return expand(tree);
+  };
+  const original = render();
+  assert.equal(original.type, "Pressable");
+  original.props.onLongPress();
+  let tree = render();
+  const field = find(tree, (node) => node.type === "TextInput");
+  assert.equal(field.props.value, "Some selected words");
+  assert.equal(field.props.editable, false);
+  assert.equal(field.props.multiline, true);
+  assert.equal(field.props.scrollEnabled, false, "the Chat owns scrolling while the text view owns selection");
+  text += " arriving later";
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "TextInput").props.value, "Some selected words");
+  await find(tree, (node) => node.props.title === "Copy all").props.onPress();
+  assert.deepEqual(copied, ["Some selected words"]);
+  find(tree, (node) => node.props.title === "Done").props.onPress();
+  assert.equal(find(render(), (node) => node.type === "Message").props.text, text);
+  find(render(), (node) => node.type === "Message").props.onAccessibilityAction();
+  assert.ok(
+    find(render(), (node) => node.type === "TextInput"),
+    "VoiceOver opens the same in-place selection",
+  );
+  platform.OS = "android";
+  assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
+});
+
+test("the plain selection on builds without the native view quotes the range picked in it, or the whole message", () => {
+  const react = hookHost({ effects: true });
+  const asked = [];
+  const { MessageActions, MessageAskContext } = load("message-actions.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Platform: { OS: "ios" },
+      Pressable: "Pressable",
+      TextInput: "TextInput",
+      View: "View",
+      processColor: (value) => value,
+      useWindowDimensions: () => ({ fontScale: 1 }),
+    },
+    "./theme": { fonts: { mono: "Menlo" }, useTheme: () => ({ colors: fakePalette, textPx: 15, codeSize: 12 }) },
+    "expo-modules-core": { requireOptionalNativeModule: () => null },
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
+    "expo-clipboard": {},
+    "./plain-text": { markdownPlainText: (value) => value },
+    "./ui": { PillButton: "PillButton" },
+    "./primitives/tap": { tap() {} },
+  });
+  MessageAskContext.defaultValue = (text, from) => asked.push([text, from]);
+  const render = () => {
+    react.begin();
+    const tree = MessageActions({ text: "Ask about this part only", from: "user", children: (open, swap) => swap(jsx("Message", { ...messageProps(open) })) });
+    const expand = (node) => {
+      if (!node || typeof node !== "object") return node;
+      if (Array.isArray(node)) return node.map(expand);
+      if (typeof node.type === "function") return expand(node.type(node.props));
+      return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
+    };
+    return expand(tree);
+  };
+  const messageProps = (open) => ({ onOpen: open });
+  render().props.onLongPress();
+  let tree = render();
+  find(tree, (node) => node.type === "TextInput").props.onSelectionChange({ nativeEvent: { selection: { start: 10, end: 19 } } });
+  tree = render();
+  find(tree, (node) => node.props.title === "Quote").props.onPress();
+  assert.deepEqual(asked, [["this part", "user"]]);
+  assert.equal(render().type, "Pressable");
+  assert.equal(
+    find(render(), (node) => node.type === "TextInput"),
+    undefined,
+    "Quote closes the selection",
+  );
+  render().props.onLongPress();
+  tree = render();
+  find(tree, (node) => node.type === "TextInput").props.onSelectionChange({ nativeEvent: { selection: { start: 4, end: 4 } } });
+  find(render(), (node) => node.props.title === "Quote").props.onPress();
+  assert.deepEqual(asked.at(-1), ["Ask about this part only", "user"], "nothing picked quotes the whole message");
+});
+
+test("native selection freezes the passage, preserves the formatted view and quotes only the chosen text", () => {
+  const react = hookHost({ effects: true });
+  const asked = [];
+  let fontScale = 1.35;
+  let textPx = 20;
+  let codeSize = 14;
+  const { MessageActions, MessageAskContext } = load("message-actions.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Platform: { OS: "ios" },
+      Pressable: "Pressable",
+      View: "View",
+      processColor: (value) => value,
+      StyleSheet: { absoluteFill: { position: "absolute" } },
+      useWindowDimensions: () => ({ fontScale }),
+    },
+    "./theme": { fonts: { mono: "Menlo" }, useTheme: () => ({ colors: fakePalette, textPx, codeSize }) },
+    "expo-modules-core": { requireOptionalNativeModule: () => ({}), requireNativeViewManager: () => "NativeSelectableText" },
+    "expo-clipboard": {},
+    "./selection-document": require("../apps/mobile/src/selection-document.ts"),
+    "./plain-text": {},
+    "./ui": {},
+    "./primitives/tap": { tap() {} },
+  });
+  MessageAskContext.defaultValue = (text, from) => asked.push([text, from]);
+  let text = "A **selected** passage.";
+  const render = () => {
+    react.begin();
+    const tree = MessageActions({ text, markdown: true, children: (_open, swap) => swap(jsx("Formatted", { text })) });
+    const slot = tree.props.children;
+    return { tree, slot: slot.type(slot.props) };
+  };
+  render().tree.props.onLongPress({ nativeEvent: { pageX: 42, pageY: 180 } });
+  let current = render();
+  let native = find(current.slot, (node) => node.type === "NativeSelectableText");
+  assert.deepEqual({ ...native.props.start }, { x: 42, y: 180 });
+  assert.equal(native.props.askTitle, "Quote");
+  assert.equal(native.props.look.fontScale, 1.35, "selection follows iOS text scaling instead of shrinking back to unscaled text");
+  assert.equal(native.props.look.codeFontFamily, "Menlo", "inline and block code keep the message's font");
+  assert.deepEqual([native.props.look.fontSize, native.props.look.lineHeight, native.props.look.codeSize], [20, 29, 14]);
+  assert.equal(find(current.slot, (node) => node.props.pointerEvents === "none").props.style.opacity, 0, "the original stays mounted in its measured place");
+  native.props.onContentHeight({ nativeEvent: { height: 120 } });
+  text += " New streamed text.";
+  current = render();
+  native = find(current.slot, (node) => node.type === "NativeSelectableText");
+  assert.equal(native.props.paragraphs[0].spans.map((span) => span.text).join(""), "A selected passage.");
+  assert.equal(native.props.style.height, 120);
+  native.props.onAsk({ nativeEvent: { text: "selected" } });
+  assert.deepEqual(asked, [["selected", "assistant"]], "a reply's passage is the agent's");
+  native.props.onEnd();
+  current = render();
+  assert.equal(
+    find(current.slot, (node) => node.type === "NativeSelectableText"),
+    undefined,
+  );
+  assert.equal(find(current.slot, (node) => node.type === "Formatted").props.text, text);
+  fontScale = 1.6;
+  textPx = 18;
+  codeSize = 16;
+  current.tree.props.onLongPress();
+  native = find(render().slot, (node) => node.type === "NativeSelectableText");
+  assert.deepEqual(
+    [native.props.look.fontScale, native.props.look.fontSize, native.props.look.lineHeight, native.props.look.codeSize],
+    [1.6, 18, 26, 16],
+    "a later selection uses current system and app text settings",
+  );
+});
+
+test("an iPad's on-screen return key sends; a hardware keyboard's shortcut bar and an iPhone keep new lines", () => {
+  const returnOn = (isPad, keyboard) =>
+    load("hardware-keys.ts", {
+      react: hookHost(),
+      "react-native": { Platform: { OS: "ios", isPad }, findNodeHandle: () => null },
+      "expo-modules-core": { requireOptionalNativeModule: () => null },
+      "react-native-keyboard-controller": { useKeyboardState: (select) => select(keyboard) },
+      "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
+    }).useOnScreenReturn;
+  let sends = 0;
+  const send = () => sends++;
+  const onScreen = returnOn(true, { isVisible: true, height: 400 })(send);
+  assert.equal(onScreen.returnKeyType, "send");
+  assert.equal(onScreen.submitBehavior, "submit");
+  onScreen.onSubmitEditing();
+  assert.equal(sends, 1, "the on-screen return key sends");
+  const bar = returnOn(true, { isVisible: true, height: 69 })(send);
+  assert.equal(bar.submitBehavior, "newline", "over a hardware keyboard Shift+Return still adds a line");
+  assert.equal(bar.onSubmitEditing, undefined);
+  assert.equal(returnOn(true, { isVisible: false, height: 0 })(send).submitBehavior, "newline");
+  assert.equal(Object.keys(returnOn(false, { isVisible: true, height: 300 })(send)).length, 0, "an iPhone keeps return for new lines");
+  assert.equal(Object.keys(returnOn(true, { isVisible: true, height: 400 })(undefined)).length, 0, "nothing to send, nothing changes");
+});
+
+test("hardware Return retries early native attachment, rebinds on focus and cleans up pending attempts", async () => {
+  const react = hookHost({ effects: true });
+  const frames = new Map();
+  const attached = [],
+    detached = [];
+  let nextFrame = 0,
+    listener,
+    sends = 0,
+    accepts = false;
+  const native = {
+    addListener: (_event, callback) => {
+      listener = callback;
+      return {
+        remove: () => {
+          listener = null;
+        },
+      };
+    },
+    attachReturnAsync: async (tag) => {
+      attached.push(tag);
+      return accepts;
+    },
+    detachReturnAsync: async (tag) => {
+      detached.push(tag);
+    },
+  };
+  const { useReturnKey } = load(
+    "hardware-keys.ts",
+    {
+      react,
+      "react-native": { Platform: { OS: "ios" }, findNodeHandle: (ref) => ref?.tag ?? null },
+      "expo-modules-core": { requireOptionalNativeModule: () => native },
+      "react-native-keyboard-controller": { useKeyboardState: () => false },
+      "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
+      frames: {
+        requestAnimationFrame: (callback) => {
+          frames.set(++nextFrame, callback);
+          return nextFrame;
+        },
+        cancelAnimationFrame: (id) => frames.delete(id),
+      },
+    },
+    '\nconst { requestAnimationFrame, cancelAnimationFrame } = require("frames");',
+  );
+  const ref = { current: { tag: 10 } };
+  const render = (
+    onReturn = () => {
+      sends++;
+    },
+  ) => {
+    react.begin();
+    return useReturnKey(ref, onReturn);
+  };
+  const tick = async () => {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach((callback) => callback());
+    await settle();
+  };
+  let binding = render();
+  await settle();
+  assert.deepEqual(attached, [10]);
+  assert.equal(frames.size, 1, "the first layout can precede native registration");
+  accepts = true;
+  await tick();
+  assert.deepEqual(attached, [10, 10]);
+  listener({ target: 99 });
+  assert.equal(sends, 0);
+  listener({ target: 10 });
+  assert.equal(sends, 1);
+  binding.attach();
+  await settle();
+  assert.deepEqual(attached, [10, 10, 10], "focus rebinds even when Fabric kept the React tag");
+  binding = render(() => {
+    sends += 10;
+  });
+  listener({ target: 10 });
+  assert.equal(sends, 11, "the handler reads the current draft's callback");
+  ref.current = { tag: 20 };
+  binding.attach();
+  await settle();
+  assert.deepEqual(detached, [10]);
+  listener({ target: 10 });
+  assert.equal(sends, 11);
+  listener({ target: 20 });
+  assert.equal(sends, 21);
+  accepts = false;
+  binding.attach();
+  await settle();
+  assert.equal(frames.size, 1);
+  react.unmount();
+  assert.equal(frames.size, 0);
+  assert.equal(listener, null);
+  await tick();
+  assert.equal(attached.length, 5, "unmount cannot attach a retired field on a later frame");
+});
+
+test("the pinned sidebar stays mounted, hidden, when the window narrows, so a Chat it is opening still arrives", () => {
+  const { split, render, sidebarOf } = splitShellHost();
+  assert.equal(sidebarOf(render()).element.props.shown, true);
+  // An iPad window dragged below the pinned width while the sidebar connects another computer.
+  Object.assign(split, { pinned: false, dockable: false, widthClass: "regular" });
+  const narrowed = sidebarOf(render());
+  assert.ok(narrowed, "still mounted, so its open request isn't dropped");
+  assert.equal(narrowed.element.props.shown, false);
+  const visible = (sidebar) => find(sidebar.tree, (node) => node.type === "ProjectNavigation").props.visible;
+  // It reads on until it has slid out, so the renders that follow never land on the slide's frames.
+  assert.equal(visible(narrowed), true);
+  assert.equal(visible(sidebarOf(render())), false, "reads nothing once it has slid out");
+  // Leaving the computer (back to the Computers list) is what unmounts it.
+  split.available = false;
+  render();
+  assert.equal(sidebarOf(render()), null);
+});
+
+test("the pinned sidebar reopens the Chat under a pushed page by closing the page, and opens other Chats", () => {
+  const { calls, screen, render, sidebarOf } = splitShellHost();
+  const navigate = (href) => find(sidebarOf(render()).tree, (node) => node.type === "ProjectNavigation").props.onNavigate(href);
+  const chat = (id) => ({ pathname: "/chat", params: { hostId: "http://mac", projectPath: "/p", id } });
+  // Routines pushed over Chat 4: the row isn't marked open, and picking Chat 4 pops back to it without remounting it.
+  Object.assign(screen, { pathname: "/routines", pagePushed: true });
+  assert.equal(find(sidebarOf(render()).tree, (node) => node.type === "ProjectNavigation").props.activeChatId, undefined);
+  navigate(chat("4"));
+  assert.deepEqual(calls, ["dismissAll"]);
+  // On the Chat itself, picking it again does nothing; another Chat replaces it.
+  calls.length = 0;
+  screen.pathname = "/chat";
+  navigate(chat("4"));
+  navigate(chat("5"));
+  assert.deepEqual(calls, [["replace", chat("5")]]);
+});
+
+test("mobile simulator relayed frames stay in two cache files and never enter injected JavaScript", async () => {
+  const pixels = "aW1hZ2U=",
+    injected = [];
+  const client = {
+    call: async (method, args) => {
+      if (method === "simulator:open") return { viewerId: "relay-viewer", transport: "frames" };
+      if (method === "simulator:frame")
+        return {
+          sequence: args[0].after + 1,
+          data: pixels,
+          mimeType: "image/jpeg",
+          status: { width: 1, height: 1, generation: 1, ready: true, controlling: true, orientation: "portrait" },
+        };
+      return null;
+    },
+  };
+  const h = simulatorHost(client);
+  const props = { client, deviceId: "sim", chatId: "/p#7" };
+  h.render("TestSimulatorWebView", props);
+  await settle();
+  const tree = h.render("TestSimulatorWebView", props);
+  tree.props.ref.current = { injectJavaScript: (value) => injected.push(value) };
+  const message = (id, method, args) => tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: "milagre-simulator", id, method, args }) } });
+  message(1, "open", { deviceId: "sim" });
+  await settle();
+  for (let after = 0; after < 2; after++) {
+    message(after + 2, "frame", { viewerId: "relay-viewer", after });
+    await settle();
+  }
+  assert.equal([...h.files.keys()].filter((uri) => uri.endsWith(".jpg")).length, 2);
+  assert.equal(
+    injected.some((value) => value.includes(pixels)),
+    false,
+  );
+  assert.ok(injected.some((value) => value.includes("file:///cache/simulator-")));
+  message(4, "close", { viewerId: "relay-viewer" });
+  await settle();
+  message(5, "open", { deviceId: "sim" });
+  await settle();
+  message(6, "frame", { viewerId: "relay-viewer", after: 0 });
+  await settle();
+  assert.equal([...h.files.keys()].filter((uri) => uri.endsWith(".jpg")).length, 2, "reset frame sequences must not evict the newly written file");
+  h.cleanup();
+  assert.equal(h.files.size, 0);
+});
+
+test("phone Chat mentions work without a Worktree and never search or attach files", async () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  const calls = [];
+  const client = {
+    call: (...args) => {
+      calls.push(args);
+      return Promise.resolve([]);
+    },
+  };
+  let draft = "@Plan";
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+  });
+  const chats = [
+    { id: 12, title: "Plan review", branch: "feature", at: 12, available: true },
+    { id: 13, title: "Plan self", branch: "main", at: 13, available: true },
+  ];
+  const render = () => {
+    react.begin();
+    const tree = PromptField({
+      client,
+      projectPath: "/project",
+      draft,
+      chats,
+      currentId: 13,
+      onChangeText: (value) => {
+        draft = value;
+      },
+    });
+    react.flush();
+    return tree;
+  };
+  try {
+    let field = find(render(), (node) => node.type === "Field");
+    field.props.onFocus();
+    field.props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
+    const row = find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
+    assert.ok(row);
+    assert.equal(
+      find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
+      undefined,
+    );
+    row.props.onPress();
+    assert.equal(draft, "@chat:12 ");
+    render();
+    await new Promise((resolve) => setTimeout(resolve, 170));
+    assert.deepEqual(calls, [], "no file callback means no file RPC, even with a Chat menu");
+  } finally {
+    react.cleanup();
+  }
+});
+
+const chip = (tree) => find(tree, (node) => node.type === "Pressable" && node.props.accessibilityLabel === "Use suggested prompt: Add tests");
+
+test("phone suggestion fills and focuses the draft without sending, and hides behind typing or menus", () => {
+  const react = hookHost();
+  let draft = "";
+  let focus = 0;
+  let accepted = 0;
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("../packages/shared/src/prompt-skills.mjs"),
+    "./use-rpc": { useRpc: () => ({ data: { skills: [{ name: "tests", description: "Test" }] } }) },
+    "./use-image-paste": { useImagePaste: () => ({ ref: { current: { focus: () => focus++ } }, onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./theme": { useTheme: () => ({ colors: fakePalette, motionScale: 0, typeScale: 1 }) },
+  });
+  const render = () => {
+    react.begin();
+    return PromptField({
+      client: {},
+      projectPath: "/project",
+      draft,
+      suggestion: "Add tests",
+      onChangeText: (value) => {
+        draft = value;
+      },
+      onAcceptSuggestion: (value) => {
+        accepted++;
+        if (!draft) draft = value;
+      },
+    });
+  };
+
+  const tree = render();
+  assert.ok(chip(tree));
+  chip(tree).props.onPress();
+  assert.equal(draft, "Add tests");
+  assert.equal(focus, 1);
+  assert.equal(accepted, 1);
+  assert.equal(chip(render()), undefined);
+  for (const value of [" ", "already typing", "/tests", "@file"]) {
+    draft = value;
+    assert.equal(chip(render()), undefined);
+  }
+  draft = "";
+  const stale = chip(render());
+  draft = "typed before the tap arrived";
+  stale.props.onPress();
+  assert.equal(draft, "typed before the tap arrived", "a delayed tap preserves new input");
+});
+
+test("the phone screen offers suggestions only for idle Claude Chats without attachments or a send in progress", () => {
+  const screen = ongoingChatHost();
+  const state = screen.session.snapshot.project.state;
+  const chat = state.sessions[7];
+  chat.provider = "claude";
+  chat.suggestion = { text: "Add tests", turnId: "t" };
+  for (const message of state.messages) message.model = "claude-opus-5-5";
+  screen.session.drafts["/p#7"] = "";
+  assert.equal(screen.field().suggestion, "Add tests");
+  screen.session.attachments["/p#7"] = [{ id: "file", name: "notes.txt", uri: "file:///notes.txt" }];
+  assert.equal(screen.field().suggestion, undefined);
+  screen.session.attachments["/p#7"] = [];
+  screen.session.snapshot.runs.runs["/p#7"] = { text: "", model: "claude-opus-5-5", steps: [], approvals: [], questions: [], answered: {} };
+  assert.equal(screen.field().suggestion, undefined);
+  delete screen.session.snapshot.runs.runs["/p#7"];
+  chat.backgroundTasks = [{ id: "server", kind: "command", title: "Server", status: "running", startedAt: 1 }];
+  assert.equal(screen.field().suggestion, undefined);
+  delete chat.backgroundTasks;
+  chat.provider = "codex";
+  assert.equal(screen.field().suggestion, undefined);
+});
+
+test("attention pill uses live Chat titles, excludes visible panes, counts Chats and opens the selected Chat", async () => {
+  const react = hookHost({ effects: true });
+  let keys = ["/other#3", "/other#4"];
+  const opened = [];
+  const client = { url: "test-host", attention: async () => keys };
+  const session = {
+    client,
+    recent: [{ path: "/other", name: "Project name" }],
+    cachedProject: () => ({
+      project: {
+        state: {
+          sessions: { 4: { id: 4, title: "Old cached title" }, 5: { id: 5, title: "Review changes" } },
+          messages: [],
+        },
+      },
+    }),
+  };
+  session.snapshot = {
+    project: {
+      path: "/other",
+      state: {
+        sessions: { 4: { id: 4, title: "Fix toolbar" }, 5: { id: 5, title: "Review changes" } },
+        messages: [],
+      },
+    },
+  };
+  let visibleChat;
+  // The split ends before the route changes: each close is recorded with the routes opened so far.
+  const closedSplits = [];
+  const { AttentionPill } = load("attention.tsx", {
+    // Subscribing starts the shared poller, as React does on mount; a new subscribe (another client) subscribes again.
+    react: {
+      ...react,
+      useSyncExternalStore: (subscribe, snapshot) => {
+        react.useEffect(() => subscribe(() => {}), [subscribe]);
+        return snapshot();
+      },
+    },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { AppState: { currentState: "active" }, Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { absoluteFill: {} } },
+    "expo-router": { router: { replace: (route) => opened.push(route) } },
+    "./split-chats": { closeBeside: () => closedSplits.push(opened.length) },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 59 }) },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/chats": require("@milagre/shared/chats"),
+    "@milagre/shared/attention": require("@milagre/shared/attention"),
+    "./hosts-native": { readAttentionButton: async () => true, saveAttentionButton: async () => {} },
+    "./session": { useSession: () => session },
+    "./icons": { Icon: "Icon" },
+    "./ui": { PullDown: "PullDown" },
+    "./theme": themeHooks,
+    "./floating-inbox-setting": { useFloatingInbox: () => [false] },
+    "./inbox": { FloatingInboxChip: "FloatingInboxChip" },
+  });
+  const render = () => {
+    react.begin();
+    return AttentionPill({ currentChat: "/other#3", visibleChat });
+  };
+  try {
+    render();
+    await new Promise((resolve) => setImmediate(resolve));
+    let tree = render();
+    assert.equal(tree.props.accessibilityLabel, "Fix toolbar needs attention. Open the Chat.");
+    assert.equal(tree.props.style({ pressed: false })[0].top, 119, "the phone pill stays below header controls");
+    tree.props.onPress();
+    assert.deepEqual({ ...opened[0].params }, { projectPath: "/other", hostId: "test-host", id: "4" });
+    assert.equal(JSON.stringify(closedSplits), JSON.stringify([0]), "the split closed before the route");
+    // A different client forces a refresh without waiting for the poll timer.
+    keys = ["/other#4", "/other#5"];
+    session.client = { ...client };
+    render();
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = render();
+    assert.equal(tree.props.label, "2 Chats need attention. Choose a Chat.");
+    assert.deepEqual(
+      Array.from(tree.props.sections[0].items, (item) => item.title),
+      ["Fix toolbar", "Review changes"],
+    );
+    tree.props.onSelect("/other#5");
+    assert.equal(opened[1].params.id, "5");
+    session.snapshot = {
+      project: {
+        ...session.snapshot.project,
+        state: {
+          ...session.snapshot.project.state,
+          sessions: { ...session.snapshot.project.state.sessions, 4: { id: 4, title: "Renamed toolbar Chat" } },
+        },
+      },
+    };
+    visibleChat = "/other#5";
+    tree = render();
+    assert.equal(
+      tree.props.accessibilityLabel,
+      "Renamed toolbar Chat needs attention. Open the Chat.",
+      "a visible beside Chat is excluded and live renames render immediately",
+    );
+    visibleChat = "/other#4";
+    tree = render();
+    assert.equal(tree.props.accessibilityLabel, "Review changes needs attention. Open the Chat.");
+    // A Subchat's capsule announces its waiting parent: that Chat leaves the pill, and the pill shrinks to its icon.
+    visibleChat = undefined;
+    react.begin();
+    tree = AttentionPill({ currentChat: "/other#3", hideChats: ["/other#4"], compact: true });
+    assert.equal(tree.props.accessibilityLabel, "Review changes needs attention. Open the Chat.", "only the other Chat is left");
+    assert.equal(
+      find(tree, (node) => node.type === "Text"),
+      undefined,
+      "no words in the compact pill",
+    );
+    assert.ok(find(tree, (node) => node.type === "Icon"));
+    react.begin();
+    assert.equal(
+      AttentionPill({ currentChat: "/other#3", hideChats: ["/other#5"] }).props.accessibilityLabel,
+      "Renamed toolbar Chat needs attention. Open the Chat.",
+    );
+  } finally {
+    react.cleanup();
+  }
+});
+
+test("Add computer can remove the public fallback before pairing a pasted invitation", async () => {
+  const pairing = require("@milagre/shared/pairing-link");
+  const identity = { hostId: "h".repeat(22), key: "k".repeat(43) };
+  const direct = ["ws://192.168.1.20:8798", "ws://100.107.136.115:8798"];
+  const invitation = `milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=${identity.hostId}&key=${identity.key}&token=${"a".repeat(64)}&direct=${encodeURIComponent(JSON.stringify(direct))}`;
+  const host = hookHost();
+  const connected = [];
+  const { default: AddComputer } = load("app/add-computer.tsx", {
+    react: host,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", StyleSheet: { absoluteFill: {} }, Linking: {} },
+    "expo-router": { Stack: { Screen: "Screen" }, router: { dismissAll() {}, replace() {}, back() {} } },
+    "expo-camera": { CameraView: "CameraView", useCameraPermissions: () => [{ granted: false }, () => {}] },
+    "expo-clipboard": { getStringAsync: async () => invitation },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/site-links": require("@milagre/shared/site-links"),
+    "@milagre/shared/pairing-link": pairing,
+    "../pairing": pairing,
+    "../session": {
+      useSession: () => ({
+        connect: async (value) => {
+          connected.push(value);
+          return false;
+        },
+      }),
+    },
+    "../icons": { Icon: "Icon" },
+    "../settings-list": { Group: "Group", Row: "Row" },
+    "../ui": {
+      CircleButton: "CircleButton",
+      ErrorNotice: "ErrorNotice",
+      Field: "Field",
+      PageScroll: "PageScroll",
+      PillButton: "PillButton",
+      RowCheckbox: "RowCheckbox",
+      Group: "Group",
+      ListRow: "ListRow",
+      SheetHeader: "SheetHeader",
+      useStyles: () => ({}),
+    },
+  });
+  const render = () => {
+    host.begin();
+    return AddComputer();
+  };
+  find(render(), (node) => node.props.title === "LAN or Tailscale only").props.toggle.onChange();
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Enter address and token").props.onPress();
+  assert.match(
+    find(render(), (node) => node.type === "ErrorNotice").props.message,
+    /For private pairing, scan or paste/,
+    "manual HTTPS entry cannot bypass private mode",
+  );
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Paste pairing link").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(connected.length, 1);
+  assert.equal(connected[0].relay.url, direct[0]);
+  assert.deepEqual(Array.from(connected[0].relay.direct), direct);
+  assert.equal(connected[0].relay.key, identity.key);
+});
+
+test("phone changes choose a comparison branch and keep its base when opening a diff; commit details expand", () => {
+  const react = hookHost();
+  const calls = [];
+  const copied = [];
+  let picker;
+  let deleted = false;
+  let unrelated = false;
+  let rootCommit = false;
+  let truncatedCommitFiles = false;
+  let legacyCommitFiles = false;
+  let commitFilesError = "";
+  let phoneClient = {};
+  const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
+  const commit = {
+    sha: "a".repeat(40),
+    author: "Maria",
+    email: "maria@example.com",
+    date: "2026-10-28T10:00:00Z",
+    message: "Current work\n\nDetailed explanation",
+    files: 1,
+    added: 2,
+    removed: 0,
+  };
+  const modules = {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {
+      setStringAsync: async (sha) => {
+        copied.push(sha);
+        return true;
+      },
+    },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet: (request) => (picker = request) },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method, [request]) => {
+        calls.push({ method, request });
+        const base = request.base === "refs/heads/parent" ? "parent" : "main";
+        return {
+          data:
+            method === "git:history"
+              ? {
+                  isRepo: true,
+                  branch: "current",
+                  base,
+                  total: 1,
+                  suggested: "refs/heads/parent",
+                  projectDefault: { name: "main", ref: "refs/heads/main" },
+                  comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
+                  message: unrelated && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
+                  automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" },
+                  branchesVersion: "v1",
+                  baseMissing: deleted && request.base === "refs/heads/parent",
+                  ...(request.branchesVersion === "v1"
+                    ? {}
+                    : {
+                        branches: [
+                          { ref: "refs/heads/parent", name: "parent" },
+                          { ref: "refs/heads/current", name: "current" },
+                          { ref: "refs/remotes/origin/main", name: "origin/main" },
+                        ].filter((branch) => !deleted || branch.ref !== "refs/heads/parent"),
+                      }),
+                  commits: request.limit ? [commit] : [],
+                  hasMore: false,
+                }
+              : {
+                  isRepo: true,
+                  commit: legacyCommitFiles ? undefined : request.commit,
+                  commitParent: rootCommit ? null : "b".repeat(40),
+                  truncated: truncatedCommitFiles,
+                  base: request.mode === "committed" ? base : null,
+                  files: request.mode === "committed" ? [file] : [],
+                },
+          error: method === "git:diff-files" && request.commit ? commitFilesError : "",
+          refresh() {},
+        };
+      },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  };
+  const { ChangeSections, CommitCard } = load("change-tree.tsx", modules, "\nexport { CommitCard };");
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: phoneClient, cwd: "/worktree", base: "main", onOpen: (...args) => opened.push(args) });
+  };
+  let tree = render();
+  find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/parent" && item.section === "Suggested"));
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/current" && item.disabled && item.subtitle === "current"));
+  assert.ok(picker.items.some((item) => item.id === "refs/remotes/origin/main" && item.section === "Remote · origin"));
+  assert.equal(picker.items[0].subtitle, "main, the recorded base");
+  picker.onSelect("refs/heads/parent");
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:diff-files" && call.request.mode === "committed").request.base, "refs/heads/parent");
+  find(tree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
+  assert.deepEqual(opened[0], [file, "committed", "refs/heads/parent"]);
+  find(tree, (node) => node.props?.accessibilityLabel === "Commits").props.onPress();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === CommitCard));
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
+  find(tree, (node) => node.type === CommitCard).props.onShowFiles();
+  tree = render();
+  assert.ok(textOf(tree).includes(commit.sha.slice(0, 8)));
+  const commitFiles = find(tree, (node) => node.type?.name === "CommitFiles");
+  const filesTree = commitFiles.type(commitFiles.props);
+  assert.equal(calls.findLast((call) => call.method === "git:diff-files").request.commit, commit.sha);
+  find(filesTree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
+  assert.deepEqual(opened[1], [file, "committed", null, commit.sha, "b".repeat(40)]);
+  assert.ok(textOf(filesTree).includes("Compared with first parent"));
+  rootCommit = true;
+  truncatedCommitFiles = true;
+  const rootFiles = commitFiles.type(commitFiles.props);
+  assert.ok(textOf(rootFiles).includes("First commit"));
+  assert.ok(textOf(rootFiles).includes("1+ files"));
+  assert.equal(textOf(rootFiles).includes("Compared with first parent"), false);
+  rootCommit = false;
+  truncatedCommitFiles = false;
+  legacyCommitFiles = true;
+  const legacyFiles = commitFiles.type(commitFiles.props);
+  assert.ok(textOf(legacyFiles).includes("needs an update"));
+  assert.equal(
+    find(legacyFiles, (node) => node.type?.name === "ChangeTree"),
+    undefined,
+  );
+  legacyCommitFiles = false;
+  commitFilesError = "Commit was removed";
+  assert.equal(find(commitFiles.type(commitFiles.props), (node) => node.type === "ErrorNotice").props.message, commitFilesError);
+  commitFilesError = "";
+  const { diffTarget } = load("change-tree.tsx", modules);
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1", memberId: "project" }, commit.sha).commit, commit.sha);
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, null).commitParent, "");
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, "b".repeat(40)).commitParent, "b".repeat(40));
+
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Back to commits").props.onPress();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === CommitCard));
+  const cardReact = hookHost();
+  const card = load("change-tree.tsx", { ...modules, react: cardReact }, "\nexport { CommitCard };").CommitCard;
+  cardReact.begin();
+  let showedFiles = false;
+  let details = card({
+    commit,
+    onShowFiles: () => {
+      showedFiles = true;
+    },
+  });
+  find(details, (node) => node.type === "Pressable").props.onPress();
+  cardReact.begin();
+  details = card({
+    commit,
+    onShowFiles: () => {
+      showedFiles = true;
+    },
+  });
+  assert.ok(textOf(details).includes("maria@example.com"));
+  assert.ok(textOf(details).includes("Detailed explanation"));
+  find(details, (node) => node.props?.accessibilityLabel === "Copy SHA").props.onPress();
+  assert.deepEqual(copied, [commit.sha]);
+  find(details, (node) => node.type === "Pressable" && textOf(node) === "Show files in this commit").props.onPress();
+  assert.equal(showedFiles, true);
+  assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
+  unrelated = true;
+  tree = render();
+  assert.ok(textOf(tree).includes("shares no history"));
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Compare with main instead").props.onPress();
+  render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "refs/heads/main");
+  picker.onSelect("refs/heads/parent");
+  deleted = true;
+  render();
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "main");
+  assert.ok(textOf(tree).includes("parent no longer exists. Showing changes since main."));
+  find(tree, (node) => node.props?.accessibilityLabel === "Dismiss missing branch notice").props.onPress();
+  assert.equal(textOf(render()).includes("no longer exists"), false);
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.branchesVersion, "v1");
+  find(render(), (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(
+    picker.items.some((item) => item.id === "refs/heads/parent"),
+    "omitted catalogues retain picker choices",
+  );
+  phoneClient = {};
+  render();
+  assert.equal(
+    calls.findLast((call) => call.method === "git:history").request.branchesVersion,
+    undefined,
+    "another host never borrows the previous host's catalogue token",
+  );
+  for (const reason of ["timeout", "tooLarge"]) {
+    const limited = { ...commit, files: null, added: null, removed: null, statsUnavailable: reason };
+    const limitedReact = hookHost();
+    const renderCard = load("change-tree.tsx", { ...modules, react: limitedReact }, "\nexport { CommitCard };\n").CommitCard;
+    limitedReact.begin();
+    let row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Totals unavailable"));
+    assert.equal(
+      find(row, (node) => node.type === "Counts"),
+      undefined,
+      "unavailable totals never render as zero",
+    );
+    find(row, (node) => node.type === "Pressable").props.onPress();
+    limitedReact.begin();
+    row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Detailed explanation") && textOf(row).includes("maria@example.com"));
+    assert.ok(textOf(row).includes("Retrying automatically"));
+  }
+});
+
+test("phone history retains metadata and commits during pagination, but never across repositories or clients", async () => {
+  const react = hookHost({ effects: true });
+  const pending = [];
+  let client = {
+    call: () => {
+      const request = deferred();
+      pending.push(request);
+      return request.promise;
+    },
+  };
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) => {
+        void options.refresh();
+        return () => {};
+      },
+    },
+  });
+  let cwd = "/project",
+    limit = 0;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:history", [{ cwd, base: "main", limit }], true, JSON.stringify([cwd, "main"]));
+    react.flush();
+    return result;
+  };
+  render();
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: [] });
+  await settle();
+  limit = 30;
+  assert.equal(render().data.branch, "feature", "metadata stays while the initial commits load");
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: ["first"] });
+  await settle();
+  limit = 60;
+  assert.deepEqual(render().data.commits, ["first"], "pagination retains the loaded list");
+  pending.shift().reject(new Error("Connection dropped"));
+  await settle();
+  assert.deepEqual(render().data.commits, ["first"], "a failed page keeps the prior list for retry");
+  assert.equal(render().error, "Connection dropped");
+  limit = 90;
+  render();
+  const old = pending.shift();
+  cwd = "/another-project";
+  assert.equal(render().data, null, "a different repository never borrows the old result");
+  old.resolve({ branch: "old", commits: ["wrong"] });
+  await settle();
+  assert.equal(render().data, null, "late answers for the prior repository are discarded");
+  pending.shift().resolve({ branch: "new", commits: ["new"] });
+  await settle();
+  assert.equal(render().data.branch, "new");
+  client = { call: () => new Promise(() => {}) };
+  assert.equal(render().data, null, "another computer with the same path cannot reuse this computer's result");
+  react.unmount();
+});
+
+test("older hosts without git history keep phone file diffs usable; network errors still offer retry", () => {
+  const react = hookHost();
+  let historyError = "Command is not available from mobile";
+  const { ChangeSections } = load("change-tree.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {},
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet() {} },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method) =>
+        method === "git:history"
+          ? { data: null, error: historyError, refresh() {} }
+          : { data: { isRepo: true, base: "main", files: [{ path: "changed.txt", added: 1, removed: 0 }] }, error: "", refresh() {} },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  });
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: {}, cwd: "/project", onOpen: (...args) => opened.push(args) });
+  };
+  for (const message of ["Command is not available from mobile", "Unknown command: git:history"]) {
+    historyError = message;
+    const tree = render();
+    assert.equal(
+      find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch"),
+      undefined,
+    );
+    assert.equal(
+      find(tree, (node) => node.type === "ErrorNotice"),
+      undefined,
+    );
+    const files = find(tree, (node) => node.type?.name === "ChangeTree");
+    assert.ok(files, "ordinary files remain visible on an older host");
+    files.props.onOpen({ path: "changed.txt" });
+  }
+  assert.equal(opened.length, 2);
+  historyError = "Connection dropped";
+  const retry = find(render(), (node) => node.type === "ErrorNotice");
+  assert.equal(retry.props.message, historyError);
+  assert.equal(typeof retry.props.retry, "function");
+});
+
+test("phone commit diffs preserve their SHA and member scope when reading the patch", () => {
+  const react = hookHost();
+  const calls = [];
+  const client = {};
+  const { DiffView } = load("app/diff.tsx", {
+    react: { ...react, memo: (component) => component },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "react-native": { FlatList: "FlatList", Text: "Text", View: "View" },
+    "expo-router": { Redirect: "Redirect", Stack: "Stack", useLocalSearchParams: () => ({}) },
+    "../display-clock": { useScreenActive: () => true },
+    "../session": { useSession: () => ({ client, snapshot: { project: {} } }) },
+    "../chat-scope": {
+      memberForDiff: (_project, worktreeId, memberId) => {
+        assert.equal(worktreeId, 1);
+        assert.equal(memberId, "member");
+        return { path: "/member/worktree" };
+      },
+    },
+    "../use-rpc": {
+      useRpc: (connection, method, [request]) => {
+        calls.push({ connection, method, request });
+        return { data: { patch: "@@ -1 +1 @@\n-old\n+new\n", binary: false, tooLarge: false } };
+      },
+    },
+    "../diff-rows": { LARGE_DIFF_LINES: 3000, diffRows: () => [{ key: "1" }], wordSegments: () => [] },
+    "../diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "../ui": { ...uiHooks, ErrorNotice: "ErrorNotice", PillButton: "PillButton" },
+    "../theme": { ...themeHooks, fonts: { mono: "monospace" } },
+  });
+  react.begin();
+  const commit = "a".repeat(40);
+  const tree = DiffView({ target: { worktreeId: "1", memberId: "member", path: "old.txt", mode: "committed", commit } });
+  assert.equal(calls[0].connection, client);
+  assert.equal(calls[0].method, "git:diff-file");
+  assert.equal(calls[0].request.cwd, "/member/worktree");
+  assert.equal(calls[0].request.commit, commit);
+  assert.equal(calls[0].request.path, "old.txt");
+  assert.ok(textOf(tree.props.ListHeaderComponent).includes("Commit aaaaaaaa"));
+  for (const [commitParent, expected] of [
+    ["", "First commit"],
+    ["b".repeat(40), "Compared with first parent"],
+    [undefined, "Commit changes"],
+  ]) {
+    react.begin();
+    const view = DiffView({ target: { worktreeId: "1", memberId: "member", path: "old.txt", mode: "committed", commit, commitParent } });
+    assert.ok(textOf(view.props.ListHeaderComponent).includes(expected));
+  }
+});
+
+test("Chat header promotes only Browser and PR, with working actions and no duplicate overflow entries", () => {
+  let opened = 0;
+  let shortcutOptions;
+  const shortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress: () => opened++ };
+  const screen = chatHost({
+    browserShortcut: (options) => {
+      shortcutOptions = options;
+      return shortcut;
+    },
+    routines: [heartbeatFor("/p#7")],
+  });
+  screen.panels.openInPanel = () => {};
+  screen.params.id = "7";
+  screen.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  globalThis.chatPullRequest = { number: 90, state: "OPEN", url: "https://github.com/o/r/pull/90" };
+  globalThis.openedPullRequests = [];
+  try {
+    const tree = screen.render();
+    assert.equal(shortcutOptions.openInPanel, screen.panels.openInPanel, "the header passes its own panel opener, outside the child context provider");
+    const group = find(tree, (node) => node.type?.name === "HeaderActionGroup");
+    assert.ok(group, "all promoted actions share one glass capsule");
+    const buttons = allNodes(group, (node) => node.type?.name === "HeaderAction" && node.props.onPress);
+    assert.deepEqual(
+      buttons.map((node) => node.props.label),
+      [shortcut.accessibilityLabel, "Pull request #90"],
+    );
+    buttons.find((node) => node.props.label === shortcut.accessibilityLabel).props.onPress();
+    buttons.find((node) => node.props.label === "Pull request #90").props.onPress();
+    assert.equal(opened, 1);
+    assert.equal(globalThis.openedPullRequests.length, 1);
+    const menu = new Set(chatMenuEntries(tree).map((node) => node.props.children));
+    assert.ok(menu.has("Heartbeat"));
+    assert.ok(menu.has("View changes"));
+    assert.ok(!menu.has("Pull request #90"));
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.openedPullRequests;
+  }
+});
+
+test("an offline phone send saves text, destination and attachment bytes before clearing the composer", async () => {
+  const { createOutbox } = require("@milagre/shared/outbox");
+  let saved;
+  const box = createOutbox({
+    storage: {
+      read: async () => null,
+      write: async (data) => {
+        saved = structuredClone(data);
+      },
+    },
+    available: () => false,
+    deliver: async () => assert.fail("offline delivery"),
+  });
+  const host = chatHost({ localOutbox: box });
+  host.session.error = "Computer disconnected";
+  host.session.attachments["/p#new:1"] = [
+    { id: "photo", name: "Photo.jpg", uri: "temporary.jpg", image: { id: "photo", name: "Photo.jpg", dataUrl: "data:image/jpeg;base64,aW1n" } },
+  ];
+  host.render();
+  host.send();
+  await settle();
+  await settle();
+  assert.equal(saved.items.length, 1);
+  assert.equal(saved.items[0].computerId, host.session.client.url);
+  assert.equal(saved.items[0].owner, "/p");
+  assert.equal(saved.items[0].request.body, "first message");
+  assert.equal(saved.items[0].attachments[0].base64, "aW1n");
+  assert.equal(host.field().value, "");
+  assert.equal(host.session.attachments["/p#new:1"].length, 0);
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+  // The message waits in this Chat's composer tray, which says the computer is offline.
+  assert.equal(find(host.render(), (node) => node.type === "OfflineTray")?.props.target.offline, true);
+});
+
+test("an offline queue storage failure keeps the phone draft and attachments", async () => {
+  const box = {
+    getSnapshot: () => ({ loaded: true }),
+    enqueue: async () => {
+      throw new Error("Disk full");
+    },
+    flush: async () => {},
+  };
+  const host = chatHost({ localOutbox: box });
+  host.session.error = "Computer disconnected";
+  host.session.attachments["/p#new:1"] = [{ id: "file", name: "notes.txt", uri: "temp", base64: "YWJj" }];
+  host.render();
+  host.send();
+  await settle();
+  assert.equal(host.field().value, "first message");
+  assert.equal(host.session.attachments["/p#new:1"].length, 1);
+  assert.match(JSON.stringify(host.render()), /Disk full/);
+});
+
+test("a send after restart waits for the saved queue before choosing direct delivery", async () => {
+  const { createOutbox } = require("@milagre/shared/outbox");
+  const disk = deferred();
+  const box = createOutbox({ storage: { read: () => disk.promise, write: async () => {} }, available: () => false, deliver: async () => assert.fail() });
+  const host = chatHost({ localOutbox: box });
+  host.render();
+  host.send();
+  await settle();
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+  disk.resolve({
+    version: 1,
+    revision: 1,
+    items: [
+      {
+        id: "older",
+        computerId: host.session.client.url,
+        computerName: "Computer",
+        owner: "/p",
+        conversation: "older",
+        request: { projectPath: "/p", sessionId: null, worktreeId: 1, body: "older message", images: [], files: [] },
+        attachments: [],
+        status: "queued",
+        phase: "ready",
+        createdAt: 1,
+        error: "",
+      },
+    ],
+  });
+  await settle();
+  await settle();
+  assert.deepEqual(
+    box.getSnapshot().items.map((item) => item.request.body),
+    ["older message", "first message"],
+  );
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+});
+
+test("browser preference defaults on, persists changes, ignores a late read and reports failed saves", async () => {
+  let read;
+  const saves = [];
+  let fail = false;
+  const { useInternalBrowser } = load("browser-setting.ts", {
+    react: { useSyncExternalStore: (_subscribe, get) => get() },
+    "./hosts-native": {
+      readInternalBrowser: () =>
+        new Promise((resolve) => {
+          read = resolve;
+        }),
+      saveInternalBrowser: async (on) => {
+        saves.push(on);
+        if (fail) throw new Error("storage failed");
+      },
+    },
+  });
+  assert.equal(useInternalBrowser()[0], true);
+  await useInternalBrowser()[1](false);
+  read(true);
+  await settle();
+  assert.equal(useInternalBrowser()[0], false, "a slow initial read cannot undo the user's choice");
+  fail = true;
+  await assert.rejects(useInternalBrowser()[1](true), /storage failed/);
+  assert.equal(useInternalBrowser()[0], false);
+  fail = false;
+  await useInternalBrowser()[1](true);
+  assert.equal(useInternalBrowser()[0], true);
+  assert.deepEqual(saves, [false, true, true]);
+});
+
+test("Chat web links use the iPad panel or phone sheet, and respect this device's external preference", () => {
+  for (const docked of [false, true]) {
+    const chat = chatHost({ screenWidth: docked ? 1194 : 402 });
+    const tabs = [];
+    chat.panels.openInPanel = docked ? (tab) => tabs.push(tab) : null;
+    chat.params.id = "2";
+    const link = () => find(chat.render(), (node) => node.type === "ChatLinkProvider").props.openLink;
+    try {
+      assert.equal(link()("http://localhost:5173"), true);
+      if (docked) {
+        assert.equal(tabs[0].kind, "browser");
+        assert.equal(tabs[0].target.url, "http://localhost:5173");
+        assert.equal((chat.router.pushed ?? []).length, 0);
+      } else assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
+      globalThis.internalBrowser = false;
+      const before = (chat.router.pushed ?? []).length + tabs.length;
+      assert.equal(link()("https://example.com"), false, "Markdown delegates to Linking when the Chat declines the link");
+      assert.equal((chat.router.pushed ?? []).length + tabs.length, before);
+    } finally {
+      delete globalThis.internalBrowser;
+    }
+  }
+});
+
+test("mobile Ports obey the external preference and explain a loopback-only server", async (t) => {
+  const urls = [];
+  const ports = [
+    { port: 5173, pid: 22, command: "node", address: "*" },
+    { port: 3000, pid: 23, command: "node", address: "127.0.0.1" },
+  ];
+  const h = simulatorHost({ url: "mac", call: async () => ({ chatId: "/p#7", ports }) }, "ports.tsx", {
+    native: {
+      Linking: {
+        openURL: async (url) => {
+          urls.push(url);
+        },
+      },
+    },
+    modules: {
+      "./browser-setting": { useInternalBrowser: () => [false] },
+      "./routes-native": { useReachableHost: () => "192.168.1.2" },
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (node) => node.props.accessibilityLabel === "Open http://localhost:5173").props.onPress();
+  assert.deepEqual(urls, ["http://192.168.1.2:5173"]);
+  find(render(), (node) => node.props.accessibilityLabel === "Open http://localhost:3000").props.onPress();
+  assert.equal(urls.length, 1);
+  assert.match(JSON.stringify(render()), /Enable Open links in Milagre in Settings > Browser/);
+});
+
+test("the mic is a 44 point target and the take's capsule can discard it or stop it", () => {
+  const { VoiceMicButton, DictationCapsule, MIC_SIZE, CAPSULE_WIDTH, CAPSULE_INSET } = load("voice-mic-button.tsx", {
+    react: { useEffect() {} },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", View: "View" },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      cancelAnimation() {},
+      Easing: { linear() {}, bezier() {} },
+      ReduceMotion: { System: "system" },
+      useAnimatedStyle: (callback) => callback(),
+      useSharedValue: (initial) => ({ value: initial, get: () => initial, set() {} }),
+      withRepeat: (value) => value,
+      withSequence: (...values) => values.at(-1),
+      withTiming: (value) => value,
+    },
+    "react-native-svg": { __esModule: true, default: "Svg", Circle: "Circle", Path: "Path" },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "Cancel01Icon", Mic01Icon: "Mic01Icon" },
+    "@milagre/shared/themes": { withAlpha: (color) => color },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./icons": { Icon: "Icon" },
+    "./theme": { useTheme: () => ({ colors: fakePalette, motionScale: 1 }) },
+  });
+  assert.equal(MIC_SIZE, 44);
+  let starts = 0;
+  const idle = VoiceMicButton({ onPress: () => starts++ });
+  const targetStyle = idle.props.style({ pressed: false });
+  assert.equal(targetStyle.width, 44);
+  assert.equal(targetStyle.height, 44);
+  assert.equal(idle.props.accessibilityLabel, "Dictate");
+  idle.props.onPress();
+  assert.equal(starts, 1);
+  const processing = VoiceMicButton({ onPress: () => starts++, processing: "GPT-6 Luna" });
+  assert.equal(processing.props.accessibilityState.busy, true);
+  assert.equal(processing.props.accessibilityValue.text, "Correcting names · GPT-6 Luna");
+  assert.equal(processing.props.style({ pressed: false }).width, 44, "processing keeps the mic's touch target");
+  assert.equal(find(processing, (node) => node.type === "Icon").props.tone, "ink4", "the busy mic is gray");
+  const border = find(processing, (node) => typeof node.type === "function" && node.type.name === "MicLoadingRing");
+  assert.equal(border.props.size, 36, "the loading arc is on the visual button's border");
+  processing.props.onPress();
+  assert.equal(starts, 2, "starting a new take stays available while the previous correction is pending");
+
+  let discards = 0;
+  let stops = 0;
+  // DictationCapsule picks the control for the phase; render the one it picked.
+  const render = (element) => element.type(element.props);
+  const recording = render(DictationCapsule({ phase: "recording", level: { value: 1 }, download: null, onDiscard: () => discards++, onStop: () => stops++ }));
+  // The field is only 44 tall with one line of text, so the capsule has to fit inside it with room at both edges.
+  const capsuleHeight = recording.props.style.height;
+  const fieldHeight = 44;
+  const top = fieldHeight - CAPSULE_INSET.bottom - capsuleHeight;
+  assert.ok(top >= 4, `the capsule leaves ${top}px above it inside a one-line field, not overhanging its background`);
+  assert.ok(capsuleHeight + CAPSULE_INSET.bottom <= fieldHeight, "and never reaches past the field's own height");
+  const buttons = [];
+  find(recording, (node) => {
+    if (node.props?.accessibilityRole === "button") buttons.push(node);
+    return false;
+  });
+  assert.deepEqual(
+    buttons.map((node) => node.props.accessibilityLabel),
+    ["Discard dictation", "Stop dictation"],
+  );
+  // Each visual is 28 points with hitSlop 8 on every side, so the target is 44.
+  for (const button of buttons) {
+    const style = button.props.style({ pressed: false });
+    assert.equal(style.width + button.props.hitSlop * 2, 44);
+    assert.equal(style.height + button.props.hitSlop * 2, 44);
+  }
+  buttons[0].props.onPress();
+  buttons[1].props.onPress();
+  assert.equal(discards, 1);
+  assert.equal(stops, 1);
+
+  // The halo swells with the voice; at full level it must still sit inside the capsule's own background.
+  // The halo is the only layer with an animated style: its base size and the scale the shared level drives.
+  const haloNode = find(recording, (node) => Array.isArray(node.props?.style) && node.props.style[0]?.position === "absolute");
+  const haloBase = haloNode.props.style[0].height;
+  const haloScale = haloNode.props.style[1].transform[0].scale;
+  assert.ok(haloBase * haloScale <= capsuleHeight, `a full-voice halo is ${haloBase * haloScale}px inside a ${capsuleHeight}px capsule`);
+
+  const preparing = render(DictationCapsule({ phase: "preparing", level: { value: 0 }, download: null, onDiscard() {}, onStop() {} }));
+  assert.equal(preparing.props.style.height, capsuleHeight, "the capsule is the same width and height in every phase");
+  assert.ok(
+    find(preparing, (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Preparing the microphone"),
+    "no stop before there is anything to stop",
+  );
+  assert.ok(!find(preparing, (node) => node.props?.accessibilityLabel === "Stop dictation"));
+  const finishing = render(DictationCapsule({ phase: "transcribing", level: { value: 0 }, download: null, onDiscard() {}, onStop() {} }));
+  assert.ok(find(finishing, (node) => node.props?.accessibilityLabel === "Finishing the last words"));
+  assert.ok(
+    find(finishing, (node) => node.props?.accessibilityLabel === "Discard dictation"),
+    "a take can still be thrown away while it finishes",
+  );
+  assert.equal(CAPSULE_WIDTH, 72);
+
+  // While the model downloads, the mic keeps its 44 point box: a ring filling around a dropping arrow, which cancels.
+  const downloading = render(DictationCapsule({ phase: "downloading", level: { value: 0 }, download: 0.4, onDiscard: () => discards++, onStop() {} }));
+  assert.equal(downloading.props.accessibilityLabel, "Downloading speech model, 40 percent");
+  const downloadStyle = downloading.props.style({ pressed: false });
+  assert.equal(downloadStyle.width, 44);
+  assert.equal(downloadStyle.height, 44);
+  assert.ok(!find(downloading, (node) => node.props?.accessibilityLabel === "Stop dictation"), "nothing records while the model downloads");
+  downloading.props.onPress();
+  assert.equal(discards, 2);
+});
+
+test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", async () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  let draft = "fix";
+  let action = "paste";
+  let deliver;
+  let blocked = false;
+  let partial = { text: "", settled: 0 };
+  let phase = "idle";
+  let cancels = 0;
+  let starts = 0;
+  let stops = 0;
+  const sent = [];
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Linking: { openSettings() {} }, Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./chat-display-setting": { useDictationAction: () => [action] },
+    "./voice-dictation-hook": {
+      useVoiceDictation: (callback) => {
+        deliver = callback;
+        return {
+          available: true,
+          phase,
+          error: null,
+          partial,
+          download: null,
+          level: { value: 0 },
+          start() {
+            starts++;
+          },
+          stop() {
+            stops++;
+          },
+          cancel() {
+            cancels++;
+          },
+          dismiss() {},
+        };
+      },
+    },
+  });
+  const render = () => {
+    react.begin();
+    const renderedDraft = draft;
+    const tree = PromptField({
+      client: { call: async () => [] },
+      projectPath: "/project",
+      draft,
+      onChangeText: (value) => {
+        draft = value;
+      },
+      onSubmit: () => {
+        if (blocked) return;
+        sent.push(renderedDraft);
+        draft = "";
+      },
+    });
+    react.flush();
+    return tree;
+  };
+  const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } }, null);
+  // The words in the field: every run of the attributed text, with whether it is the provisional tail.
+  const runs = (tree) => {
+    const field = find(tree, (node) => node.type === "Field");
+    const out = [];
+    find(field, (node) => {
+      if (node.type === "Text" && typeof node.props.children === "string") out.push([node.props.children, node.props.style?.color === fakePalette.ink2]);
+      return false;
+    });
+    return out;
+  };
+  render();
+  // Tapping the mic opens the take; the draft is untouched until the first words arrive.
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  assert.equal(starts, 1);
+  assert.equal(draft, "fix");
+  phase = "preparing";
+  const preparing = render();
+  assert.ok(
+    !find(preparing, (node) => node.type === "Text" && node.props.children === "Preparing the microphone\u2026"),
+    "starting dictation adds no status row",
+  );
+  assert.ok(
+    find(preparing, (node) => node.type === "DictationCapsule"),
+    "the mic grew into the capsule, in its own place",
+  );
+  assert.ok(!find(preparing, (node) => node.type === "VoiceMicButton"));
+
+  phase = "recording";
+  partial = { text: "this bit", settled: 0 };
+  render();
+  assert.equal(draft, "fix this bit", "the words land in the field itself, not in a preview of their own");
+  assert.deepEqual(
+    runs(render()),
+    [
+      ["fix ", false],
+      ["this bit", true],
+    ],
+    "nothing has settled, so the whole take is the tail",
+  );
+
+  partial = { text: "this bit here", settled: "this bit ".length };
+  render();
+  assert.equal(draft, "fix this bit here");
+  assert.deepEqual(
+    runs(render()),
+    [
+      ["fix this bit ", false],
+      ["here", true],
+    ],
+    "settled words read like anything typed",
+  );
+
+  // Stop: the final transcript settles in place and the tint goes, with the words where they already were.
+  phase = "transcribing";
+  const finishing = render();
+  assert.ok(
+    !find(finishing, (node) => node.type === "Text" && node.props.children === "Finishing the last words\u2026"),
+    "stopping dictation adds no flashing status row",
+  );
+  find(finishing, (node) => node.type === "DictationCapsule").props.onStop();
+  assert.equal(stops, 1);
+  partial = { text: "", settled: 0 };
+  phase = "idle";
+  hear("this bit here");
+  render();
+  assert.equal(draft, "fix this bit here", "finishing changes nothing on screen");
+  assert.deepEqual(runs(render()), [["fix this bit here", false]]);
+  assert.deepEqual(sent, [], "paste is the default: the message waits for the user");
+
+  // Discard takes out only the take, and puts back the draft and the caret it replaced.
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  phase = "recording";
+  partial = { text: "throw this away", settled: 0 };
+  render();
+  assert.equal(draft, "fix this bit here throw this away");
+  find(render(), (node) => node.type === "DictationCapsule").props.onDiscard();
+  render();
+  assert.equal(cancels, 1);
+  assert.equal(draft, "fix this bit here", "the draft the user had is back, whole");
+  phase = "idle";
+  partial = { text: "", settled: 0 };
+  render();
+
+  // Send now: one message, once the parent has the final draft.
+  action = "send";
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  phase = "recording";
+  render();
+  phase = "idle";
+  hear("please");
+  assert.deepEqual(sent, [], "wait for the updated parent render");
+  render();
+  render();
+  assert.deepEqual(sent, ["fix this bit here please"]);
+  assert.equal(draft, "");
+  hear("  ");
+  render();
+  assert.equal(sent.length, 1);
+
+  blocked = true;
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  phase = "recording";
+  render();
+  phase = "idle";
+  hear("keep this");
+  render();
+  assert.equal(draft, "keep this");
+  assert.equal(sent.length, 1);
+  blocked = false;
+  render();
+  assert.equal(sent.length, 1, "unblocking does not send a stale transcript");
+
+  action = "paste";
+  draft = "";
+  render();
+  let resolveCorrection;
+  const correction = {
+    model: "GPT-6 Luna",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("open miracle", { draft, selection: { start: 0, end: 0 } }, correction);
+  let fixing = render();
+  assert.equal(draft, "open miracle", "the heard words land before AI answers");
+  assert.equal(find(fixing, (node) => node.type === "VoiceMicButton").props.processing, "GPT-6 Luna");
+  assert.ok(
+    !find(fixing, (node) => node.type === "Text" && String(node.props.children).startsWith("Fixing names")),
+    "processing stays in the mic, with no status row",
+  );
+  resolveCorrection("open Milagre");
+  await correction.text;
+  render();
+  fixing = render();
+  assert.equal(draft, "open Milagre", "the answer updates the dictated words in place");
+  assert.equal(find(fixing, (node) => node.type === "VoiceMicButton").props.processing, null, "the indicator clears after correction");
+  assert.ok(!find(fixing, (node) => node.type === "Text" && String(node.props.children).startsWith("Fixing names")));
+
+  const late = {
+    model: "Claude Haiku",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("please", { draft, selection: { start: draft.length, end: draft.length } }, late);
+  render();
+  draft += " after my edit";
+  render();
+  const editedTree = render();
+  assert.equal(find(editedTree, (node) => node.type === "VoiceMicButton").props.processing, null, "editing clears the indicator before the AI answers");
+  const edited = draft;
+  resolveCorrection("PLEASE");
+  await late.text;
+  render();
+  assert.equal(draft, edited, "a late answer cannot overwrite an edited draft");
+  const unmounted = {
+    model: "Claude Haiku",
+    text: new Promise((resolve) => {
+      resolveCorrection = resolve;
+    }),
+  };
+  deliver("more", { draft, selection: { start: draft.length, end: draft.length } }, unmounted);
+  render();
+  const left = draft;
+  react.cleanup();
+  resolveCorrection("MORE");
+  await unmounted.text;
+  assert.equal(draft, left, "leaving the composer drops a late answer");
+});
+
+test("a take's error is a bubble over the mic, not a line that moves the words", () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  let error = null;
+  let dismissed = 0;
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Linking: { openSettings() {} }, Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./chat-display-setting": { useDictationAction: () => ["paste"] },
+    "./voice-dictation-hook": {
+      useVoiceDictation: () => ({
+        available: true,
+        phase: "idle",
+        error,
+        partial: { text: "", settled: 0 },
+        download: null,
+        level: { value: 0 },
+        start() {},
+        stop() {},
+        cancel() {},
+        dismiss() {
+          dismissed++;
+        },
+      }),
+    },
+  });
+  const render = () => {
+    react.begin();
+    const tree = PromptField({ client: { call: async () => [] }, projectPath: "/project", draft: "keep this", onChangeText() {} });
+    react.flush();
+    return tree;
+  };
+  const quiet = render();
+  assert.ok(!find(quiet, (node) => node.type === "DictationNotice"));
+
+  error = { kind: "no-speech", message: "I didn't hear you. Try again." };
+  const heard = render();
+  const notice = find(heard, (node) => node.type === "DictationNotice");
+  assert.ok(notice, "the message is the bubble the mic has always used");
+  assert.equal(notice.props.error.message, "I didn't hear you. Try again.");
+  assert.ok(notice.props.micSize > 0, "the bubble is told the mic's size so its arrow points at it");
+  // The bubble floats out of the mic's own wrapper, so it can never become a row that pushes the draft.
+  const wrapper = find(heard, (node) => {
+    const children = [node.props?.children].flat(Infinity).filter(Boolean);
+    return children.some((child) => child?.type === "DictationNotice") && children.some((child) => child?.type === "VoiceMicButton");
+  });
+  assert.ok(wrapper, "it sits in the mic's wrapper, beside the mic itself");
+  assert.equal(wrapper.props.style.position, "absolute", "which is pinned over the field, not laid out in the column");
+  notice.props.onDismiss();
+  assert.equal(dismissed, 1);
+
+  error = { kind: "permission", message: "Allow the microphone to dictate." };
+  const refused = find(render(), (node) => node.type === "DictationNotice");
+  assert.equal(typeof refused.props.onOpenSettings, "function", "a refused microphone keeps its way to Settings");
+  react.cleanup();
+});
+
+test("phone checkboxes expose their state and let the entire labeled row toggle", () => {
+  let toggles = 0;
+  const { Checkbox } = load("primitives/checkbox.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "../icons": { Icon: "Icon" },
+  });
+  const tree = Checkbox({ label: "Keep awake", selected: true, onPress: () => toggles++ });
+  assert.equal(tree.props.accessibilityRole, "checkbox");
+  assert.equal(tree.props.accessibilityState.checked, true);
+  assert.equal(tree.props.style({ pressed: false }).minHeight, 44);
+  tree.props.onPress();
+  assert.equal(toggles, 1);
+  const disabled = Checkbox({ label: "Keep awake", selected: false, disabled: true, onPress() {} });
+  assert.equal(disabled.props.disabled, true);
+  assert.equal(disabled.props.accessibilityState.disabled, true);
+});
+
+test("phone dictation language opens a checked list and saves the chosen language", () => {
+  let language = "auto";
+  const { default: Screen } = load("app/(settings)/dictation-language.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text" },
+    "expo-router": { Stack: { Screen: "Screen" } },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "../chat-display-setting": {
+      useDictationLanguage: () => [
+        language,
+        (next) => {
+          language = next;
+        },
+      ],
+      useDictationModel: () => ["small", () => {}],
+    },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "../icons": { Icon: "Icon" },
+    "../ui": { PageScroll: "PageScroll" },
+  });
+  const row = (name) => find(Screen(), (node) => node.props.title === name);
+  assert.equal(row("Detect automatically (experimental)").props.selected, true);
+  row("Portuguese").props.onPress();
+  assert.equal(language, "pt");
+  assert.equal(row("Portuguese").props.selected, true);
+  assert.equal(row("Detect automatically (experimental)").props.selected, false);
+  row("Detect automatically (experimental)").props.onPress();
+  assert.equal(language, "auto");
+  assert.equal(row("Detect automatically (experimental)").props.selected, true);
+});
+
+test("iPhone automatic detection routes to Whisper and individual languages still use Apple", async () => {
+  const calls = [];
+  const native = {
+    isAvailable: () => true,
+    prepare: async (language) => calls.push(["apple", language]),
+  };
+  const whisper = {
+    prepare: async (language) => calls.push(["whisper", language]),
+    transcribe: async (_audio, options) => {
+      calls.push(["whisper-audio", options.language]);
+      return "Olá, please review the code.";
+    },
+  };
+  const { getTranscriber } = load("voice-transcription.ios.ts", {
+    "react-native": { TurboModuleRegistry: { get: () => native } },
+    "@react-native-ai/apple/src/NativeAppleTranscription": { default: native },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+    "./voice-transcription-whisper": { getTranscriber: () => whisper },
+  });
+  const transcriber = getTranscriber();
+  await transcriber.prepare("auto");
+  assert.equal(await transcriber.transcribe(new ArrayBuffer(3200), { language: "auto", terms: [] }), "Olá, please review the code.");
+  await transcriber.prepare("pt");
+  await transcriber.prepare("en");
+  assert.deepEqual(calls, [
+    ["whisper", "auto"],
+    ["whisper-audio", "auto"],
+    ["apple", "pt-BR"],
+    ["apple", "en-US"],
+  ]);
+});
+
+test("older iPhones and iPads can use Whisper without an available Apple recognizer", async () => {
+  const whisper = { prepare() {}, transcribe() {} };
+  for (const apple of [
+    null,
+    { isAvailable: () => false },
+    {
+      isAvailable() {
+        throw new Error("Unavailable");
+      },
+    },
+  ]) {
+    const { getTranscriber } = load("voice-transcription.ios.ts", {
+      "react-native": { TurboModuleRegistry: { get: (name) => (name === "RNWhisper" ? {} : apple) } },
+      "@react-native-ai/apple/src/NativeAppleTranscription": { default: apple },
+      "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+      "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+      "./voice-transcription-whisper": { getTranscriber: () => whisper },
+    });
+    assert.equal(getTranscriber(), whisper);
+  }
+});
+
+test("a build without Whisper still offers Apple languages and explains why auto detection is unavailable", async () => {
+  const native = { isAvailable: () => true, prepare: async () => {} };
+  const { getTranscriber } = load("voice-transcription.ios.ts", {
+    "react-native": { TurboModuleRegistry: { get: (name) => (name === "RNWhisper" ? null : native) } },
+    "@react-native-ai/apple/src/NativeAppleTranscription": { default: native },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+    "./voice-transcription-whisper": {
+      getTranscriber: () => {
+        throw new Error("Must not load Whisper");
+      },
+    },
+  });
+  const transcriber = getTranscriber();
+  await transcriber.prepare("pt");
+  await assert.rejects(transcriber.prepare("auto"), /Choose a language or update Milagre/);
+});
+
+test("the phone awaits model installation and keeps the moved model for later dictation", async () => {
+  const files = new Map();
+  const shared = require("@milagre/shared/dictation");
+  const small = shared.whisperModelFor("phone", "small");
+  const english = shared.whisperModelFor("phone", "small-en");
+  let directoryReady = false;
+  let downloads = 0;
+  let options;
+  let releases = 0;
+  let hold = null;
+  class Directory {
+    uri = "file:///documents/whisper";
+    get exists() {
+      return directoryReady;
+    }
+    async create() {
+      await Promise.resolve();
+      directoryReady = true;
+    }
+  }
+  class File {
+    constructor(directory, name) {
+      this.uri = `${directory.uri}/${name}`;
+    }
+    get exists() {
+      return files.has(this.uri);
+    }
+    get size() {
+      return files.get(this.uri) ?? 0;
+    }
+    async delete() {
+      await Promise.resolve();
+      files.delete(this.uri);
+    }
+    async move(destination) {
+      await Promise.resolve();
+      assert.equal(this.exists, true, "cleanup must not race the async move");
+      files.set(destination.uri, this.size);
+      files.delete(this.uri);
+      this.uri = destination.uri; // Expo updates the source object's URI after moving it.
+    }
+    static async downloadFileAsync(url, destination, { signal, onProgress }) {
+      assert.equal(directoryReady, true, "the destination directory must exist before downloading");
+      downloads++;
+      const model = shared.WHISPER_MODELS.phone.find((item) => url.endsWith(item.file));
+      onProgress({ bytesWritten: model.size / 2 });
+      if (hold) await hold;
+      if (signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      files.set(destination.uri, model.size);
+      return destination;
+    }
+  }
+  const { getTranscriber, downloadWhisperModel, cancelWhisperModel, deleteWhisperModel } = load("voice-transcription-whisper.ts", {
+    react: { useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+    "expo-file-system": { Directory, File, Paths: { document: {} } },
+    "@milagre/shared/dictation": shared,
+    "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+    "whisper.rn/index": {
+      initWhisper: async ({ filePath }) => {
+        assert.equal(files.has(filePath), true, "the installed model survives cleanup");
+        return {
+          transcribeData: (_audio, opts) => {
+            options = opts;
+            return { promise: Promise.resolve({ result: "Olá, please review the code." }) };
+          },
+          release: async () => {
+            releases++;
+          },
+        };
+      },
+    },
+  });
+  const transcriber = getTranscriber();
+  assert.equal(transcriber.missingModel("auto", "small"), "small", "a model that isn't on the phone has to download first");
+  await transcriber.prepare("auto", "small");
+  await transcriber.prepare("auto", "small");
+  assert.equal(downloads, 1);
+  assert.equal(transcriber.missingModel("auto", "small"), null);
+  const audio = new Int16Array(3200).fill(3000).buffer;
+  assert.equal(await transcriber.transcribe(audio, { language: "auto", terms: ["Milagre"], model: "small" }), "Olá, please review the code.");
+  assert.equal(downloads, 1);
+  assert.equal(options.language, "auto");
+  assert.equal(options.translate, false);
+  assert.match(options.prompt, /switch languages/);
+
+  // A cancelled download leaves nothing behind; an English-only model always listens for English.
+  let open;
+  hold = new Promise((resolve) => {
+    open = resolve;
+  });
+  const running = downloadWhisperModel(english.id);
+  await Promise.resolve();
+  cancelWhisperModel(english.id);
+  open();
+  await assert.rejects(running, (error) => error.name === "AbortError");
+  assert.equal(transcriber.missingModel("pt", english.id), english.id);
+  hold = null;
+  await transcriber.transcribe(audio, { language: "pt", terms: [], model: english.id });
+  assert.equal(options.language, "en");
+  assert.equal(releases, 1, "switching models frees the last one");
+
+  await deleteWhisperModel(small.id);
+  assert.equal(transcriber.missingModel("auto", small.id), small.id, "a deleted model downloads again on its next take");
+});
+
+test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {
+  const react = hookHost({ effects: true });
+  let now = Date.now();
+  const deadline = now + 300000;
+  const { SecretQuestion } = load("secret-question.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable" },
+    "./display-clock": { useDisplayNow: () => now, useScreenActive: () => true },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "./icons": { Icon: "Icon" },
+    "./ui": { PillButton: "PillButton" },
+  });
+  const sent = [];
+  const render = (busy = false) => {
+    react.begin();
+    return SecretQuestion({
+      request: { requestId: "secret", questions: [{ question: "Token" }], secretRequest: { description: "For deployment", expiresAt: deadline } },
+      busy,
+      submit: (...args) => sent.push(args),
+    });
+  };
+  let tree = render();
+  let input = find(tree, (n) => n.type === "TextInput");
+  assert.equal(input.props.secureTextEntry, true);
+  assert.equal(find(tree, (n) => n.type === "Text" && String(n.props.children).includes("to enter")).props.children, "5:00 left to enter");
+  find(tree, (n) => n.props?.accessibilityLabel === "Show secret").props.onPress();
+  tree = render();
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.secureTextEntry, false);
+  find(tree, (n) => n.props?.accessibilityLabel === "Hide secret").props.onPress();
+  tree = render();
+  assert.equal(input.props.autoCorrect, false);
+  assert.equal(input.props.autoCapitalize, "none");
+  assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
+  input.props.onChangeText("  test-token  ");
+  tree = render();
+  find(tree, (n) => n.props?.title === "Save securely").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [[{ secret: ["  test-token  "] }, ""]]);
+  tree = render(true);
+  input = find(tree, (n) => n.type === "TextInput");
+  assert.equal(input.props.value, "");
+  assert.equal(input.props.editable, false);
+  tree = render();
+  find(tree, (n) => n.props?.title === "Decline").props.onPress();
+  assert.deepEqual(sent.at(-1), [null, ""]);
+  find(render(), (n) => n.type === "TextInput").props.onChangeText("unsent-draft");
+  // The last minute switches the countdown to the attention tone.
+  now = deadline - 30000;
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "timer").props.children, "0:30 left to enter");
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "timer").props.style.color, fakePalette.orangeInk);
+  now = deadline;
+  tree = render();
+  tree = render();
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.value, "");
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.editable, false);
+  assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Request expired"));
+});
+
+test("artifact feedback carries the comment and tab through phone and dock navigation", async () => {
+  for (const format of ["html", "design"]) {
+    const page = { id: "page", title: "HTTP", format, version: 1 };
+    const comment = { id: "12345678", design: page, tab: { id: "headers", title: "Headers" }, text: "Explain caching", x: 0.2, y: 0.3 };
+    for (const docked of [false, true]) {
+      const pushes = [],
+        tabs = [];
+      const client = { url: `feedback-${docked}`, call: async (method) => (method === "artifact:list" ? [page] : []) };
+      const h = artifactHost(client, pushes, undefined, designsOn, docked ? (tab) => tabs.push(tab) : null);
+      const props = { chatId: "/p#7", feedback: { choice: null, comments: [comment] } };
+      h.render("DesignFeedbackCard", props);
+      await settle();
+      const tree = h.render("DesignFeedbackCard", props);
+      const action = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button");
+      assert.ok(action, "a feedback comment opens its artifact");
+      action.props.onPress();
+      action.props.onPress();
+      const targets = docked ? tabs.map((tab) => tab.target) : pushes.map((route) => route.params);
+      assert.equal(targets.length, 2);
+      assert.notEqual(targets[0].requestId, targets[1].requestId, "reopening the same comment makes a fresh request");
+      assert.equal(targets[0].tab, "headers");
+      assert.equal(targets[0].comment, "12345678");
+      assert.equal(targets[0].id, "page");
+      assert.equal(targets[0].hostId, client.url);
+      assert.equal(targets[0].chatId, "/p#7");
+      if (docked) assert.equal(targets[0].html, format === "html");
+      else assert.equal(pushes[0].pathname, "/artifact-sheet");
+      assert.equal(targets[0].version, "1");
+      h.cleanup();
+    }
+  }
+});
+
+test("artifact feedback opens its tab and reveals after ready, including a repeated dock request", async () => {
+  const page = {
+    id: "page",
+    title: "HTTP",
+    format: "html",
+    version: 1,
+    latest: 1,
+    html: "Overview",
+    tabs: [
+      { id: "overview", title: "Overview", html: "Overview" },
+      { id: "headers", title: "Headers", html: "Headers" },
+    ],
+  };
+  const comment = {
+    id: "12345678",
+    design: { id: page.id, title: page.title, version: 1 },
+    tab: { id: "headers", title: "Headers" },
+    text: "Explain caching",
+    resolved: { note: "Added cache headers", at: 2 },
+    x: 0.2,
+    y: 0.3,
+  };
+  const client = {
+    url: "reveal-host",
+    call: async (method) => (method === "artifact:comments" ? [comment] : method === "artifact:sharing-status" ? { available: false } : page),
+  };
+  const h = artifactHost(client);
+  let props = { hostId: client.url, chatId: "/p#7", id: page.id, tab: "headers", comment: comment.id, requestId: "1" };
+  let tree = await h.open(props);
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(
+    find(tree, (node) => node.props?.html === "Headers"),
+    "the non-first tab opens",
+  );
+  assert.ok(
+    h.commands().some((cmd) => cmd.t === "reveal" && cmd.k === "sent:12345678"),
+    "the comment is revealed after readiness",
+  );
+  find(tree, (node) => node.props?.accessibilityLabel === "Close the comment").props.onPress();
+  tree = h.render("ArtifactSheet", props);
+  assert.deepEqual(h.commands().findLast((cmd) => cmd.t === "pins").pins, [], "closing a resolved history comment clears it from the canvas");
+  find(tree, (node) => node.type === "PullDown" && node.props.sections.some((section) => section.items.some((item) => item.id === "overview"))).props.onSelect(
+    "overview",
+  );
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(find(tree, (node) => node.props?.html === "Overview"));
+  const before = h.commands().filter((cmd) => cmd.t === "reveal").length;
+  props = { ...props, requestId: "2" };
+  h.render("ArtifactSheet", props);
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(
+    find(tree, (node) => node.props?.html === "Headers"),
+    "the mounted dock turns back to the target tab",
+  );
+  assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before, "waits for the new tab's helper");
+  h.say(tree, { t: "ready" });
+  h.render("ArtifactSheet", props);
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before + 1);
+  h.cleanup();
+});
+
+test("artifact route forwards a feedback target to the native viewer", () => {
+  const params = { hostId: "mac", chatId: "/p#7", id: "page", kind: "html", tab: "headers", comment: "12345678", requestId: "2" };
+  const { default: Screen } = load("app/artifact-sheet.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-router": { useLocalSearchParams: () => params },
+    "../artifact": { ArtifactSheet: "ArtifactSheet" },
+    "../designs-sheet": { DesignsSheet: "DesignsSheet" },
+  });
+  const tree = Screen();
+  assert.equal(tree.type, "ArtifactSheet");
+  for (const field of ["tab", "comment", "requestId", "hostId", "chatId", "id"]) assert.equal(tree.props[field], params[field]);
+});
+
+test("artifact feedback refreshes comments received after a dock was opened", async () => {
+  const page = {
+    id: "page",
+    title: "HTTP",
+    format: "html",
+    version: 1,
+    latest: 1,
+    html: "Overview",
+    tabs: [
+      { id: "overview", title: "Overview", html: "Overview" },
+      { id: "headers", title: "Headers", html: "Headers" },
+    ],
+  };
+  let comments = [];
+  const later = deferred();
+  const client = {
+    url: "later-feedback-host",
+    call: async (method) => (method === "artifact:comments" ? comments : method === "artifact:sharing-status" ? { available: false } : page),
+  };
+  const h = artifactHost(client);
+  let props = { hostId: client.url, chatId: "/p#7", id: page.id };
+  await h.open(props);
+  comments = later.promise;
+  props = { ...props, tab: "headers", comment: "12345678", requestId: "2" };
+  h.render("ArtifactSheet", props);
+  let tree = h.render("ArtifactSheet", props);
+  h.say(tree, { t: "ready" });
+  h.render("ArtifactSheet", props);
+  assert.equal(
+    h.commands().some((command) => command.t === "reveal"),
+    false,
+    "no reveal before the comment loads",
+  );
+  later.resolve([
+    { id: "12345678", design: { id: page.id, version: 1, title: page.title }, tab: { id: "headers", title: "Headers" }, x: 0.2, y: 0.3, text: "New feedback" },
+  ]);
+  await settle();
+  h.render("ArtifactSheet", props);
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(h.commands().some((command) => command.t === "reveal" && command.k === "sent:12345678"));
+  h.cleanup();
+});
+
+function panelHandoffHost(width = 390) {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  const painted = new Set();
+  const routes = [];
+  const session = { cancelNavigation() {} };
+  const { SidePanelsProvider } = load("side-panels.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/after-paint": {
+      afterPaint: (work) => {
+        painted.add(work);
+        return () => painted.delete(work);
+      },
+    },
+    "react-native": {
+      useWindowDimensions: () => ({ width }),
+      Keyboard: { dismiss() {} },
+      BackHandler: { addEventListener: () => ({ remove() {} }) },
+    },
+    "expo-router": { router: { canDismiss: () => false, replace: (href) => routes.push(href), push: (href) => routes.push(href) } },
+    "react-native-safe-area-context": {},
+    "react-native-gesture-handler": {},
+    "react-native-reanimated": {
+      ReduceMotion: { System: "system" },
+      Easing: { bezier: () => () => 0, out: (value) => value, cubic: "cubic" },
+      useSharedValue: (initial) =>
+        react.useState(() => ({
+          value: initial,
+          set(value) {
+            this.value = value;
+          },
+        }))[0],
+      withTiming: (value, _options, complete) => {
+        complete?.();
+        return value;
+      },
+    },
+    "react-native-worklets": { scheduleOnRN: (work) => work() },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => session },
+    "./project-navigation": {},
+    "./app/changes": {},
+    "./change-tree": {},
+    "./app/diff": {},
+    "./ui": {},
+    "./icons": {},
+    "./pr-overview": {},
+    "./pr-chat": {},
+    "./motion": { springTo: (value) => value, scaledTiming: (value) => value },
+    "./theme": { getMotionScale: () => 1 },
+    "./panel-motion": {},
+    "./chat-swipe-row": { ClosesLeftContext: { Provider: "ClosesLeftProvider" }, hideRevealed() {} },
+    "./simulator": {},
+    "./designs-sheet": {},
+    "./artifact": {},
+    "./browser": {},
+  });
+  const render = () => {
+    react.begin();
+    const value = SidePanelsProvider({ children: null }).props.value;
+    react.flush();
+    return value;
+  };
+  const old = { token: {}, chatId: 1 };
+  render().attach(old);
+  render().show("left");
+  render();
+  return {
+    render,
+    old,
+    routes,
+    painted,
+    cleanup: () => react.cleanup(),
+    paint: () => {
+      for (const work of painted) {
+        painted.delete(work);
+        work();
+      }
+    },
+  };
+}
+
+test("a new iPad Chat clears docked Changes through attachment, sidebar handoff and in-place updates", () => {
+  for (const transition of ["attach", "handoff", "update"]) {
+    const host = panelHandoffHost(1194);
+    try {
+      host.render().update({ ...host.old, worktreeId: 1 });
+      host.render().show("right");
+      assert.equal(host.render().docked, true);
+      const draft = { token: transition === "update" ? host.old.token : {} };
+      if (transition === "update") host.render().update(draft);
+      else {
+        if (transition === "handoff") {
+          host.render().show("left");
+          host.render().navigate({ pathname: "/chat", params: { projectPath: "/p" } });
+        }
+        host.render().detach(host.old.token);
+        host.render().attach(draft);
+        host.paint();
+      }
+      assert.equal(host.render().docked, false, `${transition}: the draft clears Changes intent`);
+      host.render().update({ ...draft, chatId: 2, worktreeId: 2 });
+      assert.equal(host.render().docked, false, `${transition}: the first send keeps Changes closed`);
+      host.render().show("right");
+      assert.equal(host.render().docked, true, "Changes can still be opened explicitly");
+    } finally {
+      host.cleanup();
+    }
+  }
+});
+
+test("switching existing iPad Chats keeps docked Changes open", () => {
+  const host = panelHandoffHost(1194);
+  try {
+    host.render().update({ ...host.old, worktreeId: 1 });
+    host.render().show("right");
+    host.render().show("left");
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    host.render().detach(host.old.token);
+    const next = { token: {}, chatId: 2, worktreeId: 2 };
+    host.render().attach(next);
+    host.paint();
+    assert.equal(host.render().docked, true);
+    host.render().update({ ...next, worktreeId: 3 });
+    assert.equal(host.render().docked, true, "Worktree updates preserve the open panel");
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("a Chat committed under the sidebar is revealed without a native transition event or the one-second watchdog", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    assert.equal(host.routes.length, 1);
+    host.render().detach(host.old.token);
+    const next = { token: {}, chatId: 2 };
+    host.render().attach(next);
+    assert.equal(host.render().open, "left", "keep the old Chat covered until the destination paints");
+    host.paint();
+    assert.equal(host.render().open, null, "no transitionEnd is needed to reveal the committed destination");
+    assert.equal(host.render().screen.chatId, 2);
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("a superseded sidebar handoff cannot close the navigation on the next Chat", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    const second = { token: {}, chatId: 2 };
+    host.render().attach(second);
+    const stale = [...host.painted][0];
+    host.render().navigate({ pathname: "/chat", params: { id: "3" } });
+    const third = { token: {}, chatId: 3 };
+    host.render().attach(third);
+    stale();
+    assert.equal(host.render().open, "left");
+    host.paint();
+    assert.equal(host.render().open, null);
+    assert.equal(host.render().screen.chatId, 3);
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("a native transition ending first cancels the queued sidebar arrival", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    const next = { token: {}, chatId: 2 };
+    host.render().attach(next);
+    host.render().arrived(next.token);
+    assert.equal(host.render().open, null);
+    assert.equal(host.painted.size, 0);
+    host.render().show("left");
+    host.paint();
+    assert.equal(host.render().open, "left", "a completed arrival cannot dismiss a reopened sidebar");
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("the actual phone computer-use card receives the delayed first frame, opens the measured viewer and keeps the final image", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const react = hookHost({ effects: true });
+  const frames = [];
+  const routes = [];
+  const calls = [];
+  let answer = { seq: 0, live: false };
+  const session = { client: { call: async (method, args) => (calls.push([method, args]), answer) } };
+  const { ComputerUseCard } = load("computer-use-card.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Image: "Image", ActivityIndicator: "ActivityIndicator" },
+    "expo-router": { router: { push: (route) => routes.push(route) } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "@milagre/shared/desktop-steps": require("../packages/shared/src/desktop-steps.ts"),
+    "@milagre/shared/computer-use": require("../packages/shared/src/computer-use.ts"),
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => session },
+    "./viewer-store": { showImages: (images, index) => frames.push({ images, index }) },
+  });
+  t.after(() => react.unmount());
+  const steps = [{ id: "first", kind: "other", status: "running", title: "Read TextEdit", startedAt: 1000, input: '{"app":"TextEdit"}' }];
+  const render = () => {
+    react.begin();
+    return ComputerUseCard({ steps, chatId: "/p#1" });
+  };
+  assert.equal(find(render(), (node) => node.type === "Pressable").props.disabled, true);
+  await new Promise(setImmediate);
+  answer = { seq: 1, live: true, image: "FIRST", app: "TextEdit", at: 1100, width: 100, height: 80 };
+  steps[0].status = "done";
+  steps[0].endedAt = 1200;
+  render();
+  t.mock.timers.tick(1000);
+  await new Promise(setImmediate);
+  let card = render();
+  assert.equal(find(card, (node) => node.type === "Image").props.source.uri, "data:image/png;base64,FIRST");
+  const button = find(card, (node) => node.type === "Pressable");
+  button.props.ref.current = { measureInWindow: (done) => done(10, 20, 100, 80) };
+  button.props.onPress();
+  assert.deepEqual(routes, ["/viewer"]);
+  assert.equal(frames[0].images[0].source.uri, "data:image/png;base64,FIRST");
+  assert.equal(JSON.stringify(frames[0].images[0].from), JSON.stringify({ x: 10, y: 20, width: 100, height: 80 }));
+  answer = { ...answer, live: false };
+  t.mock.timers.tick(0);
+  await new Promise(setImmediate);
+  card = render();
+  assert.ok(find(card, (node) => node.type === "Image"));
+  assert.equal(
+    find(card, (node) => node.type === "Text" && node.props.children === "Live"),
+    undefined,
+  );
+  assert.equal(calls.length, 3, "one step, no remount, initial/live/final reads");
+});
+
+test("subchat report links open the Chat alone on a wide iPad, closing any split first", () => {
+  const host = chatHost({ split: { ...phoneSplit, widthClass: "wide" }, screenWidth: 1400 });
+  host.params.id = "1";
+  host.session.snapshot.project.state.sessions = { 1: { id: 1, title: "Parent" }, 2: { id: 2, parent: 1 }, 3: { id: 3, parent: 1 } };
+  globalThis.chatPage = () => ({
+    messages: [{ id: 10, session_id: 1, role: "assistant", body: "Done", context: { kind: "delegation-report", from: "/p#2" } }],
+  });
+  host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+  try {
+    const report = () => find(host.render(), (node) => node.type === "ChatReply").props;
+    report().onOpenChat("/p#2");
+    assert.equal(host.router.replaced.params.id, "2", "the subchat is the routed Chat");
+    assert.equal(host.router.replaced.params.beside, undefined, "no beside param: it opens alone");
+    assert.equal(host.beside.length, 0, "nothing opened beside");
+    assert.equal(host.beside.closed, 1, "the split ended before the route changed");
+    const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
+    menu.props.onSelect("/p#3");
+    assert.equal(host.router.replaced.params.id, "3", "the title menu and the report use the same route");
+    assert.equal(host.beside.closed, 2);
+    host.params.id = "2";
+    host.session.snapshot.project.state.messages.push({ id: 11, session_id: 2, role: "assistant", body: "Sibling report", context: null });
+    report().onOpenChat("/p#3");
+    assert.equal(host.router.replaced.params.id, "3", "opening a sibling from a child routes the sibling itself");
+    report().onOpenChat("/other#2");
+    assert.equal(host.router.replaced.params.projectPath, "/other", "same id in another Project navigates normally");
+  } finally {
+    delete globalThis.chatPage;
+  }
+});
+
+test("a Subchat's title menu names the family and offers Open beside parent only to a wide iPad", () => {
+  for (const wide of [false, true]) {
+    const host = chatHost(wide ? { split: { ...phoneSplit, widthClass: "wide" }, screenWidth: 1400 } : {});
+    host.params.id = "3";
+    host.session.snapshot.project.state.sessions = {
+      1: { id: 1, title: "Top" },
+      2: { id: 2, title: "Middle", parent: 1 },
+      3: { id: 3, title: "Leaf", parent: 2 },
+      4: { id: 4, title: "Sibling", parent: 2 },
+    };
+    const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
+    const items = menu.props.sections.flatMap((section) => section.items);
+    assert.equal(
+      JSON.stringify(items.filter((item) => item.subtitle === "Top Chat" || item.subtitle === "Parent").map((item) => [item.title, item.subtitle])),
+      JSON.stringify([
+        ["Top", "Top Chat"],
+        ["Middle", "Parent"],
+      ]),
+    );
+    assert.equal(items.find((item) => item.checked)?.title, "Leaf", "the open Chat has the tick");
+    assert.equal(items.find((item) => item.id === "beside-parent") !== undefined, wide);
+    if (wide) {
+      menu.props.onSelect("beside-parent");
+      assert.equal(host.beside.at(-1).chatId, 2, "beside the nearest listed parent");
+      assert.equal(host.router.replaced, undefined, "the route stays");
+    }
+  }
+});
+
+test("a Subchat opens under a capsule that goes back to its parent alone; a top Chat and a secondary pane have none", () => {
+  const sessions = { 1: { id: 1, title: "Top" }, 2: { id: 2, title: "Child", parent: 1 } };
+  const host = chatHost();
+  host.params.id = "2";
+  host.session.snapshot.project.state.sessions = sessions;
+  const capsule = find(host.render(), (node) => node.type === "SubchatBookmarkHost");
+  assert.ok(capsule, "a Subchat shows its bookmark");
+  assert.equal(capsule.props.chatKey, "/p#2");
+  capsule.props.onBack("/p#1");
+  assert.equal(host.router.replaced.params.id, "1", "back goes to the parent by replace");
+  assert.equal(host.beside.closed, 1);
+  const top = chatHost();
+  top.params.id = "1";
+  top.session.snapshot.project.state.sessions = sessions;
+  assert.equal(
+    find(top.render(), (node) => node.type === "SubchatBookmarkHost"),
+    undefined,
+  );
+  const secondary = chatHost({ pane: "secondary", split: { ...phoneSplit, widthClass: "wide" } });
+  secondary.params.id = "2";
+  secondary.session.snapshot.project.state.sessions = sessions;
+  assert.equal(
+    find(secondary.render(), (node) => node.type === "SubchatBookmarkHost"),
+    undefined,
+    "hidden in a secondary pane",
+  );
+});
+
+test("a Subchat's transcript leaves room for its capsule: its content and message jumps sit 16 lower", () => {
+  const sessions = { 1: { id: 1, title: "Top" }, 2: { id: 2, title: "Child", parent: 1 } };
+  const paddingTop = (id) => {
+    const host = chatHost();
+    host.params.id = id;
+    host.session.snapshot.project.state.sessions = sessions;
+    const list = find(host.render(), (node) => node.type === "KeyboardChatScrollView");
+    return [list.props.contentContainerStyle].flat(Infinity).find((style) => style?.paddingTop !== undefined).paddingTop;
+  };
+  assert.equal(paddingTop("2") - paddingTop("1"), 16);
+});
+
+test("a Subchat's escalation notes draw where they fall, and the open request's wait note sits over its question", () => {
+  const host = chatHost();
+  host.params.id = "1";
+  host.session.snapshot.project.state.sessions = { 1: { id: 1, title: "Top" }, 2: { id: 2, title: "Child", parent: 1 } };
+  const waiting = { kind: "subchat-waiting", ask: "question", parentTitle: "Top", waitedMs: 180_000 };
+  const escalation = { kind: "subchat-escalation", from: "/p#2", fromTitle: "Child", requestId: "r1", waitedMs: 180_000 };
+  const suggestion = {
+    kind: "subchat-suggestion",
+    id: "s1",
+    from: "/p#2",
+    fromTitle: "Child",
+    requestId: "r1",
+    question: "Q?",
+    answerLabel: "A",
+    answers: { q: ["A"] },
+  };
+  globalThis.chatPage = () => ({
+    messages: [
+      { id: 10, session_id: 1, role: "assistant", body: "", context: escalation },
+      { id: 11, session_id: 1, role: "assistant", body: "", context: suggestion },
+      { id: 12, session_id: 1, role: "assistant", body: "", context: waiting },
+    ],
+  });
+  host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+  try {
+    const kinds = () => findAll(host.render(), (node) => node.type === "SubchatNoteView").map((node) => node.props.note.kind);
+    assert.deepEqual(kinds(), ["subchat-suggestion", "subchat-waiting"], "the escalation line is dropped for its suggestion; no request is open");
+    // An approval is as open a request as a question: either keeps the note over the card in the dock.
+    host.session.snapshot.runs.runs["/p#1"] = { approvals: [{ requestId: "a1", title: "Run a command" }], questions: [] };
+    const tree = host.render();
+    assert.deepEqual(kinds(), ["subchat-suggestion"], "the waiting note leaves the transcript while its request is open");
+    assert.equal(find(tree, (node) => node.type === "SubchatWaitingNote")?.props.note.waitedMs, 180_000);
+    const note = find(tree, (node) => node.type === "SubchatNoteView");
+    note.props.onSend(suggestion);
+    note.props.onDismiss("s1");
+    const [answer, dismiss] = host.calls.slice(-2);
+    assert.equal(answer.method, "agent:answer-question");
+    assert.equal(answer.args[0].suggestionId, "s1");
+    assert.equal(answer.args[0].chatId, "/p#2");
+    assert.equal(
+      JSON.stringify({ method: dismiss.method, args: dismiss.args }),
+      JSON.stringify({ method: "agent:dismiss-suggestion", args: [{ chatId: "/p#1", id: "s1" }] }),
+    );
+  } finally {
+    delete globalThis.chatPage;
+  }
+});
+
+test("subchat report links preserve compact phones and secondary-pane navigation", () => {
+  for (const secondary of [false, true]) {
+    const host = chatHost(secondary ? { pane: "secondary", split: { ...phoneSplit, widthClass: "wide" } } : {});
+    host.params.id = "1";
+    host.session.snapshot.project.state.sessions = { 1: { id: 1 }, 2: { id: 2, parent: 1 } };
+    globalThis.chatPage = () => ({ messages: [{ id: 10, session_id: 1, role: "assistant", body: "Done", context: null }] });
+    host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+    try {
+      find(host.render(), (node) => node.type === "ChatReply").props.onOpenChat("/p#2");
+      if (secondary) {
+        assert.equal(host.router.replaced, undefined);
+        assert.equal(host.beside.at(-1).chatId, 2);
+      } else {
+        assert.equal(host.router.replaced.params.id, "2");
+        assert.equal(host.beside.length, 0);
+      }
+    } finally {
+      delete globalThis.chatPage;
+    }
+  }
+});
+
+test("inline HTML replies load their immutable page without app chrome", async () => {
+  const page = { id: "inline", title: "Chart", version: 1, inline: true, format: "html", height: 320 };
+  const steps = [{ id: "call", kind: "artifact", status: "done", tool: "html_render", artifact: page }];
+  const cards = artifactHost({ url: "html-cards", call: async () => [] });
+  const tree = cards.render("ArtifactCards", { steps, chatId: "/p#2" });
+  assert.ok(find(tree, (node) => node.type === "HtmlReply" && node.props.page.id === "inline"));
+
+  const react = hookHost({ effects: true });
+  const requests = [],
+    pushes = [];
+  let fail = true;
+  const client = {
+    call: async (method, args) => {
+      requests.push([method, args]);
+      if (fail) throw Error("offline");
+      return { ...page, html: "<button>Hi</button>" };
+    },
+  };
+  const source = load("html-reply.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: async () => {} } },
+    "expo-router": { router: { push: (route) => pushes.push(route), back() {} }, useLocalSearchParams: () => ({}) },
+    "expo-file-system": {},
+    "@expo/dom-webview": { DomWebView: "DomWebView" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+    "@milagre/shared/html-render": require("../packages/shared/src/html-render.mjs"),
+    "./session": { useSession: () => ({ client }) },
+  });
+  const render = () => {
+    react.begin();
+    return source.HtmlReply({ chatId: "/p#2", page });
+  };
+  render();
+  await new Promise(setImmediate);
+  const failed = render();
+  const retry = find(failed, (node) => node.props?.accessibilityRole === "button" && typeof node.props.onPress === "function");
+  assert.ok(retry, "an offline page is retryable");
+  fail = false;
+  retry.props.onPress();
+  render();
+  await new Promise(setImmediate);
+  const loaded = render();
+  assert.equal(
+    find(loaded, (node) => node.props?.accessibilityLabel === "Expand Chart"),
+    undefined,
+  );
+  assert.equal(
+    find(loaded, (node) => node.props?.accessibilityRole === "button"),
+    undefined,
+    "a loaded page has no app buttons around it",
+  );
+  assert.equal(pushes.length, 0);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1][1][0].version, 1);
+  react.cleanup();
+});
+
+test("inline HTML reports loading until layout, times out with Retry, and rejects stale readiness", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const react = hookHost({ effects: true });
+  const pages = [];
+  class File {
+    constructor() {
+      this.uri = `file:///cache/reply-${pages.length}.html`;
+      this.exists = true;
+      pages.push(this);
+    }
+    writeSync(html) {
+      this.html = html;
+    }
+    delete() {
+      this.exists = false;
+    }
+  }
+  const source = load("html-reply.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: async () => {} } },
+    "expo-file-system": { File, Paths: { cache: "/cache" } },
+    "@expo/dom-webview": { DomWebView: "DomWebView" },
+    "@milagre/shared/html-render": require("../packages/shared/src/html-render.mjs"),
+    "./session": { useSession: () => ({}) },
+  });
+  const { HTML_RENDER_MESSAGE, HTML_RENDER_LOAD_TIMEOUT } = require("../packages/shared/src/html-render.mjs");
+  const heights = [];
+  let html = "<p>First</p>";
+  const render = () => {
+    react.begin();
+    return source.HtmlWebView({ html, onHeight: (height) => heights.push(height) });
+  };
+  const loading = () => find(render(), (node) => node.type?.name === "PageLoading");
+  const webview = () => find(render(), (node) => node.type === "DomWebView");
+  const send = (view, message) => view.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: HTML_RENDER_MESSAGE, ...message }) } });
+  assert.ok(loading(), "preparing the file has visible progress");
+  await new Promise(setImmediate);
+  const first = webview();
+  assert.ok(first);
+  assert.equal(first.props.useExpoModulesBridge, false);
+  send(first, { type: "ready" });
+  assert.ok(loading(), "load alone is not proof of a rendered document");
+  send(first, { type: "size", height: 480 });
+  assert.equal(loading(), undefined);
+  t.mock.timers.tick(HTML_RENDER_LOAD_TIMEOUT + 1);
+  assert.ok(webview(), "successful layout clears the watchdog");
+  html = "<p>Second</p>";
+  render();
+  await new Promise(setImmediate);
+  const second = webview();
+  assert.notEqual(second.props.source.uri, first.props.source.uri);
+  send(first, { type: "size", height: 480 });
+  assert.ok(loading(), "the previous document cannot reveal its replacement");
+  t.mock.timers.tick(HTML_RENDER_LOAD_TIMEOUT);
+  const retry = find(render(), (node) => node.props?.accessibilityLabel === "Retry HTML page");
+  assert.ok(retry);
+  assert.equal(webview(), undefined, "a stalled document is unmounted");
+  retry.props.onPress();
+  render();
+  await new Promise(setImmediate);
+  const retried = webview();
+  assert.notEqual(retried.props.source.uri, second.props.source.uri);
+  assert.ok(loading());
+  send(retried, { type: "size", height: 520 });
+  assert.equal(loading(), undefined);
+  assert.equal(heights.at(-1), 520);
+  react.cleanup();
+  assert.equal(
+    pages.every((file) => !file.exists),
+    true,
+  );
+});
+
+function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async () => null } = {}) {
+  const hooks = hookHost({ effects: true });
+  let backs = 0;
+  const Screen = load("app/mcp-add.tsx", {
+    react: hooks,
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { ActivityIndicator: "ActivityIndicator", Pressable: "Pressable", Text: "Text", View: "View", Linking: { openURL: async () => {} } },
+    "expo-router": { Stack: { Screen: "Screen" }, router: { back: () => backs++, dismissTo: () => backs++ }, useLocalSearchParams: () => params },
+    "@hugeicons/core-free-icons": { Cancel01Icon: {}, Tick02Icon: {} },
+    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
+    "../icons": { Icon: "Icon" },
+    "../mcp-headers": load("mcp-headers.ts", { "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts") }),
+    "../use-mcp": { useMcp: () => ({ saveUrl, definition }) },
+    "../ui": { CircleButton: "CircleButton", Field: "Field", PageScroll: "PageScroll" },
+  }).default;
+  const render = () => {
+    hooks.begin();
+    return Screen();
+  };
+  return {
+    render,
+    backs: () => backs,
+    field: (label) => find(render(), (n) => n.type === "Field" && n.props.label === label),
+    button: (label) => find(render(), (n) => n.type === "Pressable" && (n.props.accessibilityLabel === label || n.props.children?.props?.children === label)),
+  };
+}
+
+test("MCP catalog selects official configuration and keeps tokens out of other services", async () => {
+  const saved = [];
+  const host = mcpAddHost({ saveUrl: async (...args) => saved.push(args) });
+  assert.equal(host.button("Add"), undefined);
+  host.field("Search services").props.onChangeText("NOtIon");
+  assert.ok(host.button("Notion"));
+  assert.equal(host.button("GitHub"), undefined);
+  host.field("Search services").props.onChangeText("missing-service");
+  assert.ok(host.button("Custom MCP"));
+  host.field("Search services").props.onChangeText("");
+  host.button("GitHub").props.onPress();
+  assert.equal(host.field("URL"), undefined);
+  assert.equal(host.field("Personal access token").props.secureTextEntry, true);
+  host.button("Add").props.onPress();
+  assert.equal(saved.length, 0);
+  assert.ok(find(host.render(), (n) => n.props?.accessibilityRole === "alert"));
+  host.field("Personal access token").props.onChangeText("test-token");
+  host.button("All services").props.onPress();
+  host.button("GitHub").props.onPress();
+  assert.equal(host.field("Personal access token").props.value, "");
+  host.field("Personal access token").props.onChangeText("test-token");
+  host.button("All services").props.onPress();
+  host.button("Notion").props.onPress();
+  host.button("Add").props.onPress();
+  await new Promise(setImmediate);
+  assert.deepEqual(saved, [[{ name: "notion", type: "http", url: "https://mcp.notion.com/mcp", headers: {} }, "everywhere", undefined]]);
+  assert.equal(host.backs(), 1);
+});
+
+test("MCP token save reports failure, blocks duplicate submits, and allows retry", async () => {
+  const pending = deferred();
+  let attempt = 0;
+  const saved = [];
+  const host = mcpAddHost({
+    saveUrl: async (...args) => {
+      saved.push(args);
+      if (++attempt === 1) await pending.promise;
+    },
+  });
+  host.button("GitHub").props.onPress();
+  host.field("Personal access token").props.onChangeText("Bearer test-token");
+  host.button("Add").props.onPress();
+  assert.equal(host.button("Add").props.disabled, true);
+  host.button("Add").props.onPress();
+  assert.equal(saved.length, 1);
+  pending.reject(new Error("Connection lost"));
+  await new Promise(setImmediate);
+  assert.equal(host.backs(), 0);
+  assert.match(find(host.render(), (n) => n.props?.accessibilityRole === "alert").props.children, /Connection lost/);
+  assert.equal(host.field("Personal access token").props.value, "Bearer test-token");
+  host.button("Add").props.onPress();
+  await new Promise(setImmediate);
+  assert.equal(saved[1][0].headers.Authorization, "Bearer test-token");
+  assert.equal(host.backs(), 1);
+});
+
+test("editing an MCP bypasses the catalog and preserves masked headers", async () => {
+  let saved;
+  const host = mcpAddHost({
+    params: { name: "docs", target: "codex" },
+    definition: async () => ({ name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } }),
+    saveUrl: async (...args) => {
+      saved = args;
+    },
+  });
+  host.render();
+  await new Promise(setImmediate);
+  assert.equal(host.button("GitHub"), undefined);
+  assert.equal(host.field("Name").props.value, "docs");
+  host.button("Save").props.onPress();
+  await new Promise(setImmediate);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [
+    { name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } },
+    "codex",
+    { name: "docs", target: "codex" },
+  ]);
+});
+
+test("MCP save without a connected computer rejects instead of closing as saved", async () => {
+  const hooks = hookHost();
+  const { useMcp } = load("use-mcp.ts", {
+    react: { ...hooks, useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+    "react-native": { AppState: {} },
+    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
+    "./mcp-store": { MCP_IDLE: { entries: null, error: "", pending: {}, busy: false } },
+    "./session": { useSession: () => ({ client: null }) },
+  });
+  await assert.rejects(useMcp().saveUrl({ name: "docs", type: "http", url: "https://docs.example/mcp", headers: {} }, "everywhere"), /Connect to a computer/);
+});
+
+test("an iPad dictation shortcut reaches one focused composer and ignores unavailable fields", () => {
+  const react = hookHost();
+  const { useDictationShortcut, toggleDictationShortcut } = load("dictation-shortcut.ts", {
+    react,
+    "expo-router": { useFocusEffect: react.effect },
+  });
+  const calls = [];
+  let focused = "second";
+  let available = true;
+  react.begin();
+  for (const id of ["first", "second"])
+    useDictationShortcut({
+      focused: () => focused === id,
+      dictating: () => id === "first",
+      available: () => available,
+      toggle: () => calls.push(id),
+    });
+  react.flush();
+  toggleDictationShortcut();
+  assert.deepEqual(calls, ["second"]);
+  focused = "none";
+  toggleDictationShortcut();
+  assert.deepEqual(calls, ["second", "first"], "without focus, stop the recording composer");
+  available = false;
+  toggleDictationShortcut();
+  assert.equal(calls.length, 2);
+  react.cleanup();
+  available = true;
+  toggleDictationShortcut();
+  assert.equal(calls.length, 2, "a route that lost focus no longer receives shortcuts");
+});
+
+test("flow drafts serialize edits before Publish and keep failed saves available for retry", async () => {
+  const react = { useCallback: (fn) => fn, useSyncExternalStore() {} };
+  const { useFlowDraft } = load("flow-draft.ts", { react });
+  const client = {};
+  const routine = { id: "flow-draft-test", flow: { revision: 1, steps: [], publishedAt: 1 } };
+  const gate = deferred();
+  const saved = [];
+  const save = async (_id, patch) => {
+    saved.push(patch);
+    if (saved.length === 1) await gate.promise;
+  };
+  const draft = useFlowDraft(client, routine, save);
+  draft.edit([{ id: "first", name: "First", kind: "ask", message: "First?", expiresInHours: 1 }]);
+  const flushing = draft.flush();
+  draft.edit([{ id: "latest", name: "Latest", kind: "ask", message: "Latest?", expiresInHours: 1 }]);
+  gate.resolve();
+  await flushing;
+  assert.deepEqual(
+    saved.map((patch) => patch.flowDraft[0].id),
+    ["first", "latest"],
+  );
+  assert.equal(useFlowDraft(client, routine, save).pending, false);
+
+  const errorClient = {};
+  const refused = useFlowDraft(errorClient, routine, async () => {
+    throw new Error("Computer disconnected");
+  });
+  refused.edit([{ id: "kept", kind: "ask" }]);
+  await assert.rejects(refused.flush(), /Computer disconnected/);
+  const kept = useFlowDraft(errorClient, routine, save);
+  assert.equal(kept.steps[0].id, "kept");
+  assert.equal(kept.pending, true);
+  assert.match(kept.error, /disconnected/);
+  await kept.discard();
+});
+
+test("the phone flow editor offers all six types and keeps each If path editable", () => {
+  const routes = [];
+  const changed = [];
+  const modules = {
+    react: { Fragment: "Fragment" },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
+    "expo-router": { router: { push: (href) => routes.push(href) } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => name }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "./flow-ui": { StepTile: "StepTile" },
+    "./icons": { Icon: "Icon" },
+    "./ui": { useStyles: () => fakeStyles, tap() {}, PullDown: "PullDown" },
+  };
+  modules["./flow-looks"] = load("flow-looks.ts", modules);
+  const { FlowSteps } = load("flow-editor.tsx", modules);
+  const routine = {
+    id: "flow",
+    name: "Flow",
+    flow: { revision: 0, steps: [] },
+    trigger: { kind: "linear", workspace: "w", event: "label-added", label: "agent" },
+  };
+  const draft = { steps: [], published: [], hasDraft: true, edit: (steps) => changed.push(steps) };
+  const empty = FlowSteps({ routine, routines: [], draft, modelName: () => "Default", onTrigger() {} });
+  const tiles = allNodes(
+    empty,
+    (node) =>
+      node.type === "Pressable" &&
+      /^Ask an agent\.|^If\.|^Ask me\.|^Wait for\.|^Open pull request\.|^Comment on Linear\./.test(node.props.accessibilityLabel ?? ""),
+  );
+  assert.equal(tiles.length, 6);
+  tiles[0].props.onPress();
+  assert.equal(changed[0][0].kind, "agent");
+  assert.equal(routes[0].pathname, "/flow-step");
+  const steps = [{ id: "condition", name: "If", kind: "if", field: "trigger.issue.key", test: "is-set", yes: [], otherwise: [] }];
+  const tree = FlowSteps({ routine, routines: [], draft: { ...draft, steps }, modelName: () => "Default", onTrigger() {} });
+  const branches = allNodes(tree, (node) => node.type === "Pressable" && /Add a step on/.test(node.props.accessibilityLabel ?? ""));
+  assert.equal(branches.length, 2);
+  branches[1].props.onPress();
+  assert.equal(routes.at(-1).pathname, "/flow-add-step");
+  assert.equal(routes.at(-1).params.branch, "otherwise");
+});
+
+test("phone media fetch distinguishes pending, rejected and replaced sources", async () => {
+  const react = hookHost({ effects: true });
+  const { useMediaState } = load("media-source.ts", { react });
+  const first = deferred();
+  const render = (source) => {
+    react.begin();
+    return useMediaState(source);
+  };
+  assert.equal(render(first.promise).failed, false);
+  assert.equal(render(first.promise).source, null);
+  first.reject(new Error("Image unavailable"));
+  await settle();
+  assert.equal(render(first.promise).failed, true);
+  const replacement = deferred();
+  assert.equal(render(replacement.promise).failed, false);
+  replacement.resolve({ uri: "durable-image" });
+  await settle();
+  assert.equal(render(replacement.promise).source.uri, "durable-image");
+  assert.equal(render(replacement.promise).failed, false);
+  react.unmount();
+});
+
+test("phone viewed strip groups loaded thumbnails, excludes failed media and recovers a durable replacement", async () => {
+  const parent = hookHost({ effects: true });
+  const tiles = new Map();
+  let active = parent;
+  const react = Object.fromEntries(["useState", "useRef", "useMemo", "useCallback", "useEffect"].map((name) => [name, (...args) => active[name](...args)]));
+  const { ViewedImages } = load("viewed-images.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Image: "Image", Text: "Text", Pressable: "Pressable" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./ui": { PageScroll: "PageScroll" },
+  });
+  const rejected = deferred();
+  const paths = [];
+  const opened = [];
+  const steps = ["one", "two", "bad", "rejected"].map((id) => ({
+    id,
+    kind: "image",
+    status: "done",
+    title: "Viewed image",
+    imageOrigin: "viewed",
+    sourceFile: "/original/" + id + ".png",
+    file: "/snapshot/" + id + ".png",
+  }));
+  const media = (file) => {
+    paths.push(file);
+    return file.endsWith("rejected.png") ? rejected.promise : { uri: "/durable/" + file.split("/").pop() };
+  };
+  const render = (resolve = media) => {
+    active = parent;
+    parent.begin();
+    const tree = ViewedImages({ steps, media: resolve, open: (images, index, thumbs) => opened.push({ images, index, thumbs }) });
+    const buttons = tree.props.children.map((element) => {
+      let host = tiles.get(element.props.entry.id);
+      if (!host) tiles.set(element.props.entry.id, (host = hookHost({ effects: true })));
+      active = host;
+      host.begin();
+      return element.type(element.props);
+    });
+    return { tree, buttons };
+  };
+  let { tree, buttons } = render();
+  assert.equal(tree.props.horizontal, true);
+  assert.equal(buttons.length, 4);
+  assert.ok(buttons.every((button) => button.props.disabled));
+  for (const button of buttons.slice(0, 2)) find(button, (node) => node.type === "Image").props.onLoad();
+  find(buttons[2], (node) => node.type === "Image").props.onError();
+  rejected.reject(new Error("Forbidden"));
+  await settle();
+  ({ buttons } = render());
+  ({ buttons } = render());
+  assert.equal(buttons[0].props.disabled, false);
+  assert.equal(buttons[0].props.style({ pressed: false }).width, 80);
+  assert.equal(buttons[0].props.style({ pressed: false }).height, 80);
+  assert.match(buttons[0].props.accessibilityLabel, /one.png.*Open full screen/);
+  for (const button of buttons.slice(2)) {
+    assert.equal(button.props.disabled, true);
+    assert.match(button.props.accessibilityLabel, /Image unavailable/);
+    assert.equal(button.props.accessibilityState.busy, false);
+  }
+  buttons[1].props.onPress();
+  assert.equal(opened[0].images.length, 2);
+  assert.equal(opened[0].index, 1);
+  assert.equal(opened[0].images[0].source.uri, "/durable/one.png");
+  assert.ok(
+    paths.every((file) => file.startsWith("/snapshot/")),
+    "provenance never reaches media resolution",
+  );
+  const replacement = (file) => ({ uri: "/new-durable/" + file.split("/").pop() });
+  ({ buttons } = render(replacement));
+  assert.match(buttons[2].props.accessibilityLabel, /Loading image/);
+  find(buttons[2], (node) => node.type === "Image").props.onLoad();
+  render(replacement);
+  ({ buttons } = render(replacement));
+  assert.equal(buttons[2].props.disabled, false);
+  buttons[2].props.onPress();
+  assert.equal(opened.at(-1).images[0].source.uri, "/new-durable/bad.png");
+  parent.unmount();
+  for (const host of tiles.values()) host.unmount();
+});
+
+test("resolved design history reveals its saved version on phone and iPad, including repeated requests", async (t) => {
+  for (const docked of [false, true]) {
+    const design = {
+      id: "history",
+      title: "History",
+      format: "design",
+      version: 2,
+      latest: 3,
+      versions: 3,
+      width: 390,
+      height: 844,
+      html: "<h1>Saved version</h1>",
+      document: require("../packages/shared/src/design.mjs").createExampleDesign(),
+    };
+    const comment = { id: "abcdef12", design, x: 0.2, y: 0.3, text: "Fix heading", resolved: { note: "Fixed", at: 2 } };
+    const reads = [];
+    const lateComments = deferred();
+    const client = {
+      url: `design-history-${docked}`,
+      call: async (method, args) => {
+        if (method === "artifact:list") return [{ ...design, version: 3 }];
+        if (method === "artifact:comments") return docked ? lateComments.promise : [comment];
+        if (method === "artifact:sharing-status") return { available: false };
+        reads.push(args);
+        return design;
+      },
+    };
+    const h = designsHost(client);
+    t.after(() => h.cleanup());
+    let props = { hostId: client.url, chatId: "/p#7", id: design.id, version: "2", comment: comment.id, requestId: "1", ...(docked ? { onClose() {} } : {}) };
+    await h.open(props);
+    if (docked) {
+      assert.equal(
+        h.commands().some((cmd) => cmd.t === "reveal"),
+        false,
+        "wait for comments arriving after canvas readiness",
+      );
+      lateComments.resolve([comment]);
+      await settle();
+      h.render("DesignsSheet", props);
+    }
+    let tree = h.render("DesignsSheet", props);
+    assert.ok(h.commands().some((cmd) => cmd.t === "reveal" && cmd.id === design.id && cmd.x === 0.2));
+    assert.ok(
+      reads.some((args) => args[0].version === 2),
+      "history loads the saved version rather than latest",
+    );
+    h.say(tree, { t: "anchor", sx: 50, sy: 80 });
+    tree = h.render("DesignsSheet", props);
+    assert.equal(find(tree, (node) => node.type?.name === "CommentBox").props.sentComment.resolved.note, "Fixed");
+    find(tree, (node) => node.props?.accessibilityLabel === "Close the comment").props.onPress();
+    h.render("DesignsSheet", props);
+    assert.deepEqual(h.commands().findLast((cmd) => cmd.t === "pins").pins, []);
+    const before = h.commands().filter((cmd) => cmd.t === "reveal").length;
+    props = { ...props, requestId: "2" };
+    h.render("DesignsSheet", props);
+    h.render("DesignsSheet", props);
+    assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before + 1);
+  }
+});
+
+test("Project Git settings on phone save as you type, validate names and preserve repository rules", async () => {
+  const policy = require("../packages/shared/src/branch-policy.mjs");
+  const react = hookHost({ effects: true });
+  const calls = [];
+  let saved = { local: {}, repository: { dashesOnly: true }, effective: { ...policy.BRANCH_POLICY_DEFAULTS, dashesOnly: true } };
+  const client = {
+    call: async (method, args) => {
+      if (method === "project-git:save") {
+        calls.push(args[1]);
+        saved = { ...saved, local: args[1], effective: { ...policy.BRANCH_POLICY_DEFAULTS, ...args[1], ...saved.repository } };
+      }
+      return saved;
+    },
+  };
+  const { ProjectGitSettings } = load("project-git-settings.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "@milagre/shared/branch-policy": policy,
+    "./theme": { fonts: { mono: "Menlo" } },
+    "./ui": {
+      useStyles: () => fakeStyles,
+      Chip: "Chip",
+      Field: "Field",
+      Group: "Group",
+      InlineError: "InlineError",
+      ListRow: "ListRow",
+      PillButton: "PillButton",
+    },
+  });
+  const render = () => {
+    react.begin();
+    return ProjectGitSettings({ client, path: "/fixture" });
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 700));
+  render();
+  await Promise.resolve();
+  const field = (label) => find(render(), (node) => node.type === "Field" && node.props.label === label);
+  // Token chips add a part, with a dash between parts.
+  find(render(), (node) => node.type === "Chip" && node.props.label === "{username}").props.onPress();
+  find(render(), (node) => node.type === "Chip" && node.props.label === "{slug}").props.onPress();
+  assert.equal(field("Branch name").props.value, "{username}-{slug}");
+  field("Branch name").props.onChangeText("{username}-{ticket?}-{slug}");
+  field("Username").props.onChangeText("developer");
+  field("Base branch").props.onChangeText("release/example-app/v2");
+  const dashes = find(render(), (node) => node.type === "ListRow" && node.props.title === "Dashes only");
+  assert.equal(dashes.props.disabled, true);
+  assert.equal(dashes.props.subtitle, "Set in .milagre/worktree.json");
+  await settle();
+  assert.equal(calls.at(-1).baseBranch, "release/example-app/v2");
+  assert.equal(calls.at(-1).username, "developer");
+  assert.equal(Object.hasOwn(calls.at(-1), "dashesOnly"), false, "a repository field never becomes a personal override");
+  const count = calls.length;
+  field("Branch name").props.onChangeText("milagre/{slug}");
+  assert.match(find(render(), (node) => node.type === "InlineError" && node.props.message).props.message, /dashes only/);
+  await settle();
+  assert.equal(calls.length, count, "an invalid template is never saved");
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Reset to defaults").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(Object.keys(calls.at(-1)).length, 0);
+  assert.equal(saved.effective.dashesOnly, true);
+  assert.equal(field("Branch name").props.value, "");
+});
+
+test("comment Cmd/Ctrl+Return sends the current draft only while its field owns the keyboard", async () => {
+  const react = hookHost({ effects: true });
+  react.useSyncExternalStore = (_subscribe, snapshot) => snapshot();
+  let listener,
+    offered = [],
+    sent = 0;
+  const native = {
+    addListener: (_name, callback) => {
+      listener = callback;
+      return {
+        remove() {
+          listener = null;
+        },
+      };
+    },
+    setShortcutsAsync: async (keys) => {
+      offered = keys;
+    },
+  };
+  const { useHardwareShortcuts, useCommentSendKey } = load("hardware-keys.ts", {
+    react,
+    "react-native": { Platform: { OS: "ios" }, TextInput: { State: { currentlyFocusedInput: () => null } } },
+    "expo-modules-core": { requireOptionalNativeModule: () => native },
+    "react-native-keyboard-controller": { useKeyboardState: () => false },
+    "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
+    "./undo-history": { undoHistory: { subscribe() {}, toast: () => null } },
+  });
+  const render = (active, value) => {
+    react.begin();
+    useCommentSendKey(active, () => {
+      sent = value;
+    });
+    useHardwareShortcuts([], () => assert.fail("comment shortcut reached Chat commands"));
+  };
+  render(true, 1);
+  assert.deepEqual(
+    Array.from(offered, (key) => Array.from(key.modifiers)),
+    [["command"], ["control"]],
+  );
+  listener({ id: "comment.send" });
+  assert.equal(sent, 1);
+  render(true, 2);
+  listener({ id: "comment.send.control" });
+  assert.equal(sent, 2, "sends the latest edited draft");
+  render(false, 3);
+  assert.equal(offered.length, 0, "blur restores the ordinary keyboard shortcuts");
+  listener({ id: "comment.send" });
+  assert.equal(sent, 2, "a late native event cannot send after blur");
+  render(true, 4);
+  react.unmount();
+  assert.equal(offered.length, 0);
+  assert.equal(listener, null);
+});
+
+test("the shared comment bubble stays by its pin when an iPad sheet already fits above the keyboard", () => {
+  const react = hookHost();
+  const { CommentBox } = viewerChrome(react, { isVisible: true, height: 300 });
+  const props = { at: { x: 400, y: 280 }, room: { width: 580, height: 500 }, kind: "new", number: 1, onChange() {}, onDone() {}, onCancel() {}, onSend() {} };
+  const render = () => {
+    react.begin();
+    return CommentBox(props);
+  };
+  let tree = render();
+  tree.props.onLayout({ nativeEvent: { layout: { height: 120 } } });
+  tree = render();
+  assert.equal(tree.props.style.top, 280, "the keyboard must not be subtracted from an already resized sheet");
+  assert.equal(tree.props.style.left, 296, "the bubble stays inside the right edge");
+  const field = find(tree, (node) => node.props.label === "Comment 1");
+  assert.equal(field.props.bare, true, "no field focus border");
+  assert.equal(field.props.autoFocus, true, "typing still starts immediately");
+  props.at.y = 490;
+  assert.equal(render().props.style.top, 368, "a low pin keeps its bubble inside the sheet");
+});
+
+test("mobile Browser anchors its editable draft in native points on pages without a mobile viewport", async (t) => {
+  const h = browserHost({
+    url: "mac",
+    call: async (method) =>
+      method === "browser:list" ? { supported: true, targets: [BROWSER_PAGE], others: [] } : method === "browser-comments:list" ? [] : { ports: [] },
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#pin-position" };
+  const render = () => h.render("BrowserSheet", props);
+  render();
+  await settle();
+  let tree = render();
+  const web = () => find(tree, (node) => node.type?.name === "BrowserWebView");
+  find(tree, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 490, height: 600 } } });
+  web().props.onPick({ selector: "button", point: { x: 0.5, y: 0.5 }, box: { x: 0, y: 0, width: 100, height: 40 } });
+  tree = render();
+  const id = web().props.pins.find((pin) => pin.state === "pending").id;
+  web().props.onPositions([{ id, x: 600, y: 400, width: 980, height: 1200 }]);
+  tree = render();
+  const box = find(tree, (node) => node.type?.name === "CommentBox");
+  assert.equal(box.props.at.x, 300);
+  assert.equal(box.props.at.y, 200);
+  assert.equal(web().props.pins.find((pin) => pin.id === id).hide, true, "the bubble replaces its open pin");
+  box.props.onChange("Keep this draft");
+  box.props.onDone();
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type?.name === "CommentBox"),
+    undefined,
+  );
+  assert.equal(web().props.pins.find((pin) => pin.id === id).text, "Keep this draft");
+});
+
+test("mobile Browser preserves edits made while a send is pending and sends them on the next request", async (t) => {
+  const first = deferred(),
+    submitted = [];
+  const h = browserHost({
+    url: "mac",
+    call: async (method, args) => {
+      if (method === "browser:list") return { supported: true, targets: [BROWSER_PAGE], others: [] };
+      if (method === "browser-comments:list") return [];
+      if (method === "browser-comments:send-from-page") {
+        submitted.push(args[0].comments);
+        if (submitted.length === 1) return first.promise;
+        return {};
+      }
+      return { ports: [] };
+    },
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#send-edit" };
+  const render = () => h.render("BrowserSheet", props);
+  render();
+  await settle();
+  let tree = render();
+  const web = () => find(tree, (node) => node.type?.name === "BrowserWebView");
+  const box = () => find(tree, (node) => node.type?.name === "CommentBox");
+  find(tree, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 490, height: 600 } } });
+  web().props.onPick({ selector: "button", point: { x: 0.5, y: 0.5 }, box: { x: 0, y: 0, width: 100, height: 40 } });
+  tree = render();
+  const id = web().props.pins.find((pin) => pin.state === "pending").id;
+  web().props.onPositions([{ id, x: 200, y: 200, width: 490, height: 600 }]);
+  tree = render();
+  box().props.onChange("Snapshot to send");
+  tree = render();
+  box().props.onSend();
+  tree = render();
+  assert.equal(box(), undefined, "sending collapses the editor before the host responds");
+  assert.equal(web().props.pins.find((pin) => pin.id === id)?.text, "Snapshot to send", "the draft stays pinned during delivery");
+  web().props.onPin(id);
+  tree = render();
+  box().props.onChange("Edited during send");
+  tree = render();
+  first.resolve({});
+  await settle();
+  tree = render();
+  assert.equal(submitted[0][0].text, "Snapshot to send");
+  assert.equal(web().props.pins.find((pin) => pin.state === "pending")?.text, "Edited during send");
+  web().props.onPin(id);
+  tree = render();
+  assert.equal(box().props.note.text, "Edited during send");
+  box().props.onSend();
+  await settle();
+  tree = render();
+  assert.equal(submitted[1][0].text, "Edited during send");
+  assert.equal(web().props.pins.filter((pin) => pin.state === "pending").length, 0);
 });

@@ -2,8 +2,10 @@ import { providerName } from "./providers.mjs";
 // System notifications for chats that wait on the user, built by the main process, which sees every
 // project's chats (see notifications.cjs). Types: attention.d.mts.
 import { chatTitle } from "./chats.mjs";
-import { chatInProject, projectOfKey, subagentActive } from "./agent-runs.mjs";
-import { isLinkScopeKey } from "./chat-scopes.mjs";
+import { projectOfKey } from "./agent-runs.mjs";
+import { activityBusy, chatActivity } from "./chat-activity.mjs";
+import { computerOfKey, isLinkScopeKey } from "./chat-scopes.mjs";
+import { ancestorChats } from "./subchat-escalation.mjs";
 
 /** A compact plain-text preview for desktop and phone notifications. */
 export function notificationText(value, { markdown = true } = {}) {
@@ -24,10 +26,7 @@ export function notificationText(value, { markdown = true } = {}) {
   return `${space > 120 ? start.slice(0, space) : start}…`;
 }
 
-/** Keep the beginning of the latest reply; ordinary paragraph breaks stay in the preview. */
-export function notificationPreview(previous, text, startsMessage = false) {
-  return ((startsMessage ? "" : previous || "") + (text || "")).slice(0, 4096);
-}
+export { notificationPreview } from "./chat-activity.mjs";
 
 /** The same chat-only title and result preview on desktop and phones. */
 export function completionNotice(title, { failed, body }) {
@@ -37,11 +36,18 @@ export function completionNotice(title, { failed, body }) {
   };
 }
 
+/** The title of a notice about a Chat that waits: a Subchat also says which Chat it belongs to. */
+export function attentionTitle(context) {
+  const title = context.chatTitle?.trim() || "Milagre";
+  const parent = context.parentTitle?.trim();
+  return parent ? `${title} · in ${parent}` : title;
+}
+
 /** The notification for an approval or question a turn waits on, or null for any other event. */
 export function attentionNotice(event, context) {
   if (event.type !== "permission-request" && event.type !== "question-request") return null;
   const agent = context.provider ? providerName(context.provider) : "Agent";
-  const title = context.chatTitle?.trim() || "Milagre";
+  const title = attentionTitle(context);
 
   if (event.type === "question-request") {
     const [first, ...rest] = event.questions;
@@ -52,33 +58,55 @@ export function attentionNotice(event, context) {
   return { title, body: notificationText(`${agent} needs approval: ${command ? `Run: ${command}` : event.title}`, { markdown: !command }) };
 }
 
-/** What a notice names about a chat: its project, worktree, title and agent. */
+/** What a notice names about a chat: its project, worktree, title, agent and, for a Subchat, the nearest Chat above it still listed. */
 export function attentionContext(state, projectName, sessionId) {
   const session = state.sessions[sessionId];
   if (!session) return { projectName };
+  const titled = (chat) =>
+    chatTitle(
+      chat,
+      (state.messages ?? []).filter((message) => message.session_id === chat.id),
+    );
+  const parent = ancestorChats(state.sessions, sessionId)
+    .map((id) => state.sessions[id])
+    .find((chat) => chat && !chat.archived);
   return {
     projectName,
     worktreeName: state.worktrees?.[session.worktree_id]?.name,
-    chatTitle: chatTitle(
-      session,
-      state.messages.filter((message) => message.session_id === session.id),
-    ),
+    chatTitle: titled(session),
+    ...(parent ? { parentTitle: titled(parent) } : {}),
     provider: session.provider,
   };
 }
 
-/** Chat keys outside `currentPath` whose turn waits on an approval or question, oldest key first. Link Chats are left out. */
-export function chatsNeedingAttention(runs, currentPath = "") {
+const NO_HIDDEN = new Set();
+
+/** Whether a Chat (or scope) key is left out of this Mac's sidebar: its Project or Link is in `scopes` (this Mac's hidden
+ * Projects, `${computerId}|/path` for a paired computer's), or its computer is in `computers` ("local" for this Mac). A
+ * Chat the sidebar doesn't list stays quiet: no notice, badge, inbox row or attention button. */
+export function hiddenHere(key, scopes = NO_HIDDEN, computers = NO_HIDDEN) {
+  const scope = projectOfKey(key);
+  return scopes.has(scope) || computers.has(computerOfKey(scope));
+}
+
+/** Chat keys other than `currentChat` whose turn waits on an approval or question, oldest key first. Link Chats and the
+ * Projects in `hidden` (hidden from the sidebar and the phone's list), or on a computer in `hiddenComputers`, are left out. */
+export function chatsNeedingAttention(runs, currentChat = "", hidden = NO_HIDDEN, hiddenComputers = NO_HIDDEN) {
   return Object.entries(runs ?? {})
-    .filter(([key, run]) => (run?.approvals?.length || run?.questions?.length) && !isLinkScopeKey(projectOfKey(key)) && !chatInProject(currentPath, key))
+    .filter(
+      ([key, run]) =>
+        (run?.approvals?.length || run?.questions?.length) &&
+        !isLinkScopeKey(projectOfKey(key)) &&
+        !hiddenHere(key, hidden, hiddenComputers) &&
+        key !== currentChat,
+    )
     .map(([key]) => key);
 }
 
-/** The attention button's words for the projects waiting, by name: "shop needs attention", "shop and api need attention", "shop and 2 more need attention". */
-export function attentionLabel(names) {
-  if (names.length <= 1) return `${names[0] ?? "A project"} needs attention`;
-  if (names.length === 2) return `${names[0]} and ${names[1]} need attention`;
-  return `${names[0]} and ${names.length - 1} more need attention`;
+/** Name the waiting Chat, or count Chats when the button opens a menu. */
+export function attentionLabel(titles) {
+  if (titles.length <= 1) return `${titles[0]?.trim() || "Chat"} needs attention`;
+  return `${titles.length} Chats need attention`;
 }
 
 /** What a waiting run asks for, in one line: the approval's command or title, or its first question. */
@@ -100,18 +128,22 @@ export function inboxSnapshot(scopes, runs = {}) {
       const run = runs[key];
       const permission = run?.approvals?.find((request) => !run.answered?.[request.requestId]);
       const question = permission ? undefined : run?.questions?.find((request) => !run.answered?.[request.requestId]);
-      const background = session.subagents?.some((agent) => agent.background && subagentActive(agent));
+      // A failed turn is never shown as work still going, even with background subagents at work (chat-activity.mjs).
+      const { activity } = chatActivity(session, run);
+      const background = activity === "background";
       const outcome = session.summary?.lastOutcome;
       const status = permission
         ? "approval"
         : question
           ? "question"
-          : run || background
+          : activityBusy(activity)
             ? "working"
             : session.unread && (outcome === "completed" || outcome === "failed")
               ? outcome
               : null;
       if (!status) continue;
+      // A hidden Run Chat only surfaces for what needs a person: its approval, its question or its failure.
+      if (session.routine?.hidden === true && status !== "approval" && status !== "question" && status !== "failed") continue;
       const last = state.messages?.findLast((message) => message.session_id === session.id && message.role === "assistant");
       agents.push({
         key,

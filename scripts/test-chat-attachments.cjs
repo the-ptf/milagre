@@ -2,11 +2,10 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 const imageBytes = require("node:fs").readFileSync(path.join(__dirname, "fixtures/photo.png")).toString("base64");
 const fixture = `
-// This fixture exercises a device that has already accepted AI sharing.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 window.imageBytes = ${JSON.stringify(imageBytes)};
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -16,7 +15,9 @@ const state = { next_id: 1, projects: { 1: { id: 1, name: 'Milagre' } }, worktre
 state.worktrees = { 1: { id: 1, name: 'main', path: '/fixture', project_id: 1 } };
 state.sessions = { 3: { id: 3, worktree_id: 1, agent_name: 'Claude', provider: 'claude', status: 'Idle' }, 5: { id: 5, worktree_id: 1, agent_name: 'Other', provider: 'codex', status: 'Idle' } };
 state.messages = [{ id: 4, session_id: 3, role: 'user', body: 'Attachment test', context: null, images: [{id:'old',name:'legacy.png',dataUrl:'data:image/png;base64,'+window.imageBytes},{id:'new',name:'stored.png',path:'/fixture/.milagre/images/photo.png'}] }, { id: 6, session_id: 5, role: 'user', body: 'Other chat', context: null }, { id: 7, session_id: 3, role: 'assistant', body: 'The [written design](/fixture/docs/spec.md) is committed. See [the helper](src/greeting.ts#L3) and [the site](https://example.com).', context: null }];
-state.next_id = 8;
+state.messages.push({ id: 8, session_id: 3, role: 'user', body: 'Fix @src/greeting.ts using /frontend-design', context: null, files: ['/fixture/src/greeting.ts', '/fixture/extra.txt'] });
+state.next_id = 9;
+state.messages.find(message => message.role === 'assistant').body += ' [archive](/fixture/archive.zip)';
 window.calls = []; window.searches = []; window.notices = []; window.synced = []; window.listeners = [];
 window.stateListeners = [];
 // Stands in for the main process: it saves every project's state, and tells the window.
@@ -37,17 +38,22 @@ window.milagre = new Proxy({
  getLinkedWork: async () => ({ delegations: [], negotiations: [], receiveOnly: [] }),
  onQuitFailed: fn => {window.quitFailed=fn;return ()=>{};},
  retryQuit: async () => {window.retriedQuit=true;},
- readAttachment: async file => { (window.fileReads ??= []).push(file); if (file.endsWith('missing.txt')) throw new Error('File no longer exists.'); if (file.endsWith('.md')) return { text: '# Live activities\\n\\nThe **plan** has [goals](goals.md).\\n\\n- One\\n- Two', truncated: false, binary: false }; return { text: file.endsWith('empty.txt') ? '' : 'export const greeting = "hello";', truncated: false, binary: false }; },
+ listSkills: async () => ({ skills: [{ name: 'frontend-design', description: 'Build polished interfaces', path: '/skills/frontend-design/SKILL.md', scope: 'bundled', provider: 'claude' }], warnings: [] }),
+ readAttachment: async file => { (window.fileReads ??= []).push(file); if (file.endsWith('.zip')) return {text:'',binary:true,truncated:false}; if (file.endsWith('missing.txt')) throw new Error('File no longer exists.'); if (file.endsWith('.md')) return { text: '# Live activities\\n\\nThe **plan** has [goals](goals.md).\\n\\n- One\\n- Two', truncated: false, binary: false }; return { text: file.endsWith('empty.txt') ? '' : 'export const greeting = "hello";', truncated: false, binary: false }; },
+ readAttachmentChunk: async (file, offset) => { if (window.failDownload) {window.failDownload = false; throw new Error('Connection lost. Try again.');} (window.downloadReads ??= []).push(file); return {base64:'UEsDBAD/AAE=',size:8,version:'zip-v1'}; },
  showImageMenu: async (file, name) => { (window.imageMenus ??= []).push([file, name]); },
  onOpenChat: fn => { window.openNotification = fn; return () => {}; },
  switchProject: async root => ({ path: root, name: 'Other project', state: { ...state, sessions: { 10: { id: 10, worktree_id: 1, agent_name: 'Notified', status: 'Idle' } }, messages: [{ id: 11, session_id: 10, body: 'Notification destination', role: 'user', context: null }], next_id: 12 } }),
  getCurrentProject: async () => ({ path: '/fixture', name: 'Milagre', state }),
  listRecentProjects: async () => [], listBranches: async () => ['main'], listEditors: async () => [],
  getCachedUsage: async () => ({ providers: [] }), readUsage: async () => ({ providers: [] }), getUpdateState: async () => ({ status: 'idle' }),
+ uploadAttachment: async request => ({ file: { path: "/fixture/uploads/" + request.name } }),
  getPathForFile: file => '/fixture/files/' + file.name,
  searchProjectFiles: async (root, query) => { window.searches.push({root,query}); return ['src/my app.ts', 'src/model.ts', 'media/photo.png', 'media/clip.mp4'].filter(p => p.includes(query)); },
  // The main process saves the message, then starts the turn (see ChatHost.send).
  sendMessage: async request => {
+   // Held for the quote check: the message waits, then fails, and nothing is saved.
+   if (window.holdSend) { window.heldSend = request; return new Promise((_, reject) => { window.releaseSend = () => reject(new Error('Connection lost.')); }); }
    window.calls.push(request);
    const message = { id: state.next_id, session_id: request.sessionId, body: request.body, images: request.images, ...(request.files.length ? { files: request.files } : {}), context: null, role: 'user', model: request.model };
    Object.assign(state, { next_id: state.next_id + 1, messages: [...state.messages, message] });
@@ -97,8 +103,17 @@ async function browserChecks() {
     }
   };
   const errors = [];
+  const downloadFolder = await require("node:fs/promises").mkdtemp(path.join(require("node:os").tmpdir(), "milagre-file-download-ui-"));
+  const downloadFile = path.join(downloadFolder, "archive.zip");
+  const downloaded = new Promise((resolve, reject) => {
+    session.fromPartition("issues-test").once("will-download", (_event, item) => {
+      assert.equal(item.getFilename(), "archive.zip");
+      item.setSavePath(downloadFile);
+      item.once("done", (_event, state) => (state === "completed" ? resolve() : reject(new Error(state))));
+    });
+  });
   window.webContents.on("console-message", (details) => {
-    if (details.level === "error") errors.push(details.message);
+    if (details.level === "error" || details.level === 3) errors.push(details.message);
   });
   const waitFor = async (source) => {
     for (let n = 0; n < 200; n++) {
@@ -114,7 +129,7 @@ async function browserChecks() {
     );
   const type = async (text) => {
     await evaluate(
-      `(() => { const el=document.querySelector('textarea[aria-label="Prompt"]'); el.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el, ${JSON.stringify(text)}); el.setSelectionRange(el.value.length,el.value.length); el.dispatchEvent(new Event('input',{bubbles:true})); })()`,
+      `(() => { const el=document.querySelector('[data-prompt-editor]'); el.focus(); el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event('input',{bubbles:true})); })()`,
     );
     await delay(120);
   };
@@ -133,8 +148,7 @@ async function browserChecks() {
     await delay(100);
   };
   try {
-    await window.loadURL(process.argv[2]);
-    await waitFor(String.raw`!!document.querySelector("textarea")`);
+    await openRenderer(window, process.argv[2], String.raw`!!document.querySelector("[data-prompt-editor]")`);
     await key("2", { metaKey: true });
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Attachment test")`);
     await waitFor(
@@ -144,15 +158,111 @@ async function browserChecks() {
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview stored.png"] img').src.startsWith('milagre-media:')`));
     await screenshot("legacy-and-stored-images");
 
-    // A reply's link to a file on this computer opens the file viewer; markdown opens formatted, with the source a click away.
+    // A selected passage becomes a quote chip over this Chat's prompt, without sending or touching the draft; several stack.
+    const { quoteMarkdown } = require("../packages/shared/src/prompt-parts.mjs");
+    const quoteButton = '[aria-label="Quote selected text"]';
+    const select = (from, to = from) =>
+      evaluate(`(() => {
+        const start = document.querySelector(${JSON.stringify(from)}), end = document.querySelector(${JSON.stringify(to)});
+        const range = document.createRange(); range.setStart(start, 0); range.setEnd(end, end.childNodes.length);
+        const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+        return selection.toString();
+      })()`);
+    const chips = () => evaluate(`[...document.querySelectorAll('[data-quote-chip]')].map(chip => chip.textContent)`);
+    await type("My question");
+    const passage = await select("article#message-7 [data-quotable]");
+    await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
+    const quotePoint = await evaluate(
+      `(() => { const rect=document.querySelector(${JSON.stringify(quoteButton)}).getBoundingClientRect(); return {x: Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)}; })()`,
+    );
+    window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...quotePoint });
+    window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...quotePoint });
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
+    assert.match((await chips())[0], /^The written design is committed\..*Claude reply$/);
+    await waitFor(`document.activeElement.matches('[data-prompt-editor]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question", "Quote keeps the draft as typed");
+    assert.equal(await evaluate("window.calls.length"), 0, "Quote does not send");
+    assert.equal(await evaluate(`window.getSelection().isCollapsed`), true, "Quote clears the selection");
+    // A selection across two messages offers nothing to quote.
+    await select("article#message-4 [data-quotable]", "article#message-7 [data-quotable]");
+    await delay(150);
+    assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(quoteButton)})`), false, "No Quote across messages");
+    // The shortcut quotes too. A passage of the user's own message says so, and reads as typed: its chips are their tokens.
+    await select("article#message-8 [data-quotable]");
+    const own = "Fix @src/greeting.ts using /frontend-design";
+    await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
+    await evaluate(
+      `document.dispatchEvent(new KeyboardEvent('keydown', { key: '"', code: 'Quote', shiftKey: true, ${process.platform === "darwin" ? "metaKey" : "ctrlKey"}: true, bubbles: true, cancelable: true }))`,
+    );
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 2`);
+    assert.equal((await chips())[1], `${own}Your message`);
+    await screenshot("quote-chips");
+    // The message goes out as the quotes' blockquotes, then the text. Held, it shows them as quotes in its bubble;
+    // when it fails, the quotes come back as chips and the text as typed.
+    await evaluate(`window.holdSend = true`);
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await key("Enter");
+    await waitFor(`!!window.heldSend`);
+    assert.equal(await evaluate(`window.heldSend.body`), `${quoteMarkdown(passage)}\n\n${quoteMarkdown(own)}\n\nMy question`);
+    await waitFor(`document.querySelectorAll('article:last-of-type [data-sent-quote]').length === 2`);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-quote-chip]').length`), 0, "The quotes leave the composer with the message");
+    assert.equal(await evaluate(`document.querySelector('article:last-of-type [data-quotable]').textContent`), "My question");
+    await screenshot("sent-quotes");
+    await evaluate(`window.holdSend = false; window.releaseSend(); window.heldSend = null`);
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 2`);
+    assert.match((await chips())[0], /Claude reply$/, "A quote put back keeps its source");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question");
+    await click('[data-quote-chip] [aria-label="Remove quote"]');
+    await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
+    assert.match((await chips())[0], /Your message$/, "X removes that quote alone");
+    await click('[data-quote-chip] [aria-label="Remove quote"]');
+    await waitFor(`!document.querySelector('[data-quote-chip]')`);
+    await type("");
+
+    // A sent message shows its @file mention and /skill as chips; the mentioned file gets no second tile, an unmentioned one keeps its tile.
+    await waitFor(`!!document.querySelector('article [data-chip="skill"]')`);
+    assert.equal(await evaluate(`document.querySelectorAll('article [data-chip="file"]').length`), 1);
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="file"] .truncate').textContent`), "greeting.ts");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="file"] [data-file-badge]').textContent`), "TS");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="file"]').title`), "src/greeting.ts");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="skill"]').textContent`), "Frontend Design");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="skill"]').getAttribute('aria-description')`), "Build polished interfaces");
+    assert.equal(await evaluate(`!!document.querySelector('article [aria-label="Preview greeting.ts"]')`), false, "A mentioned file is not shown twice");
+    assert.equal(await evaluate(`!!document.querySelector('article [aria-label="Preview extra.txt"]')`), true, "An unmentioned file keeps its tile");
+    await screenshot("sent-message-chips");
+    await click('article [data-chip="file"]');
+    await waitFor(`document.querySelector('dialog[open]')?.textContent.includes('export const greeting')`);
+    assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/src/greeting.ts");
+    await key("Escape");
+    await waitFor(`!document.querySelector('dialog')`);
+    await evaluate("window.fileReads = []");
     const replyLink = (text) => `[...document.querySelectorAll('article a')].find(a => a.textContent === ${JSON.stringify(text)})`;
+    await evaluate(`${replyLink("archive")}.click(); window.failDownload = true;`);
+    await waitFor(`!!document.querySelector('dialog[open]')`);
+    const downloadButton = `[...document.querySelectorAll('dialog[open] button')].find(button => button.textContent === 'Download')`;
+    await evaluate(`${downloadButton}.click()`);
+    await waitFor(`document.querySelector('dialog[open] [role=alert]')?.textContent.includes('Connection lost')`);
+    await evaluate(`${downloadButton}.click()`);
+    await Promise.race([
+      downloaded,
+      delay(5000).then(() => {
+        throw new Error("File download did not finish");
+      }),
+    ]);
+    assert.equal(await evaluate(`document.querySelector('[data-toast]:popover-open')?.textContent`), "Download started.");
+    assert.deepEqual(await require("node:fs/promises").readFile(downloadFile), Buffer.from([80, 75, 3, 4, 0, 255, 0, 1]));
+    await require("node:fs/promises").rm(downloadFolder, { recursive: true, force: true });
+    await key("Escape");
+    await waitFor(`!document.querySelector('dialog')`);
+
+    // A reply's link to a file on this computer opens the file viewer; markdown opens formatted, with the source a click away.
     assert.equal(await evaluate(`${replyLink("the site")}.target`), "_blank", "Web links still leave the app");
     await evaluate(`${replyLink("written design")}.click()`);
     await waitFor(`!!document.querySelector('dialog[open] h1')`);
     assert.equal(await evaluate(`document.querySelector('dialog[open] h1').textContent`), "Live activities");
     assert.equal(await evaluate(`document.querySelector('dialog[open] strong').textContent`), "plan");
     assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/docs/spec.md");
-    assert.equal(await evaluate(`document.querySelector('dialog[open] [aria-pressed=true]').getAttribute('aria-label')`), "Formatted");
+    assert.equal(await evaluate(`document.querySelector('dialog[open] [aria-checked=true]').getAttribute('aria-label')`), "Formatted");
     await screenshot("markdown-link-formatted");
     // A relative link inside the document resolves against the document's folder.
     await evaluate(`[...document.querySelectorAll('dialog[open] a')].find(a => a.textContent === 'goals').click()`);
@@ -185,7 +295,20 @@ async function browserChecks() {
       ["photo.png", "image/png"],
     ]);
     await waitFor(String.raw`!!document.querySelector("[aria-label=\"Preview clip.mp4\"]")`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Paths do not pollute draft text");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Attached image inserts [Image #1] token");
+    assert.equal(await evaluate('document.querySelectorAll("[data-prompt-editor] [data-chip=image]").length'), 1, "Attached image renders as an inline chip");
+    assert.equal(await evaluate('document.querySelector("[data-promptbar] [data-image-badge]")?.textContent'), "#1", "Composer image thumbnail shows #1 badge");
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll('[data-promptbar] [aria-label=Attachments] [aria-label^="Preview "]')].map((b) => b.getAttribute('aria-label'))`,
+      ),
+      ["Preview note.txt", "Preview clip.mp4", "Preview photo.png"],
+      "Attachments keep the order they were added in, images included",
+    );
+    await click("[data-prompt-editor] [data-chip=image]");
+    await waitFor(`!!document.querySelector('dialog[open] img')`);
+    await key("Escape");
+    await waitFor(`!document.querySelector('dialog')`);
     assert.equal(await evaluate('document.querySelector("[aria-label=Send]").disabled'), false, "File-only messages can send");
     await chooseFiles([["Card.tsx", "text/typescript"]]);
     await click('[aria-label="Preview Card.tsx"]');
@@ -221,7 +344,7 @@ async function browserChecks() {
     const counter = String.raw`document.querySelector("dialog [aria-live]")?.textContent`;
     await click('[aria-label="Preview photo.png"]');
     await waitFor(String.raw`document.querySelector("dialog[open] img")?.naturalWidth > 0`);
-    assert.equal(await evaluate(counter), "1 / 2");
+    assert.equal(await evaluate(counter), "2 / 2", "The photo was added after the video, so it pages after it");
     assert.equal(
       await evaluate(`document.querySelector('[data-promptbar] [aria-label="Preview photo.png"] img').classList.contains('opacity-0')`),
       true,
@@ -246,18 +369,28 @@ async function browserChecks() {
     await waitFor(String.raw`document.querySelector("dialog img")?.dataset.zoom === "2.50"`);
     await key("ArrowRight");
     await delay(100);
-    assert.equal(await evaluate(counter), "1 / 2", "Arrow keys pan a zoomed image instead of changing item");
+    assert.equal(await evaluate(counter), "2 / 2", "Arrow keys pan a zoomed image instead of changing item");
     await delay(400);
     await screenshot("lightbox-zoomed");
     await clickImage();
     await waitFor(String.raw`document.querySelector("dialog img")?.dataset.zoom === "1.00"`);
-    await key("ArrowRight");
-    await waitFor(`${counter} === '2 / 2' && !!document.querySelector('dialog video[controls]')`);
     assert.equal(await evaluate('document.querySelector("dialog [aria-label=Next]").disabled'), true, "Navigation stops at the last item");
     await key("ArrowLeft");
-    await waitFor(`${counter} === '1 / 2'`);
+    await waitFor(`${counter} === '1 / 2' && !!document.querySelector('dialog video[controls]')`);
+    await key("ArrowRight");
+    await waitFor(`${counter} === '2 / 2'`);
     // A click on the empty area around the image closes the viewer.
-    await mouseClick(60, 380);
+    // Let the slide that ArrowRight started settle first: a click right after it left the viewer open about half the runs.
+    await delay(600);
+    // A point found by hit-testing, so it is certain to be empty stage and not a control or the image.
+    const empty = await evaluate(
+      `(() => { for (const fy of [0.5, 0.3, 0.7, 0.2, 0.8]) for (const fx of [0.1, 0.9, 0.25, 0.75, 0.5]) {
+        const x = Math.round(innerWidth * fx), y = Math.round(innerHeight * fy), el = document.elementFromPoint(x, y);
+        if (el?.closest('dialog') && !el.closest('button, img, video, [aria-live], [role=slider]')) return { x, y };
+      } return null; })()`,
+    );
+    assert.ok(empty, "The viewer has an empty area to click");
+    await mouseClick(empty.x, empty.y);
     await waitFor(String.raw`!document.querySelector("dialog")`);
     assert.equal(await evaluate('document.activeElement?.getAttribute("aria-label")'), "Preview photo.png", "Focus returns to the thumbnail");
     assert.equal(await evaluate(`document.querySelector('[data-promptbar] [aria-label="Preview photo.png"] img').classList.contains('opacity-0')`), false);
@@ -291,8 +424,16 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.calls[0].images.map(i=>i.name)"), ["photo.png"]);
     assert.ok(await evaluate('window.calls[0].prompt.includes("/fixture/files/note.txt") && window.calls[0].prompt.includes("/fixture/files/clip.mp4")'));
     assert.deepEqual(await evaluate("window.saved.messages.at(-1).files"), ["/fixture/files/note.txt", "/fixture/files/clip.mp4", "/fixture/files/photo.png"]);
-    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "");
+    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "[Image #1]");
+    // A send that is only its image mentions shows the photo tile alone, with no text bubble carrying an [Image #1] chip.
     await waitFor(String.raw`!!document.querySelector("article [aria-label=\"Preview photo.png\"]")`);
+    // The image also sits in the message's files (by its original path) but shows once: the sent copy keeps that path as its source.
+    assert.equal(
+      await evaluate(`document.querySelector('article:has([aria-label="Preview note.txt"])').querySelectorAll('[aria-label="Preview photo.png"]').length`),
+      1,
+      "A chosen image shows once in the sent message",
+    );
+    assert.equal(await evaluate(`!!document.querySelector('article [data-chip="image"]')`), false, "An images-only message has no [Image #1] chip");
     await click('article [aria-label="Preview note.txt"]');
     await waitFor(`document.querySelector('dialog[open]')?.textContent.includes('export const greeting')`);
     await key("Escape");
@@ -305,61 +446,91 @@ async function browserChecks() {
     await waitFor(String.raw`!document.querySelector("dialog")`);
     assert.equal(await evaluate("window.interrupted"), undefined, "Preview Escape never stops active agent");
     await type("@src/");
-    await waitFor(String.raw`document.querySelector("[aria-label=\"Project files\"]")?.textContent.includes("my app.ts")`);
+    await waitFor(String.raw`document.querySelector("[aria-label=\"Project files and Chats\"]")?.textContent.includes("my app.ts")`);
     await screenshot("file-mentions");
     await key("Enter");
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "");
-    await waitFor(String.raw`!!document.querySelector('[data-promptbar] [aria-label="Remove my app.ts"]')`);
+    // A picked file is a chip in the draft (its mention, quoted for the space) and an attachment.
+    const mentions = '@"src/my app.ts" @media/photo.png @media/clip.mp4 ';
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), '@"src/my app.ts" ');
+    await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 1`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[data-promptbar] [aria-label="Remove my app.ts"]')`),
+      false,
+      "A chip is the file's only representation",
+    );
     assert.equal(await evaluate("window.calls.length"), 1, "Choosing a file does not send the message");
     assert.equal(await evaluate("window.searches.at(-1).root"), "/fixture");
-    await type("@photo");
-    await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('photo.png')`);
+    await type('@"src/my app.ts" @photo');
+    await waitFor(String.raw`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('photo.png')`);
     await key("Enter");
-    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.naturalWidth > 0`);
-    await type("@clip");
-    await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('clip.mp4')`);
+    await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 2`);
+    await type('@"src/my app.ts" @media/photo.png @clip');
+    await waitFor(String.raw`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('clip.mp4')`);
     await key("Enter");
-    await waitFor(String.raw`document.querySelector('[data-promptbar] video')?.videoWidth > 0`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Media selections stay out of the textarea");
+    await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 3`);
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions, "Picked media are mentioned like any file");
+    assert.equal(await evaluate('document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length'), 3);
+    assert.equal(await evaluate(`!!document.querySelector("[data-promptbar] [aria-label=Attachments]")`), false, "Mentioned files show as chips, not tiles");
     await screenshot("file-attachments-selected");
-    await click('[data-promptbar] [aria-label="Preview photo.png"]');
-    await waitFor(String.raw`document.querySelector('dialog img')?.naturalWidth > 0`);
-    await screenshot("image-selected-preview");
+    await type(mentions + "Review these");
+    // Settings › Chat › Messages during a turn defaults to steering, so a steerable agent's follow-up sends now.
+    await waitFor(`!!document.querySelector('[data-composer-submit][aria-label="Send now"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`), false, "A nonempty draft offers Send now, not Stop");
+    // With a follow-up draft, the submit button sends it; Escape still stops without losing the draft or attachments.
     await key("Escape");
-    await waitFor(String.raw`!document.querySelector("dialog")`);
-    await click('[data-promptbar] [aria-label="Preview clip.mp4"]');
-    await waitFor(String.raw`document.querySelector('dialog video')?.videoWidth > 0`);
-    await screenshot("video-selected-preview");
-    await key("Escape");
-    await waitFor(String.raw`!document.querySelector("dialog")`);
-    await type("Review these");
-    await click('[aria-label="Stop agent"]');
     assert.equal(await evaluate("window.interrupted"), "/fixture#3", "Stop targets the open chat");
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "Review these", "Stopping preserves the draft");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions + "Review these", "Stopping preserves the draft");
     assert.equal(await evaluate("window.calls.length"), 1, "Stop does not send the draft");
-    await evaluate('document.querySelector("textarea").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await key("Enter");
     await waitFor("window.calls.length === 2");
     assert.ok(await evaluate('window.calls[1].prompt.includes("/fixture/media/photo.png") && window.calls[1].prompt.includes("/fixture/media/clip.mp4")'));
-    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "Review these");
+    assert.equal(await evaluate("window.saved.messages.at(-1).body"), mentions + "Review these");
     await type("");
     await evaluate(
-      `(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], 'photo.png', {type:'image/png'})); document.querySelector('textarea').dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt })); })()`,
-    );
-    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('milagre-media:')`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Large-image drops remain attachments");
-    await click('[data-promptbar] [aria-label="Remove photo.png"]');
-    await evaluate(
-      `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'})); document.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], 'photo.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt })); })()`,
     );
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Images above the old limit remain image attachments");
+    // With text beside it, the image mention stays a chip in the sent message and opens the viewer.
+    await type("look [Image #1]");
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await key("Enter");
+    await waitFor("window.calls.length === 3");
+    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "look [Image #1]");
+    await waitFor(String.raw`!!document.querySelector('article [data-chip="image"]')`);
+    await click('article [data-chip="image"]');
+    await waitFor(`document.querySelector('dialog[open] img')?.naturalWidth > 0`);
+    await key("Escape");
+    await waitFor(String.raw`!document.querySelector("dialog")`);
+    await type("");
+    await evaluate(
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], 'photo.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt })); })()`,
+    );
+    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "A dropped image after a send is [Image #1] again");
+    await click('[data-promptbar] [aria-label="Remove photo.png"]');
+    await evaluate(
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,
+    );
+    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Pasting an image inserts [Image #1]");
     await evaluate(
       `Object.defineProperty(navigator.clipboard, 'read', { configurable: true, value: async () => [{ types: ['image/png'], getType: async () => new Blob([Uint8Array.from(atob(window.imageBytes), c => c.charCodeAt(0))], { type: 'image/png' }) }] })`,
     );
     await click('[aria-label="Add attachments and sources"]');
     await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Paste image')).click()`);
     await waitFor(`!!document.querySelector('[data-promptbar] [aria-label="Preview Pasted image.png"]')`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Pasting through the attachment menu leaves text untouched");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] [Image #2] ", "Pasting a second image inserts [Image #2]");
+    await click('[data-promptbar] [aria-label="Remove pasted.png"]');
+    await waitFor(`document.querySelector("[data-prompt-editor]").value.trim() === "[Image #1]"`);
+    assert.equal(
+      await evaluate('document.querySelector("[data-prompt-editor]").value.trim()'),
+      "[Image #1]",
+      "Removing Image #1 shifts [Image #2] to [Image #1]",
+    );
+    await type("");
+    await waitFor(`!document.querySelector('[data-promptbar] [aria-label="Preview Pasted image.png"]')`);
     await screenshot("clipboard-image");
     await chooseFiles([["discard.txt", "text/plain"]]);
     // Sidebar chats keep creation order, newest first: Other chat (session 5) is ⌘1, Attachment test (session 3) is ⌘2.
@@ -375,25 +546,31 @@ async function browserChecks() {
     await waitFor(String.raw`window.synced.at(-1)?.unread.includes("/fixture#3")`);
     await key("2", { metaKey: true });
     await waitFor(String.raw`!window.synced.at(-1)?.unread.includes("/fixture#3")`);
+    await waitFor(`!!document.querySelector('[data-promptbar] [aria-label="Preview discard.txt"]')`);
+    await click('[data-promptbar] [aria-label="Remove discard.txt"]');
     await waitFor(String.raw`!!document.querySelector('[aria-label="Send"]') && !document.querySelector('[aria-label="Stop agent"]')`);
     await delay(250);
     require("node:fs").writeFileSync("/tmp/milagre-attachments.png", (await window.webContents.capturePage()).toPNG());
     await evaluate(
       `window.emitAgent({type:'subagent-update',agent:{id:'delta-child',title:'Streaming review',status:'running',startedAt:Date.now()-2000,updatedAt:Date.now(),transcript:[{id:'finding',kind:'message',text:'Both image formats render correctly.'}]}})`,
     );
-    await waitFor(`!!document.querySelector('[data-slot=subagent-track] > button')`);
-    await click("[data-slot=subagent-track] > button");
+    await waitFor(`!!document.querySelector('[data-slot=subagent-track] [data-face=pill] button')`);
+    await click("[data-slot=subagent-track] [data-face=pill] button");
     await waitFor(`!!document.querySelector('[data-subagent-open]')`);
     await click("[data-subagent-open]");
     await waitFor(`document.querySelector('[data-slot=subagent-transcript]')?.textContent.includes('Both image formats render correctly.')`);
     await screenshot("subagent-delta");
-    await click('[aria-label="Close subagents"]');
+    await click('[aria-label="Collapse subagents"]');
     await key(",", { metaKey: true });
-    await waitFor(String.raw`!!document.querySelector('[role=switch][aria-label="Notify when finished"]')`);
+    // Settings opens on General; the notification switches live in their own section.
+    const notificationsNav = `[...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Notifications")`;
+    await waitFor(`!!${notificationsNav}`);
+    await evaluate(`${notificationsNav}.click()`);
+    await waitFor(String.raw`!!document.querySelector('[role=checkbox][aria-label="Notify when finished"]')`);
     await screenshot("notification-settings");
-    await click('[role=switch][aria-label="Notify when finished"]');
+    await click('[role=checkbox][aria-label="Notify when finished"]');
     await waitFor("window.synced.at(-1)?.notifyOnCompletion === false");
-    await click('[role=switch][aria-label="Dock badge"]');
+    await click('[role=checkbox][aria-label="Dock badge"]');
     await waitFor("window.synced.at(-1)?.showDockBadge === false");
     assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).showDockBadge'), false, "Notification preferences persist");
     await evaluate('window.openNotification("/other#10")');
@@ -410,11 +587,14 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     console.error(errors);
-    console.error(
-      await evaluate(
-        `(() => { const v = document.querySelector('dialog video'); return v ? { src:v.src, error:v.error?.message, code:v.error?.code, ready:v.readyState, network:v.networkState } : null; })()`,
-      ),
-    );
+    if (error.code !== "ERR_RENDERER_READINESS") {
+      console.error(await evaluate("document.body.innerText.slice(0, 2000)"));
+      console.error(
+        await evaluate(
+          `(() => { const v = document.querySelector('dialog video'); return v ? { src:v.src, error:v.error?.message, code:v.error?.code, ready:v.readyState, network:v.networkState } : null; })()`,
+        ),
+      );
+    }
     app.exit(1);
   }
 }
@@ -433,7 +613,7 @@ async function main() {
           if (id === "/__issues.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__issues") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

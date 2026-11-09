@@ -4,9 +4,12 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { z } = require("zod");
+const { createExampleDesign } = require("@milagre/shared/design");
 const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
 
 const CHAT = "/repo#3";
+// design_show and design_apply answer with the summary JSON on line 1, then notes and warnings.
+const firstLine = (result) => JSON.parse(result.text.split("\n", 1)[0]);
 const designDocument = () => ({
   schemaVersion: 1,
   width: 390,
@@ -31,54 +34,26 @@ async function fixture(t) {
   return { api, tools, directory };
 }
 
-test("Designs is on by default, persists off, and gates already cached tools and all operations", async (t) => {
+test("Designs are always on: tools exist, designs and comments survive a restarted store and Chat removal", async (t) => {
   const { api, tools, directory } = await fixture(t);
-  assert.equal(api.enabled(), true);
+  assert.equal(api.enabled, undefined);
+  assert.equal(api.setEnabled, undefined);
   assert.equal(typeof api.show, "function");
   assert.equal(tools.artifact_show, undefined);
   assert.equal(tools.artifact_read, undefined);
+  assert.ok(artifactToolDefinitions(CHAT, api).length > 0);
   await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
   const [comment] = await api.addComments({ chatId: CHAT, comments: [{ design: { id: "welcome", version: 1 }, text: "Bigger" }] });
-  assert.deepEqual(await api.setEnabled(false), { enabled: false });
-  assert.deepEqual(artifactToolDefinitions(CHAT, api), []);
   const request = { chatId: CHAT, id: "welcome" };
-  const calls = [
-    () => tools.design_show.run({ id: "new", title: "New", document: designDocument() }),
-    () => tools.design_read.run({ id: "welcome" }),
-    () => tools.design_apply.run({ id: "welcome", expectedVersion: 1, operations: [{ op: "delete", id: "heading" }] }),
-    () => tools.design_export.run({ id: "welcome", format: "json" }),
-    () => api.list({ ...request, format: "design" }),
-    () => api.addComments({ ...request, comments: [{ design: { id: "welcome", version: 1 }, text: "Hidden" }] }),
-
-    () => tools.artifact_resolve_comment.run({ id: comment.id, note: "Done" }),
-  ];
-  for (const call of calls) await assert.rejects(call(), /Designs are off/);
-  assert.deepEqual(await api.list(request), []);
-  assert.deepEqual(await api.comments(request), []);
+  assert.equal((await api.list({ ...request, format: "design" })).length, 1);
+  assert.equal((await api.comments(request)).length, 1);
+  await tools.artifact_resolve_comment.run({ id: comment.id, note: "Done" });
+  assert.equal((await api.comments(request))[0].resolved.note, "Done");
   const restarted = createChatArtifacts({ directory, validateChat: async () => {} });
-  assert.equal(restarted.enabled(), false);
-  await restarted.setEnabled(true);
   assert.equal((await restarted.get(request)).version, 1);
   assert.equal((await restarted.comments(request)).length, 1);
-  assert.equal((await restarted.comments(request))[0].resolved, undefined);
-  await restarted.setEnabled(false);
   await restarted.removeChat(CHAT);
-  await restarted.setEnabled(true);
   assert.deepEqual(await restarted.list(request), []);
-});
-
-test("turning Designs off is ordered with accepted writes and rejects queued later writes", async (t) => {
-  const { api } = await fixture(t);
-  const first = api.showDesign({ chatId: CHAT, id: "welcome", title: "Welcome", document: designDocument() });
-  const off = api.setEnabled(false);
-  const later = api.apply({ chatId: CHAT, id: "welcome", expectedVersion: 1, operations: [{ op: "delete", id: "heading" }] });
-  assert.equal((await first).version, 1);
-  assert.deepEqual(await off, { enabled: false });
-  await assert.rejects(later, /Designs are off/);
-  await api.setEnabled(true);
-  assert.equal((await api.get({ chatId: CHAT, id: "welcome" })).version, 1);
-  await assert.rejects(api.setEnabled("false"), /boolean/);
-  assert.equal(api.enabled(), true);
 });
 
 test("legacy HTML reopens as one current artifact and keeps old files and comments", async (t) => {
@@ -111,10 +86,9 @@ test("legacy HTML reopens as one current artifact and keeps old files and commen
   );
   assert.equal((await api.comments({ chatId: CHAT })).length, 3);
   await api.resolveComment({ chatId: CHAT, id: "00000001", note: "Updated the live artifact" });
-  await api.setEnabled(false);
   assert.deepEqual(
     (await api.comments({ chatId: CHAT })).map((comment) => comment.id),
-    ["00000001", "00000002"],
+    ["00000001", "00000002", "00000003"],
   );
   assert.equal((await api.list({ chatId: CHAT }))[0].id, "split");
   assert.equal((await api.get({ chatId: CHAT, id: "old", version: 1 })).html, "<p>Newer</p>");
@@ -123,10 +97,9 @@ test("legacy HTML reopens as one current artifact and keeps old files and commen
   assert.equal(await fs.readFile(path.join(split, "v1.html"), "utf8"), "<p>Newer</p>", "legacy HTML remains recoverable on disk");
 });
 
-test("HTML tool updates one live page independently of Designs, without version history", async (t) => {
+test("HTML tool updates one live page without version history", async (t) => {
   const { api, directory } = await fixture(t);
   const tools = Object.fromEntries([...htmlArtifactToolDefinitions(CHAT, api), ...artifactCommentToolDefinitions(CHAT, api)].map((tool) => [tool.name, tool]));
-  await api.setEnabled(false);
   const first = JSON.parse(await tools.artifact_show.run({ title: "Explainer", html: "<p>One</p>" }));
   const updated = JSON.parse(await tools.artifact_show.run({ id: "different-id", title: "Updated", html: "<p>Two</p>" }));
   assert.equal(updated.id, first.id);
@@ -149,8 +122,6 @@ test("HTML tool updates one live page independently of Designs, without version 
   await tools.artifact_show.run({ title: "Updated again", html: "<p>Three</p>" });
   await tools.artifact_resolve_comment.run({ id: comment.id, note: "Expanded explanation" });
   assert.equal(JSON.parse(await tools.artifact_comments.run({ all: true }))[0].resolved.note, "Expanded explanation");
-  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Designs" }), /Designs are off/);
-  await api.setEnabled(true);
   await api.showDesign({ chatId: CHAT, id: "screen", title: "Screen", document: designDocument() });
   await assert.rejects(tools.artifact_show.run({ id: "screen", title: "Overwrite", html: "<p>x</p>" }), /separate formats/);
   await assert.rejects(tools.artifact_read.run({ id: "screen" }), /separate formats/);
@@ -162,7 +133,6 @@ test("HTML feedback survives edits made while the comment is being composed", as
   const { api } = await fixture(t);
   const first = await api.show({ chatId: CHAT, title: "Explainer", html: "<p>One</p>" });
   await api.show({ chatId: CHAT, title: "Explainer", html: "<p>Two</p>" });
-  await api.setEnabled(false);
   const [comment] = await api.addComments({
     chatId: CHAT,
     comments: [{ id: "12345678", design: first, text: "Explain this paragraph" }],
@@ -172,6 +142,36 @@ test("HTML feedback survives edits made while the comment is being composed", as
   await api.resolveComment({ chatId: CHAT, id: comment.id, note: "Expanded the paragraph" });
   assert.equal((await api.comments({ chatId: CHAT }))[0].resolved.note, "Expanded the paragraph");
   await assert.rejects(api.addComments({ chatId: CHAT, comments: [{ design: { ...first, version: 3 }, text: "Future revision" }] }), /not available/);
+});
+
+test("a page comment keeps the text near it and the spot the page finds it by, and drops an anchor that isn't one", async (t) => {
+  const { api } = await fixture(t);
+  const page = await api.show({ chatId: CHAT, title: "Explainer", html: "<main><p>One</p></main>" });
+  const [kept, dropped] = await api.addComments({
+    chatId: CHAT,
+    comments: [
+      { id: "aaaaaaaa", design: page, x: 0.2, y: 0.4, near: 'The "first"\n paragraph', anchor: "main:1/p:1@0.25,0.5", text: "Shorter" },
+      { id: "bbbbbbbb", design: page, x: 0.2, y: 0.4, anchor: 'main:1/p:1@0.25,0.5"><script>', text: "Longer" },
+    ],
+  });
+  assert.equal(kept.near, "The first paragraph");
+  assert.equal(kept.anchor, "main:1/p:1@0.25,0.5");
+  assert.equal(dropped.anchor, undefined);
+  assert.equal(dropped.near, undefined);
+  assert.equal((await api.comments({ chatId: CHAT }))[0].anchor, "main:1/p:1@0.25,0.5");
+});
+
+test("a shared page with Mermaid blocks carries Pele and the page helper, one without them stays as written", async (t) => {
+  const { api } = await fixture(t);
+  await api.show({ chatId: CHAT, title: "Routes", html: '<pre class="mermaid">flowchart LR\n  Phone --> Mac</pre>' });
+  const [shared] = (await api.pageSnapshot({ chatId: CHAT, title: "Routes", kind: "artifacts" })).artifacts;
+  assert.match(shared.html, /var pele=/);
+  assert.match(shared.html, /milagre:artifact-page/);
+  assert.ok(shared.html.length <= 1_000_000, "within the public page's limit");
+  assert.ok(shared.html.endsWith('<pre class="mermaid">flowchart LR\n  Phone --> Mac</pre>'));
+  await api.show({ chatId: CHAT, title: "Huge", html: `<pre class="mermaid">flowchart LR\n A --> B</pre><p>${"x".repeat(400_000)}</p>` });
+  const [huge] = (await api.pageSnapshot({ chatId: CHAT, title: "Huge", kind: "artifacts" })).artifacts;
+  assert.doesNotMatch(huge.html.slice(0, 200), /<script/, "past the limit the blocks show their text");
 });
 
 test("design documents and comment batches retain input and size validation", async (t) => {
@@ -286,10 +286,60 @@ test("removing a Chat deletes its designs and comments, and only its own", async
   await api.removeChat(CHAT);
 });
 
+test("deleting a design removes every version and its comments, and its id is never reused", async (t) => {
+  const { api, tools, directory } = await fixture(t);
+  await api.showDesign({ chatId: CHAT, id: "a", title: "First", document: designDocument() });
+  await api.showDesign({ chatId: CHAT, id: "a", title: "First", document: designDocument(), expectedVersion: 1 });
+  await api.showDesign({ chatId: CHAT, id: "b", title: "Second", document: designDocument() });
+  await api.addComments({
+    chatId: CHAT,
+    comments: [
+      { design: { id: "a", version: 1 }, text: "gone" },
+      { design: { id: "b", version: 1 }, text: "kept" },
+    ],
+  });
+  assert.deepEqual(JSON.parse(await tools.design_delete.run({ id: "a" })), { id: "a" });
+  assert.deepEqual(
+    (await api.list({ chatId: CHAT })).map((design) => design.id),
+    ["b"],
+  );
+  assert.deepEqual(
+    (await api.comments({ chatId: CHAT })).map((comment) => comment.text),
+    ["kept"],
+  );
+  const folder = path.join(await chatFolder(directory), "a");
+  assert.deepEqual(await fs.readdir(folder), ["meta.json"]);
+  for (const read of [
+    api.get({ chatId: CHAT, id: "a" }),
+    api.get({ chatId: CHAT, id: "a", version: 1 }),
+    api.exportDesign({ chatId: CHAT, id: "a", format: "json" }),
+  ])
+    await assert.rejects(read, /no longer available/);
+  await assert.rejects(api.apply({ chatId: CHAT, id: "a", expectedVersion: 2, operations: [{ op: "delete", id: "heading" }] }), /no longer available/);
+  await assert.rejects(api.deleteDesign({ chatId: CHAT, id: "a" }), /no longer available/);
+  await assert.rejects(api.showDesign({ chatId: CHAT, id: "a", title: "Again", document: designDocument() }), /was deleted/);
+  // The live HTML page doesn't take the deleted id either.
+  assert.notEqual((await api.show({ chatId: CHAT, id: "a", title: "Page", html: "<p>hi</p>" })).id, "a");
+  const restarted = createChatArtifacts({ directory, validateChat: async () => {} });
+  assert.deepEqual(
+    (await restarted.list({ chatId: CHAT, format: "design" })).map((design) => design.id),
+    ["b"],
+  );
+});
+
+test("only a design is deleted", async (t) => {
+  const { api } = await fixture(t);
+  const page = await api.show({ chatId: CHAT, title: "Page", html: "<p>hi</p>" });
+  await assert.rejects(api.deleteDesign({ chatId: CHAT, id: page.id }), /separate formats/);
+  await api.showDesign({ chatId: CHAT, id: "a", title: "First", document: designDocument() });
+  await assert.rejects(api.deleteDesign({ chatId: "/repo#4", id: "a" }), /no longer available/);
+  assert.equal((await api.list({ chatId: CHAT, format: "design" })).length, 1);
+});
+
 test("editable designs persist their source and a preview, and survive a restarted store", async (t) => {
   const { api, tools, directory } = await fixture(t);
-  const shown = JSON.parse(await tools.design_show.run({ id: "welcome", title: "Welcome screen", document: designDocument() }));
-  assert.deepEqual(shown, { id: "welcome", title: "Welcome screen", version: 1, versions: 1, width: 390, height: 844, format: "design" });
+  const shown = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome screen", document: designDocument() }));
+  assert.deepEqual(shown, { id: "welcome", title: "Welcome screen", version: 1, versions: 1, width: 390, height: 844, format: "design", warnings: [] });
   const design = await api.get({ chatId: CHAT, id: shown.id });
   assert.equal(design.document.nodes[1].text, "Welcome");
   assert.match(design.html, /Welcome/);
@@ -316,12 +366,39 @@ test("editable design tool schemas expose layer fields and version checks to MCP
   );
   assert.equal(schemas.design_show.properties.document.properties.nodes.type, "array");
   assert.ok(schemas.design_apply.required.includes("expectedVersion"));
-  assert.equal(schemas.design_apply.properties.operations.items.oneOf.length, 4);
+  assert.deepEqual(
+    schemas.design_apply.properties.operations.items.oneOf.map((item) => item.properties.op.const),
+    ["document", "detach", "duplicate", "unset", "update", "insert", "delete"],
+  );
   assert.deepEqual(schemas.design_export.properties.format.enum, ["json", "svg"]);
   assert.equal(tools.design_show.readOnly, false);
   assert.equal(tools.design_apply.readOnly, false);
   assert.equal(tools.design_read.readOnly, true);
   assert.equal(tools.design_export.readOnly, true);
+  assert.equal(tools.design_delete.readOnly, false);
+});
+
+test("a design keeps its group through revisions and edits until a revision names another", async (t) => {
+  const { api, tools } = await fixture(t);
+  const shown = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", group: " Onboarding ", document: designDocument() }));
+  assert.equal(shown.group, "Onboarding");
+  const revised = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", expectedVersion: 1, document: designDocument() }));
+  assert.equal(revised.group, "Onboarding", "a revision without a group stays in its group");
+  const edited = firstLine(
+    await tools.design_apply.run({ id: "welcome", expectedVersion: 2, operations: [{ op: "update", id: "heading", patch: { text: "Hi" } }] }),
+  );
+  assert.equal(edited.group, "Onboarding");
+  const shared = await api.pageSnapshot({ chatId: CHAT, title: "Designs" });
+  assert.equal(shared.designs.find((design) => design.title === "Welcome")?.group, "Onboarding", "the public page keeps the block");
+  assert.equal((await api.list({ chatId: CHAT, format: "design" }))[0].group, "Onboarding");
+  assert.equal((await api.get({ chatId: CHAT, id: "welcome", version: 1 })).group, "Onboarding");
+  const moved = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", group: "Settings", expectedVersion: 3, document: designDocument() }));
+  assert.equal(moved.group, "Settings");
+  const ungrouped = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", group: "", expectedVersion: 4, document: designDocument() }));
+  assert.equal(ungrouped.group, undefined, "an empty group takes the design out of its group");
+  const other = firstLine(await tools.design_show.run({ id: "other", title: "Other", document: designDocument() }));
+  assert.equal(other.group, undefined);
+  assert.equal(z.toJSONSchema(z.object(tools.design_show.input)).properties.group.maxLength, 60);
 });
 
 test("a batch creates one immutable version with an updated source and preview", async (t) => {
@@ -344,7 +421,7 @@ test("a batch creates one immutable version with an updated source and preview",
   assert.match(updated.html, /Your next project/);
   assert.deepEqual(await api.get({ chatId: CHAT, id: "welcome", version: 1 }), { ...before, latest: 2, versions: 2 });
 
-  const edited = JSON.parse(await tools.design_apply.run({ id: "welcome", expectedVersion: 2, operations: [{ op: "delete", id: "button" }] }));
+  const edited = firstLine(await tools.design_apply.run({ id: "welcome", expectedVersion: 2, operations: [{ op: "delete", id: "button" }] }));
   assert.equal(edited.version, 3);
   assert.equal(edited.title, "Welcome");
   assert.equal(edited.html, undefined);
@@ -441,6 +518,8 @@ test("JSON and SVG exports use the requested immutable design version", async (t
   assert.equal(svg.mimeType, "image/svg+xml");
   assert.match(svg.content, /<svg/);
   assert.match(svg.content, /New title/);
+  assert.doesNotMatch(svg.content, /@font-face/, "fonts are not embedded in the agent's export");
+  assert.ok(svg.content.length < 20_000, `the agent's SVG stays small (${svg.content.length} characters)`);
   await assert.rejects(api.exportDesign({ chatId: CHAT, id: "welcome", format: "html" }), /Choose json or svg/);
 });
 
@@ -512,4 +591,424 @@ test("oversized rendered text never commits a new design or advances an existing
   const folder = await chatFolder(directory);
   assert.deepEqual(await fs.readdir(folder), ["welcome"]);
   assert.deepEqual((await fs.readdir(path.join(folder, "welcome"))).sort(), ["meta.json", "v1.design.json", "v1.html"]);
+});
+
+test("design_show and design_apply attach the rendered design and its warnings", async (t) => {
+  const { tools } = await fixture(t);
+  const shown = await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
+  assert.equal(firstLine(shown).version, 1);
+  assert.deepEqual(firstLine(shown).warnings, []);
+  assert.equal(shown.images.length, 1);
+  assert.equal(shown.images[0].mime, "image/png");
+  assert.match(shown.text, /\nLook at the image/);
+  const edited = await tools.design_apply.run({
+    id: "welcome",
+    expectedVersion: 1,
+    operations: [
+      {
+        op: "update",
+        id: "heading",
+        patch: { text: "A welcome heading long enough to wrap onto several lines inside a short box", heightMode: "fixed", height: 20 },
+      },
+    ],
+  });
+  assert.deepEqual(
+    firstLine(edited).warnings.map((warning) => warning.kind),
+    ["clipped-text"],
+  );
+  assert.match(edited.text, /- Text "heading" needs/);
+});
+
+test("a render failure still saves the version and returns the summary", async (t) => {
+  const { api } = await fixture(t);
+  const tools = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      renderPng: async () => {
+        throw new Error("wasm missing");
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const shown = await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
+  assert.equal(firstLine(shown).version, 1);
+  assert.deepEqual(shown.images, []);
+  assert.match(shown.text, /preview could not be rendered: wasm missing/);
+  assert.equal((await api.get({ chatId: CHAT, id: "welcome" })).version, 1);
+});
+
+test("a design_show that fails validation or conflicts still throws before anything is drawn", async (t) => {
+  const { tools } = await fixture(t);
+  await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
+  await assert.rejects(tools.design_show.run({ id: "welcome", title: "Again", document: designDocument(), expectedVersion: 5 }), /version|changed|conflict/i);
+  await assert.rejects(
+    tools.design_apply.run({ id: "welcome", expectedVersion: 9, operations: [{ op: "delete", id: "heading" }] }),
+    /version|changed|conflict/i,
+  );
+});
+
+test("the agent is told which fonts its image draws in Inter", async (t) => {
+  const { tools, api } = await fixture(t);
+  const stock = await tools.design_show.run({ id: "stock", title: "Stock", document: createExampleDesign() });
+  assert.match(stock.text, /\nYour image shows .*Georgia.* in Inter; the user sees the real font\.(\n|$)/);
+  const inter = await tools.design_show.run({ id: "inter", title: "Inter", document: designDocument() });
+  assert.doesNotMatch(inter.text, /Your image shows/);
+  const hidden = designDocument();
+  hidden.nodes.push({ id: "serif", type: "text", hidden: true, width: 100, height: 20, text: "x", fontFamily: "Georgia, serif" });
+  assert.doesNotMatch((await tools.design_show.run({ id: "hidden", title: "Hidden", document: hidden })).text, /Your image shows/);
+  // A catalog family is drawn in the agent's image too, and embedded in the saved HTML.
+  const catalog = designDocument();
+  catalog.nodes.push({ id: "display", type: "text", width: 200, height: 40, text: "Nove", fontFamily: "Bebas Neue, Arial, sans-serif" });
+  assert.doesNotMatch((await tools.design_show.run({ id: "catalog", title: "Catalog", document: catalog })).text, /Your image shows/);
+  assert.match((await api.get({ chatId: CHAT, id: "catalog" })).html, /@font-face\{font-family:"Bebas Neue"/);
+  const failing = Object.fromEntries(
+    artifactToolDefinitions(CHAT, (await fixture(t)).api, undefined, {
+      renderPng: async () => {
+        throw "plain string";
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const none = await failing.design_show.run({ id: "stock", title: "Stock", document: createExampleDesign() });
+  assert.doesNotMatch(none.text, /Your image shows/);
+  assert.match(none.text, /preview could not be rendered: plain string/);
+});
+
+test("a failing layout check still saves and returns the design with a note", async (t) => {
+  const { api } = await fixture(t);
+  const tools = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      warnings: () => {
+        throw new Error("measure failed");
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const shown = await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
+  assert.deepEqual(firstLine(shown).warnings, []);
+  assert.match(shown.text, /\nLayout warnings could not be computed: measure failed\./);
+  assert.equal(shown.images.length, 1);
+  assert.equal((await api.get({ chatId: CHAT, id: "welcome" })).version, 1);
+});
+
+test("the summary JSON carries at most 20 warnings and their total", async (t) => {
+  const { tools } = await fixture(t);
+  const document = designDocument();
+  for (let index = 0; index < 25; index++) {
+    document.nodes.push({ id: `off${index}`, type: "rectangle", x: 1000, y: 10 * index, width: 40, height: 8, fill: "#ff0000" });
+  }
+  const shown = await tools.design_show.run({ id: "many", title: "Many", document });
+  const summary = firstLine(shown);
+  assert.equal(summary.warnings.length, 20);
+  assert.equal(summary.warningCount, 25);
+  assert.match(shown.text, /…and 5 more/);
+  const few = firstLine(await tools.design_show.run({ id: "few", title: "Few", document: designDocument() }));
+  assert.equal(few.warningCount, undefined);
+});
+
+test("remote images are listed as notes, outside the warnings the agent must fix", async (t) => {
+  const { tools } = await fixture(t);
+  const document = designDocument();
+  document.nodes.push(
+    { id: "hero", type: "image", x: 24, y: 300, width: 342, height: 160, src: "https://example.com/hero.png" },
+    { id: "off", type: "rectangle", x: 1000, y: 10, width: 40, height: 8, fill: "#ff0000" },
+  );
+  const shown = await tools.design_show.run({ id: "remote", title: "Remote", document });
+  assert.deepEqual(
+    firstLine(shown)
+      .warnings.map((warning) => warning.kind)
+      .sort(),
+    ["off-canvas", "remote-image"],
+  );
+  const [, warnings = "", notes = ""] = /\nWarnings:\n([\s\S]*?)(?:\nNotes:\n([\s\S]*))?$/.exec(shown.text) ?? [];
+  assert.match(warnings, /"off" extends past/);
+  assert.doesNotMatch(warnings, /remote URL/);
+  assert.match(notes, /Image "hero" is a remote URL/);
+  assert.match(shown.text, /every item under Warnings/);
+});
+
+test("the agent is told which text layers its image leaves blank", async (t) => {
+  const { api, tools } = await fixture(t);
+  const document = designDocument();
+  document.nodes.push(
+    { id: "polish", type: "text", x: 24, y: 300, width: 300, height: 30, text: "Zażółć ✓" },
+    { id: "latin", type: "text", x: 24, y: 340, width: 300, height: 30, text: "Café — naïve “quotes” → 5 €\ttab" },
+    { id: "hiddenStar", type: "text", x: 24, y: 380, width: 300, height: 30, text: "★", hidden: true },
+  );
+  const shown = await tools.design_show.run({ id: "glyphs", title: "Glyphs", document });
+  assert.match(
+    shown.text,
+    /\nYour image can't draw some characters in "polish"; they are blank and the line may look cut there, but the user sees them\.(\n|$)/,
+  );
+  assert.doesNotMatch((await tools.design_show.run({ id: "plain", title: "Plain", document: designDocument() })).text, /can't draw/);
+
+  const many = designDocument();
+  for (const [index, text] of ["Привет", "日本語", "😀", "★", "ł", "ś", "✓"].entries())
+    many.nodes.push({ id: `t${index}`, type: "text", x: 24, y: 300 + index * 30, width: 300, height: 30, text });
+  assert.match((await tools.design_show.run({ id: "many", title: "Many", document: many })).text, /in "t0", "t1", "t2", "t3", "t4" and 2 more;/);
+
+  const failing = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      renderPng: async () => {
+        throw new Error("no wasm");
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  assert.doesNotMatch((await failing.design_show.run({ id: "glyphs2", title: "Glyphs", document })).text, /can't draw/);
+});
+
+test("the design tools tell any agent, a subagent too, to design on the Chat's canvas and keep ids for revisions", async (t) => {
+  const { tools } = await fixture(t);
+  assert.match(
+    tools.design_show.description,
+    /^For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files/,
+  );
+  assert.match(tools.design_show.description, /bundled design skill \(.+SKILL\.md\)/);
+  assert.match(tools.design_show.description, /to revise a design, keep its id/);
+  assert.match(tools.design_apply.description, /^Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent/);
+});
+
+test("page snapshots capture every design beyond the former 20-design cap", async (t) => {
+  const { api, tools } = await fixture(t);
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Designs" }), /at least one design/);
+  for (let i = 0; i < 21; i++) {
+    await tools.design_show.run({ id: `design-${i}`, title: `Design ${i + 1}`, document: designDocument() });
+  }
+  const snapshot = await api.pageSnapshot({ chatId: CHAT, title: "Designs" });
+  assert.equal(snapshot.designs.length, 21);
+  assert.equal(new Set(snapshot.designs.map((design) => design.title)).size, 21);
+  assert.ok(snapshot.designs.some((design) => design.title === "Design 21"));
+});
+
+test("a page split into tabs keeps each tab, changes one tab at a time and is published with its tab bar", async (t) => {
+  const { api, directory } = await fixture(t);
+  const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api).map((tool) => [tool.name, tool]));
+  const tabs = [
+    { id: "overview", title: "Overview", html: "<p>Overview</p>" },
+    { id: "data", title: "Data", html: "<p>Data</p>" },
+  ];
+  const first = JSON.parse(await tools.artifact_show.run({ title: "Report", tabs }));
+  const page = await api.get({ chatId: CHAT, id: first.id });
+  assert.deepEqual(page.tabs, tabs);
+  assert.equal(page.html, "<p>Overview</p>", "viewers from before tabs see the first tab");
+  // A tab without html keeps what it has; the agent reads one tab at a time.
+  await tools.artifact_show.run({
+    title: "Report",
+    tabs: [
+      { id: "overview", title: "Summary" },
+      { ...tabs[1], html: "<p>More data</p>" },
+    ],
+  });
+  const one = JSON.parse(await tools.artifact_read.run({ id: first.id, tab: "data" }));
+  assert.deepEqual(one.tabs, [
+    { id: "overview", title: "Summary" },
+    { id: "data", title: "Data" },
+  ]);
+  assert.deepEqual(one.tab, { id: "data", title: "Data", html: "<p>More data</p>" });
+  assert.equal(one.html, undefined);
+  assert.equal(JSON.parse(await tools.artifact_read.run({ id: first.id })).tabs[0].html, "<p>Overview</p>");
+  await assert.rejects(tools.artifact_read.run({ id: first.id, tab: "gone" }), /no tab gone/);
+  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id);
+  assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v2.html", "v2.tabs.json"], "only the current page is kept");
+
+  const [shared] = (await api.pageSnapshot({ chatId: CHAT, title: "Report", kind: "artifacts" })).artifacts;
+  assert.match(shared.html, /role="tablist"/);
+  assert.match(shared.html, />Summary<\/button><button type="button" role="tab">Data</);
+  assert.ok(shared.html.includes("\\u003cp>More data\\u003c/p>"), "tab pages can't close the script that carries them");
+
+  // New tabs need their HTML; ids are unique; the page is html or tabs.
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", tabs: [{ id: "new", title: "New" }] }), /needs its HTML/);
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", tabs: [tabs[0], tabs[0]] }), /Two tabs/);
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", html: "<p>x</p>", tabs }), /not both/);
+  await assert.rejects(
+    api.show({
+      chatId: CHAT,
+      title: "Report",
+      tabs: [
+        { ...tabs[0], html: "a".repeat(600_000) },
+        { ...tabs[1], html: "a".repeat(600_000) },
+      ],
+    }),
+    /together/,
+  );
+
+  // A comment names its tab; html again drops the tabs.
+  const [comment] = await api.addComments({
+    chatId: CHAT,
+    comments: [{ design: page, x: 0.1, y: 0.2, tab: { id: "data", title: 'The "data"' }, text: "More" }],
+  });
+  assert.deepEqual(comment.tab, { id: "data", title: 'The "data"' });
+  const [bad] = await api.addComments({ chatId: CHAT, comments: [{ design: page, tab: { id: "../x", title: "X" }, text: "Dropped" }] });
+  assert.equal(bad.tab, undefined);
+  await api.show({ chatId: CHAT, title: "Report", html: "<p>One page</p>" });
+  assert.equal((await api.get({ chatId: CHAT, id: first.id })).tabs, undefined);
+  assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v3.html"]);
+});
+
+test("a page shows files the agent attaches from the Chat's Worktree, keeps them while its HTML uses them, and reads them in chunks", async (t) => {
+  const { api, directory } = await fixture(t);
+  const worktree = await fs.mkdtemp(path.join(os.tmpdir(), "artifact-worktree-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "artifact-outside-"));
+  t.after(() => Promise.all([fs.rm(worktree, { recursive: true, force: true }), fs.rm(outside, { recursive: true, force: true })]));
+  const video = Buffer.alloc(600 * 1024, 7);
+  await fs.writeFile(path.join(worktree, "demo.mp4"), video);
+  await fs.writeFile(path.join(worktree, "chart.png"), "png");
+  await fs.writeFile(path.join(outside, "secret.txt"), "secret");
+  await fs.symlink(path.join(outside, "secret.txt"), path.join(worktree, "link.txt"));
+  const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api, undefined, { roots: async () => [worktree] }).map((tool) => [tool.name, tool]));
+  const show = (args) => tools.artifact_show.run({ title: "Demo", ...args }).then(JSON.parse);
+
+  const first = await show({
+    html: '<video src="assets/demo.mp4"></video><img src="./assets/chart.png">',
+    assets: [
+      { name: "demo.mp4", path: path.join(worktree, "demo.mp4") },
+      { name: "chart.png", path: path.join(worktree, "chart.png") },
+    ],
+  });
+  const page = await api.get({ chatId: CHAT, id: first.id });
+  const hash = require("node:crypto").createHash("sha256").update(video).digest("hex");
+  assert.deepEqual(page.assets, [
+    { name: "demo.mp4", hash, size: video.length, type: "video/mp4" },
+    { name: "chart.png", hash: require("node:crypto").createHash("sha256").update("png").digest("hex"), size: 3, type: "image/png" },
+  ]);
+  assert.equal(JSON.parse(await tools.artifact_read.run({ id: first.id })).assets.length, 2);
+
+  // Read back in chunks, the way the phone and the desktop's preview do.
+  const chunk = await api.asset({ chatId: CHAT, name: "demo.mp4", offset: 0 });
+  assert.equal(chunk.size, video.length);
+  assert.equal(Buffer.from(chunk.base64, "base64").length, 256 * 1024);
+  const tail = await api.asset({ chatId: CHAT, name: "demo.mp4", offset: 512 * 1024, length: 10 });
+  assert.equal(Buffer.from(tail.base64, "base64").length, 10);
+  await assert.rejects(api.asset({ chatId: CHAT, name: "demo.mp4", offset: video.length + 1 }), /offset/);
+  await assert.rejects(api.asset({ chatId: CHAT, name: "missing.png" }), /no longer on the page/);
+  const shared = (await api.pageSnapshot({ chatId: CHAT, title: "Demo", kind: "artifacts" })).artifacts[0];
+  assert.deepEqual(shared.assets, page.assets);
+  assert.equal(
+    await api.assetPath({ chatId: CHAT, hash }),
+    path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets", hash),
+  );
+
+  // Only regular files inside the Worktree, named without folders, used by the HTML.
+  await assert.rejects(
+    show({ html: '<img src="assets/s.txt">', assets: [{ name: "s.txt", path: path.join(outside, "secret.txt") }] }),
+    /isn't a file in this Chat's Worktree/,
+  );
+  await assert.rejects(
+    show({ html: '<img src="assets/l.txt">', assets: [{ name: "l.txt", path: path.join(worktree, "link.txt") }] }),
+    /isn't a file in this Chat's Worktree/,
+  );
+  await assert.rejects(
+    api.show(
+      { chatId: CHAT, title: "Demo", html: '<img src="assets/a/b.png">', assets: [{ name: "a/b.png", path: path.join(worktree, "chart.png") }] },
+      { roots: [worktree] },
+    ),
+    /no folders/,
+  );
+  await assert.rejects(
+    show({ html: "<p>No media</p>", assets: [{ name: "chart.png", path: path.join(worktree, "chart.png") }] }),
+    /doesn't use assets\/chart\.png/,
+  );
+  await assert.rejects(
+    api.show({ chatId: CHAT, title: "Demo", html: '<img src="assets/chart.png">', assets: [{ name: "chart.png", path: path.join(worktree, "chart.png") }] }),
+    /isn't a file in this Chat's Worktree/,
+    "without roots, nothing can be attached",
+  );
+
+  // A page that stops mentioning a file drops it, and its bytes go once no version needs them.
+  await show({ html: '<img src="assets/chart.png">' });
+  const kept = await api.get({ chatId: CHAT, id: first.id });
+  assert.deepEqual(
+    kept.assets.map((asset) => asset.name),
+    ["chart.png"],
+  );
+  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets");
+  assert.deepEqual(await fs.readdir(folder), [kept.assets[0].hash]);
+  assert.deepEqual(await fs.readdir(path.join(directory, ".incoming")), [], "nothing is left on its way in");
+  await show({ html: "<p>Text only</p>" });
+  assert.equal((await api.get({ chatId: CHAT, id: first.id })).assets, undefined);
+  assert.deepEqual(await fs.readdir(folder), []);
+});
+
+test("opt-in design transport strips generated fonts, preserves exact HTML, and honors held keys", async (t) => {
+  const { api } = await fixture(t);
+  for (const [id, fontFamily] of [
+    ["inter", "Inter"],
+    ["catalog", "EB Garamond"],
+  ]) {
+    const document = designDocument();
+    document.nodes[1].fontFamily = fontFamily;
+    await api.showDesign({ chatId: CHAT, id, title: fontFamily, document });
+    const request = { chatId: CHAT, id };
+    const full = await api.get(request);
+    const split = await api.get({ ...request, fonts: { have: [] } });
+    assert.match(split.fontKey, /^[a-f0-9]{64}$/);
+    assert.match(split.fontCss, new RegExp(`font-family:"${fontFamily}"`));
+    assert.ok(split.html.length < full.html.length);
+    assert.equal(split.html.replace("</head>", `<style>${split.fontCss}</style></head>`), full.html);
+    const { artifactDocument } = require("@milagre/shared/artifact-document");
+    assert.equal(artifactDocument(split.html).replace("</head>", `<style>${split.fontCss}</style></head>`), artifactDocument(full.html));
+    const held = await api.get({ ...request, fonts: { have: [split.fontKey] } });
+    assert.equal(held.html, split.html);
+    assert.equal(held.fontKey, split.fontKey);
+    assert.equal(held.fontCss, undefined);
+    assert.deepEqual(await api.get(request), full, "disk and default callers stay unchanged");
+    for (const fonts of [null, {}, { have: null }, { have: "key" }]) {
+      assert.deepEqual(await api.get({ ...request, fonts }), full, "malformed inventories stay self-contained");
+    }
+  }
+});
+
+test("fontless designs, non-generated heads and HTML artifacts stay self-contained", async (t) => {
+  const { api, directory } = await fixture(t);
+  const document = designDocument();
+  document.nodes = document.nodes.slice(0, 1);
+  await api.showDesign({ chatId: CHAT, id: "fontless", title: "Fontless", document });
+  const request = { chatId: CHAT, id: "fontless" };
+  assert.deepEqual(await api.get({ ...request, fonts: { have: [] } }), await api.get(request));
+  const file = path.join(await chatFolder(directory), "fontless", "v1.html");
+  for (const html of [
+    "<html><head><style>@font-face{custom:yes}</style></head><body></body></html>",
+    '<!doctype html><html><head><style>base</style><style>@font-face{custom:yes}</style></head><body><main id="design-root">',
+    '<!doctype html><html><head></head><body><style>@font-face{font-family:"Inter"}</style></body></html>',
+  ]) {
+    await fs.writeFile(file, html);
+    const read = await api.get({ ...request, fonts: { have: [] } });
+    assert.equal(read.html, html);
+    assert.equal(read.fontKey, undefined);
+  }
+  const { designHtml } = require("@milagre/shared/design");
+  const html = designHtml(designDocument());
+  await fs.writeFile(
+    path.join(await chatFolder(directory), "legacy.json"),
+    JSON.stringify({ id: "legacy", versions: [{ version: 1, title: "Legacy", html, createdAt: 1 }] }),
+  );
+  const read = await api.get({ chatId: CHAT, id: "legacy", fonts: { have: [] } });
+  assert.equal(read.format, "html");
+  assert.equal(read.html, html);
+  assert.equal(read.fontKey, undefined);
+});
+
+test("design_show from copies a saved design, applies only the differing operations and keeps its group", async (t) => {
+  const { api, tools } = await fixture(t);
+  await api.showDesign({ chatId: CHAT, id: "home", title: "Home", group: "Start", document: designDocument() });
+  await api.apply({ chatId: CHAT, id: "home", expectedVersion: 1, operations: [{ op: "update", id: "heading", patch: { text: "Hello" } }] });
+  const variant = firstLine(
+    await tools.design_show.run({
+      id: "home-dark",
+      title: "Home, dark",
+      from: { id: "home" },
+      operations: [{ op: "document", patch: { background: "#101010" } }],
+    }),
+  );
+  assert.equal(variant.id, "home-dark");
+  assert.equal(variant.version, 1);
+  assert.equal(variant.group, "Start");
+  const saved = await api.get({ chatId: CHAT, id: "home-dark", format: "design" });
+  assert.equal(saved.document.background, "#101010");
+  // The latest version of the source, unless the call names one.
+  assert.equal(saved.document.nodes.find((node) => node.id === "heading").text, "Hello");
+  await tools.design_show.run({ id: "home-v1", title: "Home v1", from: { id: "home", version: 1 } });
+  assert.equal((await api.get({ chatId: CHAT, id: "home-v1", format: "design" })).document.nodes.find((node) => node.id === "heading").text, "Welcome");
+  // The source is untouched.
+  assert.equal((await api.get({ chatId: CHAT, id: "home", format: "design" })).document.background, "#f5f4ef");
+  await assert.rejects(tools.design_show.run({ title: "Both", document: designDocument(), from: { id: "home" } }), /document OR from/);
+  await assert.rejects(tools.design_show.run({ title: "Neither" }), /document OR from/);
+  await assert.rejects(tools.design_show.run({ title: "Gone", from: { id: "missing" } }), /no longer available/);
+  await assert.rejects(api.showDesign({ chatId: CHAT, title: "Ops", document: designDocument(), operations: [] }), /operations go with from/);
 });

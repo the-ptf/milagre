@@ -10,7 +10,7 @@
       "ios": {
         "image": "latest"
       },
-      "node": "24.21.0",
+      "node": "26.13.0",
       "env": {
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
       },
@@ -19,7 +19,7 @@
     "apk": {
       "distribution": "internal",
       "channel": "testflight",
-      "node": "24.21.0",
+      "node": "26.13.0",
       "env": {
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
       },

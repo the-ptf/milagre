@@ -33,11 +33,14 @@ function offersChoices(label: string): boolean {
 export function parseRecommendation(body: string): Recommendation | null {
   const lines = body.split(/\r?\n/);
   let end = lines.length;
-  while (end > 0 && lines[end - 1].trim() === "") end -= 1;
+  while (end > 0 && (lines[end - 1] ?? "").trim() === "") end -= 1;
 
   let start = end;
-  while (start > 0 && ITEM.test(lines[start - 1])) start -= 1;
-  const items = lines.slice(start, end).map((line) => line.match(ITEM)!);
+  while (start > 0 && ITEM.test(lines[start - 1] ?? "")) start -= 1;
+  const items = lines.slice(start, end).flatMap((line) => {
+    const match = line.match(ITEM);
+    return match ? [match] : [];
+  });
   if (items.length < 2 || items.length > 6) return null;
   if (items.some((match, index) => Number(match[1]) !== index + 1)) return null;
 
@@ -45,9 +48,10 @@ export function parseRecommendation(body: string): Recommendation | null {
   if (before.filter((line) => line.trimStart().startsWith("```")).length % 2 === 1) return null;
 
   let questionLine = before.length;
-  while (questionLine > 0 && before[questionLine - 1].trim() === "") questionLine -= 1;
+  while (questionLine > 0 && (before[questionLine - 1] ?? "").trim() === "") questionLine -= 1;
   if (questionLine === 0) return null;
   const raw = before[questionLine - 1];
+  if (raw === undefined) return null;
   const trimmed = raw.replace(/[:\s*_]+$/, "");
   if (!trimmed.endsWith("?")) return null;
 
@@ -59,6 +63,7 @@ export function parseRecommendation(body: string): Recommendation | null {
   const options: RecommendationOption[] = [];
   let hasRecommended = false;
   for (const [index, match] of items.entries()) {
+    if (match[2] === undefined) return null;
     const label = stripMarkers(match[2]);
     if (label.length > MAX_LABEL || label.endsWith("?") || offersChoices(label)) return null;
     const marked = takeMarker(label);

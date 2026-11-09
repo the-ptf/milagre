@@ -1,12 +1,13 @@
 import type {
   AgentEvent,
   AnsweredQuestion,
-  AgentTask,
   ChatStep,
   ContextUsage,
+  ImageAttachment,
   CoordinatorState,
   TranscriptState,
   PermissionDecision,
+  PermissionMode,
   PermissionRequest,
   QuestionAnswers,
   QuestionRequest,
@@ -18,8 +19,12 @@ export type SentAnswer = PermissionDecision | "answered" | "dismissed";
 
 /** A turn streaming in a chat, keyed by chat key (see `chatKey`). */
 export interface AgentRun {
+  /** The provider turn whose completion can supply a follow-up suggestion. */
+  turnId?: string | null;
   text: string;
   model: string;
+  /** The permission mode the turn started in; a Chat started for another Chat (MCP, Delegation) has no saved pick of its own. */
+  permissionMode?: PermissionMode;
   /** When this turn began, in milliseconds since epoch. Older hosts may omit it. */
   startedAt?: number;
   /** Tool steps in the order they started; each one's offset is where it sits in `text`. */
@@ -32,10 +37,10 @@ export interface AgentRun {
   answered: Record<string, SentAnswer>;
   /** A steering message split the reply, so a turn that ends with nothing more to show saves nothing more. */
   split?: boolean;
+  /** A steering message came in and the agent hasn't written text then gone back to its tools since. */
+  steered?: boolean;
   /** The agent waits on its subagents, so the indicator says so instead of "Working". */
   waitingForSubagents?: boolean;
-  /** The agent's to-do list as it last reported it; gone with the run when the turn ends. */
-  tasks?: AgentTask[];
   /** How full the agent's context window is; saved on the chat when the turn ends. */
   contextUsage?: ContextUsage;
 }
@@ -48,11 +53,11 @@ export const MAX_OUTPUT: number;
 export function capOutput(text: string): string;
 export function lastUserModel(state: TranscriptState, sessionId: number): string;
 export function chatKey(projectPath: string, sessionId: number, computerId?: string): string;
-export { LOCAL_COMPUTER, computerOfKey, qualifyKey, unqualifyKey } from "./chat-scopes.mjs";
+export { computerOfKey } from "./chat-scopes.mjs";
 export function sessionIdFromKey(key: string): number;
 export function projectOfKey(key: string): string;
 export function chatInProject(projectPath: string, key: string): boolean;
-export function startRun(runs: AgentRuns, chatId: string, model: string): AgentRuns;
+export function startRun(runs: AgentRuns, chatId: string, model: string, permissionMode?: PermissionMode): AgentRuns;
 export function isTurnEnd(event: AgentEvent): boolean;
 export function subagentActive(agent: Pick<Subagent, "status"> | undefined): boolean;
 export function runStatus(run: AgentRun | undefined): "idle" | "working" | "waiting";
@@ -66,5 +71,7 @@ export function recordAnswers<T extends TranscriptState>(
   chatId: string,
   body: string,
   answered?: AnsweredQuestion[] | null,
+  /** The images attached to the answers, stored, shown above the answer card. */
+  images?: ImageAttachment[],
 ): { state: T; runs: AgentRuns; messageId: number | null };
 export function answeredQuestions(request: QuestionRequest | undefined, answers: QuestionAnswers | null): AnsweredQuestion[] | null;

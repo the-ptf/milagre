@@ -10,7 +10,15 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // goes through bridgeFor / bridgeForKey / useBridge, so it reaches the computer of the Project or chat it is about.
 const ALLOWED: Record<string, string[]> = {
   "lib/offline-cache.ts": ["computers", "onComputersChanged"],
+  // The keys this window runs are this Mac's own keybindings.json; Settings › Keybindings reads other computers' through bridgeFor.
+  "lib/keybindings.ts": ["readKeybindings", "onKeybindings"],
+  "components/settings/KeybindingsSettings.tsx": ["openKeybindingsFile"],
+  // A paired computer's chat paints from the copy this Mac keeps of it while the computer answers.
+  "lib/chat-messages.ts": ["computers"],
   "App.tsx": [
+    // Triage an issue diagnoses this Mac's own host, as New chat opens on this Mac.
+    "prepareTriage",
+    "getAppVersion",
     "onAccountsChanged",
     "listRecentProjects",
     "onQuitFailed",
@@ -22,9 +30,11 @@ const ALLOWED: Record<string, string[]> = {
     "onComputerEvent",
     "onWorktreeRenamed",
     "revealInFolder",
-    "setKeepAwake",
     "syncNotifications",
     "setNotifyWhenWaiting",
+    "setNotificationChime",
+    "setNotificationSchedule",
+    "onPlayChime",
     "setFloatingInbox",
     "onOpenExperimental",
     "notifyCompletion",
@@ -87,23 +97,44 @@ const ALLOWED: Record<string, string[]> = {
     "connectLinear",
     "disconnectLinear",
     "readLimitAutoSwitch",
+    "readLimitResumeAtReset",
+    "saveLimitResumeAtReset",
     "saveLimitAutoSwitch",
+    "readRoutinesEnabled",
     "onMainSyncStatus",
     "computers",
+    "setProjectHidden",
   ],
-  "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "revealInFolder", "updateNamedLink"],
+  "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "revealInFolder", "setProjectHidden", "updateNamedLink"],
+  // This Mac's own Projects and Links in the new-chat Project picker and computer chip; other computers' come through their bridges.
+  "lib/project-copies.ts": ["listRecentProjects", "listNamedLinks"],
   // Canvas Links are this Mac's own, like the canvas.
   "components/sidebar/SidebarLinks.tsx": ["onLinksChanged"],
   "components/LinkWorkspace.tsx": ["syncNotifications", "revealInFolder"],
   "components/ComputerAllowPrompt.tsx": ["onDevicesPending", "listPendingDevices", "allowDevice", "denyDevice"],
+  "components/ProviderUpdateNotice.tsx": ["getProviderUpdates", "updateCli"],
   "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates"],
+  "components/UpdateReleaseNotes.tsx": ["getUpdateReleaseNotes"],
   "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "onCliProgress", "updateCli"],
+  // First launch on this Mac, before any Project or computer: its own agents, folders and agent history.
+  "components/Onboarding.tsx": [
+    "getCliStatus",
+    "listAccounts",
+    "onAccountsChanged",
+    "updateCli",
+    "accountAction",
+    "listAgentFolders",
+    "openProject",
+    "openProjectAt",
+    "cloneProject",
+    "createProject",
+    "setUpGit",
+  ],
   "components/ProjectAccountsSettings.tsx": ["listAccountScopes", "onAccountsChanged", "accountAction"],
-  "components/CanvasView.tsx": ["getCanvas", "stopNegotiation", "addLink", "removeLink", "setProjectPosition", "setWorktreePosition"],
+  "components/CanvasView.tsx": ["getCanvas", "onLinksChanged", "stopNegotiation", "addLink", "removeLink", "setProjectPosition", "setWorktreePosition"],
   "components/AddComputerDialog.tsx": ["onComputerAddPending", "computers"],
   "components/useAgentRuns.ts": ["onRuntimeSnapshot", "onComputerEvent", "getRuns"],
   "components/usePastedImages.ts": ["getPathForFile"],
-  "components/usage/useUsage.ts": ["onAccountsChanged", "readUsage", "getCachedUsage"],
   "components/terminal/TerminalPanel.tsx": ["onCloseFocusedTerminal", "setTerminalFocused"],
   "components/SkillsSettings.tsx": ["openSkill", "revealSkill"],
   // This Mac's Linear account and its Experimental switch.
@@ -111,19 +142,34 @@ const ALLOWED: Record<string, string[]> = {
   "components/LinearIssuePicker.tsx": ["listLinearIssues"],
   "components/Attachments.tsx": ["showImageMenu"],
   "components/agents/GeneratedImage.tsx": ["copyImage", "saveImage", "showImageMenu"],
+  // The thumbnail fetches remote bytes through its scope, then opens this Mac's native image menu.
+  "components/agents/ViewedImages.tsx": ["showImageMenu"],
   "components/agents/UsageLimitCard.tsx": ["onAccountsChanged"],
   // Previews register bytes in this renderer's local Electron protocol, even for remote Chats.
   "components/agents/ArtifactCanvas.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
+  "components/agents/HtmlReply.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
   "components/motion/MediaLightbox.tsx": ["showImageMenu"],
-  "lib/state-events.ts": ["onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
-  "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],
-  "lib/computers.ts": ["computers", "onComputersChanged"],
+  "lib/state-events.ts": ["onRuntimeSnapshot", "onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
+  // Connection metadata and raw events originate on this Mac, including for a paired computer's readers.
+  "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent", "onComputersChanged"],
+  "lib/computers.ts": ["computers"],
+  "lib/computers-store.ts": ["computers", "onComputersChanged"],
   "lib/ports.ts": ["onAgentPorts", "onRuntimeSnapshot", "getAgentPorts", "onComputerEvent"],
-  "lib/settings.ts": ["setWindowTranslucent"],
+  "lib/settings.ts": ["setWindowBackground"],
   "lib/editors.ts": ["listEditors", "openInEditor"],
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
+  // This Mac's own switch for its Chats delegating to other computers.
+  "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
+  // This Mac's own switch for telling its Chats' agents which device a message came from.
+  "lib/device-notes.ts": ["readDeviceNotesEnabled", "saveDeviceNotesEnabled", "onDeviceNotesEnabledChanged"],
+  // This Mac's own Babysit PRs settings, which its daemon's poller follows.
+  "lib/babysit-settings.ts": ["readBabysitSettings", "saveBabysitSettings", "onBabysitSettings"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
-  "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent"],
+  // The microphone is on this computer: Whisper transcribes here whichever computer the Chat is on.
+  "components/useDictation.ts": ["dictation"],
+  "components/useDictationModels.ts": ["dictation"],
+  // Every computer's terminal:changed, and every host's reconnect snapshot, mark the Terminal lists the window holds.
+  "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent", "onRuntimeSnapshot"],
 };
 
 function sources(folder: string): string[] {

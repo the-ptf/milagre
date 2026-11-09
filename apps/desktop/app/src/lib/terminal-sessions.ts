@@ -5,7 +5,9 @@ import "@xterm/xterm/css/xterm.css";
 import { followTerminal, type TerminalFollower } from "@milagre/shared/terminal-client";
 import type { TerminalInfo } from "@milagre/shared/terminal";
 import { THEME_EVENT } from "./theme-sheet";
-import { isMac } from "./shortcut-hints";
+import { APPEARANCE_EVENT } from "./appearance";
+import { isMac, isWindows } from "./shortcut-hints";
+import { terminalKey } from "./terminal-keys";
 import { removeTerminal, updateTerminal } from "./terminal-store";
 import { bridgeForKey } from "./computer-bridge";
 
@@ -58,17 +60,36 @@ function fontFamily() {
   return mono || 'ui-monospace, "SF Mono", Menlo, monospace';
 }
 
+/** The Code size setting plus half a pixel, as the terminal always ran half a pixel above the code blocks. */
+function codeFontSize() {
+  const size = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--code-size"));
+  return (Number.isFinite(size) ? size : 12) + 0.5;
+}
+
+// Open terminals follow the Code size and Code font settings live: set the options, then refit (which resizes the PTY).
+function reapplyAppearance() {
+  const fontSize = codeFontSize();
+  const family = fontFamily();
+  for (const session of sessions.values()) {
+    if (session.term.options.fontSize === fontSize && session.term.options.fontFamily === family) continue;
+    session.term.options.fontSize = fontSize;
+    session.term.options.fontFamily = family;
+    fitTerminal(session.id);
+  }
+}
+
 function reapplyTheme() {
   const theme = terminalTheme();
   for (const session of sessions.values()) session.term.options.theme = theme;
 }
 
-// THEME_EVENT fires after applyPalette and after the translucency class and sliders change (all move --surface).
+// THEME_EVENT fires after applyPalette changes the theme's colors.
 let themeWatched = false;
 function watchTheme() {
   if (themeWatched) return;
   themeWatched = true;
   window.addEventListener(THEME_EVENT, reapplyTheme);
+  window.addEventListener(APPEARANCE_EVENT, reapplyAppearance);
 }
 
 function create(info: TerminalInfo): Session {
@@ -77,7 +98,7 @@ function create(info: TerminalInfo): Session {
     allowTransparency: true,
     cursorBlink: true,
     fontFamily: fontFamily(),
-    fontSize: 12.5,
+    fontSize: codeFontSize(),
     lineHeight: 1.2,
     scrollback: 10_000,
     macOptionIsMeta: false,
@@ -85,8 +106,16 @@ function create(info: TerminalInfo): Session {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  // ⌘ shortcuts belong to the app (⌘T, ⌘K, ⌘1…9); ⌘C and ⌘V go through the window's Edit menu to xterm's copy and paste.
-  term.attachCustomKeyEventHandler((event) => !(isMac ? event.metaKey : event.ctrlKey && event.shiftKey));
+  term.attachCustomKeyEventHandler((event) => {
+    const key = terminalKey(event, { mac: isMac, windows: isWindows }, term.hasSelection());
+    if (key === "shell") return true;
+    if (key !== "app") {
+      // Handled here, or the window would also run its own copy or paste on xterm's textarea.
+      event.preventDefault();
+      if (event.type === "keydown") (key === "copy" ? copySelection : paste)(session);
+    }
+    return false;
+  });
   const element = document.createElement("div");
   element.className = "h-full w-full";
   element.dataset.terminalId = info.id;
@@ -113,6 +142,36 @@ function create(info: TerminalInfo): Session {
   term.onResize(() => claimSize(session));
   sessions.set(info.id, session);
   return session;
+}
+
+/** Clears the selection too: the next Ctrl+C then interrupts, as in Windows Terminal. */
+function copySelection({ term }: Session) {
+  const text = term.getSelection();
+  if (!text) return;
+  term.clearSelection();
+  void navigator.clipboard.writeText(text).catch(() => {});
+}
+
+/** A clipboard with no text, such as an image, sends the program in front the key: an agent's TUI reads it by itself. */
+function paste({ term, follower }: Session) {
+  void navigator.clipboard
+    .readText()
+    .then((text) => (text ? term.paste(text) : follower.send("\x16")))
+    .catch(() => {});
+}
+
+export function terminalHasSelection(id: string) {
+  return Boolean(sessions.get(id)?.term.hasSelection());
+}
+
+export function copyTerminalSelection(id: string) {
+  const session = sessions.get(id);
+  if (session) copySelection(session);
+}
+
+export function pasteIntoTerminal(id: string) {
+  const session = sessions.get(id);
+  if (session) paste(session);
 }
 
 /** Shows the Terminal in `container`, building its xterm the first time. */

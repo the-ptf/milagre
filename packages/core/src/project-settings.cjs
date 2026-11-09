@@ -95,6 +95,17 @@ function createProjectSettings(file) {
   }
 
   return {
+    async getGit(projectPath) {
+      return (await read({ strict: true })).projects[path.resolve(projectPath)]?.git ?? {};
+    },
+    async setGit(projectPath, value) {
+      const { branchPolicyFields } = require("@milagre/shared/branch-policy");
+      const fields = branchPolicyFields(value);
+      await update(projectPath, (entry) => {
+        if (Object.keys(fields).length) entry.git = fields;
+        else delete entry.git;
+      });
+    },
     async get(projectPath) {
       const entry = (await read({ strict: false })).projects[path.resolve(projectPath)] ?? {};
       return { filesToCopy: normalizeFilesToCopy(entry.filesToCopy), setupCommand: normalizeSetupCommand(entry.setupCommand), icon: normalizeIcon(entry.icon) };
@@ -128,6 +139,17 @@ function createProjectSettings(file) {
         else delete entry.setupCommand;
       });
       return { setupCommand: command };
+    },
+    // Trust is kept in this Computer's profile, never in the repository. Only the exact reviewed command matches.
+    async isSetupTrusted(projectPath, command) {
+      const entry = (await read({ strict: false })).projects[path.resolve(projectPath)];
+      return !!command && entry?.trustedSetupCommand === command;
+    },
+    async trustSetup(projectPath, command) {
+      if (typeof command !== "string" || !command) throw new Error("A setup command is required.");
+      await update(projectPath, (entry) => {
+        entry.trustedSetupCommand = command;
+      });
     },
     // null removes the chosen icon, which brings the repository's own back.
     async setIcon(projectPath, icon) {

@@ -65,7 +65,7 @@ function fixture(t, options = {}) {
         },
         push(data = "jpeg") {
           this.latest = { sequence: (this.latest?.sequence ?? 0) + 1, data, viewport: { width: this.state.width, height: this.state.height } };
-          for (const listener of [...listeners]) listener();
+          for (const listener of Array.from(listeners)) listener();
         },
         send(event) {
           events.push(structuredClone(event));
@@ -76,6 +76,26 @@ function fixture(t, options = {}) {
       };
       channels.push(channel);
       return channel;
+    },
+    sessions: [],
+    async session(browser, pageId) {
+      const session = {
+        browser,
+        pageId,
+        closed: false,
+        on: () => () => {},
+        send: async () => ({}),
+        close() {
+          this.closed = true;
+        },
+      };
+      this.sessions.push(session);
+      return session;
+    },
+    uploads: [],
+    async upload(browser, file) {
+      this.uploads.push([browser.port, file]);
+      return `/desktop/tmp/${file.split("/").pop()}`;
     },
     async stop() {
       this.stopped = true;
@@ -96,6 +116,15 @@ function fixture(t, options = {}) {
   };
 }
 const target = (id, browser = BROWSER) => `${browser}:${id}`;
+test("an execution advisor's browser belongs to its parent Chat", async (t) => {
+  const f = fixture(t);
+  f.roots.set("chat-a", { pid: 99, agents: [10] });
+  const own = await f.service.list({ chatId: "chat-a" });
+  assert.ok(own.targets.some((page) => page.id === target(PAGE) && page.source === "agent"));
+  const other = await f.service.list({ chatId: "chat-b" });
+  assert.ok(!other.targets.some((page) => page.id === target(PAGE)));
+  assert.ok(!other.others.some((browser) => browser.id === BROWSER));
+});
 async function controller(f, owner = "owner-a", chatId = "chat-a", pageId = PAGE) {
   const viewer = await f.service.open({ chatId, targetId: target(pageId) }, owner);
   const status = await f.service.control({ viewerId: viewer.viewerId, takeOver: false }, owner);
@@ -138,6 +167,42 @@ test("lineage is remembered after the agent exits, until the browser itself exit
   f.world.browsers.push({ id: BROWSER, pid: 77, product: "Chrome 141", pages: [] });
   f.advance(5000);
   assert.equal((await f.service.list({ chatId: "chat-a" })).targets.length, 0, "a reused identifier does not inherit old ownership");
+});
+
+test("a Chat that can own no page is answered from a recent reading; one that can, and the agent's tool, read afresh", async (t) => {
+  const f = fixture(t);
+  const tool = require("./chat-browsers.cjs")
+    .browserToolDefinitions("chat-a", f.service)
+    .find((item) => item.name === "browser_list");
+  // Chat Z's agent isn't running, and no browser was attached to it or started by it.
+  const first = await f.service.list({ chatId: "chat-z" });
+  assert.deepEqual(first.targets, []);
+  assert.deepEqual(
+    first.others.map((item) => item.id),
+    [OTHER],
+  );
+  assert.equal(f.adapter.discovered, 1);
+  // Windows and phones ask every 15 s for each Chat on screen; such Chats take the last reading.
+  f.advance(15_000);
+  assert.deepEqual(await f.service.list({ chatId: "chat-z" }), first);
+  await f.service.list({ chatId: "chat-y" });
+  assert.equal(f.adapter.discovered, 1, "no new reading for Chats that own nothing");
+  // A Chat whose agent runs reads afresh, through its agent's browser_list too.
+  assert.equal(JSON.parse(await tool.run({})).targets.length, 2);
+  assert.equal(f.adapter.discovered, 2);
+  f.advance(2500);
+  await f.service.list({ chatId: "chat-a" });
+  assert.equal(f.adapter.discovered, 3);
+  // An attached browser makes the Chat one that owns a page.
+  f.advance(2500);
+  await f.service.attach({ chatId: "chat-z", browserId: OTHER });
+  f.advance(2500);
+  assert.equal((await f.service.list({ chatId: "chat-z" })).targets.length, 1);
+  assert.equal(f.adapter.discovered, 5);
+  // Past 30 s even a Chat that owns nothing reads the table again.
+  f.advance(30_000);
+  await f.service.list({ chatId: "chat-y" });
+  assert.equal(f.adapter.discovered, 6);
 });
 
 test("attach is explicit, per Chat, and refuses browsers another Chat started", async (t) => {
@@ -260,6 +325,26 @@ test("takeover releases held input and invalidates the old controller and genera
   assert.deepEqual(await input(f, bv), { accepted: true });
 });
 
+test("status and control advertise resize support while legacy clients keep their viewport and input", async (t) => {
+  const f = fixture(t),
+    a = await controller(f);
+  assert.equal(a.supportsViewport, true);
+  assert.equal((await f.service.status({ viewerId: a.viewerId }, a.owner)).supportsViewport, true);
+  // A pre-resize client ignores unknown status fields and sends its original input protocol.
+  assert.deepEqual(await input(f, a), { accepted: true });
+  assert.deepEqual(await input(f, a, { ...DOWN, phase: "up" }, 2), { accepted: true });
+  const b = await f.service.open({ chatId: "chat-a", targetId: target(PAGE) }, "legacy-phone");
+  const taken = await f.service.control({ viewerId: b.viewerId, takeOver: true }, "legacy-phone");
+  assert.equal(taken.supportsViewport, true);
+  assert.deepEqual(await input(f, { ...b, ...taken, owner: "legacy-phone" }, { kind: "text", text: "hello" }), { accepted: true });
+  f.channels[0].push();
+  assert.deepEqual((await f.service.frame({ viewerId: b.viewerId, after: 0 }, "legacy-phone")).viewport, { width: 800, height: 600 });
+  assert.equal(
+    f.events.some((event) => event.kind === "viewport"),
+    false,
+  );
+});
+
 test("input rejects malformed events, replays, unmatched buttons and stale viewports", async (t) => {
   const f = fixture(t),
     v = await controller(f);
@@ -272,6 +357,9 @@ test("input rejects malformed events, replays, unmatched buttons and stale viewp
     { kind: "key", phase: "down", key: "a".repeat(40), code: "KeyA", keyCode: 65 },
     { kind: "key", phase: "down", key: "a", code: "KeyA", keyCode: 65, commands: ["shutdown"] },
     { kind: "navigate", action: "close" },
+    { kind: "viewport", width: 99, height: 600 },
+    { kind: "viewport", width: 800, height: 5000 },
+    { kind: "viewport", width: 800.5, height: 600 },
     { kind: "eval", script: "1" },
   ]) {
     await assert.rejects(input(f, v, event), /input/i);
@@ -287,9 +375,11 @@ test("input rejects malformed events, replays, unmatched buttons and stale viewp
   assert.deepEqual(await input(f, v, { ...DOWN, phase: "move", button: "none" }, 4), { accepted: false }, "old viewport generation");
   assert.deepEqual(await input(f, v, { kind: "navigate", action: "back" }, 5, status.generation), { accepted: true });
   assert.deepEqual(await input(f, v, { kind: "text", text: "héllo" }, 6, status.generation), { accepted: true });
-  assert.deepEqual(f.events.slice(-2), [
+  assert.deepEqual(await input(f, v, { kind: "viewport", width: 640, height: 480, extra: true }, 7, status.generation), { accepted: true });
+  assert.deepEqual(f.events.slice(-3), [
     { kind: "navigate", action: "back" },
     { kind: "text", text: "héllo" },
+    { kind: "viewport", width: 640, height: 480 },
   ]);
 });
 
@@ -363,4 +453,105 @@ test("unsupported hosts and invalid requests reach no browser", async (t) => {
   }
   await assert.rejects(g.service.list({}), /chat/i);
   await assert.rejects(g.service.open({ chatId: "chat-a", targetId: target(PAGE) }, ""), /owner/i);
+});
+
+test("a desktop's Browser panel pages belong to the Chat whose panel shows them, and go with the desktop", async (t) => {
+  const f = fixture(t);
+  const PANEL_A = "D".repeat(32),
+    PANEL_B = "E".repeat(32);
+  const prefix = `/${"f".repeat(48)}`;
+  await f.service.setPanelPages(
+    {
+      port: 51234,
+      prefix,
+      pages: [
+        { id: PANEL_A, chatId: "chat-a", title: "Checkout", url: "http://localhost:5173/checkout" },
+        { id: PANEL_B, chatId: "chat-c", title: "Docs", url: "http://localhost:3000/" },
+      ],
+    },
+    "desktop-1",
+  );
+  const own = (await f.service.list({ chatId: "chat-a" })).targets.filter((page) => page.source === "panel");
+  assert.deepEqual(
+    own.map((page) => [page.title, page.url, page.browser]),
+    [["Checkout", "http://localhost:5173/checkout", "Browser panel"]],
+  );
+  // A Chat without an agent running still sees its panel's pages; another Chat sees neither, nor can attach them.
+  const c = await f.service.list({ chatId: "chat-c" });
+  assert.deepEqual(
+    c.targets.map((page) => page.title),
+    ["Docs"],
+  );
+  assert.ok(!c.others.some((browser) => browser.id.startsWith("panel-")));
+  assert.ok(!(await f.service.list({ chatId: "chat-b" })).targets.some((page) => page.source === "panel"));
+  // Viewing one connects through the endpoint's token path.
+  const viewer = await f.service.open({ chatId: "chat-a", targetId: own[0].id }, "phone");
+  assert.equal(f.channels.at(-1).browserId.port, 51234);
+  assert.equal(f.channels.at(-1).browserId.prefix, prefix);
+  await assert.rejects(f.service.open({ chatId: "chat-b", targetId: own[0].id }, "phone"), /not available in this Chat/);
+  // The page closing in the panel closes its viewers; the desktop going takes the rest.
+  await f.service.setPanelPages({ port: 51234, prefix, pages: [{ id: PANEL_B, chatId: "chat-c", title: "Docs", url: "http://localhost:3000/" }] }, "desktop-1");
+  assert.equal(f.channels.at(-1).closed, true);
+  await assert.rejects(f.service.status({ viewerId: viewer.viewerId }, "phone"), /Unknown browser viewer/);
+  await f.service.disconnect("desktop-1");
+  assert.deepEqual((await f.service.list({ chatId: "chat-c" })).targets, []);
+});
+
+test("Browser panel pages must name a loopback endpoint's token path, page ids and Chats", async (t) => {
+  const f = fixture(t);
+  const page = { id: "D".repeat(32), chatId: "chat-a", title: "x", url: "http://localhost/" };
+  await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: "/short", pages: [page] }, "desktop-1"), /endpoint/);
+  await assert.rejects(f.service.setPanelPages({ port: 0, prefix: `/${"f".repeat(48)}`, pages: [page] }, "desktop-1"), /endpoint/);
+  await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: `/${"f".repeat(48)}`, pages: [{ ...page, id: "nope" }] }, "desktop-1"), /page/);
+  await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: `/${"f".repeat(48)}`, pages: [{ ...page, chatId: "" }] }, "desktop-1"), /Chat/);
+  await assert.rejects(f.service.setPanelPages({ pages: [] }, ""), /desktop connection/);
+});
+
+test("the agent's DevTools session acts on the Chat's newest panel page, is reused, and ends when the page leaves", async (t) => {
+  const f = fixture(t);
+  const prefix = `/${"f".repeat(48)}`;
+  const panel = (pages) => f.service.setPanelPages({ port: 51234, prefix, pages }, "desktop-1");
+  await panel([
+    { id: "D".repeat(32), chatId: "chat-a", title: "Old", url: "http://localhost:5173/a" },
+    { id: "E".repeat(32), chatId: "chat-a", title: "New", url: "http://localhost:5173/b" },
+  ]);
+  const first = await f.service.devtools({ chatId: "chat-a" });
+  assert.equal(first.target.title, "New");
+  assert.equal(first.session.browser.prefix, prefix);
+  const again = await f.service.devtools({ chatId: "chat-a" });
+  assert.equal(again.session, first.session, "the session and what the tools remember are kept between calls");
+  assert.equal(again.state, first.state);
+  // A named page of the Chat (the agent's own browser), and nobody else's.
+  assert.equal((await f.service.devtools({ chatId: "chat-a", page: target(PAGE) })).target.title, "Login");
+  await assert.rejects(f.service.devtools({ chatId: "chat-b", page: first.target.id }), /not in this Chat/);
+  await assert.rejects(f.service.devtools({ chatId: "chat-c" }), /no browser page/);
+  await panel([{ id: "D".repeat(32), chatId: "chat-a", title: "Old", url: "http://localhost:5173/a" }]);
+  assert.equal(first.session.closed, true, "a session on a page that left the panel is closed");
+  // Two tools at once share the session being made, and the refs one of them keeps.
+  const [one, two] = await Promise.all([f.service.devtools({ chatId: "chat-a" }), f.service.devtools({ chatId: "chat-a" })]);
+  assert.equal(one.session, two.session);
+  assert.equal(one.state, two.state);
+  await f.service.disconnect("desktop-1");
+  assert.equal(one.session.closed, true, "the desktop going ends the sessions on its pages");
+});
+
+test("files for a page stay as they are on this computer, and go to a paired desktop for its pages", async (t) => {
+  const f = fixture(t);
+  const prefix = `/${"f".repeat(48)}`;
+  await f.service.setPanelPages(
+    { port: 51234, prefix, pages: [{ id: "D".repeat(32), chatId: "chat-a", title: "Here", url: "https://a.example/" }] },
+    "desktop-1",
+  );
+  const here = await f.service.devtools({ chatId: "chat-a" });
+  assert.deepEqual(await here.files(["/w/clip.mp4"]), ["/w/clip.mp4"]);
+  await f.service.setPanelPages(
+    { port: 52345, prefix, remote: true, pages: [{ id: "E".repeat(32), chatId: "chat-b", title: "There", url: "https://b.example/" }] },
+    "peer-desktop",
+  );
+  const there = await f.service.devtools({ chatId: "chat-b" });
+  assert.deepEqual(await there.files(["/w/clip.mp4", "/w/cover.png"]), ["/desktop/tmp/clip.mp4", "/desktop/tmp/cover.png"]);
+  assert.deepEqual(f.adapter.uploads, [
+    [52345, "/w/clip.mp4"],
+    [52345, "/w/cover.png"],
+  ]);
 });

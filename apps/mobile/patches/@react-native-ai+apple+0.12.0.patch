@@ -1,0 +1,252 @@
+diff --git a/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscription.mm b/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscription.mm
+index c0f036c..95ac3c9 100644
+--- a/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscription.mm
++++ b/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscription.mm
+@@ -54,7 +54,7 @@ - (void)installJSIBindingsWithRuntime:(facebook::jsi::Runtime &)rt callInvoker:(
+     auto transcribeFunc = jsi::Function::createFromHostFunction(
+       rt,
+       jsi::PropNameID::forAscii(rt, "transcribe"),
+-      2,
++      3,
+       [transcriptionModule, jsInvoker](jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
+         auto arrayBuffer = args[0].asObject(rt);
+         if (!arrayBuffer.isArrayBuffer(rt)) {
+@@ -66,6 +66,9 @@ - (void)installJSIBindingsWithRuntime:(facebook::jsi::Runtime &)rt callInvoker:(
+         
+         auto languageStr = args[1].asString(rt).utf8(rt);
+         NSString *language = [NSString stringWithUTF8String:languageStr.c_str()];
++        // Milagre patch: the project's words, one per line, for the recognizer's contextual strings.
++        std::string contextStr = count > 2 && args[2].isString() ? args[2].asString(rt).utf8(rt) : "";
++        NSString *contextualStrings = [NSString stringWithUTF8String:contextStr.c_str()];
+         
+         auto Promise = rt.global().getPropertyAsFunction(rt, "Promise");
+         
+@@ -73,14 +76,14 @@ - (void)installJSIBindingsWithRuntime:(facebook::jsi::Runtime &)rt callInvoker:(
+           rt,
+           jsi::PropNameID::forAscii(rt, "executor"),
+           2,
+-          [transcriptionModule, audioData, language, jsInvoker](jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
++          [transcriptionModule, audioData, language, contextualStrings, jsInvoker](jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
+             using ResolveCallback = facebook::react::AsyncCallback<>;
+             using RejectCallback = facebook::react::AsyncCallback<NSString*, NSString*, NSError*>;
+             
+             auto resolve = ResolveCallback(rt, args[0].asObject(rt).asFunction(rt), jsInvoker);
+             auto reject = RejectCallback(rt, args[1].asObject(rt).asFunction(rt), jsInvoker);
+             
+-            [transcriptionModule transcribe:audioData language:language resolve:^(id result) {
++            [transcriptionModule transcribe:audioData language:language contextualStrings:contextualStrings resolve:^(id result) {
+               resolve.call([result](jsi::Runtime& rt, jsi::Function& resolveFunc) {
+                 auto jsResult = react::TurboModuleConvertUtils::convertObjCObjectToJSIValue(rt, result);
+                 resolveFunc.call(rt, jsResult);
+diff --git a/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscriptionImpl.swift b/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscriptionImpl.swift
+index 188371a..52aa478 100644
+--- a/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscriptionImpl.swift
++++ b/node_modules/@react-native-ai/apple/ios/transcription/AppleTranscriptionImpl.swift
+@@ -4,6 +4,10 @@
+ //
+ //  Created by Mike Grabowski on 01/08/2025.
+ //
++//  Milagre patch: DictationTranscriber (system dictation's on-device models, every language Siri dictates offline, and the
++//  only module that reads contextual strings) instead of SpeechTranscriber; the locale resolved to a supported one at
++//  every step; "" meaning the phone's own language; the project's words passed as contextual strings.
++//
+ 
+ import Foundation
+ import Speech
+@@ -14,20 +18,26 @@ import UniformTypeIdentifiers
+ public class AppleTranscriptionImpl: NSObject {
+ 
+   @available(iOS 26, *)
+-  private func createTranscriber(for locale: Locale) -> SpeechTranscriber {
+-    let preset = SpeechTranscriber.Preset.timeIndexedTranscriptionWithAlternatives
++  private func createTranscriber(for locale: Locale) -> DictationTranscriber {
++    return DictationTranscriber(locale: locale, preset: .timeIndexedLongDictation)
++  }
+ 
+-    return SpeechTranscriber(
+-      locale: locale,
+-      transcriptionOptions: preset.transcriptionOptions,
+-      reportingOptions: preset.reportingOptions.subtracting([.alternativeTranscriptions]),
+-      attributeOptions: preset.attributeOptions
+-    )
++  /// The locale asked for, or the phone's first preferred language for "", as one the transcriber supports.
++  @available(iOS 26, *)
++  private func supportedLocale(_ language: String) async -> Locale? {
++    let identifier = language.isEmpty ? (Locale.preferredLanguages.first ?? "en-US") : language
++    if let locale = await DictationTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) {
++      return locale
++    }
++    // A region the recognizer lacks (en-BR): the same language in any region it has.
++    let code = Locale(identifier: identifier).language.languageCode
++    return await DictationTranscriber.supportedLocales.first { $0.language.languageCode == code }
+   }
++
+   @objc
+   public func isAvailable(_ language: String) -> Bool {
+     if #available(iOS 26, *) {
+-      return SpeechTranscriber.isAvailable
++      return true
+     } else {
+       return false
+     }
+@@ -38,31 +48,24 @@ public class AppleTranscriptionImpl: NSObject {
+     if #available(iOS 26, *) {
+       Task {
+         do {
+-          let locale = Locale(identifier: language)
+-          
+-          guard let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
+-            reject("AppleTranscription", "Locale not supported: \(language)", nil)
++          guard let locale = await supportedLocale(language) else {
++            reject("AppleTranscription", "Dictation doesn't support this language on this iPhone: \(language)", nil)
+             return
+           }
+-          
+-          let transcriber = createTranscriber(for: supportedLocale)
+-          
++          let transcriber = createTranscriber(for: locale)
+           let status = await AssetInventory.status(forModules: [transcriber])
+-          
+           switch status {
+           case .installed:
+             resolve(nil)
+           case .supported, .downloading:
+-            if let request = try? await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
++            if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+               try await request.downloadAndInstall()
+-              resolve(nil)
+-            } else {
+-              resolve(nil)
+             }
++            resolve(nil)
+           case .unsupported:
+-            reject("AppleTranscription", "Assets not supported for locale: \(supportedLocale.identifier)", nil)
++            reject("AppleTranscription", "Dictation doesn't support \(locale.identifier) on this iPhone.", nil)
+           @unknown default:
+-            reject ("AppleTranscription", "Unknown asset inventory status", nil)
++            reject("AppleTranscription", "Unknown asset inventory status", nil)
+           }
+         } catch {
+           reject("AppleTranscription", "Failed to prepare assets: \(error.localizedDescription)", error)
+@@ -73,72 +76,69 @@ public class AppleTranscriptionImpl: NSObject {
+     }
+   }
+ 
++  /// `contextualStrings` is the project's words, one per line.
+   @objc
+-  public func transcribe(_ audioData: Data, language: String, resolve: @escaping ([String: Any]) -> Void, reject: @escaping (String, String, Error?) -> Void) {
++  public func transcribe(_ audioData: Data, language: String, contextualStrings: String, resolve: @escaping ([String: Any]) -> Void, reject: @escaping (String, String, Error?) -> Void) {
+     if #available(iOS 26, *) {
+-      let tempDirectory = FileManager.default.temporaryDirectory
+-      let fileName = UUID().uuidString
+-      let fileURL = tempDirectory.appendingPathComponent(fileName)
+-      
++      let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+       do {
+         try audioData.write(to: fileURL)
+-        
+-        guard let audioFile = try? AVAudioFile(forReading: fileURL) else {
+-          reject("AppleTranscription", "Invalid audio data", nil)
+-          return
++      } catch {
++        reject("AppleTranscription", "Failed to write audio data: \(error.localizedDescription)", error)
++        return
++      }
++      Task {
++        defer {
++          try? FileManager.default.removeItem(at: fileURL)
+         }
++        do {
++          guard let audioFile = try? AVAudioFile(forReading: fileURL) else {
++            reject("AppleTranscription", "Invalid audio data", nil)
++            return
++          }
++          guard let locale = await supportedLocale(language) else {
++            reject("AppleTranscription", "Dictation doesn't support this language on this iPhone: \(language)", nil)
++            return
++          }
++          let transcriber = createTranscriber(for: locale)
++          let analyzer = SpeechAnalyzer(modules: [transcriber])
++          let words = contextualStrings.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
++          if !words.isEmpty {
++            let context = AnalysisContext()
++            context.contextualStrings = [.general: words]
++            try await analyzer.setContext(context)
++          }
+ 
+-        Task {
+-          do {
+-            let transcriber = createTranscriber(for: Locale(identifier: language))
+-            
+-            let analyzer = SpeechAnalyzer(modules: [transcriber])
+-            
+-            defer {
+-              try? FileManager.default.removeItem(at: fileURL)
+-            }
+-            
++          let collect = Task { () -> [[String: Any]] in
+             var segments: [[String: Any]] = []
+-            
+-            Task {
+-              for try await result in transcriber.results {
+-                if result.isFinal {
+-                  let segment: [String: Any] = [
+-                    "text": String(result.text.characters),
+-                    "startSecond": CMTimeGetSeconds(result.range.start),
+-                    "endSecond": CMTimeGetSeconds(CMTimeRangeGetEnd(result.range))
+-                  ]
+-                  segments.append(segment)
+-                }
+-              }
+-            }
+-            
+-            let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
+-            
+-            if let lastSampleTime {
+-              try await analyzer.finalizeAndFinish(through: lastSampleTime)
+-            } else {
+-              await analyzer.cancelAndFinishNow()
++            for try await result in transcriber.results where result.isFinal {
++              segments.append([
++                "text": String(result.text.characters),
++                "startSecond": CMTimeGetSeconds(result.range.start),
++                "endSecond": CMTimeGetSeconds(CMTimeRangeGetEnd(result.range)),
++              ])
+             }
++            return segments
++          }
+ 
+-            let totalDuration = if let lastSampleTime { CMTimeGetSeconds(lastSampleTime) } else { 0.0 }
+-            
+-            let result: [String: Any] = [
+-              "segments": segments,
+-              "duration": totalDuration
+-            ]
+-            
+-            resolve(result)
+-          } catch {
+-            reject("AppleTranscription", "Transcription failed: \(error.localizedDescription)", error)
++          let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
++          if let lastSampleTime {
++            try await analyzer.finalizeAndFinish(through: lastSampleTime)
++          } else {
++            await analyzer.cancelAndFinishNow()
+           }
++          // Every final result is in once the results end with the analysis.
++          let segments = try await collect.value
++          resolve([
++            "segments": segments,
++            "duration": lastSampleTime.map { CMTimeGetSeconds($0) } ?? 0.0,
++          ])
++        } catch {
++          reject("AppleTranscription", "Transcription failed: \(error.localizedDescription)", error)
+         }
+-      } catch {
+-        reject("AppleTranscription", "Failed to write audio data: \(error.localizedDescription)", error)
+       }
+     } else {
+       reject("AppleTranscription", "Not available on this platform", nil)
+     }
+   }
+ }
+-

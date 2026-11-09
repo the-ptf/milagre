@@ -5,18 +5,28 @@ export type NativeUpdateState = {
   isUpdatePending: boolean;
   checkError?: Error;
   downloadError?: Error;
+  downloadedUpdate?: { updateId?: string; manifest?: unknown };
 };
 export type UpdateState = {
   status: "idle" | "disabled" | "checking" | "up-to-date" | "check-error" | "downloading" | "ready" | "restarting" | "error";
   error: string;
+  updateId?: string;
+  releaseNotes?: string;
 };
+type ManifestResult = { manifest?: unknown };
 type Dependencies = {
   enabled: boolean;
-  check: () => Promise<{ isAvailable: boolean; isRollBackToEmbedded: boolean }>;
-  fetch: () => Promise<{ isNew: boolean; isRollBackToEmbedded: boolean }>;
+  check: () => Promise<{ isAvailable: boolean; isRollBackToEmbedded: boolean } & ManifestResult>;
+  fetch: () => Promise<{ isNew: boolean; isRollBackToEmbedded: boolean } & ManifestResult>;
   reload: () => Promise<unknown>;
   now?: () => number;
 };
+
+function updateDetails(manifest: unknown): Pick<UpdateState, "updateId" | "releaseNotes"> {
+  const value = manifest as { id?: unknown; extra?: { expoClient?: { extra?: { releaseNotes?: unknown } } } } | undefined;
+  const notes = value?.extra?.expoClient?.extra?.releaseNotes;
+  return { updateId: typeof value?.id === "string" ? value.id : undefined, releaseNotes: typeof notes === "string" ? notes : undefined };
+}
 
 /** Native startup downloads and foreground checks share one notice. Applying an update always needs a tap. */
 export function createUpdateController({ enabled, check, fetch, reload, now = Date.now }: Dependencies) {
@@ -26,19 +36,33 @@ export function createUpdateController({ enabled, check, fetch, reload, now = Da
   let lastCheck = -Infinity;
   const listeners = new Set<() => void>();
   const applying = () => state.status === "restarting";
-  function publish(status: UpdateState["status"], error = "") {
-    if (state.status === status && state.error === error) return;
-    state = { status, error };
+  function publish(
+    status: UpdateState["status"],
+    error = "",
+    details: Pick<UpdateState, "updateId" | "releaseNotes"> = { updateId: state.updateId, releaseNotes: state.releaseNotes },
+  ) {
+    if (state.status === status && state.error === error && state.updateId === details.updateId && state.releaseNotes === details.releaseNotes) return;
+    state = { status, error, ...details };
     listeners.forEach((listener) => listener());
   }
   function syncNative(next = snapshot) {
+    const previous = snapshot;
     snapshot = next;
     if (!enabled || state.status === "restarting") return;
     if (!inFlight && (snapshot.isChecking || snapshot.isStartupProcedureRunning)) lastCheck = now();
-    if (snapshot.isUpdatePending) publish("ready", state.status === "ready" ? state.error : "");
-    else if (state.status !== "ready" && !inFlight) {
-      if (snapshot.isDownloading) publish("downloading");
-      else if (snapshot.downloadError) publish("error", "Could not download the update. Try again.");
+    if (inFlight && state.status !== "checking") return; // A stale native pending flag must not interrupt a replacement download.
+    if (snapshot.isDownloading) publish("downloading");
+    else if (
+      snapshot.isUpdatePending &&
+      (!previous.isUpdatePending || previous.downloadedUpdate?.updateId !== snapshot.downloadedUpdate?.updateId || state.status === "idle")
+    ) {
+      const details = updateDetails(snapshot.downloadedUpdate?.manifest);
+      publish("ready", state.status === "ready" ? state.error : "", {
+        ...details,
+        updateId: snapshot.downloadedUpdate?.updateId ?? details.updateId ?? state.updateId,
+      });
+    } else if (state.status !== "ready" && !inFlight) {
+      if (snapshot.downloadError) publish("error", "Could not download the update. Try again.");
       else if (snapshot.isChecking || snapshot.isStartupProcedureRunning) publish("checking");
       else if (state.status === "checking") publish(snapshot.checkError ? "idle" : "up-to-date");
     }
@@ -47,23 +71,25 @@ export function createUpdateController({ enabled, check, fetch, reload, now = Da
     if (!enabled) return Promise.resolve();
     syncNative();
     if (inFlight) return inFlight;
-    if (state.status === "ready" || state.status === "restarting" || snapshot.isStartupProcedureRunning || snapshot.isChecking || snapshot.isDownloading)
-      return Promise.resolve();
+    if (state.status === "restarting" || snapshot.isStartupProcedureRunning || snapshot.isChecking || snapshot.isDownloading) return Promise.resolve();
     if (!force && now() - lastCheck < 60000) return Promise.resolve();
     lastCheck = now();
-    publish("checking");
+    const ready = state.status === "ready";
+    if (!ready) publish("checking");
     inFlight = (async () => {
       try {
         const result = await check();
-        if (state.status === "ready" || applying()) return;
+        if (applying()) return;
         if (!result.isAvailable && !result.isRollBackToEmbedded) {
-          publish("up-to-date");
+          if (!ready && state.status !== "ready") publish("up-to-date");
           return;
         }
-        publish("downloading");
+        const details = updateDetails(result.manifest);
+        if (ready && details.updateId && details.updateId === state.updateId) return;
+        publish("downloading", "", details);
         const downloaded = await fetch();
         if (applying()) return;
-        if (downloaded.isNew || downloaded.isRollBackToEmbedded) publish("ready");
+        if (downloaded.isNew || downloaded.isRollBackToEmbedded) publish("ready", "", updateDetails(downloaded.manifest));
         else publish("error", "Could not download the update. Try again.");
       } catch {
         // An offline check must not claim there is an update. A failed known download offers a retry.
@@ -79,6 +105,8 @@ export function createUpdateController({ enabled, check, fetch, reload, now = Da
   }
   async function install() {
     if (!enabled || state.status !== "ready") return;
+    if (inFlight) await inFlight;
+    if (state.status !== "ready") return;
     publish("restarting");
     try {
       await reload();

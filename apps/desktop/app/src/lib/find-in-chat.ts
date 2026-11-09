@@ -30,7 +30,9 @@ export function findLabel(query: string, current: number, total: number): string
 export function locateOffset(lengths: number[], offset: number, edge: "start" | "end"): { index: number; offset: number } {
   let before = 0;
   for (let index = 0; index < lengths.length; index++) {
-    const end = before + lengths[index];
+    const length = lengths[index];
+    if (length === undefined) continue;
+    const end = before + length;
     if (edge === "start" ? offset < end : offset <= end) return { index, offset: offset - before };
     before = end;
   }

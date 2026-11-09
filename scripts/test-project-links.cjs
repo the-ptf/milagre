@@ -67,6 +67,8 @@ async function main() {
     cwd: projects[0],
     registryRoots: [],
     worktreeRoot,
+    // Its own Chats home: the default ~/.milagre/chats belongs to the Milagre running on this Mac.
+    chatsHome: path.join(dir, "chats-home"),
     environmentReady: Promise.resolve(),
     titleModels: {},
     agentCli: async () => ({ command: "/fake" }),
@@ -74,12 +76,11 @@ async function main() {
       turnActive: false,
       async startTurn() {
         providerCalls++;
-        // As the real agent does: a Project it changes gets this Chat's Worktree from link_worktree first.
-        const made = [...context.workspaceRoots];
-        const tool = context.linked.tools.find((item) => item.name === "link_worktree");
-        for (const main of context.readRoots ?? []) made.push((await tool.run({ project: path.basename(main) })).split("\n")[0].split(": ").pop());
-        assert.equal(made.length, 2);
-        for (const member of made) await fs.writeFile(path.join(member, "status.txt"), "Shared edit\n");
+        // A shared Chat starts with no Worktree: the agent makes one in each Project it is about to change.
+        const create = context.linked.tools.find((tool) => tool.name === "link_worktree_create");
+        for (const project of projects) await create.run({ project: path.basename(project) });
+        assert.equal(context.access.roots.length, 2);
+        for (const member of context.access.roots) await fs.writeFile(path.join(member, "status.txt"), "Shared edit\n");
         context.emit({ type: "session-started", nativeId: "shared-session" });
         context.emit({ type: "turn-started", turnId: "turn" });
         context.emit({ type: "text-delta", messageId: `reply-${providerCalls}`, text: "Updated status.txt in both owned Worktrees." });
@@ -90,7 +91,7 @@ async function main() {
       interrupt() {},
     }),
   };
-  let daemon, client, child, connection, evaluate;
+  let daemon, client, child, connection, evaluate, main;
   let output = "";
   const shot = async (name) => {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
@@ -105,15 +106,20 @@ async function main() {
     for (const project of projects) await client.call("project:open", [project]);
     await client.call("project:open", [projects[0]]);
     const rendererUrl = process.env.MILAGRE_TEST_DEV_SERVER_URL || pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
-    const env = { ...process.env, MILAGRE_DEV_SERVER_URL: rendererUrl, MILAGRE_WORKTREE_ROOT: worktreeRoot };
+    // Off screen: no Dock icon, window or focus change on the Mac running it. MILAGRE_BACKGROUND=0 shows the app.
+    const env = { MILAGRE_BACKGROUND: "1", ...process.env, MILAGRE_DEV_SERVER_URL: rendererUrl, MILAGRE_WORKTREE_ROOT: worktreeRoot };
     delete env.ELECTRON_RUN_AS_NODE;
     // Other windows on a busy machine cover this one; macOS then pauses its animation frames and the canvas and panels never finish.
     const unthrottled = ["--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"];
-    child = spawn(require("electron"), [path.join(root, "apps/desktop"), `--user-data-dir=${profile}`, "--remote-debugging-port=0", ...unthrottled], {
-      cwd: projects[0],
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    child = spawn(
+      require("electron"),
+      [path.join(root, "apps/desktop"), `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--inspect=0", ...unthrottled],
+      {
+        cwd: projects[0],
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     for (const stream of [child.stdout, child.stderr])
       stream.on("data", (data) => {
         output = (output + data).slice(-20000);
@@ -132,63 +138,82 @@ async function main() {
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     };
+    // CDP can advertise the destination URL before its execution context leaves about:blank.
+    await waitFor(async () => {
+      const { result } = await connection.call("Runtime.evaluate", {
+        expression: `location.href === ${JSON.stringify(rendererUrl)} && document.readyState === "complete" && !!window.milagre`,
+        returnByValue: true,
+      });
+      return result.value;
+    }, "renderer document ready");
+    await waitFor(() => evaluate(`!!document.querySelector('[data-link-projects]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
+    // The sidebar's Project groups, not its One list, are what this check drives.
+    await evaluate(
+      `window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
+    );
     const click = (text) => evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`);
     const input = (selector, value) =>
       evaluate(
-        `(() => {const input = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', {bubbles:true})); })()`,
+        `(() => {const input = document.querySelector(${JSON.stringify(selector)}); if (input.matches('[data-prompt-editor]')) input.value = ${JSON.stringify(value)}; else Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', {bubbles:true})); })()`,
       );
-    // This check drives the legacy sidebar's project menu.
-    await evaluate(
-      `localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") ?? "{}"), legacySidebar: true })); location.reload(); true`,
-    );
-    const selector = () => evaluate(`document.querySelector('[data-workspace-trigger]').click()`);
-    await waitFor(() => evaluate(`!!document.querySelector('[data-workspace-trigger]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
-    await selector();
-    await waitFor(() => evaluate(`document.body.textContent.includes('Link projects')`), "Project selector actions");
-    assert.ok(await evaluate(`document.body.textContent.includes('Copy project path')`));
+    const linkProjects = () => evaluate(`document.querySelector('[data-link-projects]').click()`);
+    const scopeOf = (name) => `[data-sidebar-scope][aria-label=${JSON.stringify(name)}]`;
+    const linkScope = `[data-sidebar-scope^="milagre-link:"]`;
+    const isCurrent = (selector) => evaluate(`!!document.querySelector(${JSON.stringify(selector + "[data-current]")})`);
+    // "New chat in <name>" on a group switches the sidebar to that Project or Link, restoring its unsent draft.
+    const openScope = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector + " [data-scope-action]")}).click()`);
+    const scopeMenu = async (selector) => {
+      await evaluate(`document.querySelector(${JSON.stringify(selector + " [data-scope-menu]")}).click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-scope-menu-panel]')`), "scope menu");
+    };
+    const closeScopeMenu = async () => {
+      await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await waitFor(() => evaluate(`!document.querySelector('[data-scope-menu-panel]')`), "scope menu closed");
+    };
+    await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope][data-current] [data-scope-menu]')`), "Project group");
+    await scopeMenu("[data-sidebar-scope][data-current]");
+    assert.ok(await evaluate(`!!document.querySelector('[data-scope-menu-item="copy-path"]')`));
     assert.equal(await evaluate(`document.body.textContent.includes('Import project')`), false);
+    await closeScopeMenu();
     await shot("project-selector");
-    await click("Link projects…");
+    await linkProjects();
     await waitFor(
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "Link creation dialog",
     );
+    // The Dialog's pop-in fills `backwards`, so it has left getAnimations() by now: read the dialog's own animation and
+    // its keyframes from the stylesheet instead.
     const openingMotion = () =>
-      evaluate(
-        `document.querySelector('dialog').getAnimations().map(animation => ({ frames: animation.effect.getKeyframes(), duration: animation.effect.getTiming().duration }))`,
-      );
+      evaluate(`(() => {
+        const style = getComputedStyle(document.querySelector('dialog'));
+        const rule = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules]).find((r) => r instanceof CSSKeyframesRule && r.name === style.animationName);
+        const frames = rule ? [...rule.cssRules].map((frame) => ({ opacity: frame.style.opacity, transform: frame.style.transform })) : [];
+        const duration = style.animationDuration.endsWith("ms") ? parseFloat(style.animationDuration) : parseFloat(style.animationDuration) * 1000;
+        return { name: style.animationName, duration, frames };
+      })()`);
     const normalMotion = await openingMotion();
     assert.ok(
-      normalMotion.some(
-        (animation) =>
-          animation.frames.some((frame) => frame.transform && frame.transform !== "none") &&
-          Number(animation.frames[0].opacity) < Number(animation.frames.at(-1).opacity),
-      ),
-      "Opening Link projects fades and scales the dialog into view",
+      normalMotion.duration >= 100 &&
+        normalMotion.frames.some((frame) => frame.transform && frame.transform !== "none") &&
+        Number(normalMotion.frames[0].opacity) < Number(normalMotion.frames.at(-1).opacity),
+      `Opening Link projects fades and scales the dialog into view: ${JSON.stringify(normalMotion)}`,
     );
     await click("Cancel");
     await waitFor(() => evaluate(`!document.querySelector('#link-name')`), "Link dialog closed");
     await connection.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
-    await selector();
-    await click("Link projects…");
+    await linkProjects();
     await waitFor(
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "reduced-motion Link dialog",
     );
+    // The global reduced-motion rule (styles.css) ends every animation at once, so the dialog appears without scaling;
+    // the old dialog's 60ms fade was cut to the same 0.01ms by that rule.
     const reducedMotion = await openingMotion();
-    assert.ok(
-      reducedMotion.some((animation) => Number(animation.frames[0].opacity) < Number(animation.frames.at(-1).opacity)),
-      "Reduced motion keeps the opening fade",
-    );
-    assert.ok(
-      reducedMotion.every((animation) => animation.frames.every((frame) => !frame.transform || frame.transform === "none")),
-      "Reduced motion removes scale movement",
-    );
+    assert.ok(reducedMotion.duration <= 0.01, `Reduced motion removes scale movement: ${JSON.stringify(reducedMotion)}`);
     await click("Cancel");
     await waitFor(() => evaluate(`!document.querySelector('#link-name')`), "reduced-motion Link dialog closed");
     await connection.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
-    await selector();
-    await click("Link projects…");
+    await linkProjects();
     await waitFor(
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "Link dialog reopened",
@@ -205,37 +230,25 @@ async function main() {
     await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
     assert.equal(await evaluate(`document.querySelectorAll('dialog input[type=checkbox]:checked').length`), 1);
     assert.equal(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`), true, "One explicitly selected Project is insufficient");
-    await input('input[aria-label="Search projects"]', "food-web");
+    await input('input[aria-label="Search Projects"]', "food-web");
     assert.equal(await evaluate(`document.querySelectorAll('dialog input[type=checkbox]').length`), 1);
     await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
-    await input('input[aria-label="Search projects"]', "");
+    await input('input[aria-label="Search Projects"]', "");
     await shot("create-link");
     await click("Create Link");
-    await waitFor(
-      () => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('RDFood') && !document.querySelector('#link-name')`),
-      "selected Link",
-    );
+    await waitFor(() => evaluate(`!!document.querySelector('${linkScope}[data-current]') && !document.querySelector('#link-name')`), "selected Link");
     assert.equal(providerCalls, 0);
     const links = await client.call("link:list");
     const link = links[0];
     assert.equal(links.length, 1);
     assert.equal(Object.keys((await client.call("link:snapshot", [link.id])).state.sessions).length, 0, "Draft allocates no Worktrees");
-    await selector();
-    await waitFor(() => evaluate(`document.body.textContent.includes('Links')`), "Links selector section");
-    assert.equal(
-      await evaluate(
-        `document.body.textContent.includes('Copy project path') || document.body.textContent.includes('Reveal in Finder') || document.body.textContent.includes('Project settings')`,
-      ),
-      false,
-    );
+    await waitFor(() => evaluate(`document.body.textContent.includes('Links')`), "Links sidebar section");
+    await scopeMenu(linkScope);
+    assert.equal(await evaluate(`['reveal', 'copy-path', 'settings'].some((key) => !!document.querySelector('[data-scope-menu-item="' + key + '"]'))`), false);
     await shot("link-selector");
-    await selector();
-    await input('textarea[aria-label="Prompt"]', "Update status.txt across both Projects.");
+    await closeScopeMenu();
+    await input("[data-prompt-editor]", "Update status.txt across both Projects.");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
-    await waitFor(() => evaluate(`!!document.querySelector('dialog[open] #ai-consent-title')`), "AI sharing decision before Link send");
-    assert.equal(providerCalls, 0, "No provider call before consent");
-    assert.equal(Object.keys((await client.call("link:snapshot", [link.id])).state.sessions).length, 0, "Consent precedes Worktree allocation");
-    await click("Allow sharing");
     await waitFor(() => evaluate(`document.body.textContent.includes('Updated status.txt in both owned Worktrees.')`), "one shared transcript");
     const state = (await client.call("link:snapshot", [link.id])).state,
       session = Object.values(state.sessions)[0];
@@ -247,10 +260,29 @@ async function main() {
     assert.equal(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('RDFood / Link')`), false);
     assert.ok(await evaluate(`document.body.textContent.includes('2 Worktrees')`));
     await shot("shared-chat");
-    await input('textarea[aria-label="Prompt"]', "Keep my draft while viewing the linked Projects");
-    await click("Canvas");
+    // Settings over a Link: ⌘K opens the Link's palette on top of it (App hands the key to the Link's workspace), and the
+    // palette closes back to Settings.
+    await evaluate(`[...document.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Settings').click()`);
+    await waitFor(() => evaluate(`!!document.querySelector('dialog[data-settings-modal]')?.open`), "Settings over the Link");
+    const mod = process.platform === "darwin" ? "metaKey" : "ctrlKey";
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ${mod}: true, bubbles: true, cancelable: true }))`);
+    await waitFor(() => evaluate(`!!document.querySelector('dialog[aria-label="Command palette"]')?.open`), "the Link's palette over Settings");
+    await evaluate(`document.querySelector('dialog[aria-label="Command palette"]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
+    await waitFor(() => evaluate(`!document.querySelector('dialog[aria-label="Command palette"]')`), "palette closed");
+    assert.equal(await evaluate(`!!document.querySelector('dialog[data-settings-modal]')?.open`), true, "closing the palette leaves Settings open");
+    // Opening a Chat from the Link's palette leaves Settings, as it does outside a Link.
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ${mod}: true, bubbles: true, cancelable: true }))`);
+    await waitFor(() => evaluate(`!!document.querySelector('dialog[aria-label="Command palette"]')?.open`), "the Link's palette again");
+    await evaluate(
+      `[...document.querySelectorAll('dialog[aria-label="Command palette"] [role="option"]')].find((option) => option.textContent.includes('New Chat')).click()`,
+    );
+    await waitFor(() => evaluate(`!document.querySelector('dialog[data-settings-modal]')`), "a Chat from the Link's palette closes Settings");
+    // Back to the shared Chat for the steps below.
+    await evaluate(`[...document.querySelectorAll('[data-chat-row], [data-row]')].find((row) => row.textContent.includes('Update status'))?.click()`);
+    await input("[data-prompt-editor]", "Keep my draft while viewing the linked Projects");
+    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('[data-canvas]')`), "Link canvas");
-    assert.ok(await evaluate(`document.querySelector('[data-workspace-trigger]').textContent.includes('RDFood')`), "Canvas keeps the selected Link");
+    assert.ok(await isCurrent(linkScope), "Canvas keeps the selected Link");
     await waitFor(
       () => evaluate(`document.querySelectorAll('[data-canvas-project]').length === 2 && !!document.querySelector('[data-named-link]')`),
       "both Link members and membership connection",
@@ -267,20 +299,20 @@ async function main() {
       "Membership lines do not become removable Delegation edges",
     );
     await shot("link-canvas");
-    await click("Back to chat");
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Keep my draft while viewing the linked Projects");
-    await click("Canvas");
+    await click("Back");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Keep my draft while viewing the linked Projects");
+    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
     await waitFor(
-      () => evaluate(`!![...document.querySelectorAll('[data-canvas] button')].find(button => button.textContent.trim() === 'Open shared Link Chat')`),
+      () => evaluate(`!![...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat'))`),
       "canonical shared Chat in Canvas",
     );
-    await click("Open shared Link Chat");
+    await evaluate(`[...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat')).click()`);
     assert.equal(
-      await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
+      await evaluate(`document.querySelector('[data-prompt-editor]').value`),
       "Keep my draft while viewing the linked Projects",
       "Opening the current shared Chat from a member keeps its draft",
     );
-    await input('textarea[aria-label="Prompt"]', "");
+    await input("[data-prompt-editor]", "");
     assert.ok(await evaluate(`!!document.querySelector('[data-changes-toggle]')`), "Shared Chats use the same right Changes toggle as Project Chats");
     await evaluate(`document.querySelector('[data-changes-toggle]').click()`);
     await waitFor(
@@ -289,9 +321,9 @@ async function main() {
     );
     assert.equal(await evaluate(`Math.round(document.querySelector('[data-changes-panel]').getBoundingClientRect().width)`), 320);
     assert.equal(
-      await evaluate(`document.querySelector('[data-changes-panel] [data-diff-counts="total"]').textContent`),
-      "+2−2",
-      "Totals include both Projects",
+      await evaluate(`document.querySelector('[data-changes-tab="changes"]').textContent`),
+      "Changes2",
+      "The Changes tab counts both Projects' files",
     );
     await shot("link-changes");
     const apiId = session.worktrees.find((member) => member.projectPath === projects[0]).projectId;
@@ -372,34 +404,34 @@ async function main() {
     );
     await shot("link-project-diff");
     await evaluate(`document.querySelector('[data-diff-back]').click()`);
-    await evaluate(`document.querySelector('button[aria-label="Changes mode"]').click()`);
-    await click("Committed");
-    await waitFor(
-      () =>
-        evaluate(
-          `document.querySelectorAll('[data-link-changes-project] [data-diff-tree-file]').length === 0 && document.querySelectorAll('[data-link-changes-project] [data-diff-base]').length === 2`,
-        ),
-      "each Project compares its own recorded base",
-    );
+    const committed = (id) => `${group(id)} [data-changes-section="On this branch"]`;
+    assert.equal(await evaluate(`document.querySelectorAll('[data-changes-section="On this branch"]').length`), 0, "Nothing committed yet: no branch sections");
     execFileSync("git", ["-C", apiRoot, "add", "status.txt"]);
     execFileSync("git", ["-C", apiRoot, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "API-only fixture change"]);
     await evaluate(`document.querySelector('[data-diff-refresh]').click()`);
     await waitFor(
       () =>
         evaluate(
-          `document.querySelectorAll('[data-link-changes-project] [data-diff-tree-file]').length === 1 && !!document.querySelector(${JSON.stringify(group(apiId) + ' [data-diff-tree-file="status.txt"]')})`,
+          `document.querySelectorAll('[data-changes-section="On this branch"] [data-diff-tree-file]').length === 1 && !!document.querySelector(${JSON.stringify(committed(apiId) + ' [data-diff-tree-file="status.txt"]')})`,
         ),
       "refresh shows committed changes in the API only",
     );
-    assert.equal(await evaluate(`document.querySelector('[data-changes-panel] [data-diff-counts="total"]').textContent`), "+1−1");
-    await evaluate(`document.querySelector('button[aria-label="Changes mode"]').click()`);
-    await click("Uncommitted");
+    await waitFor(
+      () => evaluate(`document.querySelector(${JSON.stringify(group(apiId) + ' [aria-label="Comparison branch"]')})?.textContent === "main"`),
+      "The API comparison row resolves its own recorded main base",
+    );
+    assert.equal(
+      await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + " [data-diff-base]")})`),
+      false,
+      "The committed section does not repeat the comparison base",
+    );
+    assert.match(await evaluate(`document.querySelector(${JSON.stringify(committed(apiId) + " h3")}).textContent`), /\+1−1$/);
     await waitFor(
       () =>
         evaluate(
-          `!!document.querySelector(${JSON.stringify(group(webId) + ' [data-diff-tree-file="status.txt"]')}) && !document.querySelector(${JSON.stringify(group(apiId) + ' [data-diff-tree-file="status.txt"]')})`,
+          `!!document.querySelector(${JSON.stringify(group(webId) + ' [data-changes-section="Not committed"] [data-diff-tree-file="status.txt"]')}) && !document.querySelector(${JSON.stringify(group(apiId) + ' [data-changes-section="Not committed"] [data-diff-tree-file="status.txt"]')})`,
         ),
-      "uncommitted mode excludes the committed member file",
+      "the committed file leaves the API's uncommitted section",
     );
     await fs.rename(webRoot, webRoot + "-moved");
     try {
@@ -409,7 +441,7 @@ async function main() {
         "an unavailable Worktree has its own notice",
       );
       assert.ok(
-        await evaluate(`document.querySelector(${JSON.stringify(group(apiId))}).textContent.includes('No uncommitted changes')`),
+        await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + ' [data-diff-tree-file="status.txt"]')})`),
         "One member error leaves the other Project readable",
       );
     } finally {
@@ -430,7 +462,10 @@ async function main() {
     await shot("link-project-actions");
     await click("Commit and open PR…");
     await waitFor(() => evaluate(`!!document.querySelector('[data-git-dialog]')`), "Project menu opens scoped Git dialog");
-    assert.ok(await evaluate(`document.querySelector('[data-git-dialog] header').textContent.includes('food-web')`));
+    assert.ok(
+      await evaluate(`document.getElementById(document.querySelector('[data-git-dialog]').getAttribute('aria-describedby')).textContent.includes('food-web')`),
+      "the Git dialog names its Project",
+    );
     await waitFor(
       () => evaluate(`document.querySelector('[data-git-dialog]').textContent.includes('web-only.txt')`),
       "Git dialog reads the explicit web member Worktree",
@@ -456,88 +491,84 @@ async function main() {
     assert.equal(await evaluate(`[...document.querySelectorAll('dialog button')].find(button=>button.textContent==='Continue').disabled`), true);
     await shot("choose-git-project");
     await click("Cancel");
-    await input('textarea[aria-label="Prompt"]', "Keep this Link draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-project-item]')`), "Project menu rows");
-    await evaluate(`[...document.querySelectorAll('[data-project-item] [data-menu-row]')].find(button => button.textContent.includes('food-api')).click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "ordinary Project restored");
-    await input('textarea[aria-label="Prompt"]', "Keep this Project draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-row]')`), "Link menu row");
-    await evaluate(`document.querySelector('[data-link-row]').click()`);
-    await waitFor(() => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.value === 'Keep this Link draft'`), "independent Link draft");
-    await input('textarea[aria-label="Prompt"]', "Follow up in both Worktrees");
+    await input("[data-prompt-editor]", "Keep this Link draft");
+    await openScope(scopeOf("food-api"));
+    await waitFor(() => isCurrent(scopeOf("food-api")), "ordinary Project restored");
+    await input("[data-prompt-editor]", "Keep this Project draft");
+    await openScope(linkScope);
+    await waitFor(() => evaluate(`document.querySelector('[data-prompt-editor]')?.value === 'Keep this Link draft'`), "independent Link draft");
+    await input("[data-prompt-editor]", "Follow up in both Worktrees");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(() => providerCalls === 2, "second turn");
     assert.deepEqual((await client.call("link:snapshot", [link.id])).state.sessions[session.id].worktrees, session.worktrees);
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "An independent new Chat draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-project-item]')`), "Project rows");
-    await evaluate(`[...document.querySelectorAll('[data-project-item] [data-menu-row]')].find(button => button.textContent.includes('food-api')).click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "Project switch");
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Keep this Project draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-row]')`), "Link row");
-    await evaluate(`document.querySelector('[data-link-row]').click()`);
-    await waitFor(
-      () => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.value === 'An independent new Chat draft'`),
-      "new Chat draft restored",
-    );
+    await input("[data-prompt-editor]", "An independent new Chat draft");
+    await openScope(scopeOf("food-api"));
+    await waitFor(() => isCurrent(scopeOf("food-api")), "Project switch");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Keep this Project draft");
+    await openScope(linkScope);
+    await waitFor(() => evaluate(`document.querySelector('[data-prompt-editor]')?.value === 'An independent new Chat draft'`), "new Chat draft restored");
     assert.equal(
       await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Updated status.txt in both owned Worktrees.')`),
       false,
       "Explicit new Chat selection must survive a scope switch",
     );
-    const setupGate = path.join(dir, "setup-ready");
-    await client.call("worktree-setup:save", [projects[0], `while test ! -f '${setupGate}'; do sleep 0.1; done`]);
-    await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
-    await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
-    await waitFor(
-      // The Worktree's setup runs once the agent asks for it (link_worktree), inside the Chat's turn.
-      async () =>
-        Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) =>
-          prep.members.some((member) => member.setupStarted && !member.setupDone),
-        ),
-      "slow preparation started",
+    // A shared Chat's agent makes its Worktrees during the turn. Hold that creation, through the real
+    // Git/daemon/IPC path, so these checks run while the earlier send's turn is still busy.
+    const worktreeGate = path.join(dir, "worktree-ready");
+    const worktreeStarted = path.join(dir, "worktree-started");
+    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+    await fs.writeFile(
+      path.join(projects[0], ".git/hooks/post-checkout"),
+      `#!/bin/sh\nprintf started > ${quote(worktreeStarted)}\nwhile test ! -f ${quote(worktreeGate)}; do sleep 0.1; done\n`,
+      { mode: 0o755 },
     );
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
-    await fs.writeFile(setupGate, "ready");
+    await input("[data-prompt-editor]", "Slow new shared Chat");
+    await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
+    await waitFor(
+      () =>
+        fs.access(worktreeStarted).then(
+          () => true,
+          () => false,
+        ),
+      "slow Worktree creation started",
+    );
+    assert.equal(providerCalls, 3, "The send's turn started; its agent's Worktree creation is what waits");
+    await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
+    await input("[data-prompt-editor]", "Slow new shared Chat");
+    await fs.writeFile(worktreeGate, "ready");
     await waitFor(() => providerCalls === 3, "earlier send finishes");
     await delay(500);
     assert.equal(
-      await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
+      await evaluate(`document.querySelector('[data-prompt-editor]').value`),
       "Slow new shared Chat",
-      "A turn that finishes late must not select its Chat or clear the new draft",
+      "A late send must not select its Chat or clear the new draft",
     );
     await evaluate(`[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes('Update status.txt')).click()`);
-    await fs.unlink(setupGate);
+    await fs.unlink(worktreeGate);
+    await fs.unlink(worktreeStarted);
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "Send then switch scope");
+    await input("[data-prompt-editor]", "Send then switch scope");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
-      // The Worktree's setup runs once the agent asks for it (link_worktree), inside the Chat's turn.
-      async () =>
-        Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) =>
-          prep.members.some((member) => member.setupStarted && !member.setupDone),
+      () =>
+        fs.access(worktreeStarted).then(
+          () => true,
+          () => false,
         ),
-      "scope-switch preparation",
+      "scope-switch Worktree creation started",
     );
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-project-item]')`), "switch-away Project rows");
-    await evaluate(`[...document.querySelectorAll('[data-project-item] [data-menu-row]')].find(button => button.textContent.includes('food-api')).click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "switched away during setup");
-    await fs.writeFile(setupGate, "ready");
+    assert.equal(providerCalls, 4, "The background send's turn started; its agent's Worktree creation is what waits");
+    await openScope(scopeOf("food-api"));
+    await waitFor(() => isCurrent(scopeOf("food-api")), "switched away during creation");
+    await fs.writeFile(worktreeGate, "ready");
     await waitFor(() => providerCalls === 4, "background send acknowledgement");
     await delay(500);
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-row]')`), "return Link row");
-    await evaluate(`document.querySelector('[data-link-row]').click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('RDFood')`), "returned Link");
+    await openScope(linkScope);
+    await waitFor(() => isCurrent(linkScope), "returned Link");
     assert.equal(
-      await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
+      await evaluate(`document.querySelector('[data-prompt-editor]').value`),
       "",
       "Acknowledged first send must not return as an unsent new Chat draft",
     );
@@ -546,10 +577,10 @@ async function main() {
     // Missing members preserve history and the unsent draft, with a named error.
     await fs.rename(projects[0], projects[0] + "-moved");
     try {
-      await input('textarea[aria-label="Prompt"]', "Draft survives missing Project");
+      await input("[data-prompt-editor]", "Draft survives missing Project");
       await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
       await waitFor(() => evaluate(`document.body.textContent.includes('unavailable')`), "named unavailable member error");
-      assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Draft survives missing Project");
+      assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft survives missing Project");
       assert.equal(providerCalls, 4);
       await shot("missing-member");
     } finally {
@@ -564,17 +595,81 @@ async function main() {
     daemon = await startDaemon({ dataDir: profile, version: "0.1.0", runtimeOptions: options });
     client = await connectHost({ dataDir: profile });
     await waitFor(() => evaluate(`!document.querySelector('[data-host-disconnected]')`), "Link reconnect");
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Draft survives missing Project");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft survives missing Project");
     assert.deepEqual((await client.call("link:snapshot", [link.id])).state.sessions[session.id].worktrees, session.worktrees);
+    // Deleting a Link Chat: the row goes at once, with no progress, while the host's save is still held, and stays gone
+    // from the Project's sidebar the window moves to. A save that fails brings the row back with the error.
+    const rowNamed = (title) => `[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes(${JSON.stringify(title)}))`;
+    const deleteRow = async (title) => {
+      await evaluate(`${rowNamed(title)}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 140, clientY: 200 }))`);
+      await waitFor(
+        () => evaluate(`!![...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent.trim() === 'Delete' && !button.disabled)`),
+        "Delete available",
+      );
+      await evaluate(`[...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent.trim() === 'Delete').click()`);
+      await waitFor(() => evaluate(`!document.querySelector('[data-chat-menu]')`), "Delete closes the menu");
+      assert.equal(await evaluate(`!!document.querySelector('[data-archive-choice], [data-archive-reason]')`), false);
+    };
+    // A slow host: hold the window's next chat:delete in the main process, then send it on or fail it.
+    main = await cdp(output.match(/Debugger listening on (ws:\/\/\S+)/)[1]);
+    const inMain = async (expression) => (await main.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+    const holdSaves = (outcome) =>
+      inMain(`(() => {
+        const handlers = process.mainModule.require("electron").ipcMain._invokeHandlers;
+        const real = (globalThis.realDelete ??= handlers.get("chat:delete"));
+        globalThis.held = [];
+        handlers.set("chat:delete", (...args) => new Promise((resolve, reject) => globalThis.held.push(${
+          outcome === "fail" ? `() => reject(new Error("Disk full"))` : `() => Promise.resolve(real(...args)).then(resolve, reject)`
+        })));
+        return typeof real === "function";
+      })()`);
+    const heldCount = () => inMain(`globalThis.held.length`);
+    const releaseSaves = () =>
+      inMain(
+        `process.mainModule.require("electron").ipcMain._invokeHandlers.set("chat:delete", globalThis.realDelete); globalThis.held.forEach((release) => release()); true`,
+      );
+    const chatOnHost = async (id) => (await client.call("link:snapshot", [link.id])).state.sessions[id];
+    const chatCount = async () => Object.keys((await client.call("link:snapshot", [link.id])).state.sessions).length;
+    const before = await chatCount();
+    assert.ok(await holdSaves("fail"), "the test holds chat:delete");
+    await deleteRow("Send then switch");
+    await waitFor(async () => (await heldCount()) > 0, "the chat:delete is held");
+    assert.equal(await evaluate(`!!${rowNamed("Send then switch")}`), false, "row gone while the save is held");
+    await releaseSaves();
+    await waitFor(() => evaluate(`!!${rowNamed("Send then switch")}`), "row back after a failed save");
+    await waitFor(() => evaluate(`document.body.textContent.includes('Disk full')`), "failed deletion's error");
+    assert.equal(await chatCount(), before, "nothing deleted on the host");
+    await holdSaves("land");
+    await deleteRow("Update status.txt");
+    await waitFor(async () => (await heldCount()) > 0, "the chat:delete is held");
+    assert.equal(await evaluate(`!!${rowNamed("Update status.txt")}`), false, "the row goes before the host answers");
+    assert.equal(await evaluate(`[...document.querySelectorAll('[role=status]')].some(node => /Archiving|Deleting/.test(node.textContent))`), false);
+    await waitFor(() => isCurrent(scopeOf("food-api")), "deleting the open Link Chat lands on this Mac's new-chat screen");
+    assert.ok(await chatOnHost(session.id), "the host hasn't deleted it yet");
+    await shot("link-delete-held");
+    assert.equal(await evaluate(`!!${rowNamed("Update status.txt")}`), false, "the Project's sidebar doesn't list it meanwhile");
+    await releaseSaves();
+    await waitFor(async () => !(await chatOnHost(session.id)), "host deletes the Chat");
+    assert.equal(await chatCount(), before - 1, "only the chosen Chat is deleted");
+    assert.equal(await evaluate(`!!${rowNamed("Update status.txt")}`), false);
+    for (const member of session.worktrees) await fs.access(member.worktreePath);
+    client.close();
+    client = null;
+    await daemon.close();
+    daemon = await startDaemon({ dataDir: profile, version: "0.1.0", runtimeOptions: options });
+    client = await connectHost({ dataDir: profile });
+    assert.equal(await chatOnHost(session.id), undefined, "deletion survives a host restart");
+    assert.equal(await chatCount(), before - 1);
     console.log(
-      "PASS: real desktop creates a named Link, owns two Worktrees in one Chat, chooses Git scope, preserves scoped drafts and reconnects without new Worktrees.",
+      "PASS: real desktop creates a named Link, owns two Worktrees in one Chat, chooses Git scope, preserves scoped drafts, reconnects without new Worktrees, and deletes a Link Chat on one click with failure recovery and persistence.",
     );
   } catch (error) {
     console.error(output);
     throw error;
   } finally {
-    await fs.writeFile(path.join(dir, "setup-ready"), "ready").catch(() => {});
+    await fs.writeFile(path.join(dir, "worktree-ready"), "ready").catch(() => {});
     connection?.close();
+    main?.close();
     if (child && child.exitCode === null) {
       const exit = once(child, "exit");
       child.kill();

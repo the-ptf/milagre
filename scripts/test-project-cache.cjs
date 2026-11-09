@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const data = `
 const stateFor = (name) => ({ next_id: 4, projects: { 1: { id: 1, name } },
@@ -25,9 +26,12 @@ window.fail = path => { const index = window.requests.findIndex(request => reque
 const desktop = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { updateSettings } from '/src/lib/settings';
 import '/src/styles.css';
 ${data}
+updateSettings({ chatList: 'grouped' });
 window.milagre = new Proxy({
+  readContextSettings: async () => ({ buttonThreshold: 70, autoThreshold: 85, autoCompact: false }),
   simulators: { list: async ({ chatId }) => ({ chatId, supported: false, devices: [], attached: [], available: [] }) },
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
@@ -38,6 +42,8 @@ window.milagre = new Proxy({
   listRecentProjects: async () => ['alpha', 'beta', 'gamma'].map(name => ({ path: '/' + name, name })),
   listNamedLinks: async () => [],
   listProjects: async () => [],
+  // The sidebar lists every Project's chats from this read, which resolves at once; only switching is held.
+  readProject: async path => ({ path, name: path.slice(1), state: stateFor(path.slice(1)) }),
   listBranches: async () => ['main'],
   listEditors: async () => [],
   getCachedUsage: async () => ({ providers: [] }),
@@ -45,9 +51,6 @@ window.milagre = new Proxy({
   getUpdateState: async () => ({ status: 'idle' }),
 }, { get(target, key) { return target[key] ?? (String(key).startsWith('on') ? () => () => {} : async () => null); } });
 const { default: App } = await import('/src/App');
-import { updateSettings as useLegacySidebar } from "/src/lib/settings";
-// This check drives the legacy sidebar (the project menu, pins in one list).
-useLegacySidebar({ legacySidebar: true });
 createRoot(document.getElementById('root')).render(<App />);
 `;
 const mobile = `
@@ -55,6 +58,8 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SessionProvider, useSession } from '/@fs/${path.resolve("apps/mobile/src/session.tsx")}';
 import { ProjectNavigation } from '/@fs/${path.resolve("apps/mobile/src/project-navigation.tsx")}';
+import { allComputers } from '/@fs/${path.resolve("apps/mobile/src/all-computers.tsx")}';
+window.allComputers = allComputers;
 ${data}
 window.makeClient = host => ({
   url: host.address,
@@ -82,7 +87,7 @@ export const StyleSheet = { create: value => value, hairlineWidth: 1 };
 export const View = ({ children }) => <div>{children}</div>;
 export const KeyboardAvoidingView = View;
 export const Text = ({ children }) => <span>{children}</span>;
-export const Pressable = ({ children, onPress, accessibilityLabel, disabled }) => <button aria-label={accessibilityLabel} onClick={onPress} disabled={disabled}>{children}</button>;
+export const Pressable = ({ children, onPress, accessibilityLabel, disabled }) => <button aria-label={accessibilityLabel} onClick={onPress} disabled={disabled}>{typeof children === "function" ? children({ pressed: false }) : children}</button>;
 export const RefreshControl = () => null;
 export const FlatList = ({ data, renderItem, ListEmptyComponent, keyExtractor }) => <div>{data.length ? data.map(item => <div key={keyExtractor(item)}>{renderItem({ item })}</div>) : ListEmptyComponent}</div>;
 `;
@@ -93,8 +98,17 @@ export const useStyles = () => new Proxy({}, { get: () => ({}) });
 export const ErrorNotice = ({message}) => <span>{message}</span>;
 export const Field = ({value, onChangeText, label}) => <input aria-label={label} value={value} onChange={e => onChangeText(e.target.value)} />;
 export const IconButton = ({label, onPress}) => <button aria-label={label} onClick={onPress} />;
+export const CircleButton = IconButton;
+export const EmptyState = ({title, action}) => <div>{title}{action && <button onClick={action.onPress}>{action.title}</button>}</div>;
 export const PageScroll = ({children}) => <div>{children}</div>;
 export const PullDown = ({children, label, onPress}) => <div role="button" aria-label={label} onClick={onPress}>{children}</div>;
+export const SectionLabel = ({children}) => <span>{children}</span>;
+export const Toast = ({text}) => <span>{text}</span>;
+export const DISABLED_OPACITY = { row: 0.4 };
+export const PRESSED_OPACITY = 0.6;
+export const pressStyle = () => ({});
+export const announce = () => {};
+export const useAnnounce = () => {};
 `;
 const stubs = {
   "react-native": native,
@@ -103,26 +117,49 @@ const stubs = {
   "./routes-native":
     'export const lanRoutes = { set() {}, forget() {}, checkAll() {}, subscribe: () => () => {}, kind: () => "remote", view: () => ({ current: () => null, subscribe: () => () => {} }) }; export const learnRoutes = async () => {};',
   "./hosts-native":
-    "export const savedHosts = { list: async () => [] }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
+    "window.savedHostList = []; export const savedHosts = { list: async () => window.savedHostList.slice(), save: async host => { window.savedHostList = [...window.savedHostList.filter(saved => saved.id !== host.address), { id: host.address, lastUsed: 1, ...host }]; } }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {}, readLastProject: () => null, saveLastProject: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedHiddenProjects = { hidden: () => noFolds, apply: async (_host, projects) => projects, setHidden: async () => {} }; export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} }; export const savedChatPins = { subscribe: () => () => {}, version: () => 0, pins: () => ({}), load: async () => {}, set: async () => {} };",
   "./live": "export const syncProject = () => () => {};",
   "./ui": ui,
   "./theme":
-    "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
+    "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const inkFor = (colors, tone) => ['ink', 'ink2', 'ink3'].includes(tone) ? colors[tone] : colors[tone + 'Ink']; export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
+  "./primitives/tap": "export const tap = () => {};",
+  // The toast pill draws the phone's icons and theme, native-only: here it is its text and Undo.
+  "./primitives/toast":
+    'export const ToastPill = ({ text, onUndo }) => <div role="status">{text}{onUndo ? <button aria-label="Undo" onClick={onUndo} /> : null}</div>;',
+  "@sbaiahmed1/react-native-blur": "export const LiquidGlassView = ({ children }) => <div>{children}</div>;",
   "expo-router": "import { useEffect } from 'react'; export const useFocusEffect = effect => useEffect(effect, [effect]);",
   "expo-linking": "export const openURL = async () => {};",
   "expo-clipboard": "export const setStringAsync = async () => {};",
   "react-native-safe-area-context": "export const useSafeAreaInsets = () => ({ top: 0, bottom: 0 });",
+  // A Project header drags to reorder on the phone; these native libs are stubbed so Vite never bundles their web
+  // builds (react-native-reanimated pulls react-native-web paths that don't resolve here).
+  "react-native-gesture-handler":
+    "const chain = () => new Proxy(() => chain(), { get: () => () => chain() }); export const Gesture = { Pan: chain, Tap: chain, Exclusive: () => chain() }; export const GestureDetector = ({ children }) => children;",
+  "react-native-reanimated":
+    "import React from 'react'; const View = ({ children, accessibilityLabel, onLayout }) => <div aria-label={accessibilityLabel} ref={onLayout ? (node => node && onLayout({ nativeEvent: { layout: {} } })) : undefined}>{children}</div>; export default { View }; export const useAnimatedStyle = fn => fn(); export const useSharedValue = value => ({ get: () => value, set() {} });",
+  "react-native-worklets": "export const scheduleOnRN = (fn, ...args) => fn(...args);",
+  "./chat-list-controls":
+    "export const CONTROLS_HEIGHT = 48; export const useControlsBottomInset = () => 48 + 36; export const useControlsVisibility = () => ({ hidden: false, onScroll() {}, reveal() {} }); export const ChatListControls = () => null;",
+  "./computer-actions": "export const isDesktopComputer = name => /studio|mini|imac/i.test(name);",
+  "./chat-display-setting": "export const useChatList = () => ['grouped', () => {}];",
   "./status-indicators": "export const ChatMarkIcon = () => null;",
   "./icons": "export const Icon = () => null; export const SpinnerRing = () => null; export const LinearLogo = () => null;",
   "./loading-logo": "export const LoadingLogo = () => null;",
   "./app/settings": "export const SettingsView = () => null;",
   "./app/notifications": "export const NotificationsView = () => null;",
   "./usage-section": "export const UsageSection = () => null;",
-  "./project-icon": "export const ProjectIcon = () => null; export const ProjectIcons = () => null;",
+  "./project-icon": "export const ProjectIcon = () => null; export const ChatsHomeIcon = () => null; export const ProjectIcons = () => null;",
   "./project-search": "export const ProjectSearch = () => null;",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
+  // The swipe row is Reanimated and the gesture handler, native-only: a row here renders without it.
+  "./chat-swipe-row":
+    "export const ChatSwipeRow = ({ children }) => children; export const hideRevealed = () => {}; export const ClosesLeftContext = { Provider: ({ children }) => children };",
+  "./offline-tray": "export const WaitingLabel = () => null;",
+  "./split-context": "export const useSplit = () => ({ widthClass: 'compact' }); export const useSplitLayout = () => ({ widthClass: 'compact' });",
   "./confirm-store": "export const confirm = async () => true; export const confirmSheet = () => {};",
   "./attention": "export const AttentionDot = () => null; export const useAttention = () => [];",
+  "./update-sheet": "export const UpdateSettingsBadge = () => null;",
+  "./app-version": 'export const appVersionLine = () => "1.0";',
   "./chat-row-store":
     "export const useChatRowShow = () => ({ computer: true, pullRequests: true, linearIssue: true, branch: true, diff: false, lastActivity: false }); export const saveChatRowShow = () => {}; export const useActivityClock = () => Date.now();",
 };
@@ -135,7 +172,13 @@ async function browserChecks() {
     app.exit(1);
   }, 90_000).unref();
   await app.whenReady();
-  const window = new BrowserWindow({ width: 1200, height: 800, show: false, webPreferences: { backgroundThrottling: false } });
+  // App waits for the splash animation to finish; a shown window keeps its compositor painting under Xvfb.
+  const window = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    show: true,
+    webPreferences: { backgroundThrottling: false },
+  });
   const errors = [];
   window.webContents.on("console-message", (event) => {
     if (event.level === "error") {
@@ -158,9 +201,9 @@ async function browserChecks() {
   }
   const contains = (text) => `document.body.textContent.includes(${JSON.stringify(text)})`;
   const sidebar = (text) => `document.querySelector('aside')?.textContent.includes(${JSON.stringify(text)})`;
-  async function switchTo(current, next) {
-    await click(current);
-    const target = `document.querySelector('[data-project-row="/${next}"]')`;
+  // "New chat in <name>" on another Project's sidebar group switches to that Project.
+  async function switchTo(_current, next) {
+    const target = `document.querySelector('[data-sidebar-scope="/${next}"] [data-scope-action]')`;
     await waitFor(`!!${target}`);
     await evaluate(`${target}.click()`);
   }
@@ -186,11 +229,11 @@ async function browserChecks() {
 
     await click("New chat");
     await evaluate(
-      `(() => { const input = document.querySelector('textarea[aria-label="Prompt"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'Draft during refresh'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+      `(() => { const input = document.querySelector('[data-prompt-editor]'); input.value = 'Draft during refresh'; input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
     );
     await evaluate("window.finish('/alpha', 'Updated alpha')");
     await waitFor(sidebar("Updated alpha Chat"));
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Draft during refresh");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft during refresh");
     await screenshot("desktop-refreshed");
     await switchTo("alpha", "beta");
     await waitFor(sidebar("beta Chat"));
@@ -215,60 +258,74 @@ async function browserChecks() {
     // Every Project's group starts open; only a group folded by hand stays folded.
     await waitFor(contains("alpha Chat"));
     await waitFor(contains("beta Chat"));
-    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Collapse beta"]')`), true, "another Project's group is open too");
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label^="Collapse beta"]')`), true, "another Project's group is open too");
     await evaluate("window.drawer(false)");
     await delay(50);
     await evaluate("window.hold = true; window.drawer(true)");
     await waitFor(contains("alpha Chat"));
-    assert.equal(await evaluate(contains("Loading chats...")), false, "drawer remount renders cached list");
+    assert.equal(await evaluate(contains("Loading Chats…")), false, "drawer remount renders cached list");
     await waitFor("['/alpha', '/beta'].every(path => window.requests.some(request => request.path === path))");
     await evaluate("window.drawer(false)");
     await delay(50);
     await evaluate("window.drawer(true)");
     await delay(100);
     assert.equal(await evaluate("window.requests.length"), 2, "remount joins the in-flight previews");
-    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Collapse beta"]')`), true, "beta stays open across remounts");
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label^="Collapse beta"]')`), true, "beta stays open across remounts");
     await evaluate("window.finish('/alpha', 'Fresh alpha')");
     await waitFor(contains("Fresh alpha Chat"));
     assert.equal(await evaluate(contains("beta Chat")), true);
     await evaluate("window.fail('/beta')");
-    await waitFor(contains("Could not refresh chats. Tap to retry."));
+    await waitFor(contains("Could not refresh Chats. Tap to retry."));
     assert.equal(await evaluate(contains("beta Chat")), true);
-    await evaluate("[...document.querySelectorAll('button')].find(node => node.textContent.includes('Could not refresh chats')).click()");
+    await evaluate("[...document.querySelectorAll('button')].find(node => node.textContent.includes('Could not refresh Chats')).click()");
     await waitFor("window.requests.some(request => request.path === '/beta')");
     await evaluate("window.finish('/beta', 'Retried beta')");
     await waitFor(contains("Retried beta Chat"));
+    // Browsing the drawer (the all-computers store reading /beta) warmed the session's own cache.
+    assert.equal(await evaluate("!!window.session.cachedProject('/beta')"), true, "the drawer's read of the current computer seeds the session cache");
+    assert.equal(await evaluate("window.requests.some(request => request.path === '/beta')"), false, "no extra preview of beta is needed before opening it");
     await evaluate("window.session.open('/beta'); void 0");
     await waitFor("window.session.snapshot?.project.path === '/beta'");
     assert.equal(await evaluate("window.session.opening.cached"), true, "drawer previews warm foreground navigation");
     await waitFor("window.requests.some(request => request.path === '/beta')");
     await evaluate("window.finish('/beta', 'Opened beta')");
     await waitFor("window.session.opening === null");
-    await evaluate("window.session.connect({ address: 'host-two', token: '' }, false)");
-    await waitFor(contains("Loading chats..."));
-    assert.equal(await evaluate(contains("Fresh alpha Chat")), false, "same path on another computer has no borrowed cache");
+    // Selecting beta refreshes alpha's preview on the current connection.
+    await waitFor("window.requests.some(request => request.host === 'host-one' && request.path === '/alpha')");
+    await evaluate("window.finish('/alpha', 'Fresh alpha', 'host-one')");
+    // Both computers are saved, as paired phones have them: each keeps its own answers while the other is the open one.
+    await evaluate("window.savedHostList = [{ id: 'host-one', name: 'One', address: 'host-one', token: '', lastUsed: 1 }]");
+    await evaluate("window.session.connect({ address: 'host-two', token: '', name: 'Two' }, true)");
     await waitFor("window.requests.some(request => request.host === 'host-two')");
+    const alphaOn = (host) => `window.allComputers.viewOf('${host}')?.copies.get('/alpha')?.project.state.sessions[2]?.title`;
+    assert.equal(await evaluate(alphaOn("host-two")), undefined, "same path on another computer has no borrowed cache");
+    assert.equal(await evaluate(alphaOn("host-one")), "Fresh alpha Chat", "the other computer keeps its answers");
+    await evaluate("window.finish('/alpha', 'Other computer', 'host-two')");
+    await waitFor(`${alphaOn("host-two")} === 'Other computer Chat'`);
+    assert.equal(await evaluate(alphaOn("host-one")), "Fresh alpha Chat", "late response stays with its computer");
     await evaluate("window.session.connect({ address: 'host-one', token: '' }, false)");
     await waitFor(contains("Fresh alpha Chat"));
-    await evaluate("window.finish('/alpha', 'Other computer', 'host-two')");
-    await delay(100);
-    assert.equal(await evaluate(contains("Other computer")), false, "late response stays with its computer");
-    await waitFor("window.requests.some(request => request.host === 'host-one')");
-    await evaluate("window.finish('/alpha', 'Returned alpha', 'host-one')");
-    await waitFor(contains("Returned alpha Chat"));
+    await waitFor("window.requests.some(request => request.host === 'host-one' && request.path === '/alpha')");
+    // The reconnect and the store each read it; answer whichever reads are open until the list shows the new answer.
+    await waitFor(`(() => { try { window.finish('/alpha', 'Returned alpha', 'host-one'); } catch {} return ${contains("Returned alpha Chat")}; })()`);
+    assert.equal(await evaluate(alphaOn("host-two")), "Other computer Chat", "returning leaves the other computer's answers alone");
     await evaluate("window.drawer(false)");
     await delay(50);
-    await evaluate("void window.session.previewProject('/alpha')");
+    // Answer every other open read, so only the empty alpha list below can still be loading.
+    await evaluate(
+      "window.requests.filter(request => request.path !== '/alpha').forEach(request => window.finish(request.path, request.path.slice(1) + ' settled', request.host))",
+    );
+    await evaluate("void window.allComputers.refreshProject('host-one', '/alpha')");
     await waitFor("window.requests.some(request => request.path === '/alpha')");
     await evaluate(`(() => {
       const index = window.requests.findIndex(request => request.path === '/alpha');
-      const project = window.session.cachedProject('/alpha').project;
+      const project = window.allComputers.viewOf('host-one').copies.get('/alpha').project;
       window.requests.splice(index, 1)[0].resolve({ ...project, state: { ...project.state, sessions: {}, messages: [] } });
     })()`);
     await delay(50);
     await evaluate("window.drawer(true)");
-    await waitFor(contains("No chats yet. Start one with +."));
-    assert.equal(await evaluate(contains("Loading chats...")), false, "an empty list fetched while unmounted is still a loaded cache entry");
+    await waitFor(contains("No Chats yet. Start one with +."));
+    assert.equal(await evaluate(contains("Loading Chats…")), false, "an empty list fetched while unmounted is still a loaded cache entry");
     await evaluate("window.drawer(false)");
     await delay(50);
     await evaluate("window.finish('/alpha', 'Warm alpha'); window.hold = false; window.compactPreviews = true");
@@ -307,6 +364,9 @@ async function main() {
   const server = await createServer({
     configFile: path.resolve("apps/desktop/vite.config.ts"),
     server: { host: "127.0.0.1", port: 0 },
+    // The mobile fixture's native libs are stubbed by the plugin below; keep Vite's optimizer from pre-bundling their
+    // real web builds, which pull react-native-web paths that don't resolve here.
+    optimizeDeps: { exclude: ["react-native-gesture-handler", "react-native-reanimated", "react-native-worklets"] },
     plugins: [
       {
         name: "project-cache-fixtures",
@@ -322,7 +382,7 @@ async function main() {
             return transformWithEsbuild(stubs[id.slice("\0cache-stub:".length, -4)], id.slice(1), { loader: "tsx", jsx: "automatic" });
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             const match = /^\/__cache\/(desktop|mobile)$/.exec(request.url);
             if (!match) return next();
             response.setHeader("Content-Type", "text/html");

@@ -1,7 +1,8 @@
 const path = require("node:path");
 const { capText } = require("./permissions.cjs");
-const { capOutput, code, thinkingEnd, thinkingStep } = require("./steps.cjs");
+const { capOutput, code, routineRef, thinkingEnd, thinkingStep } = require("./steps.cjs");
 const { acpPlanTasks } = require("./tasks.cjs");
+const { toolMetadata } = require("@milagre/shared/tool-activity");
 
 // ACP session/update notifications -> Milagre's AgentEvents (see steps.cjs for the step shapes). The
 // mapper keeps its own state per session:
@@ -120,7 +121,9 @@ function compact(object) {
 function acpStep(call, diffs = diffsOf(call)) {
   const id = String(call.toolCallId);
   const file = fileOf(call);
-  const step = (kind, title, detail, stepFile) => compact({ id, kind, title, detail, file: stepFile });
+  const mcp = meta(call).mcp;
+  const metadata = mcp?.server && mcp?.tool ? toolMetadata(mcp.server, mcp.tool, call.rawInput) : {};
+  const step = (kind, title, detail, stepFile) => compact({ id, kind, title, detail, file: stepFile, ...metadata });
   switch (call.kind) {
     case "execute": {
       const command = commandOf(call);
@@ -148,6 +151,11 @@ function acpStep(call, diffs = diffsOf(call)) {
   }
 }
 
+const isHeartbeatCreate = (call) => {
+  const mcp = meta(call).mcp;
+  return mcp && typeof mcp === "object" ? mcp.server === "milagre" && mcp.tool === "heartbeat_create" : toolName(call) === "milagre_heartbeat_create";
+};
+
 // A finished tool call -> the end of its step.
 function acpStepResult(call, diffs = diffsOf(call)) {
   const id = String(call.toolCallId);
@@ -159,6 +167,11 @@ function acpStepResult(call, diffs = diffsOf(call)) {
   if (failed) return compact({ id, status, detail: output ? capText(output) : undefined });
   if (call.kind === "read") return { id, status };
   if (["edit", "delete", "move"].includes(call.kind)) return compact({ id, status, title: acpStep(call, diffs).title, detail: acpDiffText(diffs) });
+  // Milagre's heartbeat_create starts its result with a JSON line naming the Heartbeat: the step carries it, the detail doesn't.
+  if (isHeartbeatCreate(call)) {
+    const { routine, detail } = routineRef(output);
+    if (routine) return compact({ id, status, routine, detail: detail ? capText(detail) : undefined });
+  }
   return compact({ id, status, detail: output ? capText(output) : undefined });
 }
 
@@ -260,6 +273,14 @@ function mapAcpUpdate(update, state) {
     case "config_option_update":
       readConfigOptions(update.configOptions, state);
       return [];
+    case "session_info_update": {
+      // Kiro's turn summary, just before the turn ends: what its prompts cost, in credits.
+      const { _meta: meta } = update;
+      const summaries = meta?.kiro?.kind === "turn_completion" ? meta.kiro.promptTurnSummaries : null;
+      const credits = Array.isArray(summaries) ? summaries.filter((item) => item?.unit === "credit" && Number.isFinite(item.usage)) : [];
+      if (credits.length) state.turnCredits = credits.reduce((sum, item) => sum + item.usage, 0);
+      return [];
+    }
     default:
       return [];
   }
@@ -274,7 +295,11 @@ function readConfigOptions(options, state) {
       if (Array.isArray(option.options)) state.models = option.options.filter((item) => typeof item?.value === "string");
     }
     if ((option?.id === "mode" || option?.category === "mode") && typeof option.currentValue === "string") state.mode = option.currentValue;
+    // Kiro's permission mode, a switch of its own (see kiro-acp.cjs).
+    if (option?.id === "autopilot" && typeof option.currentValue === "string") state.autopilot = option.currentValue;
   }
+  // Kiro's effort follows the model: offered at the model's default after a switch, absent for a model without efforts.
+  if (options.some((option) => option?.id === "model")) state.effortLevel = options.find((option) => option?.id === "effortLevel")?.currentValue;
 }
 
 // session/prompt's stopReason -> the turn's end.

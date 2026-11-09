@@ -1,8 +1,10 @@
 const fs = require("node:fs/promises");
+const { readMcpExtras } = require("../mcp/extras.cjs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { cliName } = require("@milagre/shared/providers");
 const { AcpRpc } = require("./acp-rpc.cjs");
+const { toAcpServer } = require("../mcp/definitions.cjs");
 const {
   acpDiffText,
   closeThinking,
@@ -16,10 +18,14 @@ const {
   readConfigOptions,
   stopReasonEvent,
 } = require("./acp-events.cjs");
-const { milagreInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
-const { PendingPermissions, capText, insideWorkspace, unwrapShell } = require("./permissions.cjs");
+const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
+const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell, writesRemote } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
+const { babysitDenial } = require("../babysit-guard.cjs");
+const { acpCall, turnGuards } = require("../escalation-guard.cjs");
+const { commandRisk } = require("./command-risk.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
+const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // A chat's session with an Agent Client Protocol agent (docs/adr/0006-antigravity-over-acp.md). The public
 // surface matches CodexSession, which SessionManager and ChatHost rely on. What is specific to one agent
@@ -59,7 +65,9 @@ function acpPermissionRequest(requestId, call, options) {
   };
   if (call.kind === "execute") {
     const command = unwrapShell(commandOf(call));
-    return compact({ ...base, kind: "command", tool: "Shell", title: "Run this command?", command, cwd: cwdOf(call) });
+    // A GitHub write is only ever allowed once (see writesRemote).
+    const allowForChat = base.allowForChat && !writesRemote(command);
+    return compact({ ...base, allowForChat, kind: "command", tool: "Shell", title: "Run this command?", command, cwd: cwdOf(call) });
   }
   if (["edit", "delete", "move"].includes(call.kind)) {
     const diffs = diffsOf(call);
@@ -76,12 +84,18 @@ function acpPermissionRequest(requestId, call, options) {
     detail = call.rawInput === undefined ? undefined : capText(JSON.stringify(call.rawInput, null, 2));
   } catch {}
   const title = str(call.title).endsWith("?") ? str(call.title) : `Use ${name}?`;
-  return compact({ ...base, kind: "other", tool: name, title, detail });
+  // An MCP tool's server and tool, as Claude names it, for what matches on them (bots/gates.cjs, Bot rules).
+  const { _meta: meta } = call;
+  const mcp = meta?.mcp;
+  const mcpName = typeof mcp?.server === "string" && typeof mcp?.tool === "string" ? `mcp__${mcp.server}__${mcp.tool}` : undefined;
+  return compact({ ...base, kind: "other", tool: name, toolName: mcpName, title, detail });
 }
 
-// The user's decision -> the agent's option. Allow for chat falls back to allow once, and the reverse.
-function pickOption(options, decision) {
+// The user's decision -> the agent's option. Allow for chat falls back to allow once, and the reverse. With `once` (a
+// GitHub write, see writesRemote) an allow is only ever allow once: an agent with no such option gets no answer.
+function pickOption(options, decision, { once = false } = {}) {
   const of = (kind) => options.find((option) => option?.kind === kind);
+  if (once && (decision === "allow" || decision === "allow-for-chat")) return of("allow_once") ?? null;
   if (decision === "allow") return of("allow_once") ?? of("allow_always");
   if (decision === "allow-for-chat") return of("allow_always") ?? of("allow_once");
   if (decision === "deny") return of("reject_once") ?? of("reject_always");
@@ -110,12 +124,18 @@ class AcpSession {
     args,
     emit,
     workspaceRoots,
+    readOnlyRoots,
+    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
+    access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
-    designsEnabled = true,
+    sharedLink = false,
     linked = null,
+    mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
     config = antigravityAcp,
     createRpc = (options) => new AcpRpc(options),
   }) {
@@ -127,13 +147,15 @@ class AcpSession {
       harness,
       args,
       emit,
-      workspaceRoots,
+      access,
       workspaceInstructions,
       tldrEnabled,
-      designsEnabled,
+      sharedLink,
       linked,
+      mcpExtras,
       clientVersion,
       interruptGraceMs,
+      permissionPolicy,
       config,
       createRpc,
     });
@@ -164,8 +186,13 @@ class AcpSession {
         forward: (update) => this.mapUpdate(update),
         turnActive: () => this.turnActive && !this.cancelRequested,
       }) ?? null;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
+    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
+    // tool call id ({ command, reason }), so their steps say why. A wake's EscalationTurn while its turn runs.
+    this.guard = null;
+    this.escalation = null;
+    this.refused = new Map();
   }
 
   get nativeId() {
@@ -197,15 +224,21 @@ class AcpSession {
     }
     this.turnActive = true;
     this.cancelRequested = false;
+    Object.assign(
+      this,
+      turnGuards(request.guard, () => void this.interrupt()),
+    );
     this.turnEnded = new Promise((resolve) => {
       this.markTurnEnded = resolve;
     });
     return this.beginTurn(request);
   }
 
-  // ACP can't steer: the message waits for the running turn to end and starts the next one. An open
-  // question is dismissed, since the message is the user's reply to it. Stop drops the messages sent
-  // before it, as it stops a steered message on Claude and Codex; one sent after Stop starts the next turn.
+  // ACP can't steer: the message waits for the running turn to end and starts the next one. The user's messages
+  // never get here: ChatHost queues them where the chat shows them (see its afterTurn). What does is a send that
+  // checks `canStart` (an advisor's result, the local MCP's chat_start) or one racing the turn's end. An open
+  // question is dismissed, since the message is the user's reply to it. Stop drops what waits here, as it stops a
+  // steered message on Claude and Codex (and stops advisor delivery); one sent after Stop starts the next turn.
   async queue(request) {
     this.questions.dismissAll();
     const stops = this.stops;
@@ -215,9 +248,9 @@ class AcpSession {
     return this.startTurn(request);
   }
 
-  async beginTurn({ prompt, images = [], model: wanted, effort, permissionMode }) {
+  async beginTurn({ prompt, images = [], model: wanted, effort, permissionMode, canStart }) {
     const turnId = randomUUID();
-    Object.assign(this.state, { turnId, hasText: false, textBreak: false });
+    Object.assign(this.state, { turnId, hasText: false, textBreak: false, turnCredits: undefined });
     if (permissionMode) this.permissions.setMode(permissionMode);
     try {
       this.starting ??= this.start();
@@ -236,23 +269,35 @@ class AcpSession {
           throw Object.assign(new Error(`${this.config.name} couldn't switch to ${model}: ${error.message}`), { rpcError: error.rpcError });
         }
       }
+      await this.applyEffort(model ?? this.state.model, effort);
       await this.applyMode();
     } catch (error) {
       await this.failStart(error);
       return { turnId: null, steered: false };
     }
-    if (this.cancelRequested || this.closed) {
+    if (canStart && !canStart()) {
+      await this.finishTurn([]);
+      return { turnId: null, steered: false, cancelled: true };
+    }
+    // An agent that stays in a mode that doesn't ask would run tools no gate sees: a wake without its guard is no wake.
+    if (this.cancelRequested || this.closed || (this.escalation && !this.inStrictMode())) {
       await this.finishTurn([{ type: "turn-cancelled" }]);
-      return { turnId: null, steered: false };
+      return { turnId: null, steered: false, cancelled: true };
     }
     const blocks = [];
     if (!this.instructionsSent)
       blocks.push({
         type: "text",
-        text: `<milagre_instructions>\n${milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled)}\n\n${workspaceNote(this.cwd, this.workspaceRoots)}\n</milagre_instructions>`,
+        text: `<milagre_instructions>\n${sessionInstructions(this)}\n\n${workspaceNote(this.cwd, this.access.roots)}\n</milagre_instructions>`,
       });
-    blocks.push({ type: "text", text: prompt });
-    for (const image of images) blocks.push({ type: "image", mimeType: image.mime, data: image.base64 ?? Buffer.from(image.bytes).toString("base64") });
+    for (const block of promptImageBlocks(prompt, images)) {
+      if (block.type === "text") {
+        blocks.push({ type: "text", text: block.text });
+      } else {
+        const image = block.image;
+        blocks.push({ type: "image", mimeType: image.mime, data: image.base64 ?? Buffer.from(image.bytes).toString("base64") });
+      }
+    }
     this.instructionsSent = true;
     this.subagents?.beginTurn();
     this.emit({ type: "turn-started", turnId });
@@ -283,7 +328,10 @@ class AcpSession {
 
   promptEnded(turnId, result) {
     if (this.state.turnId !== turnId || !this.turnActive) return;
-    void this.finishTurn([this.cancelRequested ? { type: "turn-cancelled" } : stopReasonEvent(result?.stopReason, this.config.name)]);
+    const end = this.cancelRequested ? { type: "turn-cancelled" } : stopReasonEvent(result?.stopReason, this.config.name);
+    // What the turn cost, when the agent said (Kiro's credits).
+    const credits = this.state.turnCredits;
+    void this.finishTurn([end.type === "turn-completed" && Number.isFinite(credits) ? { ...end, credits } : end]);
   }
 
   promptFailed(turnId, error) {
@@ -320,7 +368,9 @@ class AcpSession {
     this.agentCapabilities = init?.agentCapabilities ?? {};
     // The Chat's linked tools reach the agent as an MCP server (see linked-mcp-server.cjs).
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
-    const mcpServers = url ? [{ type: "http", name: "milagre", url, headers: [] }] : [];
+    // Settings › MCP: this account's Everywhere servers (the ones switched off are already left out).
+    const extras = this.mcpExtras ? await readMcpExtras(this) : null;
+    const mcpServers = [...(url ? [{ type: "http", name: "milagre", url, headers: [] }] : []), ...(extras?.servers ?? []).map(toAcpServer)];
     const result = this.state.sessionId ? await this.resume(mcpServers) : await this.requestSession("session/new", { cwd: this.cwd, mcpServers });
     if (typeof result?.modes?.currentModeId === "string") this.state.mode = result.modes.currentModeId;
     readConfigOptions(result?.configOptions, this.state);
@@ -336,11 +386,17 @@ class AcpSession {
   // An agent that refuses the linked tools' MCP server gets the session without it; the Chat then only
   // receives Delegations. Sign-in errors aren't retried.
   async requestSession(method, params) {
-    const attempts = [params, ...(params.mcpServers?.length ? [{ ...params, mcpServers: [] }] : [])];
+    const own = params.mcpServers?.filter((server) => server.name === "milagre") ?? [];
+    // Without the Everywhere servers first (the linked tools stay), then without any MCP server.
+    const attempts = [
+      params,
+      ...(own.length && own.length < params.mcpServers.length ? [{ ...params, mcpServers: own }] : []),
+      ...(params.mcpServers?.length ? [{ ...params, mcpServers: [] }] : []),
+    ];
     for (const [index, attempt] of attempts.entries()) {
       try {
         const result = await this.rpc.request(method, attempt, { timeoutMs: SESSION_TIMEOUT_MS });
-        if (params.mcpServers?.length) this.linked?.toolsAvailable(index === 0);
+        if (own.length) this.linked?.toolsAvailable(attempt.mcpServers.some((server) => server.name === "milagre"));
         return result;
       } catch (error) {
         if (!error.rpcError || this.config.isLoginError(error) || this.config.isSubscriptionError?.(error) || index === attempts.length - 1) throw error;
@@ -380,15 +436,33 @@ class AcpSession {
     readConfigOptions(result?.configOptions, this.state);
   }
 
-  // The agent's mode follows Milagre's permission mode. An agent without config options gets session/set_mode;
-  // one that refuses both keeps its mode, and the approval cards still follow Milagre's (see PendingPermissions).
-  async applyMode() {
-    const target = this.config.modes[this.permissions.mode];
-    if (!target || target === this.state.mode || !this.rpc || this.closed) return;
+  // An agent whose effort is a session option of its own (Kiro's `effortLevel`, offered per model) gets the turn's
+  // effort when the model takes it; one that refuses keeps its own and the turn goes on.
+  async applyEffort(model, effort) {
+    const option = this.config.effortOption;
+    const value = option && this.config.resolveEffort?.({ model, effort, offered: this.state.models });
+    if (!value || value === this.state[option]) return;
     try {
-      await this.setConfig("mode", target);
+      await this.setConfig(option, value);
     } catch (error) {
       if (!error.rpcError) throw error;
+    }
+  }
+
+  // The agent's mode follows Milagre's permission mode. An agent without config options gets session/set_mode;
+  // one that refuses both keeps its mode, and the approval cards still follow Milagre's (see PendingPermissions).
+  // Full's mode never asks, so a babysit Run's turn in Full runs in Auto's: its commands ask, the level refuses what it
+  // doesn't allow, and PendingPermissions allows the rest without a card.
+  // A wake's turn runs in Ask's, the strictest there is, whatever the Chat's; `permissions` keeps the Chat's own.
+  async applyMode() {
+    const target = this.config.modes[this.escalation ? "ask" : this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode];
+    // Kiro's permission mode is its `autopilot` option; its `mode` names its agents (see kiro-acp.cjs).
+    const option = this.config.modeOption ?? "mode";
+    if (!target || target === this.state[option] || !this.rpc || this.closed) return;
+    try {
+      await this.setConfig(option, target);
+    } catch (error) {
+      if (!error.rpcError || option !== "mode") throw error;
       try {
         await this.rpc.request("session/set_mode", { sessionId: this.state.sessionId, modeId: target }, { timeoutMs: CONFIG_TIMEOUT_MS });
         this.state.mode = target;
@@ -396,6 +470,11 @@ class AcpSession {
         if (!second.rpcError) throw second;
       }
     }
+  }
+
+  // Whether the agent is really in Ask's mode: applyMode leaves it as it was when the agent refuses both ways of asking.
+  inStrictMode() {
+    return this.state[this.config.modeOption ?? "mode"] === this.config.modes.ask;
   }
 
   handleNotification(method, params = {}) {
@@ -407,11 +486,20 @@ class AcpSession {
     if (!this.turnActive && !STATE_UPDATES.has(update.sessionUpdate)) return;
     // Once Stop is pressed, Antigravity answers with "The request was cancelled by the client." as reply text.
     if (this.cancelRequested && update.sessionUpdate === "agent_message_chunk") return;
+    if (update.sessionUpdate === "tool_call") this.escalation?.called();
     this.mapUpdate(update);
   }
 
   mapUpdate(update) {
-    for (const event of mapAcpUpdate(update, this.state)) this.emit(event);
+    for (const event of mapAcpUpdate(update, this.state)) this.emit(this.withRefusal(event));
+  }
+
+  // A command a babysit Run's level refused ends as a step that says why.
+  withRefusal(event) {
+    const refused = event.type === "step-completed" ? this.refused.get(event.id) : undefined;
+    if (!refused) return event;
+    this.refused.delete(event.id);
+    return { ...event, detail: `$ ${refused.command}\n${refused.reason}` };
   }
 
   handleServerRequest(id, method, params = {}) {
@@ -439,6 +527,17 @@ class AcpSession {
       this.reply(id, outcome(null));
       return;
     }
+    // Before the plan tools' shortcut and the edits Auto allows without a card. A question has nobody to ask in this turn.
+    if (this.escalation) {
+      const known = this.state.calls.get(String(toolCall.toolCallId ?? "")) ?? {};
+      const refused = this.escalation.denial(acpCall({ ...known, ...toolCall }, this.linked?.tools));
+      this.reply(id, outcome(isQuestionCall(toolCall.toolCallId) ? null : pickOption(options, refused ? "deny" : "allow")));
+      return;
+    }
+    if (isAcpPlanToolPermission(params)) {
+      this.reply(id, outcome(pickOption(options, "allow")));
+      return;
+    }
     const requestId = `${this.processCount}:${id}`;
     if (isQuestionCall(toolCall.toolCallId)) {
       this.askQuestion(id, requestId, toolCall, options);
@@ -448,10 +547,38 @@ class AcpSession {
     const call = { ...known, ...toolCall, rawInput: { ...known.rawInput, ...toolCall.rawInput } };
     if (!toolCall.rawInput && !known.rawInput) delete call.rawInput;
     const request = acpPermissionRequest(requestId, call, options);
-    const roots = [this.cwd, ...(this.workspaceRoots ?? [])];
+    // A babysit Run's level refuses it before the workspace, a card or the mode can allow it. ACP takes no reason.
+    const reason = this.guard && request.kind === "command" ? babysitDenial(request.command, this.guard) : null;
+    if (reason) {
+      if (request.stepId) this.refused.set(request.stepId, { command: request.command, reason });
+      this.reply(id, outcome(pickOption(options, "deny")));
+      return;
+    }
+    const once = { once: request.kind === "command" && writesRemote(request.command) };
+    const decided = this.access.answer(request, this.permissions.mode);
+    if (decided) {
+      this.reply(id, outcome(pickOption(options, decided.decision, once)));
+      return;
+    }
+    const roots = [this.cwd, ...(this.access.roots ?? [])];
     // Resolved through symlinks: the agent names files by their real path (/private/var/… on macOS).
     const inWorkspace = request.kind === "edit" && request.files.length > 0 && insideWorkspace(roots, request.files, this.cwd);
-    this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision))), { inWorkspace });
+    // Auto allows changes inside the worktree. An agent whose own mode can't say so (Kiro asks before every edit)
+    // gets that answer here, without a card.
+    if (inWorkspace && this.permissions.mode === "auto") {
+      this.reply(id, outcome(pickOption(options, "allow", once)));
+      return;
+    }
+    // Auto's risk filter (Kiro): a command that stays inside the worktree runs; a risky one gets a card that says why.
+    if (this.config.riskFilter && this.permissions.mode === "auto" && request.kind === "command") {
+      const risk = commandRisk(request.command, { cwd: request.cwd ?? this.cwd, roots });
+      if (!risk) {
+        this.reply(id, outcome(pickOption(options, "allow", once)));
+        return;
+      }
+      request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
+    }
+    this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision, once))), { inWorkspace });
   }
 
   // Antigravity asks the user to choose through a permission request whose tool call id starts with
@@ -513,11 +640,13 @@ class AcpSession {
   async finishTurn(events) {
     if (!this.turnActive) return;
     this.turnActive = false;
+    this.escalation = null;
     const markEnded = this.markTurnEnded;
     this.markTurnEnded = null;
     clearTimeout(this.interruptTimer);
     this.permissions.cancelAll();
     this.questions.cancelAll();
+    this.refused.clear();
     const thinking = closeThinking(this.state);
     // The transcripts' last word lands in the turn; a stopped turn stops its children too.
     this.subagents?.turnEnded({ cancelled: events.some((event) => event.type === "turn-cancelled") });

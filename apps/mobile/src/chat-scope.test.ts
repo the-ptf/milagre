@@ -35,9 +35,12 @@ test("the mobile view keeps canonical Link identity and maps shared Chats only f
   const copy = phoneSnapshot({ link, runs });
   assert.equal(copy.project.path, `milagre-link:${id}`);
   assert.equal(copy.project.link, link);
+  assert.ok(copy.project.state.sessions[7] !== undefined);
   assert.equal(copy.project.state.sessions[7].worktree_id, 7);
+  assert.ok(copy.project.state.worktrees[7] !== undefined);
   assert.equal(copy.project.state.worktrees[7].path, "/owned/workspace");
   assert.equal(copy.runs, runs);
+  assert.ok(link.state.sessions[7] !== undefined);
   assert.equal("worktree_id" in link.state.sessions[7], false, "view mapping never changes canonical Link state");
   assert.equal(memberForDiff(copy.project, 7, "web")?.path, "/owned/web");
   assert.equal(memberForDiff(copy.project, 7, "web")?.base, "develop");

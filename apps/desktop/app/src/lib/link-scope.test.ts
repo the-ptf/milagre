@@ -33,7 +33,6 @@ test("Git member choice resolves stable Project IDs and rejects unrelated member
   };
   assert.equal(lib.memberWorktreeForAction(state, 1, "web").worktreePath, "/work/web");
   assert.throws(() => lib.memberWorktreeForAction(state, 1, "other"), /member/);
-  assert.equal(lib.linkChatRows(state)[0].worktreeCount, 2);
 });
 test("a pending send keeps its identity across scope navigation and clears after acknowledgement", () => {
   assert.ok(lib);

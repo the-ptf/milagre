@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React, { useState } from "react";
@@ -32,12 +33,12 @@ const receiver = [
   { id: 9, session_id: 4, role: "assistant", body: "The Link between api / main / Health check and web / main / Health client was removed, so this Delegation was cancelled before delivery: \\"Also add a retry\\"",
     context: { kind: "linked-notice", delegationId: "d2" } },
 ];
-const state = (id, title) => ({ next_id: 9, projects: {}, worktrees: { 1: { id: 1, project_id: 1, path: "/" + id, name: "main", diff: { added: 12, removed: 3 } } }, sessions: { 2: { id: 2, worktree_id: 1, agent_name: "main", status: "Stopped", title, provider: id === "web" ? "codex" : "claude" } }, messages: [], tasks: {} });
+const state = (id, title) => ({ next_id: 9, projects: {}, worktrees: { 1: { id: 1, project_id: 1, path: "/" + id, name: "main", diff: { added: 12, removed: 3 } } }, sessions: { 2: { id: 2, worktree_id: 1, agent_name: "main", status: "Stopped", title, provider: id === "web" ? "codex" : "claude", summary: { count: 2, firstId: 2, lastId: 2 } } }, messages: [], tasks: {} });
 window.milagre = {
   getCanvas: async () => ({ projects: [{ id: "a", path: "/api", name: "api", openedAt: "", position: { x: 0, y: 0 } }, { id: "w", path: "/web", name: "web", openedAt: "", position: { x: 460, y: 0 } }],
     links: [{ id: "link-1", a: { project_id: "a" }, b: { project_id: "w" }, created_at: "" }], worktreePositions: {}, states: [{ path: "/api", state: state("api", "Health check") }, { path: "/web", state: state("web", "Health client") }] }),
   stopNegotiation: async (id) => { window.stopped = id; },
-  addLink: async () => [], removeLink: async () => [], setProjectPosition: async () => [], setWorktreePosition: async () => null,
+  addLink: async () => [], removeLink: async () => [], setProjectPosition: async () => [], setWorktreePosition: async () => null, getProjectImage: async () => null,
 };
 const work = { delegations: [{ id: "d1", link_id: "link-1", from_chat: "/api#2", to_chat: "/web#2", from_label: "api / main / Health check", to_label: "web / main / Health client", status: "running", negotiation_id: "n1", round: 1, message: "Agree on the payload" }],
   negotiations: [{ id: "n1", link_id: "link-1", chats: ["/api#2", "/web#2"], labels: ["api / main / Health check", "web / main / Health client"], round: 1 }], receiveOnly: ["/web#2"] };
@@ -93,13 +94,13 @@ async function browserChecks() {
   const button = (label) => `[...document.querySelectorAll("button")].find((item) => item.textContent.trim() === ${JSON.stringify(label)})`;
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!${button("Always allow for this Link in this chat")}`);
+    await waitFor(`!!${button("Always allow for this Link in this Chat")}`);
     const cardText = await evaluate("document.body.textContent");
     assert.match(cardText, /Open a Negotiation with web \/ main \/ Health client\?/);
     assert.match(cardText, /Negotiation, up to 10 rounds\./);
     assert.match(cardText, /Agree on the \/health payload: I propose \{ ok: boolean, version: string \}\./);
     await screenshot("approval-card");
-    await evaluate(`${button("Always allow for this Link in this chat")}.click()`);
+    await evaluate(`${button("Always allow for this Link in this Chat")}.click()`);
     assert.equal(await evaluate("window.answer()"), "allow-for-chat");
 
     await evaluate('window.setFixture("receiver")');
@@ -151,7 +152,7 @@ async function main() {
           if (id === "/__delegation_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__delegation__") return next();
             const html = await server.transformIndexHtml(
               request.url,

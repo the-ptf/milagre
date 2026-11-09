@@ -102,7 +102,13 @@ test("while a computer isn't online, the window's reads come from its cache; any
           ? [{ path: "/p", name: "p" }]
           : method === "project:switch"
             ? { path: "/p", name: "p", state: { sessions: { 4: { id: 4 } } } }
-            : null,
+            : method === "routines:list"
+              ? { routines: [{ id: "abcd1234", target: { kind: "chat", chatId: "/p#4" }, runs: [] }] }
+              : method === "routines:enabled:read"
+                ? { enabled: true }
+                : method === "routines:hook"
+                  ? { url: "https://secret", signed: false }
+                  : null,
       remove: async (id) => void removed.push(id),
     },
     { cache },
@@ -110,12 +116,17 @@ test("while a computer isn't online, the window's reads come from its cache; any
   // Online: answers go through, and the lists and states they carry are kept.
   assert.deepEqual(await call("computers:invoke", ID, "project:recent", []), [{ path: `${ID}|/p`, name: "p" }]);
   await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
+  await call("computers:invoke", ID, "routines:list", []);
+  await call("computers:invoke", ID, "routines:enabled:read", []);
+  await call("computers:invoke", ID, "routines:hook", [`${ID}|abcd1234`]);
   await call("computers:remember", ID, {
     kind: "chat",
     scope: `${ID}|/p`,
     chatId: 4,
     window: { messages: [{ id: 9, body: "kept" }], hasMore: true, total: 30 },
   });
+  // The copies an answer carries are written once the answer is on its way.
+  await new Promise(setImmediate);
   await call("computers:remember", ID, { kind: "state", scope: `${ID}|/p`, state: { sessions: { 4: { id: 4, title: "newer" } } } });
 
   state = "offline";
@@ -139,6 +150,29 @@ test("while a computer isn't online, the window's reads come from its cache; any
   assert.deepEqual(await call("computers:invoke", ID, "chat:runs", []), { runs: {}, seq: 0 });
   await assert.rejects(call("computers:invoke", ID, "project:switch", [`${ID}|/never`]), { message: "studio is offline." });
   await assert.rejects(call("computers:invoke", ID, "chat:send", [{ projectPath: `${ID}|/p` }]), { message: "studio is offline." });
+  // Its Routines read as last seen; a webhook URL is a secret, never kept, and a change waits for it.
+  assert.deepEqual(await call("computers:invoke", ID, "routines:list", []), {
+    routines: [{ id: `${ID}|abcd1234`, target: { kind: "chat", chatId: `${ID}|/p#4` }, runs: [] }],
+  });
+  assert.deepEqual(await call("computers:invoke", ID, "routines:enabled:read", []), { enabled: true });
+  await assert.rejects(call("computers:invoke", ID, "routines:targets", []), { message: "studio is offline." });
+  await assert.rejects(call("computers:invoke", ID, "routines:hook", [`${ID}|abcd1234`]), { message: "studio is offline." });
+  await assert.rejects(call("computers:invoke", ID, "routines:update", [`${ID}|abcd1234`, { enabled: false }]), { message: "studio is offline." });
+
+  // The window paints a chat from its copy while the computer, online, answers: the copy comes back qualified.
+  await call("computers:remember", ID, {
+    kind: "chat",
+    scope: `${ID}|/p`,
+    chatId: 7,
+    window: { messages: [{ id: 70, body: "kept copy" }], hasMore: true, total: 12 },
+  });
+  assert.deepEqual(await call("computers:recall", ID, { kind: "chat", scope: `${ID}|/p`, chatId: 7 }), {
+    messages: [{ id: 70, body: "kept copy" }],
+    hasMore: false,
+    total: 12,
+  });
+  assert.equal(await call("computers:recall", ID, { kind: "chat", scope: `${ID}|/p`, chatId: 8 }), null, "a chat never kept has no copy");
+  assert.equal(await call("computers:recall", ID, { kind: "state", scope: `${ID}|/p` }), null, "only chats are recalled");
 
   await call("computers:remove", ID);
   assert.deepEqual(removed, [ID]);
@@ -149,7 +183,129 @@ test("while a computer isn't online, the window's reads come from its cache; any
   listed = false;
   await call("computers:remember", ID, { kind: "chat", scope: `${ID}|/p`, chatId: 4, window: { messages: [], hasMore: false, total: 0 } });
   await call("computers:invoke", ID, "project:recent", []);
+  await new Promise(setImmediate);
   await assert.rejects(fs.stat(path.join(dir, ID)), { code: "ENOENT" });
+});
+
+test("a computer away still says where its Chats home is, and its kept home reads as the home", async (t) => {
+  const fs = require("node:fs/promises");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { createComputerCaches } = require("./computer-cache.cjs");
+  const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  const HOME = "/Users/a/.milagre/chats";
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "computers-ipc-chats-"));
+  const cache = createComputerCaches({ dir });
+  t.after(async () => {
+    cache.close();
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
+  });
+  let state = "online";
+  const { call } = setup(
+    {
+      list: () => [{ ...studio, id: ID, state }],
+      invoke: async (_id, method) =>
+        method === "chats:home"
+          ? { path: HOME, exists: true }
+          : method === "chats:ensure"
+            ? { path: HOME, name: "chats", kind: "chats", state: { sessions: { 1: { id: 1 } } } }
+            : null,
+    },
+    { cache },
+  );
+  assert.deepEqual(await call("computers:invoke", ID, "chats:home", []), { path: `${ID}|${HOME}`, exists: true });
+  assert.equal((await call("computers:invoke", ID, "chats:ensure", [])).kind, "chats");
+  await new Promise(setImmediate);
+  state = "offline";
+  assert.deepEqual(await call("computers:invoke", ID, "chats:home", []), { path: `${ID}|${HOME}`, exists: true });
+  assert.deepEqual(await call("computers:invoke", ID, "project:read", [`${ID}|${HOME}`]), {
+    path: `${ID}|${HOME}`,
+    name: "chats",
+    kind: "chats",
+    state: { sessions: { 1: { id: 1 } } },
+  });
+  // Making the home needs the computer.
+  await assert.rejects(call("computers:invoke", ID, "chats:ensure", []), { message: "studio is offline." });
+});
+
+test("the copy an opened Project's state leaves is written after the answer, once per change", async (t) => {
+  const fs = require("node:fs/promises");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { createComputerCaches } = require("./computer-cache.cjs");
+  const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "computers-ipc-after-"));
+  const cache = createComputerCaches({ dir });
+  t.after(async () => {
+    cache.close();
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
+  });
+  const puts = [];
+  const put = cache.put.bind(cache);
+  cache.put = (...args) => {
+    puts.push(args[2]);
+    return put(...args);
+  };
+  let title = "first";
+  const { call } = setup(
+    {
+      list: () => [{ ...studio, id: ID }],
+      invoke: async () => ({ path: "/p", name: "p", state: { sessions: { 4: { id: 4, title } } } }),
+    },
+    { cache },
+  );
+  assert.equal((await call("computers:invoke", ID, "project:read", [`${ID}|/p`])).path, `${ID}|/p`);
+  assert.deepEqual(puts, [], "the answer goes first");
+  await new Promise(setImmediate);
+  assert.deepEqual(puts, ["/p"]);
+  assert.deepEqual(cache.get(ID, "scope", "/p"), { name: "p", state: { sessions: { 4: { id: 4, title: "first" } } } });
+  // Opened again unchanged, then changed: only the change is written (the cache skips what it already holds).
+  const { DatabaseSync } = require("node:sqlite");
+  const look = new DatabaseSync(path.join(dir, ID, "cache.sqlite"));
+  t.after(() => look.close());
+  const at = () => look.prepare("SELECT at FROM entries WHERE kind = 'scope' AND key = '/p'").get().at;
+  const first = at();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
+  await new Promise(setImmediate);
+  assert.equal(at(), first, "an unchanged state is not written again");
+  title = "second";
+  await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
+  await new Promise(setImmediate);
+  assert.ok(at() > first);
+  assert.equal(cache.get(ID, "scope", "/p").state.sessions[4].title, "second");
+  // A state the window remembers before the answer's copy is written is newer: the waiting copy is dropped.
+  title = "third";
+  await call("computers:invoke", ID, "project:read", [`${ID}|/p`]);
+  await call("computers:remember", ID, { kind: "state", scope: `${ID}|/p`, state: { sessions: { 4: { id: 4, title: "remembered" } } } });
+  await new Promise(setImmediate);
+  assert.equal(cache.get(ID, "scope", "/p").state.sessions[4].title, "remembered");
+});
+
+test("while a computer is reconnecting, what its cache can't answer goes to it (and waits there) instead of failing as offline", async () => {
+  const invoked = [];
+  for (const state of ["connecting", "reconnecting"]) {
+    const { call } = setup(
+      {
+        list: () => [{ ...studio, state }],
+        invoke: async (id, method, args) => {
+          invoked.push([state, method, args]);
+          return { sent: true };
+        },
+      },
+      { cache: { get: () => null, put() {}, close() {} } },
+    );
+    assert.deepEqual(await call("computers:invoke", "c1", "chat:send", [{ projectPath: "c1|/p" }]), { sent: true });
+  }
+  assert.deepEqual(
+    invoked.map(([state, method]) => [state, method]),
+    [
+      ["connecting", "chat:send"],
+      ["reconnecting", "chat:send"],
+    ],
+  );
+  const { call } = setup({ list: () => [{ ...studio, state: "offline" }], invoke: async () => assert.fail("an offline computer is not called") });
+  await assert.rejects(call("computers:invoke", "c1", "chat:send", [{}]), { message: "studio is offline." });
 });
 
 test("a damaged cache file is deleted so it rebuilds, warns once, and never fails the call", async (t) => {
@@ -181,6 +337,7 @@ test("a damaged cache file is deleted so it rebuilds, warns once, and never fail
   assert.equal(warnings.length, 1, "warned once for this computer and kind of error");
   state = "online";
   await call("computers:invoke", ID, "project:recent", []);
+  await new Promise(setImmediate);
   assert.deepEqual(cache.get(ID, "recent", ""), [{ path: "/p", name: "p" }], "it rebuilds");
 });
 
@@ -197,4 +354,44 @@ test("a computer's events reach main's own listener already naming it", () => {
   });
   ipc.event(ID, "notification:waiting", { chatId: "/p#2", requestId: "q", title: "t", subtitle: "Fix login" });
   assert.deepEqual(heard, [[ID, "notification:waiting", { chatId: `${ID}|/p#2`, requestId: "q", title: "t", subtitle: "Fix login" }]]);
+});
+
+test("a Project opened from a computer's offline copy, and a window's note about one, are logged for daemon.log", async (t) => {
+  const fs = require("node:fs/promises");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { createComputerCaches } = require("./computer-cache.cjs");
+  const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "computers-ipc-log-"));
+  const cache = createComputerCaches({ dir });
+  t.after(async () => {
+    cache.close();
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
+  });
+  let state = "online";
+  const { call } = setup(
+    {
+      list: () => [{ ...studio, id: ID, state }],
+      invoke: async (_id, method) => (method === "project:read" ? { path: "/p", name: "p", state: { sessions: { 4: { id: 4 } } } } : []),
+    },
+    { cache },
+  );
+  const logged = t.mock.method(console, "log", () => {});
+  await call("computers:invoke", ID, "project:read", [`${ID}|/p`]);
+  // The copy is written once the answer is on its way.
+  await new Promise((resolve) => setImmediate(resolve));
+  await call("computers:invoke", ID, "project:recent", []);
+  assert.equal(logged.mock.callCount(), 0, "an online read logs nothing");
+  state = "reconnecting";
+  await call("computers:invoke", ID, "project:read", [`${ID}|/p`, { state: false }]);
+  await call("computers:invoke", ID, "project:recent", []);
+  await call("computers:note", ID, `${ID}|/p opened Chat 9 from a copy without a number, which lacks it (1 Chats)`);
+  await call("computers:note", ID, 7);
+  assert.deepEqual(
+    logged.mock.calls.map((entry) => entry.arguments[0]),
+    [
+      `computers: ${ID} project:read /p answered from its offline copy (reconnecting)`,
+      `computers: ${ID} ${ID}|/p opened Chat 9 from a copy without a number, which lacks it (1 Chats)`,
+    ],
+  );
 });

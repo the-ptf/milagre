@@ -12,6 +12,7 @@ const { startDaemon } = require("@milagre/daemon/server");
 const { connect } = require("@milagre/daemon/client");
 const { compatibleClient } = require("@milagre/daemon/bootstrap");
 const { connectDesktopRuntime } = require("./daemon-runtime.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 async function waitFor(read, attempts = 200) {
   for (let i = 0; i < attempts; i++) {
@@ -46,10 +47,13 @@ async function fixture(t) {
   t.after(async () => {
     await desktop.close().catch(() => {});
     for (const d of daemons) await d.close();
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   return { dataDir, project, daemon, desktop, events, start };
 }
+
+// These stand in for a host with a bare socket; a Windows pipe answers only a host that passes its handshake (windows-transport.test.cjs).
+const NEEDS_UNIX_SOCKET = { skip: process.platform === "win32" && "a fake host can't pass the Windows pipe handshake" };
 
 test("desktop shares saved Chat state with another client and quit keeps the daemon available", async (t) => {
   const { dataDir, project, desktop, events } = await fixture(t);
@@ -91,7 +95,7 @@ test("desktop reconnect skips a deleted Project and can open another Project", a
   await desktop.openProject(project);
   await daemon.close();
   await waitFor(() => events.some((e) => e.channel === "runtime:connection" && !e.payload.connected));
-  await fs.rm(project, { recursive: true, force: true });
+  await fs.rm(project, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   await start();
   await waitFor(() => events.some((e) => e.channel === "runtime:connection" && e.payload.connected));
   const replacement = path.join(path.dirname(project), "replacement");
@@ -100,7 +104,7 @@ test("desktop reconnect skips a deleted Project and can open another Project", a
   assert.equal((await desktop.openProject(replacement)).path, replacement);
 });
 
-test("recovery disconnects an overflowing event stream before publishing a snapshot", async (t) => {
+test("recovery disconnects an overflowing event stream before publishing a snapshot", NEEDS_UNIX_SOCKET, async (t) => {
   const net = require("node:net");
   const { once } = require("node:events");
   const { socketPath, prepareSocketDirectory } = require("../../daemon/src/paths.cjs");
@@ -143,7 +147,7 @@ test("recovery disconnects an overflowing event stream before publishing a snaps
     await desktop.close();
     for (const client of sockets) client.destroy();
     await new Promise((resolve) => server.close(resolve));
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   for (const client of sockets) client.destroy();
   await waitFor(() => overflowClosed);
@@ -201,7 +205,7 @@ for (const stopHost of [false, true]) {
     const rename = fs.rename;
     let fail = true;
     t.mock.method(fs, "rename", async (...args) => {
-      if (fail && String(args[1]).endsWith("/coordination.json")) throw new Error("disk full");
+      if (fail && path.basename(String(args[1])) === "coordination.json") throw new Error("disk full");
       return rename(...args);
     });
     await desktop.invoke("chat:git-note", [`${project}#${session.id}`, "Keep this accepted note"]);
@@ -345,13 +349,29 @@ async function fakeHost(t, { capabilities = ["desktop-v1", "snapshot-pages-v1", 
   t.after(async () => {
     for (const client of sockets) client.destroy();
     await new Promise((resolve) => server.close(() => resolve()));
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   return { dataDir, host, server };
 }
 const row = ({ channel, payload }) => [channel, payload.event?.type ?? null, payload.state ?? null, "stateTooLarge" in payload];
 
-test("after a reconnect, hostMethods are the host's it reconnected to, even an older one with fewer", async (t) => {
+test("a desktop requiring daemon-owned computers marks an older host for explicit restart", NEEDS_UNIX_SOCKET, async (t) => {
+  const { dataDir } = await fakeHost(t);
+  const events = [];
+  const desktop = await connectDesktopRuntime({
+    dataDir,
+    version: "test",
+    requiredCapabilities: ["computer-management-v1"],
+    outdatedMessage: "Restart for computer management",
+    emit: (channel, payload) => events.push({ channel, payload }),
+  });
+  t.after(() => desktop.close());
+  assert.ok(
+    events.some((item) => item.channel === "runtime:connection" && item.payload.hostOutdated && item.payload.message === "Restart for computer management"),
+  );
+});
+
+test("after a reconnect, hostMethods are the host's it reconnected to, even an older one with fewer", NEEDS_UNIX_SOCKET, async (t) => {
   const { dataDir, host } = await fakeHost(t);
   host.methods = ["project:open", "devices:take-notices"];
   const events = [];
@@ -368,7 +388,7 @@ test("after a reconnect, hostMethods are the host's it reconnected to, even an o
   assert.ok(desktop.methods.includes("devices:take-notices"));
 });
 
-test("events whose state was left out reach the window with it, in order, one read per burst", async (t) => {
+test("events whose state was left out reach the window with it, in order, one read per burst", NEEDS_UNIX_SOCKET, async (t) => {
   let reads = 0;
   const { dataDir, host } = await fakeHost(t, {
     snapshot: (request, protocol) => {
@@ -401,7 +421,7 @@ test("events whose state was left out reach the window with it, in order, one re
   assert.deepEqual(host.reads, ["/p"], "one read answered the whole burst");
 });
 
-test("a failed state read keeps the window state and still moves the turn", async (t) => {
+test("a failed state read keeps the window state and still moves the turn", NEEDS_UNIX_SOCKET, async (t) => {
   const { dataDir, host } = await fakeHost(t, {
     snapshot: (request, protocol) => protocol.send({ v: 1, id: request.id, error: { code: "COMMAND_FAILED", message: "gone" } }),
   });
@@ -419,7 +439,7 @@ test("a failed state read keeps the window state and still moves the turn", asyn
   ]);
 });
 
-test("a host without result pages still serves the desktop, says so, and can be restarted into this one", async (t) => {
+test("a host without result pages still serves the desktop, says so, and can be restarted into this one", NEEDS_UNIX_SOCKET, async (t) => {
   let stopped = false;
   const { dataDir, host } = await fakeHost(t, {
     capabilities: ["desktop-v1", "snapshot-pages-v1"],
@@ -470,7 +490,7 @@ test("a host without result pages still serves the desktop, says so, and can be 
   await assert.rejects(fs.stat(path.join(dataDir, "runtime.lock")), { code: "ENOENT" }, "the new host stopped");
 });
 
-test("a restart whose new host fails to start says why, and its retries start one", async (t) => {
+test("a restart whose new host fails to start says why, and its retries start one", NEEDS_UNIX_SOCKET, async (t) => {
   const { dataDir } = await fakeHost(t, {
     capabilities: ["desktop-v1", "snapshot-pages-v1"],
     onStop: async (connection, server) => {
@@ -506,7 +526,7 @@ test("a restart whose new host fails to start says why, and its retries start on
   await assert.rejects(fs.stat(path.join(dataDir, "runtime.lock")), { code: "ENOENT" }, "the new host stopped");
 });
 
-test("large Link events hydrate from the Link snapshot and retain one completed reply", async (t) => {
+test("large Link events hydrate from the Link snapshot and retain one completed reply", NEEDS_UNIX_SOCKET, async (t) => {
   const id = require("node:crypto").randomUUID();
   const state = { next_id: 3, sessions: { 1: { id: 1 } }, messages: [{ id: 2, session_id: 1, body: "Shared reply" }], preparations: {} };
   const { dataDir, host } = await fakeHost(t, { snapshot: (request, protocol) => protocol.send({ v: 1, id: request.id, result: { link: { id }, state } }) });
@@ -582,7 +602,7 @@ async function restartableHost(t) {
   await host.listen();
   t.after(async () => {
     if (host.server) await host.goAway();
-    await fs.rm(dataDir, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   return host;
 }
@@ -618,7 +638,7 @@ async function desktopOn(
 }
 const connections = (events) => events.filter((event) => event.channel === "runtime:connection").map((event) => event.payload);
 
-test("a host that went away by itself is started again once, and the window is told", async (t) => {
+test("a host that went away by itself is started again once, and the window is told", NEEDS_UNIX_SOCKET, async (t) => {
   const host = await restartableHost(t);
   const { events, starts } = await desktopOn(t, host);
   await host.goAway();
@@ -633,7 +653,7 @@ test("a host that went away by itself is started again once, and the window is t
   assert.equal(events.filter((event) => event.channel === "runtime:snapshot").length, 1, "reconnected once");
 });
 
-test("a command is never sent again: not one that was running, nor one refused while the host was away", async (t) => {
+test("a command is never sent again: not one that was running, nor one refused while the host was away", NEEDS_UNIX_SOCKET, async (t) => {
   const host = await restartableHost(t);
   let comeBack = () => {};
   const back = new Promise((resolve) => {
@@ -657,7 +677,7 @@ test("a command is never sent again: not one that was running, nor one refused w
   assert.equal(host.requests.includes("chat:patch"), false);
 });
 
-test("a host stopped on purpose stays stopped, and the desktop reconnects when one is started some other way", async (t) => {
+test("a host stopped on purpose stays stopped, and the desktop reconnects when one is started some other way", NEEDS_UNIX_SOCKET, async (t) => {
   const host = await restartableHost(t);
   const { events, starts } = await desktopOn(t, host);
   await host.goAway({ announced: true });
@@ -674,7 +694,7 @@ test("a host stopped on purpose stays stopped, and the desktop reconnects when o
   assert.equal(starts.length, 0);
 });
 
-test("a desktop update stops the host without starting it again, even one that does not announce its stop", async (t) => {
+test("a desktop update stops the host without starting it again, even one that does not announce its stop", NEEDS_UNIX_SOCKET, async (t) => {
   const host = await restartableHost(t);
   host.onStop = async () => {
     await delay(10);
@@ -687,7 +707,7 @@ test("a desktop update stops the host without starting it again, even one that d
   assert.equal(host.server, null);
 });
 
-test("a host that cannot be started again backs off, then says why and stops starting it", async (t) => {
+test("a host that cannot be started again backs off, then says why and stops starting it", NEEDS_UNIX_SOCKET, async (t) => {
   const host = await restartableHost(t);
   const { events, starts } = await desktopOn(t, host, async () => {
     throw new Error("no host here");
@@ -720,7 +740,7 @@ test("a real host killed outright is started again over its locks and socket, wi
   });
   t.after(async () => {
     await desktop.close({ stopHost: true }).catch(() => {});
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   await desktop.openProject(project);
   const observer = await connect({ dataDir });
@@ -747,7 +767,7 @@ test("a runtime given `connect` reconnects through it alone, and never starts, f
   t.after(async () => {
     await remote?.close().catch(() => {});
     await daemon.close();
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   });
   const connections = [];
   const calls = [];
@@ -780,8 +800,8 @@ test("a runtime given `connect` reconnects through it alone, and never starts, f
     events.some((event) => event.channel === "runtime:snapshot"),
     "and read the state again",
   );
-  await assert.rejects(remote.restartHost(), /Only this Mac's own host/);
-  await assert.rejects(remote.close({ stopHost: true }), /Only this Mac's own host/);
+  await assert.rejects(remote.restartHost(), new RegExp(`Only ${thisComputer}'s own host`));
+  await assert.rejects(remote.close({ stopHost: true }), new RegExp(`Only ${thisComputer}'s own host`));
   await remote.close();
   assert.equal(calls.includes("daemon:flush"), false);
   assert.equal(calls.includes("daemon:stop"), false);

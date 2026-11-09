@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ChatMessage } from "../model";
-import { chatMark, dropIntent, folderName, formatLineCount, orderChats } from "./chat-list.ts";
+import type { AgentSession, ChatMessage } from "../model";
+import { chatMark, dropIntent, folderName, formatLineCount, isChatListed, orderChats } from "./chat-list.ts";
+import { createPendingChat, withPendingChat } from "@milagre/shared/chats";
+import type { CoordinatorState } from "../model";
 
 test("chatMark: a question beats waiting beats running beats unread", () => {
   assert.equal(chatMark({ asking: true, waiting: true, running: true, unread: true }), "question");
   assert.equal(chatMark({ waiting: true, running: true, unread: true }), "waiting");
   assert.equal(chatMark({ waiting: false, running: true, unread: true }), "running");
+  assert.equal(chatMark({ waiting: false, running: false, interrupted: true, background: true, unread: true }), "interrupted");
   assert.equal(chatMark({ waiting: false, running: false, unread: true }), "unread");
   assert.equal(chatMark({ waiting: false, running: false, unread: false }), "idle");
 });
@@ -70,6 +73,34 @@ test("orderChats keeps pinned chats on top in their own order, whatever their ac
   );
 });
 
+test("sending to a Chat without loaded messages follows the chosen order until it is saved", () => {
+  const state = {
+    next_id: 100,
+    projects: {},
+    worktrees: {},
+    messages: [],
+    tasks: {},
+    sessions: {
+      1: { id: 1, worktree_id: 1, agent_name: "Claude", status: "Idle", summary: { count: 8, firstId: 3, lastId: 40 } },
+      10: { id: 10, worktree_id: 1, agent_name: "Claude", status: "Idle", summary: { count: 2, firstId: 12, lastId: 60 } },
+    },
+  } as CoordinatorState;
+  const pending = createPendingChat({ state, worktreeId: 1, sessionId: 1, body: "Follow up", model: "m", provider: "claude" });
+  const preview = withPendingChat(state, pending);
+  const saved = { ...state, sessions: { ...state.sessions, 1: { ...state.sessions[1], summary: { count: 9, firstId: 3, lastId: 100 } } } };
+  for (const current of [preview, saved]) {
+    const chats = Object.values(current.sessions).map((session) => ({ session, sessionMessages: [] }));
+    assert.deepEqual(
+      orderChats(chats, "created").map(({ session }) => session.id),
+      [10, 1],
+    );
+    assert.deepEqual(
+      orderChats(chats, "recent").map(({ session }) => session.id),
+      [1, 10],
+    );
+  }
+});
+
 test("dropIntent: between rows pins, unpins or reorders; on a row links other Worktrees", () => {
   const pinned = { pinned: true, worktree: "/a" };
   const recent = { worktree: "/b" };
@@ -82,4 +113,18 @@ test("dropIntent: between rows pins, unpins or reorders; on a row links other Wo
   assert.equal(dropIntent(recent, pinned, "on"), "link");
   assert.deepEqual(dropIntent(recent, pinned, "on", true), { invalid: "linked" });
   assert.deepEqual(dropIntent(recent, { worktree: "/b" }, "on"), { invalid: "same-worktree" });
+});
+
+test("isChatListed: a Chat needs a message, and a hidden Run Chat is listed only while it waits on the user", () => {
+  const message = (id: number) => ({ id, session_id: 1, body: "Result", context: null, role: "assistant" }) as ChatMessage;
+  const plain = { id: 1 } as AgentSession;
+  const hidden = { id: 2, routine: { routineId: "r", runId: "u", hidden: true } } as AgentSession;
+  const kept = { id: 3, routine: { routineId: "r", runId: "u", hidden: false } } as AgentSession;
+  assert.equal(isChatListed(plain, [message(1)], false), true);
+  assert.equal(isChatListed(plain, [], false), false);
+  assert.equal(isChatListed(hidden, [message(1)], false), false);
+  assert.equal(isChatListed(hidden, [message(1)], true), true);
+  assert.equal(isChatListed(kept, [message(1)], false), true);
+  // Waiting doesn't list a Chat that has nothing to show.
+  assert.equal(isChatListed(hidden, [], true), false);
 });

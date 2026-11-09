@@ -3,13 +3,15 @@ import Base from "../layouts/Base.astro";
 import Nav from "../components/Nav.astro";
 import HeroDemo from "../components/HeroDemo.astro";
 import DownloadButtons from "../components/DownloadButtons.astro";
+import LandingSections from "../components/LandingSections.astro";
+import BringYourSubscription from "../components/BringYourSubscription.astro";
 
 import { DOWNLOAD_ARM64, IPHONE_BETA_URL, REPO_URL } from "../links";
 
 // Search result: 50-60 characters of title, 150-160 of description, with the facts up front.
 const title = "Milagre: Claude Code and Codex agents on your Mac and phone";
 const description =
-  "Free, open-source app that runs Claude Code, Codex and Antigravity on your Mac, one Git worktree per chat. Answer approvals from your iPhone or Android.";
+  "Free, open-source app that runs Claude Code, Codex, Antigravity and Kiro on your Mac, one Git worktree per chat. Answer approvals from your iPhone or Android.";
 // Link previews (Discord, Slack, X, iMessage) lead with the headline instead.
 const socialTitle = "Milagre: your agents keep working. Answer them from anywhere.";
 const site = "https://milagre.cloud/";
@@ -62,12 +64,12 @@ const schema = [
 ];
 ---
 <Base title={title} description={description} socialTitle={socialTitle} schema={schema}>
-  <div class="page">
+  <div class="page" id="top">
     <Nav />
     <main class="hero container">
       <h1>Your agents keep working. <em>Answer them from anywhere.</em></h1>
       <p class="summary">
-        Milagre is a free, open-source (MIT) app for macOS and Linux that runs Claude Code, Codex and Antigravity coding agents on your
+        Milagre is a free, open-source (MIT) app for macOS and Linux that runs Claude Code, Codex, Antigravity and Kiro coding agents on your
         computer, each Chat in its own Git worktree. When an agent needs an approval or an answer, it shows up on your desktop and on the
         Milagre app for iPhone and Android, so you can reply from anywhere. <a href={REPO_URL}>Source on GitHub</a>.
       </p>
@@ -76,11 +78,13 @@ const schema = [
     <div class="fade" aria-hidden="true"></div>
     <div class="cta" data-cta><DownloadButtons /></div>
   </div>
+  <BringYourSubscription />
+  <LandingSections />
 </Base>
 
 <style>
-  /* One screen, no scroll. The devices rise from the bottom edge, which blurs and fades them out. */
-  .page { position: relative; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+  /* The hero takes three quarters of the window, so the first section already shows below it. */
+  .page { position: relative; display: flex; flex-direction: column; height: 75vh; height: 75dvh; overflow: hidden; }
   .hero { display: flex; flex: 1; flex-direction: column; align-items: center; gap: clamp(22px, 3.6vh, 36px); min-height: 0; padding-top: calc(clamp(20px, 4.5vh, 52px) + var(--lift, 0px)); text-align: center; }
   h1 { max-width: 22ch; font-size: clamp(32px, min(4.6vw, 5.8vh), 60px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.05; }
   /* The payoff line in an italic serif, a touch larger so it reads at the same size as the grotesk. */

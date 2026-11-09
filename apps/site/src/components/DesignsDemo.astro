@@ -1,0 +1,494 @@
+---
+// The Designs panel, rebuilt from the app's own markup (apps/desktop/app/src/components/agents/ArtifactCard.tsx and
+// ArtifactCanvas.tsx): the agent's designs side by side on a canvas, pinned comments and a choice, all sent to the agent
+// with Send. Plain markup and a small script, so it costs the page nothing until it's used.
+import {
+  Add01Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  CheckmarkCircle02Icon,
+  Comment01Icon,
+  FitToScreenIcon,
+  MinusSignIcon,
+  PaintBoardIcon,
+} from "@hugeicons/core-free-icons";
+import { icon } from "../hugeicon";
+
+const RESTAURANTS = [
+  { name: "Osteria Nove", kind: "Italian · 0.4 km", slots: ["7:30", "8:00", "8:15"] },
+  { name: "Kaiseki Sora", kind: "Japanese · 0.9 km", slots: ["8:00", "8:45"] },
+  { name: "Brasa", kind: "Grill · 1.2 km", slots: ["7:45", "8:00", "9:00"] },
+  { name: "Little Lisbon", kind: "Portuguese · 1.6 km", slots: ["8:30"] },
+];
+const DESIGNS = ["Reservations · List", "Reservations · Time first", "Reservations · Map"];
+const check = icon(CheckmarkCircle02Icon, 13);
+---
+
+<div class="designs" data-designs>
+  <header class="bar">
+    <span class="bar-icon" set:html={icon(PaintBoardIcon)} />
+    <div class="bar-title">
+      <div>Designs</div>
+      <div class="bar-sub">{DESIGNS.length} designs in this Chat</div>
+    </div>
+    <button type="button" class="send" data-send hidden>Send <span data-send-count></span></button>
+    <button type="button" class="tool" data-comment aria-pressed="false" aria-label="Comment on a design" title="Comment on a design" set:html={icon(Comment01Icon)} />
+    <button type="button" class="tool" data-zoom-out aria-label="Zoom out" title="Zoom out" set:html={icon(MinusSignIcon)} />
+    <span class="zoom" data-zoom></span>
+    <button type="button" class="tool" data-zoom-in aria-label="Zoom in" title="Zoom in" set:html={icon(Add01Icon)} />
+    <button type="button" class="tool" data-fit aria-label="Fit every design" title="Fit every design" set:html={icon(FitToScreenIcon)} />
+  </header>
+  <div class="viewport" data-viewport>
+    <div class="world" data-world>
+      {
+        DESIGNS.map((title, index) => (
+          <div class="frame" data-frame={index}>
+            <div class="head">
+              <div class="head-row">
+                <span class="num">{index + 1}</span>
+                <span class="title">{title}</span>
+                <button type="button" class="step" disabled aria-label={`Previous version of ${title}`} set:html={icon(ArrowLeft01Icon, 14)} />
+                <span class="version">v1 of 1</span>
+                <button type="button" class="step" disabled aria-label={`Next version of ${title}`} set:html={icon(ArrowRight01Icon, 14)} />
+                <button type="button" class="choose" data-choose={index} aria-pressed="false" aria-label={`Choose ${title}`}>
+                  <span class="choose-check" set:html={check} />
+                  <span data-choose-label>Choose</span>
+                </button>
+              </div>
+            </div>
+            <div class="body" data-body={index}>
+              <div class="mock" aria-hidden="true">
+                <div class="m-status">
+                  <span>9:41</span>
+                  <span class="m-dots">●●●</span>
+                </div>
+                {index === 0 && (
+                  <>
+                    <div class="m-head">
+                      <h4>Tonight</h4>
+                      <span class="m-pill">4 guests · 8:00 PM</span>
+                    </div>
+                    <div class="m-chips">
+                      <span class="m-chip on">Nearby</span>
+                      <span class="m-chip">Italian</span>
+                      <span class="m-chip">Open now</span>
+                    </div>
+                    {RESTAURANTS.map((place) => (
+                      <div class="m-card">
+                        <div class="m-photo" />
+                        <div class="m-info">
+                          <strong>{place.name}</strong>
+                          <span>{place.kind}</span>
+                          <div class="m-slots">
+                            {place.slots.map((slot) => (
+                              <span class="m-slot">{slot}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {index === 1 && (
+                  <>
+                    <div class="m-head">
+                      <h4>When?</h4>
+                      <span class="m-pill">4 guests</span>
+                    </div>
+                    <div class="m-times">
+                      {["7:00", "7:30", "8:00", "8:30", "9:00"].map((time) => (
+                        <span class={`m-time ${time === "8:00" ? "on" : ""}`}>{time}</span>
+                      ))}
+                    </div>
+                    <p class="m-note">3 places have a table at 8:00</p>
+                    {RESTAURANTS.slice(0, 3).map((place) => (
+                      <div class="m-card wide">
+                        <div class="m-info">
+                          <strong>{place.name}</strong>
+                          <span>{place.kind}</span>
+                        </div>
+                        <span class="m-book">Book 8:00</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {index === 2 && (
+                  <>
+                    <div class="m-map">
+                      <span class="m-marker" style="left: 22%; top: 30%">Osteria</span>
+                      <span class="m-marker on" style="left: 54%; top: 46%">Brasa</span>
+                      <span class="m-marker" style="left: 30%; top: 64%">Sora</span>
+                    </div>
+                    <div class="m-sheet">
+                      <div class="m-grab" />
+                      <strong>Brasa</strong>
+                      <span>Grill · 1.2 km · open until 11 PM</span>
+                      <div class="m-slots">
+                        {["7:45", "8:00", "9:00"].map((slot) => (
+                          <span class={`m-slot ${slot === "8:00" ? "on" : ""}`}>{slot}</span>
+                        ))}
+                      </div>
+                      <span class="m-cta">Book a table for 4</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div class="pins" data-pins={index} />
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+  <p class="status" data-status role="status"></p>
+</div>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-designs]");
+  if (root) setUp(root);
+
+  type Pin = { id: number; frame: number; x: number; y: number; text: string; sent: boolean };
+
+  function setUp(root: HTMLElement) {
+    const $ = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
+    const viewport = $("[data-viewport]");
+    const world = $("[data-world]");
+    const sendButton = $<HTMLButtonElement>("[data-send]");
+    const commentButton = $<HTMLButtonElement>("[data-comment]");
+    const status = $("[data-status]");
+    // World units: each design is a 390×844 phone screen, 80 apart; the title row stays 28px on screen at any zoom.
+    const FRAMES = root.querySelectorAll("[data-frame]").length;
+    const WIDTH = FRAMES * 390 + (FRAMES - 1) * 80;
+    const HEAD = 28;
+    const view = { s: 1, x: 0, y: 0, moved: false };
+    const pins: Pin[] = [];
+    let nextId = 1;
+    let open: number | null = null;
+    let commenting = false;
+    let pending: number | null = null;
+    let chosen: number | null = null;
+
+    const apply = () => {
+      world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`;
+      world.style.setProperty("--s", String(view.s));
+      $("[data-zoom]").textContent = `${Math.round(view.s * 100)}%`;
+    };
+    const fit = () => {
+      const { clientWidth: w, clientHeight: h } = viewport;
+      if (!w || !h) return;
+      view.s = Math.min((w - 48) / WIDTH, (h - 48 - HEAD) / 844, 1);
+      view.x = (w - WIDTH * view.s) / 2;
+      view.y = (h - HEAD - 844 * view.s) / 2;
+      view.moved = false;
+      apply();
+    };
+    const zoomBy = (factor: number, cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2) => {
+      const next = Math.min(1.5, Math.max(0.12, view.s * factor));
+      view.x = cx - ((cx - view.x) * next) / view.s;
+      view.y = cy - ((cy - view.y) * next) / view.s;
+      view.s = next;
+      view.moved = true;
+      apply();
+    };
+    new ResizeObserver(() => (view.moved ? apply() : fit())).observe(viewport);
+
+    // Drag pans; ⌘ or Ctrl with the wheel (and a trackpad pinch) zooms. A plain wheel keeps scrolling the page.
+    // The pressed design is remembered: with the pointer captured, the release event lands on the viewport.
+    let drag: { x: number; y: number; px: number; py: number; travelled: number; body: HTMLElement | null } | null = null;
+    viewport.addEventListener("pointerdown", (event) => {
+      const target = event.target as HTMLElement;
+      if (event.button !== 0 || target.closest("button, textarea, .bubble")) return;
+      drag = { x: view.x, y: view.y, px: event.clientX, py: event.clientY, travelled: 0, body: target.closest<HTMLElement>("[data-body]") };
+      try {
+        viewport.setPointerCapture(event.pointerId);
+      } catch {
+        // A pointer the browser no longer tracks; the drag still follows the moves the viewport sees.
+      }
+    });
+    viewport.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const dx = event.clientX - drag.px,
+        dy = event.clientY - drag.py;
+      drag.travelled = Math.max(drag.travelled, Math.hypot(dx, dy));
+      if (drag.travelled < 4) return;
+      viewport.classList.add("dragging");
+      view.x = drag.x + dx;
+      view.y = drag.y + dy;
+      view.moved = true;
+      apply();
+    });
+    const endDrag = (event: PointerEvent) => {
+      if (!drag) return;
+      const tapped = drag.travelled < 4;
+      const body = drag.body;
+      drag = null;
+      viewport.classList.remove("dragging");
+      // A tap on a design in comment mode pins a comment where it landed.
+      if (tapped && commenting && body) {
+        const rect = body.getBoundingClientRect();
+        const pin: Pin = { id: nextId++, frame: Number(body.dataset.body), x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height, text: "", sent: false };
+        pins.push(pin);
+        open = pin.id;
+        render();
+      } else if (tapped) closeBubble();
+    };
+    viewport.addEventListener("pointerup", endDrag);
+    viewport.addEventListener("pointercancel", () => (drag = null));
+    viewport.addEventListener(
+      "wheel",
+      (event) => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        const rect = viewport.getBoundingClientRect();
+        zoomBy(Math.exp(-event.deltaY * 0.01), event.clientX - rect.left, event.clientY - rect.top);
+      },
+      { passive: false },
+    );
+    $("[data-zoom-in]").addEventListener("click", () => zoomBy(1.25));
+    $("[data-zoom-out]").addEventListener("click", () => zoomBy(1 / 1.25));
+    $("[data-fit]").addEventListener("click", fit);
+
+    commentButton.addEventListener("click", () => {
+      commenting = !commenting;
+      commentButton.setAttribute("aria-pressed", String(commenting));
+      commentButton.setAttribute("aria-label", commenting ? "Stop commenting" : "Comment on a design");
+      commentButton.title = commentButton.getAttribute("aria-label")!;
+      viewport.classList.toggle("commenting", commenting);
+    });
+
+    // One design can be chosen; choosing it again takes the choice back.
+    root.querySelectorAll<HTMLButtonElement>("[data-choose]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.choose);
+        pending = pending === index ? null : index;
+        render();
+      }),
+    );
+
+    const closeBubble = () => {
+      const pin = pins.find((item) => item.id === open);
+      if (pin && !pin.sent && !pin.text.trim()) pins.splice(pins.indexOf(pin), 1);
+      open = null;
+      render();
+    };
+    const feedback = () => pins.filter((pin) => !pin.sent && pin.text.trim()).length + (pending === null ? 0 : 1);
+    const updateSend = () => {
+      const count = feedback();
+      sendButton.hidden = count === 0;
+      $("[data-send-count]").textContent = String(count);
+    };
+    let statusTimer = 0;
+    const send = () => {
+      const comments = pins.filter((pin) => !pin.sent && pin.text.trim());
+      for (const pin of comments) pin.sent = true;
+      for (const pin of pins.filter((item) => !item.text.trim())) pins.splice(pins.indexOf(pin), 1);
+      const choice = pending;
+      if (pending !== null) chosen = pending;
+      pending = null;
+      open = null;
+      if (commenting) commentButton.click();
+      render();
+      const parts = [comments.length ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "", choice === null ? "" : "your choice"].filter(Boolean);
+      status.textContent = `Sent to the agent: ${parts.join(" and ")}.`;
+      status.classList.add("shown");
+      clearTimeout(statusTimer);
+      statusTimer = window.setTimeout(() => status.classList.remove("shown"), 4000);
+    };
+    sendButton.addEventListener("click", send);
+
+    function render() {
+      root.querySelectorAll<HTMLElement>("[data-frame]").forEach((frame) => {
+        const index = Number(frame.dataset.frame);
+        const button = frame.querySelector<HTMLButtonElement>("[data-choose]")!;
+        const sentHere = pending === null && chosen === index;
+        const isChosen = pending === index || sentHere;
+        frame.classList.toggle("chosen", isChosen);
+        button.setAttribute("aria-pressed", String(pending === index));
+        button.classList.toggle("on", isChosen);
+        button.classList.toggle("sent", sentHere);
+        frame.querySelector("[data-choose-label]")!.textContent = isChosen ? "Chosen" : "Choose";
+        const layer = frame.querySelector<HTMLElement>("[data-pins]")!;
+        layer.replaceChildren(
+          ...pins
+            .filter((pin) => pin.frame === index)
+            .map((pin) => pinElement(pin, pins.indexOf(pin) + 1)),
+        );
+      });
+      updateSend();
+      root.querySelector<HTMLTextAreaElement>(".bubble textarea")?.focus();
+    }
+
+    function pinElement(pin: Pin, number: number) {
+      const wrap = document.createElement("div");
+      wrap.className = "pin-wrap";
+      wrap.style.left = `${pin.x * 100}%`;
+      wrap.style.top = `${pin.y * 100}%`;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `pin ${pin.sent ? "sent" : ""}`;
+      button.textContent = String(number);
+      button.setAttribute("aria-label", `Comment ${number}${pin.text.trim() ? `: ${pin.text.trim()}` : ""}`);
+      button.setAttribute("aria-expanded", String(open === pin.id));
+      button.addEventListener("click", () => {
+        if (open === pin.id) closeBubble();
+        else {
+          open = pin.id;
+          render();
+        }
+      });
+      wrap.append(button);
+      if (open !== pin.id) return wrap;
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      if (pin.sent) {
+        const text = document.createElement("p");
+        text.textContent = pin.text;
+        const note = document.createElement("span");
+        note.className = "bubble-note";
+        note.textContent = "Sent to the agent";
+        bubble.append(text, note);
+      } else {
+        const field = document.createElement("textarea");
+        field.rows = 2;
+        field.placeholder = "Add a comment";
+        field.value = pin.text;
+        field.setAttribute("aria-label", `Comment ${number}`);
+        field.addEventListener("input", () => {
+          pin.text = field.value;
+          updateSend();
+        });
+        field.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            if (pin.text.trim()) send();
+            else closeBubble();
+          } else if ((event.key === "Enter" && !event.shiftKey) || event.key === "Escape") {
+            event.preventDefault();
+            closeBubble();
+          }
+        });
+        const row = document.createElement("div");
+        row.className = "bubble-row";
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Delete";
+        remove.addEventListener("click", () => {
+          pins.splice(pins.indexOf(pin), 1);
+          open = null;
+          render();
+        });
+        const hint = document.createElement("span");
+        hint.textContent = "Enter to keep · ⌘Enter to send";
+        row.append(remove, hint);
+        bubble.append(field, row);
+      }
+      wrap.append(bubble);
+      return wrap;
+    }
+
+    fit();
+    render();
+  }
+</script>
+
+<style>
+  .designs { position: relative; display: flex; flex-direction: column; height: clamp(460px, 52vw, 620px); overflow: hidden; border-radius: var(--radius-window); background: var(--surface); box-shadow: var(--shadow-overlay), 0 30px 80px oklch(0.1 0.02 258 / 0.45); text-align: left; user-select: none; -webkit-user-select: none; }
+  button { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+  :global([data-designs] svg) { display: block; }
+
+  .bar { display: flex; flex: none; align-items: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .bar-icon { display: flex; color: var(--ink); }
+  .bar-title { min-width: 0; flex: 1; margin-left: 4px; font-size: 13px; }
+  .bar-sub { color: var(--ink-3); font-size: 11px; }
+  .tool { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; color: var(--ink-2); transition: background-color 120ms, color 120ms; }
+  .tool:hover { background: var(--hover-2); color: var(--ink); }
+  .tool[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent-ink); }
+  .zoom { width: 40px; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+  .send { display: flex; align-items: center; gap: 6px; margin-right: 4px; padding: 4px 10px; border-radius: 8px; background: var(--ink); color: var(--surface); font-size: 12px; font-weight: 500; animation: pop 160ms var(--ease-out-strong) both; }
+  .send[hidden] { display: none; }
+  .send span { padding: 0 6px; border-radius: 999px; background: oklch(0.25 0.035 258 / 0.2); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  .viewport { position: relative; min-height: 0; flex: 1; overflow: hidden; background-color: var(--canvas); background-image: radial-gradient(oklch(0.44 0.03 258) 1px, transparent 1px); background-size: 24px 24px; cursor: grab; touch-action: pan-y; }
+  .viewport.dragging { cursor: grabbing; }
+  .viewport.commenting .body { cursor: crosshair; }
+  .world { --s: 1; position: absolute; top: 0; left: 0; display: flex; gap: 80px; transform-origin: 0 0; }
+  .frame { display: flex; width: 390px; flex: none; flex-direction: column; }
+  /* The title row stays the same size on screen however far the canvas zooms, as in the app. */
+  .head { position: relative; height: calc(28px / var(--s)); }
+  .head-row { position: absolute; bottom: 0; left: 0; display: flex; width: calc(390px * var(--s)); height: 28px; align-items: center; gap: 4px; padding-bottom: 6px; color: var(--ink); font-size: 12px; transform: scale(calc(1 / var(--s))); transform-origin: bottom left; }
+  .num { color: var(--ink-3); }
+  .title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 6px; color: var(--ink-2); }
+  .step:disabled { cursor: default; opacity: 0.4; }
+  .version { color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .choose { display: flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); white-space: nowrap; }
+  .choose:hover { background: var(--hover); }
+  .choose-check { display: none; }
+  .choose.on { border-color: var(--accent); background: var(--accent-tint); color: var(--accent-ink); }
+  .choose.on .choose-check { display: flex; }
+  .choose.sent { border-color: transparent; }
+  .body { position: relative; height: 844px; border: 2px solid var(--line); border-radius: 12px; background: #fff; box-shadow: var(--shadow-raised); }
+  .frame.chosen .body { border-color: var(--accent); }
+  .mock { height: 100%; overflow: hidden; border-radius: 10px; }
+  .pins { position: absolute; inset: 0; pointer-events: none; }
+
+  /* Pins and bubbles are made by the script, outside the scoped reset above: they reset their buttons themselves. */
+  :global([data-designs] .pin), :global([data-designs] .bubble-row button) { margin: 0; border: 0; font-family: var(--font-sans); cursor: pointer; appearance: none; }
+  :global([data-designs] .bubble textarea) { user-select: text; -webkit-user-select: text; }
+  :global([data-designs] .pin-wrap) { position: absolute; z-index: 1; pointer-events: auto; transform: translateY(-100%) scale(calc(1 / var(--s))); transform-origin: bottom left; }
+  :global([data-designs] .pin) { display: grid; width: 24px; height: 24px; padding: 0; place-items: center; line-height: 1; border-radius: 999px 999px 999px 0; background: var(--accent); color: #fff; font-size: 11px; font-weight: 500; box-shadow: var(--shadow-raised); animation: pop 160ms var(--ease-out-strong) both; }
+  :global([data-designs] .pin.sent) { background: var(--ink); color: var(--surface); }
+  :global([data-designs] .bubble) { position: absolute; top: 0; left: 32px; display: flex; width: 256px; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-raised); cursor: default; }
+  :global([data-designs] .bubble textarea) { width: 100%; padding: 0 4px; border: 0; background: transparent; color: var(--ink); font: 13px/1.4 var(--font-sans); resize: none; outline: none; }
+  :global([data-designs] .bubble p) { padding: 0 4px; font-size: 13px; white-space: pre-wrap; }
+  :global([data-designs] .bubble-note) { padding: 0 4px; color: var(--ink-3); font-size: 11px; }
+  :global([data-designs] .bubble-row) { display: flex; align-items: center; justify-content: space-between; color: var(--ink-3); font-size: 11px; }
+  :global([data-designs] .bubble-row button) { padding: 2px 6px; border-radius: 4px; background: transparent; color: var(--ink-3); font-size: 11px; }
+  :global([data-designs] .bubble-row button:hover) { background: var(--hover); color: var(--ink); }
+
+  .status { position: absolute; bottom: 16px; left: 50%; padding: 6px 12px; border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 12px; box-shadow: var(--shadow-overlay); opacity: 0; pointer-events: none; transform: translate(-50%, 8px); transition: opacity 200ms, transform 200ms var(--ease-out-strong); }
+  .status:global(.shown) { opacity: 1; transform: translate(-50%, 0); }
+  @keyframes pop { from { opacity: 0; transform: scale(0.9); } }
+
+  /* The agent's designs: a light Reservations app, nothing to do with Milagre's own look. */
+  .mock { color: #18181b; font: 15px/1.35 var(--font-sans); }
+  .m-status { display: flex; justify-content: space-between; padding: 14px 24px 8px; font-size: 14px; font-weight: 600; }
+  .m-dots { letter-spacing: 1px; font-size: 9px; }
+  .m-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; }
+  .m-head h4 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }
+  .m-pill { padding: 6px 12px; border-radius: 999px; background: #f4f4f5; font-size: 13px; font-weight: 500; }
+  .m-chips { display: flex; gap: 8px; padding: 4px 20px 16px; }
+  .m-chip { padding: 7px 14px; border: 1px solid #e4e4e7; border-radius: 999px; font-size: 13px; }
+  .m-chip.on { border-color: #18181b; background: #18181b; color: #fff; }
+  .m-card { display: flex; gap: 14px; margin: 0 20px 14px; padding: 12px; border: 1px solid #f0f0f2; border-radius: 16px; }
+  .m-card.wide { align-items: center; justify-content: space-between; padding: 16px; }
+  .m-photo { width: 84px; height: 84px; flex: none; border-radius: 12px; background: linear-gradient(135deg, #fbbf77, #e5703f); }
+  .m-card:nth-of-type(2n) .m-photo { background: linear-gradient(135deg, #a7c4a0, #4f7d5c); }
+  .m-info { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+  .m-info strong { font-size: 16px; }
+  .m-info span { color: #71717a; font-size: 13px; }
+  .m-slots { display: flex; gap: 6px; margin-top: 6px; }
+  .m-slot { padding: 5px 10px; border-radius: 8px; background: #fff1e6; color: #b4531f; font-size: 13px; font-weight: 600; }
+  .m-slot.on { background: #e5703f; color: #fff; }
+  .m-times { display: flex; gap: 8px; padding: 8px 20px; }
+  .m-time { flex: 1; padding: 14px 0; border-radius: 14px; background: #f4f4f5; font-size: 15px; font-weight: 600; text-align: center; }
+  .m-time.on { background: #e5703f; color: #fff; }
+  .m-note { margin: 10px 20px 14px; color: #71717a; font-size: 13px; }
+  .m-book { flex: none; padding: 9px 14px; border-radius: 10px; background: #18181b; color: #fff; font-size: 13px; font-weight: 600; }
+  .m-map { position: relative; height: 470px; margin: 4px 0 0; background-color: #eef1e8; background-image: linear-gradient(90deg, #fff 6px, transparent 6px), linear-gradient(#fff 6px, transparent 6px); background-size: 120px 140px; }
+  .m-marker { position: absolute; padding: 6px 10px; border-radius: 999px; background: #fff; font-size: 12px; font-weight: 600; box-shadow: 0 4px 12px rgb(0 0 0 / 0.12); }
+  .m-marker.on { background: #e5703f; color: #fff; }
+  .m-sheet { display: flex; flex-direction: column; gap: 4px; margin-top: -24px; padding: 10px 20px 20px; border-radius: 24px 24px 0 0; background: #fff; box-shadow: 0 -8px 24px rgb(0 0 0 / 0.08); position: relative; }
+  .m-grab { width: 40px; height: 5px; margin: 0 auto 10px; border-radius: 999px; background: #e4e4e7; }
+  .m-sheet strong { font-size: 22px; }
+  .m-sheet > span { color: #71717a; font-size: 13px; }
+  .m-cta { margin-top: 18px; padding: 15px; border-radius: 14px; background: #18181b; color: #fff; font-size: 15px; font-weight: 600; text-align: center; }
+
+  @media (hover: none) {
+    .viewport { touch-action: pan-y; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .send, :global([data-designs] .pin) { animation: none; }
+    .status { transition: none; }
+  }
+</style>

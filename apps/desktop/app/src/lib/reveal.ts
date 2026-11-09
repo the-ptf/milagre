@@ -1,11 +1,13 @@
+import { fileManager } from "./shortcut-hints.ts";
+
 export type ProjectMenuKey = "reveal" | "copy-path" | "copy-name" | "settings";
 
 /** The project's menu group, in order. The icon is picked where the menu is drawn. */
 export function projectMenuActions(isMac: boolean): Array<{ key: ProjectMenuKey; label: string }> {
   return [
-    { key: "reveal", label: isMac ? "Reveal in Finder" : "Show in file manager" },
-    { key: "copy-path", label: "Copy project path" },
-    { key: "copy-name", label: "Copy project name" },
+    { key: "reveal", label: isMac ? "Reveal in Finder" : `Show in ${fileManager}` },
+    { key: "copy-path", label: "Copy path" },
+    { key: "copy-name", label: "Copy name" },
     { key: "settings", label: "Project settings" },
   ];
 }

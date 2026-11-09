@@ -1,252 +1,115 @@
-import { useCallback, useState } from "react";
-import {
-  LINEAR_HINT,
-  LINEAR_MOVE_TO_STARTED_HINT,
-  LINEAR_MOVE_TO_STARTED_TITLE,
-  LINEAR_TITLE,
-  linearReadOnlyHint,
-  linearStatusLine,
-  linearWorkspaceLine,
-  linearWorkspaces,
-  type LinearStatus,
-} from "@milagre/shared/linear";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
-import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
-import { CustomThemeSection } from "./custom-theme-section";
-import { useMuriloMode } from "./murilo-mode";
+import { space } from "./design-tokens";
+import { useFocusEffect } from "expo-router";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
-import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { useSession } from "./session";
+import type { Client } from "./client";
+import { useUltracodeFatality } from "./ultracode-fatality-setting";
+import { Toggle, useStyles } from "./ui";
 import { useTheme } from "./theme";
-import { ErrorNotice, ListRow, PillButton, Toggle, useStyles } from "./ui";
+import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 
-/** Settings › Experimental: this phone's and the connected Mac's experimental switches, like desktop's Experimental section. */
+/** Settings › Church: features still taking shape, like desktop's Church section. Babysit PRs, Simlock and Computer use graduated. */
 export function ExperimentalSection() {
   const styles = useStyles();
-  const session = useSession();
-  const [muriloMode, setMuriloMode] = useMuriloMode();
+  const { colors } = useTheme();
   const [floatingInbox, setFloatingInbox] = useFloatingInbox();
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
-  const { settings, set } = useTheme();
-  // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
-  function changeCustomTheme(enabled: boolean) {
-    if (!enabled) {
-      set({
-        customThemeEnabled: false,
-        ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}),
-      });
-      return;
-    }
-    const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
-    set({
-      customThemeEnabled: true,
-      customTheme: settings.customTheme ?? seedsFrom(from),
-      colorTheme: "custom",
-    });
+  const session = useSession();
+  // Device notes, also kept by the Mac (its agents get the notes); null on a Mac without them.
+  const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
+  const [deviceNotesError, setDeviceNotesError] = useState("");
+  const [deviceNotesSaving, setDeviceNotesSaving] = useState(false);
+  const [deviceNotesClient, setDeviceNotesClient] = useState(session.client);
+  if (deviceNotesClient !== session.client) {
+    setDeviceNotesClient(session.client);
+    setDeviceNotes(null);
+    setDeviceNotesError("");
+    setDeviceNotesSaving(false);
   }
-  // The Mac's Linear switch and connection; null until the Mac answers (an older Mac never does). Re-read on focus:
-  // the phone gets no event when the Mac connects or disconnects.
-  // `moveToStarted` is on when a Mac that predates the switch sends none.
-  const [linear, setLinear] = useState<{
-    enabled: boolean;
-    moveToStarted: boolean;
-    status: LinearStatus;
-  } | null>(null);
-  const [linearError, setLinearError] = useState("");
-  const [sharingOwner, setSharingOwner] = useState<typeof session.client>(null);
-  useFocusEffect(
-    useCallback(() => {
-      const client = session.client;
-      setSharingOwner(null);
-      if (!client) return;
-      let live = true;
-      // Owner history remains available without a live Chat or a reachable sharing service.
-      // Confined demo phones and older hosts reject this call or return no history.
-      client.call<unknown>("artifact:all-page-shares", []).then(
-        (history) => live && setSharingOwner(Array.isArray(history) ? client : null),
-        () => live && setSharingOwner(null),
-      );
-      return () => {
-        live = false;
-      };
-    }, [session.client]),
-  );
-  // The Mac's limit auto-switch; null until the Mac answers (an older Mac never does).
-  const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
-  const [autoSwitchError, setAutoSwitchError] = useState("");
+  // Keep a pending write across blur/focus, but never apply its reply to a different connection.
+  const deviceNotesScope = useRef<{ client: Client; saving: boolean; revision: number } | null>(null);
+  useEffect(() => {
+    const client = session.client;
+    deviceNotesScope.current = client ? { client, saving: false, revision: 0 } : null;
+    return () => {
+      deviceNotesScope.current = null;
+    };
+  }, [session.client]);
   useFocusEffect(
     useCallback(() => {
       const client = session.client;
       if (!client) return;
       let live = true;
-      client.call<{ autoSwitch: boolean } | null>("limits:auto-switch:read", []).then(
-        (value) => live && setAutoSwitch(value ? value.autoSwitch === true : null),
-        () => live && setAutoSwitch(null),
-      );
+      const scope = deviceNotesScope.current;
+      if (scope && scope.client === client && !scope.saving) {
+        const revision = ++scope.revision;
+        const current = () => live && deviceNotesScope.current === scope && scope.revision === revision;
+        client.call<{ enabled: boolean } | null>("device-notes:read", []).then(
+          (value) => current() && setDeviceNotes(value ? value.enabled === true : null),
+          () => current() && setDeviceNotes(null),
+        );
+      }
       return () => {
         live = false;
       };
     }, [session.client]),
   );
-  async function changeAutoSwitch(next: boolean) {
-    const client = session.client;
-    if (!client || autoSwitch === null) return;
-    setAutoSwitchError("");
-    setAutoSwitch(next);
-    try {
-      const value = await client.call<{ autoSwitch: boolean }>("limits:auto-switch:save", [next]);
-      setAutoSwitch(value.autoSwitch === true);
-    } catch (failure) {
-      setAutoSwitch(!next);
-      setAutoSwitchError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
-  useFocusEffect(
-    useCallback(() => {
-      const client = session.client;
-      if (!client) return;
-      let live = true;
-      Promise.all([client.call<{ enabled: boolean; moveToStarted?: boolean }>("linear:enabled:read", []), client.call<LinearStatus>("linear:status", [])]).then(
-        // An older Mac answers null for commands it lacks: no Linear card.
-        ([value, status]) =>
-          live &&
-          setLinear(
-            value && status
-              ? {
-                  enabled: value.enabled === true,
-                  moveToStarted: value.moveToStarted !== false,
-                  status,
-                }
-              : null,
-          ),
-        () => live && setLinear(null),
-      );
-      return () => {
-        live = false;
-      };
-    }, [session.client]),
-  );
-  async function changeLinear(next: boolean) {
-    const client = session.client;
-    if (!client || !linear) return;
-    setLinearError("");
-    setLinear({ ...linear, enabled: next });
-    try {
-      const { enabled } = await client.call<{ enabled: boolean }>("linear:enabled:save", [next]);
-      setLinear((current) => current && { ...current, enabled });
-    } catch (failure) {
-      setLinear((current) => current && { ...current, enabled: !next });
-      setLinearError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
-  async function changeMoveToStarted(next: boolean) {
-    const client = session.client;
-    if (!client || !linear) return;
-    setLinearError("");
-    setLinear({ ...linear, moveToStarted: next });
-    try {
-      const { moveToStarted } = await client.call<{ moveToStarted: boolean }>("linear:move-to-started:save", [next]);
-      setLinear((current) => current && { ...current, moveToStarted });
-    } catch (failure) {
-      setLinear((current) => current && { ...current, moveToStarted: !next });
-      setLinearError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
   return (
-    <View style={{ gap: 8 }}>
-      {/* This phone's own switches, kept on the phone. */}
-      <View style={[styles.card, { gap: 4 }]}>
+    <View style={{ gap: space.md }}>
+      <View style={[styles.card, { gap: space.xs }]}>
         <Toggle title="Floating inbox" selected={floatingInbox} onPress={() => setFloatingInbox(!floatingInbox)} />
         <Text style={styles.caption}>
           A movable inbox button in the Chat. Tap to answer questions or approve requests. Flick it toward the left or right edge to tuck it away.
         </Text>
         {floatingInbox && (
           <View style={{ marginLeft: 16, gap: 4 }}>
-            <Toggle title="Show chat activity" selected={inboxActivity} onPress={() => setInboxActivity(!inboxActivity)} />
-            <Text style={styles.caption}>Include working chats with a progress summary and finished updates. Off: only questions and permission requests.</Text>
+            <Toggle title="Show Chat activity" selected={inboxActivity} onPress={() => setInboxActivity(!inboxActivity)} />
+            <Text style={styles.caption}>Include working Chats with a progress summary and finished updates. Off: only questions and permission requests.</Text>
           </View>
         )}
       </View>
-      <View style={[styles.card, { gap: 4 }]}>
-        <Toggle title="Murilo mode" selected={muriloMode} onPress={() => setMuriloMode(!muriloMode)} />
-        <Text style={styles.caption}>
-          Shows every tool call in the Chat, one row each, with the agent&apos;s notes between them. Replies no longer fold their activity into one line.
-        </Text>
-      </View>
-      <View style={[styles.card, { gap: 4 }]}>
+      <View style={[styles.card, { gap: space.xs }]}>
         <Toggle title="Ultracode Fatality" selected={fatality} onPress={() => setFatality(!fatality)} />
         <Text style={styles.caption}>
           Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.
         </Text>
       </View>
-      <View style={[styles.card, { gap: 4 }]}>
-        <Toggle title="Custom theme" selected={settings.customThemeEnabled} onPress={() => changeCustomTheme(!settings.customThemeEnabled)} />
-        <Text style={styles.caption}>Build a theme from a few colors. It shows up as &quot;Custom&quot; in Appearance.</Text>
-      </View>
-      {settings.customThemeEnabled && <CustomThemeSection />}
-      {!session.client && <Text style={styles.caption}>Connect to a Mac to change its experimental features.</Text>}
-      {session.client && (
+      {session.client && deviceNotesClient === session.client && deviceNotes !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle
-            title="Designs"
-            selected={session.designs.enabled === true}
-            disabled={session.designs.enabled === null || session.designs.stale || session.designs.saving}
-            onPress={() => void session.designs.save(session.designs.enabled !== true)}
+            title={DEVICE_NOTES_LABEL}
+            selected={deviceNotes}
+            disabled={deviceNotesSaving}
+            onPress={() => {
+              const scope = deviceNotesScope.current;
+              if (!scope || scope.client !== session.client || scope.saving) return;
+              scope.saving = true;
+              ++scope.revision; // A read started before this write must not replace its acknowledgement.
+              const next = !deviceNotes;
+              setDeviceNotesSaving(true);
+              setDeviceNotesError("");
+              scope.client.call<{ enabled: boolean }>("device-notes:save", [next]).then(
+                (value) => {
+                  if (deviceNotesScope.current !== scope) return;
+                  scope.saving = false;
+                  setDeviceNotesSaving(false);
+                  setDeviceNotes(value.enabled === true);
+                },
+                (error: Error) => {
+                  if (deviceNotesScope.current !== scope) return;
+                  scope.saving = false;
+                  setDeviceNotesSaving(false);
+                  setDeviceNotesError(error.message || "Could not change this setting.");
+                },
+              );
+            }}
           />
-          <Text style={styles.caption}>Create editable designs in Chat.</Text>
-          {sharingOwner === session.client && (
-            <ListRow
-              compact
-              title="Published pages"
-              subtitle="Manage public snapshots, including pages from deleted Chats."
-              onPress={() => router.push("/published-pages")}
-            />
-          )}
-          {session.designs.saving ? (
-            <Text style={styles.caption}>Saving...</Text>
-          ) : session.designs.stale && !session.designs.error ? (
-            <Text style={styles.caption}>Checking your Mac...</Text>
-          ) : null}
-          {session.designs.stale && session.designs.enabled !== null && <Text style={styles.caption}>Showing the last confirmed setting.</Text>}
-          {session.designs.error ? (
-            <>
-              <ErrorNotice message={session.designs.error} />
-              <PillButton title="Retry Designs setting" secondary onPress={() => void session.designs.refresh()} />
-            </>
-          ) : null}
-        </View>
-      )}
-      {session.client && autoSwitch !== null && (
-        <View style={[styles.card, { gap: 4 }]}>
-          <Toggle title="Switch accounts at usage limits" selected={autoSwitch} onPress={() => void changeAutoSwitch(!autoSwitch)} />
-          <Text style={styles.caption}>When a Chat hits its plan&apos;s usage limit, move its Project to the next signed-in account and continue.</Text>
-          {autoSwitchError ? <ErrorNotice message={autoSwitchError} /> : null}
-        </View>
-      )}
-      {session.client && linear !== null && (
-        <View style={[styles.card, { gap: 4 }]}>
-          <Toggle title={LINEAR_TITLE} selected={linear.enabled} onPress={() => void changeLinear(!linear.enabled)} />
-          <Text style={styles.caption}>{LINEAR_HINT}</Text>
-          {linear.enabled &&
-            (linearWorkspaces(linear.status).length ? (
-              linearWorkspaces(linear.status).map((workspace) => (
-                <Text key={workspace.id} style={styles.caption}>
-                  {`Connected to ${linearWorkspaceLine(workspace)}` +
-                    (linear.moveToStarted && workspace.canWrite === false ? `. ${linearReadOnlyHint("phone")}` : "")}
-                </Text>
-              ))
-            ) : (
-              <Text style={styles.caption}>{linearStatusLine(linear.status, "phone")}</Text>
-            ))}
-          {linear.enabled && linear.status.connected && (
-            <>
-              <Toggle title={LINEAR_MOVE_TO_STARTED_TITLE} selected={linear.moveToStarted} onPress={() => void changeMoveToStarted(!linear.moveToStarted)} />
-              <Text style={styles.caption}>{LINEAR_MOVE_TO_STARTED_HINT}</Text>
-            </>
-          )}
-          {linearError ? <ErrorNotice message={linearError} /> : null}
+          <Text style={styles.caption}>{DEVICE_NOTES_DESCRIPTION}</Text>
+          <Text style={[styles.caption, { color: colors.orangeInk }]}>{DEVICE_NOTES_WARNING}</Text>
+          {!!deviceNotesError && <Text style={[styles.caption, { color: colors.redInk }]}>{deviceNotesError}</Text>}
         </View>
       )}
     </View>

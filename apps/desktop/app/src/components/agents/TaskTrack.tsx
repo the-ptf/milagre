@@ -1,83 +1,146 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ListTodoIcon, Tick02Icon } from "@hugeicons/core-free-icons";
-import type { AgentTask } from "../../model";
+import { useEffect, useId, useState } from "react";
+import { ArrowDown01Icon, ArrowRight01Icon, ArrowShrink02Icon, ListTodoIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { currentPhase, taskCounts } from "@milagre/shared/chat-plan";
+import type { ChatPlan, ChatTask } from "../../model";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
-import Tooltip from "../primitives/Tooltip";
-import { useAnchoredPopover } from "./useAnchoredPopover";
+import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
+import { SectionLabel } from "../primitives/SectionLabel";
+import { PillMorph } from "../motion/PillMorph";
+import { PHASE_LABELS, PhaseGraph } from "./PhaseGraph";
 
-const statusLabels: Record<AgentTask["status"], string> = { pending: "Pending", in_progress: "In progress", completed: "Completed" };
+const statusLabels: Record<ChatTask["status"], string> = { pending: "Pending", in_progress: "In progress", completed: "Completed" };
 
-function TaskMarker({ status }: { status: AgentTask["status"] }) {
+function TaskMarker({ status }: { status: ChatTask["status"] }) {
   if (status === "in_progress") return <SpinnerRing size={12} />;
-  if (status === "completed") return <HugeiconsIcon icon={Tick02Icon} size={14} aria-hidden />;
+  if (status === "completed") return <Icon icon={Tick02Icon} size={14} />;
   return <span aria-hidden className="size-3 rounded-full border-[1.5px] border-line-strong" />;
 }
 
-/** The agent's live to-do list: a compact "done/total" pill that opens a nonmodal list anchored above the composer. */
-export function TaskTrack({ tasks }: { tasks?: AgentTask[] }) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
+function TaskRows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: number; folded: Set<string>; toggle: (id: string) => void }) {
+  return tasks.map((task, index) => {
+    const parent = Boolean(task.children?.length);
+    const open = parent && !folded.has(task.id);
+    return (
+      <li key={task.id} className="flex flex-col">
+        <div
+          data-task-row
+          data-depth={depth}
+          data-status={task.status}
+          style={{ paddingLeft: 8 + depth * 16 }}
+          className={`flex items-start gap-2 rounded-control py-1.5 pr-2 text-13 ${
+            task.status === "in_progress" && !parent ? "bg-hover ring-1 ring-accent/50" : ""
+          }`}
+        >
+          {parent ? (
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={open ? `Collapse ${task.title}` : `Expand ${task.title}`}
+              onClick={() => toggle(task.id)}
+              className="relative mt-0.5 rounded-inline text-ink-3 before:absolute before:-inset-1.5 hover:text-ink"
+            >
+              <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} size={12} />
+            </button>
+          ) : (
+            <span aria-hidden className="w-3" />
+          )}
+          <span aria-hidden className="mt-0.5 min-w-4 rounded-inline bg-hover px-1 text-center text-11 text-ink-3 tabular-nums">
+            {index + 1}
+          </span>
+          <span className={`min-w-0 flex-1 break-words ${task.status === "completed" && !parent ? "text-ink-3" : ""}`}>
+            <span className="sr-only">{statusLabels[task.status]}: </span>
+            {task.status === "in_progress" && !parent && task.activeForm ? task.activeForm : task.title}
+          </span>
+          <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-ink-3">
+            <TaskMarker status={task.status} />
+          </span>
+        </div>
+        {open && (
+          <ul>
+            <TaskRows tasks={task.children!} depth={depth + 1} folded={folded} toggle={toggle} />
+          </ul>
+        )}
+      </li>
+    );
+  });
+}
+
+// The panel is never wider than this nor taller than this (PillMorph also caps it at a share of the window).
+const PANEL_WIDTH = 380;
+const PANEL_HEIGHT = 520;
+
+/**
+ * The Chat's plan: a "done/total" pill that grows in place into its task tree and phase graph (see PillMorph).
+ */
+export function TaskTrack({ plan }: { plan?: ChatPlan }) {
   const panelId = useId();
   const [opened, setOpened] = useState(false);
-  const bounds = useAnchoredPopover({ opened, setOpened, trigger, panel, width: 380 });
-  const empty = !tasks?.length;
-  // The list goes with its turn; a later one starts closed.
+  // Each opening draws a fresh phase graph, so its Now is the moment the panel opened.
+  const [opening, setOpening] = useState(0);
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const empty = !plan || (!plan.tasks.length && !plan.phases.length);
+  // The plan goes with its Chat; a later one starts closed.
   useEffect(() => {
     if (empty) setOpened(false);
   }, [empty]);
-  if (!tasks?.length) return null;
-  const done = tasks.filter((task) => task.status === "completed").length;
+  const { done, total } = plan ? taskCounts(plan.tasks) : { done: 0, total: 0 };
+  const phase = plan ? currentPhase(plan) : undefined;
+  const toggle = (id: string) =>
+    setFolded((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   return (
-    <div className="flex" data-slot="task-track">
-      <Tooltip label="To-do list" align="end">
-        <button
-          ref={trigger}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={opened}
-          aria-controls={opened ? panelId : undefined}
-          aria-label={`To-do list, ${done} of ${tasks.length} done`}
-          onClick={() => setOpened(!opened)}
-          className="flex h-6 items-center gap-1.5 rounded-full border border-line bg-surface px-2 text-[11px] text-ink-2 hover:bg-hover focus-visible:outline-2"
-        >
-          <HugeiconsIcon icon={ListTodoIcon} size={12} aria-hidden />
-          <span className="tabular-nums">
-            {done}/{tasks.length}
-          </span>
-        </button>
-      </Tooltip>
-      {opened &&
-        createPortal(
-          <div
-            ref={panel}
-            id={panelId}
-            role="dialog"
-            aria-label="To-do list"
-            aria-modal="false"
-            tabIndex={-1}
-            data-slot="task-popover"
-            style={bounds}
-            className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface p-1 text-ink shadow-raised focus:outline-none"
-          >
-            <ScrollArea as="ul">
-              {tasks.map((task) => (
-                <li key={task.id} data-task-row data-status={task.status} className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[13px]">
-                  <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-ink-3">
-                    <TaskMarker status={task.status} />
-                  </span>
-                  <span className={`min-w-0 break-words ${task.status === "completed" ? "text-ink-3 line-through" : ""}`}>
-                    <span className="sr-only">{statusLabels[task.status]}: </span>
-                    {task.status === "in_progress" && task.activeForm ? task.activeForm : task.content}
-                  </span>
-                </li>
-              ))}
+    <PillMorph
+      shown={!empty}
+      slot="task-track"
+      panelSlot="task-popover"
+      title="Tasks"
+      tooltip="Tasks"
+      opened={opened}
+      onOpenChange={(next) => {
+        if (next) setOpening((count) => count + 1);
+        setOpened(next);
+      }}
+      width={PANEL_WIDTH}
+      height={PANEL_HEIGHT}
+      pill={{
+        icon: ListTodoIcon,
+        "aria-label": total ? `Tasks, ${done} of ${total} done` : `Phase: ${phase ? PHASE_LABELS[phase] : ""}`,
+        ...(total ? { count: done, total } : { label: phase ? PHASE_LABELS[phase] : "" }),
+      }}
+    >
+      {(close) => {
+        if (!plan) return null;
+        const collapse = (
+          <IconButton label="Collapse tasks" icon={ArrowShrink02Icon} size={24} onClick={close} className="-my-1 focus-visible:-outline-offset-2" />
+        );
+        return (
+          <div className="flex min-h-0 flex-col gap-1 p-1">
+            {plan.tasks.length > 0 && (
+              <div className="flex shrink-0 items-center gap-2 px-2 pt-1">
+                <SectionLabel as="h3" id={`${panelId}-tasks`} className="flex flex-1 items-center justify-between">
+                  <span>Tasks</span>
+                  <span className="tabular-nums">{total}</span>
+                </SectionLabel>
+                {collapse}
+              </div>
+            )}
+            {/* The tree and the graph scroll as one body under the fixed header, so a short window never squeezes the tree. */}
+            <ScrollArea data-slot="task-body" className="flex flex-col gap-2">
+              {plan.tasks.length > 0 && (
+                <ul aria-labelledby={`${panelId}-tasks`} className="shrink-0">
+                  <TaskRows tasks={plan.tasks} depth={0} folded={folded} toggle={toggle} />
+                </ul>
+              )}
+              <PhaseGraph key={opening} plan={plan} action={plan.tasks.length ? undefined : collapse} />
             </ScrollArea>
-          </div>,
-          document.body,
-        )}
-    </div>
+          </div>
+        );
+      }}
+    </PillMorph>
   );
 }

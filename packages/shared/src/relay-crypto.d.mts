@@ -20,7 +20,15 @@ export function signKeyPair(random: Random): KeyPair;
 export function hostIdOf(signPublicKey: Uint8Array): string;
 export type DeviceKind = "phone" | "desktop";
 export function helloName(value: unknown): string | null;
-export function phoneHello(args: { phone: KeyPair; host: Uint8Array; token: string; random: Random; name?: string | null; kind?: DeviceKind }): {
+export function phoneHello(args: {
+  phone: KeyPair;
+  host: Uint8Array;
+  token: string;
+  random: Random;
+  name?: string | null;
+  kind?: DeviceKind;
+  caps?: string[];
+}): {
   message: Uint8Array;
   ephemeral: KeyPair;
 };
@@ -31,5 +39,5 @@ export function hostAccept(args: {
   canPair?: boolean | ((phoneKey: string) => boolean);
   token: string;
   random: Random;
-}): { reply: Uint8Array; channel: Channel; phoneKey: string; firstPairing: boolean; kind: DeviceKind; name: string | null };
+}): { reply: Uint8Array; channel: Channel; phoneKey: string; firstPairing: boolean; kind: DeviceKind; name: string | null; caps: string[] };
 export function phoneFinish(args: { ephemeral: KeyPair; phone: KeyPair; host: Uint8Array; reply: Uint8Array }): Channel;

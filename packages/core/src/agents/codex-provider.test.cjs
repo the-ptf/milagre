@@ -5,32 +5,57 @@ const os = require("node:os");
 const path = require("node:path");
 const { CodexRpc } = require("./codex-rpc.cjs");
 const { CodexSession, saveGeneratedImage, recoverCodexSubagents } = require("./codex-provider.cjs");
-const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, isTerminal, loginMessage, missingCliMessage, failedWith } = require("./events.cjs");
+const {
+  MILAGRE_INSTRUCTIONS,
+  advisorInstructions,
+  RESUME_FAILED_MESSAGE,
+  crashMessage,
+  isTerminal,
+  loginMessage,
+  missingCliMessage,
+  failedWith,
+} = require("./events.cjs");
 const { decodeImages } = require("../image-input.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
 const FAKE = path.join(__dirname, "fixtures", "fake-app-server.cjs");
 const TURN = { prompt: "Hi", images: [], model: "gpt-6-sol", permissionMode: "auto" };
 
-function codex(t, { scenario = "reply", resumeId, tldrEnabled, designsEnabled, analysisOnly, linked, command = process.execPath, interruptGraceMs } = {}) {
+function codex(
+  t,
+  {
+    scenario = "reply",
+    resumeId,
+    tldrEnabled,
+    analysisOnly,
+    executionAdvisor,
+    linked,
+    mcpExtras,
+    command = process.execPath,
+    interruptGraceMs,
+    permissionPolicy,
+  } = {},
+) {
   const events = [];
   const requests = [];
   const session = new CodexSession({
     cwd: os.tmpdir(),
     resumeId,
     tldrEnabled,
-    designsEnabled,
     analysisOnly,
+    executionAdvisor,
     linked,
+    mcpExtras,
     command,
     clientVersion: "test",
     interruptGraceMs,
+    permissionPolicy,
     emit: (event) => events.push(event),
     createRpc: (options) => {
       const rpc = new CodexRpc({ ...options, args: [FAKE], env: { ...process.env, FAKE_SCENARIO: scenario } });
       const request = rpc.request.bind(rpc);
       rpc.request = (method, params, options) => {
-        requests.push({ method, params });
+        requests.push({ method, params, options });
         return request(method, params, options);
       };
       return rpc;
@@ -60,6 +85,8 @@ test("analysis-only Codex pins read-only policy and denies unexpected command ap
   const messages = await received(session);
   const thread = messages.find((message) => message.method === "thread/start").params;
   assert.equal(thread.sandbox, "read-only");
+  // An advisor's own short prompt, not the Chat's (events.cjs advisorInstructions).
+  assert.equal(thread.developerInstructions, advisorInstructions());
   assert.equal(thread.config.features.shell_tool, false);
   assert.equal(thread.config.mcp_servers.personal.enabled, false);
   assert.deepEqual(thread.environments, []);
@@ -75,6 +102,20 @@ test("analysis-only Codex never drops restrictions when a provider rejects confi
   const starts = requests.filter((message) => message.method === "thread/start");
   assert.equal(starts.length, 1);
   assert.equal(starts[0].params.config.features.shell_tool, false);
+});
+test("execution Codex has native shell access and dismisses questions without a human card", async (t) => {
+  const { session, events } = codex(t, { executionAdvisor: true, scenario: "question", linked: { tools: [], url: async () => null } });
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events);
+  const messages = await received(session);
+  const thread = messages.find((message) => message.method === "thread/start").params;
+  assert.equal(thread.sandbox, "danger-full-access");
+  assert.notEqual(thread.config.features.shell_tool, false);
+  assert.equal(thread.config.features.default_mode_request_user_input, false);
+  assert.equal(thread.config.features.multi_agent, false);
+  assert.match(thread.developerInstructions, /execution agent/);
+  assert.ok(!events.some((event) => event.type === "question-request"));
+  assert.match(replyText(events), /answers/);
 });
 
 test("streams a reply and keeps one thread across turns", async (t) => {
@@ -105,7 +146,7 @@ test("starts threads and turns with Milagre's identity, instructions and policy"
 
   assert.equal(find("initialize").clientInfo.name, "milagre");
   assert.equal(find("thread/start").developerInstructions, MILAGRE_INSTRUCTIONS);
-  assert.deepEqual(find("thread/start").config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(find("thread/start").config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } });
   assert.equal(find("turn/start").approvalPolicy, "never");
   assert.deepEqual(find("turn/start").sandboxPolicy, { type: "dangerFullAccess" });
   assert.deepEqual(find("turn/start").input, [{ type: "text", text: "Hi", text_elements: [] }]);
@@ -148,7 +189,7 @@ test("resumes a saved thread without announcing it again", async (t) => {
   await ended(events);
   const resume = (await received(session)).find((message) => message.method === "thread/resume").params;
   assert.equal(resume.threadId, "thread-9");
-  assert.deepEqual(resume.config, { features: { default_mode_request_user_input: true } });
+  assert.deepEqual(resume.config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } });
   assert.equal(
     events.some((event) => event.type === "session-started"),
     false,
@@ -185,6 +226,22 @@ test("cancels before Codex has started the turn", async (t) => {
   );
 });
 
+test("a continuation cancelled while Codex initializes submits no turn", async (t) => {
+  const { session, events } = codex(t);
+  let allowed = true;
+  const turn = session.startTurn({ ...TURN, canStart: () => allowed });
+  allowed = false;
+  assert.equal((await turn).cancelled, true);
+  assert.equal(
+    events.some((event) => event.type === "turn-cancelled"),
+    false,
+  );
+  assert.equal(
+    (await received(session)).some((message) => message.method === "turn/start"),
+    false,
+  );
+});
+
 test("reports a failed turn and a crashed process", async (t) => {
   const failed = codex(t, { scenario: "fail" });
   await failed.session.startTurn(TURN);
@@ -196,6 +253,25 @@ test("reports a failed turn and a crashed process", async (t) => {
   await ended(crashed.events);
   assert.deepEqual(crashed.events.at(-1), failedWith(crashMessage("codex", "boom: model unavailable")));
   assert.equal(crashed.session.closed, true);
+});
+
+test("in bot mode the policy answers a command approval without a card", async (t) => {
+  const seen = [];
+  const { session, events } = codex(t, {
+    scenario: "approval",
+    permissionPolicy: (request) => {
+      seen.push(request.command);
+      return "allow";
+    },
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.deepEqual(seen, ["rm -rf build"]);
+  assert.equal(replyText(events), "decision:accept");
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
 });
 
 test("asks before running a command and passes the answer back", async (t) => {
@@ -246,7 +322,7 @@ test("MCP tool calls in Ask mode reach the permission card and accept once", asy
   const request = events.find((event) => event.type === "permission-request");
   assert.equal(request.kind, "other");
   assert.equal(request.tool, "MCP: milagre");
-  assert.equal(request.title, 'Allow the milagre MCP server to run tool "design_show"?');
+  assert.equal(request.title, 'Allow the milagre MCP server to run tool "design_delete"?');
   assert.deepEqual(JSON.parse(request.detail), { id: "daily-notes" });
   assert.equal(request.allowForChat, false);
   // A stale or forged "always" UI choice cannot make Codex write a settings rule.
@@ -254,6 +330,19 @@ test("MCP tool calls in Ask mode reach the permission card and accept once", asy
   await ended(events);
   assert.equal(replyText(events), 'answer:{"action":"accept","content":{}}');
   assert.equal(session.respondToPermission("srv-mcp", "allow"), false);
+});
+
+test("Milagre's plan tools are accepted without a card in every mode", async (t) => {
+  for (const permissionMode of ["ask", "auto"]) {
+    const { session, events } = codex(t, { scenario: "mcp-plan-approval" });
+    await session.startTurn({ ...TURN, permissionMode });
+    await ended(events);
+    assert.equal(replyText(events), 'answer:{"action":"accept","content":{}}');
+    assert.equal(
+      events.some((event) => event.type === "permission-request"),
+      false,
+    );
+  }
 });
 
 test("MCP permission denial and cancellation use elicitation responses", async (t) => {
@@ -292,6 +381,135 @@ test("switching to Auto mid-turn leaves a waiting command to the user", async (t
   assert.equal(session.permissions.size, 1);
   session.respondToPermission("srv-1", "deny");
   await ended(events);
+});
+
+const PUSH_DENIED = "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.";
+
+test("guarded turn denies push and allows ls in full mode", async (t) => {
+  const { session, events } = codex(t, { scenario: "guarded" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await ended(events);
+  // Commands come to Milagre, with Full's sandbox: push is declined, the rest runs unasked.
+  assert.equal(replyText(events), "decision:decline decision:accept");
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+  const start = (await received(session)).find((message) => message.method === "turn/start").params;
+  assert.equal(start.approvalPolicy, "untrusted");
+  assert.deepEqual(start.sandboxPolicy, { type: "dangerFullAccess" });
+  // The step says why.
+  const step = events.find((event) => event.type === "step-completed" && event.id === "cmd-1");
+  assert.equal(step.detail, `$ git push origin HEAD\n${PUSH_DENIED}`);
+  // The Chat's next turn is the user's own: Full asks about nothing again.
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events, 2);
+  const starts = (await received(session)).filter((message) => message.method === "turn/start");
+  assert.equal(starts[1].params.approvalPolicy, "never");
+});
+
+test("a guarded turn in Ask or Auto keeps its policy, denies push and asks about the rest", async (t) => {
+  for (const [permissionMode, policy] of [
+    ["ask", "untrusted"],
+    ["auto", "on-request"],
+  ]) {
+    const { session, events } = codex(t, { scenario: "guarded" });
+    await session.startTurn({ ...TURN, permissionMode, guard: { level: 2, resolveThreads: false } });
+    await asked(events);
+    assert.equal(events.find((event) => event.type === "permission-request").command, "ls build", permissionMode);
+    session.respondToPermission("srv-2", "allow");
+    await ended(events);
+    assert.equal(replyText(events), "decision:decline decision:accept");
+    assert.equal((await received(session)).find((message) => message.method === "turn/start").params.approvalPolicy, policy);
+  }
+});
+
+const WAKE = { level: "escalation", requests: [{ chatId: "/p#2", requestId: "q1" }] };
+const of = (events, type) => events.filter((event) => event.type === type);
+
+test("a wake's turn runs read-only and refuses every approval, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const { session, events } = codex(t, { scenario: "guarded" });
+    await session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(events);
+    assert.equal(replyText(events), "decision:decline decision:decline", permissionMode);
+    assert.equal(of(events, "permission-request").length, 0, permissionMode);
+    const start = (await received(session)).find((message) => message.method === "turn/start").params;
+    assert.equal(start.approvalPolicy, "untrusted", permissionMode);
+    assert.deepEqual(start.sandboxPolicy, { type: "readOnly", networkAccess: false }, permissionMode);
+    // `permissions` keeps the Chat's own mode: chat_respond reads it to know a parent in Full.
+    assert.equal(session.permissions.mode, permissionMode);
+    assert.equal(session.escalation, null, "the guard ends with its turn");
+  }
+});
+
+test("a wake's turn refuses a Milagre plan tool and a file change before their shortcuts, in Ask, Auto and Full", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const plan = codex(t, { scenario: "mcp-plan-approval" });
+    await plan.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(plan.events);
+    assert.equal(of(plan.events, "permission-request").length, 0, permissionMode);
+    assert.match(replyText(plan.events), /decline/, permissionMode);
+    const file = codex(t, { scenario: "file-approval" });
+    await file.session.startTurn({ ...TURN, permissionMode, guard: WAKE });
+    await ended(file.events);
+    assert.equal(of(file.events, "permission-request").length, 0, permissionMode);
+    assert.equal(replyText(file.events), "decision:decline", permissionMode);
+  }
+});
+
+test("a wake's turn can't ask a question", async (t) => {
+  const { session, events } = codex(t, { scenario: "question" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  assert.equal(of(events, "question-request").length, 0);
+});
+
+test("tool calls Codex runs without asking still count: past the grace the host stops the turn", async (t) => {
+  const { ESCALATION_TOOL_CALLS, ESCALATION_TOOL_GRACE } = require("@milagre/shared/subchat-escalation");
+  const { session, events } = codex(t, { scenario: "slow" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await waitUntil(() => session.state.turnId);
+  const threadId = session.state.threadId;
+  const started = (type, id) => session.handleNotification("item/started", { threadId, turnId: session.state.turnId, item: { type, id, command: "ls" } });
+  started("agentMessage", "not-a-tool");
+  for (let call = 0; call < ESCALATION_TOOL_CALLS + ESCALATION_TOOL_GRACE; call++) started("commandExecution", `cmd-${call}`);
+  assert.equal(session.cancelRequested, false);
+  started("commandExecution", "one-too-many");
+  assert.equal(session.cancelRequested, true);
+  await ended(events);
+});
+
+test("the Chat's next turn after a wake runs on its own policy", async (t) => {
+  const { session, events } = codex(t);
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: WAKE });
+  await ended(events);
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events, 2);
+  const starts = (await received(session)).filter((message) => message.method === "turn/start");
+  assert.equal(starts[1].params.approvalPolicy, "never");
+  assert.deepEqual(starts[1].params.sandboxPolicy, { type: "dangerFullAccess" });
+});
+
+test("a command that writes to GitHub is allowed once, never for the whole Chat", async (t) => {
+  const { session, events } = codex(t, { scenario: "guarded" });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  await asked(events);
+  const push = events.find((event) => event.type === "permission-request");
+  assert.equal(push.command, "git push origin HEAD");
+  assert.equal(push.allowForChat, false);
+  session.respondToPermission("srv-1", "allow-for-chat");
+  await waitUntil(() => events.filter((event) => event.type === "permission-request").length === 2);
+  const list = events.filter((event) => event.type === "permission-request")[1];
+  assert.equal(list.allowForChat, true);
+  session.respondToPermission("srv-2", "allow-for-chat");
+  await ended(events);
+  // A cached approval would let a later babysit Run's push run without asking, past the guard.
+  assert.equal(replyText(events), "decision:accept decision:acceptForSession");
+  assert.deepEqual(
+    events.filter((event) => event.type === "permission-resolved").map((event) => event.decision),
+    ["allow", "allow-for-chat"],
+  );
 });
 
 test("denying declines the command", async (t) => {
@@ -367,15 +585,23 @@ test("extra sandbox permissions are declined", async (t) => {
   );
 });
 
-test("passes images as local files and removes them afterwards", async (t) => {
+test("passes images as interleaved local files and removes them afterwards", async (t) => {
   const { session, events } = codex(t);
   const png = `data:image/png;base64,${Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64")}`;
-  await session.startTurn({ ...TURN, images: decodeImages([{ dataUrl: png }]) });
+  await session.startTurn({ ...TURN, prompt: "Before [Image #2] then [Image #1] after", images: decodeImages([{ dataUrl: png }, { dataUrl: png }]) });
   await ended(events);
   const turnStart = (await received(session)).find((message) => message.method === "turn/start");
-  const image = turnStart.params.input.find((input) => input.type === "localImage");
-  assert.deepEqual(turnStart.imagesExist, [true]);
-  assert.equal(fs.existsSync(image.path), false);
+  const input = turnStart.params.input;
+  assert.deepEqual(
+    input.map((block) => block.type),
+    ["text", "localImage", "text", "localImage", "text"],
+  );
+  assert.deepEqual(
+    input.filter((block) => block.type === "text").map((block) => block.text),
+    ["Before ", " then ", " after"],
+  );
+  assert.deepEqual(turnStart.imagesExist, [true, true]);
+  for (const image of input.filter((block) => block.type === "localImage")) assert.equal(fs.existsSync(image.path), false);
 });
 
 test("closes a session whose startup failed so the next message starts over", async (t) => {
@@ -418,6 +644,28 @@ test("gives up on an interrupt Codex never answers", async (t) => {
 test("cancels a startup that hangs", async (t) => {
   const { session, events } = codex(t, { scenario: "hang-init", interruptGraceMs: 50 });
   const pending = session.startTurn(TURN);
+  await session.interrupt();
+  await ended(events);
+  assert.deepEqual(events.at(-1), { type: "turn-cancelled" });
+  assert.equal(session.closed, true);
+  await pending;
+});
+
+test("starts and resumes threads without a time limit", async (t) => {
+  const started = codex(t);
+  await started.session.startTurn(TURN);
+  await ended(started.events);
+  const resumed = codex(t, { resumeId: "thread-9" });
+  await resumed.session.startTurn(TURN);
+  await ended(resumed.events);
+  assert.equal(started.requests.find((r) => r.method === "thread/start").options.timeoutMs, null);
+  assert.equal(resumed.requests.find((r) => r.method === "thread/resume").options.timeoutMs, null);
+});
+
+test("cancels a thread start that never answers", async (t) => {
+  const { session, events, requests } = codex(t, { scenario: "hang-thread", interruptGraceMs: 50 });
+  const pending = session.startTurn(TURN);
+  await waitUntil(() => requests.some((r) => r.method === "thread/start"));
   await session.interrupt();
   await ended(events);
   assert.deepEqual(events.at(-1), { type: "turn-cancelled" });
@@ -609,6 +857,19 @@ test("a command still running when the turn is stopped gets no step-completed", 
   assert.equal(session.state.steps.size, 0);
 });
 
+test("bot mode asks for every command with network on", async (t) => {
+  const { session, events } = codex(t);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const messages = await received(session);
+  const find = (method) => messages.find((message) => message.method === method).params;
+  assert.equal(find("turn/start").approvalPolicy, "untrusted");
+  assert.equal(find("turn/start").sandboxPolicy.type, "workspaceWrite");
+  assert.equal(find("turn/start").sandboxPolicy.networkAccess, true);
+  assert.deepEqual(find("turn/start").sandboxPolicy.writableRoots, [os.tmpdir()]);
+  assert.equal(find("thread/start").sandbox, "workspace-write");
+});
+
 test("an unknown permission mode uses Ask's policy", async (t) => {
   const { session, events } = codex(t);
   await session.startTurn({ ...TURN, permissionMode: "something-else" });
@@ -756,7 +1017,7 @@ test("a Chat's linked tools reach Codex as an MCP server in the thread config; a
   await ended(events);
   const start = (await received(session)).find((message) => message.method === "thread/start").params;
   assert.deepEqual(start.config, {
-    features: { default_mode_request_user_input: true },
+    features: { default_mode_request_user_input: true, send_message_to_user_async: false },
     mcp_servers: { milagre: { url: "http://127.0.0.1:1234/mcp/abc", tool_timeout_sec: 86400 } },
   });
   assert.deepEqual(reported, [true]);
@@ -766,7 +1027,7 @@ test("a Chat's linked tools reach Codex as an MCP server in the thread config; a
   const attempts = (await received(rejecting.session)).filter((message) => message.method === "thread/start").map((message) => message.params.config);
   assert.deepEqual(
     attempts,
-    [start.config, { features: { default_mode_request_user_input: true } }, undefined],
+    [start.config, { features: { default_mode_request_user_input: true, send_message_to_user_async: false } }, undefined],
     "the MCP server goes first, the whole config last",
   );
   assert.deepEqual(reported, [true, false]);
@@ -851,18 +1112,6 @@ test("TLDR can be disabled when starting or resuming Codex", async (t) => {
   }
 });
 
-test("Designs can be disabled when starting or resuming Codex", async (t) => {
-  for (const resumeId of [undefined, "thread-existing"]) {
-    const { session, events } = codex(t, { designsEnabled: false, resumeId });
-    await session.startTurn(TURN);
-    await ended(events);
-    const calls = await received(session);
-    const params = calls.find((call) => call.method === (resumeId ? "thread/resume" : "thread/start")).params;
-    assert.match(params.developerInstructions, /Designs are off/);
-    assert.doesNotMatch(params.developerInstructions, /design_show|design_read|design_apply/);
-  }
-});
-
 function childPoller(request) {
   const events = [];
   const session = new CodexSession({ emit: (e) => events.push(e) });
@@ -892,7 +1141,7 @@ test("reads paginated child history without resuming and keeps completion separa
     events.some((e) => e.type === "turn-completed"),
     false,
   );
-  const child = events.filter((e) => e.type === "subagent-update").at(-1).agent;
+  const child = events.findLast((e) => e.type === "subagent-update").agent;
   assert.equal(child.status, "completed");
   assert.equal(child.transcript[0].text, "Paged result");
 });
@@ -966,7 +1215,7 @@ function childSnapshotRpc(snapshot, onRead = () => {}) {
         return { thread: { ...thread, turns: [] } };
       }
       assert.equal(method, "thread/turns/list");
-      return { data: [...thread.turns].reverse(), nextCursor: null };
+      return { data: thread.turns.toReversed(), nextCursor: null };
     },
   };
 }
@@ -1018,7 +1267,6 @@ test("a completed child catches up to a follow-up turn after native interaction 
   session.handleNotification("item/completed", interaction);
   await session.refreshSubagents();
   assert.deepEqual(session.state.subagents.get("child"), saved);
-  assert.equal(saved.communications.length, 1);
   assert.equal(
     events.some((event) => event.type === "turn-started" || event.type === "turn-completed"),
     false,
@@ -1140,7 +1388,6 @@ const savedUnknownChild = (id) => ({
   parentId: "review-parent",
   latestActivity: "Responding",
   transcript: [{ id: "saved", kind: "message", text: "Saved output" }],
-  communications: [{ id: "sent", fromId: null, toId: id, text: "Review auth", at: 3 }],
 });
 
 test("read-only recovery restores only authoritative latest terminal child outcomes", async (t) => {
@@ -1189,7 +1436,6 @@ test("read-only recovery restores only authoritative latest terminal child outco
   for (const { agent } of events) {
     const previous = saved.find((item) => item.id === agent.id);
     assert.deepEqual(agent.transcript, previous.transcript);
-    assert.deepEqual(agent.communications, previous.communications);
     assert.equal(agent.parentId, "review-parent");
     assert.equal(agent.startedAt, 1);
     assert.equal(agent.endedAt, 9);
@@ -1375,4 +1621,74 @@ test("Codex tool image blocks become visible image steps, including dynamic tool
   assert.equal(images.length, 2);
   assert.deepEqual(fs.readFileSync(images[0].file), Buffer.from(data, "base64"));
   assert.ok(events.some((event) => event.type === "step-started" && event.step.kind === "image"));
+});
+
+test("internal design renders and HTML previews stay out of image steps, including nested exec calls", async (t) => {
+  const events = [];
+  const session = new CodexSession({ emit: (event) => events.push(event) });
+  session.state.threadId = "parent";
+  t.after(() => session.close());
+  const data = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from("design render")]).toString("base64");
+  const content = [{ type: "image", data, mimeType: "image/png" }];
+  const complete = (id, server, tool) =>
+    session.handleNotification("item/completed", {
+      threadId: "parent",
+      item: { id, type: "mcpToolCall", server, tool, status: "completed", result: { content } },
+    });
+  complete("show", "milagre", "design_show");
+  complete("apply", "milagre", "design_apply");
+  complete("preview", "milagre", "html_preview");
+  // A real functions.exec call surfaces its nested tool with MCP provenance, not as a generic dynamic image.
+  complete("exec-a750cdfe-7781-4832-a7f7-bc4ad1d2e7fb", "milagre", "html_preview");
+  assert.equal(events.filter((event) => event.step?.kind === "image").length, 0);
+  assert.ok(events.some((event) => event.type === "step-completed" && event.id === "preview" && event.status === "done"));
+  assert.deepEqual(content, [{ type: "image", data, mimeType: "image/png" }], "the model's original preview result is untouched");
+  complete("other", "browser", "design_show");
+  complete("other-preview", "browser", "html_preview");
+  complete("shot", "milagre", "screenshot");
+  assert.equal(events.filter((event) => event.step?.kind === "image").length, 3);
+});
+
+test("Everywhere servers and the off list reach thread config", async (t) => {
+  const { session, events, requests } = codex(t, {
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  const config = requests.find((r) => r.method === "thread/start").params.config;
+  assert.deepEqual(config.mcp_servers.linear, { url: "https://x" });
+  assert.deepEqual(config.mcp_servers.figma, { enabled: false });
+});
+
+test("a failing mcpExtras still starts the Codex thread and is logged once", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const { session, events, requests } = codex(t, {
+    mcpExtras: async () => {
+      throw new Error("boom");
+    },
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, {
+    features: { default_mode_request_user_input: true, send_message_to_user_async: false },
+  });
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
+});
+
+test("a Codex that refuses Everywhere servers keeps the off entries and milagre on the retry", async (t) => {
+  const reported = [];
+  const linked = { tools: [], url: async () => "http://127.0.0.1:1234/mcp/abc", toolsAvailable: (available) => reported.push(available) };
+  const { session, events, requests } = codex(t, {
+    scenario: "reject-extra-mcp",
+    linked,
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  const attempts = requests.filter((r) => r.method === "thread/start").map((r) => r.params.config.mcp_servers);
+  assert.deepEqual(Object.keys(attempts[0]).sort(), ["figma", "linear", "milagre"]);
+  assert.deepEqual(attempts.at(-1), { figma: { enabled: false }, milagre: { url: "http://127.0.0.1:1234/mcp/abc", tool_timeout_sec: 86400 } });
+  assert.deepEqual(reported, [true]);
+  assert.deepEqual(events.at(-1), { type: "turn-completed" });
 });
