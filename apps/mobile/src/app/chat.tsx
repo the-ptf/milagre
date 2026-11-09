@@ -410,8 +410,10 @@ function ChatPane({
   // pane asks through its own session, so a Chat beside from another Mac asks about that Mac. A reconnect hands over a
   // new client for the same Mac: it doesn't ask again, only another Chat does; a Chat left before the answer shows nothing.
   const askClient = useRef(session.client);
+  const askHostName = useRef(session.hostName);
   useEffect(() => {
     askClient.current = session.client;
+    askHostName.current = session.hostName;
   });
   const askOn =
     params.id && session.client && session.client.url === (params.hostId || session.client.url)
@@ -421,7 +423,14 @@ function ChatPane({
     const client = askClient.current;
     if (!askOn || !client) return;
     let current = true;
-    void askKeepAwake({ client, hostId: client.url, neverAsk: savedKeepAwakeNeverAsk, ask: confirmSheet, isCurrent: () => current }).catch(() => {});
+    void askKeepAwake({
+      client,
+      hostId: client.url,
+      hostName: askHostName.current,
+      neverAsk: savedKeepAwakeNeverAsk,
+      ask: confirmSheet,
+      isCurrent: () => current,
+    }).catch(() => {});
     return () => {
       current = false;
     };

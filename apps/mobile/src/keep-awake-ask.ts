@@ -42,15 +42,24 @@ export function createKeepAwakeNeverAsk(storage: Storage) {
   };
 }
 
-export const KEEP_AWAKE_TITLE = "Keep the Mac awake?";
-const KEEP_AWAKE_MESSAGE =
-  "When the Mac sleeps, this phone can't reach it. Keep it awake while Milagre runs? The screen can still turn off. Plugged in, it stays awake with the lid closed.";
-
-export const KEEP_AWAKE_FAILED_TITLE = "Couldn't keep the Mac awake";
+/** The questions name their computer: with two Macs on screen (a split on iPad), each says which one it changes. */
+export const keepAwakeTitle = (name: string) => `Keep ${name} awake?`;
+const keepAwakeMessage = (name: string) =>
+  `When ${name} sleeps, this phone can't reach it. Keep it awake while Milagre runs? Its screen can still turn off. Plugged in, it stays awake with the lid closed.`;
+export const keepAwakeFailedTitle = (name: string) => `Couldn't keep ${name} awake`;
 
 // The computers a question is being read or shown for, with whether its Chat is still on screen: two panes on one Mac
 // (a split on iPad) ask once, and a Chat left behind doesn't hold up the next one's question.
 const asking = new Map<string, () => boolean>();
+
+// One computer's question at a time, with its retries: the sheet replaces a question still open, so the next waits
+// for this one's answer instead of dismissing it.
+let turn: Promise<void> = Promise.resolve();
+function inTurn(work: () => Promise<void>): Promise<void> {
+  const mine = turn.then(work);
+  turn = mine.catch(() => {});
+  return mine;
+}
 
 const failure = (error: unknown) => (error instanceof Error && error.message ? error.message : "The Mac didn't answer.");
 
@@ -58,23 +67,28 @@ const failure = (error: unknown) => (error instanceof Error && error.message ? e
  * Opening a Chat asks to keep its Mac awake while that Mac lets itself sleep, until the answer is Keep awake or
  * Don't ask again. A Mac that can't say (older, or a phone confined to one folder) is never asked about. `isCurrent`
  * says the Chat is still the one on screen: a read that answers after another Chat opened shows nothing, and an answer
- * to a Chat that went away changes nothing. A save that fails says why and offers Try again.
+ * to a Chat that went away changes nothing. A save that fails says why and offers Try again. Questions about different
+ * Macs wait their turn, each named for its own Mac.
  */
 export async function askKeepAwake({
   client,
   hostId,
+  hostName,
   neverAsk,
   ask,
   isCurrent = () => true,
 }: {
   client: Caller;
   hostId: string;
+  /** The computer's name as the phone lists it; "the Mac" when it has none. */
+  hostName?: string;
   neverAsk: Pick<ReturnType<typeof createKeepAwakeNeverAsk>, "has" | "add">;
   ask: ShowAlert;
   isCurrent?: () => boolean;
 }): Promise<void> {
   if (asking.get(hostId)?.()) return;
   asking.set(hostId, isCurrent);
+  const name = hostName?.trim() || "the Mac";
   try {
     if (await neverAsk.has(hostId)) return;
     let enabled: unknown;
@@ -84,27 +98,30 @@ export async function askKeepAwake({
       return;
     }
     // Only an answer of off asks: a Mac that answers anything else (an older one) can't say.
-    if (enabled !== false || !isCurrent()) return;
+    if (enabled !== false) return;
     const save = (): Promise<void> =>
       client.call("keep-awake:settings:save", [{ enabled: true }]).then(
         () => undefined,
         (error: unknown) => {
           if (!isCurrent()) return undefined;
           return new Promise<void>((resolve) =>
-            ask(KEEP_AWAKE_FAILED_TITLE, failure(error), [
+            ask(keepAwakeFailedTitle(name), failure(error), [
               { text: "Try again", onPress: () => void save().then(resolve) },
               { text: "Not now", style: "cancel", onPress: resolve },
             ]),
           );
         },
       );
-    await new Promise<void>((resolve) =>
-      ask(KEEP_AWAKE_TITLE, KEEP_AWAKE_MESSAGE, [
-        { text: "Keep awake", onPress: () => void (isCurrent() ? save() : Promise.resolve()).then(resolve) },
-        { text: "Don't ask again", onPress: () => void neverAsk.add(hostId).then(resolve) },
-        { text: "Not now", style: "cancel", onPress: resolve },
-      ]),
-    );
+    await inTurn(async () => {
+      if (!isCurrent()) return;
+      await new Promise<void>((resolve) =>
+        ask(keepAwakeTitle(name), keepAwakeMessage(name), [
+          { text: "Keep awake", onPress: () => void (isCurrent() ? save() : Promise.resolve()).then(resolve) },
+          { text: "Don't ask again", onPress: () => void neverAsk.add(hostId).then(resolve) },
+          { text: "Not now", style: "cancel", onPress: resolve },
+        ]),
+      );
+    });
   } finally {
     if (asking.get(hostId) === isCurrent) asking.delete(hostId);
   }

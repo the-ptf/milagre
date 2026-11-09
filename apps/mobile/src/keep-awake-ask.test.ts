@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { askKeepAwake, createKeepAwakeNeverAsk, KEEP_AWAKE_FAILED_TITLE, KEEP_AWAKE_TITLE } from "./keep-awake-ask.ts";
+import { askKeepAwake, createKeepAwakeNeverAsk, keepAwakeFailedTitle, keepAwakeTitle } from "./keep-awake-ask.ts";
 
 function memory() {
   const items = new Map<string, string>();
@@ -39,7 +39,7 @@ test("a Mac that sleeps is asked about on every Chat until Keep awake turns it o
   await f.run("Not now");
   await f.run("Not now");
   assert.equal(f.asked.length, 2);
-  assert.deepEqual(f.asked[0], [KEEP_AWAKE_TITLE, "Keep awake", "Don't ask again", "Not now"]);
+  assert.deepEqual(f.asked[0], [keepAwakeTitle("the Mac"), "Keep awake", "Don't ask again", "Not now"]);
   await f.run("Keep awake");
   assert.deepEqual(f.calls.at(-1), ["keep-awake:settings:save", [{ enabled: true }]]);
   enabled = true;
@@ -95,7 +95,7 @@ test("a failed save says why and Try again saves again", async () => {
     },
   );
   await f.run(["Keep awake", "Try again"]);
-  assert.deepEqual(f.asked[1], [KEEP_AWAKE_FAILED_TITLE, "Try again", "Not now"]);
+  assert.deepEqual(f.asked[1], [keepAwakeFailedTitle("the Mac"), "Try again", "Not now"]);
   assert.equal(f.calls.filter(([method]) => method === "keep-awake:settings:save").length, 2);
   assert.equal(f.asked.length, 2, "the second save went through");
 });
@@ -116,4 +116,35 @@ test("two Chats of one Mac on screen together ask once; a Chat left behind doesn
   for (const answer of answers) answer({ enabled: false });
   await Promise.all([first, third]);
   assert.equal(f.asked.length, 1, "only the Chat still on screen is asked");
+});
+
+test("questions about two Macs on screen wait their turn, each named for its Mac", async () => {
+  const shown: { title: string; buttons: Button[] }[] = [];
+  const ask = (title: string, _message: string | undefined, buttons: Button[]) => void shown.push({ title, buttons });
+  const saved: string[] = [];
+  const clientFor = (id: string) => ({
+    call: async <T>(method: string) => {
+      if (method === "keep-awake:settings:save") saved.push(id);
+      return { enabled: method === "keep-awake:settings:save" } as T;
+    },
+  });
+  const neverAsk = createKeepAwakeNeverAsk(memory());
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+  const studio = askKeepAwake({ client: clientFor("studio"), hostId: "https://studio.local", hostName: "Studio", neverAsk, ask });
+  const air = askKeepAwake({ client: clientFor("air"), hostId: "https://air.local", hostName: "Air", neverAsk, ask });
+  await settle();
+  assert.deepEqual(
+    shown.map((entry) => entry.title),
+    ["Keep Studio awake?"],
+    "the second Mac's question waits instead of replacing the first",
+  );
+  shown[0]?.buttons.find((button) => button.text === "Keep awake")?.onPress?.();
+  await settle();
+  assert.deepEqual(
+    shown.map((entry) => entry.title),
+    ["Keep Studio awake?", "Keep Air awake?"],
+  );
+  shown[1]?.buttons.find((button) => button.text === "Keep awake")?.onPress?.();
+  await Promise.all([studio, air]);
+  assert.deepEqual(saved, ["studio", "air"], "each answer changes its own Mac");
 });
