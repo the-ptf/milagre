@@ -244,6 +244,7 @@ async function browserChecks() {
       ["notify finished off", "notifyOnCompletion", false],
       ["notify waiting off", "notifyWhenWaiting", false],
       ["dock badge off", "showDockBadge", false],
+      ["keep awake off", "keepAwake", false],
     ]) {
       await open();
       await search(query);

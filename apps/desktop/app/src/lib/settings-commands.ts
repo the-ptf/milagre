@@ -59,27 +59,13 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
         ["showDockBadge", "Dock badge", "unread count"],
         ["showAttentionButton", "Attention button", "other projects waiting approval questions"],
         ["floatingInbox", "Floating inbox", "experimental notification bar"],
+        ["keepAwake", `Keep the ${computerNoun} awake`, "sleep reachable lock screen saver"],
       ] as const
     ).flatMap(([key, label, keywords]) => [
       choice(key, true, `${label}: On`, `${keywords} enable`),
       choice(key, false, `${label}: Off`, `${keywords} disable`),
     ]),
   ];
-}
-
-/** Keep the Mac awake: On / Off. The host keeps this one (lib/keep-awake.ts), so it isn't in AppSettings. */
-export function keepAwakeCommands(enabled: boolean, save: (enabled: boolean) => void): Command[] {
-  const label = `Keep the ${computerNoun} awake`;
-  const keywords = "sleep reachable lock screen saver phone";
-  return [true, false].map((value) => ({
-    id: `setting:keepAwake:${value}`,
-    label: `${label}: ${value ? "On" : "Off"}`,
-    keywords: `${keywords} ${value ? "enable" : "disable"}`,
-    group: "Quick settings",
-    icon: "settings",
-    detail: enabled === value ? "Current" : undefined,
-    run: () => save(value),
-  }));
 }
 
 /**

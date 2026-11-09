@@ -199,9 +199,6 @@ const PATHS = Object.freeze({
   // How long Done Chats wait before archiving applies to every Project on the Mac: a confined phone only reads it.
   "done:settings:read": none,
   "done:settings:save": denied,
-  // Keeping the Mac awake is the Mac's own power: a confined phone neither sees nor changes it, so it never asks.
-  "keep-awake:settings:read": denied,
-  "keep-awake:settings:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,
