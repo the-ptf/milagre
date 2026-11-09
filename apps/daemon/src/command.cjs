@@ -98,7 +98,7 @@ async function main(args = process.argv.slice(2)) {
     const daemon = await startDaemon({
       dataDir,
       version,
-      runtimeOptions: { cwd: process.cwd(), keepAwake: new KeepAwake({ powerSaveBlocker: createPowerBlocker() }) },
+      runtimeOptions: { cwd: process.cwd(), keepAwake: new KeepAwake({ powerSaveBlocker: createPowerBlocker(), enabled: false }) },
     });
     let client;
     let closing;
