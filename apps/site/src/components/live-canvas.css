@@ -273,3 +273,38 @@
   background: var(--hover-2);
   color: var(--ink);
 }
+
+/* The tour: a message dot on the Link, the request or answer as a note in the Worktree, and a green dot once agreed. */
+.canvas-pulse {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.canvas-activity-dot.agreed {
+  background: var(--green);
+}
+.canvas-note {
+  margin: 4px 10px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.4;
+  animation: canvas-note-in 220ms var(--ease-out-strong) both;
+}
+.canvas-note strong {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+@keyframes canvas-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-note {
+    animation: none;
+  }
+}

@@ -22,14 +22,15 @@ import {
 // Loaded with the canvas, not inlined into every page: React holds the first render until both have loaded.
 import flowCss from "@xyflow/react/dist/style.css?url";
 import canvasCss from "./live-canvas.css?url";
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 type Mark = "waiting" | "running" | "unread" | "idle";
 type Chat = { title: string; mark: Mark };
 type ProjectData = { kind: "project"; name: string };
-type WorktreeData = { kind: "worktree"; branch: string; diff?: string; chats: Chat[] };
+type WorktreeData = { kind: "worktree"; branch: string; diff?: string; chats: Chat[]; note?: { from: string; text: string } };
 type CanvasNode = Node<ProjectData | WorktreeData>;
-type LinkData = { activity?: string };
+/** pulse sends a message dot along the Link (forward: source to target); agreed marks the negotiation done. */
+type LinkData = { activity?: string; pulse?: { way: "forward" | "back"; at: number }; agreed?: boolean };
 /** Stops what travels along a Link, as its Stop button does in the app. */
 const StopActivity = createContext<(id: string) => void>(() => {});
 
@@ -151,6 +152,11 @@ function WorktreeNode({ data }: NodeProps<Node<WorktreeData>>) {
           </li>
         ))}
       </ul>
+      {data.note && (
+        <p className="canvas-note">
+          <strong>{data.note.from}</strong> {data.note.text}
+        </p>
+      )}
     </div>
   );
 }
@@ -159,13 +165,15 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const activity = data?.activity;
   const stop = useContext(StopActivity);
+  const pulse = data?.pulse;
   return (
     <>
       <BaseEdge id={id} path={path} style={style} className={activity ? "milagre-link-active" : undefined} />
+      {pulse && <Pulse key={pulse.at} path={path} back={pulse.way === "back"} />}
       {activity && (
         <EdgeLabelRenderer>
           <div className="nodrag nopan canvas-activity" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
-            <span className="canvas-activity-dot" />
+            <span className={`canvas-activity-dot ${data?.agreed ? "agreed" : ""}`} />
             <span>{activity}</span>
             <button type="button" onClick={() => stop(id)}>
               Stop
@@ -177,6 +185,48 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   );
 }
 
+/** A message on its way along a Link: a dot that runs the path once. */
+function Pulse({ path, back }: { path: string; back: boolean }) {
+  const motion = useRef<SVGAnimateMotionElement>(null);
+  // Added after the page's animation clock started, so it starts itself.
+  useEffect(() => motion.current?.beginElement(), []);
+  return (
+    <circle r="5" className="canvas-pulse">
+      <animateMotion ref={motion} begin="indefinite" dur="1.1s" fill="freeze" path={path} keyPoints={back ? "1;0" : "0;1"} keyTimes="0;1" calcMode="linear" />
+    </circle>
+  );
+}
+
+// The tour: milagre's pairing agent asks relay's agent for a change across the Link, relay makes it and answers, and the
+// two agree. It plays while the canvas is in view and stops for good at the visitor's first touch.
+const ASKER = "milagre:2";
+const ANSWERER = "relay:1";
+type Step = { wait: number; link?: LinkData; nodes?: Record<string, Partial<WorktreeData>> };
+const chat = (title: string, mark: Mark): Chat[] => [{ title, mark }];
+const TOUR: Step[] = [
+  { wait: 1200, link: { activity: "Asking relay for Retry-After", pulse: { way: "forward", at: 1 } } },
+  {
+    wait: 1500,
+    link: { activity: "relay is adding Retry-After" },
+    nodes: {
+      [ANSWERER]: { note: { from: "milagre", text: "Can a refused pairing say when to retry?" }, chats: chat("Rate-limit pairing attempts", "running") },
+    },
+  },
+  { wait: 1300, nodes: { [ANSWERER]: { diff: "+31 −4" } } },
+  {
+    wait: 1200,
+    link: { activity: "relay replied", pulse: { way: "back", at: 2 } },
+    nodes: { [ANSWERER]: { chats: chat("Rate-limit pairing attempts", "idle") } },
+  },
+  {
+    wait: 1500,
+    link: { activity: "Updating the phone's retry" },
+    nodes: { [ASKER]: { note: { from: "relay", text: "Done: 429 with Retry-After: 30" }, chats: chat("Phone pairing follow-ups", "running") } },
+  },
+  { wait: 1300, nodes: { [ASKER]: { diff: "+57 −6" } } },
+  { wait: 3200, link: { activity: "Contract agreed", agreed: true }, nodes: { [ASKER]: { chats: chat("Phone pairing follow-ups", "unread") } } },
+];
+
 const nodeTypes = { project: ProjectNode, worktree: WorktreeNode };
 const edgeTypes = { link: LinkEdge };
 
@@ -185,6 +235,75 @@ export default function LiveCanvas() {
   const [edges, setEdges] = useEdgesState<Edge<LinkData>>(initialEdges());
   const stop = useCallback((id: string) => setEdges((current) => current.map((edge) => (edge.id === id ? { ...edge, data: {} } : edge))), [setEdges]);
   const [selected, setSelected] = useState<string | null>(null);
+  const section = useRef<HTMLElement>(null);
+  // Back to the demo's own data, keeping wherever the visitor dragged things.
+  const restore = useCallback(() => {
+    const original = new Map(initialNodes().map((node) => [node.id, node.data]));
+    setNodes((current) => current.map((node) => ({ ...node, data: original.get(node.id) ?? node.data })));
+    setEdges((current) => current.map((edge) => (edge.id === initialEdges()[0]!.id ? { ...edge, data: { activity: NEGOTIATING } } : edge)));
+  }, [setNodes, setEdges]);
+  useEffect(() => {
+    const host = section.current;
+    if (!host || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let run = 0;
+    let visible = false;
+    let playing = false;
+    let finished = false;
+    const wait = (ms: number, id: number) =>
+      new Promise<void>((resolve, reject) => setTimeout(() => (id === run ? resolve() : reject(new Error("stopped"))), ms));
+    const play = async () => {
+      const id = ++run;
+      playing = true;
+      try {
+        await wait(600, id);
+        for (const step of TOUR) {
+          if (step.link)
+            setEdges((current) =>
+              current.map((edge) =>
+                edge.id === initialEdges()[0]!.id ? { ...edge, data: { ...edge.data, ...step.link, ...(step.link!.pulse ? {} : { pulse: undefined }) } } : edge,
+              ),
+            );
+          if (step.nodes)
+            setNodes((current) =>
+              current.map((node) => (step.nodes![node.id] ? { ...node, data: { ...node.data, ...step.nodes![node.id] } as WorktreeData } : node)),
+            );
+          await wait(step.wait, id);
+        }
+        restore();
+        await wait(1600, id);
+        playing = false;
+        if (visible && !finished) void play();
+      } catch {
+        playing = false;
+      }
+    };
+    const stop = () => {
+      if (finished) return;
+      finished = true;
+      run++;
+      restore();
+    };
+    for (const type of ["pointerdown", "keydown", "wheel"] as const) host.addEventListener(type, stop, { once: true, passive: true });
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        visible = !!entry?.isIntersecting;
+        if (finished) return;
+        if (visible && !playing) void play();
+        else if (!visible && playing) {
+          run++;
+          playing = false;
+          restore();
+        }
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(host);
+    return () => {
+      run++;
+      observer.disconnect();
+      for (const type of ["pointerdown", "keydown", "wheel"] as const) host.removeEventListener(type, stop);
+    };
+  }, [restore, setEdges, setNodes]);
   const shown = edges.map((edge) => ({
     ...edge,
     selected: edge.id === selected,
@@ -195,7 +314,7 @@ export default function LiveCanvas() {
     <StopActivity value={stop}>
       <link rel="stylesheet" href={flowCss} precedence="default" />
       <link rel="stylesheet" href={canvasCss} precedence="default" />
-      <section data-canvas className="canvas-window">
+      <section data-canvas className="canvas-window" ref={section}>
         <div className="canvas-bar">
           <a className="canvas-bar-button" href="#parallel-work">
             Back to chat
