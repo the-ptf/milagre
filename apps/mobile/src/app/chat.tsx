@@ -2561,7 +2561,9 @@ function ChatPane({
                       startLineStyle,
                     ]}
                   >
-                    {/* Matches the cards' room below, so the heading stays put while they load or the keyboard hides them. */}
+                    {/* A quarter of the free room above the heading with the stats under it (a phone is short; desktop gives a
+                        third), half without them. It doesn't depend on whether the cards have loaded or the keyboard hides them,
+                        so the heading stays put. */}
                     <View pointerEvents="none" style={{ flex: 1 }} />
                     {chatsHomeOpen ? (
                       // No Project to pick here: the heading picks the computer, and the line under it goes back to the Projects.
@@ -2623,7 +2625,7 @@ function ChatPane({
                         </View>
                       </Pressable>
                     )}
-                    <View pointerEvents="box-none" style={{ flex: 1, alignSelf: "stretch" }}>
+                    <View pointerEvents="box-none" style={{ flex: newChatStats ? 3 : 1, alignSelf: "stretch" }}>
                       {restingKeyboard === 0 && newChatStats && (
                         <NewChatGlance
                           client={session.client}
