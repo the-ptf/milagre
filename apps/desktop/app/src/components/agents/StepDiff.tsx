@@ -9,7 +9,7 @@ import { Content, decorate, MARKER, MARKER_COLOR, TINT } from "../changes/diff-l
 import { Button, IconButton } from "../primitives/Button";
 
 /** Rows an edit's diff shows before it folds behind "Show all". */
-export const STEP_DIFF_ROWS = 14;
+const STEP_DIFF_ROWS = 14;
 
 /**
  * An edit's diff in the transcript, drawn like the Changes view: tinted rows, changed words marked, the file's syntax

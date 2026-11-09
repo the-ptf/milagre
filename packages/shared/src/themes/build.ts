@@ -7,7 +7,7 @@ const tint = (page: string, color: string, scheme: Scheme, light: number, dark: 
   scheme === "dark" ? withAlpha(color, dark) : mix(page, color, light);
 
 /** Contrast the green, orange and red -ink shades reach on the page, cards and their own tints. */
-export const STATUS_INK_RATIO = 4.8;
+const STATUS_INK_RATIO = 4.8;
 
 /** Tokens solved from the rest of the palette at the end, so a theme never sets text below 4.5:1. */
 type Solved = "ink4" | "greenInk" | "orangeInk" | "redInk" | "onGreen" | "onOrange" | "onRed";

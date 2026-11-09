@@ -305,7 +305,7 @@ function tabLook(pr: PullRequest | undefined) {
 }
 
 /** Left and right arrows select the next tab, as a tab row does. */
-export function moveTab(event: KeyboardEvent<HTMLDivElement>) {
+function moveTab(event: KeyboardEvent<HTMLDivElement>) {
   const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
   if (!step) return;
   const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]")];

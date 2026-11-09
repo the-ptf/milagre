@@ -23,7 +23,7 @@ const addButton =
 
 /** A login's initials: the first letters of its first two words ("reviewer-one" → RO), so two reviewers named alike
  * still differ; a one-word login takes its first letter. */
-export function initials(login: string) {
+function initials(login: string) {
   const words = login.split(/[-_.\s]+/).filter(Boolean);
   return (words.length > 1 ? `${words[0]![0]}${words[1]![0]}` : login.slice(0, 1)).toUpperCase();
 }
