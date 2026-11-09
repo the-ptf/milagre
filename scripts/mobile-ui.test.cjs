@@ -3669,6 +3669,8 @@ function chatHost({
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "../archive": require("../apps/mobile/src/archive.ts"),
     "../confirm-store": { confirmSheet: (...args) => alert(...args) },
+    // keep-awake-ask.test.ts covers the question; here it records which Mac each opened Chat asks about.
+    "../keep-awake-ask": { askKeepAwake: async ({ hostId }) => void (globalThis.keepAwakeAsks ??= []).push(hostId) },
   });
   const render = () => {
     react.begin();
@@ -5647,6 +5649,25 @@ test("a Chat of a Link deleted on another device leaves for the Projects list an
   assert.equal(host.router.replaced, "/projects");
   assert.equal(archive.archiveActivity().notice, "Food was deleted on another device.");
   archive.clearArchiveNotice();
+});
+
+test("each Chat opened asks about keeping its Mac awake once; a new Chat's draft doesn't", () => {
+  globalThis.keepAwakeAsks = [];
+  try {
+    const draft = chatHost({ effects: true });
+    draft.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, []);
+    const host = chatHost({ effects: true });
+    Object.assign(host.params, { id: "3", hostId: "mac" });
+    host.render();
+    host.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, ["mac"], "re-rendering the same Chat asks once");
+    host.params.id = "4";
+    host.render();
+    assert.deepEqual(globalThis.keepAwakeAsks, ["mac", "mac"]);
+  } finally {
+    delete globalThis.keepAwakeAsks;
+  }
 });
 
 test("a new Chat reached without a Worktree starts in the Project checkout once it loads", () => {

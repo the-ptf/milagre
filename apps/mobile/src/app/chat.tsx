@@ -169,7 +169,7 @@ import { useLinear } from "../use-linear";
 import { useRoutines } from "../use-routines";
 import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
-import { savedChatDefaults } from "../hosts-native";
+import { savedChatDefaults, savedKeepAwakeNeverAsk } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, chatsHomePath, useComputerViews, useNewChatProjects, useNoProjectChoice } from "../all-computers";
 import {
@@ -192,6 +192,8 @@ import { SubchatBookmarkHost } from "../subchat-bookmark";
 import { BESIDE_PARENT, familyMenu } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
+import { askKeepAwake } from "../keep-awake-ask";
+import { confirmSheet } from "../confirm-store";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 
 const PAGE = 40;
@@ -305,6 +307,16 @@ export default function ChatScreen() {
     routed.current = routeKey;
     closeBeside();
   }, [routeKey]);
+  // Each Chat opened on a Mac that lets itself sleep asks to keep it awake, so the phone can still reach it later.
+  // A reconnect hands over a new client for the same Mac: it doesn't ask again, only another Chat does.
+  const client = session.client;
+  const askOn = params.id && client && client.url === (params.hostId || client.url) ? routeKey : null;
+  const askedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!askOn || !client || askedFor.current === askOn) return;
+    askedFor.current = askOn;
+    void askKeepAwake({ client, hostId: client.url, neverAsk: savedKeepAwakeNeverAsk, ask: confirmSheet }).catch(() => {});
+  }, [askOn, client]);
   const shown = state === "shown" && beside ? beside : null;
   // Closing the routed Chat leaves the one beside it in its place.
   const promote = useCallback(() => {

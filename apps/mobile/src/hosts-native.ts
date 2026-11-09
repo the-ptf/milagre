@@ -17,6 +17,7 @@ import { createFoldedProjectsStore } from "./folded-projects-store";
 import { createChatPinsStore } from "./chat-pins-store";
 import { createHiddenProjectsStore } from "./hidden-projects-store";
 import { createProviderUpdateDismissals } from "./provider-update-dismissals";
+import { createKeepAwakeNeverAsk } from "./keep-awake-ask";
 
 export const savedProjectOrder = createProjectOrderStore({
   getItemAsync: SecureStore.getItemAsync,
@@ -31,6 +32,12 @@ export const savedHiddenProjects = createHiddenProjectsStore({
 
 /** Provider update cards dismissed on this phone, per paired computer. */
 export const savedProviderUpdateDismissals = createProviderUpdateDismissals({
+  getItemAsync: SecureStore.getItemAsync,
+  setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+});
+
+/** The computers this phone was told never to ask about keeping awake again. */
+export const savedKeepAwakeNeverAsk = createKeepAwakeNeverAsk({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });
