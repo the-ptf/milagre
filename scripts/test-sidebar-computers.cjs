@@ -216,6 +216,15 @@ async function browserChecks() {
       ["c-studio", "studio", "Offline, seen 2h ago"],
     ]);
     assert.equal(await evaluate(`!!document.querySelector('[data-filters-sub="computers"] [data-add-computer-row]')`), true);
+    // Computers › opens beside its row, rising only as far as its own height needs to stay on screen
+    // (it used to rise as if it were always 420px tall, so a single computer floated far above its row).
+    assert.equal(
+      await evaluate(
+        `(() => { const sub = document.querySelector('[data-filters-sub="computers"]').getBoundingClientRect(); const row = document.querySelector('[data-filters-panel] [data-sub="computers"]').getBoundingClientRect(); return Math.round(sub.top - Math.max(8, Math.min(row.top - 6, window.innerHeight - 8 - sub.height))); })()`,
+      ),
+      0,
+      "Computers › sits beside its row, or flush with the window's foot",
+    );
     await screenshot("popover");
     await hover('[data-computer-row="c-atlas"] [data-computer-gear]');
     await waitFor(`[...document.querySelectorAll('[role="tooltip"]')].some((tip) => tip.textContent.includes('atlas settings: rename, connection, remove'))`);

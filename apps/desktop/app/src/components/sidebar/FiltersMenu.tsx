@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
@@ -88,6 +88,8 @@ export function FiltersButton({
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ bottom: 0, left: 0 });
   const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
+  // The submenu's measured height, so a short one (a single computer, a few Projects) stays beside its row.
+  const [subHeight, setSubHeight] = useState(0);
   const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
   const { otherComputers } = useSettings();
   const { computers: paired } = useComputers();
@@ -120,6 +122,18 @@ export function FiltersButton({
   useLayoutEffect(() => {
     if (sub?.focus) rowsOf(subRef.current)[0]?.focus();
   }, [sub]);
+  // Measures the submenu while it is mounted; React runs the returned cleanup when it unmounts.
+  const subPanelRef = useCallback((panel: HTMLDivElement | null) => {
+    subRef.current = panel;
+    if (!panel) return;
+    setSubHeight(panel.offsetHeight);
+    const observer = new ResizeObserver(() => setSubHeight(panel.offsetHeight));
+    observer.observe(panel);
+    return () => {
+      observer.disconnect();
+      subRef.current = null;
+    };
+  }, []);
 
   const openSub = (which: Sub, row: HTMLElement, focus: boolean) => {
     const top = row.getBoundingClientRect().top - 6;
@@ -255,7 +269,7 @@ export function FiltersButton({
             </div>
             {sub && (
               <div
-                ref={subRef}
+                ref={subPanelRef}
                 role="menu"
                 aria-label={sub.which === "computers" ? "Computers in the sidebar" : sub.which === "projects" ? "Projects in the sidebar" : "Show on chats"}
                 onKeyDown={subKeys}
@@ -264,7 +278,7 @@ export function FiltersButton({
                 className={`${PANEL} max-h-[min(420px,calc(100vh-16px))]`}
                 style={{
                   width: SUB_WIDTH[sub.which],
-                  top: Math.max(8, Math.min(sub.top, window.innerHeight - 16 - (sub.which === "show" ? 260 : 420))),
+                  top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - subHeight)),
                   left: position.left + MAIN_WIDTH + 6,
                   animation: "pop-in var(--duration-fast) var(--ease-enter) both",
                   transformOrigin: "top left",
