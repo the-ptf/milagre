@@ -75,8 +75,9 @@ export async function askKeepAwake({
   hostId,
   hostName,
   neverAsk,
-  ask,
+  ask: show,
   isCurrent = () => true,
+  sheet = { settled: () => Promise.resolve(), busy: () => false },
 }: {
   client: Caller;
   hostId: string;
@@ -85,8 +86,17 @@ export async function askKeepAwake({
   neverAsk: Pick<ReturnType<typeof createKeepAwakeNeverAsk>, "has" | "add">;
   ask: ShowAlert;
   isCurrent?: () => boolean;
+  /** Resolves when the sheet is free, and says whether a question is still on it (confirm-store.ts). */
+  sheet?: { settled: () => Promise<void>; busy: () => boolean };
 }): Promise<void> {
   if (asking.get(hostId)?.()) return;
+  // Every sheet this question shows waits for one the user opened (Delete Link, an archive) to be answered first: a
+  // newer question dismisses the one open, which would cancel it unanswered.
+  const ask: ShowAlert = async (...args) => {
+    while (sheet.busy()) await sheet.settled();
+    if (isCurrent()) show(...args);
+    else args[2].find((button) => button.style === "cancel")?.onPress?.();
+  };
   asking.set(hostId, isCurrent);
   const name = hostName?.trim() || "the Mac";
   try {

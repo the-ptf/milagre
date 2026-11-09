@@ -193,9 +193,11 @@ import { BESIDE_PARENT, familyMenu } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 import { askKeepAwake } from "../keep-awake-ask";
-import { confirmSheet } from "../confirm-store";
+import { confirmSheet, confirmationsSettled, currentConfirmation } from "../confirm-store";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 
+// The keep-awake question waits for the confirmation sheet to be free (confirm-store.ts).
+const KEEP_AWAKE_SHEET = { settled: confirmationsSettled, busy: () => currentConfirmation() !== null };
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
@@ -429,6 +431,7 @@ function ChatPane({
       hostName: askHostName.current,
       neverAsk: savedKeepAwakeNeverAsk,
       ask: confirmSheet,
+      sheet: KEEP_AWAKE_SHEET,
       isCurrent: () => current,
     }).catch(() => {});
     return () => {

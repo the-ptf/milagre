@@ -148,3 +148,25 @@ test("questions about two Macs on screen wait their turn, each named for its Mac
   await Promise.all([studio, air]);
   assert.deepEqual(saved, ["studio", "air"], "each answer changes its own Mac");
 });
+
+test("the question waits for a confirmation the user opened, and leaves it answered", async () => {
+  let open: (() => void) | null = null;
+  let busy = true;
+  const sheet = {
+    busy: () => busy,
+    settled: () => new Promise<void>((resolve) => (open = resolve)),
+  };
+  const titles: string[] = [];
+  const ask = (title: string, _message: string | undefined, buttons: Button[]) => {
+    titles.push(title);
+    buttons.find((button) => button.text === "Not now")?.onPress?.();
+  };
+  const client = { call: async <T>() => ({ enabled: false }) as T };
+  const asking = askKeepAwake({ client, hostId: "https://busy.local", hostName: "Studio", neverAsk: createKeepAwakeNeverAsk(memory()), ask, sheet });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(titles, [], "Delete Link's confirmation stays on screen");
+  busy = false;
+  open!();
+  await asking;
+  assert.deepEqual(titles, ["Keep Studio awake?"]);
+});
