@@ -1,11 +1,11 @@
-// The canvas section: the app's own React Flow canvas (apps/desktop/app/src/components/CanvasView.tsx), with its Project
-// and Worktree nodes, Link handles, Links and Controls, on a fixed demo state. Drag a Project, pan, zoom, drag from a
-// blue handle to another node to Link it, or click a Link to remove it.
+// The canvas section: a copy of the app's canvas (apps/desktop/app/src/components/CanvasView.tsx) on a fixed demo state.
+// Projects are tinted sections with a card per Chat, Links run between cards, and the bar keeps the app's filters and
+// zoom. While it's in view, one agent negotiates a change with the other across the Link; the first touch stops that,
+// and the visitor can drag, pan, zoom, draw a Link between two cards or click one to remove it.
 import {
   addEdge,
   Background,
   BaseEdge,
-  Controls,
   EdgeLabelRenderer,
   getSmoothStepPath,
   Handle,
@@ -13,6 +13,8 @@ import {
   ReactFlow,
   useEdgesState,
   useNodesState,
+  useReactFlow,
+  useViewport,
   type Connection,
   type Edge,
   type EdgeProps,
@@ -24,136 +26,150 @@ import flowCss from "@xyflow/react/dist/style.css?url";
 import canvasCss from "./live-canvas.css?url";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
-type Mark = "waiting" | "running" | "unread" | "idle";
-type Chat = { title: string; mark: Mark };
-type ProjectData = { kind: "project"; name: string };
-type WorktreeData = { kind: "worktree"; branch: string; diff?: string; chats: Chat[]; note?: { from: string; text: string } };
-type CanvasNode = Node<ProjectData | WorktreeData>;
-/** pulse sends a message dot along the Link (forward: source to target); agreed marks the negotiation done. */
+// The app's marks and the status line each one gives a card (packages/shared/src/canvas.ts canvasStatus).
+type Mark = "waiting" | "running" | "delegated" | "unread" | "idle";
+type Provider = "claude" | "codex";
+type CardData = { title: string; mark: Mark; ago?: string; branch: string; provider: Provider; diff?: [number, number]; note?: { from: string; text: string } };
+type SectionData = { name: string; icon: string; tone: string; chats: number };
+type CanvasNode = Node<CardData, "card"> | Node<SectionData, "section">;
+/** pulse sends a message dot along the Link (forward: source to target); agreed shows the negotiation's end. */
 type LinkData = { activity?: string; pulse?: { way: "forward" | "back"; at: number }; agreed?: boolean };
 /** Stops what travels along a Link, as its Stop button does in the app. */
 const StopActivity = createContext<(id: string) => void>(() => {});
 
-const PROJECT_WIDTH = 330;
-const WORKTREE = { width: 290, height: 178, gap: 194, top: 64 };
+// CanvasView.tsx's geometry: 276px cards in two columns, 16px padding, a 52px header, 12px between cards.
+const CARD = { width: 276, height: 62, gap: 12 };
+const PAD = 16;
+const HEADER = 52;
 
-// Same Chats and branches as the sidebar above.
-const PROJECTS: { id: string; name: string; x: number; worktrees: Omit<WorktreeData, "kind">[] }[] = [
+const PROJECTS: { id: string; section: SectionData; x: number; cards: (CardData & { id: string })[] }[] = [
   {
     id: "milagre",
-    name: "milagre",
     x: 0,
-    worktrees: [
-      { branch: "main", chats: [{ title: "Release notes", mark: "idle" }] },
-      { branch: "milagre/victor", diff: "+3 −1", chats: [{ title: "Swipe between Chat and Changes", mark: "waiting" }] },
-      { branch: "milagre/marcos", diff: "+48 −6", chats: [{ title: "Phone pairing follow-ups", mark: "running" }] },
+    section: { name: "milagre", icon: "/app-icon-64.webp", tone: "var(--accent)", chats: 5 },
+    cards: [
+      { id: "link", title: "Link Worktrees and share context", mark: "unread", ago: "2h", branch: "milagre/link-worktrees", provider: "claude" },
+      { id: "timer", title: "Keep the Chat timer running", mark: "idle", ago: "1h", branch: "milagre/chat-timer", provider: "codex" },
+      { id: "find", title: "Find Projects from the phone", mark: "unread", ago: "3h", branch: "milagre/find-projects", provider: "claude" },
+      { id: "pairing", title: "Phone pairing follow-ups", mark: "idle", ago: "5m", branch: "milagre/phone-pairing", provider: "claude", diff: [48, 6] },
+      { id: "swipe", title: "Swipe between Chat and Changes", mark: "waiting", branch: "milagre/swipe", provider: "claude", diff: [3, 1] },
     ],
   },
   {
     id: "relay",
-    name: "relay",
-    x: 440,
-    worktrees: [
-      { branch: "main", chats: [{ title: "Release notes", mark: "idle" }] },
-      { branch: "milagre/marcos", diff: "+22 −4", chats: [{ title: "Rate-limit pairing attempts", mark: "unread" }] },
+    x: 700,
+    section: { name: "relay", icon: "/demo/relay-icon.webp", tone: "var(--green)", chats: 2 },
+    cards: [
+      { id: "rate", title: "Rate-limit pairing attempts", mark: "idle", ago: "20m", branch: "relay/rate-limit", provider: "codex", diff: [22, 4] },
+      { id: "sleep", title: "Reconnect after the Mac sleeps", mark: "unread", ago: "1d", branch: "relay/reconnect", provider: "claude" },
     ],
   },
 ];
 
 function initialNodes(): CanvasNode[] {
-  return PROJECTS.flatMap((project) => [
-    {
-      id: project.id,
-      type: "project",
-      position: { x: project.x, y: 0 },
-      data: { kind: "project", name: project.name },
-      style: { width: PROJECT_WIDTH, height: 74 + project.worktrees.length * WORKTREE.gap },
-      dragHandle: ".canvas-drag-handle",
-    } satisfies CanvasNode,
-    ...project.worktrees.map(
-      (worktree, index) =>
-        ({
-          id: `${project.id}:${index}`,
-          type: "worktree",
-          parentId: project.id,
-          extent: "parent",
-          position: { x: 20, y: WORKTREE.top + index * WORKTREE.gap },
-          data: { kind: "worktree", ...worktree },
-          style: { width: WORKTREE.width, height: WORKTREE.height },
-          dragHandle: ".canvas-drag-handle",
-        }) satisfies CanvasNode,
-    ),
-  ]);
+  return PROJECTS.flatMap((project) => {
+    const columns = [HEADER, HEADER];
+    const cards = project.cards.map(({ id, ...card }, index) => {
+      const column = project.cards.length > 1 ? index % 2 : 0;
+      const position = { x: PAD + column * (CARD.width + PAD), y: columns[column]! };
+      columns[column]! += CARD.height + CARD.gap;
+      return {
+        id: `${project.id}:${id}`,
+        type: "card",
+        parentId: project.id,
+        extent: "parent",
+        position,
+        data: card,
+        style: { width: CARD.width, height: CARD.height },
+      } satisfies CanvasNode;
+    });
+    const width = PAD + (project.cards.length > 1 ? 2 : 1) * (CARD.width + PAD);
+    const height = Math.max(...columns) - CARD.gap + PAD;
+    return [
+      {
+        id: project.id,
+        type: "section",
+        position: { x: project.x, y: 0 },
+        data: project.section,
+        style: { width, height },
+        dragHandle: ".canvas-drag-handle",
+      } satisfies CanvasNode,
+      ...cards,
+    ];
+  });
 }
 
-// The pairing Worktree and the relay's rate limit agree on the pairing API, as linked agents do.
-const NEGOTIATING = "Negotiating the pairing API";
+// The phone pairing Chat and the relay's rate limit agree on the pairing API, as linked agents do.
+const ASKER = "milagre:pairing";
+const ANSWERER = "relay:rate";
+const LINK_ID = `link:${ASKER}:${ANSWERER}`;
 function initialEdges(): Edge<LinkData>[] {
-  return [link({ source: "milagre:2", target: "relay:1" }, NEGOTIATING)];
+  return [link({ source: ASKER, target: ANSWERER })];
 }
 
-function link(connection: Pick<Connection, "source" | "target">, activity?: string): Edge<LinkData> {
+function link(connection: Pick<Connection, "source" | "target">, data: LinkData = {}): Edge<LinkData> {
   return {
     id: `link:${connection.source}:${connection.target}`,
     source: connection.source,
     target: connection.target,
-    sourceHandle: "right-source",
-    targetHandle: "left-target",
+    sourceHandle: "right",
+    targetHandle: "left",
     type: "link",
-    data: { activity },
-    style: { stroke: "var(--ink-3)", strokeWidth: 2 },
+    data,
   };
 }
 
+/** One dot per side; either end of a new Link can start at either dot. */
 function LinkHandles() {
   return (
     <>
-      <Handle type="target" position={Position.Left} id="left-target" className="canvas-handle" />
-      <Handle type="source" position={Position.Left} id="left-source" className="canvas-handle" style={{ top: "65%" }} />
-      <Handle type="target" position={Position.Right} id="right-target" className="canvas-handle" />
-      <Handle type="source" position={Position.Right} id="right-source" className="canvas-handle" style={{ top: "65%" }} />
+      <Handle type="source" position={Position.Left} id="left" className="canvas-handle" />
+      <Handle type="source" position={Position.Right} id="right" className="canvas-handle" />
     </>
   );
 }
 
-function ProjectNode({ data }: NodeProps<Node<ProjectData>>) {
+function SectionNode({ data }: NodeProps<Node<SectionData, "section">>) {
   return (
-    <div className="canvas-project">
-      <LinkHandles />
-      <div className="canvas-drag-handle canvas-project-header">
-        <span className="canvas-project-initial">{data.name.slice(0, 1).toUpperCase()}</span>
-        <span className="canvas-project-name">{data.name}</span>
-        <span className="canvas-kind">Project</span>
+    <div className="canvas-section" style={{ ["--section" as string]: data.tone }}>
+      <div className="canvas-drag-handle canvas-section-header">
+        <img src={data.icon} alt="" width="20" height="20" />
+        <strong>{data.name}</strong>
+        <span>{data.chats === 1 ? "1 Chat" : `${data.chats} Chats`}</span>
       </div>
     </div>
   );
 }
 
-function WorktreeNode({ data }: NodeProps<Node<WorktreeData>>) {
+const STATUS: Record<Mark, (ago?: string) => { label: string; tone: string }> = {
+  waiting: () => ({ label: "Waiting for you", tone: "orange" }),
+  running: () => ({ label: "Running", tone: "accent" }),
+  delegated: () => ({ label: "Working on a Delegation", tone: "accent" }),
+  unread: (ago) => ({ label: `Finished${ago === "now" ? " · just now" : ago ? ` · ${ago} ago` : ""}`, tone: "accent" }),
+  idle: (ago) => ({ label: `Idle${ago === "now" ? " · just now" : ago ? ` · ${ago} ago` : ""}`, tone: "muted" }),
+};
+
+function CardNode({ data }: NodeProps<Node<CardData, "card">>) {
+  const status = STATUS[data.mark](data.ago);
   return (
-    <div className="canvas-worktree">
+    <div className={`canvas-card ${data.mark === "waiting" ? "waiting" : ""}`}>
       <LinkHandles />
-      <div className="canvas-drag-handle canvas-worktree-header">
-        <div className="canvas-branch" title={data.branch}>
-          {data.branch}
-        </div>
-        <div className="canvas-kind-row">
-          <span>Worktree</span>
-          <span>{data.diff ?? ""}</span>
-        </div>
-      </div>
-      <ul className="nodrag nopan nowheel canvas-chats">
-        {data.chats.map((chat) => (
-          <li key={chat.title}>
-            <button type="button" className="nodrag canvas-chat">
-              <span className={`canvas-mark mark-${chat.mark}`} title={chat.mark} />
-              <span className="canvas-chat-title">{chat.title}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <span className="canvas-card-row">
+        <span className={`canvas-mark mark-${data.mark}`} />
+        <strong>{data.title}</strong>
+        {data.diff && (
+          <span className="canvas-diff">
+            <span className="add">+{data.diff[0]}</span> <span className="remove">−{data.diff[1]}</span>
+          </span>
+        )}
+      </span>
+      <span className="canvas-card-status">
+        <span className={`tone-${status.tone}`}>{status.label}</span>
+        <span className="canvas-branch">· {data.branch}</span>
+        <img src={`/logos/${data.provider}.svg`} alt="" width="12" height="12" />
+      </span>
       {data.note && (
-        <p className="canvas-note">
+        <p key={data.note.text} className="canvas-note">
           <strong>{data.note.from}</strong> {data.note.text}
         </p>
       )}
@@ -161,23 +177,25 @@ function WorktreeNode({ data }: NodeProps<Node<WorktreeData>>) {
   );
 }
 
-function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, data }: EdgeProps<Edge<LinkData>>) {
-  const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, data }: EdgeProps<Edge<LinkData>>) {
+  const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 10 });
   const activity = data?.activity;
   const stop = useContext(StopActivity);
   const pulse = data?.pulse;
   return (
     <>
-      <BaseEdge id={id} path={path} style={style} className={activity ? "milagre-link-active" : undefined} />
+      <BaseEdge id={id} path={path} className={`canvas-link ${activity ? "active" : ""} ${selected ? "selected" : ""}`} />
       {pulse && <Pulse key={pulse.at} path={path} back={pulse.way === "back"} />}
       {activity && (
         <EdgeLabelRenderer>
           <div className="nodrag nopan canvas-activity" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
             <span className={`canvas-activity-dot ${data?.agreed ? "agreed" : ""}`} />
             <span>{activity}</span>
-            <button type="button" onClick={() => stop(id)}>
-              Stop
-            </button>
+            {!data?.agreed && (
+              <button type="button" onClick={() => stop(id)}>
+                Stop
+              </button>
+            )}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -197,51 +215,75 @@ function Pulse({ path, back }: { path: string; back: boolean }) {
   );
 }
 
-// The tour: milagre's pairing agent asks relay's agent for a change across the Link, relay makes it and answers, and the
+/** The app's zoom bar: out, the level, in, fit. */
+function ZoomBar() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const { zoom } = useViewport();
+  return (
+    <div className="nodrag nopan canvas-zoom">
+      <button type="button" aria-label="Zoom out" onClick={() => void zoomOut()}>
+        −
+      </button>
+      <span>{Math.round(zoom * 100)}%</span>
+      <button type="button" aria-label="Zoom in" onClick={() => void zoomIn()}>
+        +
+      </button>
+      <button type="button" aria-label="Fit the canvas" onClick={() => void fitView({ padding: 0.12 })}>
+        ⇿
+      </button>
+    </div>
+  );
+}
+
+// The tour: milagre's pairing Chat asks relay's for a change across the Link, relay's makes it and answers, and the
 // two agree. It plays while the canvas is in view and stops for good at the visitor's first touch.
-const ASKER = "milagre:2";
-const ANSWERER = "relay:1";
-type Step = { wait: number; link?: LinkData; nodes?: Record<string, Partial<WorktreeData>> };
-const chat = (title: string, mark: Mark): Chat[] => [{ title, mark }];
+type Step = { wait: number; link?: LinkData; cards?: Record<string, Partial<CardData>> };
 const TOUR: Step[] = [
-  { wait: 1200, link: { activity: "Asking relay for Retry-After", pulse: { way: "forward", at: 1 } } },
+  {
+    wait: 1300,
+    link: { activity: "Negotiation · round 1 of 10", pulse: { way: "forward", at: 1 } },
+    cards: { [ASKER]: { mark: "running" } },
+  },
+  {
+    wait: 1600,
+    cards: { [ANSWERER]: { mark: "delegated", note: { from: "milagre", text: "Can a refused pairing say when to retry?" } } },
+  },
+  { wait: 1300, cards: { [ANSWERER]: { diff: [31, 4] } } },
   {
     wait: 1500,
-    link: { activity: "relay is adding Retry-After" },
-    nodes: {
-      [ANSWERER]: { note: { from: "milagre", text: "Can a refused pairing say when to retry?" }, chats: chat("Rate-limit pairing attempts", "running") },
-    },
+    link: { activity: "Negotiation · round 2 of 10", pulse: { way: "back", at: 2 } },
+    cards: { [ANSWERER]: { mark: "unread", ago: "now" } },
   },
-  { wait: 1300, nodes: { [ANSWERER]: { diff: "+31 −4" } } },
-  {
-    wait: 1200,
-    link: { activity: "relay replied", pulse: { way: "back", at: 2 } },
-    nodes: { [ANSWERER]: { chats: chat("Rate-limit pairing attempts", "idle") } },
-  },
-  {
-    wait: 1500,
-    link: { activity: "Updating the phone's retry" },
-    nodes: { [ASKER]: { note: { from: "relay", text: "Done: 429 with Retry-After: 30" }, chats: chat("Phone pairing follow-ups", "running") } },
-  },
-  { wait: 1300, nodes: { [ASKER]: { diff: "+57 −6" } } },
-  { wait: 3200, link: { activity: "Contract agreed", agreed: true }, nodes: { [ASKER]: { chats: chat("Phone pairing follow-ups", "unread") } } },
+  { wait: 1500, cards: { [ASKER]: { note: { from: "relay", text: "Done: 429 with Retry-After: 30" } } } },
+  { wait: 1300, cards: { [ASKER]: { diff: [57, 6] } } },
+  { wait: 3000, link: { activity: "Contract agreed", agreed: true }, cards: { [ASKER]: { mark: "unread", ago: "now" } } },
 ];
 
-const nodeTypes = { project: ProjectNode, worktree: WorktreeNode };
+const nodeTypes = { section: SectionNode, card: CardNode };
 const edgeTypes = { link: LinkEdge };
 
 export default function LiveCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(initialNodes());
-  const [edges, setEdges] = useEdgesState<Edge<LinkData>>(initialEdges());
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<LinkData>>(initialEdges());
   const stop = useCallback((id: string) => setEdges((current) => current.map((edge) => (edge.id === id ? { ...edge, data: {} } : edge))), [setEdges]);
   const [selected, setSelected] = useState<string | null>(null);
   const section = useRef<HTMLElement>(null);
+  const counts = nodes.reduce(
+    (sum, node) => {
+      if (node.type !== "card") return sum;
+      const mark = (node.data as CardData).mark;
+      return { all: sum.all + 1, needs: sum.needs + (mark === "waiting" ? 1 : 0), running: sum.running + (mark === "running" || mark === "delegated" ? 1 : 0) };
+    },
+    { all: 0, needs: 0, running: 0 },
+  );
+
   // Back to the demo's own data, keeping wherever the visitor dragged things.
   const restore = useCallback(() => {
     const original = new Map(initialNodes().map((node) => [node.id, node.data]));
-    setNodes((current) => current.map((node) => ({ ...node, data: original.get(node.id) ?? node.data })));
-    setEdges((current) => current.map((edge) => (edge.id === initialEdges()[0]!.id ? { ...edge, data: { activity: NEGOTIATING } } : edge)));
+    setNodes((current) => current.map((node) => ({ ...node, data: original.get(node.id) ?? node.data }) as CanvasNode));
+    setEdges((current) => current.map((edge) => (edge.id === LINK_ID ? { ...edge, data: {} } : edge)));
   }, [setNodes, setEdges]);
+
   useEffect(() => {
     const host = section.current;
     if (!host || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -255,17 +297,13 @@ export default function LiveCanvas() {
       const id = ++run;
       playing = true;
       try {
-        await wait(600, id);
+        await wait(700, id);
         for (const step of TOUR) {
           if (step.link)
-            setEdges((current) =>
-              current.map((edge) =>
-                edge.id === initialEdges()[0]!.id ? { ...edge, data: { ...edge.data, ...step.link, ...(step.link!.pulse ? {} : { pulse: undefined }) } } : edge,
-              ),
-            );
-          if (step.nodes)
+            setEdges((current) => current.map((edge) => (edge.id === LINK_ID ? { ...edge, data: { ...edge.data, pulse: undefined, ...step.link } } : edge)));
+          if (step.cards)
             setNodes((current) =>
-              current.map((node) => (step.nodes![node.id] ? { ...node, data: { ...node.data, ...step.nodes![node.id] } as WorktreeData } : node)),
+              current.map((node) => (step.cards![node.id] ? ({ ...node, data: { ...node.data, ...step.cards![node.id] } } as CanvasNode) : node)),
             );
           await wait(step.wait, id);
         }
@@ -277,13 +315,14 @@ export default function LiveCanvas() {
         playing = false;
       }
     };
-    const stop = () => {
+    const halt = () => {
       if (finished) return;
       finished = true;
       run++;
       restore();
     };
-    for (const type of ["pointerdown", "keydown", "wheel"] as const) host.addEventListener(type, stop, { once: true, passive: true });
+    const types = ["pointerdown", "keydown", "wheel"] as const;
+    for (const type of types) host.addEventListener(type, halt, { once: true, passive: true });
     const observer = new IntersectionObserver(
       ([entry]) => {
         visible = !!entry?.isIntersecting;
@@ -301,29 +340,29 @@ export default function LiveCanvas() {
     return () => {
       run++;
       observer.disconnect();
-      for (const type of ["pointerdown", "keydown", "wheel"] as const) host.removeEventListener(type, stop);
+      for (const type of types) host.removeEventListener(type, halt);
     };
   }, [restore, setEdges, setNodes]);
-  const shown = edges.map((edge) => ({
-    ...edge,
-    selected: edge.id === selected,
-    style: { ...edge.style, stroke: edge.id === selected ? "var(--accent)" : "var(--ink-3)" },
-  }));
 
   return (
     <StopActivity value={stop}>
       <link rel="stylesheet" href={flowCss} precedence="default" />
       <link rel="stylesheet" href={canvasCss} precedence="default" />
       <section data-canvas className="canvas-window" ref={section}>
+        <span className="canvas-lights" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
         <div className="canvas-bar">
-          <a className="canvas-bar-button" href="#parallel-work">
-            Back to chat
+          <a className="canvas-back" href="#designs">
+            ← Back
           </a>
-          <h3>Projects and Links</h3>
+          <span className="canvas-spacer" />
           {selected && (
             <button
               type="button"
-              className="canvas-bar-outline"
+              className="canvas-remove"
               onClick={() => {
                 setEdges((current) => current.filter((edge) => edge.id !== selected));
                 setSelected(null);
@@ -332,27 +371,31 @@ export default function LiveCanvas() {
               Remove Link
             </button>
           )}
-          <button
-            type="button"
-            className="canvas-bar-button small"
-            onClick={() => {
-              setNodes(initialNodes());
-              setEdges(initialEdges());
-              setSelected(null);
-            }}
-          >
-            Refresh
-          </button>
+          <div className="canvas-filters" aria-label="Chats on the canvas">
+            <span className="on">
+              All <b>{counts.all}</b>
+            </span>
+            <span>
+              <i className="needs" />
+              Needs you <b>{counts.needs}</b>
+            </span>
+            <span>
+              <i className="running" />
+              Running <b>{counts.running}</b>
+            </span>
+          </div>
         </div>
         <div className="canvas-flow">
           <ReactFlow
             className="milagre-canvas-flow"
             colorMode="dark"
             nodes={nodes}
-            edges={shown}
+            edges={edges.map((edge) => ({ ...edge, selected: edge.id === selected }))}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            connectionMode={"loose" as never}
             onConnect={(connection) => {
               if (connection.source === connection.target) return;
               setEdges((current) => addEdge(link(connection), current));
@@ -372,7 +415,7 @@ export default function LiveCanvas() {
             maxZoom={1.6}
           >
             <Background gap={24} size={1} color="oklch(0.44 0.03 258)" />
-            <Controls showInteractive={false} />
+            <ZoomBar />
           </ReactFlow>
         </div>
       </section>

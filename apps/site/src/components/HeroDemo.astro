@@ -113,8 +113,8 @@
   .mac { position: absolute; top: 0; left: 0; width: 1000px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 14px; background: var(--page); box-shadow: 0 0 0 1px oklch(1 0 0 / 0.14), 0 30px 80px oklch(0 0 0 / 0.55); }
   .mac-video, .phone-video { display: block; width: 100%; height: 100%; object-fit: cover; }
   /* macOS draws the app's traffic lights, so the frame adds them where Milagre puts them: 12px buttons from x 24 of the
-     1280px window, centred on the sidebar toggle at y 30. --k scales app pixels to this 1000px window. */
-  .lights { --k: calc(1000 / 1280); position: absolute; top: calc((30 - 6) * var(--k) * 1px); left: calc(24 * var(--k) * 1px); display: flex; gap: calc(8 * var(--k) * 1px); }
+     1280px window, centred on the bar's icons at y 22. --k scales app pixels to this 1000px window. */
+  .lights { --k: calc(1000 / 1280); position: absolute; top: calc((22 - 6) * var(--k) * 1px); left: calc(24 * var(--k) * 1px); display: flex; gap: calc(8 * var(--k) * 1px); }
   .lights i { width: calc(12 * var(--k) * 1px); height: calc(12 * var(--k) * 1px); border-radius: 50%; background: #ff5f57; }
   .lights i:nth-child(2) { background: #febc2e; }
   .lights i:nth-child(3) { background: #28c840; }

@@ -28,7 +28,11 @@ const until = async (ready, ms = 50) => {
 async function main() {
   fs.mkdirSync(out, { recursive: true });
   const profile = process.env.PROFILE ? path.resolve(process.env.PROFILE) : path.join(out, "profile");
-  const env = { ...process.env, MILAGRE_CHATS_HOME: path.join(profile, "chats-home"), MILAGRE_BACKGROUND: process.env.MILAGRE_BACKGROUND ?? "1" };
+  const env = {
+    ...process.env,
+    MILAGRE_CHATS_HOME: process.env.MILAGRE_CHATS_HOME ?? path.join(profile, "chats-home"),
+    MILAGRE_BACKGROUND: process.env.MILAGRE_BACKGROUND ?? "1",
+  };
   delete env.ELECTRON_RUN_AS_NODE;
   env.MILAGRE_DEV_SERVER_URL = require("node:url").pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
   const child = spawn(

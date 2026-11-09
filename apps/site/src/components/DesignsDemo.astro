@@ -567,7 +567,9 @@ const check = icon(CheckmarkCircle02Icon, 13);
       version.classList.remove("editing", agent);
       pins.splice(pins.indexOf(pin), 1);
       render();
-      move(cursor, spot(target, 0.9, 1.4));
+      // Done: the agent leaves as soon as its fix lands.
+      await wait(250, id);
+      cursor.classList.remove("shown");
       return `${AGENT_NAMES[agent]} updated ${titles[step.frame]} to version ${next}`;
     }
     async function tour() {
