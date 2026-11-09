@@ -9,6 +9,7 @@ import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
+import { KeepAwakePrompt } from "./components/KeepAwakePrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
 import { AddComputerDialog } from "./components/AddComputerDialog";
 import { AddProjectDialog } from "./components/AddProjectDialog";
@@ -4494,6 +4495,7 @@ function App() {
       {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
       {selectedLink && linkDialogs}
       {settingsModal}
+      <KeepAwakePrompt chatKey={view === "chat" && !selectedLink && selectedSessionId !== null ? chatKey(project.path, selectedSessionId) : null} />
     </>
   );
 }
