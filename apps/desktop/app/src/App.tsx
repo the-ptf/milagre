@@ -2067,8 +2067,8 @@ function App() {
     }
   }
 
-  // With other computers, Add project asks which computer first; with this Mac alone, the folder dialog.
-  const openProject = () => (pairedComputers.length > 0 ? Promise.resolve(setAddProjectOpen(true)) : replaceProject(() => window.milagre.openProject()));
+  // Add project asks how first (open a folder or clone a repository), and which computer too when there are others.
+  const openProject = () => Promise.resolve(setAddProjectOpen(true));
   const switchProject = (projectPath: string, adopt: Parameters<typeof adoptProject>[1] = {}) =>
     replaceProject(() => requestProject(projectPath), projectPath, adopt);
   const onProjectRemoved = useEvent((event: Event) => {

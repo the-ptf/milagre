@@ -138,6 +138,8 @@ const PATHS = Object.freeze({
   "link:open": denied,
   "link:send": denied,
   "project:open": ([projectPath]) => [projectPath],
+  // A clone makes a folder wherever the phone names, so a phone confined to one folder never starts one.
+  "onboarding:clone": denied,
   // The Chats home is the Mac's own folder, outside any demo folder.
   "chats:home": denied,
   "chats:ensure": denied,

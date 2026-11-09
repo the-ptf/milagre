@@ -30,6 +30,7 @@ const ipcRenderer = {
 const NOT_REMOTE = "Not available on a remote computer";
 const LOCAL_ONLY = new Set([
   "project:open",
+  "project:choose-folder",
   "project:reveal",
   "project:set-hidden",
   "skills:open",
@@ -330,6 +331,8 @@ function makeBridge(invoke, listen, send) {
     openInEditor: (request) => invoke("editor:open", request),
     getCurrentProject: () => invoke("project:current"),
     openProject: () => invoke("project:open"),
+    /** This Mac's folder dialog without opening anything: where a clone goes. A path, or null when cancelled. */
+    chooseFolder: () => invoke("project:choose-folder"),
     /** A folder on this computer, opened as a Project without the folder dialog (the remote folder picker). */
     openProjectAt: (folder) => invoke("project:open-at", folder, { takeNotice: true }),
     listDirs: (request) => invoke("fs:list-dirs", request),
@@ -339,7 +342,7 @@ function makeBridge(invoke, listen, send) {
     listKnownProjects: () => invoke("project:known"),
     listAgentFolders: () => invoke("onboarding:agent-folders"),
     createProject: (name) => invoke("onboarding:create", name),
-    cloneProject: (url) => invoke("onboarding:clone", url),
+    cloneProject: (url, parent) => invoke("onboarding:clone", url, parent),
     setUpGit: (folder) => invoke("onboarding:init-git", folder),
     setProjectHidden: (projectPath, hidden) => invoke("project:set-hidden", projectPath, hidden),
     retrySave: (scope) => invoke("scope:retry-save", scope),

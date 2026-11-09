@@ -34,6 +34,22 @@ async function firstCommit(folder) {
 
 const NO_GIT = "Git isn't installed on this computer. Install it from https://git-scm.com, then try again.";
 
+/** `~` and `~/x` as this computer's home folder; anything else as typed. */
+function withHome(value) {
+  return value === "~" || /^~[/\\]/.test(value) ? path.join(os.homedir(), value.slice(1)) : value;
+}
+
+/** The folder a clone goes into: an existing, absolute one the user chose (a phone types it as text), else `root`. */
+async function cloneParent(parent, root) {
+  const chosen = typeof parent === "string" ? parent.trim() : "";
+  if (!chosen) return { folder: root, make: true };
+  const folder = withHome(chosen);
+  if (!path.isAbsolute(folder)) throw new Error("Choose a folder by its full path, such as ~/Code.");
+  const info = await fs.stat(folder).catch(() => null);
+  if (!info?.isDirectory()) throw new Error(`${folder} isn't a folder on this computer. Choose another one.`);
+  return { folder, make: false };
+}
+
 function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plain = plainFolder, writer = git } = {}) {
   return {
     root,
@@ -46,13 +62,19 @@ function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plai
       else if (!init.missing) throw new Error(`Git couldn't set up ${folder}: ${init.message}`);
       return { path: folder };
     },
-    /** A clone of `url` into ~/Code/<repository name>. */
-    async clone(url) {
+    /** A clone of `url` into <parent>/<repository name>; with no `parent`, into ~/Code, which is made when it's missing. */
+    async clone(url, parent) {
       const source = typeof url === "string" ? url.trim() : "";
       if (!/^(https:\/\/|ssh:\/\/|git@)[^\s]+$/.test(source)) throw new Error("Paste an https:// or git@ address of a repository.");
-      const folder = await freeFolder(path.join(root, folderName(path.basename(source.replace(/\/+$/, "")).replace(/\.git$/, ""))));
-      await fs.mkdir(root, { recursive: true });
-      const result = await writer.run(root, ["clone", "--", source, folder], { profile: "NETWORK" });
+      const into = await cloneParent(parent, root);
+      const name = source
+        .replace(/\/+$/, "")
+        .split(/[/:\\]/)
+        .pop()
+        .replace(/\.git$/, "");
+      const folder = await freeFolder(path.join(into.folder, folderName(name)));
+      if (into.make) await fs.mkdir(into.folder, { recursive: true });
+      const result = await writer.run(into.folder, ["clone", "--", source, folder], { profile: "NETWORK" });
       if (result.missing) throw new Error(NO_GIT);
       if (!result.ok) {
         await fs.rm(folder, { recursive: true, force: true }).catch(() => {});

@@ -3486,7 +3486,7 @@ function createRuntime(options) {
   // A first Project made from onboarding opens at once: a new folder, a clone, or Git set up in a folder without it.
   const onboardingProjects = options.onboardingProjects ?? createOnboardingProjects();
   commands.handle("onboarding:create", async (_event, name) => openProject((await onboardingProjects.create(name)).path));
-  commands.handle("onboarding:clone", async (_event, url) => openProject((await onboardingProjects.clone(url)).path));
+  commands.handle("onboarding:clone", async (_event, url, parent) => openProject((await onboardingProjects.clone(url, parent)).path));
   commands.handle("onboarding:init-git", async (_event, folder) => openProject((await onboardingProjects.initGit(folder)).path));
   commands.handle("project:set-hidden", async (_event, projectPath, hidden) => {
     await knownFolder(projectPath);
