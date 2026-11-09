@@ -45,9 +45,6 @@ type StateNumbering = { patch?: StatePatch; base?: number; version?: number; epo
  * number of the state it carries, or holds, and the host's run. A host from before them sends neither.
  */
 export type StateStamp = { version?: number; epoch?: string };
-
-/** Whether a computer keeps itself awake while Milagre runs. */
-export type KeepAwakeSettings = { enabled: boolean };
 /** A Project read with `{ state: false }`: its path, name and number without the state, which a host from before the option still sends. */
 export type ProjectRead = Omit<OpenProject, "state"> & { state?: CoordinatorState } & StateStamp;
 /** A starter bot and the setup card it asks for. */
@@ -488,13 +485,6 @@ export type MilagreBridge = {
   saveDoneSettings: (patch: Partial<DoneSettings>) => Promise<DoneSettings>;
   /** The settings changed, here or from another device. */
   onDoneSettings: (callback: (value: DoneSettings) => void) => () => void;
-  /** Settings › General › System: whether the Mac stays awake while Milagre runs (the screen can still sleep; plugged in,
-   * also with the lid closed). Kept by the host, off by default. */
-  readKeepAwakeSettings: () => Promise<KeepAwakeSettings>;
-  /** Merges the patch over the stored setting, applies it at once and returns the normalized result. */
-  saveKeepAwakeSettings: (patch: Partial<KeepAwakeSettings>) => Promise<KeepAwakeSettings>;
-  /** The setting changed, here or from another device. */
-  onKeepAwakeSettings: (callback: (value: KeepAwakeSettings) => void) => () => void;
   /** Whether this Mac runs Routines: always `true` now; an older paired computer may still say `false`. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
@@ -855,6 +845,8 @@ export type MilagreBridge = {
   onAccountsChanged: (callback: () => void) => () => void;
   onUsageChanged: (callback: (payload: { scopeKey?: string }) => void) => () => void;
   readUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
+  /** Whether the Mac stays awake while Milagre runs (the screen can still sleep; plugged in, also with the lid closed). */
+  setKeepAwake: (enabled: boolean) => Promise<void>;
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
   readAccountUsage: () => Promise<UsageSnapshot>;
   getCachedAccountUsage: () => Promise<UsageSnapshot>;

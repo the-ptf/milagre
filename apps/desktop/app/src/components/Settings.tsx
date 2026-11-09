@@ -101,7 +101,6 @@ import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
 import { NEW_CHAT_STATS_GROUP, NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { useDoneSettings } from "../lib/done-settings";
-import { useKeepAwakeSettings } from "../lib/keep-awake";
 import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
@@ -766,21 +765,6 @@ function BotsSettings() {
   );
 }
 
-/** Whether this Mac stays awake while Milagre runs. Its host keeps it, so the phone and paired computers can turn it on too. */
-function KeepAwakeSetting() {
-  const { settings, save } = useKeepAwakeSettings();
-  return (
-    <Group title="System">
-      <Row
-        label={`Keep the ${computerNoun} awake`}
-        description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off. Plugged in, it stays awake with the lid closed; on battery, closing the lid sleeps it."
-      >
-        <SettingCheckbox label={`Keep the ${computerNoun} awake`} checked={settings.enabled} onChange={(enabled) => void save({ enabled }).catch(() => {})} />
-      </Row>
-    </Group>
-  );
-}
-
 /** How long a Chat waits in the sidebar's Done list before this Mac archives it. */
 function DoneRetentionSetting() {
   const { settings, save } = useDoneSettings();
@@ -1177,7 +1161,14 @@ function GeneralSettings() {
           />
         </Row>
       </Group>
-      <KeepAwakeSetting />
+      <Group title="System">
+        <Row
+          label={`Keep the ${computerNoun} awake`}
+          description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off. Plugged in, it stays awake with the lid closed; on battery, closing the lid sleeps it."
+        >
+          <SettingCheckbox label={`Keep the ${computerNoun} awake`} checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
+        </Row>
+      </Group>
     </>
   );
 }

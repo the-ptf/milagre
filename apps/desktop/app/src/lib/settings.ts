@@ -60,6 +60,7 @@ export interface AppSettings {
   floatingInbox: boolean;
   floatingInboxActivity: boolean;
   /** Keep the Mac from sleeping while an agent works; the screen can still turn off. */
+  keepAwake: boolean;
   /** The editor that "Open in" uses, by id; empty means the first one found. */
   editorId: string;
   /** Applies to Claude only; Codex is unchanged. */
@@ -127,6 +128,7 @@ const DEFAULTS: AppSettings = {
   showAttentionButton: true,
   floatingInbox: false,
   floatingInboxActivity: true,
+  keepAwake: true,
   editorId: "",
   claudeReplies: "concise",
   openLinksIn: "milagre",
@@ -178,6 +180,7 @@ function load(): AppSettings {
       showAttentionButton: typeof saved.showAttentionButton === "boolean" ? saved.showAttentionButton : DEFAULTS.showAttentionButton,
       floatingInbox: typeof saved.floatingInbox === "boolean" ? saved.floatingInbox : false,
       floatingInboxActivity: typeof saved.floatingInboxActivity === "boolean" ? saved.floatingInboxActivity : true,
+      keepAwake: typeof saved.keepAwake === "boolean" ? saved.keepAwake : DEFAULTS.keepAwake,
       editorId: typeof saved.editorId === "string" ? saved.editorId : DEFAULTS.editorId,
       tldrEnabled: typeof saved.tldrEnabled === "boolean" ? saved.tldrEnabled : DEFAULTS.tldrEnabled,
       claudeReplies: CLAUDE_REPLIES.has(saved.claudeReplies as ClaudeReplies) ? saved.claudeReplies! : DEFAULTS.claudeReplies,

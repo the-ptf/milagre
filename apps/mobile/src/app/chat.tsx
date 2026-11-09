@@ -169,7 +169,7 @@ import { useLinear } from "../use-linear";
 import { useRoutines } from "../use-routines";
 import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
-import { savedChatDefaults, savedKeepAwakeNeverAsk } from "../hosts-native";
+import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, chatsHomePath, useComputerViews, useNewChatProjects, useNoProjectChoice } from "../all-computers";
 import {
@@ -192,12 +192,8 @@ import { SubchatBookmarkHost } from "../subchat-bookmark";
 import { BESIDE_PARENT, familyMenu } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
-import { askKeepAwake } from "../keep-awake-ask";
-import { confirmSheet, confirmationsSettled, currentConfirmation } from "../confirm-store";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 
-// The keep-awake question waits for the confirmation sheet to be free (confirm-store.ts).
-const KEEP_AWAKE_SHEET = { settled: confirmationsSettled, busy: () => currentConfirmation() !== null };
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
@@ -409,36 +405,6 @@ function ChatPane({
   const [ownDraft] = useState(() => randomUUID());
   const draftId = params.draft || ownDraft;
   const session = useSession();
-  // Each Chat opened on a Mac that lets itself sleep asks to keep it awake, so the phone can still reach it later. Each
-  // pane asks through its own session, so a Chat beside from another Mac asks about that Mac. A reconnect hands over a
-  // new client for the same Mac: it doesn't ask again, only another Chat does; a Chat left before the answer shows nothing.
-  const askClient = useRef(session.client);
-  const askHostName = useRef(session.hostName);
-  useEffect(() => {
-    askClient.current = session.client;
-    askHostName.current = session.hostName;
-  });
-  const askOn =
-    params.id && session.client && session.client.url === (params.hostId || session.client.url)
-      ? `${session.client.url}|${params.projectPath ?? ""}|${params.id}`
-      : null;
-  useEffect(() => {
-    const client = askClient.current;
-    if (!askOn || !client) return;
-    let current = true;
-    void askKeepAwake({
-      client,
-      hostId: client.url,
-      hostName: askHostName.current,
-      neverAsk: savedKeepAwakeNeverAsk,
-      ask: confirmSheet,
-      sheet: KEEP_AWAKE_SHEET,
-      isCurrent: () => current,
-    }).catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [askOn]);
   // The Chat beside reads its own Project when that isn't the open one.
   const openSession = useMainSession();
   const ownProject = !sameSession(session, openSession);
