@@ -14,6 +14,14 @@ Agents can show designs right in the Chat. Compare them side by side on a canvas
 
 Link Projects on a canvas so their agents share context. An agent can read the other side and ask its agent to make a change, so a frontend and an API can agree on a contract before either one builds it.
 
+## Agents check their own work
+
+An agent opens your app in the Browser panel or an iOS simulator, clicks through it and tells you what it saw. Watch from your desk or your phone.
+
+## Every computer you own, one sidebar
+
+Run Milagre on a server or a spare Mac without the desktop app (`npx milagre serve`, Node.js 24+), pair it once, and its Chats sit beside your laptop's. CLI docs: https://milagre.cloud/docs/cli
+
 ## The agent needs you. Your desk doesn't.
 
 The same Chats follow you to iPhone and Android: answer a question, approve a command or send the next prompt from your phone. Your computer runs the agents, so it needs to stay awake, online and running Milagre.
@@ -29,7 +37,7 @@ The same Chats follow you to iPhone and Android: answer a question, approve a co
 
 **Where does my work live?** On your computer. Milagre stores Chat history and Project files there, and your agents send context to their model providers using your own account.
 
-**Which computers does it run on?** macOS on Apple silicon and Intel, and Linux as an AppImage, .deb or .rpm. Windows is in progress. The phone app is in beta for iPhone and Android.
+**Which computers does it run on?** macOS on Apple silicon and Intel, and Linux as an AppImage, .deb or .rpm. Windows is in beta. On a server, run it without the desktop app: `npx milagre serve` needs Node.js 24. The phone app is in beta for iPhone and Android.
 
 **Do I need the phone app?** No. Everything works on desktop. Pair the phone when you want to follow your agents and reply away from your desk.
 

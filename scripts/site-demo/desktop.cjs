@@ -42,10 +42,31 @@ async function main() {
     "notification:state": null,
     "settings:notify-when-waiting": null,
     "settings:window-background": null,
+    "settings:floating-inbox": null,
+    "settings:notification-chime": null,
+    "settings:notification-schedule": null,
+    "app:dictation-status": [],
+    "computers:list": { computers: [] },
   };
   for (const [channel, value] of Object.entries(local)) if (!runtime.methods.includes(channel)) ipcMain.handle(channel, () => value);
+  // The preload holds every call until main says the host answered (main.cjs); this host already has.
+  ipcMain.handle("app:host-ready", () => undefined);
+  // Preferences live in main's store, read synchronously (main.cjs). In memory here: each recording starts fresh, and a
+  // key not yet stored migrates from the page's localStorage, which main() seeds below.
+  const preferences = new Map();
+  ipcMain.on("preferences:storage", (event, operation, key, value) => {
+    if (operation === "get") event.returnValue = preferences.has(key) ? { value: preferences.get(key) } : {};
+    else {
+      if (value === null) preferences.delete(key);
+      else preferences.set(key, value);
+      event.returnValue = {};
+    }
+  });
 
+  // The Mac window's chrome, as main.cjs builds it: the renderer leaves room for the traffic lights the page draws.
+  const chrome = require("../../apps/desktop/electron/window-chrome.cjs").windowChrome("darwin");
   window = new BrowserWindow({
+    ...chrome.options,
     // Offscreen windows paint at 1x, so the window is twice the size and the page zoomed 2x: 1280×800 of layout, sharp.
     width: WIDTH * SCALE,
     height: HEIGHT * SCALE,
@@ -59,6 +80,7 @@ async function main() {
       offscreen: true,
       zoomFactor: SCALE,
       backgroundThrottling: false,
+      additionalArguments: [`--milagre-window-controls=${chrome.controls}`],
     },
   });
   window.webContents.setFrameRate(FPS);
@@ -78,6 +100,11 @@ async function main() {
   window.webContents.reload();
   await reloaded;
   await waitFor(window, `!!document.querySelector('[data-row]') && !document.querySelector('.startup-splash-screen')`);
+  // An offscreen window reports its title bar overlay as hidden, so the bar would start at the window edge, under the
+  // traffic lights the landing page draws. Without the overlay the renderer keeps the Mac's 92px (lib/window-chrome.ts).
+  await window.webContents.executeJavaScript(
+    `Object.defineProperty(navigator, "windowControlsOverlay", { get: () => undefined, configurable: true }); dispatchEvent(new Event("resize"));`,
+  );
   window.webContents.send("notification:open-chat", HERO_CHAT);
   await new Promise((resolve) => setTimeout(resolve, 1200));
   send({ ready: true });

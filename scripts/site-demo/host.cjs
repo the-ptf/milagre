@@ -231,6 +231,8 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
   const daemon = await startDaemon({
     dataDir,
     version: VERSION,
+    // Chats live under the home folder the host serves (~/.milagre/chats): a temporary one keeps the user's untouched.
+    homeDir: path.join(root, "home"),
     runtimeOptions: {
       ...demoRuntimeOptions({ cwd: project, worktreeRoot: path.join(project, ".milagre", "worktrees") }),
       agentCliStatus: Object.assign(
@@ -245,6 +247,8 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
     },
   });
   const client = await connect({ dataDir });
+  // Otherwise the phone opens on a "Keep My Mac awake?" sheet. It only lasts while the recording runs.
+  await client.call("keep-awake:settings:save", [{ enabled: true }]);
   const opened = await client.call("project:open", [project]);
   // The Project's first Chat (on main) is not part of the demo.
   for (const session of Object.values(opened.state.sessions)) await client.call("chat:patch", [project, session.id, { title: "Release notes" }]);
