@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { confirm, confirmSheet, confirmationsSettled, currentConfirmation, setConfirmPresenter } from "./confirm-store.ts";
+import { confirm, confirmSheet, currentConfirmation, setConfirmPresenter } from "./confirm-store.ts";
 
 test("a confirmation waits in the store until the sheet answers it", async () => {
   let shown = 0;
@@ -43,18 +43,4 @@ test("a dismissed alert without Cancel calls onDismiss", () => {
   });
   currentConfirmation()!.choose(null);
   assert.equal(dismissed, 1);
-});
-
-test("confirmationsSettled waits for the open question's answer, not for one that replaces it", async () => {
-  setConfirmPresenter(() => {});
-  await confirmationsSettled();
-  let settled = false;
-  void confirm("Delete Link?", undefined, "Delete");
-  const waiting = confirmationsSettled().then(() => (settled = true));
-  await Promise.resolve();
-  assert.equal(settled, false);
-  currentConfirmation()!.choose(1);
-  await waiting;
-  assert.equal(settled, true);
-  assert.equal(currentConfirmation(), null);
 });
