@@ -145,7 +145,8 @@ import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, useHiddenComputers } from "./lib/computers";
 import { OfflineEmpty } from "./components/OfflineEmpty";
-import { settingsCommands, settingsPageCommands } from "./lib/settings-commands";
+import { keepAwakeCommands, settingsCommands, settingsPageCommands } from "./lib/settings-commands";
+import { useKeepAwakeSettings } from "./lib/keep-awake";
 import { findSetting } from "./lib/settings-find";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
@@ -913,10 +914,10 @@ function App() {
   const agentPorts = useAgentPorts();
   const isSending = preparingHere || Boolean(run);
   const usage = useUsage(accountScope);
+  const keepAwake = useKeepAwakeSettings();
   const {
     chatOrder,
     showUsageInSidebar,
-    keepAwake,
     defaultModelId,
     defaultPermissionMode,
     notifyOnCompletion,
@@ -1751,11 +1752,6 @@ function App() {
     const worktree = latest?.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1];
     if (worktree) void openInEditor(worktree.path);
   }
-
-  // The daemon keeps the Mac awake while Milagre runs, if the setting says so.
-  useEffect(() => {
-    void window.milagre.setKeepAwake(keepAwake).catch(() => {});
-  }, [keepAwake]);
 
   const unreadChatIds = useMemo(
     () =>
@@ -3718,6 +3714,7 @@ function App() {
       },
     });
     commands.push(...settingsCommands(getSettings(), updateSettings));
+    commands.push(...keepAwakeCommands(keepAwake.settings.enabled, (enabled) => void keepAwake.save({ enabled }).catch(() => {})));
     if (selectedSession && view === "chat" && !settingsOpen) {
       const sessionId = selectedSession.id;
       commands.unshift(

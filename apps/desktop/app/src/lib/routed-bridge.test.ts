@@ -30,7 +30,6 @@ const ALLOWED: Record<string, string[]> = {
     "onComputerEvent",
     "onWorktreeRenamed",
     "revealInFolder",
-    "setKeepAwake",
     "syncNotifications",
     "setNotifyWhenWaiting",
     "setNotificationChime",
