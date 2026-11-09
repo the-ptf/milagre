@@ -143,7 +143,8 @@ const check = icon(CheckmarkCircle02Icon, 13);
   <p class="status" data-status role="status"></p>
   <!-- The tour's two cursors: the visitor's, and the agent's named one, as Designs draws a live agent's. -->
   <div class="cursor" data-cursor="you" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 1v15.5l4.2-4 2.9 6.6 2.6-1.1-2.9-6.5H14z" /></svg><span>You</span></div>
-  <div class="cursor agent" data-cursor="agent" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 1v15.5l4.2-4 2.9 6.6 2.6-1.1-2.9-6.5H14z" /></svg><span>Claude</span></div>
+  <div class="cursor agent" data-cursor="claude" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 1v15.5l4.2-4 2.9 6.6 2.6-1.1-2.9-6.5H14z" /></svg><span>Claude</span></div>
+  <div class="cursor agent codex" data-cursor="codex" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 1v15.5l4.2-4 2.9 6.6 2.6-1.1-2.9-6.5H14z" /></svg><span>Codex</span></div>
 </div>
 
 <script>
@@ -390,9 +391,9 @@ const check = icon(CheckmarkCircle02Icon, 13);
       return wrap;
     }
 
-    // The tour: once the panel is in view, the visitor pins a comment on one design and sends it, and the agent applies
-    // it as that design's next version; seven different changes across the three designs before it starts over. It plays
-    // while the panel is in view and stops for good at the visitor's first click or key, handing them a clean panel.
+    // The tour: once the panel is in view, the visitor pins comments on the designs and sends them, and Claude and Codex
+    // each take one, working side by side, and apply it as that design's next version. Seven changes in five rounds before
+    // it starts over. It plays while in view and stops for good at the visitor's first click or key, leaving a clean panel.
     type Change = { frame: number; target: (mock: HTMLElement) => HTMLElement; fx: number; fy: number; comment: string; apply: (mock: HTMLElement) => void };
     const all = (mock: HTMLElement, selector: string) => [...mock.querySelectorAll<HTMLElement>(selector)];
     const CHANGES: Change[] = [
@@ -463,7 +464,11 @@ const check = icon(CheckmarkCircle02Icon, 13);
         apply: (mock) => (mock.querySelector<HTMLElement>(".m-sheet > span:not(.m-cta)")!.textContent = "Grill · 1.2 km · about 10 min wait"),
       },
     ];
-    const cursors = { you: $("[data-cursor='you']"), agent: $("[data-cursor='agent']") };
+    type Agent = "claude" | "codex";
+    const AGENT_NAMES: Record<Agent, string> = { claude: "Claude", codex: "Codex" };
+    // Each round's comments go out with one Send; a round's changes are on different designs, so the agents never collide.
+    const ROUNDS: [number, Agent][][] = [[[0, "claude"]], [[1, "codex"], [2, "claude"]], [[3, "claude"]], [[4, "codex"], [5, "claude"]], [[6, "codex"]]];
+    const cursors = { you: $("[data-cursor='you']"), claude: $("[data-cursor='claude']"), codex: $("[data-cursor='codex']") };
     const mocks = [...root.querySelectorAll<HTMLElement>("[data-body] .mock")];
     const originals = mocks.map((mock) => mock.innerHTML);
     const versions = [...root.querySelectorAll<HTMLElement>("[data-version]")];
@@ -514,14 +519,10 @@ const check = icon(CheckmarkCircle02Icon, 13);
       status.classList.remove("shown");
       render();
     }
-    async function change(step: Change, edits: number[], id: number) {
+    // The visitor pins one comment and types it; comment mode stays on for the next one in the round.
+    async function comment(step: Change, id: number) {
       const mock = mocks[step.frame]!;
       const target = step.target(mock);
-      move(cursors.you, spot(commentButton));
-      await wait(800, id);
-      press(cursors.you);
-      commentButton.click();
-      await wait(350, id);
       move(cursors.you, spot(target, step.fx, step.fy));
       await wait(900, id);
       press(cursors.you);
@@ -538,50 +539,67 @@ const check = icon(CheckmarkCircle02Icon, 13);
         pin.text += letter;
         field.value = pin.text;
         updateSend();
-        await wait(34, id);
+        await wait(32, id);
       }
-      await wait(400, id);
-      move(cursors.you, spot(sendButton));
-      await wait(800, id);
-      press(cursors.you);
-      send();
       await wait(300, id);
-      // The agent comes to the comment, works on that spot, and the design moves to its next version.
+      return pin;
+    }
+    // An agent comes to its comment, works on that spot, and the design moves to its next version.
+    async function edit(step: Change, agent: Agent, pin: Pin, edits: number[], id: number, delay: number) {
+      await wait(delay, id);
+      const mock = mocks[step.frame]!;
+      const target = step.target(mock);
+      const cursor = cursors[agent];
       const version = versions[step.frame]!;
       version.textContent = "Editing…";
-      version.classList.add("editing");
-      move(cursors.agent, spot(target, 0.3, 0.7));
+      version.classList.add("editing", agent);
+      move(cursor, spot(target, 0.3, 0.75));
       await wait(900, id);
-      target.classList.add("editing");
-      move(cursors.agent, spot(target, 0.65, 0.6));
-      await wait(700, id);
-      press(cursors.agent);
+      target.classList.add("editing", agent);
+      move(cursor, spot(target, 0.65, 0.65));
+      await wait(800 + delay, id);
+      press(cursor);
       step.apply(mock);
-      target.classList.remove("editing");
+      target.classList.remove("editing", agent);
       edits[step.frame]!++;
       const next = edits[step.frame]! + 1;
       version.textContent = `v${next} of ${next}`;
-      version.classList.remove("editing");
+      version.classList.remove("editing", agent);
       pins.splice(pins.indexOf(pin), 1);
       render();
-      status.textContent = `Claude updated ${titles[step.frame]} to version ${next}.`;
-      status.classList.add("shown");
-      await wait(1400, id);
+      move(cursor, spot(target, 0.9, 1.4));
+      return `${AGENT_NAMES[agent]} updated ${titles[step.frame]} to version ${next}`;
     }
     async function tour() {
       const id = ++run;
       touring = true;
       try {
         jump(cursors.you, { x: root.clientWidth * 0.62, y: root.clientHeight * 0.92 });
-        jump(cursors.agent, { x: root.clientWidth * 0.97, y: root.clientHeight * 0.35 });
-        cursors.agent.classList.remove("shown");
+        jump(cursors.claude, { x: root.clientWidth * 0.97, y: root.clientHeight * 0.35 });
+        jump(cursors.codex, { x: root.clientWidth * 0.03, y: root.clientHeight * 0.6 });
+        cursors.claude.classList.remove("shown");
+        cursors.codex.classList.remove("shown");
         await wait(500, id);
         const edits = [0, 0, 0];
-        for (const step of CHANGES) {
-          await change(step, edits, id);
-          cursors.agent.classList.add("shown");
+        for (const round of ROUNDS) {
+          move(cursors.you, spot(commentButton));
+          await wait(800, id);
+          press(cursors.you);
+          commentButton.click();
+          await wait(300, id);
+          const sent: [Change, Agent, Pin][] = [];
+          for (const [index, agent] of round) sent.push([CHANGES[index]!, agent, await comment(CHANGES[index]!, id)]);
+          move(cursors.you, spot(sendButton));
+          await wait(800, id);
+          press(cursors.you);
+          send();
+          await wait(300, id);
+          const done = await Promise.all(sent.map(([step, agent, pin], order) => edit(step, agent, pin, edits, id, order * 350)));
+          status.textContent = done.length > 1 ? `Claude and Codex updated ${done.length} designs.` : `${done[0]}.`;
+          status.classList.add("shown");
+          await wait(1500, id);
         }
-        await wait(1600, id);
+        await wait(1400, id);
         for (const cursor of Object.values(cursors)) cursor.classList.remove("shown");
         await wait(1200, id);
         reset();
@@ -679,12 +697,16 @@ const check = icon(CheckmarkCircle02Icon, 13);
   .cursor span { margin-top: 14px; padding: 2px 7px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; }
   .cursor.agent svg { fill: #d97757; }
   .cursor.agent span { background: #d97757; }
+  .cursor.codex svg { fill: #6e7bf2; }
+  .cursor.codex span { background: #6e7bf2; }
   @keyframes press { 50% { transform: scale(0.82); } }
   .version:global(.editing) { color: #d97757; animation: blink 900ms ease-in-out infinite; }
   @keyframes blink { 50% { opacity: 0.45; } }
   .m-cta { transition: background-color 400ms; }
   .m-cta:global(.v2) { background: #e5703f; }
   .mock :global(.editing) { outline: 2px dashed #d97757; outline-offset: 4px; }
+  .mock :global(.editing.codex) { outline-color: #6e7bf2; }
+  .version:global(.editing.codex) { color: #6e7bf2; }
   .m-chip:global(.new) { border-color: #e5703f; color: #b4531f; animation: pop 300ms var(--ease-out-strong) both; }
   .m-card { transition: opacity 350ms, transform 350ms; }
   .m-card:global(.gone) { opacity: 0; transform: scale(0.96); }
@@ -699,8 +721,9 @@ const check = icon(CheckmarkCircle02Icon, 13);
   .m-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; }
   .m-head h4 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }
   .m-pill { padding: 6px 12px; border-radius: 999px; background: #f4f4f5; font-size: 13px; font-weight: 500; }
-  .m-chips { display: flex; gap: 8px; padding: 4px 20px 16px; }
-  .m-chip { padding: 7px 14px; border: 1px solid #e4e4e7; border-radius: 999px; font-size: 13px; }
+  /* A chip bar scrolls sideways in the app: chips keep one line and the row runs off the screen's edge. */
+  .m-chips { display: flex; gap: 8px; padding: 4px 20px 16px; overflow: hidden; }
+  .m-chip { flex: none; padding: 7px 14px; border: 1px solid #e4e4e7; border-radius: 999px; font-size: 13px; white-space: nowrap; }
   .m-chip.on { border-color: #18181b; background: #18181b; color: #fff; }
   .m-card { display: flex; gap: 14px; margin: 0 20px 14px; padding: 12px; border: 1px solid #f0f0f2; border-radius: 16px; }
   .m-card.wide { align-items: center; justify-content: space-between; padding: 16px; }

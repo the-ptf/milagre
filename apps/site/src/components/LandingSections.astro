@@ -53,6 +53,8 @@ const SHOW_PARALLEL_WORK = false;
       <a class="docs-link" href="/docs/cli">Read the CLI docs <span aria-hidden="true">→</span></a>
     </div>
     <figure class="computers-shot">
+      <!-- macOS draws the traffic lights outside the page, so the capture has an empty corner; the frame adds them. -->
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
       <img src="/demo/computers.webp" width="1650" height="1080" loading="lazy" decoding="async" alt="The Milagre sidebar listing Chats from two computers, MacBook Pro and Build server, with a Chat that ran on the Build server open." />
       <pre class="terminal" aria-label="Terminal on the Build server"><code><span class="prompt">$</span> npx milagre serve --project ~/code/api
 Milagre is running.
@@ -184,6 +186,12 @@ milagre://pair?relay=…&amp;name=Build%20server
   .computers-shot { position: relative; padding-bottom: 48px; }
   .terminal { position: absolute; right: -12px; bottom: 0; width: min(380px, 78%); margin: 0; padding: 14px 16px; border-radius: 12px; background: oklch(0.15 0.02 258); box-shadow: var(--shadow-overlay); color: var(--ink); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
   .terminal .prompt { color: var(--green); }
+  /* Where the Mac puts them in a 1100×720 window: 12px lights from x 22, centred on the bar's icons at y 22. */
+  .lights { position: absolute; top: calc(16 / 720 * (100% - 48px)); left: calc(22 / 1100 * 100%); z-index: 1; display: flex; gap: calc(8 / 1100 * 100cqw); container-type: normal; }
+  .computers-shot { container-type: inline-size; }
+  .lights i { width: calc(12 / 1100 * 100cqw); aspect-ratio: 1; border-radius: 50%; background: #ff5f57; }
+  .lights i:nth-child(2) { background: #febc2e; }
+  .lights i:nth-child(3) { background: #28c840; }
   .phone .feature-copy { order: 2; }
   .phone-downloads { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
   .phone-downloads svg { flex: none; transform: translateY(-1px); }
