@@ -10,6 +10,10 @@ import { InlineError } from "./primitives/InlineError";
 
 const NEVER_ASK = "milagre.keep-awake-never-ask";
 
+type Question = { id: number; chatKey: string; computerId: string; busy: boolean; failure: string | null };
+// Numbers each question, so a save's answer finds the question it was made from.
+let asked = 0;
+
 // Kept through preferenceStorage, so an update that moves the app to another file URL doesn't ask again.
 function neverAsked(): string[] {
   try {
@@ -27,10 +31,9 @@ function neverAsked(): string[] {
  * about. A save that fails says why and leaves Keep awake to try again.
  */
 export function KeepAwakePrompt({ chatKey }: { chatKey: string | null }) {
-  // The Chat it was asked for: opening another one drops the question until that Chat's own answer comes.
-  const [question, setQuestion] = useState<{ chatKey: string; computerId: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  // The Chat it was asked for: opening another one drops the question until that Chat's own answer comes. A save
+  // under way and its failure belong to their question: one that ends after another question opened leaves it alone.
+  const [question, setQuestion] = useState<Question | null>(null);
   useEffect(() => {
     if (!chatKey || !isRemoteKey(chatKey)) return;
     const computerId = computerOfKey(chatKey);
@@ -41,8 +44,7 @@ export function KeepAwakePrompt({ chatKey }: { chatKey: string | null }) {
       .then((value) => {
         // Only an answer of off asks: a computer that answers anything else (an older one) can't say.
         if (!live || value?.enabled !== false) return undefined;
-        setFailure(null);
-        setQuestion({ chatKey, computerId });
+        setQuestion({ id: ++asked, chatKey, computerId, busy: false, failure: null });
         return undefined;
       })
       .catch(() => {});
@@ -51,20 +53,23 @@ export function KeepAwakePrompt({ chatKey }: { chatKey: string | null }) {
     };
   }, [chatKey]);
 
-  const asking = question && question.chatKey === chatKey ? question.computerId : null;
-  if (!asking) return null;
+  const shown = question && question.chatKey === chatKey ? question : null;
+  if (!shown) return null;
+  const asking = shown.computerId;
+  const { busy, failure } = shown;
   const close = () => setQuestion(null);
+  // Changes the question it was given, and only while that one is still asked.
+  const update = (id: number, change: Partial<Question> | null) =>
+    setQuestion((current) => (current?.id !== id ? current : change ? { ...current, ...change } : null));
   async function keepAwake() {
-    if (!asking) return;
-    setBusy(true);
-    setFailure(null);
+    if (!shown) return;
+    const { id } = shown;
+    update(id, { busy: true, failure: null });
     try {
       await bridgeFor(asking).saveKeepAwakeSettings({ enabled: true });
-      close();
+      update(id, null);
     } catch (cause) {
-      setFailure(ipcErrorMessage(cause));
-    } finally {
-      setBusy(false);
+      update(id, { busy: false, failure: ipcErrorMessage(cause) });
     }
   }
   function dontAskAgain() {
