@@ -47,6 +47,7 @@ import { commitChatSwitch, transcriptShown } from "../lib/chat-switch-timing";
 import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
+  ArrowDown01Icon,
   BubbleChatIcon,
   Folder01Icon,
   GitBranchIcon,
@@ -54,7 +55,6 @@ import {
   GitMergeIcon,
   GitPullRequestIcon,
   ComputerIcon,
-  LaptopIcon,
   Undo02Icon,
 } from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
@@ -77,6 +77,7 @@ import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
 import { lazyView } from "../lib/lazy-view";
 import { ChatMentionsContext, EMPTY_CHAT_MENTIONS, type ChatMentionScope } from "./ChatMentions";
+import { StepApprovalProvider, type StepApproval } from "./agents/step-approval";
 import { PromptText } from "./PromptText";
 import { onlyImageMentions } from "@milagre/shared/prompt-parts";
 import { useFilesRoot } from "./editor-links";
@@ -300,14 +301,22 @@ function ReplyContent({
   waitingStepIds: string[];
   credits?: number;
 }) {
-  const { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer } = replyActivity(body, steps);
+  const { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer, answerAt } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
+  // Calls made after the text read after it: "I'll run the checks next", then the command waiting on its approval.
+  const before = answer.trim() ? activity.slice(0, answerAt) : activity;
+  const after = answer.trim() ? activity.slice(answerAt) : [];
   return (
     <>
       {setup.map((step) => (
         <StepRow key={step.id} step={step} />
       ))}
-      <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />
+      <ActivityBlock
+        entries={before}
+        streaming={streaming && after.length === 0}
+        waitingStepIds={waitingStepIds}
+        credits={after.length ? undefined : credits}
+      />
       <ViewedImages steps={viewedImages} attachments={attachments} />
       {images.map((step) => (
         <GeneratedImage key={step.id} step={step} />
@@ -319,9 +328,10 @@ function ReplyContent({
       ))}
       {answer.trim() && (
         <div data-slot="message-content" data-quotable>
-          {streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}
+          {streaming && after.length === 0 ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}
         </div>
       )}
+      {after.length > 0 && <ActivityBlock entries={after} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />}
       {/* Reserve the footer while streaming so completion and hover keep the transcript still. */}
       {copyable && answer.trim() && (
         <div className="h-7" data-message-copy-footer>
@@ -487,7 +497,7 @@ const MessageSection = memo(function MessageSection({
         </div>
       )}
       <div
-        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-window" : bubble ? "relative rounded-card bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "relative rounded-card border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.6] text-ink ${advisor ? "w-full rounded-window" : bubble ? "relative rounded-card bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "relative rounded-card border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
         {bubble && (copyUser || (undoId && onUndo)) && (
@@ -1045,6 +1055,8 @@ interface ChatComposerProps {
   approval?: ReactNode;
   /** The cards stay mounted but out of sight, such as a question whose answers are on their way to the agent. */
   approvalHidden?: boolean;
+  /** The open approval, for the tool row it is about: Deny and Allow show there instead of on a card. */
+  stepApproval?: StepApproval | null;
   /**
    * The Project a new Chat starts in, named in the "Start building in" heading; its dropdown moves the new Chat to another.
    * `kind: "chats"` is a Chats home draft (No project); `onChange` gets `home` when the move is to a Chats home, saying
@@ -1083,7 +1095,7 @@ interface ChatComposerProps {
 
 type IsolationOption = { id: Isolation; name: string; description: string; icon: IconData };
 const ISOLATIONS: [IsolationOption, ...IsolationOption[]] = [
-  { id: "local", name: "Local", description: "Work in the selected checkout", icon: LaptopIcon },
+  { id: "local", name: "This checkout", description: "Work in the selected checkout", icon: Folder01Icon },
   { id: "worktree", name: UI_COPY.newWorktree, description: "Start a new branch in its own Worktree", icon: GitForkIcon },
 ];
 
@@ -1432,6 +1444,7 @@ export function ChatComposer({
   onRecommendationSelect,
   approval,
   approvalHidden = false,
+  stepApproval = null,
   newChatProject,
   worktrees,
   selectedWorktreeId,
@@ -1492,7 +1505,9 @@ export function ChatComposer({
   const workingModelName = runModelName ?? selectedModel.name;
   // A Link Chat's Worktree being made, or a setup running, is named; the agent's own work shows the mark alone.
   const phase = statusLabel ?? runStatusLabel(streamingSteps);
-  const [scrolled, setScrolled] = useState(false);
+  // Set while the transcript is scrolled up: its "Go to bottom" sits at the right end of the chip row, never over text.
+  // Kept with the transcript it belongs to, so a Chat opened next (or a parked one) never shows another's button.
+  const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
   // The transcript slot on screen (TranscriptSlots); a parked one comes back at the scroll position it left at.
@@ -1503,14 +1518,6 @@ export function ChatComposer({
   const browserChat = !isNewChat ? runtimeChat : null;
   // The panel docks outside the chat pane, so the pane hiding doesn't hide it.
   const browserShown = browserChat && !offScreen ? browserChat : null;
-  useEffect(() => {
-    if (isNewChat) {
-      setScrolled(false);
-      return;
-    }
-    const viewport = root.current?.querySelector<HTMLElement>('[data-transcript-slot] [aria-label="Conversation"]');
-    setScrolled((viewport?.scrollTop ?? 0) > 4);
-  }, [isNewChat, transcriptKey]);
   // Undo changes: the Chat's task checkpoints, the panel that takes the composer's place, and the message it outlines.
   const checkpointApi = useMemo<CheckpointApi>(
     () => (runtimeChat ? keptCheckpoints(bridgeForKey(runtimeChat).checkpoints ?? NO_CHECKPOINTS) : NO_CHECKPOINTS),
@@ -1685,13 +1692,12 @@ export function ChatComposer({
         }}
         onDrop={handleFileDrop}
       >
-        {/* Messages scrolled past the top soften into a progressive blur under the window-drag strip. The layers fade,
-        not the wrapper: a wrapper below full opacity would cut the layers' blur off from the messages behind it. */}
+        {/* The top edge under the window-drag strip and the Chat's title: solid under the bar, then the messages fade in. */}
         {!isNewChat && (
           <div
             aria-hidden
             data-busy={isSending || undefined}
-            className={`chat-top-blur progressive-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-16 [&>*]:transition-opacity [&>*]:duration-base ${scrolled ? "" : "[&>*]:opacity-0"}`}
+            className="chat-top-blur progressive-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-[calc(var(--window-chrome-height)+32px)]"
           >
             <ProgressiveBlurLayers />
           </div>
@@ -1757,11 +1763,15 @@ export function ChatComposer({
                   className="min-h-0 flex-1"
                   // The find bar floats over the top of the chat, so the first message moves below it while it is open.
                   // The chip row floats over the bottom blur, so the last message can scroll clear of it.
-                  viewportClassName={`${findOpen ? "pt-12" : "pt-4"} pb-10`}
+                  // The bottom pad clears the chip row and its fade (h-16), so the last line rests in full ink.
+                  // The first message starts where the top fade ends (bar + 32px), fully readable at the top.
+                  viewportClassName={`${findOpen ? "pt-12" : "pt-7"} pb-12`}
                   contentClassName="min-h-full"
                   // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
                   autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
-                  viewportProps={{ onScroll: (event) => setScrolled(event.currentTarget.scrollTop > 4) }}
+                  onJumpToBottomChange={(jump) =>
+                    setJumpToBottom((current) => (jump ? { key: transcriptKey, jump } : current?.key === transcriptKey ? null : current))
+                  }
                 >
                   <div
                     data-chat-width={chatWidth}
@@ -1770,7 +1780,7 @@ export function ChatComposer({
                     {/* Reply links to this Chat's loopback-only servers stay localhost (Markdown.tsx). */}
                     <LoopbackPortsContext.Provider value={loopbackPorts}>
                       <StepDetailsScope scope={messageScope}>
-                        <ChatMentionsContext value={mentionContext}>
+                        <TranscriptContexts mentions={mentionContext} stepApproval={stepApproval}>
                           <MessageTranscript
                             findOpen={findOpen}
                             earlier={earlier}
@@ -1799,11 +1809,19 @@ export function ChatComposer({
                             offlineName={offlineName}
                             models={models}
                           />
-                        </ChatMentionsContext>
+                        </TranscriptContexts>
                       </StepDetailsScope>
                     </LoopbackPortsContext.Provider>
 
-                    {isSending && (
+                    {/* A question or approval card follows the last item, so no empty stretch opens above a docked card. */}
+                    {approval && (
+                      <div data-slot="transcript-card" className={`w-full ${approvalHidden ? "hidden" : ""}`}>
+                        {approval}
+                      </div>
+                    )}
+                    {/* While a tool row waits on its approval, or a question waits on its answer, that row or card already shows
+                        the time and the agent is blocked on the user: no running timer under it. */}
+                    {isSending && !stepApproval && !asking && (
                       <div className="w-full" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
                         <ThinkingIndicator
                           startedAt={runStartedAt}
@@ -1834,7 +1852,7 @@ export function ChatComposer({
                 <div
                   aria-hidden
                   data-busy={isSending || undefined}
-                  className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14"
+                  className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16"
                 >
                   <ProgressiveBlurLayers />
                 </div>
@@ -1844,7 +1862,8 @@ export function ChatComposer({
         />
         <div
           data-chat-width={chatWidth}
-          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
+          // While a composer popover (model, permissions, + or a menu) is open over it, the row steps aside instead of peeking out.
+          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 transition-[opacity,visibility] duration-fast empty:hidden [&:has(+[data-composer-wrap]_[data-picker-panel])]:invisible [&:has(+[data-composer-wrap]_[data-picker-panel])]:opacity-0 ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
         >
           {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
@@ -1876,7 +1895,19 @@ export function ChatComposer({
               )}
               {reviewPill && (
                 <PillSlot key="pr-review" slot="pr-review" className="mr-auto flex">
-                  <StatusPill onClick={reviewPill.onOpen} icon={BubbleChatIcon} label="Review" count={reviewPill.count} tone="orange" className="font-medium" />
+                  {/* Neutral: orange is for what needs you now; the label says what the count is. */}
+                  <StatusPill
+                    data-review-pill
+                    onClick={reviewPill.onOpen}
+                    leading={
+                      <>
+                        <Icon icon={BubbleChatIcon} size={12} />
+                        <span className="font-medium text-ink tabular-nums">{reviewPill.count}</span>
+                      </>
+                    }
+                    label={reviewPill.count === 1 ? "review comment" : "review comments"}
+                    tone="ink"
+                  />
                 </PillSlot>
               )}
             </AnimatePresence>
@@ -1907,6 +1938,24 @@ export function ChatComposer({
               onStop={onStopAdvisor}
               onRetry={onRetryAdvisor}
             />
+            {/* Keyed by Chat: switching drops the old button at once instead of playing its exit over the new Chat. */}
+            <AnimatePresence key={`jump-${transcriptKey}`} initial={false}>
+              {!isNewChat && jumpToBottom?.key === transcriptKey && (
+                <PillSlot key="jump-to-bottom" slot="jump-to-bottom" className="flex">
+                  <Tooltip label="Go to bottom" asChild>
+                    <button
+                      type="button"
+                      aria-label="Go to bottom"
+                      data-jump-to-bottom
+                      onClick={jumpToBottom.jump}
+                      className="status-pill flex size-7 items-center justify-center rounded-full text-ink-2 transition-[color,scale] hover:text-ink active:scale-press"
+                    >
+                      <Icon icon={ArrowDown01Icon} size={14} />
+                    </button>
+                  </Tooltip>
+                </PillSlot>
+              )}
+            </AnimatePresence>
           </LayoutGroup>
         </div>
 
@@ -1957,7 +2006,9 @@ export function ChatComposer({
               />
             )}
             {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
-            {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
+            {approval && (isNewChat || messages.length === 0) && (
+              <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>
+            )}
             {review.view !== "closed" && !isNewChat && (
               <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
             )}
@@ -2162,6 +2213,15 @@ function ReplyProviders({
  */
 /** The height styles.css gives a message content-visibility has never laid out (`contain-intrinsic-size: auto 160px`). */
 const MESSAGE_PLACEHOLDER_HEIGHT = 160;
+
+/** What the transcript's rows read from above: the Chats it can mention and the approval waiting on a tool row. */
+function TranscriptContexts({ mentions, stepApproval, children }: { mentions: ChatMentionScope; stepApproval: StepApproval | null; children: ReactNode }) {
+  return (
+    <ChatMentionsContext value={mentions}>
+      <StepApprovalProvider value={stepApproval}>{children}</StepApprovalProvider>
+    </ChatMentionsContext>
+  );
+}
 
 function TranscriptSlots({
   activeKey,

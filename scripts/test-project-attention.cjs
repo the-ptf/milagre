@@ -72,7 +72,8 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('${group}')`);
     assert.equal(await dots(group), 1, "The waiting project's group shows a dot");
     assert.equal(await dots('[data-sidebar-scope="/work/atlas"]'), 0, "The open project's group does not");
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "2 Chats need attention");
+    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "2 waiting", "The chip counts the waiting Chats");
+    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.getAttribute("aria-label")`), "2 Chats need attention");
     await screenshot("button");
 
     // Two waiting: the button opens a menu to pick one.
@@ -85,7 +86,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector("[data-attention-menu]")`), false, "Picking closes the menu");
 
     // One left: a click opens it directly.
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "Add attention indicators needs attention");
+    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "1 waiting");
+    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.getAttribute("aria-label")`), "Add attention indicators needs attention");
     await click("[data-attention-button]");
     await waitFor(`!document.querySelector("[data-attention-button]")`);
     assert.equal(await evaluate("window.opened"), "/work/milagre-ade#4", "The button opens the only waiting chat");

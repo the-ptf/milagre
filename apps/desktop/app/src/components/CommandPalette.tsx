@@ -7,12 +7,17 @@ import {
   BubbleChatSearchIcon,
   ChartColumnIcon,
   CodeIcon,
+  ComputerTerminal01Icon,
   Copy01Icon,
+  FolderAddIcon,
   FolderOpenIcon,
   GitBranchIcon,
+  GitPullRequestIcon,
+  Link04Icon,
   PencilEdit02Icon,
   Refresh01Icon,
-  RepeatIcon,
+  TimeScheduleIcon,
+  FlowConnectionIcon,
   Search01Icon,
   Settings01Icon,
   HardDriveIcon,
@@ -45,16 +50,23 @@ const icons = {
   search: Search01Icon,
   message: BubbleChatSearchIcon,
   reload: Refresh01Icon,
-  routines: RepeatIcon,
+  routines: TimeScheduleIcon,
+  canvas: FlowConnectionIcon,
   usage: ChartColumnIcon,
   newChat: PencilEdit02Icon,
   triage: Bug01Icon,
   storage: HardDriveIcon,
+  terminal: ComputerTerminal01Icon,
+  link: Link04Icon,
+  pullRequest: GitPullRequestIcon,
+  folderAdd: FolderAddIcon,
 };
 
-function CommandKeys({ command }: { command: KeybindingCommandId }) {
+/** A row's shortcut, right-aligned in 11 ink-3: always shown as plain keys, keycaps while ⌘ is held. */
+function CommandKeys({ command, hints }: { command: KeybindingCommandId; hints: boolean }) {
   const label = useShortcutLabel(command);
-  return label ? <ShortcutKeys shortcut={label} /> : null;
+  if (!label) return null;
+  return hints ? <ShortcutKeys shortcut={label} /> : <ShortcutKeys shortcut={label} plain className="min-w-12 justify-end text-ink-3" />;
 }
 
 function Label({ command }: { command: Command }) {
@@ -264,9 +276,10 @@ export function CommandPalette({
         />
         {showHints && <ShortcutKeys shortcut="esc" />}
       </div>
-      <ScrollArea id={listId} role="listbox" aria-label="Commands" className="p-1.5">
+      {/* A 16px edge fade: the 28px default washed out the last whole row, which then read as disabled. */}
+      <ScrollArea id={listId} role="listbox" aria-label="Commands" className="px-1.5 pt-1.5 pb-2 [--scroll-fade-size:16px]">
         {Array.from(new Set(results.map((command) => command.group))).map((group) => (
-          <div key={group} role="group" aria-label={group} className="pb-1.5">
+          <div key={group} role="group" aria-label={group} className="pb-1.5 last:pb-0">
             <div aria-hidden="true">
               <MenuLabel>{group}</MenuLabel>
             </div>
@@ -282,16 +295,20 @@ export function CommandPalette({
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => close(command)}
                   // MenuRow's metrics; the highlight follows the selection (pointer or arrows), so there's no separate hover.
-                  className={`flex h-8 w-full cursor-default items-center gap-2 rounded-inline px-2 text-13 font-medium text-ink active:bg-hover-2 ${command.id === selected?.id ? "bg-hover-2" : ""}`}
+                  className={`flex min-h-8 w-full cursor-default items-center gap-2 rounded-inline px-2 text-13 font-medium text-ink active:bg-hover-2 ${command.id === selected?.id ? "bg-hover-2" : ""} ${command.hint && command.id === selected?.id ? "py-1.5" : ""}`}
                 >
                   <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
                     <Icon icon={icons[command.icon]} size={16} />
                   </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    <Label command={command} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate">
+                      <Label command={command} />
+                    </span>
+                    {/* A row's hint reads under its label while the row is highlighted: the right column is for keys. */}
+                    {command.hint && command.id === selected?.id && <span className="truncate text-12 font-normal text-ink-3">{command.hint}</span>}
                   </span>
                   {command.detail && <span className="max-w-[45%] truncate text-11 text-ink-3">{command.detail}</span>}
-                  {showHints && command.keybinding && <CommandKeys command={command.keybinding} />}
+                  {command.keybinding && <CommandKeys command={command.keybinding} hints={showHints} />}
                 </div>
               ))}
           </div>

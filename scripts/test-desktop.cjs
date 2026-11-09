@@ -411,7 +411,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         const menu = await evaluate(
           '[...document.querySelectorAll("[data-chat-menu] [role=menuitem]")].map(row => ({ label: row.textContent, disabled: row.disabled }))',
         );
-        for (const label of ["Rename chat", "Reload chat", "Mark as unread", "Pin", "Delete"])
+        for (const label of ["Rename Chat", "Reload Chat", "Mark as unread", "Pin", "Delete"])
           assert.equal(menu.find((row) => row.label === label)?.disabled, false, label + " remains available outside the open Project");
         assert.ok(!menu.some((row) => /Archive/.test(row.label)), "the menu offers Delete");
         await evaluate('[...document.querySelectorAll("[data-chat-menu] [role=menuitem]")].find(row => row.textContent === "Mark as unread").click()');

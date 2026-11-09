@@ -29,7 +29,8 @@ const paths: Record<string, string> = {
 
 /**
  * One keyboard vocabulary for floating hints, tooltip labels and command rows. A keycap is 20px, 4px corners, surface
- * with shadow-btn, 11 semibold ink-2 (`compact`: 16px, 10); `plain` draws the keys alone, in the surrounding colour.
+ * with shadow-btn, 11 semibold ink-2 (`compact`: 16px, 10); `plain` draws the keys alone, set tight, in the surrounding
+ * colour. Labels come in macOS menu order (⌃⌥⇧⌘, then the key) from keyLabelFor.
  */
 export function ShortcutKeys({
   shortcut,
@@ -54,7 +55,7 @@ export function ShortcutKeys({
       {...props}
       data-shortcut-hint
       aria-label={keys.map((key) => names[key.toLowerCase()] ?? key).join(" + ")}
-      className={`inline-flex shrink-0 items-center justify-center whitespace-nowrap font-sans font-semibold leading-none tracking-normal tabular-nums ${compact ? "gap-px text-10" : "gap-0.5 text-11"} ${plain ? "" : `rounded-inline bg-surface text-ink-2 shadow-btn ${compact ? "h-4 min-w-4 px-0.5" : "h-5 min-w-5 px-1"}`} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center whitespace-nowrap font-sans font-semibold leading-none tracking-normal tabular-nums ${compact || plain ? "gap-px" : "gap-0.5"} ${compact ? "text-10" : "text-11"} ${plain ? "" : `rounded-inline bg-surface text-ink-2 shadow-btn ${compact ? "h-4 min-w-4 px-0.5" : "h-5 min-w-5 px-1"}`} ${className}`}
     >
       {keys.map((key, index) => {
         const name = names[key.toLowerCase()] ?? key;

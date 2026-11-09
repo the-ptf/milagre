@@ -200,8 +200,9 @@ async function browserChecks() {
     assert.equal(await panels(), 0, "A surface that stops propagation still closes the picker");
 
     await click(model);
-    // The open picker covers the transcript's centre; press the transcript beside it, not a model row.
-    await click('[data-testid="transcript"]', { inset: 24 });
+    // The open picker covers the transcript's centre and, right-aligned to its chip, its left side; press the
+    // transcript beside it on the right, not a model row.
+    await click('[data-testid="transcript"]', { inset: 24, fromRight: true });
     assert.equal(await panels(), 0, "Pressing the transcript closes the picker");
 
     await click('button[aria-label="Theme"]');

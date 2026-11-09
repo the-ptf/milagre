@@ -29,8 +29,10 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   useLayoutEffect(() => {
     const track = trackProps.ref.current;
     if (!track) return;
+    // Layout width, not getBoundingClientRect: a popover opening with a scale-in would measure the track short, and the
+    // ResizeObserver never fires again when the transform ends, leaving the handle off its tick.
     const measure = () => {
-      const width = track.getBoundingClientRect().width;
+      const width = track.offsetWidth;
       if (width > 0) setTrackWidth(width);
     };
     measure();
@@ -47,8 +49,10 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   const smooth = useSpring(target, SPRING_GLIDE);
   const position = reduce ? target : smooth;
   const handleX = useTransform(position, (p) => HANDLE_INSET + (Math.max(0, trackWidth - HANDLE_INSET * 2 - 4) * p) / 100);
-  // The fill's round end sits at the handle; translating a full-size fill inside the clip keeps its corner round.
-  const fillX = useTransform(position, (p) => (p >= 100 ? "0%" : `calc(${p - 100}% + ${14 - 0.16 * p}px)`));
+  // The fill ends at the handle's centre, which is the tick's centre: the clip is inset 2px, so the handle centre
+  // (HANDLE_INSET + 2 + (width - 2 * HANDLE_INSET - 4) * p) sits HANDLE_INSET - 0.16p px past p% of the clip. Translating
+  // a full-size fill inside the clip keeps its corner round.
+  const fillX = useTransform(position, (p) => `calc(${p - 100}% + ${HANDLE_INSET - ((HANDLE_INSET * 2) / 100) * p}px)`);
 
   // Floor, so a range the step does not divide stops its dots at the last whole step.
   const steps = Math.floor(Number(((max - min) / step).toFixed(6)));

@@ -49,6 +49,7 @@ import {
   KeyboardIcon,
   ConnectIcon,
   ChurchIcon,
+  ComputerIcon,
   Globe02Icon,
   InformationCircleIcon,
   LaptopIcon,
@@ -172,7 +173,7 @@ export type SettingsSection =
   | "project"
   | "computer";
 
-/** The nav's groups, top to bottom; `null` has no heading. Computers and Projects follow; Church and About sit in the footer. */
+/** The nav's groups, top to bottom; `null` has no heading. Computers and Projects follow; Church and About end the list. */
 type SectionGroup = null | "Agents" | "Code" | "footer";
 
 const SECTIONS: Array<{
@@ -319,7 +320,8 @@ export function SettingsNav({
                 <NavRow icon={DEVICES_SECTION.icon} label={DEVICES_SECTION.label} active={section === "devices"} onClick={() => onSelect("devices")} />
                 <NavRow
                   icon={<ComputerDot tone="online" />}
-                  label={`${thisMac} (this ${computerNoun})`}
+                  // "This Mac" names itself; a named computer ("Ana's MacBook") still says which one this is.
+                  label={thisMac.trim().toLowerCase() === `this ${computerNoun}`.toLowerCase() ? thisMac : `${thisMac} (this ${computerNoun})`}
                   active={section === "this-mac"}
                   onClick={() => onSelect("this-mac")}
                 />
@@ -354,14 +356,15 @@ export function SettingsNav({
                 </GlideGroup>
               </>
             )}
-          </ScrollArea>
-          <div className="shrink-0 border-t border-line py-2">
+            {/* Church and About end the list rather than sit pinned under it: a pinned footer cut the list short, so a
+                group heading could rest on the fold with its rows hidden under the divider. */}
+            <div data-settings-footer className="mx-4 mt-3 mb-1 border-t border-line" />
             <GlideGroup>
               {SECTIONS.filter((item) => item.group === "footer").map((item) => (
                 <NavRow key={item.key} icon={item.icon} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
               ))}
             </GlideGroup>
-          </div>
+          </ScrollArea>
         </>
       )}
     </aside>
@@ -392,8 +395,17 @@ function NavRow({ icon, label, active, onClick }: { icon: ReactNode; label: stri
   );
 }
 
+/**
+ * A computer's nav glyph: the computer (16, in the row's glyph colour) like every other row's, with its presence dot on
+ * the bottom-right corner, cut out of the glyph by a ring in the nav's own page colour.
+ */
 function ComputerDot({ tone }: { tone: keyof typeof DOT_COLOR }) {
-  return <span aria-hidden className="mx-[5px] block size-2 rounded-full" style={{ background: DOT_COLOR[tone] }} />;
+  return (
+    <span aria-hidden className="relative flex size-4">
+      <Icon icon={ComputerIcon} size={16} />
+      <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-page" style={{ background: DOT_COLOR[tone] }} />
+    </span>
+  );
 }
 
 /** The pill beside a route: the one carrying the connection now, one that would, or one there is none of. */
@@ -785,9 +797,9 @@ function DoneRetentionSetting() {
   const { settings, save } = useDoneSettings();
   return (
     <Group title="Done">
-      <Row label="Archive Done chats after">
+      <Row label="Archive Done Chats after">
         <Select
-          label="Archive Done chats after"
+          label="Archive Done Chats after"
           width={140}
           value={String(settings.retentionHours)}
           options={DONE_RETENTION_OPTIONS.map((hours) => ({
@@ -1391,7 +1403,7 @@ function AppearanceSettings() {
   return (
     <>
       <Group title="Mode">
-        <Row label="Mode" description="System follows macOS. Every theme has a light and a dark version. ⌘⇧T switches.">
+        <Row label="Mode" description="System follows macOS. Every theme has a light and a dark version. ⇧⌘T switches.">
           <ModeControl value={settings.theme} onChange={(theme) => updateSettings({ theme })} />
         </Row>
       </Group>

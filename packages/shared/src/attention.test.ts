@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, CoordinatorState } from "./model.ts";
-import { attentionContext, attentionLabel, attentionNotice, attentionTitle, chatsNeedingAttention, hiddenHere, waitingFor } from "./attention.mjs";
+import {
+  attentionContext,
+  attentionCount,
+  attentionLabel,
+  attentionNotice,
+  attentionTitle,
+  chatsNeedingAttention,
+  hiddenHere,
+  waitingFor,
+} from "./attention.mjs";
 
 const context = { projectName: "rd-events", worktreeName: "new-events-structure", chatTitle: "Split the events table", provider: "claude" as const };
 const question = (text: string) => ({ id: text, header: "", question: text, options: [], multiSelect: false, allowOther: true, secret: false });
@@ -131,6 +140,12 @@ test("the attention button names one Chat and counts multiple Chats, even with d
   assert.equal(attentionLabel(["Fix login"]), "Fix login needs attention");
   assert.equal(attentionLabel(["Fix login", "Fix login"]), "2 Chats need attention");
   assert.equal(attentionLabel(["Fix login", "Add API", "Update docs"]), "3 Chats need attention");
+});
+
+test("the attention chip only counts the waiting Chats", () => {
+  assert.equal(attentionCount(1), "1 waiting");
+  assert.equal(attentionCount(2), "2 waiting");
+  assert.equal(attentionCount(0), "1 waiting");
 });
 
 test("a waiting run reads as its command, its approval title, or its first question", () => {

@@ -18,7 +18,10 @@ export function permissionPresentation(mode: PermissionMode) {
   return { icon: mode === "auto" ? "security-check" : "shield", tone: "ink2", ink: "ink2" } as const;
 }
 
-/** Words both apps share. Product nouns (Project, Chat, Routine, Run, Link, Heartbeat, Worktree) are capitalised. */
+/**
+ * Words both apps share. Product nouns (Project, Chat, Routine, Run, Link, Heartbeat, Worktree, and the Done state) are
+ * capitalised.
+ */
 export const UI_COPY = {
   /** The composer's send and stop buttons; `queue` while a turn runs. */
   send: "Send",
@@ -26,6 +29,14 @@ export const UI_COPY = {
   queue: "Queue message",
   stop: "Stop agent",
   renameChat: "Rename Chat",
+  /** Command palette and Chat menus. */
+  newChat: "New Chat",
+  currentChat: "Current Chat",
+  findInChat: "Find in Chat",
+  reloadChat: "Reload Chat",
+  backToChat: "Back to Chat",
+  addProject: "Add Project…",
+  copyWorktreePath: "Copy Worktree path",
   newWorktree: "New Worktree",
   noChanges: "No changes yet",
   noProjects: "No Projects found",

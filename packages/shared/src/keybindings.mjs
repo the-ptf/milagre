@@ -262,7 +262,8 @@ function keyLabel(key) {
 }
 
 /**
- * How a key string reads, the way the app's hints draw it: `⌘⇧D` on a Mac (⌘⌃⌥⇧ order, as the app always drew them), `Ctrl+Shift+D` elsewhere.
+ * How a key string reads, the way the app's hints draw it: `⇧⌘D` on a Mac (macOS menu order: ⌃⌥⇧⌘, then the key),
+ * `Ctrl+Shift+D` elsewhere.
  * Null for a string that isn't a key.
  */
 export function keyLabelFor(value, mac) {
@@ -271,7 +272,7 @@ export function keyLabelFor(value, mac) {
   const meta = shortcut.meta || (mac && shortcut.mod);
   const ctrl = shortcut.ctrl || (!mac && shortcut.mod);
   const key = keyLabel(shortcut.key);
-  if (mac) return `${meta ? "⌘" : ""}${ctrl ? "⌃" : ""}${shortcut.alt ? "⌥" : ""}${shortcut.shift ? "⇧" : ""}${key}`;
+  if (mac) return `${ctrl ? "⌃" : ""}${shortcut.alt ? "⌥" : ""}${shortcut.shift ? "⇧" : ""}${meta ? "⌘" : ""}${key}`;
   return [ctrl && "Ctrl", meta && "Meta", shortcut.alt && "Alt", shortcut.shift && "Shift", key].filter(Boolean).join("+");
 }
 

@@ -1,4 +1,4 @@
-// Real renderer regression: source marks, bounded output and approvals in the normal Chat area.
+// Real renderer regression: source marks, bounded output and an approval on the tool row it is about.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -6,6 +6,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { useStepApprovalScope } from "/src/components/agents/step-approval";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { applyRunEvent, startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
@@ -27,13 +28,18 @@ const calls = [
 ];
 function Fixture() {
  const [waiting, setWaiting] = useState(true);
+ const request = waiting ? { requestId: "push-approval", kind: "command", tool: "Bash", title: "Run \u0060git push\u0060", description: "Push the branch", command: "git push", cwd: "/fixture", allowForChat: true, stepId: "push" } : undefined;
+ window.decisions ??= [];
+ // As App does: the row that shows the approval claims it, and the card above the composer stays away while it does.
+ const scope = useStepApprovalScope(request, 0, null, (decision) => { window.decisions.push(decision); setWaiting(false); });
  return <main style={{ height: "100%", padding: 12 }}>
   <ChatComposer messages={[{ id: 1, session_id: 1, role: "user", body: "Review the tool calls.", context: null }]} messageScope="/fixture" projectPath="/fixture"
    imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
    draft="" onDraftChange={noop} onSend={noop} isSending sendBlocked={false}
    streamingText="I'll review the tool calls and run their checks." streamingSteps={[...calls.map(entry => entry.step), ...runs['/fixture#1'].steps]}
    waitingStepIds={waiting ? ["push"] : []}
-   approval={waiting ? <button id="allow" onClick={() => setWaiting(false)}>Allow once</button> : null}
+   stepApproval={scope.value}
+   approval={waiting && !scope.inline ? <button id="card">Allow once</button> : null}
    models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
    capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
    fastMode={false} onFastModeChange={noop} permissionMode="ask" onPermissionModeChange={noop}
@@ -62,31 +68,35 @@ async function check() {
   };
   try {
     await window.loadURL(process.argv[2]);
+    const allowButtons = '[...document.querySelectorAll("button")].filter((b) => b.textContent.trim() === "Allow once")';
     await wait('!!document.querySelector("[data-slot=activity]")');
-    assert.equal(await run('document.querySelectorAll("#allow").length'), 1, "a collapsed group does not hide or duplicate its approval");
+    await wait('!document.getElementById("card")');
+    assert.equal(await run(`${allowButtons}.length`), 1, "a collapsed group does not hide or duplicate its approval");
+    assert.ok(
+      await run(`!!${allowButtons}[0].closest("[data-slot=activity] [data-slot=step-approval]")`),
+      "the approval sits on the waiting tool row, not on a card above the composer",
+    );
+    assert.ok(await run('document.querySelector("[data-slot=step-approval]").textContent.includes("Waiting for approval")'), "the row says it is waiting");
     assert.equal(
-      await run('!!document.getElementById("allow").closest("[data-slot=activity], [data-slot=step]")'),
-      false,
-      "asks stay in the normal Chat approval area",
+      await run('[...document.querySelectorAll("[data-slot=step-approval] code")].filter((c) => c.textContent === "git push").length'),
+      1,
+      "the command shows once, as a code chip, without backticks",
+    );
+    assert.equal(
+      await run('document.querySelector("[data-slot=activity] > [data-slot=step-approval] > button [data-slot=activity-sources]")'),
+      null,
+      "a waiting line leads with the pending call's glyph alone, not the reply's mix",
     );
     assert.ok(
-      await run(
-        '(() => { const node = document.querySelector("[data-slot=activity-sources] > span"); return parseFloat(getComputedStyle(node).borderRadius) >= node.getBoundingClientRect().width / 2; })()',
-      ),
-      "source marks are fully circular",
+      await run('document.querySelector("[data-slot=step-approval] [data-waiting-approval]")?.className.includes("text-orange-ink")'),
+      "waiting for approval reads in orange-ink, as the top bar's waiting chip",
     );
-    assert.ok(await run('!!document.querySelector("[data-slot=activity-sources] [data-linear-logo]")'));
-    await run('document.querySelector("[data-slot=activity] > button").click()');
+    await run('document.querySelector("[data-slot=activity] button[aria-expanded]").click()');
     await wait('document.querySelectorAll("[data-slot=step]").length === 4');
-    assert.equal(await run('document.querySelectorAll("#allow").length'), 1);
-    assert.equal(
-      await run('!!document.getElementById("allow").closest("[data-slot=activity], [data-slot=step]")'),
-      false,
-      "opening calls never moves an ask into them",
-    );
-    await run('document.querySelector("[data-slot=activity] > button").click()');
-    assert.equal(await run('document.querySelectorAll("#allow").length'), 1, "closing mounted rows keeps one usable approval");
-    await run('document.querySelector("[data-slot=activity] > button").click()');
+    assert.equal(await run(`${allowButtons}.length`), 1, "opening calls never repeats the approval on the inner row");
+    await run('document.querySelector("[data-slot=activity] button[aria-expanded]").click()');
+    assert.equal(await run(`${allowButtons}.length`), 1, "closing mounted rows keeps one usable approval");
+    await run('document.querySelector("[data-slot=activity] button[aria-expanded]").click()');
     assert.ok(
       await run('document.querySelector("[data-status=failed]").textContent.includes("Error: missing Authorization header")'),
       "the reason is available before disclosure",
@@ -100,8 +110,16 @@ async function check() {
     assert.equal(await run('document.querySelector("[data-status=failed]").textContent.includes("line 0")'), false);
     await run('[...document.querySelectorAll("[data-status=failed] button")].find(b => b.textContent.includes("earlier lines")).click()');
     await wait('document.querySelector("[data-status=failed]").textContent.includes("line 0")');
-    await run('document.getElementById("allow").click()');
-    await wait('!document.getElementById("allow")');
+    await run(`${allowButtons}[0].click()`);
+    await wait(`${allowButtons}.length === 0 && !document.getElementById("card")`);
+    assert.deepEqual(await run("window.decisions"), ["allow"]);
+    assert.ok(
+      await run(
+        '(() => { const marks = [...document.querySelectorAll("[data-slot=activity-sources] > span")].map((node) => node.getBoundingClientRect()); return marks.length > 0 && marks.length <= 4 && marks.every((mark, index) => index === 0 || mark.left >= marks[index - 1].right); })()',
+      ),
+      "once nothing waits, source marks are at most four glyphs side by side, none overlapping another",
+    );
+    assert.ok(await run('!!document.querySelector("[data-slot=activity-sources] [data-linear-logo]")'));
     assert.equal(
       await run('document.querySelector("[data-slot=step] button[aria-expanded]").getAttribute("aria-expanded")'),
       "true",
@@ -126,7 +144,7 @@ async function check() {
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "tool-activity.png"), (await window.webContents.capturePage()).toPNG());
     }
-    console.log("PASS: source stack, Linear logo, exact input, bounded output, visible failure cause, normal Chat approval and retained disclosure");
+    console.log("PASS: source stack, Linear logo, exact input, bounded output, visible failure cause, approval on its tool row and retained disclosure");
     app.exit(0);
   } catch (error) {
     console.error(error);

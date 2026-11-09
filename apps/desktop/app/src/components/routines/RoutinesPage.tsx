@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LaptopIcon, PlusSignIcon, Pulse01Icon, RepeatIcon, ZapIcon } from "@hugeicons/core-free-icons";
+import { LaptopIcon, PlusSignIcon, Pulse01Icon, TimeScheduleIcon, ZapIcon } from "@hugeicons/core-free-icons";
 import type { ModelCapabilities, ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
@@ -383,7 +383,7 @@ export function RoutinesPage({
                 </section>
               )}
               {empty && (
-                <EmptyState data-routines-empty icon={RepeatIcon} title="No Routines yet" className="p-0">
+                <EmptyState data-routines-empty icon={TimeScheduleIcon} title="No Routines yet" className="p-0">
                   {HELP}
                 </EmptyState>
               )}

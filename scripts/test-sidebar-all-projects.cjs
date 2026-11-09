@@ -170,14 +170,14 @@ async function browserChecks() {
       await evaluate(`(() => {
         const arc = document.querySelector('[data-sidebar-scope="/work/shop"] [data-mark="running"] circle:last-child');
         const expected = document.createElement('span');
-        expected.style.color = 'var(--accent)';
+        expected.style.color = 'var(--ink-3)';
         document.body.append(expected);
         const matches = !!arc && getComputedStyle(arc).stroke === getComputedStyle(expected).color;
         expected.remove();
         return matches;
       })()`),
       true,
-      "Running Chats use the accent color, as on mobile",
+      "Running Chats spin in quiet ink-3: accent is for focus and links",
     );
     assert.equal(
       await evaluate(

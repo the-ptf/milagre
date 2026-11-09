@@ -1,15 +1,15 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MutableRefObject, ReactNode } from "react";
-import type { ThemedToken } from "shiki/core";
+import type { MutableRefObject, ReactNode } from "react";
 import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import type { DiffFileEntry } from "../../electron";
 import { resolveCodeLanguage } from "../../lib/code-languages";
-import { splitRows, wordChanges, type Range } from "../../lib/diff-layout";
+import { splitRows } from "../../lib/diff-layout";
 import { extensionOf, locateComment, onSide, selectionFromRows, type DiffSide } from "../../lib/diff-comments";
 import type { DiffHunk, DiffLine } from "../../lib/diff-parse";
 import type { PullRequestThread } from "@milagre/shared/pull-request-review";
 import { threadsOnLine, unplacedThreads } from "../../lib/pull-request-view";
-import { highlight, isLanguageReady, loadLanguage } from "../markdown/highlighter";
+import { isLanguageReady, loadLanguage } from "../markdown/highlighter";
+import { Content, decorate, MARKER, MARKER_COLOR, TINT, type Decorated } from "./diff-lines";
 import { Counts, StatusBox } from "./DiffIndicators";
 import { CommentCard, CommentEditor, CommentSlot } from "./DiffComments";
 import type { CommentActions, CommentView, Draft } from "./useDiffComments";
@@ -18,66 +18,6 @@ import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 
 export type DiffLayout = "unified" | "split";
-
-type Decorated = { tokens?: ThemedToken[]; words?: Range[] };
-
-/** Syntax tokens and changed-word ranges for every line of a file's hunks. */
-function decorate(hunks: DiffHunk[], path: string, languageReady: boolean): Map<DiffLine, Decorated> {
-  const result = new Map<DiffLine, Decorated>();
-  const language = resolveCodeLanguage(extensionOf(path));
-  for (const hunk of hunks) {
-    if (language && languageReady) {
-      // Each side is highlighted as the text it would be in its own file, so strings and comments tokenize across lines.
-      for (const side of ["remove", "add"] as const) {
-        const lines = hunk.lines.filter((line) => line.kind === "context" || line.kind === side);
-        const tokens = highlight(lines.map((line) => line.text).join("\n"), language);
-        if (tokens) lines.forEach((line, index) => result.set(line, { ...result.get(line), tokens: tokens[index] }));
-      }
-    }
-    for (const { left, right } of splitRows(hunk)) {
-      if (left?.kind !== "remove" || right?.kind !== "add") continue;
-      const words = wordChanges(left.text, right.text);
-      result.set(left, { ...result.get(left), words: words.old });
-      result.set(right, { ...result.get(right), words: words.new });
-    }
-  }
-  return result;
-}
-
-function Content({ line, decoration }: { line: DiffLine; decoration?: Decorated }) {
-  const words = decoration?.words ?? [];
-  const wordClass = line.kind === "add" ? "bg-[var(--diff-add-word)]" : "bg-[var(--diff-remove-word)]";
-  const pieces: ReactNode[] = [];
-  let offset = 0;
-  const segments = decoration?.tokens?.length ? decoration.tokens : [{ content: line.text, htmlStyle: undefined } as ThemedToken];
-  for (const token of segments) {
-    const start = offset;
-    const end = offset + token.content.length;
-    offset = end;
-    // Split the token at word-range edges so the highlight sits behind the syntax colour.
-    const cuts = [start, ...words.flatMap(([from, to]) => [from, to]).filter((at) => at > start && at < end), end];
-    for (let i = 0; i < cuts.length - 1; i++) {
-      const from = cuts[i];
-      const to = cuts[i + 1];
-      if (from === undefined || to === undefined || from === to) continue;
-      const changed = words.some(([a, b]) => from >= a && to <= b);
-      pieces.push(
-        <span
-          key={`${start}-${from}`}
-          className={`${decoration?.tokens ? "code-token" : ""} ${changed ? wordClass : ""}`}
-          style={token.htmlStyle as CSSProperties | undefined}
-        >
-          {token.content.slice(from - start, to - start)}
-        </span>,
-      );
-    }
-  }
-  return <>{pieces.length ? pieces : "​"}</>;
-}
-
-const TINT = { add: "bg-[var(--diff-add)]", remove: "bg-[var(--diff-remove)]", context: "" } as const;
-const MARKER = { add: "+", remove: "−", context: "" } as const;
-const MARKER_COLOR = { add: "text-diff-add", remove: "text-diff-remove", context: "" } as const;
 
 function Gutter({ value }: { value?: number }) {
   return <span className="w-11 shrink-0 select-none pr-2 text-right text-ink-3 tabular-nums">{value}</span>;
@@ -496,7 +436,8 @@ export const DiffFile = memo(function DiffFile({
       {/* Pinned, the header is the card's top: it draws its own border over the card's (-1px), and the page colour
           fills behind its rounded-control corners so rows scrolling underneath don't show through them. The fill sits in a
           wrapper, under the header; inside the header it would paint over the header's own background and border. */}
-      <div className={`sticky top-0 z-10 -mx-px -mt-px ${collapsed ? "-mb-px" : ""}`}>
+      {/* It also reaches 1px into the rows below, so no sliver of the row under it shows between header and row. */}
+      <div className="sticky top-0 z-10 -mx-px -mt-px -mb-px">
         <span aria-hidden className="absolute inset-x-0 top-0 h-[var(--radius-card)] bg-page" />
         <header className={`relative flex h-9 items-center gap-2 border border-line bg-surface px-3 text-12 ${collapsed ? "rounded-card" : "rounded-t-card"}`}>
           {/* IconButton's 24 look, hand-built: a disclosure's aria-expanded isn't an open menu, so it takes no pressed fill. */}

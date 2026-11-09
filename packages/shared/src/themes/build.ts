@@ -6,6 +6,9 @@ import type { SyntaxKind } from "../file-syntax.mjs";
 const tint = (page: string, color: string, scheme: Scheme, light: number, dark: number) =>
   scheme === "dark" ? withAlpha(color, dark) : mix(page, color, light);
 
+/** Contrast the green, orange and red -ink shades reach on the page, cards and their own tints. */
+export const STATUS_INK_RATIO = 4.8;
+
 /** Tokens solved from the rest of the palette at the end, so a theme never sets text below 4.5:1. */
 type Solved = "ink4" | "greenInk" | "orangeInk" | "redInk" | "onGreen" | "onOrange" | "onRed";
 
@@ -29,7 +32,9 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     // Translucent ink, so a hover darkens whatever it sits on: page, card or field.
     hover: withAlpha(ink, dark ? 0.05 : 0.06),
     hover2: withAlpha(ink, dark ? 0.09 : 0.1),
-    field: toward(dark ? 0.06 : 0.04),
+    // A field (an input, the user's bubble) is a step off the page in its tint: lighter than a dark page, darker than
+    // a light one. From the surface in light it landed on the page's own luminance, and a bubble vanished into it.
+    field: dark ? toward(0.06) : mix(page, ink, 0.05),
     ink2: mix(ink, page, 0.25),
     ink3: mix(ink, page, 0.56),
     onAccent: onColor(accent, page),
@@ -60,9 +65,11 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
   const ink2 = readableOn(palette.ink2, palette.ink, text);
   // Where ink2 is itself close to 4.5:1, a readable ink3 would pass it; the levels then share ink2.
   const ink3 = readableOn(palette.ink3, palette.ink, text);
-  const greenInk = readableOn(palette.green, palette.ink, onTint(palette.greenTint));
-  const orangeInk = readableOn(palette.orange, palette.ink, onTint(palette.orangeTint));
-  const redInk = readableOn(palette.red, palette.ink, onTint(palette.redTint));
+  // Status inks also letter the 10px A/M/D badges on their own tints, so they clear 4.8:1 there, a margin over 4.5
+  // that survives antialiasing at that size.
+  const greenInk = readableOn(palette.green, palette.ink, onTint(palette.greenTint), STATUS_INK_RATIO);
+  const orangeInk = readableOn(palette.orange, palette.ink, onTint(palette.orangeTint), STATUS_INK_RATIO);
+  const redInk = readableOn(palette.red, palette.ink, onTint(palette.redTint), STATUS_INK_RATIO);
   return {
     ...palette,
     ink2,

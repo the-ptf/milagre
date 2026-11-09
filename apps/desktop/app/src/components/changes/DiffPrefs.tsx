@@ -54,6 +54,8 @@ export function DiffToolbar({ changes, prefs }: { changes: Changes; prefs: Retur
       <ToolButton label="Split" active={prefs.layout === "split"} onClick={() => prefs.setLayout("split")} data-diff-layout="split">
         {icon(Layout2ColumnIcon)}
       </ToolButton>
+      {/* Unified and Split are one choice, 2px apart; a divider sets them off from Wrap and Refresh, as a Mac toolbar groups. */}
+      <span aria-hidden data-diff-toolbar-divider className="mx-1 h-4 w-px shrink-0 bg-line" />
       <ToolButton
         label={prefs.layout === "split" ? "Split view always wraps" : "Wrap lines"}
         active={prefs.layout === "split" || prefs.wrap}
