@@ -57,11 +57,16 @@ test("Don't ask again holds for that Mac only", async () => {
 });
 
 test("a Mac that can't say is never asked", async () => {
-  const f = fixture(async () => {
+  const refused = fixture(async () => {
     throw new Error("Command is not available from mobile");
   });
-  await f.run("Keep awake");
-  assert.equal(f.asked.length, 0);
+  await refused.run("Keep awake");
+  assert.equal(refused.asked.length, 0);
+  for (const answer of [null, {}, { enabled: "no" }]) {
+    const f = fixture(async () => answer);
+    await f.run("Keep awake");
+    assert.equal(f.asked.length, 0, `${JSON.stringify(answer)} is no answer`);
+  }
 });
 
 test("a read that answers after the Chat changed shows nothing and saves nothing", async () => {

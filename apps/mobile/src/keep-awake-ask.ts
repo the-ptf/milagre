@@ -77,13 +77,14 @@ export async function askKeepAwake({
   asking.set(hostId, isCurrent);
   try {
     if (await neverAsk.has(hostId)) return;
-    let enabled: boolean;
+    let enabled: unknown;
     try {
-      enabled = (await client.call<{ enabled?: boolean }>("keep-awake:settings:read", []))?.enabled === true;
+      enabled = (await client.call<{ enabled?: unknown } | null>("keep-awake:settings:read", []))?.enabled;
     } catch {
       return;
     }
-    if (enabled || !isCurrent()) return;
+    // Only an answer of off asks: a Mac that answers anything else (an older one) can't say.
+    if (enabled !== false || !isCurrent()) return;
     const save = (): Promise<void> =>
       client.call("keep-awake:settings:save", [{ enabled: true }]).then(
         () => undefined,
