@@ -102,7 +102,7 @@ const checks = [
           height: innerHeight
         })`,
         );
-        assert.deepEqual(layout.sections, ["bring-your-subscription", "designs", "linked-projects", "phone-companion", "questions"]);
+        assert.deepEqual(layout.sections, ["bring-your-subscription", "designs", "linked-projects", "browser", "computers", "phone-companion", "questions"]);
         assert.ok(layout.top >= layout.hero && layout.top < layout.height, "the first section starts right below the hero, inside the first screen");
         assert.ok(layout.pageHeight > layout.height, "page scrolls to the sections");
         await evaluate(window, `document.querySelector('#bring-your-subscription').scrollIntoView()`);
@@ -111,7 +111,16 @@ const checks = [
         await evaluate(window, `document.querySelector('#designs').scrollIntoView()`);
         assert.ok(await evaluate(window, `document.documentElement.scrollWidth <= innerWidth`), "sections fit without horizontal scrolling");
         await shot(window, size.mobile ? "phone-sections.png" : "desktop-sections.png");
-        // The phone section plays the hero's phone recording once it scrolls near, on the 3D phone where WebGL works.
+        // The new Browser recording loads near the viewport; Computers links to the CLI guide.
+        await evaluate(window, `document.querySelector('#browser').scrollIntoView()`);
+        await waitFor(evaluate, window, `!document.querySelector('#browser video').paused`, "the Browser recording plays");
+        assert.equal(await evaluate(window, `new URL(document.querySelector('#browser video').src).pathname`), "/demo/browser.mp4");
+        assert.equal(await evaluate(window, `document.querySelector('#computers .docs-link').getAttribute('href')`), "/docs/cli");
+        for (const id of ["browser", "computers"]) {
+          await evaluate(window, `document.querySelector('#${id}').scrollIntoView()`);
+          assert.ok(await evaluate(window, `document.documentElement.scrollWidth <= innerWidth`), `${id} fits without horizontal scrolling`);
+        }
+        // The phone section plays the hero's phone recording once it scrolls near.
         await evaluate(window, `document.querySelector('#phone-companion').scrollIntoView()`);
         await waitFor(evaluate, window, `!document.querySelector('[data-phone-demo] video').paused`, "the phone recording plays");
         assert.equal(await evaluate(window, `new URL(document.querySelector('[data-phone-demo] video').src).pathname`), "/demo/phone.mp4");
@@ -131,6 +140,7 @@ const checks = [
           window,
           `(() => {
             const root = document.querySelector('[data-designs]');
+            root.querySelector('[data-comment]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
             root.querySelector('[data-comment]').click();
             const body = root.querySelector('[data-body="0"]').getBoundingClientRect();
             const at = { bubbles: true, button: 0, pointerId: 1, clientX: body.left + body.width / 2, clientY: body.top + body.height / 3 };
@@ -182,12 +192,15 @@ const checks = [
           );
         }
         // The canvas is the app's React Flow, hydrated when it scrolls into view: Stop ends the negotiation on its Link,
-        // a selected Link can be removed, and Refresh brings the demo back.
+        // a selected Link can be removed, and reloading brings the demo back.
         await evaluate(window, `document.querySelector('#linked-projects').scrollIntoView()`);
         await waitFor(evaluate, window, `!!document.querySelector('[data-canvas] .react-flow__edge')`, "canvas hydrates");
-        assert.equal(await evaluate(window, `document.querySelectorAll('[data-canvas] .react-flow__node').length`), 7);
+        assert.equal(await evaluate(window, `document.querySelectorAll('[data-canvas] .react-flow__node').length`), 9);
+        await waitFor(evaluate, window, `!!document.querySelector('.canvas-activity button')`, "the negotiation starts");
         await evaluate(window, `document.querySelector('.canvas-activity button').click()`);
         await waitFor(evaluate, window, `!document.querySelector('.canvas-activity')`, "Stop ends the negotiation");
+        // A real pointer press ends the tour before the visitor edits the Link.
+        await evaluate(window, `document.querySelector('[data-canvas]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
         await evaluate(window, `document.querySelector('[data-canvas] .react-flow__edge').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
         await waitFor(
           evaluate,
@@ -197,8 +210,12 @@ const checks = [
         );
         await evaluate(window, `[...document.querySelectorAll('[data-canvas] button')].find(b => b.textContent === 'Remove Link').click()`);
         await waitFor(evaluate, window, `!document.querySelector('[data-canvas] .react-flow__edge')`, "Remove Link removes it");
-        await evaluate(window, `[...document.querySelectorAll('[data-canvas] button')].find(b => b.textContent === 'Refresh').click()`);
-        await waitFor(evaluate, window, `!!document.querySelector('.canvas-activity')`, "Refresh restores the demo");
+        const reloaded = new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
+        window.reload();
+        await reloaded;
+        await evaluate(window, `document.querySelector('#linked-projects').scrollIntoView()`);
+        await waitFor(evaluate, window, `!!document.querySelector('[data-canvas] .react-flow__edge')`, "reload restores the Link");
+        await waitFor(evaluate, window, `!!document.querySelector('.canvas-activity')`, "reload restarts the tour");
         await shot(window, size.mobile ? "phone-canvas.png" : "desktop-canvas.png");
         if (sidebarShown) {
           // Three new Chats, then the fourth asks why instead of adding a row.
@@ -222,6 +239,45 @@ const checks = [
         await evaluate(window, `document.querySelector('.footer-brand').click()`);
         assert.equal(await evaluate(window, `window.scrollY`), 0, "back to top returns to the hero");
         await assertHeroScreen(evaluate, window);
+        window.destroy();
+      }
+    },
+  },
+  {
+    name: "CLI docs preload their text font and preserve navigation on desktop and phone",
+    async run(open, evaluate) {
+      for (const size of [
+        { width: 1440, height: 900 },
+        { width: 390, height: 844, mobile: true },
+      ]) {
+        const window = await open({ ...size, pathname: "/docs/cli/" });
+        const docs = await evaluate(
+          window,
+          `({
+          title: document.title,
+          font: document.querySelector('link[rel="preload"][as="font"]')?.getAttribute('href'),
+          fontLoaded: document.fonts.check('16px "Geist Variable"'),
+          fits: document.documentElement.scrollWidth <= innerWidth,
+          copy: [...document.querySelectorAll('.content pre')].every(pre => pre.querySelector('button.copy'))
+        })`,
+        );
+        assert.equal(docs.title, "Milagre CLI docs | Milagre");
+        assert.match(docs.font, /geist-latin-wght-normal.*\.woff2$/);
+        assert.ok(docs.fontLoaded, "the preloaded text font is available");
+        assert.ok(docs.fits, "CLI docs fit the viewport");
+        assert.ok(docs.copy, "code blocks offer Copy");
+        await evaluate(window, `document.querySelector('${size.mobile ? ".toc-mobile summary" : '.toc a[href="#commands"]'}').click()`);
+        if (size.mobile) {
+          assert.equal(await evaluate(window, `document.querySelector('.toc-mobile').open`), true);
+          await evaluate(window, `document.querySelector('.toc-mobile a[href="#commands"]').click()`);
+        }
+        await waitFor(evaluate, window, `location.hash === '#commands'`, "the command reference opens");
+        assert.ok(
+          await evaluate(
+            window,
+            `document.querySelector('#commands').getBoundingClientRect().top >= 0 && document.querySelector('#commands').getBoundingClientRect().top < innerHeight`,
+          ),
+        );
         window.destroy();
       }
     },
@@ -356,30 +412,25 @@ const checks = [
     },
   },
   {
-    name: "the phone is a 3D model where WebGL works, and the flat frame where it doesn't",
+    name: "the flat phone recording stays visible after interaction on desktop and phone",
     async run(open, evaluate) {
-      const window = await open({ width: 1440, height: 900 });
-      const webgl = await evaluate(
-        window,
-        `(() => { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); })()`,
-      );
-      // three.js loads on the visitor's first move, so the first paint only carries the flat frame.
-      assert.equal(await evaluate(window, `document.querySelector(".demo").classList.contains("three")`), false, "3D phone waits for a first move");
-      await evaluate(window, `dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 10 }))`);
-      if (webgl) {
-        await waitFor(evaluate, window, `document.querySelector(".demo").classList.contains("three")`, "3D phone");
-        const canvas = await evaluate(
-          window,
-          `(() => { const r = document.querySelector(".phone-canvas").getBoundingClientRect(); return { w: r.width, h: r.height }; })()`,
-        );
-        assert.ok(canvas.w > 100 && canvas.h > 200, `canvas ${JSON.stringify(canvas)}`);
-      } else {
-        // CI's Linux runners block WebGL: the recording keeps its flat frame and stays visible.
+      for (const size of [
+        { width: 1440, height: 900 },
+        { width: 390, height: 844, mobile: true },
+      ]) {
+        const window = await open(size);
+        await evaluate(window, `dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 10 }))`);
         await delay(1000);
         assert.equal(await evaluate(window, `document.querySelector(".demo").classList.contains("three")`), false);
+        assert.equal(await evaluate(window, `!!document.querySelector(".phone-canvas")`), false);
         assert.equal(await evaluate(window, `getComputedStyle(document.querySelector(".phone-video")).opacity`), "1");
+        const frame = await evaluate(
+          window,
+          `(() => { const r = document.querySelector(".phone-video").getBoundingClientRect(); return { w: r.width, h: r.height }; })()`,
+        );
+        assert.ok(frame.w > 100 && frame.h > 200, `phone frame ${JSON.stringify(frame)}`);
+        window.destroy();
       }
-      window.destroy();
     },
   },
   {
@@ -475,14 +526,14 @@ async function browserChecks() {
   const opened = [];
   // A Mac browser unless a check says otherwise: the page picks its download from the user agent, and CI runs on Linux.
   const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-  async function open({ width, height, mobile = false, reducedMotion = false, userAgent = MAC }) {
+  async function open({ width, height, mobile = false, reducedMotion = false, userAgent = MAC, pathname = "/" }) {
     const window = new BrowserWindow({ width, height, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
     opened.push(window);
     window.webContents.on("console-message", (event) => {
       if (event.level === "error") errors.push(event.message);
     });
     window.webContents.setUserAgent(userAgent);
-    await window.loadURL(url);
+    await window.loadURL(new URL(pathname, url).href);
     if (mobile || reducedMotion) {
       // Device emulation before the first navigation crashes Electron 44, so emulate after the first load and reload.
       window.webContents.debugger.attach();
