@@ -31,6 +31,7 @@ import { confirmHeldState, isLean, numberedState, seedHeldState, stateEvents } f
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { cliName } from "@milagre/shared/providers";
+import { requiredCliVersion } from "./lib/cli-status";
 import { Activity, useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SetStateAction } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -563,7 +564,9 @@ function App() {
   const updateCli = async (provider: ModelProvider) => {
     setUpdatingCli(provider);
     try {
-      const result = await window.milagre.updateCli(provider);
+      // The picker status says which release this Milagre needs. Keep it through IPC so a Codex update that leaves
+      // an older executable first on PATH cannot be reported as successful.
+      const result = await window.milagre.updateCli(provider, requiredCliVersion(cliStatus?.[provider]));
       // Updating the CLI is global; read authentication and models for the scope open now, and for the others when shown.
       staleProviders();
       refreshCliStatusRef.current();

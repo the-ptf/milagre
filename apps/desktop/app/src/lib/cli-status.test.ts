@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cliMessage, cliNotice, cliTabLabel, extractOutdatedProvider, messageParts } from "./cli-status.ts";
+import { cliMessage, cliNotice, cliTabLabel, extractOutdatedProvider, messageParts, requiredCliVersion } from "./cli-status.ts";
 
 test("a CLI with a problem gets a short tab label, and one that runs gets none", () => {
   assert.equal(cliTabLabel({ state: "missing", message: "m" }), "Not installed");
@@ -35,6 +35,18 @@ test("the notice ends at the command, while the tooltip keeps the whole message"
   assert.equal(cliNotice({ state: "ready" }), null);
   assert.equal(cliNotice({ state: "missing" }), null);
   assert.equal(cliNotice(null), null);
+});
+
+test("an outdated CLI status retains the minimum version for its updater", () => {
+  assert.equal(
+    requiredCliVersion({
+      state: "outdated",
+      message: "Milagre needs Codex 0.160.0 or later, and you have 0.147.0. Run `codex update` in a terminal, then send your message again.",
+    }),
+    "0.160.0",
+  );
+  assert.equal(requiredCliVersion({ state: "outdated", message: "Codex needs an update." }), undefined);
+  assert.equal(requiredCliVersion({ state: "ready" }), undefined);
 });
 
 test("backtick spans become code", () => {
