@@ -83,6 +83,7 @@ export function PromptField({
   computers = NO_COMPUTERS,
   currentId,
   projectPath,
+  skillScope,
   draft,
   onChangeText,
   onImagePaste,
@@ -107,6 +108,8 @@ export function PromptField({
   currentId?: number;
   client: Client;
   projectPath: string;
+  /** Where skills are read, when not `projectPath`: a Link's key, or a shared Chat's own folder. */
+  skillScope?: string;
   draft: string;
   onChangeText: (value: string) => void;
   onImagePaste?: (image: PastedImage) => void;
@@ -145,7 +148,7 @@ export function PromptField({
   const enter = useReturnKey(paste.ref, onSubmit);
   const onScreenReturn = useOnScreenReturn(onSubmit);
   const glyphs = useChipGlyphs();
-  const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
+  const { data, loading, error, refresh } = useRpc<SkillCatalog>((skillScope ?? projectPath) ? client : null, "skills:list", [skillScope ?? projectPath]);
   const skillList = data?.skills;
   const skills = useMemo(() => (commands?.length ? [...commands, ...(skillList ?? [])] : skillList), [commands, skillList]);
   const parts = useMemo(

@@ -583,3 +583,37 @@ test("a Link not opened since a restart is deleted, and a Worktree with a commit
   assert.equal(worktree.sharedChat, undefined);
   assert.equal(worktree.base, api.base);
 });
+
+test("a Link lists its member Projects' skills, and a shared Chat its Worktrees' and main checkouts' skills", async (t) => {
+  const { runtime, projects, edits, settle } = await fixture(t);
+  for (const project of projects) {
+    const file = path.join(project.path, ".agents", "skills", `${project.name}-skill`, "SKILL.md");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, `---\nname: ${project.name}-skill\ndescription: From ${project.name}\n---\nInstructions`);
+    execFileSync("git", ["-C", project.path, "add", "."]);
+    execFileSync("git", ["-C", project.path, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "Skill"]);
+  }
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((p) => p.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const owner = scopeKey({ kind: "link", linkId: link.id });
+  const names = (catalog) =>
+    catalog.skills
+      .filter((skill) => skill.scope === "workspace")
+      .map((skill) => skill.name)
+      .sort();
+  assert.deepEqual(names(await runtime.invoke("skills:list", [owner])), ["api-skill", "web-skill"]);
+  // The agent changes only api: web has no Worktree, and its skills come from its main checkout.
+  edits.splice(0, edits.length, "api");
+  const sent = await runtime.invoke("link:send", [
+    { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Edit", provider: "codex", model: "test", permissionMode: "auto" },
+  ]);
+  await settle(1);
+  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  assert.equal(session.worktrees.length, 1);
+  const catalog = await runtime.invoke("skills:list", [session.workspacePath]);
+  assert.deepEqual(names(catalog), ["api-skill", "web-skill"]);
+  const web = projects.find((project) => project.name === "web");
+  assert.ok(catalog.skills.find((skill) => skill.name === "api-skill").path.startsWith(session.worktrees[0].worktreePath));
+  assert.ok(catalog.skills.find((skill) => skill.name === "web-skill").path.startsWith(web.path));
+  await assert.rejects(runtime.invoke("skills:list", [scopeKey({ kind: "link", linkId: randomUUID() })]), /Link/);
+});

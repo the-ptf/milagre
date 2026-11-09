@@ -865,15 +865,23 @@ function createRuntime(options) {
     if ((await recentProjects().list()).some((item) => item.path === folder)) return;
     throw new Error("Open this project in Milagre first.");
   }
+  // Where a Chat's skills come from. A named Link (a new shared Chat) reads its member Projects; a shared Chat's own
+  // folder reads its Worktree in each Project it changed and the main checkout of each one it only read.
+  async function skillRoots(folder) {
+    if (isLinkScopeKey(folder)) {
+      const link = await linkRuntime.definition(scopeFromKey(folder).linkId);
+      return (await linkWorkspaces.membersAvailable(link)).map((project) => project.path);
+    }
+    await knownFolder(folder);
+    return folderSkillRoots(folder);
+  }
+  async function folderSkillRoots(folder) {
+    if (!scopeStates.workspacePaths().includes(folder)) return folder;
+    return linkRuntime.workspaceSkillRoots(folder);
+  }
   // A null Project lists the user's skills only.
-  commands.handle("skills:list", async (_event, projectPath) => {
-    if (projectPath !== null) await knownFolder(projectPath);
-    return discoverSkills(projectPath);
-  });
-  commands.handle("skills:read", async (_event, projectPath, file) => {
-    if (projectPath !== null) await knownFolder(projectPath);
-    return readDiscoveredSkill(projectPath, file);
-  });
+  commands.handle("skills:list", async (_event, projectPath) => discoverSkills(projectPath === null ? null : await skillRoots(projectPath)));
+  commands.handle("skills:read", async (_event, projectPath, file) => readDiscoveredSkill(projectPath === null ? null : await skillRoots(projectPath), file));
   commands.handle("project:branches", async (_event, projectPath) => {
     await knownFolder(projectPath);
     return listBranches(projectPath);
@@ -1202,8 +1210,7 @@ function createRuntime(options) {
     );
     // The issue moves to In Progress once its Worktree exists, unless that's switched off or the sign-in can only read.
     // Best effort and in the background: the Chat never waits on Linear.
-    if (issue && linear.moveToStarted() && linear.canWrite(issue.workspace))
-      void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
+    if (issue) markIssueStarted(issue);
     // A branch named after an issue keeps that name; only a chat named from its prompt gets the Haiku name.
     if (!issue) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? "", policy, suffix, ticket), background).catch(() => {});
     return { project: { ...project, state }, worktreeId: listed.id, ...(resolved.note ? { setupNote: resolved.note } : {}) };
@@ -1502,7 +1509,8 @@ function createRuntime(options) {
     const linkedContext = agents.isTurnActive(request.chatId) ? Promise.resolve("") : linked.context(request.chatId);
     const images = decodeImages(request.images);
     // expandSkills: false (the review demo) sends `/skill` as typed: the skills on this Mac are the owner's own.
-    const prompt = options.expandSkills === false ? request.prompt : await expandSkillPrompt(request.cwd, request.prompt);
+    const prompt =
+      options.expandSkills === false ? request.prompt : await expandSkillPrompt(await folderSkillRoots(request.cwd).catch(() => request.cwd), request.prompt);
     const cli = agents.activeAccount(request.chatId, request.provider) ?? (await agentCli(request.provider, projectOfKey(request.chatId)));
     if (cancelled() || (request.expectedAccountId !== undefined && cli.accountId !== request.expectedAccountId))
       return { turnId: null, steered: false, cancelled: true };
@@ -2255,7 +2263,7 @@ function createRuntime(options) {
       : compact
         ? { ...rest, ...compactionMessage() }
         : linearIssue !== undefined
-          ? await linearIssueMessage(rest, linearIssue)
+          ? (await linearIssueMessage(rest, linearIssue)).message
           : { ...rest, context: undefined };
     // A compact is a command to the agent's CLI, not a message: it says nothing of where the user is.
     const { sessionId } = await chats.send(
@@ -2281,14 +2289,23 @@ function createRuntime(options) {
       console.warn(`Milagre couldn't read ${ask.key} for its card:`, error.message);
       return null;
     });
-    if (!issue) return { ...rest, context: undefined };
+    if (!issue) return { message: { ...rest, context: undefined }, issue: null };
     const files = Array.isArray(rest.files) ? rest.files : [];
     return {
-      ...rest,
-      body: issueFirstMessage(issue, ask.note),
-      prompt: linearIssuePrompt(issue, ask.note) + (files.length ? `\n\nAttached files:\n${files.join("\n")}` : ""),
-      context: linearIssueContext(issue, ask.note),
+      message: {
+        ...rest,
+        body: issueFirstMessage(issue, ask.note),
+        prompt: linearIssuePrompt(issue, ask.note) + (files.length ? `\n\nAttached files:\n${files.join("\n")}` : ""),
+        context: linearIssueContext(issue, ask.note),
+      },
+      issue,
     };
+  }
+  // The issue moves to In Progress once its Chat starts, unless that's switched off or the sign-in can only read.
+  // Best effort and in the background: the Chat never waits on Linear.
+  function markIssueStarted(issue) {
+    if (linear.moveToStarted() && linear.canWrite(issue.workspace))
+      void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
   }
   commands.handle("chat:resume", async (_event, projectPath, sessionId) => {
     if (!scopeStates.has(projectPath)) throw new Error("Open the project before continuing its chats.");
@@ -3097,6 +3114,7 @@ function createRuntime(options) {
     sentFromNotes,
     broadcast: broadcastProjectState,
     titles: chatTitles,
+    issues: { message: linearIssueMessage, started: markIssueStarted },
     // A deleted Link's Chat is archived like any other (its Terminals, advisors and Heartbeats stop), then its setup and
     // agent close, so nothing keeps running in the Worktrees about to go.
     retire: async (scope, sessionId) => {

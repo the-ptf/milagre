@@ -74,6 +74,9 @@ import { TerminalPanel } from "./terminal/TerminalPanel";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./agents/PanelToggles";
 import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { useLinear } from "./useLinear";
+import { issueFirstMessage, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
+import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { busyTerminals, newTerminal, useTerminalSync, type TerminalPlace } from "../lib/terminal-actions";
 const CanvasView = lazyView(() => import("./CanvasView").then((module) => module.CanvasView));
 const CANVAS_STATES = {};
@@ -254,6 +257,7 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
+  const linear = useLinear();
   // As a Project Chat's: Ultracode and Fast only count for a model that has them, so a Codex pick drops a Claude Ultracode.
   const ultracode = Boolean(preferences.capability?.ultracode) && composerPrefs.ultracode;
   const fastMode = Boolean(preferences.capability?.fastMode) && composerPrefs.fastMode;
@@ -463,7 +467,9 @@ export function LinkWorkspace({
       .catch(() => {});
   }, [owner, chatId, state.sessions, hiddenProjects]);
   // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
-  async function send(body = draftStore.get().trim(), preserve = false, attach = true, delivery?: MessageDelivery) {
+  // `issue`: a new Chat started from a Linear issue, whose first message is the issue and then what the user typed.
+  async function send(body = draftStore.get().trim(), preserve = false, attach = true, delivery?: MessageDelivery, issue?: LinearIssue) {
+    const typed = draftStore.get().trim();
     const images = attach ? imageDraft.images : [];
     const files = attach ? imageDraft.files : [];
     if (preparing || sendsInFlight.current.has(sendKey) || imageDraft.loading || (!body && !images.length && !files.length)) return false;
@@ -528,11 +534,12 @@ export function LinkWorkspace({
       files,
       model: model.id,
       provider: model.provider,
+      ...(issue ? { context: linearIssueContext(issue, typed) } : {}),
     });
     const previewId = preview.message.clientMessageId;
     setPendingSends((current) => [...current, { ...preview, key: sendKey, provider: model.provider }]);
     // The message shows in the Chat now, so it leaves the composer now; a failed send puts it back.
-    const clears = !preserve && draftStore.get().trim() === body;
+    const clears = !preserve && (issue !== undefined || draftStore.get().trim() === body);
     if (clears) {
       draftStore.set("");
       imageDraft.clear();
@@ -557,6 +564,8 @@ export function LinkWorkspace({
         fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
+        // Milagre reads the issue again and writes its card; a Mac that predates that sends the body as a plain message.
+        ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: typed })! } : {}),
       };
       const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
       drafts.acknowledgeSend(operation, sent.sessionId);
@@ -576,7 +585,7 @@ export function LinkWorkspace({
       if (latest.current.active && latest.current.selection === selection) {
         if (clears) {
           const remapped = imageDraft.restore(images, files, draftStore.get());
-          draftStore.set([body, remapped].filter(Boolean).join("\n\n"));
+          draftStore.set([restoredDraft(body, typed, issue !== undefined), remapped].filter(Boolean).join("\n\n"));
         }
         setError(ipcErrorMessage(error));
       }
@@ -788,6 +797,11 @@ export function LinkWorkspace({
                         onFastModeChange={composerPrefs.setFastMode}
                         permissionMode={composerPrefs.permissionMode}
                         scopeKind="link"
+                        // A new Chat reads its Projects' skills; an open one, its Worktrees' and main checkouts'. Another
+                        // Mac's shared Chat folder isn't a path this Mac's bridge can route, so its Link key stands in.
+                        skillScope={isRemoteKey(owner) ? owner : (session?.workspacePath ?? owner)}
+                        linearActive={linear.active}
+                        onStartFromIssue={(issue) => void send(issueFirstMessage(issue, draftStore.get().trim()), false, true, undefined, issue)}
                         onOpenAccounts={onOpenAccounts}
                         store={draftStore}
                         projectPath={root}

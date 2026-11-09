@@ -941,6 +941,8 @@ interface ChatComposerProps {
   onFindClose?: () => void;
   imageDraft: ImageDraft;
   projectPath: string;
+  /** Where the `/` menu reads skills, when not `projectPath`: a Link's key, or a shared Chat's own folder. */
+  skillScope?: string;
   /** Messages of the Chat the host holds before `messages` (chat-pages-v1): how many, and reading them. */
   earlier?: { count: number; load: () => Promise<void>; loadAll: (signal?: AbortSignal) => Promise<void> };
   /** Drops the Chat's window back to its last turns once `canTrim` (asked again if a read is on its way) still says so. */
@@ -1124,6 +1126,8 @@ type NewChatHeaderProps = Pick<
 > & {
   /** A Chats home draft: the tray holds only the computer chip and its label, nothing about Git. */
   chats?: boolean;
+  /** A named Link's new Chat: its agent makes a Worktree in each Project it changes, so only the Linear issue chip shows. */
+  link?: boolean;
   /** The open Project's copies on every computer with its repository; the computer chip shows once there are two. */
   copies?: ProjectCopy[];
   currentKey?: string;
@@ -1131,6 +1135,8 @@ type NewChatHeaderProps = Pick<
 };
 
 const NO_COPIES: ProjectCopy[] = [];
+const NO_WORKTREES: ChatComposerProps["worktrees"] = [];
+const NO_BRANCHES: string[] = [];
 
 function NewChatHeader({
   worktrees,
@@ -1145,6 +1151,7 @@ function NewChatHeader({
   onStartFromIssue,
   noGit = false,
   chats = false,
+  link = false,
   copies = NO_COPIES,
   currentKey,
   onComputerChange,
@@ -1211,13 +1218,13 @@ function NewChatHeader({
   return (
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
-      {!chats && noGit && selected && (
+      {!chats && !link && noGit && selected && (
         <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-13 text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
           {selected.name} has no Git, so this Chat works in the folder itself.
         </p>
       )}
-      {(chats || (!noGit && selected)) && (
+      {(chats || (link ? linearActive && onStartFromIssue : !noGit && selected)) && (
         // One row, never wrapped: a narrow composer truncates the chips' names instead.
         <div data-new-chat-pickers className="relative mb-1 flex min-w-0 items-center gap-1">
           {chooseComputer && (
@@ -1230,7 +1237,7 @@ function NewChatHeader({
               />
             </Tooltip>
           )}
-          {chats ? (
+          {link ? null : chats ? (
             <span data-new-chat-label className="flex h-7 items-center gap-1.5 px-2.5 text-12 font-medium text-ink-2">
               <Icon icon={BubbleChatIcon} size={14} />
               {newChatLook("chats").trayLabel}
@@ -1360,6 +1367,7 @@ export function ChatComposer({
   scopeKind,
   imageDraft,
   projectPath,
+  skillScope,
   messageScope,
   scrollKey,
   earlier,
@@ -1472,6 +1480,8 @@ export function ChatComposer({
   // bot's new Chat keeps the composer centred.
   const [headingOpen, setHeadingOpen] = useState(false);
   const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
+  // A named Link's new Chat has no isolation or branch to choose, only an issue to start from.
+  const linkNewChat = isNewChat && scopeKind === "link" && !offlineName && linearActive && !!onStartFromIssue;
   const newChatProjectKey = newChatProject?.key ?? projectPath;
   const newChatProjectName = newChatProject?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath;
   const projectGroups = useProjectGroups(projectNewChat && !!newChatProject?.onChange, newChatProjectKey, newChatProjectName, newChatProject?.kind);
@@ -1947,6 +1957,20 @@ export function ChatComposer({
                 onComputerChange={changeComputer}
               />
             )}
+            {linkNewChat && (
+              <NewChatHeader
+                link
+                worktrees={NO_WORKTREES}
+                onWorktreeChange={() => {}}
+                isolation="worktree"
+                onIsolationChange={() => {}}
+                branches={NO_BRANCHES}
+                baseBranch=""
+                onBaseBranchChange={() => {}}
+                linearActive={linearActive}
+                onStartFromIssue={onStartFromIssue}
+              />
+            )}
             {offlineTray}
             {queue && !isNewChat && (
               <QueuedMessages
@@ -1967,6 +1991,7 @@ export function ChatComposer({
                 reconnectingName={reconnectingName}
                 imageDraft={imageDraft}
                 projectPath={projectPath}
+                skillScope={skillScope}
                 accountScope={messageScope ?? projectPath}
                 draft={draft}
                 onDraftChange={onDraftChange}

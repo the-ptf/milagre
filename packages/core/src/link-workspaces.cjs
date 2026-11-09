@@ -95,7 +95,13 @@ function createLinkWorkspaces({
     const suffix = `${prep.operationId.slice(0, 8)}${index}`;
     const name = `${slugify(prep.prompt) || "chat"}-${suffix}`;
     const worktreePath = path.join(root, path.basename(project.path), name);
-    const branch = await availablePolicyBranch(project.path, policy, { slug: prep.prompt || "chat", ticket: branchTicket(prep.prompt), suffix });
+    const issue = prep.issue;
+    const branch = await availablePolicyBranch(
+      project.path,
+      policy,
+      { slug: issue?.title || prep.prompt || "chat", ticket: issue?.key || branchTicket(prep.prompt), suffix },
+      { issueBranch: issue ? issue.branchName || "" : undefined },
+    );
     try {
       await fs.lstat(worktreePath);
       throw new Error(`Project ${project.name}: Worktree folder already exists`);
@@ -208,7 +214,8 @@ function createLinkWorkspaces({
     }
   }
   // A new Chat's workspace folder, with no Worktree yet; an unfinished preparation finishes first.
-  async function prepare({ link, chatId, prompt = "", operationId }) {
+  // `issue`: a Chat started from a Linear issue, whose Worktrees are named after it when they're made (reserve).
+  async function prepare({ link, chatId, prompt = "", operationId, issue }) {
     if (!validLinkId(operationId) || !Number.isSafeInteger(chatId) || chatId < 1) throw new Error("Invalid Link preparation request");
     const state = await store.get(link.id);
     refuseReleased(link.id, state);
@@ -220,7 +227,14 @@ function createLinkWorkspaces({
       prep = undefined;
     }
     await membersAvailable(link);
-    prep ??= { operationId, chatId, prompt, workspacePath: path.join(store.directory(link.id), "workspaces", String(chatId)), members: [] };
+    prep ??= {
+      operationId,
+      chatId,
+      prompt,
+      workspacePath: path.join(store.directory(link.id), "workspaces", String(chatId)),
+      members: [],
+      ...(issue ? { issue: { key: issue.key, title: issue.title, branchName: issue.branchName } } : {}),
+    };
     await finishMembers(link, prep);
     await writeManifest(link, prep);
     prep.status = "ready";
