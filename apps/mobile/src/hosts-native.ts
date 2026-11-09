@@ -207,6 +207,22 @@ export async function saveExpandReasoning(on: boolean) {
     /* best effort */
   }
 }
+const newChatStatsKey = "milagre.new-chat-stats.v1";
+/** Settings › Chat › Show stats: a new Chat's glance cards; on unless turned off. */
+export async function readNewChatStats(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(newChatStatsKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveNewChatStats(on: boolean) {
+  try {
+    await SecureStore.setItemAsync(newChatStatsKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
 const panelWidthKey = "milagre.ipad-panel-width.v1";
 /** The width the iPad's docked right panel was dragged to; null until it has been. */
 export async function readPanelWidth(): Promise<number | null> {

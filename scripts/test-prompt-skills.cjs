@@ -243,8 +243,11 @@ async function browserChecks() {
     assert.equal(await evaluate("getSelection().anchorOffset"), 9, "acceptance places the caret at the end");
     await type("");
     await waitFor(`!!${suggestion}`);
+    await screenshot("suggestion");
+    assert.match(await evaluate(`${suggestion}.textContent`), /^Add tests\s*Tab$/, "the suggestion shows its Tab key");
+    // Tab alone takes it: the right arrow is left to move the caret.
     await key("ArrowRight");
-    await waitFor(`${editor}.value === 'Add tests'`);
+    assert.equal(await evaluate(`${editor}.value`), "", "the right arrow leaves the suggestion");
     for (const draft of [" ", "typing", "/tl"]) {
       await type(draft);
       await waitFor(`!${suggestion}`);

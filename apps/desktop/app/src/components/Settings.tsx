@@ -99,6 +99,7 @@ import { findSetting } from "../lib/settings-find";
 import { SettingsSearchField, SettingsSearchResults, useFoundRow, useSettingsSearch, type SettingsSearchItem } from "./settings/SettingsSearch";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
+import { NEW_CHAT_STATS_GROUP, NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { useDoneSettings } from "../lib/done-settings";
 import { useKeepAwakeSettings } from "../lib/keep-awake";
 import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
@@ -836,6 +837,11 @@ function ChatSettings() {
       <ChoiceGroup title="Tool calls">
         <ToolCallChoice value={settings.toolCallDisplay} onChange={(toolCallDisplay) => updateSettings({ toolCallDisplay })} />
       </ChoiceGroup>
+      <Group title={NEW_CHAT_STATS_GROUP}>
+        <Row label={NEW_CHAT_STATS_LABEL} description={NEW_CHAT_STATS_HINT}>
+          <SettingCheckbox label={NEW_CHAT_STATS_LABEL} checked={settings.newChatStats} onChange={(newChatStats) => updateSettings({ newChatStats })} />
+        </Row>
+      </Group>
     </>
   );
 }

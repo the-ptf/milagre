@@ -1469,7 +1469,8 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
   const subchatReports = useMemo(() => (subchats ? latestReports(messages) : NO_REPORTS), [subchats, messages]);
-  const chatWidth = useSettings().appearance.chatWidth;
+  const { appearance, newChatStats } = useSettings();
+  const chatWidth = appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
@@ -1707,6 +1708,9 @@ export function ChatComposer({
           </div>
         )}
         {isNewChat && !offScreen && <WelcomeSky />}
+        {/* The room above the heading: a third of what's free with the stats under the composer, half without them. It
+        doesn't depend on whether the cards have loaded, so they never move the composer. */}
+        {projectNewChat && !offScreen && <div aria-hidden className="min-h-0 flex-1 basis-0" />}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
@@ -2046,7 +2050,13 @@ export function ChatComposer({
           )}
         </div>
         {/* The Project's open PRs, plan usage and today's tokens, under a new Chat's composer. */}
-        {projectNewChat && !offScreen && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} />}
+        {/* The cards take the room under the composer (two thirds of what's free) and scroll in it when the window is short.
+        The scrollbar's gutter is kept on both sides, just outside the column, so the cards keep the composer's edges. */}
+        {projectNewChat && !offScreen && (
+          <ScrollArea className={`-mx-2.5 w-[calc(100%+20px)] basis-0 [scrollbar-gutter:stable_both-edges] ${newChatStats ? "flex-[2]" : "flex-1"}`}>
+            {newChatStats && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} chatWidth={chatWidth} />}
+          </ScrollArea>
+        )}
       </div>
     </ReplyProviders>
   );

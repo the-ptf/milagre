@@ -6,7 +6,16 @@ import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
 import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
-import { matchingMentionChats, matchingMentionComputers, type MentionChat, type MentionComputer, editImageMentions } from "@milagre/shared/prompt-mentions";
+import {
+  PROMPT_PLACEHOLDER,
+  matchingMentionChats,
+  matchingMentionComputers,
+  type MentionChat,
+  type MentionComputer,
+  editImageMentions,
+} from "@milagre/shared/prompt-mentions";
+import { ArrowRightToLineIcon } from "@hugeicons/core-free-icons";
+import { Icon } from "./icons";
 import { withAlpha } from "@milagre/shared/themes";
 import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
@@ -94,7 +103,7 @@ export function PromptField({
   onSubmit,
   onFocus,
   onBlur,
-  placeholder = "Message the agent",
+  placeholder = PROMPT_PLACEHOLDER,
   suggestion,
   onAcceptSuggestion,
   chatTitle,
@@ -422,19 +431,38 @@ export function PromptField({
             onAcceptSuggestion(suggestion);
             paste.ref.current?.focus();
           }}
+          // As on desktop: the suggestion in the hint's colour, then a key that says how to use it (a tap here, Tab there).
           style={({ pressed }) => ({
             minHeight: 44,
-            justifyContent: "center",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
             paddingHorizontal: 12,
             marginBottom: 4,
             borderRadius: radius.control,
             borderCurve: "continuous",
-            backgroundColor: pressed ? colors.hover : colors.surface,
+            backgroundColor: pressed ? colors.hover : "transparent",
           })}
         >
-          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: inputSize }}>
+          <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink3, fontSize: inputSize }}>
             {suggestion}
           </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              borderRadius: radius.control,
+              borderCurve: "continuous",
+              borderWidth: 1,
+              borderColor: colors.lineStrong,
+            }}
+          >
+            <Icon icon={ArrowRightToLineIcon} color={colors.ink3} size={12} />
+            <Text style={{ color: colors.ink3, fontSize: type.caption1, fontWeight: "500" }}>Use</Text>
+          </View>
         </Pressable>
       )}
       {query ? (

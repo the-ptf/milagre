@@ -93,7 +93,7 @@ function Card({ title, count, aside, children, delay }: { title: string; count?:
   return (
     <section
       aria-label={title}
-      className="flex min-w-0 flex-col gap-3 rounded-window border border-line bg-surface/70 p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-window border border-line bg-inset p-4"
       style={{ animation: `fade-up var(--duration-slow) var(--ease-enter) ${delay}ms both` }}
     >
       <header className="flex items-baseline justify-between gap-3">
@@ -216,7 +216,7 @@ function TodayCard({ today }: { today: GlanceToday }) {
  * Under a new Chat's composer: the repository's open PRs, plan usage and today's tokens. Each card shows only with something
  * in it; a Chats home draft has no Project, so no PRs.
  */
-export function NewChatGlance({ projectKey, scopeKey }: { projectKey: string | null; scopeKey: string }) {
+export function NewChatGlance({ projectKey, scopeKey, chatWidth }: { projectKey: string | null; scopeKey: string; chatWidth?: string }) {
   const prs = useOpenPullRequests(projectKey);
   const usage = useUsage(scopeKey);
   const today = useToday(scopeKey);
@@ -225,7 +225,8 @@ export function NewChatGlance({ projectKey, scopeKey }: { projectKey: string | n
   const todayCard = today && (today.costUsd > 0 || today.tokens > 0) ? <TodayCard today={today} /> : null;
   if (prs.length === 0 && !usageCard && !todayCard) return null;
   return (
-    <div data-new-chat-glance className="@container chat-gutter mx-auto w-full max-w-[var(--chat-width)] shrink-0 px-1.5 pt-5">
+    // The composer's width setting, so the cards' edges line up with the tray above (.chat-gutter in styles.css).
+    <div data-new-chat-glance data-chat-width={chatWidth} className="@container chat-gutter mx-auto w-full max-w-[var(--chat-width)] shrink-0 px-1.5 pt-5 pb-6">
       <div className="grid grid-cols-1 items-start gap-3.5 @[36rem]:grid-cols-2">
         {prs.length > 0 && <PullRequestsCard rows={prs} />}
         {prs.length > 0 ? (

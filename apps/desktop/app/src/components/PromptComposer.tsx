@@ -46,7 +46,7 @@ import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
 import { compactButtonState } from "@milagre/shared/chat-display";
-import { matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
+import { PROMPT_PLACEHOLDER, matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
 import { useChatMentions, useMentionComputers } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
 import {
@@ -876,7 +876,7 @@ export function PromptComposer({
         return;
       }
     }
-    if (visibleSuggestion && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "Tab" || event.key === "ArrowRight")) {
+    if (visibleSuggestion && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && event.key === "Tab") {
       const selection = inputRef.current?.getSelection();
       if (selection?.start === 0 && selection.end === 0) {
         event.preventDefault();
@@ -1176,11 +1176,8 @@ export function PromptComposer({
                 placeholder={
                   offlineName
                     ? offlinePlaceholder(offlineName)
-                    : (running
-                        ? queuesFollowUp
-                          ? "Queue a message for the next turn…"
-                          : "Steer the agent…"
-                        : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                    : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
+                      (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}

@@ -3499,6 +3499,7 @@ function chatHost({
     "../chat-display-setting": {
       useShowContextSize: () => [contextPreferences.showContextSize],
       useCompactButtonDisplay: () => [contextPreferences.compactButtonDisplay],
+      useNewChatStats: () => [true],
     },
     "@milagre/shared/chat-display": require("@milagre/shared/chat-display"),
     ...(localOutbox
