@@ -67,7 +67,7 @@ async function main() {
         cwd: values.cwd || process.cwd(),
         worktreeRoot: values["worktree-root"],
         chatsHome: values["chats-home"],
-        keepAwake: new KeepAwake({ powerSaveBlocker: createPowerBlocker() }),
+        keepAwake: new KeepAwake({ powerSaveBlocker: createPowerBlocker(), enabled: false }),
       },
     });
     console.log(JSON.stringify({ status: "ready", pid: process.pid, dataDir, socketPath: daemon.socketPath }));

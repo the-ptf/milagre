@@ -124,6 +124,7 @@ export function LinkWorkspace({
   archivingChats,
   onArchiving,
   scopeChatActions,
+  onChatOnScreen,
 }: {
   opened: OpenLink;
   state: LinkState;
@@ -164,6 +165,8 @@ export function LinkWorkspace({
   /** A Chat's archive started; its row comes back if `work` fails. */
   onArchiving?: (key: string, work: Promise<unknown>) => void;
   scopeChatActions?: ComponentProps<typeof SidebarNav>["scopeChatActions"];
+  /** The Chat on screen here, by chat key (null for a new Chat): App asks about keeping its computer awake. */
+  onChatOnScreen?: (chatKey: string | null) => void;
 }) {
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
@@ -343,6 +346,9 @@ export function LinkWorkspace({
   useEffect(() => {
     void bridge.setOpenChat(chatId).catch((error) => setError(ipcErrorMessage(error)));
   }, [chatId]);
+  useEffect(() => {
+    onChatOnScreen?.(chatId);
+  }, [chatId, onChatOnScreen]);
   useEffect(() => {
     if (initialSessionId !== undefined) {
       latest.current.selection++;

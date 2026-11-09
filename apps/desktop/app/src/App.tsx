@@ -9,6 +9,7 @@ import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
+import { KeepAwakePrompt } from "./components/KeepAwakePrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
 import { AddComputerDialog } from "./components/AddComputerDialog";
 import { AddProjectDialog } from "./components/AddProjectDialog";
@@ -145,7 +146,8 @@ import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, useHiddenComputers } from "./lib/computers";
 import { OfflineEmpty } from "./components/OfflineEmpty";
-import { settingsCommands, settingsPageCommands } from "./lib/settings-commands";
+import { keepAwakeCommands, settingsCommands, settingsPageCommands } from "./lib/settings-commands";
+import { useKeepAwakeSettings } from "./lib/keep-awake";
 import { findSetting } from "./lib/settings-find";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
@@ -274,6 +276,8 @@ function App() {
   // The latest state of every project the main process has sent this window; it's their only writer
   // (see ADR-0001). The ref leads, so callbacks read a state that arrived since the last render.
   const [selectedLink, setSelectedLink] = useState<OpenLink | null>(null);
+  // The Chat on screen in the Link workspace, which keeps its own selection (KeepAwakePrompt asks about its computer).
+  const [linkChatKey, setLinkChatKey] = useState<string | null>(null);
   // The Link shown last stays mounted behind the Project (an <Activity>), so going back to it is a style change.
   const [lastLink, setLastLink] = useState<OpenLink | null>(null);
   // Counts the requests to show a Link's Chat, so asking for the same Chat again shows it again.
@@ -913,10 +917,10 @@ function App() {
   const agentPorts = useAgentPorts();
   const isSending = preparingHere || Boolean(run);
   const usage = useUsage(accountScope);
+  const keepAwake = useKeepAwakeSettings();
   const {
     chatOrder,
     showUsageInSidebar,
-    keepAwake,
     defaultModelId,
     defaultPermissionMode,
     notifyOnCompletion,
@@ -1751,11 +1755,6 @@ function App() {
     const worktree = latest?.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1];
     if (worktree) void openInEditor(worktree.path);
   }
-
-  // The daemon keeps the Mac awake while Milagre runs, if the setting says so.
-  useEffect(() => {
-    void window.milagre.setKeepAwake(keepAwake).catch(() => {});
-  }, [keepAwake]);
 
   const unreadChatIds = useMemo(
     () =>
@@ -3501,6 +3500,7 @@ function App() {
       archivingChats={archivingChats}
       onArchiving={trackLinkArchive}
       scopeChatActions={scopeChatActions}
+      onChatOnScreen={setLinkChatKey}
     />
   );
   const linkDialogs = (
@@ -3511,6 +3511,12 @@ function App() {
       {addProjectDialog}
     </>
   );
+  // Opening a paired computer's Chat, of a Project or a Link, asks about keeping that computer awake.
+  const keepAwakePrompt = (
+    <KeepAwakePrompt
+      chatKey={selectedLink ? linkChatKey : view === "chat" && project && selectedSessionId !== null ? chatKey(project.path, selectedSessionId) : null}
+    />
+  );
   // A Link with no Project to stand behind it (none open yet) is the whole window.
   if (selectedLink && (loading || !project || !state || splash === "intro"))
     return (
@@ -3519,6 +3525,7 @@ function App() {
         {linkWorkspace}
         {linkDialogs}
         {settingsModal}
+        {keepAwakePrompt}
       </>
     );
 
@@ -3718,6 +3725,7 @@ function App() {
       },
     });
     commands.push(...settingsCommands(getSettings(), updateSettings));
+    commands.push(...keepAwakeCommands(keepAwake.settings.enabled, (enabled) => void keepAwake.save({ enabled }).catch(() => {})));
     if (selectedSession && view === "chat" && !settingsOpen) {
       const sessionId = selectedSession.id;
       commands.unshift(
@@ -4497,6 +4505,7 @@ function App() {
       {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
       {selectedLink && linkDialogs}
       {settingsModal}
+      {keepAwakePrompt}
     </>
   );
 }

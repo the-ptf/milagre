@@ -103,6 +103,7 @@ const { idleWorktrees, assertIdleWorktree } = require("./storage-worktrees.cjs")
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
 const { createDoneSettings } = require("./done-settings.cjs");
+const { createKeepAwakeSettings } = require("./keep-awake-settings.cjs");
 const { createDoneSweep } = require("./done-sweep.cjs");
 const { doneDue } = require("@milagre/shared/done");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
@@ -1354,10 +1355,17 @@ function createRuntime(options) {
     openPullRequests.set(projectPath, { at: Date.now(), read });
     return read;
   });
-  // The Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
-  // On until the renderer pushes the saved setting.
+  // With the setting on, the Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
+  // The host keeps the setting, off until someone turns it on, and applies it before any window or phone connects.
   const keepAwake = options.keepAwake ?? new KeepAwake({ powerSaveBlocker: { start: () => 0, isStarted: () => true, stop() {} }, enabled: false });
-  commands.handle("app:set-keep-awake", (_event, enabled) => keepAwake.setEnabled(enabled === true));
+  const keepAwakeSettings = createKeepAwakeSettings({ file: path.join(dataDir, "keep-awake.json"), emit });
+  keepAwake.setEnabled(keepAwakeSettings.read().enabled);
+  commands.handle("keep-awake:settings:read", () => keepAwakeSettings.read());
+  commands.handle("keep-awake:settings:save", (_event, patch) => {
+    const value = keepAwakeSettings.save(patch);
+    keepAwake.setEnabled(value.enabled);
+    return value;
+  });
 
   // Set up with the accounts below; agent events only arrive after start.
   let limitSwitch = null;

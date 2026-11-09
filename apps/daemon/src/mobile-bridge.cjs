@@ -74,6 +74,8 @@ const METHODS = new Set([
   "babysit:settings:save",
   "done:settings:read",
   "done:settings:save",
+  "keep-awake:settings:read",
+  "keep-awake:settings:save",
   "routines:enabled:read",
   "routines:enabled:save",
   "routines:list",
