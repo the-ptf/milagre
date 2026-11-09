@@ -39,7 +39,8 @@ export function KeepAwakePrompt({ chatKey }: { chatKey: string | null }) {
     void bridgeFor(computerId)
       .readKeepAwakeSettings?.()
       .then((value) => {
-        if (!live || value?.enabled === true) return undefined;
+        // Only an answer of off asks: a computer that answers anything else (an older one) can't say.
+        if (!live || value?.enabled !== false) return undefined;
         setFailure(null);
         setQuestion({ chatKey, computerId });
         return undefined;
