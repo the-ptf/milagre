@@ -4,7 +4,9 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { killTree } = require("./process-tree.cjs");
 const { milagreInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, mapClaudeMessage, missingCliMessage } = require("./events.cjs");
-const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
+const { PendingPermissions, claudeRequest, claudeResult, insideReadRoots, insideRoot, insideWorkspace } = require("./permissions.cjs");
+// Claude Code's tools that only read, and the input field naming what they read.
+const READ_TOOLS = { Read: "file_path", Glob: "path", Grep: "path", LS: "path", NotebookRead: "notebook_path" };
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { runTool } = require("../linked-tools.cjs");
 const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
@@ -92,6 +94,7 @@ class ClaudeSession {
     env,
     emit,
     workspaceRoots,
+    readRoots,
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
@@ -108,6 +111,7 @@ class ClaudeSession {
       env,
       emit,
       workspaceRoots,
+      readRoots,
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
@@ -327,6 +331,10 @@ class ClaudeSession {
   askPermission(toolName, input, options = {}) {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
+    // A shared Chat reads the Projects it has no Worktree in yet from their main checkouts, without a card each time.
+    const target = Object.hasOwn(READ_TOOLS, toolName) ? input?.[READ_TOOLS[toolName]] : undefined;
+    if (this.readRoots?.length && typeof target === "string" && insideReadRoots(this.readRoots, [target], this.cwd))
+      return Promise.resolve(claudeResult("allow", input));
     const request = claudeRequest(toolName, input, options);
     return new Promise((resolve) => {
       const abort = () => this.permissions.resolve(request.requestId, "cancelled");
@@ -340,7 +348,7 @@ class ClaudeSession {
           options.signal?.removeEventListener("abort", abort);
           resolve(claudeResult(decision, input, options.suggestions));
         },
-        { inWorkspace },
+        { inWorkspace, addedRoot: Boolean(this.addedRoots?.length && request.files?.length && insideWorkspace(this.addedRoots, request.files, this.cwd)) },
       );
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener("abort", abort, { once: true });

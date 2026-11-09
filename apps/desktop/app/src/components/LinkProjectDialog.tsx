@@ -79,7 +79,9 @@ export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedPr
           {link ? "Edit Link" : "Link projects"}
         </h2>
         <p className="mt-1 text-[13px] text-ink-2">
-          {link ? "New Chats get a Worktree in each Project. Chats already started keep theirs." : "One Chat, with a new Worktree in each Project."}
+          {link
+            ? "New Chats use these Projects. Chats already started keep theirs."
+            : "One Chat across these Projects, with a new Worktree in each one it changes."}
         </p>
         <label className="mt-5 text-[12px] font-medium text-ink-2" htmlFor="link-name">
           Link name

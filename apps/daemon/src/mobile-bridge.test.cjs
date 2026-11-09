@@ -52,6 +52,8 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
       environmentReady: Promise.resolve(),
       titleModels: {},
       worktreeRoot: path.join(root, "worktrees"),
+      // Only the Projects a test opens: never the ones under this Mac's own code folders.
+      registryRoots: [],
       agentCli: Object.assign(async () => ({ command: null, problem: "Test has no provider" }), { invalidate() {} }),
       ...runtimeOptions,
     },
@@ -149,7 +151,19 @@ test("mobile bridge forwards commands to the existing owner and reads cached sna
 });
 
 test("a phone opens a named Link and sends one shared Chat with two owned Worktrees", async (t) => {
-  const { dataDir, project, rpc, request, bridge, token } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
+  const demo = demoRuntimeOptions();
+  // The demo agent changes both Projects, so it asks for this Chat's Worktree in each first, as a real agent does.
+  const createSession = (provider, context) => {
+    const session = demo.createSession(provider, context);
+    const start = session.startTurn.bind(session);
+    session.startTurn = async (turn) => {
+      const tool = context.linked?.tools.find((item) => item.name === "link_worktree");
+      for (const main of context.readRoots ?? []) await tool.run({ project: path.basename(main) });
+      return start(turn);
+    };
+    return session;
+  };
+  const { dataDir, project, rpc, request, bridge, token } = await fixture(t, { runtimeOptions: { ...demo, createSession } });
   const second = path.join(path.dirname(project), "second");
   await fs.mkdir(second);
   execFileSync("git", ["init", "-b", "main", second], { stdio: "ignore" });
@@ -1555,6 +1569,8 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
       environmentReady: Promise.resolve(),
       titleModels: {},
       worktreeRoot: path.join(root, "worktrees"),
+      // Only the Projects a test opens: never the ones under this Mac's own code folders.
+      registryRoots: [],
       agentCli: Object.assign(async () => ({ command: null, problem: "Test has no provider" }), { invalidate() {} }),
     },
   });

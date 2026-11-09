@@ -60,3 +60,55 @@ test("a provider session is replaced when its owned root set changes", async (t)
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[1].workspaceRoots, ["/work/api", "/work/web"]);
 });
+test("a Worktree made mid-turn lets Auto edit there without a card, and the next turn starts with it", async (t) => {
+  const { PendingPermissions } = require("./permissions.cjs");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-added-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const calls = [];
+  const manager = new SessionManager({
+    createSession: (_provider, context) => {
+      const session = { ...context, startTurn() {}, close() {} };
+      calls.push(session);
+      return session;
+    },
+    send() {},
+  });
+  t.after(() => manager.closeAll());
+  const request = { chatId: "link#1", provider: "codex", cwd: "/workspace", workspaceRoots: [], workspaceInstructions: "None yet" };
+  await manager.startTurn(request);
+  assert.equal(manager.extendWorkspace("link#1", root), true);
+  assert.equal(manager.extendWorkspace("link#1", root), false, "a Worktree already known changes nothing");
+  assert.deepEqual(calls[0].workspaceRoots, [root]);
+  assert.deepEqual(calls[0].addedRoots, [root]);
+  await manager.startTurn({ ...request, workspaceRoots: [root], workspaceInstructions: "Owned" });
+  assert.equal(calls.length, 2, "the next turn's session knows the Worktree from its start");
+
+  const answers = [];
+  const permissions = new PendingPermissions(() => {});
+  permissions.setMode("auto");
+  permissions.add({ requestId: "a", kind: "edit" }, (decision) => answers.push(decision), { inWorkspace: true, addedRoot: true });
+  permissions.add({ requestId: "b", kind: "command" }, (decision) => answers.push(decision), { addedRoot: true });
+  permissions.add({ requestId: "c", kind: "edit" }, (decision) => answers.push(decision), { inWorkspace: true });
+  assert.deepEqual(answers, ["allow"]);
+  assert.equal(permissions.size, 2, "commands, and edits the agent's own rules ask about, still ask");
+});
+test("Claude reads a shared Chat's main checkouts without a card, but never edits them unasked", async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-read-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const main = path.join(root, "api");
+  await fs.mkdir(main);
+  await fs.writeFile(path.join(main, "a.txt"), "a");
+  const events = [];
+  const session = new ClaudeSession({ cwd: path.join(root, "workspace"), readRoots: [main], emit: (event) => events.push(event), command: "/claude" });
+  t.after(() => session.close());
+  session.turnActive = true;
+  assert.equal((await session.askPermission("Read", { file_path: path.join(main, "a.txt") }, { requestId: "r" })).behavior, "allow");
+  assert.equal((await session.askPermission("Grep", { pattern: "a", path: main }, { requestId: "g" })).behavior, "allow");
+  assert.equal(events.length, 0);
+  void session.askPermission("Write", { file_path: path.join(main, "a.txt"), content: "b" }, { requestId: "w" });
+  void session.askPermission("Read", { file_path: path.join(root, "other.txt") }, { requestId: "o" });
+  assert.deepEqual(
+    events.filter((event) => event.type === "permission-request").map((event) => event.requestId),
+    ["w", "o"],
+  );
+});

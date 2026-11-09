@@ -190,6 +190,26 @@ function insideRoot(root, files) {
 }
 
 // Resolve existing ancestors as well as new files, so an alias cannot escape an owned root.
+// Whether every path is one of `roots` or inside one: a read-only tool's target (Read, Glob, Grep).
+function insideReadRoots(roots, files, cwd) {
+  const { realpathSync } = require("node:fs");
+  try {
+    const canonical = roots.map((root) => realpathSync(root));
+    return (
+      files.length > 0 &&
+      files.every((file) => {
+        const resolved = realpathSync(path.resolve(cwd, file));
+        return canonical.some((root) => {
+          const relative = path.relative(root, resolved);
+          return relative === "" || (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative));
+        });
+      })
+    );
+  } catch {
+    return false;
+  }
+}
+
 function insideWorkspace(roots, files, cwd = roots[0]) {
   const { realpathSync } = require("node:fs");
   const resolve = (value) => {
@@ -236,8 +256,10 @@ class PendingPermissions {
     return this.answers.size;
   }
 
-  add(request, answer, { inWorkspace = false } = {}) {
-    if (this.mode === "full") {
+  // `addedRoot`: an edit in a shared Chat's Worktree made mid-turn (link_worktree), which the agent's own rules don't
+  // know as its folder until its next turn. Auto lets it through as it would in the Chat's other Worktrees.
+  add(request, answer, { inWorkspace = false, addedRoot = false } = {}) {
+    if (this.mode === "full" || (this.mode === "auto" && request.kind === "edit" && addedRoot)) {
       answer("allow");
       return;
     }
@@ -282,6 +304,7 @@ module.exports = {
   PendingPermissions,
   capText,
   claudeEditDiff,
+  insideReadRoots,
   insideRoot,
   insideWorkspace,
   claudeRequest,

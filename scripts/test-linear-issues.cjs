@@ -1,4 +1,5 @@
-// Real Electron checks for Linear issues on the Mac: the new-chat "Linear issue" picker, and the issue chip on a sidebar row.
+// Real Electron checks for Linear issues on the Mac: the new-chat "Linear issue" picker (in a Project and in a named Link),
+// and the issue chip on a sidebar row.
 // MILAGRE_SCREENSHOT_DIR saves images outside the repo.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -18,6 +19,8 @@ const issues = [
   { key: 'ENG-2', title: 'Dark mode tokens', url: 'https://linear.app/acme/issue/ENG-2', branchName: 'eng-2-dark-mode-tokens', description: 'Share the palette.', state: { name: 'Backlog', type: 'backlog', color: '#8e8e93' } },
 ];
 const linearOn = new URLSearchParams(location.search).get('linear') === 'on';
+// ?link=on: a named Link's new Chat, whose Worktrees Milagre makes, one per Project.
+const linkOn = new URLSearchParams(location.search).get('link') === 'on';
 window.__queries = [];
 window.__fresh = [];
 window.__workspaces = [];
@@ -52,7 +55,8 @@ function Fixture() {
   return (
     <div style={{ padding: 40, width: 760 }}>
       <NewChatHeader
-        worktrees={worktrees}
+        link={linkOn}
+        worktrees={linkOn ? [] : worktrees}
         branches={['main']}
         isolation={isolation}
         onIsolationChange={setIsolation}
@@ -168,6 +172,24 @@ async function checks(url) {
     await click("Linear issue");
     await waitFor(`document.querySelector('[data-linear-workspace-tab="beta"]')?.getAttribute('aria-selected') === 'true'`);
     assert.equal(await evaluate(`window.__workspaces.at(-1)`), "beta", "the picker reopens on the last workspace");
+    await evaluate(`localStorage.removeItem('milagre.linear.workspace')`);
+
+    // (b3) A named Link's new Chat has no isolation or branch to choose, but starts from an issue like a Project's.
+    await window.loadURL(url + "?linear=on&link=on");
+    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Linear issue')`);
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll('[data-new-chat-pickers] button')].map(b => b.textContent.trim()).join('|')`),
+      "Linear issue",
+      "a Link's new Chat shows only the issue chip",
+    );
+    await screenshot("linear-issue-link");
+    await click("Linear issue");
+    await waitFor(`document.querySelectorAll('[data-linear-issue-row]').length === 2`);
+    await evaluate(`document.querySelector('[data-linear-issue-row] button').click()`);
+    await waitFor(`window.__started?.key === 'ENG-1'`);
+    await window.loadURL(url + "?linear=off&link=on");
+    await waitFor(`document.body.textContent.includes('New chat')`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-new-chat-pickers]')`), false, "no chip row in a Link while Linear is off");
     await evaluate(`localStorage.removeItem('milagre.linear.workspace')`);
     await window.loadURL(url + "?linear=on");
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);

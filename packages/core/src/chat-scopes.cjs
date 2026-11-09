@@ -1,4 +1,19 @@
 const { scopeFromKey, scopeKey, isLinkScopeKey } = require("@milagre/shared/chat-scopes");
+// What a shared Chat's agent is told about its Projects: the Worktrees it already has, and the Projects it has only read.
+function linkInstructions(worktrees, pending) {
+  return [
+    "This is one shared Chat in a named Project Link. Its Worktrees are made only in the Projects it changes.",
+    worktrees.length
+      ? `These Worktrees belong to this Chat and may be edited directly under its permission mode:\n${worktrees.map((member) => `${member.alias}: ${member.worktreePath}`).join("\n")}`
+      : "",
+    pending.length
+      ? `These Projects have no Worktree in this Chat yet. Read them in their main checkout, which you must never edit:\n${pending.map((project) => `${project.projectName ?? project.alias}: ${project.projectPath}`).join("\n")}\nBefore you change any file in one of them, call Milagre's link_worktree tool with its Project name. It makes this Chat's Worktree there and returns its path; make every change in that path. Don't call it for a Project you only read.`
+      : "",
+    "Read each member's AGENTS.md and provider instructions before editing it. Run Git commands in the chosen member Worktree. The workspace directory is not a repository. Main checkouts are outside the owned set. External canvas-linked Worktrees still follow the read-only and Delegation rules above.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 function createChatScopes({ projects, links, validateLink }) {
   const target = (key) => {
     const scope = scopeFromKey(key);
@@ -89,10 +104,16 @@ function createChatScopes({ projects, links, validateLink }) {
           throw new Error(`Project ${member.projectName || member.alias}: its shared Worktree is unavailable.`);
         }
       }
+      // A Chat from before Worktrees were made on demand has one in every Project, and no project list.
+      const projects = session.projects ?? session.worktrees;
+      const made = new Set(session.worktrees.map((member) => member.projectId));
+      const pending = projects.filter((project) => !made.has(project.projectId));
       return {
         cwd: session.workspacePath,
         workspaceRoots: session.worktrees.map((member) => member.worktreePath),
-        workspaceInstructions: `This is one shared Chat in a named Project Link. The following Worktrees belong to this Chat and may be edited directly under its permission mode:\n${session.worktrees.map((member) => `${member.alias}: ${member.worktreePath}`).join("\n")}\nRead each member's AGENTS.md and provider instructions before editing it. Run Git commands in the chosen member Worktree. The workspace directory is not a repository. Main checkouts are outside the owned set. External canvas-linked Worktrees still follow the read-only and Delegation rules above.`,
+        // Projects without a Worktree yet are read from their main checkout, which the agent reads without asking.
+        readRoots: pending.map((project) => project.projectPath),
+        workspaceInstructions: linkInstructions(session.worktrees, pending),
       };
     },
   };

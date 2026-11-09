@@ -89,7 +89,9 @@ export default function LinkProjects() {
         </Pressable>
       </View>
       <Text style={styles.muted}>
-        {linkId ? "New Chats get a Worktree in each Project. Chats already started keep theirs." : "One Chat, with a new Worktree in each Project."}
+        {linkId
+          ? "New Chats use these Projects. Chats already started keep theirs."
+          : "One Chat across these Projects, with a new Worktree in each one it changes."}
       </Text>
       <Field label="Link name" value={name} onChangeText={setName} placeholder="e.g. RDFood" autoFocus editable={!busy} returnKeyType="next" />
       <Field

@@ -66,6 +66,9 @@ export function LinkChangesPanel({
     <aside data-changes-panel aria-label="Changes" className="flex min-h-0 w-[320px] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card">
       <ChangesHeader mode={mode} onModeChange={onModeChange} onRefresh={onRefresh} loading={loading} totals={totals} />
       <ScrollArea className="flex-1 py-1.5">
+        {!members.length && (
+          <p className="px-4 py-8 text-center text-[13px] text-ink-3">No Worktrees yet. The agent makes one in a Project when it changes it.</p>
+        )}
         {members.map((member) => (
           <ProjectChanges
             key={member.projectId}

@@ -477,15 +477,33 @@ function createRuntime(options) {
     if ((await recentProjects().list()).some((item) => item.path === folder)) return;
     throw new Error("Open this project in Milagre first.");
   }
+  // Where a Chat's skills come from. A named Link (a new shared Chat) reads its member Projects; a shared Chat's own
+  // folder reads the member Worktrees it owns, since its .claude/skills are theirs, not the Link folder's.
+  async function skillRoots(folder) {
+    if (isLinkScopeKey(folder)) {
+      const scope = scopeFromKey(folder);
+      const link = await linkRuntime.definition(scope.linkId);
+      const projects = await projectRegistry().list();
+      return link.projectIds.flatMap((id) => projects.find((project) => project.id === id)?.path ?? []);
+    }
+    await knownFolder(folder);
+    return folderSkillRoots(folder);
+  }
+  // A shared Chat's folder: its Worktree in each Project it changed, and the main checkout of each Project it only read.
+  async function folderSkillRoots(folder) {
+    if (!scopeStates.workspacePaths().includes(folder)) return folder;
+    const session = await linkRuntime.workspaceSession(folder);
+    return (session.projects ?? session.worktrees).map(
+      (project) => session.worktrees.find((member) => member.projectId === project.projectId)?.worktreePath ?? project.projectPath,
+    );
+  }
   // A null Project lists the user's skills only.
-  commands.handle("skills:list", async (_event, projectPath) => {
-    if (projectPath !== null) await knownFolder(projectPath);
-    return discoverSkills(projectPath, { designsEnabled: artifacts.enabled() });
-  });
-  commands.handle("skills:read", async (_event, projectPath, file) => {
-    if (projectPath !== null) await knownFolder(projectPath);
-    return readDiscoveredSkill(projectPath, file, { designsEnabled: artifacts.enabled() });
-  });
+  commands.handle("skills:list", async (_event, projectPath) =>
+    discoverSkills(projectPath === null ? null : await skillRoots(projectPath), { designsEnabled: artifacts.enabled() }),
+  );
+  commands.handle("skills:read", async (_event, projectPath, file) =>
+    readDiscoveredSkill(projectPath === null ? null : await skillRoots(projectPath), file, { designsEnabled: artifacts.enabled() }),
+  );
   commands.handle("project:branches", async (_event, projectPath) => {
     await knownFolder(projectPath);
     return listBranches(projectPath);
@@ -758,10 +776,7 @@ function createRuntime(options) {
       },
       { chats: [] },
     );
-    // The issue moves to In Progress once its Worktree exists, unless that's switched off or the sign-in can only read.
-    // Best effort and in the background: the Chat never waits on Linear.
-    if (issue && linear.moveToStarted() && linear.workspaces().find((item) => item.id === issue.workspace)?.canWrite)
-      void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
+    if (issue) markIssueStarted(issue);
     // A branch named after an issue keeps that name; only a chat named from its prompt gets the Haiku name.
     if (!issue) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? ""), background).catch(() => {});
     return { project: { ...project, state }, worktreeId: listed.id, ...(resolved.note ? { setupNote: resolved.note } : {}) };
@@ -927,7 +942,9 @@ function createRuntime(options) {
     const images = decodeImages(request.images);
     // expandSkills: false (the review demo) sends `/skill` as typed: the skills on this Mac are the owner's own.
     const prompt =
-      options.expandSkills === false ? request.prompt : await expandSkillPrompt(request.cwd, request.prompt, { designsEnabled: artifacts.enabled() });
+      options.expandSkills === false
+        ? request.prompt
+        : await expandSkillPrompt(await folderSkillRoots(request.cwd).catch(() => request.cwd), request.prompt, { designsEnabled: artifacts.enabled() });
     const cli = agents.activeAccount(request.chatId, request.provider) ?? (await agentCli(request.provider, projectOfKey(request.chatId)));
     // A CLI that is missing, too old or doesn't start fails the turn like any other failure, with its own message.
     if (cli.problem) {
@@ -1132,7 +1149,7 @@ function createRuntime(options) {
       : compact
         ? { ...rest, ...compactionMessage() }
         : linearIssue !== undefined
-          ? await linearIssueMessage(rest, linearIssue)
+          ? (await linearIssueMessage(rest, linearIssue)).message
           : { ...rest, context: undefined };
     return chats.send(message).then(({ sessionId }) => ({ sessionId }));
   });
@@ -1145,14 +1162,23 @@ function createRuntime(options) {
       console.warn(`Milagre couldn't read ${ask.key} for its card:`, error.message);
       return null;
     });
-    if (!issue) return { ...rest, context: undefined };
+    if (!issue) return { message: { ...rest, context: undefined }, issue: null };
     const files = Array.isArray(rest.files) ? rest.files : [];
     return {
-      ...rest,
-      body: issueFirstMessage(issue, ask.note),
-      prompt: linearIssuePrompt(issue, ask.note) + (files.length ? `\n\nAttached files:\n${files.join("\n")}` : ""),
-      context: linearIssueContext(issue, ask.note),
+      message: {
+        ...rest,
+        body: issueFirstMessage(issue, ask.note),
+        prompt: linearIssuePrompt(issue, ask.note) + (files.length ? `\n\nAttached files:\n${files.join("\n")}` : ""),
+        context: linearIssueContext(issue, ask.note),
+      },
+      issue,
     };
+  }
+  // The issue moves to In Progress once its Worktree exists, unless that's switched off or the sign-in can only read.
+  // Best effort and in the background: the Chat never waits on Linear.
+  function markIssueStarted(issue) {
+    if (linear.moveToStarted() && linear.workspaces().find((item) => item.id === issue.workspace)?.canWrite)
+      void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
   }
   commands.handle("chat:resume", (_event, projectPath, sessionId) => {
     if (!scopeStates.has(projectPath)) throw new Error("Open the project before continuing its chats.");
@@ -1347,6 +1373,11 @@ function createRuntime(options) {
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
+      // A shared Chat makes its Worktree in a Project only once it changes it.
+      ...require("./link-worktree-tool.cjs").linkWorktreeToolDefinitions(chatId, {
+        prepare: (linkId, sessionId, project) => linkRuntime.prepareMember(linkId, sessionId, project),
+        extend: (id, root) => agents.extendWorkspace(id, root),
+      }),
     ],
     createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),
   });
@@ -1363,7 +1394,8 @@ function createRuntime(options) {
     if (session.archived) throw new Error("This Chat is archived.");
     const execution = await scopeStates.executionContext(scope, id);
     if (!execution.cwd) throw new Error("This Chat's Worktree is unavailable.");
-    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? [])])];
+    // Advisors only read: a shared Chat's advisor also reads the main checkouts of the Projects it has no Worktree in.
+    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? []), ...(execution.readRoots ?? [])])];
     const identities = await Promise.all(
       roots.map(async (root) => {
         const real = await fs.realpath(root);
@@ -1450,6 +1482,7 @@ function createRuntime(options) {
       const sessionOptions = {
         cwd: context.cwd,
         workspaceRoots: context.workspaceRoots,
+        ...(context.readRoots?.length ? { readRoots: context.readRoots } : {}),
         workspaceInstructions: context.workspaceInstructions,
         designsEnabled: artifacts.enabled(),
         analysisOnly: true,
@@ -1492,6 +1525,7 @@ function createRuntime(options) {
     chats,
     broadcast: broadcastProjectState,
     titles: chatTitles,
+    issues: { message: linearIssueMessage, started: markIssueStarted },
   });
   commands.handle("linked:snapshot", () => linked.snapshot());
   commands.handle("linked:stop-negotiation", (_event, id) => (typeof id === "string" ? linked.stop({ negotiationId: id }) : undefined));

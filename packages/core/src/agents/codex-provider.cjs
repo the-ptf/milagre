@@ -540,6 +540,7 @@ class CodexSession {
           !params.grantRoot &&
           request.files.length > 0 &&
           (this.workspaceRoots ? insideWorkspace([this.cwd, ...this.workspaceRoots], request.files, this.cwd) : insideRoot(this.cwd, request.files)),
+        addedRoot: Boolean(this.addedRoots?.length && request.files.length && insideWorkspace(this.addedRoots, request.files, this.cwd)),
       });
     } else if (method === "item/tool/requestUserInput" && this.analysisOnly) this.reply(id, codexQuestionResponse("dismissed"));
     else if (method === "item/tool/requestUserInput") this.askQuestion(id, params);

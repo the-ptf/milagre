@@ -636,7 +636,8 @@ export default function ChatScreen() {
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = sent === draft || issueKey !== undefined;
-    const creates = newWorktree || issueKey !== undefined;
+    // A shared Chat's Worktrees are made by link:send, one per Project; an issue names their branches there.
+    const creates = !project.link && (newWorktree || issueKey !== undefined);
     const key = `${client.url}|${chatId}`;
     const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
     const preview = createPendingChat({
@@ -706,6 +707,8 @@ export default function ChatScreen() {
               ...media,
               prompt: attachmentPrompt(sent, media.files),
               ...options,
+              // A Mac that predates issue cards in shared Chats ignores linearIssue and sends the body as a plain message.
+              ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
             },
           ])
         : await client.call<{ sessionId: number }>("chat:send", [
@@ -876,6 +879,25 @@ export default function ChatScreen() {
   }
   // A Chat's own Worktree (not the main checkout, not one another Chat shares) can link an issue; a stored one is shown
   // with its hint when Linear can't see it. Nothing about the link shows while Linear is off.
+  const issueButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Start from a Linear issue"
+      disabled={targetDisabled}
+      onPress={() => void chooseIssue()}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
+      })}
+    >
+      <LinearLogo size={13} />
+      <Text style={styles.label}>Linear issue</Text>
+    </Pressable>
+  );
   const canLink = linearActive && !!chat && !project.link && !!worktree?.path && worktree.path !== project.path && !worktreeShared(project.state, chat.id);
   const storedIssue = linearActive ? worktree?.linearIssue : undefined;
   const linkHint = storedIssue && !(worktree?.name ?? "").toLowerCase().includes(storedIssue.toLowerCase()) ? LINK_PR_HINT(storedIssue) : null;
@@ -1084,7 +1106,7 @@ export default function ChatScreen() {
                 <Text style={styles.subtitle}>What are we working on?</Text>
                 <Text style={[styles.muted, { textAlign: "center" }]}>
                   {project.link
-                    ? "One Chat, with a new Worktree in each linked Project on your computer."
+                    ? "One Chat across the linked Projects on your computer, with a new Worktree in each one it changes."
                     : newWorktree
                       ? `Your agent starts in a new worktree from ${base || "the selected branch"} on your computer.`
                       : `Your agent runs in ${worktree?.name || "this Worktree"} on your computer.`}
@@ -1385,27 +1407,11 @@ export default function ChatScreen() {
                           <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                         </View>
                       </PullDown>
-                      {linearActive && (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="Start from a Linear issue"
-                          disabled={targetDisabled}
-                          onPress={() => void chooseIssue()}
-                          style={({ pressed }) => ({
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
-                          })}
-                        >
-                          <LinearLogo size={13} />
-                          <Text style={styles.label}>Linear issue</Text>
-                        </Pressable>
-                      )}
+                      {linearActive && issueButton}
                     </View>
                   )}
+                  {/* A shared Chat gets one new Worktree per Project, so it has no isolation or branch to choose. */}
+                  {!params.id && project.link && linearActive && <View style={{ flexDirection: "row", alignItems: "center" }}>{issueButton}</View>}
                   {!!attachments.length && (
                     <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
                       {attachments.map((item) => (
@@ -1462,7 +1468,8 @@ export default function ChatScreen() {
                   <PromptField
                     key={chatId}
                     client={client}
-                    projectPath={worktree?.path || (project.link ? "" : project.path)}
+                    // A new shared Chat reads its Projects' skills through the Link's key; an open one, its own Worktrees'.
+                    projectPath={worktree?.path || project.path}
                     draft={draft}
                     onImagePaste={(image) => void pasteImage(image)}
                     onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}

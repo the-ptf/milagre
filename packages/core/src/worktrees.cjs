@@ -89,12 +89,11 @@ function validBranchName(branch) {
 
 // The branch a worktree started from a Linear issue gets: the issue's own branch name, or its key and title when git
 // refuses that, plus the suffix when the name is already a branch. The caller gives the same suffix to the folder.
-async function issueBranch({ projectPath, issue, suffix }) {
+async function issueBranch({ projectPath, issue, suffix, git = client }) {
   let branch = issue.branchName;
   if (!validBranchName(branch)) branch = [issue.key.toLowerCase(), slugify(issue.title)].filter(Boolean).join("-");
   // A teammate's remote-tracking branch counts as taken too: a local copy of it would shadow their work.
-  const taken =
-    (await client.read.refExists(projectPath, `refs/heads/${branch}`)) || (await client.read.refExists(projectPath, `refs/remotes/origin/${branch}`));
+  const taken = (await git.read.refExists(projectPath, `refs/heads/${branch}`)) || (await git.read.refExists(projectPath, `refs/remotes/origin/${branch}`));
   if (taken) branch = `${branch}-${suffix}`;
   return branch;
 }

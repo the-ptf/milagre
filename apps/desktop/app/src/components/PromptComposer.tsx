@@ -50,6 +50,8 @@ interface PromptComposerProps {
   offlineName?: string | null;
   imageDraft: ImageDraft;
   projectPath: string;
+  /** Where skills are read, when not `projectPath` (a Link's key, or a shared Chat's own folder). */
+  skillScope?: string;
   draft: string;
   onDraftChange: (draft: string) => void;
   onSend: () => void;
@@ -112,6 +114,7 @@ export function PromptComposer({
   offlineName,
   imageDraft,
   projectPath,
+  skillScope,
   draft,
   onDraftChange,
   onSend,
@@ -188,7 +191,7 @@ export function PromptComposer({
   const menu: "at" | "slash" | null = plusOpen ? "at" : (token?.kind ?? null);
   const tokenQuery = plusOpen ? "" : (token?.query ?? "");
   const fileSearch = useProjectFiles(projectPath, tokenQuery, menu === "at" && !plusOpen);
-  const { skills, warnings: skillWarnings, loading: skillsLoading } = useSkills(projectPath, menu === "slash" || /(^|\s)\//.test(draft));
+  const { skills, warnings: skillWarnings, loading: skillsLoading } = useSkills(skillScope ?? projectPath, menu === "slash" || /(^|\s)\//.test(draft));
   const skillRows = ["bundled", "workspace", "user"].flatMap((scope) =>
     skills
       .filter((skill) => skill.scope === scope)

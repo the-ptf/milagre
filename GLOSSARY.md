@@ -32,7 +32,7 @@ An issue in the Linear workspace connected on a **Computer**, named by its key (
 _Avoid_: ticket, task (Linear's own word is issue)
 
 **Chat**:
-One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project**. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
+One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project** it changed. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
 An archived **Chat** stays readable from a linked side but is never chosen to receive a **Delegation**.
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 
@@ -47,7 +47,7 @@ _Avoid_: console, shell (the program running inside a **Terminal**)
 ### Linking
 
 **Named Link**:
-A named, selectable set of two or more **Projects** in the desktop sidebar. Its shared **Chats** each create their own set of isolated **Worktrees**, one per member Project, and have one canonical conversation. The agent can edit all Worktrees owned by that Chat. Editing a Link's members changes only Chats started afterwards. Named Links do not create or replace canvas Links. See ADR-0005.
+A named, selectable set of two or more **Projects** in the desktop sidebar. Its shared **Chats** have one canonical conversation and read every member Project; each makes its own isolated **Worktree** in a member Project only when its agent changes that Project. The agent can edit all Worktrees owned by that Chat. Editing a Link's members changes only Chats started afterwards. Named Links do not create or replace canvas Links. See ADR-0005.
 
 **Link**:
 A symmetric, persistent relationship the user draws on the canvas between two **Link** endpoints, each a **Project** or a **Worktree**. Every **Chat** on either side sees the other side's state and can make a **Delegation** to it. A **Link** reaches one hop only: X–Y and Y–Z do not let X see or delegate to Z. It has no type and lasts until the user removes it or a **Worktree** endpoint stops being active. A **Project** endpoint stands for all of that project's active **Worktrees**, including ones created after the **Link**.
@@ -76,7 +76,7 @@ _Avoid_: client (any connection to the daemon, this Mac's own window included)
 
 ## Relationships
 
-- A **Project** has one or more **Worktrees**; an ordinary **Worktree** has one or more **Chats**. A named Link's shared **Chat** owns one **Worktree** per member **Project**.
+- A **Project** has one or more **Worktrees**; an ordinary **Worktree** has one or more **Chats**. A named Link's shared **Chat** owns at most one **Worktree** per member **Project**, made when it first changes that Project.
 - A **Chat** has zero or more **Terminals**; each **Terminal** belongs to exactly one **Chat**.
 - A **Link** joins exactly two endpoints; each endpoint is a **Project** or a **Worktree**.
 - A **Delegation** travels along exactly one **Link**, from one **Chat** to one **Chat**.

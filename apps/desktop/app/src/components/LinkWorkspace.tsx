@@ -46,6 +46,9 @@ import { TerminalPanel } from "./terminal/TerminalPanel";
 import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { busyTerminals, newTerminal, useTerminalSync, type TerminalPlace } from "../lib/terminal-actions";
+import { useLinear } from "./useLinear";
+import { issueFirstMessage, type LinearIssue } from "@milagre/shared/linear";
+import { linearIssueRequest } from "@milagre/shared/linear-issue";
 const CanvasView = lazyView(() => import("./CanvasView").then((module) => module.CanvasView));
 const CANVAS_STATES = {};
 
@@ -141,6 +144,7 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
+  const linear = useLinear();
   const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, isRemoteKey(owner));
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -296,7 +300,8 @@ export function LinkWorkspace({
       })
       .catch(() => {});
   }, [owner, chatId, state.sessions]);
-  async function send(body = draftStore.get().trim(), preserve = false) {
+  // An issue's Chat starts at once: its first message is the issue, then whatever the user typed (see App's startFromIssue).
+  async function send(body = draftStore.get().trim(), preserve = false, issue?: LinearIssue) {
     if (preparing || imageDraft.loading || (!body && !imageDraft.images.length && !imageDraft.files.length)) return;
     // A file attached from this Mac is a path the other Mac can't read; pasted images travel as data and still go.
     if (isRemoteKey(owner) && imageDraft.files.length) {
@@ -327,12 +332,14 @@ export function LinkWorkspace({
         fastMode: composerPrefs.fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
+        // A Mac that predates issue cards in shared Chats ignores linearIssue and sends the body as a plain message.
+        ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draftStore.get().trim() })! } : {}),
       });
       drafts.acknowledgeSend(operation, sent.sessionId);
       if (pendingOperation.current === operation) pendingOperation.current = null;
       if (latest.current.active && latest.current.selection === selection) {
         setSessionId(sent.sessionId);
-        if (!preserve && draftStore.get().trim() === body) {
+        if (!preserve && (issue || draftStore.get().trim() === body)) {
           draftStore.set("");
           imageDraft.clear();
         }
@@ -521,6 +528,11 @@ export function LinkWorkspace({
                         onFastModeChange={composerPrefs.setFastMode}
                         permissionMode={composerPrefs.permissionMode}
                         scopeKind="link"
+                        // A new Chat reads its Projects' skills; an open one, the Worktrees it owns. Another Mac's
+                        // shared Chat folder isn't a path this Mac's bridge can route, so its Link key stands in.
+                        skillScope={isRemoteKey(owner) ? owner : (session?.workspacePath ?? owner)}
+                        linearActive={linear.active}
+                        onStartFromIssue={(issue) => void send(issueFirstMessage(issue, draftStore.get().trim()), false, issue)}
                         onOpenAccounts={onOpenAccounts}
                         store={draftStore}
                         projectPath={root}

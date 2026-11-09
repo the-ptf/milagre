@@ -74,8 +74,12 @@ async function main() {
       turnActive: false,
       async startTurn() {
         providerCalls++;
-        assert.equal(context.workspaceRoots.length, 2);
-        for (const member of context.workspaceRoots) await fs.writeFile(path.join(member, "status.txt"), "Shared edit\n");
+        // As the real agent does: a Project it changes gets this Chat's Worktree from link_worktree first.
+        const made = [...context.workspaceRoots];
+        const tool = context.linked.tools.find((item) => item.name === "link_worktree");
+        for (const main of context.readRoots ?? []) made.push((await tool.run({ project: path.basename(main) })).split("\n")[0].split(": ").pop());
+        assert.equal(made.length, 2);
+        for (const member of made) await fs.writeFile(path.join(member, "status.txt"), "Shared edit\n");
         context.emit({ type: "session-started", nativeId: "shared-session" });
         context.emit({ type: "turn-started", turnId: "turn" });
         context.emit({ type: "text-delta", messageId: `reply-${providerCalls}`, text: "Updated status.txt in both owned Worktrees." });
@@ -491,7 +495,11 @@ async function main() {
     await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
-      async () => Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) => prep.status === "setup"),
+      // The Worktree's setup runs once the agent asks for it (link_worktree), inside the Chat's turn.
+      async () =>
+        Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) =>
+          prep.members.some((member) => member.setupStarted && !member.setupDone),
+        ),
       "slow preparation started",
     );
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
@@ -502,7 +510,7 @@ async function main() {
     assert.equal(
       await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
       "Slow new shared Chat",
-      "A late send must not select its Chat or clear the new draft",
+      "A turn that finishes late must not select its Chat or clear the new draft",
     );
     await evaluate(`[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes('Update status.txt')).click()`);
     await fs.unlink(setupGate);
@@ -510,7 +518,11 @@ async function main() {
     await input('textarea[aria-label="Prompt"]', "Send then switch scope");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
-      async () => Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) => prep.status === "setup"),
+      // The Worktree's setup runs once the agent asks for it (link_worktree), inside the Chat's turn.
+      async () =>
+        Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) =>
+          prep.members.some((member) => member.setupStarted && !member.setupDone),
+        ),
       "scope-switch preparation",
     );
     await selector();

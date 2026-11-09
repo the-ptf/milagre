@@ -104,6 +104,7 @@ class SessionManager {
     entry.session = this.createSession(provider, {
       cwd,
       workspaceRoots: request.workspaceRoots,
+      ...(request.readRoots?.length ? { readRoots: request.readRoots } : {}),
       workspaceInstructions: request.workspaceInstructions,
       resumeId,
       tldrEnabled,
@@ -215,6 +216,16 @@ class SessionManager {
     const entry = this.sessions.get(chatId);
     if (!entry || (provider && entry.provider !== provider) || entry.session.closed || (!entry.session.turnActive && !entry.activeChildren?.size)) return null;
     return { accountId: entry.accountId, command: entry.command, env: entry.env, harness: entry.harness, args: entry.args };
+  }
+
+  // A shared Chat's agent made a Worktree mid-turn (link_worktree): its edits there count as the Chat's own from now
+  // on. The session keeps its other settings; its next turn starts again with the new Worktree in its instructions.
+  extendWorkspace(chatId, root) {
+    const session = this.sessions.get(chatId)?.session;
+    if (!session || session.workspaceRoots?.includes(root)) return false;
+    session.workspaceRoots = [...(session.workspaceRoots ?? []), root];
+    session.addedRoots = [...(session.addedRoots ?? []), root];
+    return true;
   }
 
   isTurnActive(chatId) {

@@ -1637,7 +1637,8 @@ test("a mobile Link draft sends through its canonical owner and retries the same
   });
   chat.params.worktreeId = "0";
   chat.session.drafts = { [`${owner}#new:0`]: "Update both Projects" };
-  assert.equal(chat.field().projectPath, "", "A new shared draft never selects a primary Project for skills");
+  // The Link's key reads every member Project's skills, never one primary Project's.
+  assert.equal(chat.field().projectPath, owner, "A new shared draft reads its skills through the Link");
   await chat.send();
   await settle();
   assert.equal(chat.field().value, "Update both Projects", "Failure restores the draft");
@@ -7427,6 +7428,46 @@ test("picking a Linear issue starts a Chat in its own worktree with the issue as
   // The Mac reads the issue again and writes the card; the typed text rides along as its note.
   assert.equal(JSON.stringify(sent.linearIssue), JSON.stringify({ key: "ENG-12", note: "first message" }));
   assert.equal(screen.params.id, "7");
+});
+
+test("a new shared Chat starts from a Linear issue through link:send, without a worktree of its own", async () => {
+  const { issueFirstMessage } = require("@milagre/shared/linear");
+  const screen = chatHost({
+    effects: true,
+    linear: { active: true },
+    call: async (method) => {
+      if (method === "linear:issues") return { issues: [linearIssue] };
+      return { sessionId: 42 };
+    },
+  });
+  const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
+  screen.session.snapshot = require("../apps/mobile/src/chat-scope.ts").phoneSnapshot({
+    link: {
+      link: { id, name: "Food", projectIds: ["api", "web"] },
+      projects: [
+        { id: "api", path: "/api", name: "API" },
+        { id: "web", path: "/web", name: "Web" },
+      ],
+      state: { next_id: 1, sessions: {}, messages: [], preparations: {} },
+    },
+    runs: { runs: {} },
+  });
+  screen.params.worktreeId = "0";
+  screen.session.drafts = { [`milagre-link:${id}#new:0`]: "check both" };
+  const tree = screen.render();
+  assert.ok(!find(tree, (node) => node.props?.label === "Choose isolation"), "a shared Chat has no isolation to choose");
+  find(tree, (node) => node.props?.accessibilityLabel === "Start from a Linear issue").props.onPress();
+  await settle();
+  screen.choices.at(-1).onSelect("ENG-12");
+  await settle();
+  const sent = screen.calls.find((call) => call.method === "link:send").args[0];
+  assert.equal(sent.linkId, id);
+  assert.equal(sent.body, issueFirstMessage(linearIssue, "check both"));
+  assert.equal(JSON.stringify(sent.linearIssue), JSON.stringify({ key: "ENG-12", note: "check both" }));
+  assert.equal(
+    screen.calls.some((call) => ["worktree:create", "chat:send"].includes(call.method)),
+    false,
+  );
 });
 
 test("with two Linear workspaces the issue sheet has a tab each, and the picked issue's workspace creates the Chat", async () => {

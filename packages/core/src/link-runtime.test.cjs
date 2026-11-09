@@ -57,8 +57,17 @@ async function fixture(t) {
   const projects = await runtime.invoke("project:registry");
   return { dir, runtime, make, projects, events, created };
 }
+// The agent's link_worktree tool, as a shared Chat's agent calls it before changing a Project.
+async function makeWorktrees({ runtime, created }, link, sessionId, names) {
+  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sessionId];
+  for (let n = 0; n < 200 && !created.some((context) => context.cwd === session.workspacePath); n++) await new Promise((resolve) => setTimeout(resolve, 20));
+  const tool = created.find((context) => context.cwd === session.workspacePath).linked.tools.find((item) => item.name === "link_worktree");
+  for (const name of names) await tool.run({ project: name });
+  return (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sessionId];
+}
 test("shared Chat keeps one canonical transcript and exact Worktrees across retries and restart", async (t) => {
-  const { runtime, make, projects, events, created } = await fixture(t);
+  const f = await fixture(t);
+  const { runtime, make, projects, events, created } = f;
   assert.ok(runtime.methods.includes("link:create"));
   const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((p) => p.id) }]);
   const opened = await runtime.invoke("link:open", [link.id]);
@@ -67,9 +76,13 @@ test("shared Chat keeps one canonical transcript and exact Worktrees across retr
   const sent = await runtime.invoke("link:send", [request]);
   await runtime.flush();
   const state = (await runtime.invoke("link:snapshot", [link.id])).state;
-  const session = state.sessions[sent.sessionId];
+  assert.deepEqual(state.sessions[sent.sessionId].worktrees, [], "no Worktree before the agent changes a Project");
+  assert.equal(state.sessions[sent.sessionId].projects.length, 2);
+  assert.equal(created[0].workspaceRoots.length, 0);
+  assert.equal(created[0].readRoots.length, 2, "the agent reads both main checkouts");
+  assert.match(created[0].workspaceInstructions, /link_worktree/);
+  const session = await makeWorktrees(f, link, sent.sessionId, ["api", "web"]);
   assert.equal(session.worktrees.length, 2);
-  assert.equal(created[0].workspaceRoots.length, 2);
   assert.equal(created[0].cwd, session.workspacePath);
   assert.equal(state.messages.filter((m) => m.body === "Changed both").length, 1);
   assert.deepEqual(await runtime.invoke("link:send", [request]), sent);
@@ -106,13 +119,14 @@ test("missing Project leaves shared history readable but blocks sends", async (t
 });
 
 test("Git accepts a selected member and refuses the aggregate workspace; editor roots are explicitly validated", async (t) => {
-  const { runtime, projects } = await fixture(t);
+  const f = await fixture(t);
+  const { runtime, projects } = f;
   const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((p) => p.id) }]);
   await runtime.invoke("link:open", [link.id]);
   const sent = await runtime.invoke("link:send", [
     { linkId: link.id, operationId: randomUUID(), sessionId: null, body: "Edit", provider: "codex", model: "test", permissionMode: "auto" },
   ]);
-  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const session = await makeWorktrees(f, link, sent.sessionId, ["api", "web"]);
   await assert.rejects(runtime.invoke("git:changes", [{ cwd: session.workspacePath }]), /folder/);
   assert.ok((await runtime.invoke("git:changes", [{ cwd: session.worktrees[1].worktreePath }])).isRepo);
   assert.deepEqual(
@@ -122,13 +136,14 @@ test("Git accepts a selected member and refuses the aggregate workspace; editor 
   await assert.rejects(runtime.invoke("link:workspace-roots", ["/"]), /workspace/);
 });
 test("a plain directory replacing a registered member Worktree cannot start a provider", async (t) => {
-  const { runtime, projects, created } = await fixture(t);
+  const f = await fixture(t);
+  const { runtime, projects, created } = f;
   const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
   await runtime.invoke("link:open", [link.id]);
   const request = { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Edit", provider: "codex", model: "test", permissionMode: "auto" };
   const sent = await runtime.invoke("link:send", [request]);
   await runtime.flush();
-  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const session = await makeWorktrees(f, link, sent.sessionId, ["api"]);
   const member = session.worktrees[0];
   execFileSync("git", ["-C", member.projectPath, "worktree", "remove", member.worktreePath]);
   await fs.mkdir(member.worktreePath);
@@ -137,7 +152,8 @@ test("a plain directory replacing a registered member Worktree cannot start a pr
   assert.equal(created.length, count);
 });
 test("unavailable owned Worktrees keep an interrupted turn resumable after repair", async (t) => {
-  const { runtime, projects, dir, make } = await fixture(t);
+  const f = await fixture(t);
+  const { runtime, projects, dir, make } = f;
   const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
   await runtime.invoke("link:open", [link.id]);
   const sent = await runtime.invoke("link:send", [
@@ -146,7 +162,7 @@ test("unavailable owned Worktrees keep an interrupted turn resumable after repai
   await runtime.flush();
   const owner = scopeKey({ kind: "link", linkId: link.id });
   const resumeTurn = { stoppedAt: Date.now(), provider: "codex", model: "test", permissionMode: "auto", prompt: "Continue" };
-  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const session = await makeWorktrees(f, link, sent.sessionId, ["web"]);
   const root = session.worktrees[0].worktreePath;
   await runtime.close();
   const file = path.join(dir, "profile", "links", link.id, ".milagre", "coordination.json");
@@ -164,13 +180,14 @@ test("unavailable owned Worktrees keep an interrupted turn resumable after repai
   assert.equal(await next.invoke("chat:resume", [owner, sent.sessionId]), true);
 });
 test("shared Chats retain canvas reads and external readers see the canonical transcript", async (t) => {
-  const { runtime, projects, created } = await fixture(t);
+  const f = await fixture(t);
+  const { runtime, projects, created } = f;
   const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
   await runtime.invoke("link:open", [link.id]);
   const request = { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Edit", provider: "codex", model: "test", permissionMode: "auto" };
   const sent = await runtime.invoke("link:send", [request]);
   await runtime.flush();
-  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const session = await makeWorktrees(f, link, sent.sessionId, ["api"]);
   const member = session.worktrees[0],
     external = projects.find((project) => project.id !== member.projectId);
   await runtime.invoke("canvas:link-add", [
@@ -218,12 +235,42 @@ test("editing a Link adds and removes member Projects for new Chats; existing Ch
   await runtime.flush();
   const state = (await runtime.invoke("link:snapshot", [link.id])).state;
   assert.deepEqual(
-    state.sessions[second.sessionId].worktrees.map((member) => member.projectId),
+    state.sessions[second.sessionId].projects.map((member) => member.projectId),
     [projects[1].id, admin.id],
   );
   assert.deepEqual(
-    state.sessions[first.sessionId].worktrees.map((member) => member.projectId),
+    state.sessions[first.sessionId].projects.map((member) => member.projectId),
     projects.map((project) => project.id),
   );
   await runtime.invoke("link:send", [{ ...request, sessionId: first.sessionId, operationId: randomUUID() }]);
+});
+
+test("a Link lists its member Projects' skills, and a shared Chat its own Worktrees' skills", async (t) => {
+  const f = await fixture(t);
+  const { runtime, projects } = f;
+  for (const [index, project] of projects.entries()) {
+    const file = path.join(project.path, ".agents", "skills", `member-${index}`, "SKILL.md");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, `---\nname: member-${index}\ndescription: From ${project.name}\n---\nInstructions`);
+    execFileSync("git", ["-C", project.path, "add", "."]);
+    execFileSync("git", ["-C", project.path, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "Skill"]);
+  }
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((p) => p.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const owner = scopeKey({ kind: "link", linkId: link.id });
+  const names = (catalog) => catalog.skills.filter((skill) => skill.scope === "workspace").map((skill) => skill.name);
+  assert.deepEqual(names(await runtime.invoke("skills:list", [owner])), ["member-0", "member-1"]);
+  const sent = await runtime.invoke("link:send", [
+    { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Edit", provider: "codex", model: "test", permissionMode: "auto" },
+  ]);
+  await runtime.flush();
+  const before = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  // A Project the Chat has only read gives its main checkout's skills; one it changed, its Worktree's.
+  assert.deepEqual(names(await runtime.invoke("skills:list", [before.workspacePath])), ["member-0", "member-1"]);
+  const session = await makeWorktrees(f, link, sent.sessionId, [projects[0].name]);
+  const catalog = await runtime.invoke("skills:list", [session.workspacePath]);
+  assert.deepEqual(names(catalog), ["member-0", "member-1"]);
+  assert.ok(catalog.skills.find((skill) => skill.name === "member-0").path.startsWith(session.worktrees[0].worktreePath));
+  assert.ok(catalog.skills.find((skill) => skill.name === "member-1").path.startsWith(projects[1].path));
+  await assert.rejects(runtime.invoke("skills:list", [scopeKey({ kind: "link", linkId: randomUUID() })]), /Link/);
 });

@@ -20,13 +20,16 @@ window.milagre = { listSkills: async root => ({ skills: root === '/other' ? [] :
 function Fixture() {
   const [draft, setDraft] = useState('');
   const [root, setRoot] = useState('/fixture');
+  // A named Link's Chat reads skills through its own scope while its folder stays the Project path.
+  const [skillScope, setSkillScope] = useState(undefined);
+  window.setSkillScope = setSkillScope;
   const [expanded, setExpanded] = useState(false);
   window.setDraft = setDraft;
   window.setProject = setRoot;
   window.setExpanded = setExpanded;
   const model = MODEL_CATALOG[0];
   return <div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
-    <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
+    <PromptComposer projectPath={root} skillScope={skillScope} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
       onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
@@ -180,6 +183,9 @@ async function browserChecks() {
     await escape();
     await evaluate(`window.setProject('/other')`);
     await waitFor(`!document.querySelector('[data-prompt-skill]')`);
+    // A Link's key brings its skills back though the folder is still /other.
+    await evaluate(`window.setSkillScope('milagre-link:40996067-6cc2-4427-bc1e-9007c5f51875')`);
+    await waitFor(`!!document.querySelector('[data-prompt-skill]')`);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills, hover descriptions and dismissal, both themes, native editing, wrapped/scrolled alignment, exact send and catalog isolation",

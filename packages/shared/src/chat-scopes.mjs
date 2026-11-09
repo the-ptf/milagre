@@ -37,6 +37,12 @@ export function qualifyKey(computerId, key) {
   return link ? `${PREFIX}${computerId}|${bare}` : `${computerId}|${key}`;
 }
 
+/** A shared Chat's Worktree count, as its rows show it: the agent makes one only in a Project it changes. */
+export function worktreeCountLabel(count) {
+  if (!count) return "No Worktrees yet";
+  return count === 1 ? "1 Worktree" : `${count} Worktrees`;
+}
+
 export function validLinkId(id) {
   return typeof id === "string" && LINK_ID.test(id);
 }

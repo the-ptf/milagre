@@ -48,7 +48,7 @@ export function LinkChangesView({ chatId, header, onOpen }: { chatId: number; he
         onChange={(value) => setMode(value as DiffMode)}
       />
       {!members.length && (
-        <Text style={[styles.muted, { paddingVertical: 32, textAlign: "center" }]}>Send a message to create one Worktree in each Project.</Text>
+        <Text style={[styles.muted, { paddingVertical: 32, textAlign: "center" }]}>No Worktrees yet. The agent makes one in a Project when it changes it.</Text>
       )}
       {members.map((member) => (
         <MemberChanges

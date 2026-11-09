@@ -1,6 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { scopeKey, validLinkId } = require("@milagre/shared/chat-scopes");
-function registerLinkRuntime({ commands, registry, store, workspaces, chats, broadcast, titles }) {
+// `issues` reads a Chat started from a Linear issue (see chat:send in runtime.cjs): its message and the issue itself.
+function registerLinkRuntime({ commands, registry, store, workspaces, chats, broadcast, titles, issues }) {
   const queues = new Map();
   async function definition(id) {
     if (!validLinkId(id)) throw new Error("Invalid Link ID");
@@ -21,11 +22,27 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, bro
       (latest) => {
         const sessions = { ...latest.sessions };
         let changed = false;
-        for (const prep of Object.values(latest.preparations))
-          if (prep.status === "ready" && !sessions[prep.chatId]) {
-            sessions[prep.chatId] = { id: prep.chatId, agent_name: link.name, status: "Created", workspacePath: prep.workspacePath, worktrees: prep.members };
+        for (const prep of Object.values(latest.preparations)) {
+          if (prep.status !== "ready") continue;
+          // A preparation from before Worktrees were made on demand made every member, and has no project list.
+          const worktrees = prep.projects ? prep.members.filter((member) => member.status === "ready") : prep.members;
+          const session = sessions[prep.chatId];
+          if (!session) {
+            sessions[prep.chatId] = {
+              id: prep.chatId,
+              agent_name: link.name,
+              status: "Created",
+              workspacePath: prep.workspacePath,
+              worktrees,
+              ...(prep.projects ? { projects: prep.projects } : {}),
+            };
+            changed = true;
+          } else if (worktrees.length > session.worktrees.length) {
+            // A member made just before a restart, whose Chat hadn't been told yet.
+            sessions[prep.chatId] = { ...session, worktrees };
             changed = true;
           }
+        }
         return changed ? { ...latest, sessions } : latest;
       },
       { chats: [] },
@@ -90,10 +107,21 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, bro
           : state.messages.find((message) => message.operationId === operationId);
         if (earlier) return { sessionId: earlier.session_id };
         await workspaces.membersAvailable(link);
+        // Only Milagre writes a message's context: a Linear issue's card is read from Linear here, never the renderer's.
+        const { linearIssue, ...rest } = request;
+        const started =
+          linearIssue !== undefined && issues ? await issues.message(rest, linearIssue) : { message: { ...rest, context: undefined }, issue: null };
         let sessionId = request.sessionId;
         if (sessionId == null) {
           sessionId = Object.values(state.preparations).find((prep) => prep.operationId === operationId)?.chatId ?? state.next_id;
-          const prepared = await workspaces.prepareLinkChat({ link, chatId: sessionId, prompt: request.body || "", operationId });
+          const prepared = await workspaces.prepareLinkChat({
+            link,
+            chatId: sessionId,
+            prompt: request.body || "",
+            operationId,
+            ...(started.issue ? { issue: started.issue } : {}),
+          });
+          if (started.issue) issues.started(started.issue);
           await store.update(
             link.id,
             (latest) =>
@@ -105,7 +133,7 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, bro
           await store.flush(link.id);
         }
         const key = scopeKey({ kind: "link", linkId: link.id });
-        const sent = await chats.send({ ...request, projectPath: key, sessionId, operationId, context: undefined });
+        const sent = await chats.send({ ...started.message, projectPath: key, sessionId, operationId });
         broadcast(key, await store.get(link.id));
         return { sessionId: sent.sessionId };
       });
@@ -117,12 +145,34 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, bro
       .catch(() => {});
     return run;
   });
+  // The agent's link_worktree tool: the Chat's Worktree in one member Project, made the first time it is asked for.
+  async function prepareMember(linkId, sessionId, project) {
+    const result = await workspaces.prepareLinkMember({ linkId, chatId: sessionId, project });
+    if (result.created) {
+      const key = scopeKey({ kind: "link", linkId });
+      await store.update(
+        linkId,
+        (latest) =>
+          latest.sessions[sessionId]
+            ? { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...latest.sessions[sessionId], worktrees: result.worktrees } } }
+            : latest,
+        { chats: [] },
+      );
+      await store.flush(linkId);
+      broadcast(key, await store.get(linkId));
+    }
+    return result;
+  }
   return {
     definition,
     open,
+    prepareMember,
     async workspace(root) {
-      for (const id of store.ids())
-        for (const session of Object.values((await store.get(id)).sessions)) if (session.workspacePath === root) return session.worktrees;
+      return (await this.workspaceSession(root)).worktrees;
+    },
+    /** The shared Chat whose folder `root` is. */
+    async workspaceSession(root) {
+      for (const id of store.ids()) for (const session of Object.values((await store.get(id)).sessions)) if (session.workspacePath === root) return session;
       throw new Error("Workspace unavailable");
     },
   };

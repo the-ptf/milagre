@@ -459,6 +459,8 @@ interface ChatComposerProps {
   onFindClose?: () => void;
   imageDraft: ImageDraft;
   projectPath: string;
+  /** Where the `/` menu reads skills, when not `projectPath`: a Link's key, or a shared Chat's own folder. */
+  skillScope?: string;
   /** Messages of the Chat the host holds before `messages` (chat-pages-v1): how many, and reading them. */
   earlier?: { count: number; load: () => Promise<void>; loadAll: () => Promise<void> };
   /** The Project or Link (scope key) the messages belong to, for step output the host keeps out of the state. */
@@ -598,7 +600,10 @@ type NewChatHeaderProps = Pick<
   | "onBaseBranchChange"
   | "linearActive"
   | "onStartFromIssue"
->;
+> & {
+  /** A named Link's new Chat: its agent makes a Worktree in each Project it changes, so only the Linear issue chip shows. */
+  link?: boolean;
+};
 
 function NewChatHeader({
   worktrees,
@@ -611,6 +616,7 @@ function NewChatHeader({
   onBaseBranchChange,
   linearActive = false,
   onStartFromIssue,
+  link = false,
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"isolation" | "branch" | "issue" | null>(null);
   const [query, setQuery] = useState("");
@@ -668,22 +674,26 @@ function NewChatHeader({
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
       <h1 className="text-[17px] font-medium text-ink">New chat</h1>
-      {selected && (
+      {(link ? linearActive && onStartFromIssue : selected) && (
         <div data-new-chat-pickers className="relative mt-4 mb-2.5 -ml-1.5 flex items-center gap-1">
-          <Tooltip label="Choose the isolation level">
-            <ChipButton
-              icon={isolationOption.icon}
-              label={isolationOption.name}
-              open={menu === "isolation"}
-              onClick={(trigger) => toggle("isolation", trigger.parentElement ?? trigger)}
-            />
-          </Tooltip>
-          <ChipButton
-            icon={GitBranchIcon}
-            label={isolation === "local" ? selected.name : baseBranch}
-            open={menu === "branch"}
-            onClick={(trigger) => toggle("branch", trigger)}
-          />
+          {!link && selected && (
+            <>
+              <Tooltip label="Choose the isolation level">
+                <ChipButton
+                  icon={isolationOption.icon}
+                  label={isolationOption.name}
+                  open={menu === "isolation"}
+                  onClick={(trigger) => toggle("isolation", trigger.parentElement ?? trigger)}
+                />
+              </Tooltip>
+              <ChipButton
+                icon={GitBranchIcon}
+                label={isolation === "local" ? selected.name : baseBranch}
+                open={menu === "branch"}
+                onClick={(trigger) => toggle("branch", trigger)}
+              />
+            </>
+          )}
           {linearActive && onStartFromIssue && (
             <ChipButton leading={<LinearLogo size={13} />} label="Linear issue" open={menu === "issue"} onClick={(trigger) => toggle("issue", trigger)} />
           )}
@@ -761,6 +771,7 @@ export function ChatComposer({
   scopeKind,
   imageDraft,
   projectPath,
+  skillScope,
   messageScope,
   scrollKey,
   earlier,
@@ -1015,8 +1026,9 @@ export function ChatComposer({
           <div className={`relative mx-auto w-full max-w-3xl shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}>
             {/* The update pill floats centred on the chip row's line, outside its flow. */}
             {!canvasOpened && <UpdatePillSlot className="bottom-full mb-2" />}
-            {isNewChat && scopeKind !== "link" && !offlineName && (
+            {isNewChat && !offlineName && (
               <NewChatHeader
+                link={scopeKind === "link"}
                 worktrees={worktrees}
                 selectedWorktreeId={selectedWorktreeId}
                 onWorktreeChange={onWorktreeChange}
@@ -1036,6 +1048,7 @@ export function ChatComposer({
                 offlineName={offlineName}
                 imageDraft={imageDraft}
                 projectPath={projectPath}
+                skillScope={skillScope}
                 draft={draft}
                 onDraftChange={onDraftChange}
                 onSend={onSend}

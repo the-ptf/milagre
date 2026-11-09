@@ -165,7 +165,9 @@ test("a named Link has its own account, independent of members and viewed Projec
   const sent = await runtime.invoke("link:send", [request]);
   await until(() => created.length === 1);
   assert.equal(created[0].context.env.CLAUDE_CONFIG_DIR, profile(ids.shared));
-  assert.equal(created[0].context.workspaceRoots.length, 2);
+  // No Worktree until the agent changes a Project; it reads both main checkouts meanwhile.
+  assert.equal(created[0].context.workspaceRoots.length, 0);
+  assert.equal(created[0].context.readRoots.length, 2);
   created[0].finish();
   await runtime.flush();
   await runtime.openProject(projects[1]);
@@ -268,7 +270,7 @@ test("cached usage resolves the requested account pair without leaking the viewe
   await assert.rejects(runtime.invoke("usage:cached", [path.join(dataDir, "unregistered")]));
 });
 
-test("advisors inherit a named Link's Account and both owned Worktrees", async (t) => {
+test("advisors inherit a named Link's Account, its owned Worktrees and the main checkouts it reads", async (t) => {
   const { make, projects, saved, save, ids, profile, created } = await fixture(t);
   const first = make();
   for (const project of projects) await first.openProject(project);
@@ -290,7 +292,8 @@ test("advisors inherit a named Link's Account and both owned Worktrees", async (
   assert.equal(created[1].context.analysisOnly, true);
   assert.equal(created[1].context.env.CLAUDE_CONFIG_DIR, profile(ids.shared));
   assert.deepEqual(created[1].context.workspaceRoots, created[0].context.workspaceRoots);
-  assert.equal(created[1].context.workspaceRoots.length, 2);
+  assert.deepEqual(created[1].context.readRoots, created[0].context.readRoots);
+  assert.equal(created[1].context.readRoots.length, 2);
 });
 
 test("Antigravity usage is read for, and cached apart per, the Account a Project selects", async (t) => {

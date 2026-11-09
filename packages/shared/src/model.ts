@@ -177,15 +177,28 @@ export interface WorktreeBinding {
   /** The folder name the shared Chat's workspace links this Worktree under. */
   alias?: string;
 }
+/** A member Project of a shared Chat, fixed when the Chat starts. */
+export interface LinkChatProject {
+  projectId: string;
+  projectPath: string;
+  projectName?: string;
+  alias: string;
+}
 export interface LinkChatSession extends Omit<AgentSession, "worktree_id"> {
   workspacePath: string;
+  /** The Worktrees made so far: one in each Project the agent changed (link_worktree). */
   worktrees: WorktreeBinding[];
+  /** Every member Project. Missing on a Chat from before Worktrees were made on demand, which has one in each. */
+  projects?: LinkChatProject[];
 }
 export interface LinkPreparation {
   operationId: string;
   chatId: number;
   status: "reserved" | "creating" | "setup" | "ready" | "failed";
-  members: Array<WorktreeBinding & { created?: boolean; setupDone?: boolean }>;
+  members: Array<
+    WorktreeBinding & { status?: "reserved" | "ready" | "failed"; created?: boolean; setupDone?: boolean; error?: string; retainedPaths?: string[] }
+  >;
+  projects?: LinkChatProject[];
   workspacePath: string;
   error?: string;
   retainedPaths?: string[];
