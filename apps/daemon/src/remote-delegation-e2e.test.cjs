@@ -25,7 +25,7 @@ const fakeSessions =
     const permissions = new PendingPermissions(options.emit);
     if (allowMilagre) {
       const add = permissions.add.bind(permissions);
-      permissions.add = (request, answer, extra) => (extra?.fromMilagre ? answer("allow") : add(request, answer, extra));
+      permissions.add = (request, answer, extra) => (request.kind === "delegation" ? answer("allow") : add(request, answer, extra));
     }
     const stop = Promise.withResolvers();
     return {

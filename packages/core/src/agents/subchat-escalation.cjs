@@ -34,7 +34,6 @@ class SubchatEscalation {
    *   read(projectPath, sessionIds) -> the Project's state, with those Chats' messages
    *   run(chatId) -> the Chat's turn, or undefined; busy(chatId) -> whether a turn, or work of its agent, holds it
    *   isSeen(chatId) -> whether the user has it open now; isWakeTurn(chatId) -> whether a wake's turn runs in it
-   *   botOf(chatId) -> the bot that runs it, if any
    *   post(chatId, note, change) -> ChatHost.postNow; remind(chatId, { requestId, title, body }) -> one push
    *   wake(chatId, { body, prompt, context, guard }) -> starts the turn, or throws with `chatBusy` when something got there first
    *   mode(chatId, session) -> the Chat's permission mode
@@ -188,7 +187,6 @@ class SubchatEscalation {
     return (
       !listed(session) ||
       !canEscalate(session.provider ?? "claude") ||
-      Boolean(this.ports.botOf(parent)) ||
       this.ports.run(parent)?.questions?.length > 0 ||
       this.stopped.has(parent) ||
       Boolean(session.queueHeld)

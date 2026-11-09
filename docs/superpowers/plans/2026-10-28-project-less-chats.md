@@ -232,7 +232,7 @@
 
 **Files:**
 - Modify: `GLOSSARY.md` (add **Chats home**; Chat entry notes a project-less Chat), `docs/superpowers/specs/2026-10-28-project-less-chats-design.md` (the two deviations above)
-- Create: `docs/adr/0011-project-less-chats-share-a-chats-home.md` (shared home + Worktree per Chat; rejected: hidden Project per Chat (ADR-0010 style), plain-folder Project; lists filtered daemon-side for older phones)
+- Create: `docs/adr/0011-project-less-chats-share-a-chats-home.md` (shared home + Worktree per Chat; rejected: hidden Project per Chat, plain-folder Project; lists filtered daemon-side for older phones)
 
 - [ ] **Step 1:** Write them. **Step 2:** Commit `docs: Chats home in the glossary, ADR-0011`.
 

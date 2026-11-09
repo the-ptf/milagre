@@ -185,15 +185,8 @@ import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-acti
 import { playNotificationChime } from "./lib/notification-chime";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
-import { shouldNotifyCompletion, useBots } from "./lib/bots-store";
-import type { SidebarMode } from "./components/bots/SidebarModeSwitch";
-import { BotThread } from "./components/bots/BotThread";
-import { BotProfilePanel } from "./components/bots/BotProfilePanel";
-import { BotProfileSlot } from "./components/bots/BotProfileSlot";
 import { OPEN_STORAGE, openStorage } from "./lib/storage-open";
 import { WorktreeCleanup } from "./components/settings/WorktreeCleanup";
-
-const SIDEBAR_MODE_KEY = "milagre.sidebarMode";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
 const DiffView = lazyView(() => import("./components/changes/DiffView").then((module) => module.DiffView));
@@ -445,45 +438,8 @@ function App() {
   const [view, setView] = useState<"chat" | "canvas" | "routines">("chat");
   const viewRef = useRef(view);
   viewRef.current = view;
-  const bots = useBots();
-  const botsRef = useRef(bots.snapshot);
-  botsRef.current = bots.snapshot;
-  // Projects | Bots in the sidebar. Bots off (Settings › Church), the sidebar is back on Projects.
-  const [storedSidebarMode, setStoredSidebarMode] = useState<SidebarMode>(() => (localStorage.getItem(SIDEBAR_MODE_KEY) === "bots" ? "bots" : "projects"));
-  const sidebarMode: SidebarMode = bots.enabled ? storedSidebarMode : "projects";
-  const storedSidebarModeRef = useRef(storedSidebarMode);
-  storedSidebarModeRef.current = storedSidebarMode;
-  // Bots shows the bot thread, from Routines, the canvas or Settings too.
-  const setSidebarMode = useEvent((mode: SidebarMode) => {
-    if (mode === "bots") {
-      changes.closeDiff();
-      setView("chat");
-    }
-    setStoredSidebarMode(mode);
-    localStorage.setItem(SIDEBAR_MODE_KEY, mode);
-  });
-  // Opening a Project's Chat or a Link any other way (a notification, ⌘N, the palette, a Routine's Run, a Link) shows it,
-  // not the bot thread over it. Read from a ref: listeners registered renders ago call this too.
-  const leaveBots = () => {
-    if (storedSidebarModeRef.current === "bots") setSidebarMode("projects");
-  };
-  // Only a successful read that says Bots are off resets the sidebar: a daemon still starting keeps it on Bots.
-  useEffect(() => {
-    if (bots.ready && !bots.error && !bots.enabled && storedSidebarMode === "bots") setSidebarMode("projects");
-  }, [bots.ready, bots.error, bots.enabled, storedSidebarMode]);
-  const [pickedBotId, setSelectedBotId] = useState<string | null>(null);
-  // The bot picked last, or the first one while that one is gone.
-  const selectedBotId = bots.snapshot?.bots.some((bot) => bot.id === pickedBotId) ? pickedBotId : (bots.snapshot?.bots[0]?.id ?? null);
-  const selectedBot = bots.snapshot?.bots.find((bot) => bot.id === selectedBotId);
-  const pickBot = useEvent((id: string) => {
-    setSelectedBotId(id);
-    setView("chat");
-  });
-  const botsShown = view === "chat" && sidebarMode === "bots";
-  const [botProfileOpen, setBotProfileOpen] = useState(true);
-  // "Open Chat" on a bot's card: back to Projects, in that Chat.
+  // "Open Chat" on a card: the Chat view, in that Chat.
   const openChatKey = (key: string) => {
-    setSidebarMode("projects");
     setView("chat");
     openChatByKey(key);
   };
@@ -1204,7 +1160,7 @@ function App() {
   const familySessionsRef = useRef<typeof familySessions>(undefined);
   const familySessions = focusedChatKey && !selectedLink ? (gridStates[projectOfKey(focusedChatKey)] as CoordinatorState | undefined)?.sessions : undefined;
   familySessionsRef.current = familySessions;
-  const bookmarkShown = view === "chat" && !botsShown && !diffPresence.occupied && shownTiles.length === 0 && !runPaneOpen;
+  const bookmarkShown = view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && !runPaneOpen;
   const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
   const pillChats = useMemo(
     () =>
@@ -1531,7 +1487,6 @@ function App() {
     // The Chat's page read goes out before this click renders anything (see prefetchChatMessages).
     const shownProject = projectRef.current;
     if (shownProject) prefetchLeanChat(shownProject.path, sessionId, openState());
-    leaveBots();
     const failed = failedSends.find((send) => send.projectPath === projectRef.current?.path && send.session.id === sessionId);
     if (failed) {
       chatView.current = failed.view;
@@ -1793,7 +1748,7 @@ function App() {
     void window.milagre.setNotificationSchedule?.(notificationSchedule).catch(() => {});
   }, [notificationSchedule]);
 
-  // A turn that ends in the open project while Milagre is in the background gets a completion alert, unless a bot runs it.
+  // A turn that ends in the open project while Milagre is in the background gets a completion alert.
   useEffect(
     () =>
       onAnyAgentEvent(({ chatId, event }) => {
@@ -1813,12 +1768,7 @@ function App() {
         if (link && chatInProject(scopeKey({ kind: "link", linkId: link.link.id }), chatId)) {
           const latest = linkStatesRef.current[link.link.id] ?? link.state;
           const session = latest.sessions[sessionIdFromKey(chatId)];
-          if (
-            session &&
-            !session.archived &&
-            (event.type === "turn-completed" || event.type === "turn-failed") &&
-            shouldNotifyCompletion(botsRef.current, chatId)
-          )
+          if (session && !session.archived && (event.type === "turn-completed" || event.type === "turn-failed"))
             void window.milagre
               .notifyCompletion({
                 chatId,
@@ -1835,7 +1785,7 @@ function App() {
         if (!current || !latest || !chatInProject(current.path, chatId)) return;
         const session = latest.sessions[sessionIdFromKey(chatId)];
         if (!session || session.archived) return;
-        if ((event.type === "turn-completed" || event.type === "turn-failed") && shouldNotifyCompletion(botsRef.current, chatId)) {
+        if (event.type === "turn-completed" || event.type === "turn-failed") {
           void window.milagre
             .notifyCompletion({
               chatId,
@@ -1880,7 +1830,6 @@ function App() {
     // Another Project's Chat: its page read goes out before the switch (the open Project's goes through openChat).
     if (!isLinkScopeKey(owner) && owner !== projectRef.current?.path)
       prefetchLeanChat(owner, sessionIdFromKey(chatId), statesRef.current[owner] ?? cachedProjectCopy(owner)?.state);
-    leaveBots();
     if (isLinkScopeKey(owner)) {
       // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
       void selectLink(owner.slice("milagre-link:".length), sessionIdFromKey(chatId));
@@ -1911,7 +1860,6 @@ function App() {
   );
 
   function startNewChat(draftText = "") {
-    leaveBots();
     advanceChatView();
     const latest = openState();
     if (latest && projectRef.current) restoreProjectChoices(latest, projectRef.current.path);
@@ -2116,7 +2064,6 @@ function App() {
     } catch (error) {
       request = Promise.reject(error);
     }
-    leaveBots();
     const navigation = ++projectNavigation.current;
     const sourceView = chatView.current;
     const adopt = (next: OpenLink) => {
@@ -2202,7 +2149,6 @@ function App() {
       request = Promise.reject(error);
     }
     noteScopeOpening(projectPath, request);
-    leaveBots();
     const navigation = ++projectNavigation.current;
     // The last copy shows at once; the main process's answer then refreshes it in place, so the switch never waits.
     const seen = projectsSeen.current.get(projectPath);
@@ -2663,7 +2609,7 @@ function App() {
   // Text the find bar starts with, from a ⌘K message result; ⌘F clears it.
   const [findSeed, setFindSeed] = useState<string | undefined>();
   const findRef = useRef({ open: false, canOpen: false });
-  findRef.current = { open: findOpen, canOpen: view === "chat" && !botsShown && chatCount > 0 };
+  findRef.current = { open: findOpen, canOpen: view === "chat" && chatCount > 0 };
   function openFind(seed?: string) {
     if (!findRef.current.canOpen) return;
     setFindSeed(seed);
@@ -2680,7 +2626,6 @@ function App() {
     openFind(pending.term);
   }, [selectedSession?.id, view, messages.length]);
   function openMessage(sessionId: number, term: string) {
-    leaveBots();
     if (view === "chat" && selectedSession?.id === sessionId) {
       openFind(term);
       return;
@@ -2825,8 +2770,7 @@ function App() {
         setView("chat");
         return;
       }
-      // The bot thread is on screen: Escape never stops a turn in the Chat behind it.
-      if (run && project && selectedSession && !botsShown) {
+      if (run && project && selectedSession) {
         event.preventDefault();
         // Escape denies the open approval or dismisses the open question; once that's sent, Escape stops the turn.
         const approval = run.approvals[0];
@@ -2839,7 +2783,7 @@ function App() {
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [run, project?.path, selectedSession?.id, view, botsShown, routineId, runPaneOpen]);
+  }, [run, project?.path, selectedSession?.id, view, routineId, runPaneOpen]);
 
   // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
   const jumpChats = useRef<string[]>([]);
@@ -2917,7 +2861,6 @@ function App() {
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
   // "+" on another Project's header switches to it (from its last copy, so at once) and starts a chat there.
   const newChatInScope = useEvent((key: string) => {
-    leaveBots();
     if (isLinkScopeKey(key)) {
       void selectLink(key.slice("milagre-link:".length));
       return;
@@ -2929,7 +2872,6 @@ function App() {
   // Project does).
   const newChatInLink = useEvent(async (id: string) => {
     if (movingDraft.current) return;
-    leaveBots();
     const draftFrom = draftKey(projectRef.current?.path ?? "", selectedSessionRef.current);
     movingDraft.current = true;
     try {
@@ -3023,7 +2965,6 @@ function App() {
   }
   // The sidebar Chats group's +: a new Chat without a Project on this Mac, in its Chats home, made first when missing.
   const newChatWithoutProject = useEvent(async () => {
-    leaveBots();
     const bridge = bridgeFor(LOCAL_COMPUTER);
     try {
       const home = await bridge.chatsHome();
@@ -3835,7 +3776,6 @@ function App() {
           icon: "folder",
           detail: recent.path,
           run: () => {
-            leaveBots();
             void switchProject(recent.path);
           },
         })),
@@ -3904,35 +3844,33 @@ function App() {
             )}
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-          {!botsShown && (
-            <PanelToggles
-              right={12}
-              changes={
-                changesAvailable
-                  ? {
-                      open: changes.open && !prShown,
-                      toggle: () => {
-                        if (!changes.open || prShown) changes.setMode(firstSection(changes.lists));
-                        if (!prShown) changes.toggle();
-                      },
-                    }
-                  : undefined
-              }
-              pullRequest={
-                changesAvailable && prNumber
-                  ? { number: prNumber, open: prShown, toggle: () => (prShown ? changes.toggle() : changes.showPullRequest()) }
-                  : undefined
-              }
-            />
-          )}
-          {view === "chat" && !botsShown && (
+          <PanelToggles
+            right={12}
+            changes={
+              changesAvailable
+                ? {
+                    open: changes.open && !prShown,
+                    toggle: () => {
+                      if (!changes.open || prShown) changes.setMode(firstSection(changes.lists));
+                      if (!prShown) changes.toggle();
+                    },
+                  }
+                : undefined
+            }
+            pullRequest={
+              changesAvailable && prNumber
+                ? { number: prNumber, open: prShown, toggle: () => (prShown ? changes.toggle() : changes.showPullRequest()) }
+                : undefined
+            }
+          />
+          {view === "chat" && (
             <LayoutToggle
               grid={layout === "grid"}
               offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber)}
               onToggle={toggleLayout}
             />
           )}
-          {view === "chat" && !botsShown && focusedFamily && focusedFamily.children.length > 0 && (
+          {view === "chat" && focusedFamily && focusedFamily.children.length > 0 && (
             <SubchatsButton
               count={focusedFamily.children.length}
               shown={familyShown}
@@ -3940,7 +3878,7 @@ function App() {
               onToggle={toggleFamily}
             />
           )}
-          {showAttentionButton && !floatingInbox && !botsShown && attentionTitles[0] && (
+          {showAttentionButton && !floatingInbox && attentionTitles[0] && (
             <AttentionButton
               label={attentionLabel(attentionTitles.map((item) => item.title || "Chat"))}
               items={attentionTitles.map((item) => ({
@@ -4013,12 +3951,6 @@ function App() {
                   archivingChats={archivingChats}
                   onHoverChat={hoverChat}
                   onAskChat={askLinkedChat}
-                  sidebarMode={sidebarMode}
-                  onSidebarMode={setSidebarMode}
-                  selectedBotId={selectedBotId}
-                  onPickBot={pickBot}
-                  models={models}
-                  defaultModel={selectedModel}
                 />
               </PullRequestOpenContext.Provider>
             </div>
@@ -4090,7 +4022,7 @@ function App() {
                 <div
                   data-chat-pane
                   data-run-chat-pane={runPaneOpen || undefined}
-                  className={`min-h-0 flex-1 flex-col overflow-hidden ${(view === "chat" && !botsShown && !diffPresence.occupied) || runPaneOpen ? "flex" : "hidden"} ${runPaneOpen ? "min-w-0 rounded-window border border-line bg-surface [&_.chat-column]:pt-4" : ""}`}
+                  className={`min-h-0 flex-1 flex-col overflow-hidden ${(view === "chat" && !diffPresence.occupied) || runPaneOpen ? "flex" : "hidden"} ${runPaneOpen ? "min-w-0 rounded-window border border-line bg-surface [&_.chat-column]:pt-4" : ""}`}
                   // In the pane the Chat sits under its own header, not under the window's title bar.
                   style={
                     runPaneOpen
@@ -4129,7 +4061,7 @@ function App() {
                       {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
                       <DraftChatComposer
                         store={draftStore}
-                        offScreen={!((view === "chat" && !botsShown) || runPaneOpen)}
+                        offScreen={!(view === "chat" || runPaneOpen)}
                         mentionContext={mentionContext}
                         messages={displayedMessages}
                         limitPending={selectedSession?.limitResume}
@@ -4370,23 +4302,8 @@ function App() {
                   <TerminalPanel chatId={terminalChatId} notify={setNotice} />
                 </div>
               </div>
-              {botsShown && selectedBot && bots.snapshot && (
-                <BotThread
-                  key={selectedBot.id}
-                  bot={selectedBot}
-                  snapshot={bots.snapshot}
-                  agents={agentRuns}
-                  preferences={{ models, cliStatus, onModelPickerOpen: refreshCliStatus, onUpdateCli: handleUpdateCli, updatingCli }}
-                  onOpenChat={openChatKey}
-                  profileOpen={botProfileOpen}
-                  onToggleProfile={() => setBotProfileOpen((open) => !open)}
-                />
-              )}
             </main>
-            <BotProfileSlot open={botsShown && botProfileOpen && Boolean(selectedBot)}>
-              {selectedBot && bots.snapshot && <BotProfilePanel key={selectedBot.id} bot={selectedBot} snapshot={bots.snapshot} onOpenChat={openChatKey} />}
-            </BotProfileSlot>
-            <ChangesPanelSlot open={changes.open && !botsShown}>
+            <ChangesPanelSlot open={changes.open}>
               <ChangesPanel
                 lists={changes.lists}
                 comparison={changes.comparison}

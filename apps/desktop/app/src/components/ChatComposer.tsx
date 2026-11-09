@@ -37,7 +37,7 @@ import type { SubchatSource } from "../lib/subchat-track";
 import { latestReports, reportMarker } from "@milagre/shared/subchat-states";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
-import { createContext, Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, ReactElement, ReactNode } from "react";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { runStatusLabel } from "@milagre/shared/tool-activity";
@@ -341,12 +341,6 @@ function ReplyContent({
   );
 }
 
-/**
- * A card that stands for a message Milagre wrote into the transcript (a bot's thread shows its Chats and sign-offs this
- * way); null keeps the message as it is.
- */
-export const MessageCardContext = createContext<((message: AppChatMessage) => ReactNode) | null>(null);
-
 const NO_REPORTS: ReadonlyMap<string, string> = new Map();
 
 const MessageSection = memo(function MessageSection({
@@ -412,14 +406,7 @@ const MessageSection = memo(function MessageSection({
   /** Opens Settings > Accounts, from the limit card. */
   onOpenAccounts?: () => void;
 }) {
-  const card = useContext(MessageCardContext)?.(message);
   const mentions = usePromptMentions(message, isUser);
-  if (card)
-    return (
-      <article id={`message-${message.id}`} data-slot="message" data-from="milagre" className="flex min-w-0 w-full flex-col">
-        {card}
-      </article>
-    );
   if (isHandoff(message)) return <HandoffDivider context={message.context} models={models} />;
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
@@ -931,8 +918,8 @@ interface ChatComposerProps {
   onOpenDiff?: (path: string, worktree: string) => void;
   /** Opens an associated PR in this Chat's Git panel; false leaves normal link handling in place. */
   onOpenPullRequestLink?: (url: string) => boolean;
-  /** A Link's or a bot's Chat starts without the new-chat header. */
-  scopeKind?: "project" | "link" | "bot";
+  /** A Link's Chat starts without the new-chat header. */
+  scopeKind?: "project" | "link";
   /** The find bar over the message list; the parent owns it so ⌘F and the command palette can open it. */
   findOpen?: boolean;
   findSignal?: number;
@@ -1041,8 +1028,6 @@ interface ChatComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
-  /** The mode is fixed (a bot's thread runs in Bot rules): the chip shows it and opens no picker. */
-  permissionLocked?: boolean;
   onRecommendationSelect: (option: string) => void;
   approval?: ReactNode;
   /** The cards stay mounted but out of sight, such as a question whose answers are on their way to the agent. */
@@ -1436,7 +1421,6 @@ export function ChatComposer({
   onFastModeChange,
   permissionMode,
   onPermissionModeChange,
-  permissionLocked,
   onRecommendationSelect,
   approval,
   approvalHidden = false,
@@ -1477,8 +1461,8 @@ export function ChatComposer({
   // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
   const isNewChat = messages.length === 0 && !loading && !loadError;
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
-  // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
-  // bot's new Chat keeps the composer centred.
+  // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's new
+  // Chat keeps the composer centred.
   const [headingOpen, setHeadingOpen] = useState(false);
   const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
   // A named Link's new Chat has no isolation or branch to choose, only an issue to start from.
@@ -2033,7 +2017,6 @@ export function ChatComposer({
                 onFastModeChange={onFastModeChange}
                 permissionMode={permissionMode}
                 onPermissionModeChange={onPermissionModeChange}
-                permissionLocked={permissionLocked}
                 alwaysExpanded={isNewChat}
                 contextUsage={contextUsage}
                 placeholder={chatsDraft && isNewChat ? newChatLook("chats").placeholder : undefined}

@@ -88,7 +88,7 @@ test("invalid provider/model/effort and caller overrides never launch", async (t
 });
 test("execution is opt-in and requires Full permissions for every turn", async (t) => {
   const f = await fixture(t);
-  for (const mode of [undefined, "ask", "auto", "bot"]) {
+  for (const mode of [undefined, "ask", "auto"]) {
     f.context.settings = { permissionMode: mode };
     await assert.rejects(f.manager.create("chat", { ...input, mode: "execution" }), /Full permissions/);
   }

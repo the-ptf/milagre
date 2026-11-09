@@ -399,7 +399,6 @@ async function startDaemon({
     send: sender.send,
     isChatFocused,
     // Bots' threads and the Chats they open: the bot hears when they finish, not the phone.
-    isQuietChat: (chatId) => runtime.isQuietChat(chatId),
     onError,
     context: async (chatId) => {
       const owner = projectOfKey(chatId);

@@ -63,7 +63,6 @@ function world(overrides = {}) {
       busy: (chatId) => w.busy.has(chatId),
       isSeen: (chatId) => w.seen.has(chatId),
       isWakeTurn: (chatId) => w.wakeTurns.has(chatId),
-      botOf: () => null,
       post: async (chatId, note, change) => {
         const id = Number(chatId.split("#")[1]);
         if (change) w.sessions[id] = change(w.sessions[id]);

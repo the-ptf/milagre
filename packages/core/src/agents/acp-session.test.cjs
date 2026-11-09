@@ -6,7 +6,7 @@ const path = require("node:path");
 const { AcpRpc } = require("./acp-rpc.cjs");
 const { AcpSession, pickOption } = require("./acp-session.cjs");
 const { acpDiff, acpStepResult } = require("./acp-events.cjs");
-const { ANTIGRAVITY_MODES, antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
+const { antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
 const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, loginMessage, missingCliMessage } = require("./events.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -14,7 +14,7 @@ const FAKE = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
 const AGENT = "/opt/antigravity/agy_acp_server.par";
 const TURN = { prompt: "Hi", images: [], model: "gemini-3.8-flash-high", permissionMode: "ask" };
 
-function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, env, permissionPolicy } = {}) {
+function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, env } = {}) {
   const events = [];
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-test-"));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-cwd-"));
@@ -29,7 +29,6 @@ function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, comma
     workspaceRoots,
     clientVersion: "test",
     interruptGraceMs,
-    permissionPolicy,
     config: { ...antigravityAcp, tempRoot },
     emit: (event) => events.push(event),
     createRpc: (options) => {
@@ -202,17 +201,6 @@ test("a command that exits non-zero is a failed step", async (t) => {
   await session.startTurn(TURN);
   await ended(events);
   assert.equal(of(events, "step-completed")[0].status, "failed");
-});
-
-test("in bot mode the policy answers a permission request without a card", async (t) => {
-  const { session, events } = antigravity(t, {
-    scenario: "permission",
-    permissionPolicy: (request) => (request.command === "rm -rf build" ? "deny" : "allow"),
-  });
-  await session.startTurn({ ...TURN, permissionMode: "bot" });
-  await ended(events);
-  assert.equal(replyText(events), "picked:deny");
-  assert.equal(of(events, "permission-request").length, 0);
 });
 
 test("asks before a command and answers with the option picked", async (t) => {
@@ -421,10 +409,6 @@ test("Auto answers a waiting edit inside the workspace when the mode switches", 
   assert.equal(replyText(events), "picked:allow");
   const modes = (await sent(session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
   assert.deepEqual(modes, ["auto_edit"]);
-});
-
-test("bot mode maps to Antigravity's default mode", () => {
-  assert.equal(ANTIGRAVITY_MODES.bot, "default");
 });
 
 test("acpDiff marks a new file as added lines", () => {

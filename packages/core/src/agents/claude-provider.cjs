@@ -19,15 +19,7 @@ const {
   mapClaudeMessage,
   missingCliMessage,
 } = require("./events.cjs");
-const {
-  DENIED_MESSAGE,
-  PendingPermissions,
-  WorkspaceAccess,
-  claudeAccessRequest,
-  claudeRequest,
-  claudeResult,
-  isUngatedMilagreTool,
-} = require("./permissions.cjs");
+const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult, isUngatedMilagreTool } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy } = require("./advisor-policy.cjs");
@@ -39,9 +31,8 @@ const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 const QA_AGENTS = bundledAgents();
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
-// the user, through canUseTool, before edits and commands its rules don't already allow. Bot rules runs
-// ask-style too; the bot's policy answers instead of the user.
-const CLAUDE_MODES = { ask: "default", auto: "acceptEdits", full: "bypassPermissions", bot: "default" };
+// the user, through canUseTool, before edits and commands its rules don't already allow.
+const CLAUDE_MODES = { ask: "default", auto: "acceptEdits", full: "bypassPermissions" };
 
 // Claude Code's built-in terse output style. Unlike text appended to the system prompt, which the SDK
 // records with a conversation and ignores on later turns and resumes, the style applies to new chats, to
@@ -151,8 +142,6 @@ class ClaudeSession {
     loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
     spawnImpl = spawn,
     interruptGraceMs = 3000,
-    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
-    permissionPolicy,
   }) {
     Object.assign(this, {
       cwd,
@@ -172,7 +161,6 @@ class ClaudeSession {
       loadSdk,
       spawnImpl,
       interruptGraceMs,
-      permissionPolicy,
     });
     this.state = { sessionId: resumeId ?? null, turnId: null, hasText: false };
     this.query = null;
@@ -182,10 +170,7 @@ class ClaudeSession {
     this.turnActive = false;
     this.cancelRequested = false;
     this.closed = false;
-    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
-    // Bot rules: the tool calls the PreToolUse hook asked about (toolUseID -> its gate, or null when the policy
-    // failed), so canUseTool can't let one through on a second look.
-    this.hookAsked = new Map();
+    this.permissions = new PendingPermissions((event) => this.emit(event));
     // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null, and a wake's EscalationTurn while
     // its turn runs (see guardHook).
     this.guard = null;
@@ -222,7 +207,6 @@ class ClaudeSession {
     );
     this.implicitTurn = false;
     this.steeredTurn = false;
-    this.hookAsked.clear();
     // Whether this turn's init announced a session id (session-started); see readMessages.
     this.announcedId = false;
     this.cancelRequested = false;
@@ -395,15 +379,8 @@ class ClaudeSession {
         },
       ];
     // Every Chat gets the hook, whatever its mode: hooks are fixed for the session, and a babysit Run's turn can come to a
-    // session that started without one. It lets everything through unless the turn is guarded or in Bot rules.
-    if (!this.analysisOnly)
-      hooks.PreToolUse = [
-        {
-          hooks: [
-            (input, toolUseID) => this.guardHook(input) ?? (this.permissions.mode === "bot" && this.permissionPolicy ? this.gateHook(input, toolUseID) : {}),
-          ],
-        },
-      ];
+    // session that started without one. It lets everything through unless the turn is guarded.
+    if (!this.analysisOnly) hooks.PreToolUse = [{ hooks: [(input) => this.guardHook(input) ?? {}] }];
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
@@ -460,8 +437,7 @@ class ClaudeSession {
   // A babysit Run: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "deny" holds even in
   // bypassPermissions, so a command the Run's level doesn't allow is refused in every mode, subagents' included. The
   // reason is what the agent reads and the step shows. Undefined lets the call go on.
-  // A wake's turn goes through the same hook, for every tool: `gateHook` only runs in Bot rules, and `allowedTools` and
-  // bypassPermissions both come after it.
+  // A wake's turn goes through the same hook, for every tool: `allowedTools` and bypassPermissions both come after it.
   guardHook(input) {
     const reason = this.escalation ? this.escalationDenial(input) : this.babysitReason(input);
     if (!reason) return undefined;
@@ -478,36 +454,6 @@ class ClaudeSession {
     return this.escalation.denial(claudeCall(input.tool_name, input.tool_input, this.linked?.tools));
   }
 
-  // Bot rules: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "ask" is
-  // settled by canUseTool even when the user's Claude settings allow the tool (only their deny and ask
-  // rules are checked), so an allow rule such as `Bash(gh pr merge:*)` can't skip a gate. Anything
-  // else goes on to Claude Code's own rules and then canUseTool, where the policy answers again.
-  async gateHook(input, toolUseID) {
-    if (this.permissions.mode !== "bot") return {};
-    const output = (permissionDecision, permissionDecisionReason) => ({
-      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision, permissionDecisionReason },
-    });
-    const id = toolUseID ?? input.tool_use_id;
-    const asked = (gate) => {
-      if (id) this.hookAsked.set(id, gate);
-    };
-    let verdict;
-    try {
-      verdict = this.permissionPolicy(claudeRequest(input.tool_name, input.tool_input ?? {}, { toolUseID: id }));
-    } catch (error) {
-      // A policy that fails can't tell a gate from the rest, so the user decides on a card.
-      console.warn("Bot permission policy failed:", error.message);
-      asked(null);
-      return output("ask", "Bot rules");
-    }
-    if (verdict?.gate) {
-      asked(verdict.gate);
-      return output("ask", verdict.gate.title);
-    }
-    if (verdict === "deny") return output("deny", DENIED_MESSAGE);
-    return {};
-  }
-
   // Claude Code waits on this promise until the user answers in Milagre, the turn stops, or the SDK
   // aborts the request.
   askPermission(toolName, input, options = {}) {
@@ -520,12 +466,9 @@ class ClaudeSession {
     // The hook refused it already; this covers a Claude Code that skipped the hook.
     const refused = this.guard && request.kind === "command" ? babysitDenial(request.command, this.guard) : null;
     if (refused) return Promise.resolve({ behavior: "deny", message: refused });
-    const flagged = this.hookAsked.has(options.toolUseID) ? { gate: this.hookAsked.get(options.toolUseID) ?? undefined } : undefined;
-    this.hookAsked.delete(options.toolUseID);
     const decided = this.access.answer(claudeAccessRequest(toolName, input, request), this.permissions.mode);
     if (decided?.decision === "deny") return Promise.resolve({ behavior: "deny", message: decided.message });
-    // A call the Bot rules hook asked about always gets its card, whatever the workspace allows.
-    if (decided && !flagged) {
+    if (decided) {
       this.access.learned(decided.learn);
       const added = decided.learn.length ? { updatedPermissions: [{ type: "addDirectories", directories: decided.learn, destination: "session" }] } : {};
       return Promise.resolve({ behavior: "allow", updatedInput: input, ...added });
@@ -539,7 +482,7 @@ class ClaudeSession {
           options.signal?.removeEventListener("abort", abort);
           resolve(claudeResult(decision, input, options.suggestions));
         },
-        { inWorkspace, flagged },
+        { inWorkspace },
       );
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener("abort", abort, { once: true });

@@ -162,8 +162,6 @@ interface PromptComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
-  /** The mode is fixed: the chip shows it, disabled. */
-  permissionLocked?: boolean;
   /** Keep the tall layout (input above the controls) even while the draft is empty. */
   alwaysExpanded?: boolean;
   /** How full the agent's context window is, shown as a ring beside Send. */
@@ -250,7 +248,6 @@ export function PromptComposer({
   onFastModeChange,
   permissionMode,
   onPermissionModeChange,
-  permissionLocked = false,
   alwaysExpanded = false,
   contextUsage,
   canUndo = false,
@@ -1052,7 +1049,7 @@ export function PromptComposer({
         )}
         {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
 
-        {permissionOpen && !permissionLocked && (
+        {permissionOpen && (
           <PickerPanel title="Agent permissions" className="absolute w-[240px]" style={anchorStyle}>
             {PERMISSION_MODES.map((mode) => (
               <PickerRow
@@ -1239,8 +1236,6 @@ export function PromptComposer({
               type="button"
               aria-label="Agent permissions"
               aria-expanded={permissionOpen}
-              disabled={permissionLocked}
-              title={permissionLocked ? PERMISSION_MODE_LABEL[permissionMode] : undefined}
               onClick={(event) => {
                 anchorTo(event.currentTarget, 340);
                 setPlusOpen(false);
